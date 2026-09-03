@@ -10,19 +10,19 @@ import {
 import type { MetaCampaignLabel } from "@/lib/meta/campaign-labels";
 import type { MetaRecommendation } from "@/lib/meta/recommendations";
 
-function label(campaignId: string, kind: MetaCampaignLabel["kind"] = "main"): MetaCampaignLabel {
-  return {
-    businessId: "biz-1",
-    campaignId,
-    kind,
-    testDimension: null,
-    source: "user",
-    providerAccountId: "act-1",
-    campaignName: `Campaign ${campaignId}`,
-    labeledBy: "user-1",
-    labeledAt: "2026-05-15T00:00:00.000Z",
-    updatedAt: "2026-05-15T00:00:00.000Z",
-  };
+function automaticRoles(
+  ...entries: Array<[campaignId: string, kind: MetaCampaignLabel["kind"]]>
+) {
+  return new Map(
+    entries.map(([campaignId, kind]) => [
+      campaignId,
+      {
+        kind,
+        contextTrust: "high" as const,
+        source: "system_inferred" as const,
+      },
+    ]),
+  );
 }
 
 function rec(overrides: Partial<MetaRecommendation> = {}): MetaRecommendation {
@@ -57,11 +57,13 @@ function rec(overrides: Partial<MetaRecommendation> = {}): MetaRecommendation {
 }
 
 describe("applyMetaCampaignLabelGuard", () => {
-  it("passes through labeled campaign hard actions", () => {
+  it("passes through hard actions with a high-confidence automatic campaign role", () => {
     const input = rec();
     const result = applyMetaCampaignLabelGuard({
       recommendations: [input],
-      campaignLabelsById: buildMetaCampaignLabelKindMap([label("cmp-1")]),
+      campaignLabelsById: buildMetaCampaignLabelKindMap([]),
+      campaignContextById: automaticRoles(["cmp-1", "main"]),
+      automaticContextEnabled: true,
       activeCampaignIds: ["cmp-1"],
     });
 
@@ -70,6 +72,27 @@ describe("applyMetaCampaignLabelGuard", () => {
     expect(result.recommendations[0]?.automationReadiness).toMatchObject({
       tier: "manual_review",
       autoExecuteEligible: false,
+    });
+  });
+
+  it("does not let a legacy manual-role map authorize a hard action", () => {
+    const result = applyMetaCampaignLabelGuard({
+      recommendations: [rec()],
+      campaignLabelsById: buildMetaCampaignLabelKindMap([
+        { campaignId: "cmp-1", kind: "main" },
+      ]),
+      campaignContextById: new Map(),
+      automaticContextEnabled: true,
+      activeCampaignIds: ["cmp-1"],
+    });
+
+    expect(result.downgradedCount).toBe(1);
+    expect(result.recommendations[0]).toMatchObject({
+      decisionState: "watch",
+      confidenceReason: META_AUTOMATIC_CONTEXT_REVIEW_REASON,
+      automationReadiness: {
+        autoExecuteEligible: false,
+      },
     });
   });
 
@@ -88,20 +111,20 @@ describe("applyMetaCampaignLabelGuard", () => {
       decisionLabel: "diagnose",
       decisionState: "watch",
       confidence: "low",
-      confidenceReason: META_CAMPAIGN_LABEL_GUARD_REASON,
+      confidenceReason: META_AUTOMATIC_CONTEXT_REVIEW_REASON,
       priority: "medium",
     });
     expect(guarded.confidenceScore).toBeLessThanOrEqual(0.45);
     expect(guarded.signalQuality).toMatchObject({
-      quality_status: "missing_campaign_label",
-      confidence_cap: META_CAMPAIGN_LABEL_GUARD_REASON,
-      label_status: "unlabeled",
+      quality_status: "campaign_context_unresolved",
+      confidence_cap: META_AUTOMATIC_CONTEXT_REVIEW_REASON,
+      campaign_context_action_authority: "review_only",
       blocked_action_type: "scale_for_volume",
     });
     expect(guarded.automationReadiness).toMatchObject({
       tier: "read_only",
       autoExecuteEligible: false,
-      blockers: expect.arrayContaining(["missing_campaign_label"]),
+      blockers: expect.arrayContaining(["campaign_context_unresolved"]),
     });
   });
 
@@ -123,7 +146,7 @@ describe("applyMetaCampaignLabelGuard", () => {
 
     expect(result.recommendations[0]).toMatchObject({
       decisionState: "watch",
-      confidenceReason: META_CAMPAIGN_LABEL_GUARD_REASON,
+      confidenceReason: META_AUTOMATIC_CONTEXT_REVIEW_REASON,
     });
     expect(result.unlabeledCampaignIds).toEqual(["cmp-2"]);
   });
@@ -155,7 +178,7 @@ describe("applyMetaCampaignLabelGuard", () => {
         kind: "state",
         decisionLabel: "diagnose",
         decisionState: "watch",
-        confidenceReason: META_CAMPAIGN_LABEL_GUARD_REASON,
+        confidenceReason: META_AUTOMATIC_CONTEXT_REVIEW_REASON,
       });
     }
   });
@@ -180,7 +203,7 @@ describe("applyMetaCampaignLabelGuard", () => {
     expect(result.recommendations.every((item) => item.automationReadiness)).toBe(true);
   });
 
-  it("turns refresh semantics into cut semantics for labeled Test campaigns", () => {
+  it("turns refresh semantics into cut semantics for automatically classified Test campaigns", () => {
     const result = applyMetaCampaignLabelGuard({
       recommendations: [
         rec({
@@ -190,7 +213,9 @@ describe("applyMetaCampaignLabelGuard", () => {
           recommendedAction: "Refresh creative.",
         }),
       ],
-      campaignLabelsById: buildMetaCampaignLabelKindMap([label("cmp-1", "test")]),
+      campaignLabelsById: buildMetaCampaignLabelKindMap([]),
+      campaignContextById: automaticRoles(["cmp-1", "test"]),
+      automaticContextEnabled: true,
       activeCampaignIds: ["cmp-1"],
     });
 
@@ -213,10 +238,12 @@ describe("applyMetaCampaignLabelGuard", () => {
     expect(result.recommendations[0]?.recommendedAction).toContain("Cut or stop this Test lane");
   });
 
-  it("turns scale semantics into a promote-to-main payload recommendation for labeled Test campaigns", () => {
+  it("turns scale semantics into a promote-to-main payload for automatically classified Test campaigns", () => {
     const result = applyMetaCampaignLabelGuard({
       recommendations: [rec()],
-      campaignLabelsById: buildMetaCampaignLabelKindMap([label("cmp-1", "test")]),
+      campaignLabelsById: buildMetaCampaignLabelKindMap([]),
+      campaignContextById: automaticRoles(["cmp-1", "test"]),
+      automaticContextEnabled: true,
       activeCampaignIds: ["cmp-1"],
     });
 
@@ -274,7 +301,7 @@ describe("applyMetaCampaignLabelGuard", () => {
     expect(result.recommendations[0]?.kind).not.toBe("state");
   });
 
-  it("downgrades account-level hard actions unless all active campaigns are labeled", () => {
+  it("downgrades account-level hard actions unless all active campaign roles resolve automatically", () => {
     const accountRec = rec({
       id: "budget",
       level: "account",
@@ -285,15 +312,24 @@ describe("applyMetaCampaignLabelGuard", () => {
 
     const partial = applyMetaCampaignLabelGuard({
       recommendations: [accountRec],
-      campaignLabelsById: buildMetaCampaignLabelKindMap([label("cmp-1")]),
+      campaignLabelsById: buildMetaCampaignLabelKindMap([]),
+      campaignContextById: automaticRoles(["cmp-1", "main"]),
+      automaticContextEnabled: true,
       activeCampaignIds: ["cmp-1", "cmp-2"],
     });
     expect(partial.accountLevelDowngraded).toBe(true);
-    expect(partial.recommendations[0]?.confidenceReason).toBe(META_CAMPAIGN_LABEL_GUARD_REASON);
+    expect(partial.recommendations[0]?.confidenceReason).toBe(
+      META_AUTOMATIC_CONTEXT_REVIEW_REASON,
+    );
 
     const complete = applyMetaCampaignLabelGuard({
       recommendations: [accountRec],
-      campaignLabelsById: buildMetaCampaignLabelKindMap([label("cmp-1"), label("cmp-2", "test")]),
+      campaignLabelsById: buildMetaCampaignLabelKindMap([]),
+      campaignContextById: automaticRoles(
+        ["cmp-1", "main"],
+        ["cmp-2", "test"],
+      ),
+      automaticContextEnabled: true,
       activeCampaignIds: ["cmp-1", "cmp-2"],
     });
     expect(complete.downgradedCount).toBe(0);
@@ -314,7 +350,7 @@ describe("applyMetaCampaignLabelGuard", () => {
 
     expect(second.downgradedCount).toBe(0);
     expect(second.recommendations[0]).toMatchObject({
-      confidenceReason: META_CAMPAIGN_LABEL_GUARD_REASON,
+      confidenceReason: META_AUTOMATIC_CONTEXT_REVIEW_REASON,
       automationReadiness: {
         tier: "read_only",
       },

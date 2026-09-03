@@ -1,0 +1,182 @@
+{
+ "contract": "d086.local-postgres-evidence.v1",
+ "serverVersion": "PostgreSQL 16.13 (Homebrew) on aarch64-apple-darwin25.2.0, compiled by Apple clang version 17.0.0 (clang-1700.6.3.2), 64-bit",
+ "migrationsApplied": 10,
+ "capability": {
+  "campaignColumns": 13,
+  "adsetColumns": 13,
+  "profileColumns": 14,
+  "roleColumns": 14
+ },
+ "queries": [
+  {
+   "name": "budget_latest",
+   "ok": true,
+   "sqlState": null,
+   "rows": 0
+  },
+  {
+   "name": "profile_latest",
+   "ok": true,
+   "sqlState": null,
+   "rows": 0
+  },
+  {
+   "name": "role_latest",
+   "ok": true,
+   "sqlState": null,
+   "rows": 0
+  }
+ ],
+ "indexes": [
+  {
+   "name": "idx_engine_v3_account_profile_output_latest",
+   "carriesFullRank": true
+  },
+  {
+   "name": "idx_meta_campaign_config_history_latest_budget",
+   "carriesFullRank": true
+  },
+  {
+   "name": "idx_meta_adset_config_history_latest_budget",
+   "carriesFullRank": true
+  },
+  {
+   "name": "idx_meta_entity_observation_runs_d086_attestation",
+   "carriesFullRank": true
+  },
+  {
+   "name": "idx_engine_v3_campaign_role_authority_latest",
+   "carriesFullRank": true
+  }
+ ],
+ "conflictDeterminism": [
+  {
+   "seam": "budget",
+   "forwardTopRankTruths": 2,
+   "reversedTopRankTruths": 2,
+   "deterministic": true
+  },
+  {
+   "seam": "profile",
+   "forwardTopRankTruths": 2,
+   "reversedTopRankTruths": 2,
+   "deterministic": true
+  },
+  {
+   "seam": "role",
+   "forwardTopRankTruths": 2,
+   "reversedTopRankTruths": 2,
+   "deterministic": true
+  },
+  {
+   "seam": "budget_parent_only",
+   "forwardTopRankTruths": 2,
+   "reversedTopRankTruths": 2,
+   "deterministic": true,
+   "forwardStatus": "partial",
+   "forwardConflicts": 1,
+   "reversedStatus": "partial",
+   "reversedConflicts": 1,
+   "readModelDeterministic": true
+  }
+ ],
+ "cases": [
+  {
+   "name": "budget_negative_missing_exponent",
+   "status": "unavailable",
+   "blocker": "retained_budget_exponent_absent"
+  },
+  {
+   "name": "budget_positive_single_owner",
+   "status": "ready",
+   "blocker": null
+  },
+  {
+   "name": "coherent_abo_ready",
+   "status": "ready",
+   "blocker": null
+  },
+  {
+   "name": "coherent_cbo_ready",
+   "status": "ready",
+   "blocker": null
+  },
+  {
+   "name": "cohort_absent",
+   "status": "partial",
+   "blocker": "budget_universe_cohort_absent"
+  },
+  {
+   "name": "cohorts_29_days_apart",
+   "status": "partial",
+   "blocker": "budget_universe_cohort_mismatch"
+  },
+  {
+   "name": "equal_cardinality_wrong_ids",
+   "status": "partial",
+   "blocker": "budget_universe_membership_identity_mismatch"
+  },
+  {
+   "name": "expected_vs_persisted_mismatch",
+   "status": "partial",
+   "blocker": "budget_universe_persisted_count_mismatch"
+  },
+  {
+   "name": "failed_manifest",
+   "status": "partial",
+   "blocker": "budget_universe_no_campaign_run"
+  },
+  {
+   "name": "manifest_vs_fact_snapshot_mismatch",
+   "status": "partial",
+   "blocker": "budget_universe_snapshot_mismatch"
+  },
+  {
+   "name": "missing_manifest",
+   "status": "partial",
+   "blocker": "budget_universe_no_campaign_run"
+  },
+  {
+   "name": "missing_parent",
+   "status": "partial",
+   "blocker": "budget_owner_universe_unproven"
+  },
+  {
+   "name": "mutual_ownership_contradiction",
+   "status": "partial",
+   "blocker": "budget_owner_hierarchy_contradiction"
+  },
+  {
+   "name": "partial_manifest",
+   "status": "partial",
+   "blocker": "budget_universe_no_campaign_run"
+  },
+  {
+   "name": "same_clock_manifest_conflict_forward",
+   "status": "partial",
+   "blocker": "budget_universe_manifest_conflict"
+  },
+  {
+   "name": "same_clock_manifest_conflict_reversed",
+   "status": "partial",
+   "blocker": "budget_universe_manifest_conflict"
+  },
+  {
+   "name": "tombstoned_member_excluded",
+   "status": "partial",
+   "blocker": "budget_universe_persisted_count_mismatch"
+  },
+  {
+   "name": "unknown_owner_mode",
+   "status": "partial",
+   "blocker": "budget_owner_mode_uncaptured"
+  },
+  {
+   "name": "wrong_endpoint",
+   "status": "partial",
+   "blocker": "budget_universe_no_campaign_run"
+  }
+ ],
+ "ok": true
+}

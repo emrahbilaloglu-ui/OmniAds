@@ -73,13 +73,16 @@ const exactInput = {
 } as unknown as AdDecisionInput;
 const dataHealth = makeDataHealth() as DataHealth;
 const campaignContext: CampaignContextProvenance = {
+  // D074: overrides no longer exist and grant nothing; the trusted state the
+  // classifier's proven projections require is high-confidence automatic
+  // inference.
   mode: "automatic",
-  source: "user_override",
+  source: "system_inferred",
   campaignId: "campaign-1",
   kind: "main",
   testDimension: null,
-  contextTrust: "override",
-  sourceRecordType: "meta_campaign_label",
+  contextTrust: "high",
+  sourceRecordType: "engine_v3_campaign_context_daily",
   sourceRecordId: "classifier-campaign-context",
   sourceAsOfDate: "2026-07-18",
   sourceUpdatedAt: "2026-07-18T00:00:00.000Z",

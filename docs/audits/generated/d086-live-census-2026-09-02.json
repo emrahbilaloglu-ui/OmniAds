@@ -1,0 +1,146 @@
+{
+ "contract": "d086.live-census.v1",
+ "readProvenance": {
+  "database": "adsecute_prod",
+  "serverVersion": "PostgreSQL 16.15 (Ubuntu 16.15-0ubuntu0.24.04.1)",
+  "dbUser": "adsecute_app",
+  "transactionReadOnly": "on",
+  "transactionIsolation": "repeatable read",
+  "inRecovery": false,
+  "readAtUtc": "2026-09-02T13:43:00.055588+00:00",
+  "statementTimeout": "240s",
+  "mode": "SELECT-only, single BEGIN TRANSACTION READ ONLY ISOLATION LEVEL REPEATABLE READ",
+  "writesIssued": 0,
+  "ddlIssued": 0,
+  "extensionsInstalled": 0,
+  "providerCalls": 0
+ },
+ "schemaCapability": {
+  "exponentBearingColumnsInPublicSchema": 0,
+  "currencyColumnsOnConfigHistory": 0,
+  "profileOutputTablePresent": false,
+  "roleAuthorityTablePresent": false
+ },
+ "ingestionFence": {
+  "table": "meta_entity_state_history",
+  "totalBytes": 5368750080,
+  "ceilingBytes": 5368709120,
+  "overageBytes": 40960,
+  "note": "byte-for-byte the same overage D077 recorded on 2026-08-30; admission is still refused"
+ },
+ "businesses": [
+  {
+   "business": "Bilsem Zeka",
+   "businessId": "6c690fa4-6395-40b5-9755-e99b34d69bc3",
+   "campaignConfigRows": 37084,
+   "adsetConfigRows": 163994,
+   "providerAccounts": 1,
+   "latestCapturedAt": "2026-08-22T14:19:19.589+00:00",
+   "roleRows": 405,
+   "roleHighConfidence": 48,
+   "roleSystemInferred": 405,
+   "roleAccountScoped": 0,
+   "roleCompiledVersion": 0,
+   "latestRoleAsOf": "2026-08-22"
+  },
+  {
+   "business": "ColorFullWorldsTR",
+   "businessId": "bc0c6178-7853-4f6f-b026-ef0222a4b9e7",
+   "campaignConfigRows": 457,
+   "adsetConfigRows": 37125,
+   "providerAccounts": 1,
+   "latestCapturedAt": "2026-08-22T12:20:41.082+00:00",
+   "roleRows": 103,
+   "roleHighConfidence": 35,
+   "roleSystemInferred": 103,
+   "roleAccountScoped": 0,
+   "roleCompiledVersion": 0,
+   "latestRoleAsOf": "2026-08-22"
+  },
+  {
+   "business": "Grandmix",
+   "businessId": "5dbc7147-f051-4681-a4d6-20617170074f",
+   "campaignConfigRows": 91134,
+   "adsetConfigRows": 340244,
+   "providerAccounts": 1,
+   "latestCapturedAt": "2026-08-22T14:13:24.616+00:00",
+   "roleRows": 379,
+   "roleHighConfidence": 187,
+   "roleSystemInferred": 379,
+   "roleAccountScoped": 0,
+   "roleCompiledVersion": 0,
+   "latestRoleAsOf": "2026-08-22"
+  },
+  {
+   "business": "IwaStore",
+   "businessId": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+   "campaignConfigRows": 11349,
+   "adsetConfigRows": 74844,
+   "providerAccounts": 1,
+   "latestCapturedAt": "2026-08-22T14:24:01.177+00:00",
+   "roleRows": 556,
+   "roleHighConfidence": 112,
+   "roleSystemInferred": 556,
+   "roleAccountScoped": 0,
+   "roleCompiledVersion": 0,
+   "latestRoleAsOf": "2026-08-22"
+  },
+  {
+   "business": "IwaTR",
+   "businessId": "b79683b4-6f87-48c0-a3ca-44d4356fef51",
+   "campaignConfigRows": 1441,
+   "adsetConfigRows": 11674,
+   "providerAccounts": 1,
+   "latestCapturedAt": "2026-08-22T14:30:56.638+00:00",
+   "roleRows": 149,
+   "roleHighConfidence": 19,
+   "roleSystemInferred": 149,
+   "roleAccountScoped": 0,
+   "roleCompiledVersion": 0,
+   "latestRoleAsOf": "2026-08-22"
+  },
+  {
+   "business": "TheSwaf",
+   "businessId": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+   "campaignConfigRows": 8178,
+   "adsetConfigRows": 71382,
+   "providerAccounts": 2,
+   "latestCapturedAt": "2026-08-22T14:22:56.086+00:00",
+   "roleRows": 758,
+   "roleHighConfidence": 83,
+   "roleSystemInferred": 758,
+   "roleAccountScoped": 0,
+   "roleCompiledVersion": 0,
+   "latestRoleAsOf": "2026-08-22"
+  }
+ ],
+ "observationDensityByMonth": [
+  {
+   "month": "2026-04",
+   "campaignConfigRows": 2052
+  },
+  {
+   "month": "2026-05",
+   "campaignConfigRows": 992
+  },
+  {
+   "month": "2026-06",
+   "campaignConfigRows": 74
+  },
+  {
+   "month": "2026-07",
+   "campaignConfigRows": 127
+  },
+  {
+   "month": "2026-08",
+   "campaignConfigRows": 301931
+  }
+ ],
+ "retainedRoleResolverVersions": [
+  {
+   "resolverVersion": "campaign-context-resolver.v1-shadow-2026-07-06",
+   "rows": 2350,
+   "status": "retired_shadow"
+  }
+ ]
+}

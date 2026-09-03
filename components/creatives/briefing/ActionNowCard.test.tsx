@@ -104,6 +104,7 @@ function canonicalActionCard(
         authorizedAction: action,
         actionEligible: true,
         reviewOnlyReason: null,
+        executionReadiness: "live_preflight_required",
       },
     },
     ...overrides,
@@ -124,7 +125,10 @@ describe("ActionNowCard", () => {
     expect(html).toContain(">4:5<");
     expect(html).toContain("tile-metrics");
     expect(html).toContain("Promote to main");
-    expect(html).toContain('data-executable="true"');
+    // D074b correction: a card without a validated canonical decision can
+    // never be executable — the bridge no longer derives Launchpad authority
+    // from primary kinds, labels, or a missing blockedActionType.
+    expect(html).toContain('data-executable="false"');
     expect(html).toContain("What does Defer 24h do?");
     expect(html).toContain("aria-expanded=\"false\"");
     expect(html).toContain("ring-2 ring-blue-500 ring-offset-1");
@@ -183,13 +187,86 @@ describe("ActionNowCard", () => {
     expect(cuttingHtml).toContain("opacity-0 -translate-x-4 pointer-events-none");
   });
 
-  it("renders campaign kind context when provided by the server", () => {
-    const html = renderToStaticMarkup(
-      <ActionNowCard card={card({ campaignKind: "main", campaignLabelStatus: "labeled" })} />,
+  it("a stale Decision Center row cannot surface a hard-action CTA on an unresolved/legacy card (D074b correction 2)", () => {
+    const staleRow = {
+      buyerAction: "scale",
+      buyerLabel: "Scale - Promote to main",
+      executionAction: "promote_to_main",
+    } as never;
+    // Pre-correction the row's executionAction overrode the primary label,
+    // so this legacy-only card rendered "Promote to main" as its primary.
+    // The server review primary must stand, unexecutable, review-kinded.
+    const legacyHtml = renderToStaticMarkup(
+      <ActionNowCard
+        card={card({
+          campaignKind: "test",
+          campaignLabelStatus: "labeled",
+          primary: { kind: "review", label: "Resolve campaign role before scaling" },
+          decisionCenterRow: staleRow,
+        })}
+      />,
     );
+    expect(legacyHtml).not.toContain("Promote to main");
+    expect(legacyHtml).toContain("Resolve campaign role before scaling");
+    expect(legacyHtml).toContain('data-kind="review"');
+    expect(legacyHtml).toContain('data-executable="false"');
+    expect(legacyHtml).toContain("Role unresolved");
 
-    expect(html).toContain(">Main<");
-    expect(html).toContain("tile-chips");
+    const missingHtml = renderToStaticMarkup(
+      <ActionNowCard
+        card={card({
+          campaignKind: "test",
+          primary: { kind: "review", label: "Resolve campaign role before scaling" },
+          decisionCenterRow: staleRow,
+        })}
+      />,
+    );
+    expect(missingHtml).not.toContain("Promote to main");
+    expect(missingHtml).toContain('data-executable="false"');
+
+    // Resolved + agreeing kind keeps the execution display label — still
+    // unexecutable (no canonical decision, Launchpad stays fail-closed).
+    const resolvedHtml = renderToStaticMarkup(
+      <ActionNowCard
+        card={card({
+          campaignKind: "test",
+          campaignRoleStatus: "resolved",
+          primary: { kind: "promote", label: "Promote to main" },
+          decisionCenterRow: staleRow,
+        })}
+      />,
+    );
+    expect(resolvedHtml).toContain("Promote to main");
+    expect(resolvedHtml).toContain('data-executable="false"');
+  });
+
+  it("displays Main/Test only under canonical resolved status; legacy-only or missing status renders Role unresolved", () => {
+    // Canonical resolved status + kind: the only shape that may display a
+    // trusted automatic role.
+    const resolvedHtml = renderToStaticMarkup(
+      <ActionNowCard
+        card={card({ campaignKind: "main", campaignRoleStatus: "resolved" })}
+      />,
+    );
+    expect(resolvedHtml).toContain(">Main<");
+    expect(resolvedHtml).toContain("tile-chips");
+
+    // Legacy-only "labeled" is manual-era provenance: pre-correction this
+    // rendered ">Main<" as trusted; it must render Role unresolved.
+    const legacyHtml = renderToStaticMarkup(
+      <ActionNowCard
+        card={card({ campaignKind: "main", campaignLabelStatus: "labeled" })}
+      />,
+    );
+    expect(legacyHtml).not.toContain(">Main<");
+    expect(legacyHtml).toContain("Role unresolved");
+
+    // Missing both statuses fails closed the same way.
+    const missingHtml = renderToStaticMarkup(
+      <ActionNowCard card={card({ campaignKind: "main" })} />,
+    );
+    expect(missingHtml).not.toContain(">Main<");
+    expect(missingHtml).toContain("Role unresolved");
   });
 
   it("renders non-promote scale actions from the server without relabeling them", () => {
@@ -197,7 +274,7 @@ describe("ActionNowCard", () => {
       <ActionNowCard
         card={card({
           campaignKind: "main",
-          campaignLabelStatus: "labeled",
+          campaignRoleStatus: "resolved",
           primary: { kind: "scale_budget", label: "Scale budget" },
         })}
       />,
@@ -291,8 +368,38 @@ describe("execution action CTA", () => {
       missingData: [],
     }) as never;
 
-  it("renders the server-supplied execution action as the footer CTA", () => {
+  it("renders the execution CTA only when the server current primary confirms the row (D074b corrections 2+3)", () => {
     const html = renderToStaticMarkup(
+      <ActionNowCard
+        card={card({
+          campaignRoleStatus: "resolved",
+          campaignKind: "main",
+          primary: { kind: "scale_budget", label: "Scale budget" },
+          decisionCenterRow: dcRow("scale_budget"),
+        })}
+      />,
+    );
+    expect(html).toContain("Review scale budget");
+    expect(html).not.toContain(">Scale budget ↗<");
+
+    // Correction 3: resolved role + agreeing kind alone no longer suffice —
+    // a server primary that is not the same scale CTA (here a generic
+    // legacy "scale" kind) keeps its own label.
+    const disagreeingHtml = renderToStaticMarkup(
+      <ActionNowCard
+        card={card({
+          campaignRoleStatus: "resolved",
+          campaignKind: "main",
+          primary: { kind: "scale", label: "Legacy scale label" },
+          decisionCenterRow: dcRow("scale_budget"),
+        })}
+      />,
+    );
+    expect(disagreeingHtml).not.toContain("Review scale budget");
+    expect(disagreeingHtml).toContain("Legacy scale label");
+
+    // Pre-correction-2 the same row rendered its CTA with no role at all.
+    const ungroundedHtml = renderToStaticMarkup(
       <ActionNowCard
         card={card({
           primary: { kind: "scale", label: "Legacy scale label" },
@@ -300,8 +407,39 @@ describe("execution action CTA", () => {
         })}
       />,
     );
-    expect(html).toContain("Review scale budget");
-    expect(html).not.toContain("Legacy scale label");
+    expect(ungroundedHtml).not.toContain("Review scale budget");
+    expect(ungroundedHtml).toContain("Legacy scale label");
+  });
+
+  it("keeps the exact server review label over a stale row on a source-freshness block (D074b correction 3 probe)", () => {
+    // The exact acceptance probe: current scale decision, resolved Test
+    // role, source-freshness authority block, stale promote row. Correction
+    // 2 rendered "Promote to main ↗" here, erasing "Refresh evidence".
+    const html = renderToStaticMarkup(
+      <ActionNowCard
+        card={card({
+          label: "scale",
+          campaignRoleStatus: "resolved",
+          campaignKind: "test",
+          authorityBlocker: "source_freshness",
+          blockedActionType: "scale",
+          primary: { kind: "review", label: "Refresh evidence" },
+          decisionCenterRow: {
+            buyerAction: "scale",
+            buyerLabel: "Scale - Promote to main",
+            executionAction: "promote_to_main",
+          } as never,
+        })}
+      />,
+    );
+    expect(html).toContain("Refresh evidence");
+    expect(html).not.toContain("Promote to main");
+    expect(html).toContain('data-kind="review"');
+    expect(html).toContain('data-executable="false"');
+    // Interaction limitation, stated honestly: this harness renders static
+    // markup, so the no-Launchpad click guarantee is carried by the
+    // globally-false Launchpad bridge tests plus data-executable="false"
+    // (the click path without a launchpad mode opens evidence).
   });
 
   it("never lets the execution CTA override a cut decision", () => {

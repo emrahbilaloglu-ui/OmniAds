@@ -18,6 +18,13 @@ vi.mock("@/lib/meta/business-data-posture", async (importOriginal) => {
   };
 });
 
+vi.mock("@/lib/meta/assigned-account-states", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@/lib/meta/assigned-account-states")
+  >()),
+  readMetaAssignedAccountStates: vi.fn(),
+}));
+
 vi.mock("@/lib/meta/history-read-model", () => ({
   readMetaHistoryAccounts: vi.fn(),
   readMetaHistoryAssignedAccountIds: vi.fn(),
@@ -25,6 +32,7 @@ vi.mock("@/lib/meta/history-read-model", () => ({
 }));
 
 const access = await import("@/lib/access");
+const accountStates = await import("@/lib/meta/assigned-account-states");
 const readModel = await import("@/lib/meta/history-read-model");
 const route = await import("@/app/api/meta/history/route");
 
@@ -71,6 +79,7 @@ describe("GET /api/meta/history", () => {
     vi.mocked(readModel.readMetaHistoryAssignedAccountIds).mockResolvedValue([
       "act_1",
     ]);
+    vi.mocked(accountStates.readMetaAssignedAccountStates).mockResolvedValue([]);
     vi.mocked(readModel.readMetaHistoryJournal).mockResolvedValue(payload);
   });
 
@@ -125,13 +134,14 @@ describe("GET /api/meta/history", () => {
     expect(readModel.readMetaHistoryJournal).not.toHaveBeenCalled();
   });
 
-  it("refuses an account whose assignment was withdrawn, however the caller asks", async () => {
-    // ITEM 11. `business_provider_accounts` keeps the identity binding forever
-    // and records the CURRENT selection in `is_selected`; History's own account
-    // projection is a separate statement and can still name a deselected
-    // account. `providerAccountId` is the caller's REQUEST, so the endpoint
-    // answers it against the assignment guard rather than against whatever the
-    // projection happens to hold.
+  it("serves a deselected-but-still-bound account as a marked read-only historical scope (D078 R4)", async () => {
+    // ITEM 11, amended by D078 R4. `business_provider_accounts` keeps the
+    // identity binding forever and records the CURRENT selection in
+    // `is_selected`. A deselected identity may hold spend and produced
+    // decisions no other surface can show, so this READ-ONLY journal now
+    // serves it — explicitly marked — while it stays out of the selected
+    // picker group and out of every write scope. An identity with NO
+    // binding at all still 404s (next test).
     vi.mocked(readModel.readMetaHistoryAccounts).mockResolvedValue([
       { id: "act_1", name: "Primary", currency: "EUR", timezone: "UTC" },
       { id: "act_stale", name: "Removed", currency: "EUR", timezone: "UTC" },
@@ -139,10 +149,82 @@ describe("GET /api/meta/history", () => {
     vi.mocked(readModel.readMetaHistoryAssignedAccountIds).mockResolvedValue([
       "act_1",
     ]);
+    vi.mocked(accountStates.readMetaAssignedAccountStates).mockResolvedValue([
+      {
+        providerAccountId: "act_stale",
+        accountName: "Removed",
+        selectionState: "deselected_historical",
+        accountCurrency: "EUR",
+        accountTimezone: "UTC",
+        latestFactDate: "2026-08-20",
+        spend14d: 10,
+        latestDecisionAsOf: "2026-08-21",
+        latestDecisionRows: 5,
+        latestDecisionAuthorizedRows: 0,
+        servedByCurrentSurfaces: false,
+      },
+    ]);
 
     const response = await route.GET(
       new NextRequest(
         "http://localhost/api/meta/history?businessId=business_1&providerAccountId=act_stale",
+      ),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.accountScope).toBe("deselected_historical");
+    expect(
+      vi.mocked(readModel.readMetaHistoryJournal).mock.calls[0]?.[0].account.id,
+    ).toBe("act_stale");
+  });
+
+  it("answers fail-closed UNAVAILABLE when the account-state authority read failed for a non-selected scope (C2.3)", async () => {
+    // Absence is unproven while the authority read is down: a deselected
+    // deep link must not become a confident "not assigned" 404.
+    vi.mocked(readModel.readMetaHistoryAccounts).mockResolvedValue([
+      { id: "act_1", name: "Primary", currency: "EUR", timezone: "UTC" },
+    ]);
+    vi.mocked(readModel.readMetaHistoryAssignedAccountIds).mockResolvedValue([
+      "act_1",
+    ]);
+    vi.mocked(accountStates.readMetaAssignedAccountStates).mockRejectedValue(
+      new Error("authority read failed"),
+    );
+
+    const response = await route.GET(
+      new NextRequest(
+        "http://localhost/api/meta/history?businessId=business_1&providerAccountId=act_second",
+      ),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(503);
+    expect(body.error.code).toBe("meta_history_account_scope_unavailable");
+    expect(readModel.readMetaHistoryJournal).not.toHaveBeenCalled();
+
+    // The SELECTED scope stays servable through the same failure — the
+    // additive authority read may not take down the primary journal.
+    const selected = await route.GET(
+      new NextRequest(
+        "http://localhost/api/meta/history?businessId=business_1&providerAccountId=act_1",
+      ),
+    );
+    expect(selected.status).toBe(200);
+  });
+
+  it("still refuses an identity with no binding to this business at all", async () => {
+    vi.mocked(readModel.readMetaHistoryAccounts).mockResolvedValue([
+      { id: "act_1", name: "Primary", currency: "EUR", timezone: "UTC" },
+    ]);
+    vi.mocked(readModel.readMetaHistoryAssignedAccountIds).mockResolvedValue([
+      "act_1",
+    ]);
+    vi.mocked(accountStates.readMetaAssignedAccountStates).mockResolvedValue([]);
+
+    const response = await route.GET(
+      new NextRequest(
+        "http://localhost/api/meta/history?businessId=business_1&providerAccountId=act_unbound",
       ),
     );
     const body = await response.json();
@@ -171,6 +253,9 @@ describe("GET /api/meta/history", () => {
       vi.mocked(readModel.readMetaHistoryJournal).mock.calls[0]?.[0].account.id,
     ).toBe("act_1");
 
+    // act_2 appears in History's projection but has NO assignment-state row:
+    // an unbound identity stays refused (D078 R4 widened only BOUND
+    // deselected identities).
     const refused = await route.GET(
       new NextRequest(
         "http://localhost/api/meta/history?businessId=business_1&providerAccountId=act_2",

@@ -62,7 +62,7 @@ export async function warmGa4UserFacingRouteReportCache(input: {
   // lanes' obvious surface — it is invoked from report routes and from the GA4
   // sweep — which is exactly why it kept calling providers during a quiesce.
   assertSyncLaneEnabled("source_ingest");
-  await assertSyncGrowthBoundary("user_facing_report_cache_warm", { fresh: true });
+  await assertSyncGrowthBoundary("ga4_user_facing_report_cache_warm", { fresh: true });
   const normalizedDimension =
     input.reportType === "ga4_detailed_demographics"
       ? normalizeDemographicsDimension(input.dimension)
@@ -119,7 +119,7 @@ export async function warmGa4EcommerceFallbackCache(input: {
   // lanes' obvious surface — it is invoked from report routes and from the GA4
   // sweep — which is exactly why it kept calling providers during a quiesce.
   assertSyncLaneEnabled("source_ingest");
-  await assertSyncGrowthBoundary("user_facing_report_cache_warm", { fresh: true });
+  await assertSyncGrowthBoundary("ga4_user_facing_report_cache_warm", { fresh: true });
   const payload = await runWithGoogleRequestAuditContext(
     {
       provider: "ga4",
@@ -175,7 +175,7 @@ export async function warmShopifyOverviewReportCache(input: {
   // lanes' obvious surface — it is invoked from report routes and from the GA4
   // sweep — which is exactly why it kept calling providers during a quiesce.
   assertSyncLaneEnabled("source_ingest");
-  await assertSyncGrowthBoundary("user_facing_report_cache_warm", { fresh: true });
+  await assertSyncGrowthBoundary("shopify_user_facing_report_cache_warm", { fresh: true });
   const payload = await getShopifyOverviewAggregate({
     businessId: input.businessId,
     startDate: input.startDate,

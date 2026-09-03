@@ -8,7 +8,15 @@ import {
   getDemoMetaCreatives,
 } from "@/lib/demo-business";
 import { getMetaCreativesApiPayload } from "@/lib/meta/creatives-api";
-import { readMetaNativeCanonicalDecisionInventory } from "@/lib/meta/decisions-workspace-read-model";
+import {
+  applyMetaExecutionGovernanceToCanonicalDecisions,
+  readMetaNativeCanonicalDecisionInventory,
+} from "@/lib/meta/decisions-workspace-read-model";
+import { readEffectiveMetaWriteGovernance } from "@/lib/meta/automation-control-plane";
+import {
+  buildMetaDecisionPipelineHealthFromCanonicalInventory,
+  readMetaDecisionPipelineOperationalHealth,
+} from "@/lib/meta/decision-pipeline-health";
 import type { MetaCanonicalDecision } from "@/lib/meta/decisions-workspace-contract";
 import { readTriageState } from "@/lib/triage-events";
 import {
@@ -39,7 +47,17 @@ vi.mock("@/lib/creative-decision-engine/feature-flags", () => ({
 }));
 
 vi.mock("@/lib/meta/decisions-workspace-read-model", () => ({
+  applyMetaExecutionGovernanceToCanonicalDecisions: vi.fn(),
   readMetaNativeCanonicalDecisionInventory: vi.fn(),
+}));
+
+vi.mock("@/lib/meta/automation-control-plane", () => ({
+  readEffectiveMetaWriteGovernance: vi.fn(),
+}));
+
+vi.mock("@/lib/meta/decision-pipeline-health", () => ({
+  readMetaDecisionPipelineOperationalHealth: vi.fn(),
+  buildMetaDecisionPipelineHealthFromCanonicalInventory: vi.fn(),
 }));
 
 vi.mock("@/lib/triage-events", () => ({
@@ -100,6 +118,9 @@ function canonicalDecision(
       realAdId: adId,
       authorizedAction,
       jobRunId: "job-run-1",
+      executionReadiness: actionEligible
+        ? "live_preflight_required"
+        : "decision_not_authorized",
     },
     sourceDecision: {
       label,
@@ -296,6 +317,23 @@ beforeEach(() => {
     },
   });
   vi.mocked(readTriageState).mockResolvedValue({ rows: [], deferredCount: 0 });
+  vi.mocked(
+    applyMetaExecutionGovernanceToCanonicalDecisions,
+  ).mockImplementation((input) => structuredClone([...input.decisions]));
+  vi.mocked(readEffectiveMetaWriteGovernance).mockResolvedValue({
+    verified: true,
+    controlsConfigured: true,
+    writeBlocked: false,
+    blockReason: null,
+    killSwitchEngaged: false,
+    killSwitchReason: null,
+  });
+  vi.mocked(readMetaDecisionPipelineOperationalHealth).mockResolvedValue(
+    {} as never,
+  );
+  vi.mocked(
+    buildMetaDecisionPipelineHealthFromCanonicalInventory,
+  ).mockReturnValue({ overall: "healthy", executionReady: true } as never);
   vi.mocked(getMetaCreativesApiPayload).mockResolvedValue({
     status: "ok",
     rows: [creativeRow()],
@@ -350,6 +388,22 @@ describe("GET /api/creatives/briefing canonical native-ad authority", () => {
     const card = payload.actionNow[0] as BriefingCreativeCard;
 
     expect(response.status).toBe(200);
+    expect(readEffectiveMetaWriteGovernance).toHaveBeenCalledWith({
+      businessId: "biz_1",
+    });
+    expect(
+      applyMetaExecutionGovernanceToCanonicalDecisions,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        governance: expect.objectContaining({
+          verified: true,
+          controlsConfigured: true,
+          writeBlocked: false,
+        }),
+        pipeline: { verified: true, executionReady: true },
+        now: expect.any(Date),
+      }),
+    );
     expect(card).toMatchObject({
       id: exactAdId,
       adId: exactAdId,
@@ -641,6 +695,7 @@ describe("GET /api/creatives/briefing canonical native-ad authority", () => {
       businessId: "biz_1",
       providerAccountId: "act_1",
       asOfDate: "2026-05-09",
+      generatedAt: expect.any(String),
     });
   });
 

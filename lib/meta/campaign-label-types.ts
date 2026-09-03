@@ -12,13 +12,25 @@ export const META_CAMPAIGN_TEST_DIMENSIONS = [
 export type MetaCampaignTestDimension =
   (typeof META_CAMPAIGN_TEST_DIMENSIONS)[number];
 
+/**
+ * @deprecated D074: the manual campaign-label product is removed from live
+ * runtime. These sources exist only to deserialize frozen historical rows and
+ * to type the evaluation/seam lanes; no live producer writes them.
+ */
 export const META_CAMPAIGN_LABEL_SOURCES = [
   "user",
   "bulk_apply_confirmed",
 ] as const;
+/** @deprecated D074: historical/evaluation deserialization only. */
 export type MetaCampaignLabelSource =
   (typeof META_CAMPAIGN_LABEL_SOURCES)[number];
 
+/**
+ * @deprecated D074: frozen historical row shape (`meta_campaign_labels`).
+ * Runtime campaign role is automatic account-scoped inference; live decision
+ * consumers must not read or construct manual labels. Retained for old
+ * snapshot deserialization, replay comparators, and seam harnesses.
+ */
 export interface MetaCampaignLabel {
   businessId: string;
   campaignId: string;
@@ -32,6 +44,7 @@ export interface MetaCampaignLabel {
   updatedAt: string;
 }
 
+/** @deprecated D074: evaluation/seam input shape only; no live writer. */
 export interface MetaCampaignLabelInput {
   campaignId: string;
   kind: MetaCampaignKind;

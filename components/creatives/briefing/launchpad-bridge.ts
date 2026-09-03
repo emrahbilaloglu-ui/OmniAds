@@ -10,7 +10,6 @@ import {
   cardName,
 } from "@/components/creatives/briefing/card-utils";
 import { getCreativeScopeId } from "@/components/creatives/briefing/action-handlers";
-import { hasBriefingCanonicalDecision } from "@/components/creatives/briefing/action-authority";
 import type {
   BriefingCreativeCard,
   BriefingPlacement,
@@ -37,17 +36,18 @@ export interface LaunchpadOpenPayload {
 }
 
 export function canOpenBriefingCardInLaunchpad(
-  card: BriefingCreativeCard,
-  mode: LaunchpadBridgeMode,
+  _card: BriefingCreativeCard,
+  _mode: LaunchpadBridgeMode,
 ) {
-  if (!hasBriefingCanonicalDecision(card)) {
-    return card.blockedActionType == null;
-  }
-
-  // Canonical cards carry decision authority, but Launchpad does not yet
-  // serialize and server-validate the exact source snapshot/evaluation/hash
-  // tuple. Do not let a canonical handoff fall through to Launchpad's manual
-  // provider-write wizard. Explicit legacy/manual cards remain compatible.
+  // D074b acceptance correction: Launchpad's wizard can reach provider
+  // writes, and it does not yet serialize and server-validate the exact
+  // source snapshot/evaluation/hash authority tuple. Canonical cards
+  // therefore may not fall through to it — and a legacy/manual card is
+  // strictly WORSE: it carries no automatic-role provenance at all, so the
+  // absence of a blockedActionType is not authority. Every route is
+  // review-only until the canonical launch-authority contract exists.
+  // Nothing about a card — label text, campaignKind, primary kind — may
+  // open a provider-capable flow from the client.
   return false;
 }
 
@@ -87,45 +87,24 @@ export function buildLaunchpadBridgeHref(
 export function mapBriefingPrimaryToLaunchpadMode(
   card: BriefingCreativeCard,
 ): LaunchpadOverlayMode | null {
+  // D074b acceptance correction: the client never derives a provider-capable
+  // Launchpad mode. The pre-correction fallbacks — primary-kind passthrough,
+  // primary-label TEXT parsing, and `label === "scale" &&
+  // campaignKind === "test" → promote` — turned unauthenticated card fields
+  // into provider-write routing. A mode may exist again only when the server
+  // serializes a validated automatic-role decision plus the exact
+  // provider/action authority contract, and canOpenBriefingCardInLaunchpad
+  // proves it; until that contract exists this always answers null and the
+  // surfaces stay review-only (evidence drawer), which is what they already
+  // do for canonical cards.
   const primaryKind = card.primary?.kind?.trim().toLowerCase();
-  if (hasBriefingCanonicalDecision(card)) {
-    if (
-      primaryKind &&
-      LAUNCHPAD_MODES.has(primaryKind as LaunchpadOverlayMode) &&
-      canOpenBriefingCardInLaunchpad(
-        card,
-        primaryKind as LaunchpadOverlayMode,
-      )
-    ) {
-      return primaryKind as LaunchpadOverlayMode;
-    }
-    return null;
-  }
-
-  // Legacy/manual fallback is retained only when no canonical decision exists.
-  if (primaryKind === "review" || card.blockedActionType != null) return null;
-
-  if (primaryKind && LAUNCHPAD_MODES.has(primaryKind as LaunchpadOverlayMode)) {
+  if (
+    primaryKind &&
+    LAUNCHPAD_MODES.has(primaryKind as LaunchpadOverlayMode) &&
+    canOpenBriefingCardInLaunchpad(card, primaryKind as LaunchpadOverlayMode)
+  ) {
     return primaryKind as LaunchpadOverlayMode;
   }
-
-  const executionMode = mapExecutionActionToLaunchpadMode(
-    card.decisionCenterRow?.executionAction,
-  );
-  if (executionMode) return executionMode;
-
-  const primaryLabel = card.primary?.label?.trim().toLowerCase() ?? "";
-  if (primaryLabel.includes("fresh test")) return "fresh_test";
-  if (primaryLabel.includes("promote")) return "promote";
-  if (primaryLabel.includes("demote")) return "demote";
-  if (primaryLabel.includes("rebuild")) return "rebuild";
-  if (primaryLabel.includes("duplicate")) return "duplicate";
-
-  const label = asDecisionLabel(card.label) as DecisionLabel;
-  if (label === "scale" && card.campaignKind === "test") return "promote";
-  if (label === "test_more") return "fresh_test";
-  if (label === "rebuild") return "rebuild";
-
   return null;
 }
 

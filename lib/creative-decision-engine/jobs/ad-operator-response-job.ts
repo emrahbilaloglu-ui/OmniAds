@@ -2481,6 +2481,65 @@ ORDER BY episode.episode_key, receipt.requested_at, receipt.id
 export const FIND_EXACT_META_ADS_ACTION_LINEAGE_QUERY =
   FIND_EXACT_NATIVE_AD_ACTION_RECEIPTS_QUERY;
 
+/**
+ * D075 confirmed_until — the scope-confirmation half. A later delta manifest
+ * in the same endpoint scope re-observed the whole scope; while this row is
+ * still the entity's deterministic complete-lane winner, each such run
+ * re-confirms the state unchanged. Superseded rows get no extension.
+ * Exported so the real-Postgres D15 seam asserts the exact production
+ * predicate per row (aliases required in the embedding query:
+ * `state`, `observation_run`, `target.cutoff`).
+ */
+export const AD_OPERATOR_SCOPE_CONFIRMATION_LATERAL_SQL = `
+    SELECT MAX(
+      GREATEST(
+        later_run.captured_at,
+        CASE WHEN later_run.last_captured_at <= target.cutoff
+          THEN later_run.last_captured_at ELSE later_run.captured_at END
+      )
+    ) AS confirmed_until
+    FROM meta_entity_observation_runs later_run
+    WHERE state.run_completeness = 'complete'
+      AND later_run.manifest_kind = 'delta'
+      AND later_run.completeness = 'complete'
+      AND later_run.business_ref_id = state.business_ref_id
+      AND later_run.business_id = state.business_id
+      AND later_run.provider_account_ref_id = state.provider_account_ref_id
+      AND later_run.provider_account_id = state.provider_account_id
+      AND later_run.entity_type = state.entity_type
+      AND later_run.endpoint = observation_run.endpoint
+      AND later_run.captured_at >= state.captured_at
+      AND later_run.captured_at <= target.cutoff
+      AND NOT EXISTS (
+        SELECT 1
+        FROM meta_entity_state_history newer
+        WHERE newer.business_ref_id = state.business_ref_id
+          AND newer.business_id = state.business_id
+          AND newer.provider_account_ref_id = state.provider_account_ref_id
+          AND newer.provider_account_id = state.provider_account_id
+          AND newer.entity_type = state.entity_type
+          AND newer.entity_id = state.entity_id
+          AND newer.run_completeness = 'complete'
+          -- Supersession follows the exact D075 complete-lane winner order
+          -- (captured_at DESC, created_at DESC, id DESC): an equal-captured
+          -- competitor that wins the tuple tie supersedes; the tuple-lesser
+          -- row never receives confirmation.
+          AND (newer.captured_at, newer.created_at, newer.id)
+              > (state.captured_at, state.created_at, state.id)
+          AND newer.captured_at <= target.cutoff
+          -- Supersession authority is the row's own ENDPOINT scope — the
+          -- same scope unit the D075 writer diffs and the reconstruction
+          -- reads. A sibling endpoint's rows are a different manifest and
+          -- neither supersede this endpoint's winner nor borrow its
+          -- confirmation.
+          AND EXISTS (
+            SELECT 1
+            FROM meta_entity_observation_runs newer_run
+            WHERE newer_run.id = newer.run_id
+              AND newer_run.endpoint = observation_run.endpoint
+          )
+      )`;
+
 export const FIND_CUTOFF_SAFE_META_ENTITY_STATES_QUERY = `
 WITH targets AS (
   SELECT *
@@ -2535,6 +2594,22 @@ WITH targets AS (
     state.field_coverage_json,
     state.observed_at,
     state.captured_at,
+    -- D075 consumer sweep: a state row's captured_at freezes at first
+    -- capture — the writer confirms an unchanged state through the run
+    -- heartbeat (last_captured_at) and, for delta manifests, through later
+    -- delta runs whose reconstruction re-observed this winner unchanged.
+    -- confirmed_until is that as-of-cutoff re-confirmation clock; without
+    -- it no evidence row can ever certify window-end truth for an
+    -- unchanged entity and no-response stays permanently unknown.
+    GREATEST(
+      state.captured_at,
+      COALESCE(
+        CASE WHEN observation_run.last_captured_at <= target.cutoff
+          THEN observation_run.last_captured_at END,
+        state.captured_at
+      ),
+      COALESCE(scope_confirmation.confirmed_until, state.captured_at)
+    ) AS confirmed_until,
     state.state_hash::text AS state_hash,
     NULL::text AS tombstone_reason,
     NULL::jsonb AS provider_evidence_json,
@@ -2558,6 +2633,9 @@ WITH targets AS (
    AND observation_run.provider_account_id = state.provider_account_id
    AND observation_run.entity_type = state.entity_type
    AND observation_run.completeness = state.run_completeness
+  LEFT JOIN LATERAL (
+${AD_OPERATOR_SCOPE_CONFIRMATION_LATERAL_SQL}
+  ) scope_confirmation ON TRUE
   UNION ALL
   SELECT
     target.episode_key,
@@ -2597,6 +2675,7 @@ WITH targets AS (
     '{}'::jsonb AS field_coverage_json,
     tombstone.observed_at,
     tombstone.captured_at,
+    tombstone.captured_at AS confirmed_until,
     NULL::text AS state_hash,
     tombstone.reason AS tombstone_reason,
     tombstone.provider_evidence_json,
@@ -2644,7 +2723,7 @@ WITH targets AS (
   FROM truth_events truth
   WHERE truth.cutoff >= truth.window_end
     AND truth.observed_at <= truth.window_end
-    AND truth.captured_at >= truth.window_end
+    AND truth.confirmed_until >= truth.window_end
     AND truth.captured_at <= truth.cutoff
   ORDER BY truth.episode_key, truth.target_entity_type, truth.target_entity_id,
     truth.captured_at DESC, truth.observed_at DESC,
@@ -2664,7 +2743,8 @@ SELECT
   scoped.adset_daily_budget_raw, scoped.adset_lifetime_budget_raw,
   scoped.budget_origin, scoped.presence, scoped.field_coverage_json,
   scoped.observed_at::text AS observed_at,
-  scoped.captured_at::text AS captured_at, scoped.state_hash,
+  scoped.captured_at::text AS captured_at,
+  scoped.confirmed_until::text AS confirmed_until, scoped.state_hash,
   scoped.tombstone_reason, scoped.provider_evidence_json,
   scoped.tombstone_hash
 FROM (
@@ -3025,6 +3105,7 @@ type StateRow = Record<string, unknown> & {
   field_coverage_json: unknown;
   observed_at: unknown;
   captured_at: unknown;
+  confirmed_until: unknown;
   state_hash: unknown;
   tombstone_reason: unknown;
   provider_evidence_json: unknown;
@@ -3529,6 +3610,7 @@ function mapState(row: StateRow): {
       presence: row.presence === "present" ? "present" : "absent_unconfirmed",
       observedAt: stringValue(row.observed_at, "observed_at"),
       capturedAt: stringValue(row.captured_at, "captured_at"),
+      confirmedUntil: stringValue(row.confirmed_until, "confirmed_until"),
       stateHash: stringValue(row.state_hash, "state_hash"),
       fieldCoverage: recordValue(row.field_coverage_json),
       delivery: parseDeliveryObservation(row.field_coverage_json),

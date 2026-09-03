@@ -210,7 +210,7 @@ function DecisionEvidence({
           ["decisionState", decision.classification.decisionState],
           ["heldAction", decision.classification.heldAction],
           ["authorizedAction", authority.authorizedAction],
-          ["actionEligible", authority.actionEligible],
+          ["decisionAuthorized (persisted)", authority.actionEligible],
           ["reviewOnlyReason", authority.reviewOnlyReason],
           ["truthSource", decision.sourceDecision.truthSource],
           ["effectiveTargetRoas", decision.metrics.effectiveTargetRoas],

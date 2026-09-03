@@ -5,6 +5,7 @@
   "scripts": {
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
+    "typecheck:split": "node --import tsx scripts/typecheck-split.ts",
     "lint": "eslint .",
     "test:whitespace": "bash scripts/verify-whitespace.sh",
     "release:authority:preflight": "node --import tsx scripts/verify-release-authority.ts --mode=preflight",
@@ -205,7 +206,9 @@
     "test:meta-history-assignment-seam": "node --import tsx scripts/ephemeral-postgres-meta-history-assignment-seam.ts",
     "test:launchpad-handoff-seam": "node --import tsx scripts/ephemeral-postgres-launchpad-handoff-seam.ts",
     "meta:runtime-evidence": "node --import tsx scripts/meta/runtime-evidence-harness.ts",
-    "meta:verify-mounted-bodies": "node --import tsx scripts/meta/verify-mounted-bodies.ts"
+    "meta:verify-mounted-bodies": "node --import tsx scripts/meta/verify-mounted-bodies.ts",
+    "test:d088-budget-migration-seam": "node --import tsx scripts/d088-budget-proposal-migration-seam.ts",
+    "test:automation-off-readback-seam": "node --import tsx scripts/automation-off-readback-seam.ts"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.0.2",

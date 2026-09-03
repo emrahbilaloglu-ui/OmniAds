@@ -18,8 +18,10 @@ export type MetaAutomationReadinessBlocker =
   | "not_action_state"
   | "diagnostic_or_watch_state"
   | "low_confidence"
+  /** @deprecated pre-D074b blocker; parse-only for persisted payloads. */
   | "missing_campaign_label"
   | "campaign_context_unresolved"
+  | "campaign_context_resolver_unvalidated"
   | "missing_commercial_anchor"
   | "missing_controlled_causal_evidence"
   | "missing_valid_treatment_receipt"
@@ -72,6 +74,8 @@ const COMMERCIAL_ACTION_LABELS = new Set<MetaDecisionLabel>([
   "cut",
 ]);
 
+/** Pre-D074b alias reasons/signals: recognition-only, mapped to the
+ * canonical campaign_context_unresolved blocker below. */
 const UNLABELED_CAMPAIGN_GUARD_REASON = "unlabeled_campaign_soft_only";
 
 function confidenceScore(rec: MetaRecommendation) {
@@ -90,7 +94,7 @@ function stringSignalQualityValue(rec: MetaRecommendation, key: string) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
-function isMissingCampaignLabel(rec: MetaRecommendation) {
+function hasLegacyUnresolvedRoleSignals(rec: MetaRecommendation) {
   return (
     rec.confidenceReason === UNLABELED_CAMPAIGN_GUARD_REASON ||
     stringSignalQualityValue(rec, "label_status") === "unlabeled" ||
@@ -103,6 +107,17 @@ function isAutomaticCampaignContextUnresolved(rec: MetaRecommendation) {
     rec.confidenceReason === "automatic_campaign_context_review_only" ||
     stringSignalQualityValue(rec, "campaign_context_action_authority") ===
       "review_only"
+  );
+}
+
+function isAutomaticCampaignContextResolverUnvalidated(
+  rec: MetaRecommendation,
+) {
+  return (
+    rec.confidenceReason ===
+      "automatic_campaign_context_resolver_unvalidated" ||
+    stringSignalQualityValue(rec, "campaign_context_action_authority") ===
+      "resolver_unvalidated"
   );
 }
 
@@ -121,10 +136,13 @@ function unique<T extends string>(items: T[]) {
 
 function reasonFor(tier: MetaAutomationReadinessTier, blockers: MetaAutomationReadinessBlocker[]) {
   if (blockers.includes("missing_campaign_label")) {
-    return "Campaign label is missing, so automation is blocked until Main/Test/Mixed context is explicit.";
+    return "Automatic campaign-role inference is unresolved, so automation is blocked until fresh Main/Test/Mixed context is available.";
   }
   if (blockers.includes("campaign_context_unresolved")) {
     return "The automatic Main/Test/Mixed context is review-only; the decision stays visible but provider execution is blocked.";
+  }
+  if (blockers.includes("campaign_context_resolver_unvalidated")) {
+    return "The automatic campaign role is high confidence, but this resolver version has not passed the independent authority gate; provider execution remains blocked.";
   }
   if (blockers.includes("diagnostic_or_watch_state")) {
     return "This recommendation is diagnostic, protective, or watch-only; it is not an execution candidate.";
@@ -199,7 +217,7 @@ export function deriveMetaAutomationReadiness(
     "valid_control_estimate",
     "live_preflight",
     "rollback_plan",
-    "campaign_label",
+    "automatic_campaign_context_authority",
     "operator_enablement",
   ];
   const empiricalSummary = options.empiricalOutcomeSummary ?? null;
@@ -281,13 +299,16 @@ export function deriveMetaAutomationReadiness(
   if (readOnly) blockers.push("diagnostic_or_watch_state");
   if (!autoCandidateType) blockers.push("unsupported_action_class");
   if (score < META_CONFIDENCE_ACT_THRESHOLD) blockers.push("low_confidence");
-  if (isMissingCampaignLabel(rec)) {
-    blockers.push("missing_campaign_label");
-    missingEvidence.push("campaign_label");
-  }
-  if (isAutomaticCampaignContextUnresolved(rec)) {
+  if (isAutomaticCampaignContextUnresolved(rec) || hasLegacyUnresolvedRoleSignals(rec)) {
+    // D074b: legacy label-status signals on older persisted recommendations
+    // map into the canonical unresolved-context blocker; the deprecated
+    // missing_campaign_label blocker is never emitted again.
     blockers.push("campaign_context_unresolved");
     missingEvidence.push("automatic_campaign_context_authority");
+  }
+  if (isAutomaticCampaignContextResolverUnvalidated(rec)) {
+    blockers.push("campaign_context_resolver_unvalidated");
+    missingEvidence.push("validated_campaign_context_resolver");
   }
   if (COMMERCIAL_ACTION_LABELS.has(decisionLabel) && !hasCommercialAnchor(rec)) {
     blockers.push("missing_commercial_anchor");
@@ -301,7 +322,7 @@ export function deriveMetaAutomationReadiness(
     score >= META_CONFIDENCE_ACT_THRESHOLD &&
     !blockers.includes("missing_commercial_anchor");
 
-  if (readOnly || blockers.includes("missing_campaign_label")) {
+  if (readOnly || blockers.includes("campaign_context_unresolved")) {
     tier = "read_only";
   } else if (executionCandidate) {
     tier =

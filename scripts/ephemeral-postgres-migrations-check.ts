@@ -166,6 +166,21 @@ const REQUIRED_COLUMNS: ReadonlyArray<{ table: string; column: string }> = [
   { table: "meta_entity_state_history", column: "budget_origin" },
   { table: "meta_entity_state_history", column: "learning_source" },
   { table: "meta_entity_state_history", column: "field_coverage_json" },
+  // D083 budget-fact observation columns.
+  { table: "meta_entity_state_history", column: "campaign_start_time" },
+  { table: "meta_entity_state_history", column: "campaign_end_time" },
+  { table: "meta_entity_state_history", column: "adset_start_time" },
+  { table: "meta_entity_state_history", column: "adset_end_time" },
+  { table: "meta_entity_state_history", column: "budget_currency_exponent" },
+  { table: "meta_entity_state_history", column: "budget_currency_registry_version" },
+  { table: "meta_entity_state_history", column: "provider_api_version" },
+  /*
+    PRE-DEPLOY AUDIT: `budget_shape_support` was added by the same D083 slice
+    and is read by production SQL (budget-readiness-read-model.ts), but was
+    listed in neither schema gate — so a database missing that one ALTER
+    reported green here and failed at runtime as a broken readiness read.
+  */
+  { table: "meta_entity_state_history", column: "budget_shape_support" },
   { table: "meta_campaign_label_history", column: "state_hash" },
   { table: "meta_campaign_label_history", column: "business_ref_id" },
   {
@@ -2612,6 +2627,18 @@ async function main() {
         "ephemeral-postgres-entity-state-history-seam-child.ts",
       ),
       "entity state history DB seam check",
+    );
+    // D077: the growth-fence recovery operation. Real Postgres is the only
+    // place its deletion contract, lease exclusivity, and pre/post
+    // equivalence can be proven.
+    await runChildScript(
+      repoRoot,
+      databaseUrl,
+      path.join(
+        "scripts",
+        "ephemeral-postgres-state-history-compaction-seam-child.ts",
+      ),
+      "state-history compaction DB seam check",
     );
     // D066 requires a real PostgreSQL seam: a mocked SQL-shape test cannot show
     // what actually landed in meta_ad_daily.

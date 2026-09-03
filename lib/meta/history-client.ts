@@ -1,4 +1,5 @@
 import type {
+  MetaHistoryHistoricalAccount,
   MetaHistoryAccount,
   MetaHistoryEntityType,
   MetaHistoryKind,
@@ -45,6 +46,43 @@ export async function fetchMetaHistoryAccounts(input: {
   });
   const payload = (await readPayload(response)) as { accounts?: MetaHistoryAccount[] } | null;
   return Array.isArray(payload?.accounts) ? payload.accounts : [];
+}
+
+/**
+ * D078 R4 (correction 2): both picker groups. `historicalAccounts` is
+ * TRI-STATE — `null` means the additive account-state read FAILED on the
+ * server and the UI must render an explicit unavailable state; `[]` means a
+ * successful read proved there is no deselected/historical identity. The
+ * client never collapses null into an empty group.
+ */
+export async function fetchMetaHistoryAccountScopes(input: {
+  businessId: string;
+  signal?: AbortSignal;
+  fetchImpl?: FetchLike;
+}): Promise<{
+  accounts: MetaHistoryAccount[];
+  historicalAccounts: MetaHistoryHistoricalAccount[] | null;
+}> {
+  const fetchImpl = input.fetchImpl ?? fetch;
+  const params = new URLSearchParams({ businessId: input.businessId });
+  const response = await fetchImpl(`/api/meta/history/accounts?${params.toString()}`, {
+    method: "GET",
+    cache: "no-store",
+    credentials: "same-origin",
+    signal: input.signal,
+  });
+  const payload = (await readPayload(response)) as {
+    accounts?: MetaHistoryAccount[];
+    historicalAccounts?: MetaHistoryHistoricalAccount[] | null;
+  } | null;
+  return {
+    accounts: Array.isArray(payload?.accounts) ? payload.accounts : [],
+    // null (server read failure) passes through; a missing field on a
+    // legacy payload also reads as unavailable rather than proven-none.
+    historicalAccounts: Array.isArray(payload?.historicalAccounts)
+      ? payload.historicalAccounts
+      : null,
+  };
 }
 
 export async function fetchMetaHistoryPage(input: {

@@ -87,6 +87,8 @@ interface DecisionCenterMissingDataEvent extends DecisionCenterObservabilityBase
 }
 
 type DecisionCenterFallbackReason =
+  | "campaign_role_unresolved"
+  /** @deprecated pre-D074b alias; recognition-only for older rows. */
   | "campaign_label_missing"
   | "missing_data"
   | "default_diagnose"
@@ -199,8 +201,11 @@ function fallbackReasonForRow(
   row: DecisionCenterSnapshot["rowDecisions"][number],
 ): DecisionCenterFallbackReason | null {
   if (row.buyerAction !== "diagnose_data") return null;
-  if (row.reasons.includes("campaign_label_missing")) {
-    return "campaign_label_missing";
+  if (
+    row.reasons.includes("campaign_role_unresolved") ||
+    row.reasons.includes("campaign_label_missing")
+  ) {
+    return "campaign_role_unresolved";
   }
   if (rowMissingData(row).length > 0) return "missing_data";
   if (row.engine.primaryDecision === "Diagnose") return "default_diagnose";

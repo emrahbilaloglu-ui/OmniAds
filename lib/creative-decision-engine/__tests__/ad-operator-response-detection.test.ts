@@ -150,6 +150,7 @@ function state(input: {
   providerAccountRefId?: string;
   budgetOrigin?: "campaign" | "adset" | "not_observed" | "not_applicable";
   fieldCoverage?: Record<string, unknown>;
+  confirmedUntil?: string;
 }): AdEntityStateObservation {
   const entityType = input.entityType ?? "ad";
   const entityId = input.entityId ?? "ad-a";
@@ -199,6 +200,7 @@ function state(input: {
       },
     observedAt: input.observedAt,
     capturedAt: input.capturedAt ?? input.observedAt,
+    ...(input.confirmedUntil ? { confirmedUntil: input.confirmedUntil } : {}),
     stateHash: "c".repeat(64),
     delivery:
       input.currentWindowSpend == null
@@ -781,6 +783,57 @@ describe("native ad operator-response detection", () => {
     expect(result.diagnostics.map((entry) => entry.code)).toContain(
       "attribution_window_open",
     );
+  });
+
+  it("certifies window-end truth from confirmedUntil for unchanged entities (D075 consumer sweep)", () => {
+    // Under heartbeat/delta manifests an unchanged entity's newest row keeps
+    // its first-capture clock; only the run heartbeat / later delta runs
+    // re-confirm it. Pre-fix, terminal truth filtered on capturedAt alone,
+    // so this exact shape stayed unknown_incomplete forever.
+    const terminalCapturedAt = "2026-07-12T02:56:00.000Z";
+    const confirmedUntil = "2026-07-13T03:00:00.000Z";
+    const states = [
+      activeBaseline(),
+      state({
+        id: "state-ad-terminal",
+        observedAt: "2026-07-12T02:55:00.000Z",
+        capturedAt: terminalCapturedAt,
+        confirmedUntil,
+      }),
+      state({
+        id: "state-campaign-terminal",
+        entityType: "campaign",
+        entityId: "campaign-a",
+        observedAt: "2026-07-12T02:50:00.000Z",
+        capturedAt: "2026-07-12T02:51:00.000Z",
+        confirmedUntil,
+      }),
+      state({
+        id: "state-adset-terminal",
+        entityType: "adset",
+        entityId: "adset-a",
+        observedAt: "2026-07-12T02:52:00.000Z",
+        capturedAt: "2026-07-12T02:53:00.000Z",
+        confirmedUntil,
+      }),
+    ];
+    const result = detectAdOperatorResponse({
+      episode: episode(),
+      cutoff: CUTOFF,
+      responseWindowDays: 1,
+      actions: [],
+      states,
+      sourceReads: {
+        actionReceiptsComplete: true,
+        stateHistoryComplete: true,
+        tombstonesComplete: true,
+      },
+    });
+    expect(result).toMatchObject({
+      observationStatus: "observed_no_response",
+      responseType: "no_response_observed",
+      sourceProof: { windowClosed: true, sourceComplete: true },
+    });
   });
 
   it("classifies no response only after a closed, complete exact hierarchy window", () => {

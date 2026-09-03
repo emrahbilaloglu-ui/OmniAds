@@ -69,6 +69,21 @@ async function seed(): Promise<{ token: string; otherToken: string }> {
       [id, owner],
     );
   }
+  // D072/AR-013: the write boundary now fails closed when a business has no
+  // persisted automation control row. The seam's authorized-pause legs test
+  // the manual write path itself, so the fixture persists an explicit open
+  // control state (kill switch off, manual tier, no auto execution). The
+  // fail-closed missing-row behaviour has its own coverage in
+  // automation-control-plane tests; here it must not mask the route contract.
+  await db.query(
+    `INSERT INTO meta_automation_business_controls
+       (business_id, kill_switch_engaged, auto_execution_enabled, readiness_tier)
+     VALUES ($1::uuid, FALSE, FALSE, 'manual_review')
+     ON CONFLICT (business_id)
+     DO UPDATE SET kill_switch_engaged = FALSE`,
+    [BUSINESS_ID],
+  );
+
   // Only USER_ID is a member of BUSINESS_ID. OTHER_USER_ID holds a real session
   // but no membership there, so identity/permission mismatch is a real state
   // rather than an absent cookie.

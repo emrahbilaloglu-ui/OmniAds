@@ -49,12 +49,17 @@ import { rejectIfMetaWritesBlocked } from "@/lib/meta/automation-write-guard";
 import { rejectIfReviewerReadOnly } from "@/lib/meta/reviewer-write-guard";
 import { fetchAssignedAccountIds } from "@/lib/meta/creatives-fetchers";
 import { resolveMetaCreativesAccountScope } from "@/lib/meta/creatives-warehouse";
-import { MANUAL_CONFIRMATION } from "@/lib/zero-base/meta/dispatch-contract";
 import { confirmationFor } from "@/lib/zero-base/meta/mutation-ceremony";
 import { rejectIfAutomationDemoWrite } from "../demo-write-authority";
 import { metaAutomationDryRunOnly } from "@/lib/meta/release-gate-guard";
 import { readMetaReleaseGates } from "@/lib/meta/release-gates";
 import { missingSteps, writeFamily } from "@/lib/meta/write-safety-contract";
+import { BUDGET_PROPOSAL_ACTION } from "@/lib/meta/budget-proposal-runtime";
+import { createBudgetProposalServerRuntime } from "@/lib/meta/budget-proposal-server-runtime";
+import { runClaimedProposalExecution } from "@/lib/meta/budget-execution-lifecycle";
+import { createBudgetServerReaders } from "@/lib/meta/budget-proposal-server-readers";
+import { buildMetaWriteContextForProposal } from "@/lib/meta/budget-proposal-write-context";
+import { MANUAL_CONFIRMATION } from "@/lib/zero-base/meta/dispatch-contract";
 
 export const dynamic = "force-dynamic";
 
@@ -539,13 +544,26 @@ async function approve(input: {
     return claimConflictResponse(claim.current);
   }
 
-  // Written before the handler is entered, never after: its presence is the
-  // only durable evidence that a provider write MIGHT exist for this attempt.
-  const dispatchMarked = await markMetaAutomationProposalDispatchStarted({
-    businessId: input.businessId,
-    proposalId: input.proposal.id,
-    claimToken: claim.claimToken,
-  }).catch(() => false);
+  /*
+    Written before the handler is entered, never after: its presence is the
+    only durable evidence that a provider write MIGHT exist for this attempt.
+
+    D088 C3: NOT for a budget approval. The budget path enters the shared
+    lifecycle, which marks synchronously at the pre-POST boundary and vetoes
+    the write if the mark cannot be taken — so marking here as well would stamp
+    a dispatch on every budget approval that is withheld BEFORE any provider
+    contact (a shut gate, a missing confirmation, an inadmissible composition),
+    and an operator reading the row could not tell those from a real dispatch.
+    The pause family keeps its own marker: its handler has no such boundary.
+  */
+  const budgetApproval = input.proposal.proposedAction === BUDGET_PROPOSAL_ACTION;
+  const dispatchMarked = budgetApproval
+    ? true
+    : await markMetaAutomationProposalDispatchStarted({
+      businessId: input.businessId,
+      proposalId: input.proposal.id,
+      claimToken: claim.claimToken,
+    }).catch(() => false);
   if (!dispatchMarked) {
     // The claim is no longer ours. Dispatching anyway would be exactly the
     // unclaimed provider write this whole path exists to prevent.
@@ -559,6 +577,12 @@ async function approve(input: {
 
   let execution: ExecuteProposalResult;
   let ambiguous = false;
+  /*
+    D088 C3: the budget path settles and ledgers ONCE, inside the shared
+    lifecycle. Its result is captured here so the response can be built from
+    the settlement that already happened instead of performing a second one.
+  */
+  let budgetLifecycle: Awaited<ReturnType<typeof runClaimedProposalExecution>> | null = null;
   try {
     execution = await executeMetaAutomationProposal({
       request: input.request,
@@ -566,6 +590,82 @@ async function approve(input: {
       proposal: input.proposal,
       dryRunOnly,
       receiptKey: claim.claimToken,
+      /*
+        D088 C3: the CONCRETE budget runtime, and the SHARED lifecycle.
+
+        A budget approval no longer relies on this route's own marker/settle
+        block: it enters `runClaimedProposalExecution`, the same function the
+        scheduled sweep uses, which fires the dispatch marker synchronously at
+        the pre-POST boundary and vetoes the write if it cannot be recorded.
+        Authorization here is the operator's explicit confirmation — automatic
+        enablement is the SCHEDULED path's requirement, not this one's.
+      */
+      budgetRuntime: async (runtimeInput) => {
+        const runtime = createBudgetProposalServerRuntime(
+          createBudgetServerReaders({
+            businessId: input.businessId,
+            actorUserId: input.access.session.user.id,
+            writeContext: await buildMetaWriteContextForProposal({
+              businessId: input.businessId,
+              providerAccountId: input.providerAccountId,
+            }),
+          }),
+        );
+        const lifecycle = await runClaimedProposalExecution({
+          businessId: input.businessId,
+          providerAccountId: input.providerAccountId,
+          proposal: runtimeInput.proposal,
+          claimToken: claim.claimToken,
+          actorUserId: input.access.session.user.id,
+          markDispatchStarted: async (marked) =>
+            Boolean(await markMetaAutomationProposalDispatchStarted({
+              businessId: marked.businessId,
+              proposalId: marked.proposalId,
+              claimToken: marked.claimToken,
+            }).catch(() => null)),
+          settle: async (settleInput) => settleMetaAutomationProposal({
+            businessId: settleInput.businessId,
+            proposalId: settleInput.proposalId,
+            status: settleInput.status,
+            decidedBy: settleInput.decidedBy,
+            decisionNote: null,
+            receipt: settleInput.receipt,
+            claimToken: settleInput.claimToken,
+          }).catch(() => null),
+          recordLedger: async (entry) => {
+            await recordProposalLedgerEntry({
+              businessId: input.businessId,
+              userId: input.access.session.user.id,
+              activityType: entry.activityType,
+              severity: entry.severity,
+              message: entry.message,
+              payload: entry.payload,
+              proposal: runtimeInput.proposal,
+              resultStatus: entry.severity === "success" ? "applied" : "failed",
+            }).catch(() => undefined);
+          },
+          execute: async (beforeProviderPost) => runtime({
+            proposal: runtimeInput.proposal,
+            dryRunOnly: runtimeInput.dryRunOnly,
+            claimToken: runtimeInput.claimToken,
+            authorization: {
+              kind: "manual",
+              explicitConfirmation:
+                input.manualConfirmation === MANUAL_CONFIRMATION,
+              operatorUserId: input.access.session.user.id,
+            },
+            beforeProviderPost,
+          }),
+        });
+        budgetLifecycle = lifecycle;
+        return {
+          ok: lifecycle.ok,
+          receipt: lifecycle.receipt,
+          reconcile: lifecycle.reconcile,
+          rollbackRequested: false,
+          journalId: lifecycle.journalId,
+        };
+      },
     });
   } catch (error) {
     // The dispatch was entered and produced no answer. That is not a failure
@@ -608,6 +708,31 @@ async function approve(input: {
 
   let settled: MetaAutomationProposal | null = null;
   let settleThrew: unknown = null;
+  const lifecycle = budgetLifecycle as
+    | Awaited<ReturnType<typeof runClaimedProposalExecution>>
+    | null;
+  if (lifecycle) {
+    /*
+      Already settled and already ledgered, by the one lifecycle both the
+      manual route and the scheduled sweep enter. Settling again would move the
+      row a second time and write a second ledger row for one attempt.
+    */
+    return queueResponse({
+      businessId: input.businessId,
+      providerAccountId: input.providerAccountId,
+      extra: {
+        proposal: lifecycle.settled,
+        receipt: execution.receipt,
+        receiptKey: claim.claimToken,
+        proposalStatus: lifecycle.settledStatus,
+        providerDispatchStarted: lifecycle.providerDispatchStarted,
+        providerOutcomeKnown: lifecycle.providerOutcomeKnown,
+        providerWriteVerified:
+          lifecycle.providerOutcomeKnown && lifecycle.ok
+          && execution.receipt.dryRun !== true,
+      },
+    });
+  }
   try {
     settled = await settleMetaAutomationProposal({
       businessId: input.businessId,

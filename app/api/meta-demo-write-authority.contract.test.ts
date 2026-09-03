@@ -102,6 +102,8 @@ const NO_SIDE_EFFECT: Record<string, string> = {
     "renders the journal the caller can already read; no table is written and no artifact is issued",
   "meta/reports/preview":
     "renders a report body from data the caller can already read; nothing is persisted",
+  "meta/campaign-labels":
+    "D074 tombstone: both GET and PUT return a static 410 (campaign_labels_retired) with no DB import, no session read, and no store call; the manual-label write surface no longer exists",
 };
 
 /**

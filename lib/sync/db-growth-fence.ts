@@ -1,4 +1,9 @@
 import { getDbWithTimeout } from "@/lib/db";
+import {
+  deriveEffectiveStateHistoryBytes,
+  toSafeByteCount,
+  type StateHistoryFenceMeasurement,
+} from "@/lib/sync/state-history-effective-size";
 
 /**
  * Application-observable capacity fence for sync writes.
@@ -568,6 +573,14 @@ export interface DbGrowthFenceDecision {
   overridden: boolean;
   /** Host-volume admission, measured in the same roundtrip. Never overridable. */
   physical: PhysicalCapacityDecision | null;
+  /**
+   * D077: the effective-size refinement for meta_entity_state_history.
+   * When its metric is `effective_reusable_heap`, the table's budget
+   * comparison used effectiveBytes (raw minus PROVEN currently-reusable heap
+   * free space); under every uncertainty it stayed on the raw size. Null when
+   * the refinement was not attempted (early denials).
+   */
+  stateHistoryEffective?: StateHistoryFenceMeasurement | null;
 }
 
 export const OVERRIDE_ENV_FLAG = "SYNC_GROWTH_FENCE_OVERRIDE";
@@ -597,6 +610,7 @@ function denied(input: {
     errorMessage: input.errorMessage ?? null,
     overridden: false,
     physical: input.physical ?? null,
+    stateHistoryEffective: null,
   };
 }
 
@@ -696,6 +710,12 @@ export async function evaluateDbGrowthFence(input?: {
       SELECT
         pg_database_size(current_database())::bigint AS database_bytes,
         current_database() AS database_name,
+        CASE
+          WHEN to_regclass('public.meta_entity_state_history') IS NULL THEN NULL
+          ELSE pg_table_size(to_regclass('public.meta_entity_state_history'))::bigint
+        END AS state_history_heap_bytes,
+        (SELECT COUNT(*)::int FROM pg_extension WHERE extname = 'pgstattuple')
+          AS pgstattuple_present,
         fenced.table_name,
         fenced.table_bytes,
         capacity.id::text AS capacity_id,
@@ -852,6 +872,61 @@ export async function evaluateDbGrowthFence(input?: {
     tableBudgets[table] = budget;
   }
 
+  // D077 refinement, ONLY for meta_entity_state_history: when currently
+  // reusable heap free space is PROVEN (pgstattuple_approx, validated), the
+  // budget comparison uses raw-minus-proven-free; any uncertainty keeps the
+  // raw measurement already taken above. The refinement can only lower the
+  // number, and a failed refinement read changes nothing — the raw size from
+  // the main statement stands.
+  let stateHistoryEffective: StateHistoryFenceMeasurement | null = null;
+  try {
+    const extensionPresent =
+      toSafeByteCount(head.pgstattuple_present) === 1;
+    let approxTableLen: number | null = null;
+    let approxFreeSpace: number | null = null;
+    let measurementError = false;
+    if (extensionPresent) {
+      // Second statement only when proof is even possible; under the
+      // fail-closed rules its absence or failure keeps the raw size.
+      try {
+        const sql = getDbWithTimeout(
+          input?.queryTimeoutMs ?? DEFAULT_QUERY_TIMEOUT_MS,
+        );
+        const statRows = (await sql.query(
+          `SELECT table_len, approx_free_space
+           FROM pgstattuple_approx('meta_entity_state_history'::regclass)`,
+        )) as Array<Record<string, unknown>>;
+        approxTableLen = toSafeByteCount(statRows[0]?.table_len);
+        approxFreeSpace = toSafeByteCount(statRows[0]?.approx_free_space);
+        if (approxTableLen === null || approxFreeSpace === null) {
+          measurementError = true;
+        }
+      } catch {
+        measurementError = true;
+      }
+    }
+    stateHistoryEffective = deriveEffectiveStateHistoryBytes({
+      rawBytes: tableBytes.meta_entity_state_history,
+      heapBytes: head.state_history_heap_bytes,
+      approxTableLen,
+      approxFreeSpace,
+      extensionPresent,
+      measurementError,
+      budgetBytes: tableBudgets.meta_entity_state_history as number,
+    });
+    if (
+      stateHistoryEffective.metric === "effective_reusable_heap" &&
+      stateHistoryEffective.effectiveBytes !== null
+    ) {
+      tableBytes.meta_entity_state_history = Math.min(
+        tableBytes.meta_entity_state_history ?? Number.MAX_SAFE_INTEGER,
+        stateHistoryEffective.effectiveBytes,
+      );
+    }
+  } catch {
+    stateHistoryEffective = null;
+  }
+
   let offender: DbGrowthFenceDecision["offender"] = null;
   let reason: DbGrowthFenceReason = "ready";
   if (databaseBytes >= databaseBudget) {
@@ -888,6 +963,7 @@ export async function evaluateDbGrowthFence(input?: {
         errorMessage: null,
         overridden: true,
         physical,
+        stateHistoryEffective,
       };
     }
     console.error("[db-growth-fence] refused new sync work", {
@@ -907,6 +983,7 @@ export async function evaluateDbGrowthFence(input?: {
       errorMessage: null,
       overridden: false,
       physical,
+      stateHistoryEffective,
     };
   }
 
@@ -930,6 +1007,7 @@ export async function evaluateDbGrowthFence(input?: {
     errorMessage: null,
     overridden: false,
     physical,
+    stateHistoryEffective,
   };
 }
 
@@ -1168,7 +1246,23 @@ export async function assertSyncGrowthBoundary(
   return decision;
 }
 
-/** The provider whose sync writes a fenced relation, or null if unrecognised. */
+/**
+ * Every provider family a sync operation, or a fenced table's owner, can
+ * belong to. GA4 and Search Console have no FENCED table of their own (see
+ * `FENCED_TABLES` — no `ga4_*`/`search_console_*` relation is measured), so
+ * they can never be an offender's family; they exist here purely so
+ * `operationProviderFamily` can positively recognise their operation labels
+ * instead of leaving them `null` and therefore refused alongside a Meta (or
+ * any other) breach they cannot possibly have contributed to.
+ */
+export type ProviderFamily = "meta" | "google_ads" | "shopify" | "ga4" | "search_console";
+
+/**
+ * The provider whose sync writes a fenced relation, or null if unrecognised.
+ * Deliberately narrower than `ProviderFamily`'s full set: only a family
+ * actually backed by an entry in `FENCED_TABLES` may be returned here, so
+ * this can never claim GA4 or Search Console owns bytes neither can write.
+ */
 export function fencedTableProviderFamily(
   table: FencedTable,
 ): "meta" | "google_ads" | "shopify" | null {
@@ -1186,10 +1280,12 @@ export function fencedTableProviderFamily(
  */
 export function operationProviderFamily(
   operation: string,
-): "meta" | "google_ads" | "shopify" | null {
+): ProviderFamily | null {
   if (operation.startsWith("meta")) return "meta";
   if (operation.startsWith("shopify")) return "shopify";
   // Both `google_ads_*` and the older `google_*` labels are Google Ads sync.
   if (operation.startsWith("google")) return "google_ads";
+  if (operation.startsWith("ga4")) return "ga4";
+  if (operation.startsWith("search_console")) return "search_console";
   return null;
 }

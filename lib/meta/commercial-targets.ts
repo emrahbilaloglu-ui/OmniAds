@@ -14,6 +14,13 @@ export interface MetaCommercialTargets {
   breakEvenRoas: number | null;
   targetCpa: number | null;
   breakEvenCpa: number | null;
+  /**
+   * Operator average-order-value assumption. With a Target ROAS it resolves the
+   * hard-action spend unit at high confidence, so the serving layer needs it to
+   * explain WHY a hard action is withheld. Optional-by-absence for previously
+   * serialized payloads; absence is never read as "configured".
+   */
+  aovAssumption?: number | null;
   riskPosture: MetaCommercialRiskPosture;
   freshness: "fresh" | "stale" | "unknown";
   updatedAt: string | null;
@@ -46,6 +53,7 @@ export function normalizeMetaCommercialTargets(
   const breakEvenRoas = positiveNumber(input?.breakEvenRoas);
   const targetCpa = positiveNumber(input?.targetCpa);
   const breakEvenCpa = positiveNumber(input?.breakEvenCpa);
+  const aovAssumption = positiveNumber(input?.aovAssumption);
   const hasAnchor = Boolean(
     targetRoas || breakEvenRoas || targetCpa || breakEvenCpa,
   );
@@ -75,6 +83,7 @@ export function normalizeMetaCommercialTargets(
     breakEvenRoas,
     targetCpa,
     breakEvenCpa,
+    aovAssumption,
     riskPosture: normalizeRiskPosture(input?.riskPosture),
     freshness,
     updatedAt: timestampCutoffSafe ? updatedAt : null,
@@ -107,6 +116,7 @@ export async function readMetaCommercialTargets(
         breakEvenRoas: targetPack?.breakEvenRoas ?? null,
         targetCpa: targetPack?.targetCpa ?? null,
         breakEvenCpa: targetPack?.breakEvenCpa ?? null,
+        aovAssumption: targetPack?.aovAssumption ?? null,
         riskPosture: targetPack?.defaultRiskPosture ?? "balanced",
         freshness: resolveBusinessTargetPackFreshness(
           targetPack?.updatedAt,
@@ -126,6 +136,7 @@ export async function readMetaCommercialTargets(
     breakEvenRoas: targetPack?.breakEvenRoas ?? null,
     targetCpa: targetPack?.targetCpa ?? null,
     breakEvenCpa: targetPack?.breakEvenCpa ?? null,
+    aovAssumption: targetPack?.aovAssumption ?? null,
     riskPosture: targetPack?.defaultRiskPosture ?? "balanced",
     freshness:
       targetFreshness?.status === "fresh"

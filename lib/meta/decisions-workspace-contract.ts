@@ -74,7 +74,12 @@ export type MetaDecisionExecutionAction =
   "promote_to_main" | "scale_budget" | "controlled_scale";
 
 export type MetaDecisionLifecycleRole =
-  "test" | "main" | "mixed" | "label_needed";
+  | "test"
+  | "main"
+  | "mixed"
+  | "role_unresolved"
+  /** @deprecated Historical snapshots only; new runtime output uses role_unresolved. */
+  | "label_needed";
 
 export type MetaDecisionCreativeAssessment =
   | "proven_winner"
@@ -284,6 +289,26 @@ export interface MetaDecisionSourceAuthority {
   realAdId: string | null;
   authorizedAction: "scale" | "cut" | "refresh" | null;
   jobRunId: string | null;
+  /**
+   * Additive deterministic execution posture. Older payloads omit it and must
+   * therefore remain review-only; absence is never interpreted as ready.
+   */
+  executionReadiness?:
+    | "decision_not_authorized"
+    | "stale_decision"
+    | "engine_version_drift"
+    | "kill_switched"
+    | "governance_unavailable"
+    | "source_pipeline_unready"
+    | "live_preflight_required";
+  /** Server-evaluated exact-decision clock. The recommendation-lane clock is
+   * a different fact and may not substitute for this one. */
+  decisionFreshness?: {
+    status: "fresh" | "stale" | "future" | "unavailable";
+    computedAt: string | null;
+    ageHours: number | null;
+    maxAgeHours: number;
+  };
 }
 
 export interface MetaCanonicalDecision {

@@ -150,6 +150,9 @@ async function main() {
   state = applyDailyHysteresis(state, null, "conflict").state; // conflict day 1
   await db.query(UPSERT_CONTEXT_QUERY, [
     businessRefId,
+    // D074: campaign-role identity is account-scoped; the production upsert
+    // now requires the physical provider account.
+    "act_seam_account",
     "seam-campaign",
     "Seam Campaign",
     "2026-07-01",
@@ -167,7 +170,8 @@ async function main() {
   ]);
   const persisted = await db.query<{ hysteresis_state_json: unknown }>(
     `SELECT hysteresis_state_json FROM engine_v3_campaign_context_daily
-     WHERE business_id = $1 AND campaign_id = 'seam-campaign' AND as_of_date = '2026-07-01'`,
+     WHERE business_id = $1 AND provider_account_id = 'act_seam_account'
+       AND campaign_id = 'seam-campaign' AND as_of_date = '2026-07-01'`,
     [businessRefId],
   );
   const roundTripped = parseHysteresisState(persisted[0]?.hysteresis_state_json);

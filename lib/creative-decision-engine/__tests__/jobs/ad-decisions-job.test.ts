@@ -333,21 +333,27 @@ function adInput(input: {
 }
 
 function campaignContext(): CampaignContextLabelMap {
+  // D074: runtime context is automatic-only. These fixtures represent the
+  // fully trusted state (`contextTrust: "high"`), which the live source can
+  // emit only for a high-confidence row under the validated resolver-version
+  // gate; the legacy_labels/meta_campaign_label shape no longer reaches the
+  // guard and would fail closed.
   return new Map(
     ["campaign-a", "campaign-b"].map((campaignId) => [
       campaignId,
       {
         kind: "main" as const,
         testDimension: null,
+        contextTrust: "high" as const,
         provenance: {
-          mode: "legacy_labels" as const,
-          source: "legacy_label" as const,
+          mode: "automatic" as const,
+          source: "system_inferred" as const,
           campaignId,
           kind: "main" as const,
           testDimension: null,
-          contextTrust: null,
-          sourceRecordType: "meta_campaign_label" as const,
-          sourceRecordId: `label-${campaignId}`,
+          contextTrust: "high" as const,
+          sourceRecordType: "engine_v3_campaign_context_daily" as const,
+          sourceRecordId: `context-${campaignId}`,
           sourceAsOfDate: AS_OF,
           sourceUpdatedAt: `${AS_OF}T01:00:00.000Z`,
           sourceHash:
@@ -411,6 +417,8 @@ function hydrationReceipt(input: {
     sourceRunId: "00000000-0000-4000-8000-000000000749",
     sourceObservedAt: `${AS_OF}T02:00:00.000Z`,
     sourceCapturedAt: `${AS_OF}T02:01:00.000Z`,
+    sourcePayloadCapturedAt: `${AS_OF}T02:01:00.000Z`,
+    sourceManifestKind: null,
     sourceRunHash: "a".repeat(64),
     sourcePayloadHash: "b".repeat(64),
     sourceExpectedRowCount: adIds.length,
@@ -1195,7 +1203,7 @@ describe("native ad decision computation", () => {
     expect(result[0]).toMatchObject({
       decision: { decisionEntityId: "ad-a", label: "scale" },
       hysteresisSuppressed: false,
-      campaignContext: { sourceRecordId: "label-campaign-a" },
+      campaignContext: { sourceRecordId: "context-campaign-a" },
       priorHysteresis: {
         source: "persisted_evaluation",
         sourceDecisionEntityId: "ad-a",
@@ -1208,7 +1216,7 @@ describe("native ad decision computation", () => {
         blockedActionType: "scale",
       },
       hysteresisSuppressed: true,
-      campaignContext: { sourceRecordId: "label-campaign-b" },
+      campaignContext: { sourceRecordId: "context-campaign-b" },
       priorHysteresis: { source: "none", sourceDecisionEntityId: "ad-b" },
     });
   });

@@ -5,7 +5,7 @@ import { InsightsPanel } from "@/components/common/briefing/InsightsPanel";
 import {
   buildAnomaliesWidget,
   buildEngineStatusWidget,
-  buildLabelsCoverageWidget,
+  buildCampaignRoleCoverageWidget,
   buildTargetAnchorWidget,
 } from "@/components/common/briefing/InsightsWidgets";
 
@@ -84,36 +84,36 @@ describe("InsightsPanel", () => {
 });
 
 describe("Insights widget builders", () => {
-  it("buildLabelsCoverageWidget returns null when no active campaigns", () => {
+  it("buildCampaignRoleCoverageWidget returns null when no active campaigns", () => {
     expect(
-      buildLabelsCoverageWidget({
+      buildCampaignRoleCoverageWidget({
         activeCampaigns: 0,
-        labeledCampaigns: 0,
-        unlabeledCampaigns: 0,
+        classifiedCampaigns: 0,
+        unresolvedCampaigns: 0,
       }),
     ).toBeNull();
   });
 
-  it("buildLabelsCoverageWidget flags attention when campaigns are unlabeled", () => {
-    const widget = buildLabelsCoverageWidget({
+  it("buildCampaignRoleCoverageWidget flags attention when roles are unresolved", () => {
+    const widget = buildCampaignRoleCoverageWidget({
       activeCampaigns: 24,
-      labeledCampaigns: 21,
-      unlabeledCampaigns: 3,
+      classifiedCampaigns: 21,
+      unresolvedCampaigns: 3,
     });
 
     expect(widget).not.toBeNull();
     expect(widget!.needsAttention).toBe(true);
     expect(widget!.trailingLabel).toBe("88%");
     const body = renderToStaticMarkup(<>{widget!.content}</>);
-    expect(body).toContain("Fix 3 unlabeled");
-    expect(body).toContain("21/24 active campaigns labeled");
+    expect(body).toContain("Refresh 3 unresolved");
+    expect(body).toContain("21/24 active campaigns classified automatically");
   });
 
-  it("buildLabelsCoverageWidget does not flag attention when fully covered", () => {
-    const widget = buildLabelsCoverageWidget({
+  it("buildCampaignRoleCoverageWidget does not flag attention when fully covered", () => {
+    const widget = buildCampaignRoleCoverageWidget({
       activeCampaigns: 10,
-      labeledCampaigns: 10,
-      unlabeledCampaigns: 0,
+      classifiedCampaigns: 10,
+      unresolvedCampaigns: 0,
     });
 
     expect(widget).not.toBeNull();

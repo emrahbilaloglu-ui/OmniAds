@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   applyDailyHysteresis,
   parseHysteresisState,
+  UPSERT_CONTEXT_QUERY,
 } from "../../jobs/campaign-context-job";
 
 describe("campaign context daily hysteresis", () => {
@@ -151,5 +152,40 @@ describe("hysteresis state DB round-trip", () => {
     const exhausted = applyDailyHysteresis(state, null, "unknown");
     expect(exhausted.publishedKind).toBeNull();
     expect(exhausted.state.stableKind).toBeNull();
+  });
+});
+
+describe("account-scoped campaign context persistence", () => {
+  it("writes the account, and conflicts on the key BOTH images can infer", () => {
+    /*
+      PRE-DEPLOY AUDIT — the conflict target moved back to the legacy
+      three-column key, deliberately.
+
+      The account-scoped index is PARTIAL, and PostgreSQL cannot infer a
+      partial index from a bare conflict target. Targeting it therefore made
+      this statement the only one that could run: after the migration, the
+      previous production image — which upserts on `(business_id, campaign_id,
+      as_of_date)` — failed every run with 42P10. The migration now KEEPS that
+      key, and this statement uses it, so an application rollback is survivable.
+
+      The account is still written, on the insert and the update path alike, so
+      a legacy account-less row for the same day is completed rather than left
+      account-less. Account scoping remains enforced by the account-scoped
+      unique index and by the resolver's own account-scope requirement.
+    */
+    expect(UPSERT_CONTEXT_QUERY).toContain(
+      "business_id, provider_account_id, campaign_id, campaign_name, as_of_date",
+    );
+    expect(UPSERT_CONTEXT_QUERY).toContain(
+      "ON CONFLICT (business_id, campaign_id, as_of_date)",
+    );
+    // The account must be written on the UPDATE path too.
+    expect(UPSERT_CONTEXT_QUERY).toContain(
+      "provider_account_id = EXCLUDED.provider_account_id",
+    );
+    // And the statement must NOT name a partial predicate as its target.
+    expect(UPSERT_CONTEXT_QUERY).not.toMatch(
+      /ON CONFLICT[^\n]*\n\s*WHERE provider_account_id IS NOT NULL/,
+    );
   });
 });

@@ -191,10 +191,10 @@ function projectNativeDecisionToCreativeReview(
       roas: finite(decision.metrics.roas),
       recent7dRoas: finite(decision.metrics.recent7dRoas),
     },
-    campaignLabelStatus: decision.parentChain.campaign
-      ? lifecycleRole === "label_needed"
-        ? "unlabeled"
-        : "labeled"
+    campaignRoleStatus: decision.parentChain.campaign
+      ? lifecycleRole === "label_needed" || lifecycleRole === "role_unresolved"
+        ? "unresolved"
+        : "resolved"
       : "no_campaign",
     campaignKind:
       lifecycleRole === "main" ||

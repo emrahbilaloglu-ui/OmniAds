@@ -1,9 +1,12 @@
 import { getDb, runDbTransaction } from "@/lib/db";
-import { readCampaignContextLabelMap } from "../campaign-context/source";
+import {
+  readCampaignContextMap,
+  type CampaignContextEntryWithProvenance,
+} from "../campaign-context/source";
 import { resolveAccountDecisionProfile } from "../account-decision-profile";
 import {
   applyCreativeCampaignLabelGuard,
-  buildCreativeCampaignLabelMap,
+  isCampaignRoleUnresolved,
   withCreativeCampaignLabelContext,
 } from "../campaign-label-guard";
 import { WarehouseDataSource } from "../data-source";
@@ -488,7 +491,7 @@ export async function runDecisionsJob(
           businessId: input.businessId,
           asOf: input.asOf,
         });
-        const campaignLabelsById = await readCreativeCampaignLabelsById({
+        const campaignLabelsById = await readCreativeCampaignRolesById({
           businessId: input.businessId,
           asOf: input.asOf,
           creativeInputs,
@@ -1022,7 +1025,7 @@ export function dedupeDecisionComputations(
   );
 }
 
-async function readCreativeCampaignLabelsById(input: {
+async function readCreativeCampaignRolesById(input: {
   businessId: string;
   asOf: string;
   creativeInputs: CreativeInput[];
@@ -1034,13 +1037,43 @@ async function readCreativeCampaignLabelsById(input: {
         .filter(Boolean),
     ),
   );
-  if (campaignIds.length === 0) return buildCreativeCampaignLabelMap([]);
+  // D074: no live call site may touch the legacy label-map helper. An empty
+  // campaign set simply has no roles.
+  if (campaignIds.length === 0) {
+    return new Map<string, CampaignContextEntryWithProvenance>();
+  }
 
-  return readCampaignContextLabelMap({
-    businessId: input.businessId,
-    campaignIds,
-    asOf: input.asOf,
-  });
+  const accountByCampaign = new Map<string, string | null>();
+  for (const creativeInput of input.creativeInputs) {
+    const campaignId = creativeInput.campaignId?.trim();
+    if (!campaignId) continue;
+    const providerAccountId = creativeInput.providerAccountId?.trim() || null;
+    if (!accountByCampaign.has(campaignId)) {
+      accountByCampaign.set(campaignId, providerAccountId);
+    } else if (accountByCampaign.get(campaignId) !== providerAccountId) {
+      // A campaign identity crossing physical accounts is not trustworthy.
+      accountByCampaign.set(campaignId, null);
+    }
+  }
+  const grouped = new Map<string | null, string[]>();
+  for (const campaignId of campaignIds) {
+    const providerAccountId = accountByCampaign.get(campaignId) ?? null;
+    grouped.set(providerAccountId, [
+      ...(grouped.get(providerAccountId) ?? []),
+      campaignId,
+    ]);
+  }
+  const resolved = await Promise.all(
+    [...grouped].map(([providerAccountId, scopedCampaignIds]) =>
+      readCampaignContextMap({
+        businessId: input.businessId,
+        providerAccountId,
+        campaignIds: scopedCampaignIds,
+        asOf: input.asOf,
+      }),
+    ),
+  );
+  return new Map(resolved.flatMap((map) => [...map]));
 }
 
 function isHardDecisionLabel(label: DecisionLabel) {
@@ -1052,8 +1085,7 @@ function normalizePreviousSnapshotForCampaignLabelGuard(
   currentDecision: DecisionOutput,
 ): PreviousSnapshot {
   if (
-    (currentDecision.campaignLabelStatus === "unlabeled" ||
-      currentDecision.campaignLabelStatus === "no_campaign") &&
+    isCampaignRoleUnresolved(currentDecision) &&
     isHardDecisionLabel(previous.label)
   ) {
     return {

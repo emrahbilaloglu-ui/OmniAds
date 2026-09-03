@@ -102,6 +102,13 @@ function actionableCutDecision(
     actionEligible: true,
     reviewOnlyReason: null,
     authorizedAction: "cut",
+    executionReadiness: "live_preflight_required",
+    decisionFreshness: {
+      status: "fresh",
+      computedAt: decision.sourceDecision.computedAt,
+      ageHours: 1,
+      maxAgeHours: 12,
+    },
   };
   decision.sourceDecision = {
     ...decision.sourceDecision,

@@ -23,12 +23,13 @@ import {
   META_HISTORY_ENTITY_TYPES,
   META_HISTORY_KINDS,
   type MetaHistoryAccount,
+  type MetaHistoryHistoricalAccount,
   type MetaHistoryEntry,
   type MetaHistoryEntryStatus,
   type MetaHistoryResponse,
 } from "@/lib/meta/history-contract";
 import {
-  fetchMetaHistoryAccounts,
+  fetchMetaHistoryAccountScopes,
   fetchMetaHistoryPage,
   type MetaHistoryClientFilters,
 } from "@/lib/meta/history-client";
@@ -56,7 +57,11 @@ const KIND_LABELS = {
   decisions: "Decisions",
   writes: "Writes",
   responses: "Responses",
-  label_flips: "Label flips",
+  // Wire kind stays `label_flips` (persisted history compatibility); the
+  // buyer-facing word is automatic-decision vocabulary — the manual
+  // Test/Main label product is gone (D074/D074b), so the surface must not
+  // advertise it (D078 R5).
+  label_flips: "Decision transitions",
   outcomes: "Outcomes",
   briefs: "Briefs",
   launches: "Launches",
@@ -487,6 +492,9 @@ export default function MetaHistoryView() {
   const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
   const business = businesses.find((item) => item.id === selectedBusinessId) ?? null;
   const [accounts, setAccounts] = useState<MetaHistoryAccount[]>([]);
+  const [historicalAccounts, setHistoricalAccounts] = useState<
+    MetaHistoryHistoricalAccount[] | null
+  >([]);
   const [selectedAccountId, setSelectedAccountId] = useState("");
   const [accountsLoading, setAccountsLoading] = useState(false);
   const [accountsError, setAccountsError] = useState<string | null>(null);
@@ -561,15 +569,27 @@ export default function MetaHistoryView() {
     setAccountsLoading(true);
     setAccountsError(null);
     setAccounts([]);
+    setHistoricalAccounts([]);
     setSelectedAccountId("");
-    fetchMetaHistoryAccounts({ businessId: selectedBusinessId, signal: controller.signal })
-      .then((nextAccounts) => {
+    fetchMetaHistoryAccountScopes({
+      businessId: selectedBusinessId,
+      signal: controller.signal,
+    })
+      .then(({ accounts: nextAccounts, historicalAccounts: nextHistorical }) => {
         if (controller.signal.aborted) return;
         setAccounts(nextAccounts);
+        setHistoricalAccounts(nextHistorical);
         const search = new URLSearchParams(window.location.search);
         const requestedAccount = search.get("providerAccountId");
+        // A deep link may name a deselected historical scope; the picker
+        // honours it read-only. When the historical read FAILED (null) the
+        // requested id is still honoured — the journal endpoint answers
+        // fail-closed unavailable rather than this view guessing.
         const account =
-          nextAccounts.find((item) => item.id === requestedAccount) ?? nextAccounts[0] ?? null;
+          nextAccounts.find((item) => item.id === requestedAccount) ??
+          (nextHistorical ?? []).find((item) => item.id === requestedAccount) ??
+          nextAccounts[0] ??
+          null;
         setSelectedAccountId(account?.id ?? "");
         const requestedMode = search.get("mode");
         const requestedReplayDate = search.get("replayDate");
@@ -708,7 +728,13 @@ export default function MetaHistoryView() {
     providerAccountId: selectedAccountId,
   });
 
-  const selectedAccount = accounts.find((item) => item.id === selectedAccountId) ?? null;
+  const selectedAccount =
+    accounts.find((item) => item.id === selectedAccountId) ??
+    (historicalAccounts ?? []).find((item) => item.id === selectedAccountId) ??
+    null;
+  const selectedHistoricalAccount =
+    (historicalAccounts ?? []).find((item) => item.id === selectedAccountId) ??
+    null;
   const selectedAccountTimeZone = selectedAccount?.timezone || business?.timezone || "UTC";
   const selectedAccountReferenceDate = getTodayIsoForTimeZone(selectedAccountTimeZone);
   const historyState =
@@ -792,10 +818,19 @@ export default function MetaHistoryView() {
             <select
               aria-label="Meta account for History"
               value={selectedAccountId}
-              disabled={accountsLoading || accounts.length === 0}
+              disabled={
+                accountsLoading &&
+                accounts.length === 0 &&
+                (historicalAccounts?.length ?? 0) === 0
+              }
               onChange={(event) => {
                 const accountId = event.target.value;
-                const account = accounts.find((item) => item.id === accountId) ?? null;
+                const account =
+                  accounts.find((item) => item.id === accountId) ??
+                  (historicalAccounts ?? []).find(
+                    (item) => item.id === accountId,
+                  ) ??
+                  null;
                 const accountToday = getTodayIsoForTimeZone(
                   account?.timezone || business?.timezone || "UTC",
                 );
@@ -810,7 +845,9 @@ export default function MetaHistoryView() {
               }}
             >
               {accountsLoading ? <option value="">Loading assigned accounts</option> : null}
-              {!accountsLoading && accounts.length === 0 ? (
+              {!accountsLoading &&
+              accounts.length === 0 &&
+              (historicalAccounts?.length ?? 0) === 0 ? (
                 <option value="">No assigned Meta account</option>
               ) : null}
               {accounts.map((account) => (
@@ -818,7 +855,47 @@ export default function MetaHistoryView() {
                   {account.name ? `${account.name} | ${account.id}` : account.id}
                 </option>
               ))}
+              {historicalAccounts && historicalAccounts.length > 0 ? (
+                <optgroup label="Historical / deselected — read-only">
+                  {historicalAccounts.map((account) => (
+                    <option value={account.id} key={account.id}>
+                      {(account.name ? `${account.name} | ${account.id}` : account.id) +
+                        " — deselected · read-only"}
+                    </option>
+                  ))}
+                </optgroup>
+              ) : null}
             </select>
+            {historicalAccounts === null && !accountsLoading ? (
+              <small
+                data-testid="historical-scope-unavailable"
+                className={styles.historicalScopeNote}
+                role="alert"
+              >
+                Historical account scope unavailable — the assigned-account
+                read failed. Deselected assigned accounts may exist but could
+                not be listed; do not treat this picker as complete.
+              </small>
+            ) : null}
+            {selectedHistoricalAccount ? (
+              <small
+                data-testid="historical-account-scope-note"
+                className={styles.historicalScopeNote}
+              >
+                Deselected account — read-only historical evidence; excluded
+                from serving and from every write control.
+                {` Currency ${selectedHistoricalAccount.currency ?? "unavailable"} · timezone ${selectedHistoricalAccount.timezone ?? "unavailable"}.`}
+                {selectedHistoricalAccount.spend14d !== null &&
+                selectedHistoricalAccount.spend14d > 0
+                  ? ` Spend continued through ${selectedHistoricalAccount.latestFactDate ?? "an unknown date"}.`
+                  : ""}
+                {selectedHistoricalAccount.latestDecisionRows
+                  ? ` ${selectedHistoricalAccount.latestDecisionRows} produced decision rows (latest ${selectedHistoricalAccount.latestDecisionAsOf ?? "unknown"}) are served nowhere else.`
+                  : " No produced decision generation on record for this account."}
+                {/* The exact operator policy implication, visible text. */}
+                {` ${selectedHistoricalAccount.policy}`}
+              </small>
+            ) : null}
           </label>
           <div className={styles.currencyScope}>
             <small>Currency scope</small>

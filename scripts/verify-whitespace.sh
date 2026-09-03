@@ -54,11 +54,50 @@ if [[ -n "$base" ]]; then
   fi
 fi
 
+# None of the three checks above can see an untracked file: `git diff`
+# (working tree) and `git diff --cached` both compare against the INDEX, and
+# a file nobody has ever `git add`ed has no index entry to compare against,
+# so it is invisible to both — this exact gap let seven whitespace
+# violations sit inside newly-added files, undetected through a full pass of
+# typecheck, lint and Vitest, until the day something finally staged them.
+#
+# A disposable index (GIT_INDEX_FILE pointed at a scratch path, never the
+# real one) lets this reuse git's own `--check` semantics — including its
+# binary detection, which silently skips binary content rather than
+# misreporting it — without touching anything the real `git add`/commit
+# will see. `git diff --no-index --check` against /dev/null was tried first
+# and rejected: --no-index reports "differs" (exit 1) for every non-empty
+# file regardless of whitespace, since /dev/null differs from anything, so
+# its exit code cannot distinguish clean from damaged.
+untracked_scratch_index="$(mktemp)"
+rm -f "$untracked_scratch_index"
+untracked_list_file="$(mktemp)"
+trap 'rm -f "$untracked_scratch_index" "$untracked_list_file"' EXIT
+
+git ls-files --others --exclude-standard -z > "$untracked_list_file"
+
+if [[ -s "$untracked_list_file" ]]; then
+  if ! GIT_INDEX_FILE="$untracked_scratch_index" GIT_LITERAL_PATHSPECS=1 \
+      git add --pathspec-from-file="$untracked_list_file" --pathspec-file-nul; then
+    # Fail-closed: a file this couldn't even stage into the scratch index
+    # (unreadable, vanished mid-scan, ...) is reported as damage, not
+    # silently skipped.
+    echo "FAIL: could not stage one or more untracked files into the scratch index for inspection (fail-closed)." >&2
+    status=1
+  elif ! GIT_INDEX_FILE="$untracked_scratch_index" git diff --no-renames --cached --check; then
+    echo "FAIL: an untracked file has whitespace damage (shown above)." >&2
+    status=1
+  fi
+fi
+
+rm -f "$untracked_scratch_index" "$untracked_list_file"
+trap - EXIT
+
 if [[ "$status" -eq 0 ]]; then
   if [[ -n "$base" ]]; then
-    echo "PASS: no whitespace damage in the working tree, the index, or $(git rev-parse --short "$base")..$(git rev-parse --short HEAD)."
+    echo "PASS: no whitespace damage in the working tree, the index, untracked files, or $(git rev-parse --short "$base")..$(git rev-parse --short HEAD)."
   else
-    echo "PASS: no whitespace damage in the working tree or the index (no base branch to compare against)."
+    echo "PASS: no whitespace damage in the working tree, the index, or untracked files (no base branch to compare against)."
   fi
 fi
 

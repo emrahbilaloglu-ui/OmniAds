@@ -162,7 +162,11 @@ export interface CommercialTruthExactModel {
   totals: CommercialTruthTotalsModel;
   /** Formatted unlabeled spend for the closing footnote. */
   unlabeledSpend: string;
-  currencyCode: string;
+  /**
+   * The business currency, or null when none is configured. Never defaulted:
+   * showing dollars for a business that never chose them is a fabrication.
+   */
+  currencyCode: string | null;
   /**
    * The symbol the money formatter itself prints — "$" for USD, "₺" for TRY.
    *

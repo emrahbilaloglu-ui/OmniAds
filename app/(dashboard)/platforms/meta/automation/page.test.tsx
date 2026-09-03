@@ -58,10 +58,13 @@ const payload: MetaAutomationControlPlane = {
       notificationPolicy: "every_auto_action",
       maxBudgetIncreasePct: 15,
       maxDailyBudgetChangeMinor: null,
-      requireCampaignLabel: true,
+      requireResolvedCampaignRole: true,
       requireCommercialAnchor: true,
       requireLivePreflight: true,
       requireRollbackPlan: true,
+      budgetMinHoursBetweenChanges: null,
+      budgetMaxChangesPer7d: null,
+      budgetMaxAccountConcentrationPct: null,
       dryRunOnly: true,
       minRoasFloor: null,
       quietHours: null,
@@ -323,7 +326,27 @@ describe("Dashboard v2 exact Automation presentation", () => {
     expect(html).toContain('data-screen-label="Automation"');
     expect(html).toContain("Meta · Supervision control plane");
     expect(html).toContain(">Automation</h1>");
-    expect(html.match(/<article/g)).toHaveLength(7);
+    /*
+      7 canonical cards
+      + 2 D077 state-history recovery-readiness sections (desktop + mobile)
+      + 2 D086 budget-readiness sections (desktop + mobile)
+
+      Both additions are display-only articles on the EXISTING readiness surface;
+      neither adds a route, a dashboard or an affordance. The D077 pin predated
+      its own sections and was corrected in the D078 acceptance pass; this one is
+      updated in the same slice that adds the sections it counts.
+    */
+    expect(html.match(/<article/g)).toHaveLength(13);
+    // ...and the D086 sections are display-only on both surfaces.
+    expect(html.match(/data-testid="budget-readiness"/g)).toHaveLength(2);
+    /*
+      D087 adds the budget write capability panel to the SAME surface, on both
+      layouts. It is display-only for the same reason the D086 panel is, and it
+      is unavailable here because this fixture supplies no server model — which
+      is what an unconfigured account must look like.
+    */
+    expect(html.match(/data-testid="budget-write-readiness-unavailable"/g)).toHaveLength(2);
+    expect(html).toContain("Automatic execution — master switch");
     expect(html).toContain("Kill switch");
     expect(html).toContain("Guardrails");
     expect(html).toContain("Readiness");
@@ -840,6 +863,35 @@ describe("Dashboard v2 exact Automation presentation", () => {
    * while `getMetaWriteBlockState` refused every write in the same window with
    * `control_state_unavailable`. Provenance, not truthiness, decides.
    */
+  /**
+   * D078: a SUCCESSFUL read of a MISSING control row is not the same case as
+   * a failed read — the section is complete, the values are defaults, and the
+   * write boundary refuses every Meta write with
+   * `business_control_not_configured`. The screen printed a green ENABLED
+   * pill for that business while every write was refused; the pill must state
+   * the effective fail-closed posture instead.
+   */
+  it("renders a missing control row as blocked/not-configured, never ENABLED (D078)", () => {
+    const html = render({
+      ...payload,
+      businessControl: {
+        ...payload.businessControl,
+        killSwitchEngaged: false,
+        source: "default",
+      },
+      // The read itself succeeded — provenance says the row does not exist.
+      readCompleteness: { ...PROVEN_READS, businessControl: "complete" },
+    });
+
+    expect(html).not.toMatch(/data-field="business-writes"[^>]*>ENABLED/);
+    expect(html).toMatch(
+      /data-field="business-writes"[^>]*>BLOCKED · NOT CONFIGURED/,
+    );
+    expect(html).toMatch(/data-tone="stopped"[^>]*data-field="business-writes"/);
+    // The global row keeps its own truth: the env switch is independent.
+    expect(html).toMatch(/data-field="global-writes"[^>]*>ENABLED/);
+  });
+
   it("withholds every control fact when the control read failed, and names the failure", () => {
     const html = render({
       ...payload,
@@ -1432,15 +1484,25 @@ describe("Dashboard v2 exact Automation presentation", () => {
     expect(source).not.toContain("window.confirm");
 
     /*
-     * The POST allowlist, still exact. Three call sites now — the proposal
-     * queue, the Stop, and AUTO-03's mode — across two boundaries, both of
-     * which are ours: `/api/meta/automation/proposals` and
-     * `/api/meta/automation`. Asserted as an allowlist rather than a ban, so a
-     * contracted control can exist while nothing else quietly gains a write,
-     * and neither of these reaches a provider.
+     * The POST allowlist, still exact. FIVE call sites now — the proposal
+     * queue, the Stop, AUTO-03's mode, D088's budget activation ceremony, and
+     * the budget PREPARATION save — across two boundaries, both of which are
+     * ours: `/api/meta/automation/proposals` and `/api/meta/automation`.
+     * Asserted as an allowlist rather than a ban, so a contracted control can
+     * exist while nothing else quietly gains a write, and none of these
+     * reaches a provider.
+     *
+     * PRE-DEPLOY AUDIT — why the fifth is safe to admit. It is a different
+     * VERB from the fourth: `save_budget_automation_config` is admin-floored
+     * on the route and pins `auto_execution_enabled` to FALSE while clearing
+     * the activated account on every path, so the site that was added to let
+     * an operator PREPARE cannot be the site that ENABLES. The two actions are
+     * named separately below so a rename cannot merge them.
      */
-    expect(source.match(/method: "POST"/g)).toHaveLength(3);
+    expect(source.match(/method: "POST"/g)).toHaveLength(5);
     expect(source).toContain('action: "set_decision_type_mode"');
+    expect(source).toContain('action: "set_budget_auto_execution"');
+    expect(source).toContain('action: "save_budget_automation_config"');
     expect(source).toMatch(
       /fetch\(`\/api\/meta\/automation\/proposals\?\$\{query\.toString\(\)\}`, \{\s*method: "POST"/,
     );

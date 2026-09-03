@@ -18,9 +18,22 @@ vi.mock("@/lib/meta/ads-write", () => ({
   readMetaAdExecutionState: vi.fn(),
 }));
 
+vi.mock("@/lib/meta/decision-pipeline-health", () => ({
+  readMetaDecisionPipelineOperationalHealth: vi.fn(),
+  buildMetaDecisionPipelineHealth: vi.fn(),
+}));
+
+vi.mock("@/lib/meta/decisions-workspace-read-model", () => ({
+  readMetaDecisionsWorkspaceReadModel: vi.fn(),
+}));
+
 const actionLog = await import("@/lib/meta/ads-action-log");
 const controlPlane = await import("@/lib/meta/automation-control-plane");
 const adsWrite = await import("@/lib/meta/ads-write");
+const pipelineHealth = await import("@/lib/meta/decision-pipeline-health");
+const decisionReadModel = await import(
+  "@/lib/meta/decisions-workspace-read-model"
+);
 const { runServerDecisionOriginAdActionPreflight } =
   await import("./decision-origin-action-preflight");
 
@@ -62,6 +75,16 @@ describe("server decision-origin action preflight", () => {
       reason: null,
       message: null,
     });
+    vi.mocked(
+      pipelineHealth.readMetaDecisionPipelineOperationalHealth,
+    ).mockResolvedValue({} as never);
+    vi.mocked(
+      decisionReadModel.readMetaDecisionsWorkspaceReadModel,
+    ).mockResolvedValue({} as never);
+    vi.mocked(pipelineHealth.buildMetaDecisionPipelineHealth).mockReturnValue({
+      overall: "healthy",
+      executionReady: true,
+    } as never);
     vi.mocked(adsWrite.readMetaAdExecutionState).mockResolvedValue({
       ok: true,
       adId: "123456789012345",
@@ -129,6 +152,31 @@ describe("server decision-origin action preflight", () => {
       snapshotId: "snapshot_1",
       evaluationId: "evaluation_1",
     });
+  });
+
+  it("rejects at the server boundary when the current source pipeline is not execution-ready", async () => {
+    vi.mocked(pipelineHealth.buildMetaDecisionPipelineHealth).mockReturnValue({
+      overall: "blocked",
+      executionReady: false,
+    } as never);
+
+    const result = await runServerDecisionOriginAdActionPreflight({
+      request: request(),
+      ctx: {
+        businessId: "business_1",
+        providerAccountId: "act_123",
+        accessToken: "secret-token",
+        connectionGeneration: "1:connected",
+      },
+      now: NOW,
+    });
+
+    expect(result).toMatchObject({
+      disposition: "reject",
+      shouldMutate: false,
+      errorCode: "source_pipeline_unready",
+    });
+    expect(result.blockers).toContain("source_pipeline_unready");
   });
 
   it("rejects a non-canonical native tuple key before any evidence read", async () => {

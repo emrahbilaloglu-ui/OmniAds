@@ -1206,11 +1206,21 @@ history_entries AS (
       AND prior.entity_type = entity_state.entity_type
       AND prior.entity_id = entity_state.entity_id
       AND prior.observed_at < entity_state.observed_at
+      -- D075 consumer sweep: status transitions are computed over PRESENT
+      -- observations only. An absent_unconfirmed row carries no provider
+      -- status (absence is evidence, not a state), so comparing against it
+      -- would fabricate or mask transitions around scope exit/re-entry.
+      AND prior.presence = 'present'
     ORDER BY prior.observed_at DESC
     LIMIT 1
   ) entity_previous ON TRUE
   WHERE entity_state.business_id = $1
     AND entity_state.provider_account_id = $2
+    -- D075 consumer sweep: a scope-exit (absent_unconfirmed) row is not a
+    -- status change — reporting it as one would turn every scope exit (and
+    -- the one-time exit backfill of a scope's first delta run) into a burst
+    -- of fabricated "status changed" history entries.
+    AND entity_state.presence = 'present'
     -- A first observation is not a change, and an unchanged re-observation is
     -- not either. Both would turn the syncer's own cadence into activity.
     AND entity_previous.configured_status IS NOT NULL

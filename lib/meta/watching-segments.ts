@@ -8,10 +8,21 @@ const WATCH_SEGMENT_META: Record<
   MetaWatchingSegmentKey,
   Omit<MetaWatchingSegment, "key" | "count">
 > = {
+  role_unresolved: {
+    label: "Role unresolved",
+    description:
+      "Automatic campaign-role inference is unresolved, so hard actions stay soft-only.",
+    ctaLabel: "Refresh role evidence",
+    href: null,
+  },
+  // Deprecated pre-D074b alias key: never produced by active classification,
+  // kept only so the exhaustive Record type accepts payloads serialized by
+  // older builds.
   unlabeled: {
-    label: "Unlabeled",
-    description: "Campaign label is missing, so hard actions stay soft-only.",
-    ctaLabel: "Label campaigns",
+    label: "Role unresolved",
+    description:
+      "Automatic campaign-role inference is unresolved, so hard actions stay soft-only.",
+    ctaLabel: "Refresh role evidence",
     href: null,
   },
   missing_target: {
@@ -67,7 +78,7 @@ const WATCH_SEGMENT_META: Record<
 };
 
 const WATCH_SEGMENT_ORDER: readonly MetaWatchingSegmentKey[] = [
-  "unlabeled",
+  "role_unresolved",
   "missing_target",
   "learning",
   "recently_changed",
@@ -83,7 +94,10 @@ export function buildMetaWatchingSegments(
 ): MetaWatchingSegment[] {
   const counts = new Map<MetaWatchingSegmentKey, number>();
   for (const rec of watching) {
-    const key = rec.watchSegment ?? "other";
+    const raw = rec.watchSegment ?? "other";
+    // Fold the deprecated pre-D074b key so a re-fed historical payload's
+    // count is not silently dropped from the ordered strip.
+    const key = raw === "unlabeled" ? "role_unresolved" : raw;
     counts.set(key, (counts.get(key) ?? 0) + 1);
   }
   return WATCH_SEGMENT_ORDER.map((key) => ({

@@ -180,6 +180,7 @@ describe("WarehouseDataSource native ad-grain hydration", () => {
       states: [
         {
           event_kind: "state",
+          presence: "present",
           id: "00000000-0000-4000-8000-000000000991",
           provider_account_ref_id: "00000000-0000-4000-8000-000000000711",
           provider_account_id: "act_account_1",
@@ -192,6 +193,7 @@ describe("WarehouseDataSource native ad-grain hydration", () => {
         },
         {
           event_kind: "state",
+          presence: "present",
           id: "00000000-0000-4000-8000-000000000992",
           provider_account_ref_id: "00000000-0000-4000-8000-000000000711",
           provider_account_id: "act_account_1",
@@ -261,6 +263,7 @@ describe("WarehouseDataSource native ad-grain hydration", () => {
           return [
             {
               event_kind: "state",
+              presence: "present",
               id: `state-${providerAccountRefId}`,
               provider_account_ref_id: providerAccountRefId,
               provider_account_id: "act_account_1",
@@ -333,6 +336,7 @@ describe("WarehouseDataSource native ad-grain hydration", () => {
         {
           id: "00000000-0000-4000-8000-000000000999",
           event_kind: "state",
+          presence: "present",
           provider_account_ref_id: "00000000-0000-4000-8000-000000000711",
           provider_account_id: "act_account_1",
           entity_id: "ad-1",
@@ -469,6 +473,7 @@ describe("WarehouseDataSource native ad-grain hydration", () => {
           expect(params?.[5]).toBe("2026-07-10T02:01:00.000Z");
           return batch.map((adId) => ({
             event_kind: "state",
+            presence: "present",
             id: `state-${adId}`,
             provider_account_ref_id: "00000000-0000-4000-8000-000000000711",
             provider_account_id: "act_account_1",
@@ -524,6 +529,7 @@ describe("WarehouseDataSource native ad-grain hydration", () => {
           const batch = (params?.[3] ?? []) as string[];
           return batch.map((adId) => ({
             event_kind: "state",
+            presence: "present",
             id: `state-${adId}`,
             provider_account_ref_id:
               "00000000-0000-4000-8000-000000000711",
@@ -1000,7 +1006,7 @@ describe("native ad hydration SQL contract", () => {
       "run.completeness = 'complete'",
     );
     expect(READ_AD_HYDRATION_COMPLETENESS_RECEIPTS_QUERY).toContain(
-      "run.observed_at >= $2::date",
+      "COALESCE(run.last_seen_at, run.observed_at) >= $2::date",
     );
     expect(READ_AD_HYDRATION_COMPLETENESS_RECEIPTS_QUERY).toContain(
       "source_expected_row_count",
@@ -1019,13 +1025,31 @@ describe("native ad hydration SQL contract", () => {
     );
   });
 
-  it("uses capture time rather than provider update time for receipt membership", () => {
+  it("binds receipt membership to the exact complete payload while heartbeat clocks prove freshness", () => {
     expect(READ_AD_HYDRATION_COMPLETENESS_RECEIPTS_QUERY).toContain(
-      "state.captured_at >= run.source_captured_at",
+      "state.run_id = run.source_run_id",
+    );
+    // Tombstones are written under their own point_lookup runs, so binding
+    // them to the source run id would make the arm unmatchable and freeze
+    // deleted ads into the manifest. Membership is identity-scoped instead.
+    expect(READ_AD_HYDRATION_COMPLETENESS_RECEIPTS_QUERY).not.toContain(
+      "tombstone.run_id = run.source_run_id",
     );
     expect(READ_AD_HYDRATION_COMPLETENESS_RECEIPTS_QUERY).toContain(
-      "tombstone.captured_at >= run.source_captured_at",
+      "COALESCE(run.last_captured_at, run.captured_at)",
     );
+    // The payload clock (the run's ORIGINAL capture time) travels beside the
+    // heartbeat freshness clocks so hydration can floor on the payload, not
+    // the heartbeat.
+    expect(READ_AD_HYDRATION_COMPLETENESS_RECEIPTS_QUERY).toContain(
+      "run.captured_at AS source_payload_captured_at",
+    );
+    expect(READ_AD_HYDRATION_COMPLETENESS_RECEIPTS_QUERY).toContain(
+      "source_payload_captured_at::text AS source_payload_captured_at",
+    );
+    // The freshness pair may never invert: a transitional row whose
+    // last_seen_at advanced under pre-last_captured_at code is clamped.
+    expect(READ_AD_HYDRATION_COMPLETENESS_RECEIPTS_QUERY).toContain("LEAST(");
     expect(READ_AD_HYDRATION_COMPLETENESS_RECEIPTS_QUERY).not.toContain(
       "state.observed_at >= run.source_observed_at",
     );

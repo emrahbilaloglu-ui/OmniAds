@@ -6,6 +6,11 @@ import { readLaunchpadWriteAuthority } from "@/app/api/launchpad/meta/demo-write
 import { requireBusinessPageContext } from "@/lib/access/require-business-page-context";
 import { getSessionFromCookies } from "@/lib/auth";
 import { getMetaAutomationControlPlane } from "@/lib/meta/automation-control-plane";
+import { getDb } from "@/lib/db";
+import { readStateHistoryCompactionReadiness } from "@/lib/meta/state-history-compaction-readiness";
+import { readBudgetWriteSurfaceReadiness } from "@/lib/meta/budget-write-readiness-server";
+import { readBudgetReadiness } from "@/lib/meta/budget-readiness-read-model";
+import { campaignContextAuthorityResolverVersion } from "@/lib/creative-decision-engine/campaign-context/source";
 import { loginUrlFor } from "@/lib/zero-base/auth-routing";
 import { resolveProviderAccountId } from "@/lib/zero-base/provider-scope-server";
 import { MetaSurfaceState } from "@/components/meta/MetaSurfaceState";
@@ -45,6 +50,55 @@ export default async function MetaAutomationRoute({
   const control = await getMetaAutomationControlPlane({
     businessId,
     providerAccountId,
+  }).catch(() => null);
+
+  // D077: server-owned, display-only recovery readiness. The helper fails
+  // closed to an explicit unavailable state; a null here (unexpected throw)
+  // renders as unavailable too — never as ready.
+  const stateHistoryReadiness = await readStateHistoryCompactionReadiness(
+    getDb(),
+    { businessId },
+  ).catch(() => null);
+
+  /*
+    D086: server-owned, display-only budget-readiness for the three retention
+    blockers D085 r16 left open.
+
+    ACCOUNT-SCOPED FROM THE ROUTE'S OWN RESOLUTION. The provider account is the
+    one `resolveProviderAccountId` already resolved above — never a client
+    parameter and never a row's self-description. A business with more than one
+    assigned account resolves to exactly one here; when nothing resolves, `null`
+    travels through and the read model fails closed with an explicit scope
+    blocker rather than aggregating accounts into a single verdict.
+
+    A throw yields `null`, which the section renders as unavailable — never as
+    ready. `nowIso` is passed explicitly so the read model holds no clock.
+  */
+  const budgetReadiness = await readBudgetReadiness(getDb(), {
+    businessId,
+    providerAccountId,
+    nowIso: new Date().toISOString(),
+    /*
+      THE CANONICAL RESOLVER, not raw `process.env`.
+
+      `campaignContextAuthorityResolverVersion()` returns the approved version
+      only when it equals the compiled one, so route readiness and runtime
+      authority cannot drift. Reading the variable directly would have let a
+      stale or arbitrary value look like an approval here while the runtime
+      refused it.
+    */
+    approvedResolverVersion: campaignContextAuthorityResolverVersion(),
+  }).catch(() => null);
+
+  /*
+    D088 C3: the budget write-readiness surface model.
+
+    It carries the exact provider account automatic execution is enabled for,
+    which the business-wide control row alone cannot express. A failed read is
+    `null` and renders as unavailable.
+  */
+  const budgetWriteReadiness = await readBudgetWriteSurfaceReadiness({
+    businessId, providerAccountId,
   }).catch(() => null);
 
   /**
@@ -197,6 +251,10 @@ export default async function MetaAutomationRoute({
       providerAccountId={providerAccountId}
       initialPayload={scopedControl}
       viewer={viewer}
+      stateHistoryReadiness={stateHistoryReadiness}
+      budgetReadiness={budgetReadiness}
+      /* D088 C3: the activation state, and the account it is bound to. */
+      budgetWriteReadiness={budgetWriteReadiness}
       /*
        * The same answer the route would give, so the refusal is visible before
        * the click. The gate holds ENGAGE only; releasing an existing stop is

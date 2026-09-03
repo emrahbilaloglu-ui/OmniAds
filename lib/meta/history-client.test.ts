@@ -11,6 +11,36 @@ function jsonResponse(body: unknown, status = 200) {
   });
 }
 
+
+describe("fetchMetaHistoryAccountScopes tri-state (D078 C2.3)", () => {
+  async function scopes(payload: unknown) {
+    const fetchImpl = (async () =>
+      new Response(JSON.stringify(payload), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      })) as unknown as typeof fetch;
+    const { fetchMetaHistoryAccountScopes } = await import(
+      "@/lib/meta/history-client"
+    );
+    return fetchMetaHistoryAccountScopes({ businessId: "b1", fetchImpl });
+  }
+
+  it("preserves null (server read failure) instead of collapsing it to an empty group", async () => {
+    const result = await scopes({ accounts: [], historicalAccounts: null });
+    expect(result.historicalAccounts).toBeNull();
+  });
+
+  it("treats a legacy payload without the field as unavailable, not proven-none", async () => {
+    const result = await scopes({ accounts: [] });
+    expect(result.historicalAccounts).toBeNull();
+  });
+
+  it("passes a successful empty read through as [] (proven none)", async () => {
+    const result = await scopes({ accounts: [], historicalAccounts: [] });
+    expect(result.historicalAccounts).toEqual([]);
+  });
+});
+
 describe("Meta History client", () => {
   it("loads assigned accounts with GET only", async () => {
     const fetchImpl = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>

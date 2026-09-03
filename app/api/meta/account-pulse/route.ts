@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { resolveCampaignContextMode } from "@/lib/creative-decision-engine/campaign-context/source";
+import {
+  readCampaignContextMap,
+  resolveCampaignContextMode,
+} from "@/lib/creative-decision-engine/campaign-context/source";
 import { requireBusinessAccess } from "@/lib/access";
 import { getDb } from "@/lib/db";
 import { getMetaCampaignsForRange } from "@/lib/meta/campaigns-source";
@@ -11,10 +14,9 @@ import { getMetaCanonicalOverviewTrends } from "@/lib/meta/canonical-overview";
 import { isInBriefing, parseBriefingStatusFilter } from "@/lib/meta/briefing-filter";
 import { META_RECOMMENDATION_ENGINE_VERSION } from "@/lib/meta/recommendations";
 import { getCachedValue } from "@/lib/server-cache";
-import { readMetaCampaignLabels } from "@/lib/meta/campaign-labels";
 import { resolveBusinessTargetPackFreshness } from "@/lib/business-commercial";
 import type {
-  MetaLabelCoverage,
+  MetaCampaignRoleCoverage,
   MetaSnapshotHealth,
   MetaTargetAnchor,
 } from "@/components/meta/redesign/types";
@@ -287,10 +289,12 @@ function isActiveCampaign(row: { status?: unknown; effective_status?: unknown; e
   return status === "ACTIVE";
 }
 
-async function readCampaignLabelCoverage(input: {
+async function readAutomaticCampaignRoleCoverage(input: {
   businessId: string;
+  providerAccountId: string | null;
+  asOf: string;
   rows: Array<{ id: string; status?: unknown; effective_status?: unknown; effectiveStatus?: unknown }>;
-}): Promise<MetaLabelCoverage> {
+}): Promise<MetaCampaignRoleCoverage> {
   const activeIds = Array.from(
     new Set(
       input.rows
@@ -302,22 +306,29 @@ async function readCampaignLabelCoverage(input: {
   if (activeIds.length === 0) {
     return {
       activeCampaigns: 0,
-      labeledCampaigns: 0,
-      unlabeledCampaigns: 0,
+      classifiedCampaigns: 0,
+      unresolvedCampaigns: 0,
       latestUpdatedAt: null,
     };
   }
-  const labels = await readMetaCampaignLabels({
+  const contexts = await readCampaignContextMap({
     businessId: input.businessId,
+    providerAccountId: input.providerAccountId,
     campaignIds: activeIds,
+    asOf: input.asOf,
   });
   const activeSet = new Set(activeIds);
-  const labeledIds = new Set(labels.filter((label) => activeSet.has(label.campaignId)).map((label) => label.campaignId));
+  const classified = [...contexts].filter(
+    ([campaignId, entry]) => activeSet.has(campaignId) && entry.kind !== null,
+  );
+  const classifiedIds = new Set(classified.map(([campaignId]) => campaignId));
   return {
     activeCampaigns: activeIds.length,
-    labeledCampaigns: labeledIds.size,
-    unlabeledCampaigns: Math.max(0, activeIds.length - labeledIds.size),
-    latestUpdatedAt: latestTimestamp(labels.map((label) => label.updatedAt)),
+    classifiedCampaigns: classifiedIds.size,
+    unresolvedCampaigns: Math.max(0, activeIds.length - classifiedIds.size),
+    latestUpdatedAt: latestTimestamp(
+      classified.map(([, entry]) => entry.provenance.sourceUpdatedAt),
+    ),
   };
 }
 
@@ -741,10 +752,12 @@ export async function GET(request: NextRequest) {
   const d7Rows = (d7.rows ?? []).filter((row) => isInBriefing(row, statusFilter));
   const d14Rows = (d14.rows ?? []).filter((row) => isInBriefing(row, statusFilter));
   const d28Rows = (d28.rows ?? []).filter((row) => isInBriefing(row, statusFilter));
-  const labelCoverage = compactOsWorkspace
+  const campaignRoleCoverage = compactOsWorkspace
     ? null
-    : await readCampaignLabelCoverage({
+    : await readAutomaticCampaignRoleCoverage({
         businessId,
+        providerAccountId,
+        asOf: endDate,
         rows: currentRows as Array<{
           id: string;
           status?: unknown;
@@ -753,8 +766,8 @@ export async function GET(request: NextRequest) {
         }>,
       }).catch(() => ({
         activeCampaigns: 0,
-        labeledCampaigns: 0,
-        unlabeledCampaigns: 0,
+        classifiedCampaigns: 0,
+        unresolvedCampaigns: 0,
         latestUpdatedAt: null,
       }));
 
@@ -874,7 +887,7 @@ export async function GET(request: NextRequest) {
       engineVersion: engineMetadata.engineVersion,
       campaignContextMode: resolveCampaignContextMode(),
       snapshotHealth: engineMetadata.snapshotHealth,
-      labelCoverage,
+      campaignRoleCoverage,
       targetAnchor,
       trackingHealth,
       lastSyncAt: warehouseLastSyncAt,

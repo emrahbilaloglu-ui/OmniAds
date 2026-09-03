@@ -4,6 +4,15 @@ import ts from "typescript";
 
 import { META_CAMPAIGN_KINDS } from "@/lib/meta/campaign-label-types";
 import { META_OS_DECISIONS_PRESENTATION_VERSION } from "@/lib/meta/decisions-os-contract";
+import { META_DECISION_PIPELINE_HEALTH_CONTRACT_VERSION } from "@/lib/meta/decision-pipeline-health";
+import { META_COMMERCIAL_ANCHOR_PANEL_CONTRACT } from "@/lib/meta/commercial-anchor-panel";
+import {
+  META_BUDGET_DECISION_EVIDENCE_DIRECTIONAL_CONTRACT,
+  META_BUDGET_DECISION_EVIDENCE_PANEL_CONTRACT,
+} from "@/lib/meta/budget-decision-evidence-panel";
+import { BUDGET_DECISION_GATE_CODES } from "@/lib/meta/budget-decision-gates";
+import { META_BUDGET_DRY_RUN_PANEL_CONTRACT } from "@/lib/meta/budget-dry-run-panel";
+import { COMMERCIAL_ANCHOR_CONTRACT_VERSION } from "@/lib/creative-decision-engine/commercial-anchor";
 import {
   META_DECISIONS_AD_CANDIDATE_SELECTION_VERSION,
   META_DECISIONS_CLASSIFICATION_OVERLAY_VERSION,
@@ -54,6 +63,24 @@ const CONTRACT_FILES = [
   "components/meta/redesign/types.ts",
   "lib/meta/decisions-os-contract.ts",
   "lib/meta/decisions-workspace-contract.ts",
+  "lib/meta/decision-pipeline-health.ts",
+  "lib/meta/commercial-anchor-panel.ts",
+  "lib/creative-decision-engine/commercial-anchor.ts",
+  // The anchor explanation's closed unions live in the engine type contract.
+  "lib/creative-decision-engine/types.ts",
+  /*
+    PRE-DEPLOY AUDIT — the directional budget evidence panel.
+
+    `MetaDecisionsWorkspacePayload.system.budgetEvidence` is served by the
+    route and rendered by `MetaPlatformPage`, but its interfaces were declared
+    in files the walk did not open. The probe therefore could not resolve the
+    field, threw at import, and the whole coverage matrix — the thing that
+    proves every served field reaches a surface — could not run at all.
+  */
+  "lib/meta/budget-decision-evidence-panel.ts",
+  "lib/meta/budget-decision-gates.ts",
+  // The second unresolved served branch: `system.budgetDryRun`.
+  "lib/meta/budget-dry-run-panel.ts",
 ] as const;
 
 /** The one payload the Decision page is handed. Everything walks from here. */
@@ -84,6 +111,13 @@ const TYPEOF_CONSTANTS: Record<string, string> = {
   META_DECISIONS_CLASSIFICATION_OVERLAY_VERSION,
   META_DECISIONS_SECTION_SELECTION_VERSION,
   META_DECISIONS_AD_CANDIDATE_SELECTION_VERSION,
+  META_DECISION_PIPELINE_HEALTH_CONTRACT_VERSION,
+  META_COMMERCIAL_ANCHOR_PANEL_CONTRACT,
+  COMMERCIAL_ANCHOR_CONTRACT_VERSION,
+  // The two budget evidence contracts, resolved the same way as their peers.
+  META_BUDGET_DECISION_EVIDENCE_DIRECTIONAL_CONTRACT,
+  META_BUDGET_DECISION_EVIDENCE_PANEL_CONTRACT,
+  META_BUDGET_DRY_RUN_PANEL_CONTRACT,
 };
 
 /**
@@ -93,6 +127,8 @@ const TYPEOF_CONSTANTS: Record<string, string> = {
 const CONSTANT_ARRAYS: Record<string, readonly string[]> = {
   META_DECISION_QUEUE_SECTION_KEYS,
   META_CAMPAIGN_KINDS,
+  // The budget gate vocabulary: a closed list of real refusal codes.
+  BUDGET_DECISION_GATE_CODES,
 };
 
 /**
@@ -365,7 +401,73 @@ function pad(value: number, width: number): string {
  * JOIN KEY whose two spellings must agree for the payload to describe one
  * account rather than several unrelated ones.
  */
+/**
+ * PRE-DEPLOY AUDIT — a union of interfaces, walked through ONE representative.
+ *
+ * `MetaOsDecisionAction` became `MetaOsLegacyDecisionAction |
+ * MetaOsBudgetDecisionAction` when D081 added the budget branch, and a type
+ * ALIAS is not an interface declaration, so the walk stopped at it and treated
+ * the whole action as one opaque leaf.
+ *
+ * Giving it a fixed object would have been worse than the throw it replaced:
+ * an atomic value cannot be mutated field by field, so every claim about
+ * `label`, `code` or `intent` would have become unprovable while still being
+ * classified as rendered. Walking the representative branch keeps each member
+ * an individually probed leaf, exactly as it was before the union existed.
+ *
+ * The LEGACY branch is the representative because it is the serialized shape
+ * every queue and structure row carries; the budget branch only narrows it
+ * (`intent: "review"`, `providerMutation: null`) and adds `budgetIntent`,
+ * which is walked under its own interface.
+ */
+const UNION_REPRESENTATIVE: Record<string, string> = {
+  MetaOsDecisionAction: "MetaOsLegacyDecisionAction",
+};
+
 const OVERRIDES: Record<string, { base: unknown; alt: unknown }> = {
+  /*
+    PRE-DEPLOY AUDIT — the budget evidence panel's open-shape leaves.
+
+    `anchorExplanation` is the canonical commercial-anchor document, carried
+    through verbatim; the panel does not re-derive it, and the walk has no
+    schema to enumerate for an open record. Real anchor keys are used so the
+    probe proves the value that actually reaches the screen, and the two
+    variants differ in the field the surface reads.
+  */
+  "MetaBudgetDecisionEvidencePanel.commercialLineage.anchorExplanation": {
+    base: { anchor: "target_cpa", confidence: "high", spendUnit: "cpa" },
+    alt: { anchor: "break_even_fallback", confidence: "low", spendUnit: "roas" },
+  },
+  /*
+    An array of the closed gate vocabulary. Real codes, for the same reason as
+    every other union array here: a made-up token takes a branch the product
+    never takes, and the surface groups these by code.
+  */
+  "EvidencePanelSection.blockerCodes": {
+    base: ["role_authority_absent", "dry_run_guardrail"],
+    alt: ["provider_baseline_unavailable"],
+  },
+  /*
+    The §10 write-safety steps a dry run reports as unmet. Real step names,
+    from `lib/meta/write-safety-contract.ts`: the panel lists them verbatim.
+  */
+  "MetaBudgetDryRunPanel.required.writeSafetyMissing": {
+    base: ["typed_or_explicit_confirmation", "durable_idempotency_claim"],
+    alt: ["independent_provider_readback"],
+  },
+  /**
+   * Arrays of a named union the walk cannot synthesise. Real codes are used so
+   * the probe proves the actual served value reaches the screen; inventing a
+   * token would take a branch the product never takes.
+   */
+  "CommercialAnchorExplanation.missingInputs": {
+    base: ["target_cpa", "operator_aov_assumption"],
+    alt: ["commercial_target_provenance"],
+  },
+  "MetaDecisionPipelineOperationalHealth.blockers": {
+    base: ["sync_activity_stale"],
+    alt: ["warehouse_cutoff_stale", "decision_manifest_invalid"],
+  },
   /**
    * The §9 envelope the route decides and the surface region renders.
    *
@@ -590,10 +692,21 @@ function leafSpec(key: string, type: ts.TypeNode): LeafSpec {
 }
 
 function computeLeafSpec(key: string, type: ts.TypeNode): LeafSpec {
+  /*
+    `never` is the type's way of saying the member CANNOT exist on this branch
+    — `MetaOsLegacyDecisionAction.budgetIntent?: never` makes "no budget
+    payload on a legacy action" a compile-time fact. There is no value to
+    probe, and serializing one would build a payload the contract forbids.
+  */
+  if (type.kind === ts.SyntaxKind.NeverKeyword) {
+    return { base: undefined, alt: undefined, varies: false, constantText: "never" };
+  }
+
   const override = OVERRIDES[key];
   if (override) {
     return { base: override.base, alt: override.alt, varies: true, constantText: null };
   }
+
 
   const domain = literalDomain(type);
   if (domain) {
@@ -731,7 +844,20 @@ function interfaceValue(name: string, state: WalkState): unknown {
   if (!declaration) return null;
   if (state.depth > 24) return null;
   state.depth += 1;
-  const value = memberValues(name, declaration.members, "", state);
+  const inherited = (declaration.heritageClauses ?? []).reduce<
+    Record<string, unknown>
+  >((value, clause) => {
+    for (const type of clause.types) {
+      const parent = type.expression.getText();
+      if (!declarations.has(parent)) continue;
+      Object.assign(value, interfaceValue(parent, state));
+    }
+    return value;
+  }, {});
+  const value = {
+    ...inherited,
+    ...memberValues(name, declaration.members, "", state),
+  };
   state.depth -= 1;
   return value;
 }
@@ -752,6 +878,10 @@ function memberValues(
     let container = hasInlineObject(member.type);
     for (const reference of referencedTypes(member.type)) {
       if (declarations.has(reference)) {
+        container = true;
+      } else if (UNION_REPRESENTATIVE[reference]) {
+        // A union of interfaces is a container too: it is walked through the
+        // representative branch so its members stay individually probed.
         container = true;
       } else if (!aliases.has(reference) && !BUILTIN_TYPES.has(reference)) {
         state.externals.add(reference);
@@ -829,7 +959,8 @@ function containerValue(
         const owner = object.typeName.getText();
         const key = `${owner}.${member}`;
         const reachesContract = [...referencedTypes(target.type)].some(
-          (reference) => declarations.has(reference),
+          (reference) => declarations.has(reference)
+            || UNION_REPRESENTATIVE[reference] !== undefined,
         );
         if (!hasInlineObject(target.type) && !reachesContract) {
           return leafValueFor(key, leafSpec(key, target.type), state);
@@ -866,6 +997,10 @@ function containerValue(
         );
       }
       return record;
+    }
+    const representative = UNION_REPRESENTATIVE[name];
+    if (representative && contracts().declarations.has(representative)) {
+      return interfaceValue(representative, state);
     }
     if (contracts().declarations.has(name)) return interfaceValue(name, state);
   }

@@ -1,9 +1,10 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { MetaCanonicalDecision } from "@/lib/meta/decisions-workspace-contract";
 import type { MetaOsAdDecision } from "@/lib/meta/decisions-os-contract";
 import {
   buildNativeMetaCanonicalDecisionInventory,
   buildNativeMetaDecisionsWorkspaceReadModel,
+  applyMetaExecutionGovernanceToReadModel,
   type MetaDecisionCampaignContextSourceRow,
   type MetaNativeDecisionSnapshotSourceRow,
 } from "@/lib/meta/decisions-workspace-read-model";
@@ -21,6 +22,23 @@ import {
   describeMetaNativeAdPauseFailure,
   executeMetaNativeAdPause,
 } from "./meta-native-ad-pause";
+import { CAMPAIGN_CONTEXT_RESOLVER_VERSION } from "@/lib/creative-decision-engine/campaign-context/resolver";
+import { CAMPAIGN_CONTEXT_AUTHORITY_RESOLVER_VERSION_ENV } from "@/lib/creative-decision-engine/campaign-context/source";
+
+// D074: the zero-blocker state this file authorizes from is reachable only
+// after the deliberate operator act of validating the exact resolver version.
+// The gate is intentionally unset in production today; stubbing it here is the
+// test's simulation of that act, not a claim that validation passed.
+beforeAll(() => {
+  vi.stubEnv(
+    CAMPAIGN_CONTEXT_AUTHORITY_RESOLVER_VERSION_ENV,
+    CAMPAIGN_CONTEXT_RESOLVER_VERSION,
+  );
+});
+
+afterAll(() => {
+  vi.unstubAllEnvs();
+});
 
 /**
  * WHY THIS FILE BUILDS NOTHING BY HAND.
@@ -111,10 +129,10 @@ function campaignContext(): MetaDecisionCampaignContextSourceRow {
   return {
     campaignId: "cmp_1",
     kind: "main",
-    source: "persisted_label",
+    source: "system_inferred",
     confidenceClass: "high",
     sourceUpdatedAt: "2026-07-09T10:00:00.000Z",
-    resolverVersion: "user",
+    resolverVersion: CAMPAIGN_CONTEXT_RESOLVER_VERSION,
   };
 }
 
@@ -151,16 +169,26 @@ function producerOutput(): {
       `Native canonical inventory is not available: ${inventory.unavailableReason}`,
     );
   }
-  const readModel = buildNativeMetaDecisionsWorkspaceReadModel({
-    businessId: BUSINESS_ID,
-    providerAccountId: ACCOUNT_ID,
-    generation: generationFor(rows),
-    snapshotRows: rows,
-    campaignContextRows: [campaignContext()],
-    eventSourceAvailable: false,
-    outcomeSourceAvailable: false,
-    responseSourceAvailable: false,
-    generatedAt: "2026-07-12T12:00:00.000Z",
+  const readModel = applyMetaExecutionGovernanceToReadModel({
+    model: buildNativeMetaDecisionsWorkspaceReadModel({
+      businessId: BUSINESS_ID,
+      providerAccountId: ACCOUNT_ID,
+      generation: generationFor(rows),
+      snapshotRows: rows,
+      campaignContextRows: [campaignContext()],
+      eventSourceAvailable: false,
+      outcomeSourceAvailable: false,
+      responseSourceAvailable: false,
+      generatedAt: "2026-07-12T12:00:00.000Z",
+    }),
+    governance: {
+      verified: true,
+      controlsConfigured: true,
+      writeBlocked: false,
+      blockReason: null,
+    },
+    pipeline: { verified: true, executionReady: true },
+    now: new Date("2026-07-12T12:00:00.000Z"),
   });
   const presentation = buildMetaOsDecisionsPresentation({
     actionNow: [],
@@ -171,7 +199,9 @@ function producerOutput(): {
   });
   const decision = presentation.ads.items[0];
   if (!decision) throw new Error("The presentation served no Ad decision.");
-  return { canonical: inventory.items[0]!, decision };
+  const canonical = readModel.queue.adCandidates?.items[0];
+  if (!canonical) throw new Error("The governed read model has no canonical Ad.");
+  return { canonical, decision };
 }
 
 function authorize(
@@ -339,6 +369,22 @@ describe("authorizeMetaNativeAdPause", () => {
       ({ canonical }: { canonical: MetaCanonicalDecision }) => {
         if (canonical.sourceAuthority)
           canonical.sourceAuthority.actionEligible = false;
+      },
+    ],
+    [
+      "stale execution readiness",
+      ({ canonical }: { canonical: MetaCanonicalDecision }) => {
+        if (canonical.sourceAuthority) {
+          canonical.sourceAuthority.executionReadiness = "stale_decision";
+        }
+      },
+    ],
+    [
+      "missing execution readiness",
+      ({ canonical }: { canonical: MetaCanonicalDecision }) => {
+        if (canonical.sourceAuthority) {
+          delete canonical.sourceAuthority.executionReadiness;
+        }
       },
     ],
     [

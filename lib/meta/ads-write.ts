@@ -4,6 +4,10 @@ import { createHash } from "node:crypto";
 import { getMetaWriteBlockState } from "@/lib/meta/automation-control-plane";
 import { recordAutomationGuardBlock } from "@/lib/meta/automation-rules-store";
 import type { DecisionOriginAdExecutionBlocker } from "@/lib/creative-decision-engine/execution-safety";
+import {
+  BUDGET_MUTATION_BODY_KEYS,
+  BUDGET_READBACK_FIELDS,
+} from "@/lib/meta/budget-write-capability";
 
 export interface MetaAdsWriteContext {
   businessId: string;
@@ -200,6 +204,29 @@ export type MetaEntityExecutionStateRead =
 export type MetaAdsetBidWriteSuccess = {
   ok: true;
   verifiedBidAmount: number;
+  dryRun?: boolean;
+  wouldHaveWritten?: MetaAdsWouldHaveWritten;
+  responsePayload?: Record<string, unknown> | null;
+  verificationPayload?: Record<string, unknown> | null;
+};
+
+/**
+ * D087 — a budget write that a fresh read-back CONFIRMED.
+ *
+ * A transport 2xx is not success. The verified fields below come from a
+ * separate GET of the same node after the write, and the adapter refuses unless
+ * the account, the field and the exact minor-unit value all match what was
+ * intended. `previousAmountMinor` is the value the read-back replaced, which is
+ * what a later rollback has to restore and the only value it may restore.
+ */
+export type MetaEntityBudgetWriteSuccess = {
+  ok: true;
+  scope: MetaEntityExecutionScope;
+  entityId: string;
+  budgetField: "daily_budget" | "lifetime_budget";
+  verifiedAmountMinor: number;
+  verifiedCurrency: string;
+  previousAmountMinor: number | null;
   dryRun?: boolean;
   wouldHaveWritten?: MetaAdsWouldHaveWritten;
   responsePayload?: Record<string, unknown> | null;
@@ -2769,6 +2796,414 @@ export async function updateAdsetBidAmount(
     verifiedBidAmount,
     responsePayload: write.payload,
     verificationPayload: verification.payload,
+  };
+}
+
+/**
+ * D087 — update a campaign or ad-set budget, then PROVE it.
+ *
+ * The shape follows `updateAdsetBidAmount` deliberately: the same kill switch,
+ * the same transport, the same failure builders, and the same "verify or fail"
+ * ending. What it adds is that a budget read-back has more than one way to be
+ * wrong, so each is separated: the node that answered must be the node written,
+ * on the account written, in the currency the retained fact named, with the
+ * intended field carrying the intended value. Any other combination — including
+ * the RIGHT value in the WRONG field — is a failure, not a success.
+ */
+/**
+ * D088 C1 — read the CURRENT budget of one node through the existing read
+ * boundary, for a compare-and-set baseline.
+ *
+ * It is the same `verifyEntity` every write already verifies with, so the
+ * baseline a preflight compares against and the value the adapter re-checks
+ * before POSTing come from one code path rather than two that can disagree.
+ * It issues a GET and nothing else.
+ */
+export async function readMetaEntityBudgetState(
+  ctx: MetaAdsWriteContext,
+  input: {
+    entityId: string;
+    budgetField: "daily_budget" | "lifetime_budget";
+  },
+): Promise<{
+  ok: true;
+  entityId: string;
+  providerAccountId: string;
+  budgetField: "daily_budget" | "lifetime_budget";
+  amountMinor: number;
+  currency: string;
+  readAtMs: number;
+} | { ok: false; reason: string }> {
+  const verification = await verifyEntity({
+    ctx, entityId: input.entityId, fields: BUDGET_READBACK_FIELDS,
+  });
+  if (!verification.ok) {
+    return { ok: false, reason: verification.error?.code ?? "verification_failed" };
+  }
+  const payload = verification.payload;
+  const currency = typeof payload?.currency === "string" ? payload.currency.trim() : "";
+  if (currency === "") return { ok: false, reason: "currency_not_reported" };
+  const raw = payload?.[input.budgetField];
+  const amount = typeof raw === "string" || typeof raw === "number" ? Number(raw) : Number.NaN;
+  if (!Number.isFinite(amount) || amount <= 0) {
+    return { ok: false, reason: "budget_not_reported" };
+  }
+  return {
+    ok: true,
+    entityId: input.entityId,
+    providerAccountId: ctx.providerAccountId,
+    budgetField: input.budgetField,
+    amountMinor: Math.round(amount),
+    currency,
+    readAtMs: Date.now(),
+  };
+}
+
+export async function updateEntityBudget(
+  ctx: MetaAdsWriteContext,
+  input: {
+    scope: MetaEntityExecutionScope;
+    entityId: string;
+    budgetField: "daily_budget" | "lifetime_budget";
+    amountMinor: number;
+    /** The retained currency. A read-back in another currency is not this budget. */
+    expectedCurrency: string;
+    /**
+     * The value the caller's accepted baseline says the account holds RIGHT NOW.
+     *
+     * D087 C1: the orchestrator's compare-and-set ran against a read taken
+     * milliseconds earlier, and this adapter then took a second read of its own
+     * without comparing it to anything. An operator change landing between the
+     * two was overwritten by the POST. This is the value the pre-POST read must
+     * still show, and the POST does not happen unless it does.
+     */
+    expectedPreviousAmountMinor: number;
+    /**
+     * Called after the final compare-and-set read and immediately before POST.
+     * A false/throwing marker vetoes the mutation.
+     */
+    beforeProviderPost?: () => Promise<boolean>;
+    dryRun?: boolean;
+  },
+): Promise<MetaEntityBudgetWriteSuccess | MetaAdsWriteFailure> {
+  if (isMetaAdsWriteKillSwitchEngaged()) return killSwitchFailure();
+
+  if (!Number.isSafeInteger(input.amountMinor) || input.amountMinor <= 0) {
+    return {
+      ok: false,
+      httpStatus: 400,
+      providerMutationAttempted: false,
+      error: {
+        code: "invalid_budget_amount",
+        message: "A budget amount must be a positive, exact, safe integer of minor units.",
+      },
+      responsePayload: null,
+      verificationPayload: null,
+    };
+  }
+
+  const amountMinor = input.amountMinor;
+  const wouldHaveWritten: MetaAdsWouldHaveWritten = {
+    method: "POST",
+    path: input.entityId,
+    body: { [input.budgetField]: amountMinor },
+  };
+
+  const readBack = async (payload: Record<string, unknown> | null) => {
+    const verification = await verifyEntity({
+      ctx,
+      entityId: input.entityId,
+      fields: BUDGET_READBACK_FIELDS,
+    });
+    if (!verification.ok) {
+      return {
+        failure: {
+          ok: false as const,
+          httpStatus: verification.httpStatus,
+          providerOutcome: "definite_failure" as const,
+          error:
+            verification.error ?? {
+              code: "verification_failed",
+              message: "Meta accepted the budget write, but verification failed.",
+            },
+          responsePayload: payload,
+          verificationPayload: verification.payload,
+        },
+        payload: verification.payload,
+      };
+    }
+    return { failure: null, payload: verification.payload };
+  };
+
+  const mismatch = (
+    code: string,
+    message: string,
+    payload: Record<string, unknown> | null,
+    verificationPayload: Record<string, unknown> | null,
+  ): MetaAdsWriteFailure => ({
+    ok: false,
+    httpStatus: 502,
+    providerOutcome: "definite_failure",
+    error: { code, message },
+    responsePayload: payload,
+    verificationPayload,
+  });
+
+  /**
+   * Every way a budget read can fail to be about this write.
+   *
+   * Used TWICE with different expectations: before the POST it must show the
+   * accepted previous value, and after it must show the intended one. Sharing
+   * one classifier is deliberate — a guard weaker than the verification would
+   * be a guard that lets through exactly what the verification catches.
+   */
+  const classifyRead = (
+    verificationPayload: Record<string, unknown> | null,
+    payload: Record<string, unknown> | null,
+    expect: { amountMinor: number; prefix: "precondition" | "readback" },
+  ): { failure: MetaAdsWriteFailure | null; amount: number; currency: string } => {
+    const none = { amount: Number.NaN, currency: "" };
+    const verifiedId = typeof verificationPayload?.id === "string"
+      ? verificationPayload.id : "";
+    if (verifiedId !== input.entityId) {
+      return {
+        failure: mismatch(
+          `${expect.prefix}_entity_mismatch`,
+          `Meta answered for ${verifiedId || "no entity"} rather than ${input.entityId}.`,
+          payload, verificationPayload,
+        ),
+        ...none,
+      };
+    }
+    const verifiedAccount = typeof verificationPayload?.account_id === "string"
+      ? verificationPayload.account_id : "";
+    // Meta reports `account_id` without the `act_` prefix the context carries.
+    const contextAccount = ctx.providerAccountId.replace(/^act_/, "");
+    if (verifiedAccount.replace(/^act_/, "") !== contextAccount) {
+      return {
+        failure: mismatch(
+          `${expect.prefix}_account_mismatch`,
+          "Meta answered for a different ad account.",
+          payload, verificationPayload,
+        ),
+        ...none,
+      };
+    }
+    /*
+      D087 C1: currency is OBSERVED. The previous version accepted an empty or
+      absent `currency` and substituted the request's — which made a request in
+      a currency the account does not hold prove itself, and contradicted the
+      read-back field list that asks for it.
+    */
+    const verifiedCurrency = typeof verificationPayload?.currency === "string"
+      ? verificationPayload.currency.trim() : "";
+    if (verifiedCurrency === "") {
+      return {
+        failure: mismatch(
+          `${expect.prefix}_currency_absent`,
+          `Meta did not report a currency for ${input.entityId}, so the minor-unit `
+          + "amount cannot be proven to mean anything.",
+          payload, verificationPayload,
+        ),
+        ...none,
+      };
+    }
+    if (verifiedCurrency !== input.expectedCurrency) {
+      return {
+        failure: mismatch(
+          `${expect.prefix}_currency_mismatch`,
+          `Meta reported the budget in ${verifiedCurrency}, not the retained ${input.expectedCurrency}.`,
+          payload, verificationPayload,
+        ),
+        ...none,
+      };
+    }
+    const raw = verificationPayload?.[input.budgetField];
+    const verifiedAmount = typeof raw === "string" || typeof raw === "number"
+      ? Number(raw) : Number.NaN;
+    if (!Number.isFinite(verifiedAmount)) {
+      return {
+        failure: mismatch(
+          `${expect.prefix}_field_absent`,
+          `Meta did not report ${input.budgetField} for ${input.entityId}.`,
+          payload, verificationPayload,
+        ),
+        ...none,
+      };
+    }
+    if (Math.round(verifiedAmount) !== expect.amountMinor) {
+      return {
+        failure: mismatch(
+          expect.prefix === "precondition" ? "precondition_amount_mismatch" : "silent_failure",
+          expect.prefix === "precondition"
+            ? `The account holds ${Math.round(verifiedAmount)} for ${input.budgetField}, not the `
+              + `${expect.amountMinor} this proposal was accepted against; it changed after `
+              + "preflight and nothing may be written over it."
+            : `Meta returned success but ${input.budgetField} verified as ${Math.round(verifiedAmount)}.`,
+          payload, verificationPayload,
+        ),
+        ...none,
+      };
+    }
+    return {
+      failure: null,
+      amount: Math.round(verifiedAmount),
+      currency: verifiedCurrency,
+    };
+  };
+
+  if (input.dryRun) {
+    const pre = await readBack(dryRunPayload(wouldHaveWritten));
+    if (pre.failure) return pre.failure;
+    const guard = classifyRead(pre.payload, dryRunPayload(wouldHaveWritten), {
+      amountMinor: input.expectedPreviousAmountMinor, prefix: "precondition",
+    });
+    if (guard.failure) return guard.failure;
+    return {
+      ok: true,
+      scope: input.scope,
+      entityId: input.entityId,
+      budgetField: input.budgetField,
+      verifiedAmountMinor: amountMinor,
+      verifiedCurrency: guard.currency,
+      previousAmountMinor: guard.amount,
+      dryRun: true,
+      wouldHaveWritten,
+      responsePayload: dryRunPayload(wouldHaveWritten),
+      verificationPayload: pre.payload,
+    };
+  }
+
+  /*
+    THE LAST WORD BEFORE THE POST.
+
+    This read is taken here, in the adapter, so nothing can happen between the
+    check and the mutation except this function's own next statement. It must
+    show the value the proposal was accepted against; any other answer means
+    somebody changed the budget after preflight, and the intended value is no
+    longer the value that was reasoned about.
+  */
+  const before = await readBack(null);
+  // Nothing has been POSTed yet, and the refusal has to say so: a caller that
+  // cannot tell a pre-write refusal from a post-write one must retry neither.
+  if (before.failure) return { ...before.failure, providerMutationAttempted: false };
+  const precondition = classifyRead(before.payload, null, {
+    amountMinor: input.expectedPreviousAmountMinor, prefix: "precondition",
+  });
+  if (precondition.failure) {
+    return { ...precondition.failure, providerMutationAttempted: false };
+  }
+  const previousAmountMinor = precondition.amount;
+
+  /*
+    PRE-DEPLOY AUDIT — the block check comes BEFORE the marker.
+
+    `metaFetchWriteOnce` refuses a blocked write (global or business kill
+    switch, guard rule, quiet hours, demo workspace) as its first act — but it
+    is only reached AFTER `beforeProviderPost` has already stamped the durable
+    dispatch marker. A write the server was always going to refuse was
+    therefore recorded as "a provider call was entered", which is exactly the
+    distinction the marker exists to make and the one the shared lifecycle
+    states as an invariant. Asking the same guard here, first, keeps a
+    pre-provider refusal markerless.
+  */
+  const preMarkerBlock = await getMetaAdsWriteBlockFailure(ctx);
+  if (preMarkerBlock) {
+    return {
+      ok: false,
+      httpStatus: 503,
+      providerMutationAttempted: false,
+      providerOutcome: "definite_failure",
+      error: preMarkerBlock.error,
+      responsePayload: null,
+      verificationPayload: before.payload,
+    };
+  }
+
+  if (input.beforeProviderPost) {
+    const marked = await input.beforeProviderPost().catch(() => false);
+    if (!marked) {
+      return {
+        ok: false,
+        httpStatus: 503,
+        providerMutationAttempted: false,
+        providerOutcome: "definite_failure",
+        error: {
+          code: "dispatch_marker_unavailable",
+          message:
+            "The dispatch marker could not be persisted, so no Meta budget write was attempted.",
+        },
+        responsePayload: null,
+        verificationPayload: before.payload,
+      };
+    }
+  }
+
+  const body = new URLSearchParams({
+    [BUDGET_MUTATION_BODY_KEYS[input.budgetField]]: String(amountMinor),
+  });
+  const write = await metaFetchWriteOnce({
+    ctx,
+    path: input.entityId,
+    method: "POST",
+    body,
+  });
+  if (write.error) {
+    return buildWriteTransportFailure({
+      error: write.error,
+      payload: write.payload,
+      mutationAttempt: write.mutationAttempt,
+    });
+  }
+  const httpStatus = write.response?.status ?? 502;
+  if (!write.response?.ok || isFailureBody(write.payload)) {
+    return buildWriteFailure({
+      payload: write.payload,
+      httpStatus,
+      fallbackCode: "meta_budget_write_failed",
+      fallbackMessage: `Meta failed to update the ${input.scope} ${input.budgetField}.`,
+      mutationAttempt: write.mutationAttempt,
+    });
+  }
+
+  /*
+    PRE-DEPLOY AUDIT — past this line the POST WAS SENT and Meta answered 2xx.
+
+    Both failures below are read-back failures, not write failures: the budget
+    may already have moved. They carried only `mutationAttempt`, and the D087
+    journal reads `providerMutationAttempted`, so the durable row said
+    `provider_attempted = false` for precisely the case where money may have
+    changed — the one an operator reconciles first.
+  */
+  const after = await readBack(write.payload);
+  if (after.failure) {
+    return {
+      ...after.failure,
+      providerMutationAttempted: true,
+      mutationAttempt: write.mutationAttempt,
+    };
+  }
+  const verdict = classifyRead(after.payload, write.payload, {
+    amountMinor, prefix: "readback",
+  });
+  if (verdict.failure) {
+    return {
+      ...verdict.failure,
+      providerMutationAttempted: true,
+      mutationAttempt: write.mutationAttempt,
+    };
+  }
+
+  return {
+    ok: true,
+    scope: input.scope,
+    entityId: input.entityId,
+    budgetField: input.budgetField,
+    verifiedAmountMinor: verdict.amount,
+    verifiedCurrency: verdict.currency,
+    previousAmountMinor,
+    responsePayload: write.payload,
+    verificationPayload: after.payload,
   };
 }
 

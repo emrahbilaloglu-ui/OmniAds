@@ -13,6 +13,8 @@
  * - Historical snapshot analysis for AI/recommendations lives outside this module.
  */
 
+import { classifyAmountField } from "@/lib/meta/budget-fact";
+import { resolveMinorUnitExponent } from "@/lib/currency/iso-4217-minor-units";
 import { getDb } from "@/lib/db";
 import { fetchWithTimeout } from "@/lib/http-fetch-with-timeout";
 import {
@@ -359,6 +361,8 @@ interface RawCampaign {
   buying_type?: string;
   daily_budget?: string;
   lifetime_budget?: string;
+  start_time?: string;
+  stop_time?: string;
   bid_strategy?: string;
   bid_amount?: string;
   bid_constraints?: {
@@ -367,10 +371,10 @@ interface RawCampaign {
 }
 
 const META_CAMPAIGN_CONFIG_FIELDS =
-  "id,name,objective,effective_status,status,updated_time,buying_type,daily_budget,lifetime_budget,bid_strategy,bid_amount,bid_constraints{roas_average_floor}";
+  "id,name,objective,effective_status,status,updated_time,buying_type,daily_budget,lifetime_budget,start_time,stop_time,bid_strategy,bid_amount,bid_constraints{roas_average_floor}";
 
 const META_ADSET_CONFIG_FIELDS =
-  "id,name,campaign_id,effective_status,status,updated_time,daily_budget,lifetime_budget,optimization_goal,promoted_object{pixel_id,custom_event_type,custom_conversion_id},bid_strategy,bid_amount,bid_constraints{roas_average_floor}";
+  "id,name,campaign_id,effective_status,status,updated_time,daily_budget,lifetime_budget,start_time,end_time,optimization_goal,promoted_object{pixel_id,custom_event_type,custom_conversion_id},bid_strategy,bid_amount,bid_constraints{roas_average_floor}";
 
 const META_AD_CONFIG_FIELDS =
   "id,name,campaign_id,adset_id,effective_status,status,updated_time,created_time,creative{id}";
@@ -402,6 +406,8 @@ interface RawAdSet {
   updated_time?: string;
   daily_budget?: string;
   lifetime_budget?: string;
+  start_time?: string;
+  end_time?: string;
   optimization_goal?: string;
   bid_strategy?: string;
   bid_amount?: string;
@@ -492,6 +498,64 @@ export interface MetaCredentials {
       name: string | null;
     }
   >;
+}
+
+/**
+ * D083 Correction 1 — owner provenance from explicit field semantics.
+ *
+ * The first version used `daily || lifetime`, which is wrong twice over: the
+ * provider's `"0"` sentinel is a truthy JavaScript string, so a non-owning
+ * grain claimed ownership; and both fields missing collapsed to
+ * `not_applicable`, which asserts "the money is at the other grain" when the
+ * truth is that nothing was observed. Absent means `not_observed`; a zero
+ * sentinel means this grain does not own the money; only a positive integer
+ * makes this grain the owner.
+ */
+/** The Graph version every fetch in this module addresses. */
+export const META_GRAPH_API_VERSION = "v25.0" as const;
+
+export function deriveMetaBudgetOrigin(
+  grain: "campaign" | "adset",
+  fields: { daily: unknown; lifetime: unknown; requested?: boolean },
+): "campaign" | "adset" | "not_observed" | "not_applicable" {
+  const daily = classifyAmountField(fields.daily);
+  const lifetime = classifyAmountField(fields.lifetime);
+  /*
+    D086: absence is an OBSERVATION when the fields were requested.
+
+    Both budget fields are in the config endpoint's field list, so a response
+    that omits them says this entity carries no budget at this grain. Recording
+    that as "not observed" made the canonical owner resolution refuse with
+    `owner_origin_unrecognised`, so a CBO campaign's own ad-sets could never be
+    proven non-owners. When the caller cannot say the fields were requested the
+    old, weaker answer stands.
+  */
+  if (daily === "absent" && lifetime === "absent") {
+    return fields.requested === true ? "not_applicable" : "not_observed";
+  }
+  if (daily === "invalid" || lifetime === "invalid") return "not_observed";
+  if (daily === "positive" || lifetime === "positive") return grain;
+  return "not_applicable";
+}
+
+/**
+ * D083 — records which currency exponent was in force when an amount was
+ * captured. A later registry revision must never silently restate a historical
+ * observation, so the version travels with the row rather than being re-derived
+ * at read time. An unresolvable currency records nothing rather than assuming
+ * two decimals.
+ */
+export function metaBudgetCurrencyProvenance(currency: string | null): {
+  budgetCurrencyExponent: number | null;
+  budgetCurrencyRegistryVersion: string | null;
+} {
+  const resolution = resolveMinorUnitExponent(currency);
+  return resolution.status === "resolved"
+    ? {
+        budgetCurrencyExponent: resolution.exponent,
+        budgetCurrencyRegistryVersion: resolution.registryVersion,
+      }
+    : { budgetCurrencyExponent: null, budgetCurrencyRegistryVersion: null };
 }
 
 export function resolveMetaCurrencyForAccount(
@@ -1217,6 +1281,9 @@ async function persistMetaStatusConfigObservation<TItem>(input: {
   endpoint: string;
   receipt: MetaPagedCollectionReceipt<TItem>;
   sourceSnapshotId: string | null;
+  // D086: the sync partition this capture belongs to. Passed through to the
+  // append-only observation receipt so the cohort survives run coalescing.
+  partitionId: string;
   mapRow: (input: {
     row: TItem;
     responseObservedAt: string;
@@ -1270,10 +1337,23 @@ async function persistMetaStatusConfigObservation<TItem>(input: {
     error,
     adCreativeRelationships:
       input.entityType === "ad" ? relationships : undefined,
+    captureReceipt: {
+      partitionId: input.partitionId,
+      sourceSnapshotId: input.sourceSnapshotId,
+      /*
+        D086 correction 8: the same id, as a REFERENCE the database enforces.
+        `source_snapshot_id` mirrors the run's TEXT column and a free string can
+        name anything; `persistMetaRawSnapshot` returns a real row id, so the
+        receipt carries it typed and foreign-keyed.
+      */
+      sourceSnapshotRefId: input.sourceSnapshotId,
+    },
   });
 }
 
-function mapCampaignObservationState(input: {
+// Exported for the D083 seam, which must exercise the real mapper rather
+// than hand-building the normalised state it is supposed to prove.
+export function mapCampaignObservationState(input: {
   credentials: MetaCredentials;
   accountId: string;
   row: RawCampaign;
@@ -1310,10 +1390,25 @@ function mapCampaignObservationState(input: {
       budgetCurrency:
         resolveMetaCurrencyForAccount(input.credentials, input.accountId) ??
         null,
-      budgetOrigin:
-        campaignDailyBudgetRaw || campaignLifetimeBudgetRaw
-          ? ("campaign" as const)
-          : ("not_applicable" as const),
+      // D086: the shape IS observed here — both budget fields are requested,
+      // so the response either carries a provider amount in a shape we support
+      // or states their absence.
+      budgetShapeSupport: "supported" as const,
+      budgetOrigin: deriveMetaBudgetOrigin("campaign", {
+        daily: input.row.daily_budget,
+        lifetime: input.row.lifetime_budget,
+        requested: true,
+      }),
+      // D083 — schedule and the exponent in force at capture. A lifetime budget
+      // without both ends of its schedule cannot be evaluated at all.
+      campaignStartTime: optionalString(input.row.start_time),
+      campaignEndTime: optionalString(input.row.stop_time),
+      adsetStartTime: null,
+      adsetEndTime: null,
+      providerApiVersion: META_GRAPH_API_VERSION,
+      ...metaBudgetCurrencyProvenance(
+        resolveMetaCurrencyForAccount(input.credentials, input.accountId),
+      ),
       reviewStatus: null,
       policyStatus: null,
       policyReasons: null,
@@ -1325,6 +1420,15 @@ function mapCampaignObservationState(input: {
         providerUpdatedAt: hasOwn(input.row, "updated_time"),
         campaignDailyBudgetRaw: hasOwn(input.row, "daily_budget"),
         campaignLifetimeBudgetRaw: hasOwn(input.row, "lifetime_budget"),
+        // D083 C2 — exact presence and source truth. The schedule endpoints are
+        // response fields; the exponent, registry version and API version are
+        // client-known provenance, and are marked as such rather than claimed
+        // as Graph fields.
+        campaignStartTime: hasOwn(input.row, "start_time"),
+        campaignEndTime: hasOwn(input.row, "stop_time"),
+        budgetCurrencyExponent: "client_registry",
+        budgetCurrencyRegistryVersion: "client_registry",
+        providerApiVersion: "client_known",
         policy: false,
         review: false,
         learning: false,
@@ -1338,7 +1442,7 @@ function mapCampaignObservationState(input: {
   };
 }
 
-function mapAdSetObservationState(input: {
+export function mapAdSetObservationState(input: {
   credentials: MetaCredentials;
   accountId: string;
   row: RawAdSet;
@@ -1376,10 +1480,21 @@ function mapAdSetObservationState(input: {
       budgetCurrency:
         resolveMetaCurrencyForAccount(input.credentials, input.accountId) ??
         null,
-      budgetOrigin:
-        adsetDailyBudgetRaw || adsetLifetimeBudgetRaw
-          ? ("adset" as const)
-          : ("not_applicable" as const),
+      budgetShapeSupport: "supported" as const,
+      budgetOrigin: deriveMetaBudgetOrigin("adset", {
+        requested: true,
+        daily: input.row.daily_budget,
+        lifetime: input.row.lifetime_budget,
+      }),
+      // D083 — see the campaign mapper.
+      campaignStartTime: null,
+      campaignEndTime: null,
+      adsetStartTime: optionalString(input.row.start_time),
+      adsetEndTime: optionalString(input.row.end_time),
+      providerApiVersion: META_GRAPH_API_VERSION,
+      ...metaBudgetCurrencyProvenance(
+        resolveMetaCurrencyForAccount(input.credentials, input.accountId),
+      ),
       reviewStatus: null,
       policyStatus: null,
       policyReasons: null,
@@ -1391,6 +1506,12 @@ function mapAdSetObservationState(input: {
         providerUpdatedAt: hasOwn(input.row, "updated_time"),
         adsetDailyBudgetRaw: hasOwn(input.row, "daily_budget"),
         adsetLifetimeBudgetRaw: hasOwn(input.row, "lifetime_budget"),
+        // D083 C2 — see the campaign mapper.
+        adsetStartTime: hasOwn(input.row, "start_time"),
+        adsetEndTime: hasOwn(input.row, "end_time"),
+        budgetCurrencyExponent: "client_registry",
+        budgetCurrencyRegistryVersion: "client_registry",
+        providerApiVersion: "client_known",
         learning: false,
         policy: false,
         review: false,
@@ -2812,6 +2933,10 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
                 accountId: input.accountId,
                 endpointName: "campaign_configs",
                 entityScope: "campaign",
+                // D086: the config snapshots were the only raw pages recorded
+                // without their partition, so nothing linked a capture receipt
+                // back to the payload it was mapped from.
+                partitionId: input.partitionId,
                 since: normalizedDay,
                 until: normalizedDay,
                 payload: campaignReceipt.rows,
@@ -2830,6 +2955,10 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
                 accountId: input.accountId,
                 endpointName: "adset_configs",
                 entityScope: "adset",
+                // D086: the config snapshots were the only raw pages recorded
+                // without their partition, so nothing linked a capture receipt
+                // back to the payload it was mapped from.
+                partitionId: input.partitionId,
                 since: normalizedDay,
                 until: normalizedDay,
                 payload: adsetReceipt.rows,
@@ -2848,6 +2977,10 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
                 accountId: input.accountId,
                 endpointName: "ad_configs",
                 entityScope: "ad",
+                // D086: the config snapshots were the only raw pages recorded
+                // without their partition, so nothing linked a capture receipt
+                // back to the payload it was mapped from.
+                partitionId: input.partitionId,
                 since: normalizedDay,
                 until: normalizedDay,
                 payload: adReceipt.rows,
@@ -2879,6 +3012,7 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
             endpoint: "campaign_configs",
             receipt: campaignReceipt,
             sourceSnapshotId: campaignSnapshotId,
+            partitionId: input.partitionId,
             mapRow: ({ row, responseObservedAt, capturedAt }) =>
               mapCampaignObservationState({
                 credentials: input.credentials,
@@ -2895,6 +3029,7 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
             endpoint: "adset_configs",
             receipt: adsetReceipt,
             sourceSnapshotId: adsetSnapshotId,
+            partitionId: input.partitionId,
             mapRow: ({ row, responseObservedAt, capturedAt }) =>
               mapAdSetObservationState({
                 credentials: input.credentials,
@@ -2911,6 +3046,7 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
             endpoint: "ad_configs",
             receipt: adReceipt,
             sourceSnapshotId: adSnapshotId,
+            partitionId: input.partitionId,
             mapRow: ({ row, responseObservedAt, capturedAt }) =>
               mapAdObservationState({
                 credentials: input.credentials,

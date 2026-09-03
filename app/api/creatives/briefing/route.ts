@@ -24,7 +24,15 @@ import {
 } from "@/lib/meta/briefing-filter";
 import { toISODate } from "@/lib/meta/creatives-row-mappers";
 import type { MetaCreativeApiRow } from "@/lib/meta/creatives-types";
-import { readMetaNativeCanonicalDecisionInventory } from "@/lib/meta/decisions-workspace-read-model";
+import {
+  applyMetaExecutionGovernanceToCanonicalDecisions,
+  readMetaNativeCanonicalDecisionInventory,
+} from "@/lib/meta/decisions-workspace-read-model";
+import { readEffectiveMetaWriteGovernance } from "@/lib/meta/automation-control-plane";
+import {
+  buildMetaDecisionPipelineHealthFromCanonicalInventory,
+  readMetaDecisionPipelineOperationalHealth,
+} from "@/lib/meta/decision-pipeline-health";
 import { readDemoNativeCanonicalDecisionInventory } from "@/lib/meta/demo-native-canonical-fixture";
 import type { MetaCanonicalDecision } from "@/lib/meta/decisions-workspace-contract";
 import { readTriageState } from "@/lib/triage-events";
@@ -366,7 +374,10 @@ function buildLaneSummary(input: {
       bucketCounts.testMaturing += 1;
     } else if (card.watchingSubBucket === "diagnostic") {
       bucketCounts.diagnostic += 1;
-    } else if (card.watchingSubBucket === "waiting_on_labels") {
+    } else if (
+      card.watchingSubBucket === "waiting_on_role_resolution" ||
+      card.watchingSubBucket === "waiting_on_labels"
+    ) {
       bucketCounts.waitingOnLabels += 1;
     } else {
       bucketCounts.other += 1;
@@ -461,6 +472,7 @@ function canonicalNativeDecisionCreativeScopeId(
 }
 
 export async function GET(request: NextRequest) {
+  const requestEvaluatedAt = new Date();
   const businessId =
     request.nextUrl.searchParams.get("businessId")?.trim() ?? "";
   const asOf =
@@ -577,6 +589,17 @@ export async function GET(request: NextRequest) {
         businessId: resolvedBusinessId,
         providerAccountId,
         asOfDate: parsedAsOf ?? undefined,
+        generatedAt: requestEvaluatedAt.toISOString(),
+      });
+  const liveExecutionGovernancePromise = demoBusiness
+    ? null
+    : readEffectiveMetaWriteGovernance({ businessId: resolvedBusinessId });
+  const liveOperationalPipelineHealthPromise = demoBusiness
+    ? null
+    : readMetaDecisionPipelineOperationalHealth({
+        businessId: resolvedBusinessId,
+        providerAccountId,
+        now: requestEvaluatedAt,
       });
   const [creativeRows, triageState] = await Promise.all([
     readCreativeRows({
@@ -591,13 +614,40 @@ export async function GET(request: NextRequest) {
       scopeType: "creative",
     }).catch(() => ({ rows: [], deferredCount: 0 })),
   ]);
-  const canonicalInventory = demoBusiness
+  const rawCanonicalInventory = demoBusiness
     ? readDemoNativeCanonicalDecisionInventory({
       businessId: resolvedBusinessId,
       providerAccountId,
       rows: creativeRows,
     })
     : await liveCanonicalInventoryPromise!;
+  const canonicalInventory =
+    demoBusiness || rawCanonicalInventory.status === "unavailable"
+      ? rawCanonicalInventory
+      : await (async () => {
+          const [governance, operational] = await Promise.all([
+            liveExecutionGovernancePromise!,
+            liveOperationalPipelineHealthPromise!,
+          ]);
+          const pipelineHealth =
+            buildMetaDecisionPipelineHealthFromCanonicalInventory({
+              operational,
+              inventory: rawCanonicalInventory,
+              now: requestEvaluatedAt,
+            });
+          return {
+            ...rawCanonicalInventory,
+            items: applyMetaExecutionGovernanceToCanonicalDecisions({
+              decisions: rawCanonicalInventory.items,
+              governance,
+              pipeline: {
+                verified: pipelineHealth.overall !== "unavailable",
+                executionReady: pipelineHealth.executionReady,
+              },
+              now: requestEvaluatedAt,
+            }),
+          };
+        })();
 
   const unavailableResponse = (reason: string) => {
     const canonicalDecisionInventory: BriefingCanonicalInventorySource = {

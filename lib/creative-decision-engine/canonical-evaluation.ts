@@ -5,6 +5,7 @@ import type {
   MetaCampaignTestDimension,
 } from "@/lib/meta/campaign-label-types";
 import type { CreativeCampaignContextTrust } from "./campaign-label-guard";
+import { resolveCampaignRoleStatus } from "./campaign-label-guard";
 import type { EngineV3Flags } from "./feature-flags";
 import type {
   AccountCalibration,
@@ -746,7 +747,7 @@ function normalizeDecision(
     badges: decision.badges,
     blockers: decision.blockers ?? null,
     metrics: decision.metrics,
-    campaignLabelStatus: decision.campaignLabelStatus ?? null,
+    campaignRoleStatus: resolveCampaignRoleStatus(decision),
     campaignKind: decision.campaignKind ?? null,
     campaignTestDimension: decision.campaignTestDimension ?? null,
     preAuthorityLabel: decision.preAuthorityLabel,

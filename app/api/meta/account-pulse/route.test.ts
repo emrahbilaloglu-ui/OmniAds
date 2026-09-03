@@ -9,9 +9,12 @@ vi.mock("@/lib/meta/campaigns-source", () => ({
   getMetaCampaignsForRange: vi.fn(),
 }));
 
-vi.mock("@/lib/meta/campaign-labels", () => ({
-  readMetaCampaignLabels: vi.fn(),
-}));
+vi.mock("@/lib/creative-decision-engine/campaign-context/source", async () => {
+  const actual = await vi.importActual<
+    typeof import("@/lib/creative-decision-engine/campaign-context/source")
+  >("@/lib/creative-decision-engine/campaign-context/source");
+  return { ...actual, readCampaignContextMap: vi.fn() };
+});
 
 vi.mock("@/lib/meta/canonical-overview", () => ({
   getMetaCanonicalOverviewTrends: vi.fn(),
@@ -23,7 +26,9 @@ vi.mock("@/lib/db", () => ({
 
 const access = await import("@/lib/access");
 const campaigns = await import("@/lib/meta/campaigns-source");
-const campaignLabels = await import("@/lib/meta/campaign-labels");
+const campaignContext = await import(
+  "@/lib/creative-decision-engine/campaign-context/source"
+);
 const canonicalOverview = await import("@/lib/meta/canonical-overview");
 const db = await import("@/lib/db");
 const { META_RECOMMENDATION_ENGINE_VERSION } = await import("@/lib/meta/recommendations");
@@ -105,20 +110,31 @@ describe("GET /api/meta/account-pulse", () => {
       notReadyReason: null,
       evidenceSource: "live",
     });
-    vi.mocked(campaignLabels.readMetaCampaignLabels).mockResolvedValue([
-      {
-        businessId: "biz_1",
-        campaignId: "cmp_1",
-        kind: "main",
-        testDimension: null,
-        source: "user",
-        providerAccountId: "act_1",
-        campaignName: "ASC",
-        labeledBy: "user_1",
-        labeledAt: "2026-05-15T10:00:00.000Z",
-        updatedAt: "2026-05-15T10:00:00.000Z",
-      },
-    ]);
+    vi.mocked(campaignContext.readCampaignContextMap).mockResolvedValue(
+      new Map([
+        [
+          "cmp_1",
+          {
+            kind: "main",
+            testDimension: null,
+            contextTrust: "high",
+            provenance: {
+              mode: "automatic",
+              source: "system_inferred",
+              campaignId: "cmp_1",
+              kind: "main",
+              testDimension: null,
+              contextTrust: "high",
+              sourceRecordType: "engine_v3_campaign_context_daily",
+              sourceRecordId: "context_1",
+              sourceAsOfDate: "2026-05-07",
+              sourceUpdatedAt: "2026-05-07T10:00:00.000Z",
+              sourceHash: "a".repeat(64),
+            },
+          },
+        ],
+      ]),
+    );
     vi.mocked(canonicalOverview.getMetaCanonicalOverviewTrends).mockResolvedValue({
       points: [
         { date: "2026-05-05", spend: 100, revenue: 250, conversions: 2, roas: 2.5, cpa: 50, ctr: 1, cpc: 1, impressions: 1000, clicks: 10 },
@@ -201,11 +217,12 @@ describe("GET /api/meta/account-pulse", () => {
     expect(payload.roasHistory).toEqual([2.5, 3.5]);
     expect(payload.engineVersion).toBe(META_RECOMMENDATION_ENGINE_VERSION);
     expect(payload.snapshotHealth.status).toBe("fresh");
-    expect(payload.labelCoverage).toMatchObject({
+    expect(payload.campaignRoleCoverage).toMatchObject({
       activeCampaigns: 1,
-      labeledCampaigns: 1,
-      unlabeledCampaigns: 0,
+      classifiedCampaigns: 1,
+      unresolvedCampaigns: 0,
     });
+    expect(payload).not.toHaveProperty("labelCoverage");
     expect(payload.targetAnchor.configured).toBe(true);
     expect(payload.trackingHealth.status).toBe("healthy");
     // Freshness is never fabricated: with no warehouse ingest metadata the

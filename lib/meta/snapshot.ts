@@ -31,12 +31,16 @@ import {
 } from "@/lib/meta/evidence-trail";
 import { buildMetaAdsetRecommendations } from "@/lib/meta/adset-decisions";
 import { projectMetaAutomationProposals } from "@/lib/meta/automation-proposals";
+import {
+  insertBudgetProposalRow,
+  projectMetaBudgetProposals,
+} from "@/lib/meta/budget-proposal-producer";
+import { loadBudgetCompositionSourcesForCandidate }
+  from "@/lib/meta/budget-proposal-source-loader";
 import { buildMetaEntityStateRows } from "@/lib/meta/engine-v1/state-rows";
-import { readMetaCampaignLabels } from "@/lib/meta/campaign-labels";
 import type { MetaCampaignKind } from "@/lib/meta/campaign-label-types";
 import {
   applyMetaCampaignLabelGuard,
-  buildMetaCampaignLabelKindMap,
   type MetaCampaignContextGuardEntry,
   type MetaCampaignContextGuardMap,
   type MetaCampaignLabelKindMap,
@@ -80,6 +84,8 @@ export interface RunMetaSnapshotResult {
    * facts, and the queue's read completeness depends on telling them apart.
    */
   proposals: { projected: number; expired: number } | null;
+  /** D088: the canonical budget producer's own result, reported separately. */
+  budgetProposals?: { candidates: number; projected: number } | null;
   /**
    * Accounts whose generation threw, by id.
    *
@@ -200,22 +206,9 @@ function confidenceLabel(score: number): MetaRecommendationConfidence {
   return metaConfidenceBucket(score);
 }
 
-async function readCampaignLabelKindMap(input: {
-  businessId: string;
-  campaignIds?: string[] | null;
-}): Promise<MetaCampaignLabelKindMap> {
-  const labels = await readMetaCampaignLabels(input).catch((error) => {
-    console.warn("[meta-snapshot] campaign_label_read_failed", {
-      businessId: input.businessId,
-      message: error instanceof Error ? error.message : String(error),
-    });
-    return [];
-  });
-  return buildMetaCampaignLabelKindMap(labels);
-}
-
 async function readCampaignContextGuardState(input: {
   businessId: string;
+  providerAccountId: string | null;
   campaignIds: string[];
   asOf: string;
 }): Promise<{
@@ -227,6 +220,7 @@ async function readCampaignContextGuardState(input: {
   try {
     const resolved = await readCampaignContextLabelMap({
       businessId: input.businessId,
+      providerAccountId: input.providerAccountId,
       campaignIds: input.campaignIds,
       asOf: input.asOf,
       mode,
@@ -235,19 +229,18 @@ async function readCampaignContextGuardState(input: {
     const labels = new Map<string, MetaCampaignKind>();
     for (const [campaignId, entry] of resolved) {
       const source = entry.provenance.source;
-      const contextTrust =
-        entry.contextTrust ??
-        (source === "legacy_label" || source === "user_override"
-          ? "override"
-          : "unknown");
+      const contextTrust = entry.contextTrust ?? "unknown";
       context.set(campaignId, {
         kind: entry.kind,
         contextTrust,
         source,
+        inferenceConfidenceClass: entry.inferenceConfidenceClass,
+        resolverAuthorityValidated: entry.resolverAuthorityValidated,
       });
       if (
         entry.kind &&
-        (contextTrust === "override" || contextTrust === "high")
+        contextTrust === "high" &&
+        source === "system_inferred"
       ) {
         labels.set(campaignId, entry.kind);
       }
@@ -263,9 +256,9 @@ async function readCampaignContextGuardState(input: {
       message: error instanceof Error ? error.message : String(error),
     });
     return {
-      campaignLabelsById: await readCampaignLabelKindMap(input),
+      campaignLabelsById: new Map(),
       campaignContextById: new Map(),
-      automaticContextEnabled: false,
+      automaticContextEnabled: mode === "automatic",
     };
   }
 }
@@ -950,6 +943,7 @@ async function buildSnapshotRecommendations(input: {
   const campaignIds = campaigns.map((campaign) => campaign.id);
   const campaignContextState = await readCampaignContextGuardState({
     businessId: input.businessId,
+    providerAccountId: accountId,
     campaignIds,
     asOf: endDate,
   });
@@ -1197,6 +1191,7 @@ export async function runMetaSnapshotForBusiness(
       recommendationsWritten: 0,
       anomaliesWritten: 0,
       proposals: null,
+      budgetProposals: null,
       failedAccountIds: [],
       skippedReason: "provider_account_not_assigned",
     };
@@ -1368,10 +1363,44 @@ export async function runMetaSnapshotForBusiness(
       });
       return null;
     });
+  /*
+    D088: the CANONICAL BUDGET producer, on the same chain and the same tick.
+
+    It raises rows only from a persisted `increase_budget`/`decrease_budget`
+    recommendation carrying an exact minor-unit target, and only when D083 →
+    D085 → D087 admit the candidate. With today's retained decisions it projects
+    zero; when a qualifying typed intent appears it needs no source change.
+
+    A failure degrades exactly like the pause projection above: the queue was
+    not projected, and the snapshot still stands.
+  */
+  const budgetProposals = await projectMetaBudgetProposals({
+    businessId,
+    snapshotDate: normalizedSnapshotDate,
+    loadCompositionSources: loadBudgetCompositionSourcesForCandidate,
+    insertProposal: async (insert) => insertBudgetProposalRow({
+      businessId,
+      proposalId: insert.proposalId,
+      candidate: insert.candidate,
+      envelopeJson: insert.envelopeJson,
+      actionLabel: insert.actionLabel,
+    }),
+  })
+    .then((result) => ({ candidates: result.candidates, projected: result.projected }))
+    .catch((error) => {
+      console.warn("[meta-snapshot] budget_proposal_projection_failed", {
+        businessId,
+        snapshotDate: normalizedSnapshotDate,
+        message: error instanceof Error ? error.message : String(error),
+      });
+      return null;
+    });
+
   return {
     businessId,
     snapshotDate: normalizedSnapshotDate,
     calibration,
+    budgetProposals,
     recommendationsWritten: recommendations.length,
     failedAccountIds: failedAccounts
       .map((entry) => entry.accountId)
@@ -1698,6 +1727,7 @@ export async function readLatestMetaDecisionSnapshot(input: {
   );
   const campaignContextState = await readCampaignContextGuardState({
     businessId: input.businessId,
+    providerAccountId: account,
     campaignIds,
     asOf: rows[0]?.snapshot_date ?? normalizeDate(input.endDate),
   });

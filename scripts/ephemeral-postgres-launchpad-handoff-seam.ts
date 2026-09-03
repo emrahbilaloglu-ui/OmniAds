@@ -39,6 +39,28 @@ import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { spawn, spawnSync } from "node:child_process";
+import { createRequire } from "node:module";
+
+/**
+ * Vitest's REAL JavaScript entrypoint, resolved through Node's module
+ * resolution — never `node_modules/.bin/vitest`. The `.bin` shim is an npm
+ * implementation detail: under npm it is a JS symlink `process.execPath` can
+ * run, under pnpm it is a `#!/bin/sh` script that `node` cannot parse, so
+ * spawning the shim silently couples this seam to one package manager. The
+ * package's own `bin` field is the portable, injection-safe contract (no
+ * shell is involved; the resolved absolute path is passed as an argv entry).
+ */
+function resolveVitestEntry(): string {
+  const requireHere = createRequire(import.meta.url);
+  const pkgPath = requireHere.resolve("vitest/package.json");
+  const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf8")) as {
+    bin?: string | Record<string, string>;
+  };
+  const bin = typeof pkg.bin === "string" ? pkg.bin : pkg.bin?.vitest;
+  if (!bin) throw new Error("vitest package.json has no usable bin entry");
+  return path.join(path.dirname(pkgPath), bin);
+}
+const VITEST_ENTRY = resolveVitestEntry();
 
 const FORBIDDEN_PORTS = new Set([5432, 15432]);
 const USER = "postgres";
@@ -166,13 +188,7 @@ async function assertSkipsWithoutTheHarness() {
   log("running the negative control (the file must SKIP without the harness)...");
   const result = spawnSync(
     process.execPath,
-    [
-      path.join("node_modules", ".bin", "vitest"),
-      "run",
-      ...HANDOFF_TESTS,
-      "--reporter=json",
-      "--silent",
-    ],
+    [VITEST_ENTRY, "run", ...HANDOFF_TESTS, "--reporter=json", "--silent"],
     {
       cwd: process.cwd(),
       encoding: "utf8",
@@ -281,7 +297,7 @@ async function main() {
 
     await runChild(
       process.execPath,
-      [path.join("node_modules", ".bin", "vitest"), "run", HANDOFF_STORE_TEST],
+      [VITEST_ENTRY, "run", HANDOFF_STORE_TEST],
       databaseUrl,
       "launchpad handoff persistence (real PostgreSQL)",
     );
@@ -294,7 +310,7 @@ async function main() {
     // not in a mocked route test.
     await runChild(
       process.execPath,
-      [path.join("node_modules", ".bin", "vitest"), "run", HANDOFF_ROUTE_TEST],
+      [VITEST_ENTRY, "run", HANDOFF_ROUTE_TEST],
       databaseUrl,
       "launchpad handoff mint endpoint (real PostgreSQL)",
     );

@@ -61,7 +61,14 @@ import {
   type HysteresisState,
 } from "@/lib/creative-decision-engine/jobs/campaign-context-job";
 
-const DEFAULT_BUSINESSES = ["IwaStore", "EMOLOS", "Grandmix", "TheSwaf"];
+const DEFAULT_BUSINESSES = [
+  "IwaStore",
+  "Grandmix",
+  "Bilsem Zeka",
+  "TheSwaf",
+  "IwaTR",
+  "ColorFullWorldsTR",
+];
 const DEFAULT_START_DATE = "2026-06-01";
 const DEFAULT_END_DATE = "2026-07-05";
 const DEFAULT_JSON_OUT =
@@ -149,6 +156,7 @@ function round4(value: number) {
 }
 
 interface LabelRow {
+  providerAccountId: string | null;
   campaignId: string;
   campaignKind: CampaignKind;
   campaignName: string | null;
@@ -178,7 +186,7 @@ async function readBusinessScope(names: string[]): Promise<BusinessScope[]> {
 async function readLabels(businessId: string): Promise<LabelRow[]> {
   const rows = await getDb().query<Row>(
     `
-    SELECT campaign_id, campaign_kind, campaign_name
+    SELECT provider_account_id, campaign_id, campaign_kind, campaign_name
     FROM meta_campaign_labels
     WHERE business_id = $1
     `,
@@ -186,11 +194,16 @@ async function readLabels(businessId: string): Promise<LabelRow[]> {
   );
   return rows
     .map((row) => ({
+      providerAccountId: toText(row.provider_account_id),
       campaignId: toText(row.campaign_id) ?? "",
       campaignKind: (toText(row.campaign_kind) ?? "") as CampaignKind,
       campaignName: toText(row.campaign_name),
     }))
     .filter((row) => row.campaignId && ["main", "test", "mixed"].includes(row.campaignKind));
+}
+
+function roleScopeKey(providerAccountId: string, campaignId: string) {
+  return `${providerAccountId}\u0000${campaignId}`;
 }
 
 interface GuardImpactRow {
@@ -291,43 +304,107 @@ async function main() {
   const businessReports: Row[] = [];
 
   for (const business of businesses) {
-    const [creativeDays, meta, labels, guardImpact] = [
+    const [creativeDays, labels, guardImpact] = [
       await readCampaignContextCreativeDays(business.id, rangeStart, args.endDate),
-      await readCampaignContextCampaignMeta(business.id, args.endDate),
       await readLabels(business.id),
       await readGuardImpact(business.id, engineVersion),
     ];
-    const lineage = computeCampaignLineage(creativeDays);
+    const providerAccountIds = [
+      ...new Set(
+        creativeDays
+          .map((row) => row.providerAccountId?.trim() ?? "")
+          .filter(Boolean),
+      ),
+    ].sort();
+    const accountRows = new Map(
+      providerAccountIds.map((providerAccountId) => [
+        providerAccountId,
+        creativeDays.filter(
+          (row) => row.providerAccountId === providerAccountId,
+        ),
+      ]),
+    );
+    const accountMeta = new Map(
+      await Promise.all(
+        providerAccountIds.map(async (providerAccountId) => [
+          providerAccountId,
+          await readCampaignContextCampaignMeta(
+            business.id,
+            args.endDate,
+            providerAccountId,
+          ),
+        ] as const),
+      ),
+    );
+    const accountLineage = new Map(
+      providerAccountIds.map((providerAccountId) => [
+        providerAccountId,
+        computeCampaignLineage(accountRows.get(providerAccountId) ?? []),
+      ]),
+    );
 
     const sequences = new Map<
       string,
-      Array<{ asOf: string; resolution: ContextResolution }>
+      {
+        providerAccountId: string;
+        campaignId: string;
+        rows: Array<{ asOf: string; resolution: ContextResolution }>;
+      }
     >();
     for (const asOf of asOfGrid) {
-      const features = buildCampaignContextFeatures({
-        rows: creativeDays,
-        meta,
-        lineage,
-        asOf,
-      });
-      for (const feature of features) {
-        const resolution = classifyCampaignContext(feature, DEFAULT_CONTEXT_CONFIG);
-        const sequence = sequences.get(feature.campaignId) ?? [];
-        sequence.push({ asOf, resolution });
-        sequences.set(feature.campaignId, sequence);
+      for (const providerAccountId of providerAccountIds) {
+        const features = buildCampaignContextFeatures({
+          rows: accountRows.get(providerAccountId) ?? [],
+          meta: accountMeta.get(providerAccountId) ?? new Map(),
+          lineage: accountLineage.get(providerAccountId)!,
+          asOf,
+        });
+        for (const feature of features) {
+          const resolution = classifyCampaignContext(
+            feature,
+            DEFAULT_CONTEXT_CONFIG,
+          );
+          const key = roleScopeKey(providerAccountId, feature.campaignId);
+          const sequence = sequences.get(key) ?? {
+            providerAccountId,
+            campaignId: feature.campaignId,
+            rows: [],
+          };
+          sequence.rows.push({ asOf, resolution });
+          sequences.set(key, sequence);
+        }
       }
     }
 
-    const finalFeatures = buildCampaignContextFeatures({
-      rows: creativeDays,
-      meta,
-      lineage,
-      asOf: args.endDate,
-    });
-    const featureById = new Map(finalFeatures.map((f) => [f.campaignId, f]));
-    const labelById = new Map(labels.map((l) => [l.campaignId, l]));
+    const featureByScope = new Map(
+      providerAccountIds.flatMap((providerAccountId) =>
+        buildCampaignContextFeatures({
+          rows: accountRows.get(providerAccountId) ?? [],
+          meta: accountMeta.get(providerAccountId) ?? new Map(),
+          lineage: accountLineage.get(providerAccountId)!,
+          asOf: args.endDate,
+        }).map((feature) => [
+          roleScopeKey(providerAccountId, feature.campaignId),
+          feature,
+        ] as const),
+      ),
+    );
+    const labelByScope = new Map(
+      labels
+        .filter((label) => label.providerAccountId)
+        .map((label) => [
+          roleScopeKey(label.providerAccountId!, label.campaignId),
+          label,
+        ]),
+    );
+    const accountlessLabelByCampaignId = new Map(
+      labels
+        .filter((label) => !label.providerAccountId)
+        .map((label) => [label.campaignId, label]),
+    );
 
-    const campaigns = [...sequences.entries()].map(([campaignId, sequence]) => {
+    const campaigns = [...sequences].map(([scopeKey, scopedSequence]) => {
+      const { providerAccountId, campaignId, rows: sequence } = scopedSequence;
       const last = sequence[sequence.length - 1].resolution;
       // Production hysteresis (applyDailyHysteresis from the context job),
       // chained causally over the grid, with the full per-date sequence
@@ -377,13 +454,17 @@ async function main() {
           (lastPerDate?.publishedKind ?? null) !== (lastPerDate?.rawKind ?? null),
         perDate,
       };
-      const ablation = featureById.has(campaignId)
-        ? classifyCampaignContext(featureById.get(campaignId)!, DEFAULT_CONTEXT_CONFIG, {
+      const ablation = featureByScope.has(scopeKey)
+        ? classifyCampaignContext(featureByScope.get(scopeKey)!, DEFAULT_CONTEXT_CONFIG, {
             includeLineage: false,
           })
         : null;
-      const label = labelById.get(campaignId) ?? null;
+      const label =
+        labelByScope.get(scopeKey) ??
+        accountlessLabelByCampaignId.get(campaignId) ??
+        null;
       return {
+        providerAccountId,
         campaignId,
         campaignName: last.campaignName,
         final: last,
@@ -398,27 +479,34 @@ async function main() {
     });
 
     // Cold-start/family inheritance post-pass (main/mixed only; never test).
-    const inheritance = computeFamilyInheritance(
-      campaigns.map((c) => ({
-        campaignId: c.campaignId,
-        familyKey: campaignFamilyKey(c.campaignName),
-        kind: c.final.kind,
-        confidenceClass: c.final.confidenceClass,
-      })),
-    );
-    for (const outcome of inheritance) {
-      const target = campaigns.find((c) => c.campaignId === outcome.campaignId);
-      if (!target) continue;
-      target.final = {
-        ...target.final,
-        kind: outcome.inheritedKind,
-        confidenceClass: "medium",
-        evidence: [
-          ...target.final.evidence,
-          `family_prefix_inheritance basis=${outcome.basisMembers} members`,
-        ],
-      };
-      target.kindBasis = "family_inheritance";
+    for (const providerAccountId of providerAccountIds) {
+      const accountCampaigns = campaigns.filter(
+        (campaign) => campaign.providerAccountId === providerAccountId,
+      );
+      const inheritance = computeFamilyInheritance(
+        accountCampaigns.map((campaign) => ({
+          campaignId: campaign.campaignId,
+          familyKey: campaignFamilyKey(campaign.campaignName),
+          kind: campaign.final.kind,
+          confidenceClass: campaign.final.confidenceClass,
+        })),
+      );
+      for (const outcome of inheritance) {
+        const target = accountCampaigns.find(
+          (campaign) => campaign.campaignId === outcome.campaignId,
+        );
+        if (!target) continue;
+        target.final = {
+          ...target.final,
+          kind: outcome.inheritedKind,
+          confidenceClass: "medium",
+          evidence: [
+            ...target.final.evidence,
+            `family_prefix_inheritance basis=${outcome.basisMembers} members`,
+          ],
+        };
+        target.kindBasis = "family_inheritance";
+      }
     }
 
     // Evaluation vs manual labels (exact integer counts). Labeled campaigns
@@ -427,7 +515,9 @@ async function main() {
     // they are reported separately instead of polluting active accuracy.
     const labeled = campaigns.filter((c) => c.manualLabel !== null);
     const evalRows = labeled.map((c) => {
-      const feature = featureById.get(c.campaignId);
+      const feature = featureByScope.get(
+        roleScopeKey(c.providerAccountId, c.campaignId),
+      );
       const activeInWindow =
         (feature?.spend28 ?? 0) >= DEFAULT_CONTEXT_CONFIG.floors.minSpend28 &&
         (feature?.activeDays ?? 0) >= DEFAULT_CONTEXT_CONFIG.floors.minActiveDays;
@@ -468,19 +558,24 @@ async function main() {
           classRank(a.final.confidenceClass) - classRank(b.final.confidenceClass);
         if (rankDiff !== 0) return rankDiff;
         return (
-          (featureById.get(b.campaignId)?.spend28 ?? 0) -
-          (featureById.get(a.campaignId)?.spend28 ?? 0)
+          (featureByScope.get(roleScopeKey(b.providerAccountId, b.campaignId))
+            ?.spend28 ?? 0) -
+          (featureByScope.get(roleScopeKey(a.providerAccountId, a.campaignId))
+            ?.spend28 ?? 0)
         );
       })
       .slice(0, SPOT_CHECK_TARGET)
       .map((c) => ({
+        providerAccountId: c.providerAccountId,
         campaignId: c.campaignId,
         campaignName: c.campaignName,
         inferredKind: c.final.kind,
         confidenceClass: c.final.confidenceClass,
         kindBasis: c.kindBasis,
         confidenceScore: c.final.confidenceScore,
-        spend28: featureById.get(c.campaignId)?.spend28 ?? 0,
+        spend28:
+          featureByScope.get(roleScopeKey(c.providerAccountId, c.campaignId))
+            ?.spend28 ?? 0,
         evidence: c.final.evidence,
       }));
 
@@ -518,11 +613,26 @@ async function main() {
       campaignsEvaluated: campaigns.length,
       classCounts,
       lineageStats: {
-        totalCreatives: lineage.totalCreatives,
-        multiCampaignCreatives: lineage.multiCampaignCreatives,
+        totalCreatives: [...accountLineage.values()].reduce(
+          (sum, lineage) => sum + lineage.totalCreatives,
+          0,
+        ),
+        multiCampaignCreatives: [...accountLineage.values()].reduce(
+          (sum, lineage) => sum + lineage.multiCampaignCreatives,
+          0,
+        ),
         visibleLineageCoverage:
-          lineage.totalCreatives > 0
-            ? round4(lineage.multiCampaignCreatives / lineage.totalCreatives)
+          creativeDays.length > 0
+            ? round4(
+                [...accountLineage.values()].reduce(
+                  (sum, lineage) => sum + lineage.multiCampaignCreatives,
+                  0,
+                ) /
+                  [...accountLineage.values()].reduce(
+                    (sum, lineage) => sum + lineage.totalCreatives,
+                    0,
+                  ),
+              )
             : null,
       },
       flipSummary: {
@@ -569,6 +679,7 @@ async function main() {
         byCampaign: guardByCampaign,
       },
       campaigns: campaigns.map((c) => ({
+        providerAccountId: c.providerAccountId,
         campaignId: c.campaignId,
         campaignName: c.campaignName,
         inferredKind: c.final.kind,
@@ -583,14 +694,19 @@ async function main() {
         hysteresis: c.hysteresis,
         withoutLineage: c.withoutLineage,
         manualLabel: c.manualLabel,
-        spend28: featureById.get(c.campaignId)?.spend28 ?? 0,
+        features:
+          featureByScope.get(roleScopeKey(c.providerAccountId, c.campaignId)) ??
+          null,
+        spend28:
+          featureByScope.get(roleScopeKey(c.providerAccountId, c.campaignId))
+            ?.spend28 ?? 0,
       })),
     });
   }
 
   const report = {
     title:
-      "Automatic Campaign Context Shadow Evaluation - 2026-06-01 to 2026-07-05",
+      `Automatic Campaign Context Shadow Evaluation - ${args.startDate} to ${args.endDate}`,
     generatedAt,
     resolverVersion: CAMPAIGN_CONTEXT_RESOLVER_VERSION,
     engineVersion,
@@ -606,7 +722,7 @@ async function main() {
     config: DEFAULT_CONTEXT_CONFIG,
     businesses: businessReports,
     evidenceLimits: [
-      "This is a read-only shadow evaluation. It is NOT production approval; no resolver, guard, DB, or UI consumption changed.",
+      "This is a read-only evaluation of the local resolver candidate. It is NOT production approval; no DB row, provider state, deployment, or automation state changed.",
       "Manual labels are evaluation truth only; label coverage is sparse and uneven (EMOLOS-like accounts need the spot-check package).",
       "Creative lineage visibility is capped by warehouse first-non-null campaign attribution; same-day multi-campaign reuse is invisible, so visibleLineageCoverage understates true reuse.",
       "Guard-impact numbers are APPROXIMATE: decision snapshots do not persist campaign ids; the join uses the latest meta_creative_daily campaign per creative.",

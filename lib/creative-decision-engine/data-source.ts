@@ -232,6 +232,20 @@ export interface AdDecisionHydrationReceipt {
   sourceRunId: string | null;
   sourceObservedAt: string | null;
   sourceCapturedAt: string | null;
+  /**
+   * The source run's ORIGINAL captured_at. Heartbeat coalescing advances
+   * sourceCapturedAt (freshness) but never this payload clock; the hydration
+   * capture floor must use this value so a coalesced run can still read its
+   * own state rows.
+   */
+  sourcePayloadCapturedAt: string | null;
+  /**
+   * D075 manifest storage kind of the source run. `null` = legacy full
+   * manifest. Purely provenance/telemetry: the completeness bar
+   * (persisted == expected) is already manifest-aware inside the receipt
+   * query's member reconstruction.
+   */
+  sourceManifestKind: "full" | "delta" | null;
   sourceRunHash: string | null;
   sourcePayloadHash: string | null;
   sourceExpectedRowCount: number | null;
@@ -834,6 +848,7 @@ type AdEntityStateRow = Record<string, unknown> & {
   observed_at: unknown;
   captured_at: unknown;
   tombstone_reason: unknown;
+  presence: unknown;
 };
 
 type PresentAdStateSeedRow = Record<string, unknown> & {
@@ -855,6 +870,8 @@ type AdHydrationReceiptRow = Record<string, unknown> & {
   source_run_id: unknown;
   source_observed_at: unknown;
   source_captured_at: unknown;
+  source_payload_captured_at: unknown;
+  source_manifest_kind: unknown;
   source_run_hash: unknown;
   source_payload_hash: unknown;
   source_expected_row_count: unknown;
@@ -1697,7 +1714,11 @@ WITH truth_events AS (
     state.observed_at,
     state.captured_at,
     state.created_at,
-    NULL::text AS tombstone_reason
+    NULL::text AS tombstone_reason,
+    -- D075: absent_unconfirmed scope-exit rows compete for latest so they
+    -- shadow the stale present row; consumers treat a non-present winner as
+    -- absence evidence, never as usable state.
+    state.presence
   FROM meta_entity_state_history state
   WHERE state.business_ref_id = $1::uuid
     AND state.business_id = $1::text
@@ -1709,7 +1730,6 @@ WITH truth_events AS (
     AND ($6::timestamptz IS NULL OR state.captured_at >= $6::timestamptz)
     AND state.captured_at <= $5::timestamptz
     AND state.run_completeness IN ('complete', 'partial', 'point_lookup')
-    AND state.presence = 'present'
 
   UNION ALL
 
@@ -1731,7 +1751,8 @@ WITH truth_events AS (
     tombstone.observed_at,
     tombstone.captured_at,
     tombstone.created_at,
-    tombstone.reason AS tombstone_reason
+    tombstone.reason AS tombstone_reason,
+    NULL::text AS presence
   FROM meta_entity_tombstones tombstone
   WHERE tombstone.business_ref_id = $1::uuid
     AND tombstone.business_id = $1::text
@@ -1761,7 +1782,8 @@ SELECT DISTINCT ON (entity_id)
   policy_reasons_json,
   observed_at::text AS observed_at,
   captured_at::text AS captured_at,
-  tombstone_reason
+  tombstone_reason,
+  presence
 FROM truth_events
 ORDER BY entity_id, observed_at DESC, captured_at DESC,
   (event_kind = 'tombstone') DESC, created_at DESC, id DESC
@@ -1782,12 +1804,12 @@ WITH truth_events AS (
     state.creative_id,
     state.observed_at,
     state.captured_at,
-    state.created_at
+    state.created_at,
+    state.presence
   FROM meta_entity_state_history state
   WHERE state.business_ref_id = $1::uuid
     AND state.business_id = $1::text
     AND state.entity_type = 'ad'
-    AND state.presence = 'present'
     AND state.run_completeness IN ('complete', 'partial', 'point_lookup')
     AND state.observed_at <= $2::timestamptz
     AND state.captured_at <= $2::timestamptz
@@ -1808,7 +1830,8 @@ WITH truth_events AS (
     NULL::text AS creative_id,
     tombstone.observed_at,
     tombstone.captured_at,
-    tombstone.created_at
+    tombstone.created_at,
+    NULL::text AS presence
   FROM meta_entity_tombstones tombstone
   WHERE tombstone.business_ref_id = $1::uuid
     AND tombstone.business_id = $1::text
@@ -1827,7 +1850,10 @@ WITH truth_events AS (
 SELECT business_id, provider_account_ref_id, provider_account_id, ad_id,
   campaign_id, adset_id, creative_id, captured_at
 FROM latest
-WHERE event_kind = 'state'
+-- D075: a scope-exit winner (absent_unconfirmed) is current truth that the
+-- ad left the observed scope; it must not seed and must not let the older
+-- present row seed either.
+WHERE event_kind = 'state' AND presence = 'present'
 ORDER BY provider_account_id, ad_id
 `;
 
@@ -1858,8 +1884,22 @@ WITH assigned_accounts AS (
     account.provider_account_ref_id,
     account.provider_account_id,
     run.id AS source_run_id,
-    run.observed_at AS source_observed_at,
-    run.captured_at AS source_captured_at,
+    -- Freshness clocks: heartbeat-advanced when a byte-identical re-observation
+    -- coalesced. LEAST() clamps transitional rows whose last_seen_at advanced
+    -- under pre-last_captured_at code, so the pair can never invert
+    -- (observed newer than captured).
+    LEAST(
+      COALESCE(run.last_seen_at, run.observed_at),
+      COALESCE(run.last_captured_at, run.captured_at)
+    ) AS source_observed_at,
+    COALESCE(run.last_captured_at, run.captured_at) AS source_captured_at,
+    -- Payload clock: the ORIGINAL capture time of the run whose state rows
+    -- form the manifest. Heartbeats advance the freshness clocks above but
+    -- never this one; hydration's capture floor must use this value or every
+    -- coalesced run filters out its own payload.
+    run.captured_at AS source_payload_captured_at,
+    run.manifest_kind AS source_manifest_kind,
+    run.endpoint AS source_endpoint,
     run.run_hash AS source_run_hash,
     run.payload_hash AS source_payload_hash,
     run.row_count AS source_expected_row_count
@@ -1873,14 +1913,18 @@ WITH assigned_accounts AS (
       AND run.provider_account_id = account.provider_account_id
       AND run.entity_type = 'ad'
       AND run.completeness = 'complete'
-      AND run.observed_at >= $2::date
-      AND run.observed_at <= $3::timestamptz
-      AND run.captured_at <= $3::timestamptz
+      AND COALESCE(run.last_seen_at, run.observed_at) >= $2::date
+      AND COALESCE(run.last_seen_at, run.observed_at) <= $3::timestamptz
+      AND COALESCE(run.last_captured_at, run.captured_at) <= $3::timestamptz
       -- Compaction may retain a duplicate run receipt while removing its
       -- redundant state rows. Skip only fully removed positive-row runs;
       -- base_counts still exposes partially retained sets as a mismatch.
       AND (
         run.row_count = 0
+        -- A delta run's manifest lives in the reconstructed complete lane;
+        -- a zero-change forced checkpoint owns no state rows at all, and
+        -- that is not compaction.
+        OR run.manifest_kind = 'delta'
         OR EXISTS (
           SELECT 1
           FROM meta_entity_state_history retained_state
@@ -1893,46 +1937,100 @@ WITH assigned_accounts AS (
             AND retained_state.entity_type = run.entity_type
         )
       )
-    ORDER BY run.observed_at DESC, run.captured_at DESC, run.created_at DESC, run.id DESC
+    ORDER BY COALESCE(run.last_seen_at, run.observed_at) DESC,
+             COALESCE(run.last_captured_at, run.captured_at) DESC,
+             run.created_at DESC, run.id DESC
     LIMIT 1
   ) run ON true
-), base_counts AS (
-  SELECT
-    run.source_run_id,
-    COUNT(state.id)::integer AS source_persisted_row_count
-  FROM complete_runs run
-  LEFT JOIN meta_entity_state_history state
-    ON state.run_id = run.source_run_id
-   AND state.business_ref_id = run.business_ref_id
-   AND state.business_id = run.business_id
-   AND state.provider_account_ref_id = run.provider_account_ref_id
-   AND state.provider_account_id = run.provider_account_id
-   AND state.entity_type = 'ad'
-   AND state.presence = 'present'
-  GROUP BY run.source_run_id
-), truth_events AS (
+), member_states AS (
+  -- Effective manifest membership per selected run (D075).
+  --
+  -- Legacy/full runs: the manifest is the run's exact immutable payload —
+  -- membership stays bound to the original run id, so a later partial run
+  -- cannot silently reshape the expected identity set.
+  --
+  -- Delta runs: the manifest is the reconstructed complete lane — the latest
+  -- complete-lane row per entity at or before the run's PAYLOAD capture
+  -- clock, keeping entities whose winning row is present. An absent
+  -- (scope-exit) winner drops its entity here, so a stale present row can
+  -- never be resurrected past an explicit exit. Partial and point-lookup
+  -- rows never enter delta reconstruction.
   SELECT
     run.provider_account_id,
-    'state'::text AS event_kind,
-    state.id,
-    state.entity_id,
-    state.observed_at,
-    state.captured_at,
-    state.created_at
+    run.source_run_id,
+    member.id,
+    member.entity_id,
+    member.observed_at,
+    member.captured_at,
+    member.created_at
   FROM complete_runs run
-  INNER JOIN meta_entity_state_history state
-    ON run.source_run_id IS NOT NULL
-   AND state.business_ref_id = run.business_ref_id
-   AND state.business_id = run.business_id
-   AND state.provider_account_ref_id = run.provider_account_ref_id
-   AND state.provider_account_id = run.provider_account_id
-   AND state.entity_type = 'ad'
-   AND state.presence = 'present'
-   AND state.run_completeness IN ('complete', 'partial', 'point_lookup')
-   -- Entity observed_at is provider updated_time; capture time defines manifest membership.
-   AND state.captured_at >= run.source_captured_at
-   AND state.observed_at <= $3::timestamptz
-   AND state.captured_at <= $3::timestamptz
+  JOIN LATERAL (
+    SELECT state.id, state.entity_id, state.observed_at, state.captured_at,
+           state.created_at
+    FROM meta_entity_state_history state
+    WHERE run.source_run_id IS NOT NULL
+      AND run.source_manifest_kind IS DISTINCT FROM 'delta'
+      AND state.run_id = run.source_run_id
+      AND state.business_ref_id = run.business_ref_id
+      AND state.business_id = run.business_id
+      AND state.provider_account_ref_id = run.provider_account_ref_id
+      AND state.provider_account_id = run.provider_account_id
+      AND state.entity_type = 'ad'
+      AND state.presence = 'present'
+      AND state.run_completeness IN ('complete', 'partial', 'point_lookup')
+      AND state.observed_at <= $3::timestamptz
+      AND state.captured_at <= $3::timestamptz
+
+    UNION ALL
+
+    SELECT latest.id, latest.entity_id, latest.observed_at,
+           latest.captured_at, latest.created_at
+    FROM (
+      SELECT DISTINCT ON (state.entity_id)
+        state.id, state.entity_id, state.observed_at, state.captured_at,
+        state.created_at, state.presence
+      FROM meta_entity_state_history state
+      WHERE run.source_run_id IS NOT NULL
+        AND run.source_manifest_kind = 'delta'
+        AND state.business_ref_id = run.business_ref_id
+        AND state.business_id = run.business_id
+        AND state.provider_account_ref_id = run.provider_account_ref_id
+        AND state.provider_account_id = run.provider_account_id
+        AND state.entity_type = 'ad'
+        AND state.run_completeness = 'complete'
+        -- The reconstruction scope is the source run's ENDPOINT — the same
+        -- scope unit the writer diffs against. Rows observed by a different
+        -- endpoint are a different manifest and must not leak in.
+        AND EXISTS (
+          SELECT 1
+          FROM meta_entity_observation_runs scope_run
+          WHERE scope_run.id = state.run_id
+            AND scope_run.endpoint = run.source_endpoint
+        )
+        AND state.captured_at <= run.source_payload_captured_at
+        AND state.observed_at <= $3::timestamptz
+        AND state.captured_at <= $3::timestamptz
+      ORDER BY state.entity_id, state.captured_at DESC, state.created_at DESC,
+        state.id DESC
+    ) latest
+    WHERE latest.presence = 'present'
+  ) member ON true
+), base_counts AS (
+  SELECT
+    member.source_run_id,
+    COUNT(member.id)::integer AS source_persisted_row_count
+  FROM member_states member
+  GROUP BY member.source_run_id
+), truth_events AS (
+  SELECT
+    member.provider_account_id,
+    'state'::text AS event_kind,
+    member.id,
+    member.entity_id,
+    member.observed_at,
+    member.captured_at,
+    member.created_at
+  FROM member_states member
 
   UNION ALL
 
@@ -1946,14 +2044,24 @@ WITH assigned_accounts AS (
     tombstone.created_at
   FROM complete_runs run
   INNER JOIN meta_entity_tombstones tombstone
+    -- Tombstones are written under their own point_lookup runs, never under
+    -- the complete observation run, so binding this arm to source_run_id
+    -- would make it unmatchable and freeze deleted ads into the manifest
+    -- forever. Membership is identity-scoped and floored by the run's
+    -- EFFECTIVE capture clock: a tombstone captured after the latest full
+    -- (re-)observation shrinks the manifest, while a tombstone the complete
+    -- run itself supersedes (the ad was re-observed present afterwards) does
+    -- not censor the reappeared ad. State observed_at can be the provider's
+    -- old updated_time, so the capture floor — not observed ordering alone —
+    -- is what keeps this comparison honest.
     ON run.source_run_id IS NOT NULL
+   AND tombstone.captured_at >= run.source_captured_at
    AND tombstone.business_ref_id = run.business_ref_id
    AND tombstone.business_id = run.business_id
    AND tombstone.provider_account_ref_id = run.provider_account_ref_id
    AND tombstone.provider_account_id = run.provider_account_id
    AND tombstone.entity_type = 'ad'
    AND tombstone.reason IN ('explicit_deleted', 'explicit_not_found')
-   AND tombstone.captured_at >= run.source_captured_at
    AND tombstone.observed_at <= $3::timestamptz
    AND tombstone.captured_at <= $3::timestamptz
 ), latest_truth AS (
@@ -1973,10 +2081,15 @@ SELECT
   run.source_run_id,
   run.source_observed_at::text AS source_observed_at,
   run.source_captured_at::text AS source_captured_at,
+  run.source_payload_captured_at::text AS source_payload_captured_at,
+  run.source_manifest_kind,
   run.source_run_hash,
   run.source_payload_hash,
   run.source_expected_row_count,
-  counts.source_persisted_row_count,
+  CASE
+    WHEN run.source_run_id IS NULL THEN NULL
+    ELSE COALESCE(counts.source_persisted_row_count, 0)
+  END AS source_persisted_row_count,
   COALESCE(
     ARRAY_AGG(truth.entity_id ORDER BY truth.entity_id)
       FILTER (WHERE truth.event_kind = 'state'),
@@ -1994,6 +2107,8 @@ GROUP BY
   run.source_run_id,
   run.source_observed_at,
   run.source_captured_at,
+  run.source_payload_captured_at,
+  run.source_manifest_kind,
   run.source_run_hash,
   run.source_payload_hash,
   run.source_expected_row_count,
@@ -3451,6 +3566,14 @@ function mapAdHydrationSourceReceipt(input: {
   const sourceRunId = toStringOrNull(input.row.source_run_id);
   const sourceObservedAt = toIsoTimestampOrNull(input.row.source_observed_at);
   const sourceCapturedAt = toIsoTimestampOrNull(input.row.source_captured_at);
+  const sourcePayloadCapturedAt = toIsoTimestampOrNull(
+    input.row.source_payload_captured_at,
+  );
+  const manifestKindRaw = toStringOrNull(input.row.source_manifest_kind);
+  const sourceManifestKind =
+    manifestKindRaw === "full" || manifestKindRaw === "delta"
+      ? manifestKindRaw
+      : null;
   const sourceRunHash = toStringOrNull(input.row.source_run_hash);
   const sourceExpectedRowCount = toIntegerOrNull(
     input.row.source_expected_row_count,
@@ -3485,6 +3608,8 @@ function mapAdHydrationSourceReceipt(input: {
     sourceRunId,
     sourceObservedAt,
     sourceCapturedAt,
+    sourcePayloadCapturedAt,
+    sourceManifestKind,
     sourceRunHash,
     sourcePayloadHash: toStringOrNull(input.row.source_payload_hash),
     sourceExpectedRowCount,
@@ -3556,6 +3681,8 @@ function finalizeAdHydrationReceipts(input: {
         sourceRunId: null,
         sourceObservedAt: null,
         sourceCapturedAt: null,
+        sourcePayloadCapturedAt: null,
+        sourceManifestKind: null,
         sourceRunHash: null,
         sourcePayloadHash: null,
         sourceExpectedRowCount: null,
@@ -4496,6 +4623,10 @@ function presentAdStateSeedFromEntityState(
   businessId: string,
 ): PresentAdStateSeedRow | null {
   if (row.event_kind !== "state") return null;
+  // D075: an absent_unconfirmed winner shadows the stale present row and is
+  // not a seed; on complete receipts the caller's count guard then fails
+  // closed instead of hydrating past the recorded scope exit.
+  if (toStringOrNull(row.presence) !== "present") return null;
   const providerAccountRefId = toStringOrNull(row.provider_account_ref_id);
   const providerAccountId = toStringOrNull(row.provider_account_id);
   const adId = toStringOrNull(row.entity_id);
@@ -4583,7 +4714,16 @@ async function readPresentAdStateSeedsForHydration(input: {
       providerAccountId: receipt.providerAccountId,
       adIds: expectedAdIds,
       decisionCutoff: input.decisionCutoff,
-      sourceCapturedAt: receipt.sourceCapturedAt,
+      // Capture floor = the run's ORIGINAL payload clock. The heartbeat
+      // freshness clock (sourceCapturedAt) is strictly newer after a
+      // coalesce and would filter out the manifest's own state rows.
+      // D075: a delta manifest's carried members live in OLDER runs, so a
+      // payload-clock floor would exclude them; the generation bound for a
+      // delta is the reconstruction itself plus the count guard below.
+      sourceCapturedAt:
+        receipt.sourceManifestKind === "delta"
+          ? null
+          : (receipt.sourcePayloadCapturedAt ?? receipt.sourceCapturedAt),
     });
     completeStateRows.push(...stateRows);
     const accountSeeds = stateRows.flatMap((row) => {
@@ -4610,6 +4750,15 @@ function addAdEntityState(
   businessId: string,
   row: AdEntityStateRow,
 ) {
+  if (
+    row.event_kind === "state" &&
+    toStringOrNull(row.presence) !== "present"
+  ) {
+    // D075: the absent winner already out-competed the stale present row in
+    // the as-of read; dropping it here leaves "no state evidence", never a
+    // fabricated present state from null status fields.
+    return;
+  }
   const providerAccountRefId = toStringOrNull(row.provider_account_ref_id);
   const providerAccountId = toStringOrNull(row.provider_account_id);
   const adId = toStringOrNull(row.entity_id);

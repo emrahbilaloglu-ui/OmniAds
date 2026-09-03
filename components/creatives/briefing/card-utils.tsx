@@ -220,19 +220,99 @@ export function Thumb({
   );
 }
 
+/**
+ * Render-only D074b alias fold, fail-closed (acceptance correction): the
+ * server emits `campaignRoleStatus`; older serialized payloads carry
+ * `campaignLabelStatus`. Only an uncontradicted canonical "resolved" may
+ * render as a current automatic role. A legacy-only "labeled" has manual-era
+ * provenance and renders unresolved; missing status renders unresolved;
+ * contradictory statuses render unresolved.
+ */
+export function cardCampaignRoleStatus(
+  card: Pick<BriefingCreativeCard, "campaignRoleStatus" | "campaignLabelStatus">,
+): "resolved" | "unresolved" | "no_campaign" {
+  const canonical = card.campaignRoleStatus ?? null;
+  const legacy = card.campaignLabelStatus ?? null;
+  if (canonical && legacy) {
+    const sameClaim =
+      (canonical === "resolved" && legacy === "labeled") ||
+      (canonical === "unresolved" && legacy === "unlabeled") ||
+      (canonical === "no_campaign" && legacy === "no_campaign");
+    return sameClaim ? canonical : "unresolved";
+  }
+  if (canonical) return canonical;
+  if (legacy === "no_campaign") return "no_campaign";
+  return "unresolved";
+}
+
+/**
+ * D074b acceptance corrections 2+3: the served/attached Decision Center row
+ * is provenance, never current authority — and a resolved role only proves
+ * the campaign kind, not that the row is the current decision. The row's
+ * scale execution action counts as the card's CURRENT action only when:
+ *  - the SERVER-supplied current primary kind agrees EXACTLY with the row
+ *    action (promote <-> promote_to_main, scale_budget <-> scale_budget,
+ *    controlled_scale <-> controlled_scale) — so a server review/cut/
+ *    refresh/diagnose primary always stands;
+ *  - the card carries no held/blocked action and no authority blocker;
+ *  - the canonical automatic role is resolved and agrees with the kind.
+ * Everything else returns null and the UI must keep the server-supplied
+ * primary label verbatim.
+ */
+const ROW_ACTION_TO_PRIMARY_KIND: Record<
+  "promote_to_main" | "scale_budget" | "controlled_scale",
+  string
+> = {
+  promote_to_main: "promote",
+  scale_budget: "scale_budget",
+  controlled_scale: "controlled_scale",
+};
+
+export function cardCurrentRowScaleAction(
+  card: Pick<
+    BriefingCreativeCard,
+    | "decisionCenterRow"
+    | "campaignKind"
+    | "campaignRoleStatus"
+    | "campaignLabelStatus"
+    | "primary"
+    | "blockedActionType"
+    | "authorityBlocker"
+  >,
+): "promote_to_main" | "scale_budget" | "controlled_scale" | null {
+  const row = card.decisionCenterRow;
+  if (!row || row.buyerAction !== "scale") return null;
+  if (card.blockedActionType != null) return null;
+  if (card.authorityBlocker != null) return null;
+  if (cardCampaignRoleStatus(card) !== "resolved") return null;
+  const action = row.executionAction;
+  const agrees =
+    (action === "promote_to_main" && card.campaignKind === "test") ||
+    (action === "scale_budget" && card.campaignKind === "main") ||
+    (action === "controlled_scale" && card.campaignKind === "mixed");
+  if (!agrees) return null;
+  // Current-primary agreement: the row may only CONFIRM the server-supplied
+  // current CTA, never override a review/cut/refresh/diagnose primary.
+  if (card.primary?.kind !== ROW_ACTION_TO_PRIMARY_KIND[action]) return null;
+  return action;
+}
+
 export function BadgeChip({ label }: { label: DecisionLabel | string }) {
-  if (label === "unlabeled_campaign_context") {
+  if (
+    label === "campaign_context_unresolved" ||
+    label === "unlabeled_campaign_context"
+  ) {
     return (
       <span
         className="inline-flex items-center gap-1 rounded border border-[var(--adc-caution-bd)] bg-[var(--adc-caution-bg)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--adc-caution-fg)]"
-        title="Campaign label missing. Mark this campaign as Main, Test, or Mixed before hard actions."
+        title="Automatic campaign role is unresolved. Fresh account-scoped evidence is required before hard actions."
       >
         <AlertTriangle
           className="inline-block shrink-0"
           size={11}
           aria-hidden="true"
         />
-        campaign label
+        role unresolved
       </span>
     );
   }
@@ -286,28 +366,30 @@ export function CampaignKindChip({
   card: Pick<
     BriefingCreativeCard,
     | "campaignKind"
+    | "campaignRoleStatus"
     | "campaignLabelStatus"
     | "campaignTestDimension"
     | "blockedActionType"
   >;
 }) {
-  if (card.campaignLabelStatus === "no_campaign") return null;
+  const roleStatus = cardCampaignRoleStatus(card);
+  if (roleStatus === "no_campaign") return null;
 
-  if (card.campaignLabelStatus === "unlabeled") {
+  if (roleStatus === "unresolved") {
     const detail = card.blockedActionType
-      ? `Engine wanted ${card.blockedActionType}, blocked until Main/Test/Mixed is labeled.`
-      : "Campaign label missing.";
+      ? `Engine wanted ${card.blockedActionType}, blocked until automatic Main/Test/Mixed inference is reliable.`
+      : "Automatic campaign role unresolved.";
     return (
       <span
         className="inline-flex items-center rounded border border-[var(--adc-caution-bd)] bg-[var(--adc-caution-bg)] px-1.5 py-0.5 text-[10px] font-semibold text-[var(--adc-caution-fg)]"
         title={detail}
       >
-        Unlabeled
+        Role unresolved
       </span>
     );
   }
 
-  if (!card.campaignKind) return null;
+  if (roleStatus !== "resolved" || !card.campaignKind) return null;
 
   const label =
     card.campaignKind === "main"

@@ -87,6 +87,10 @@ export const META_MUTATION_STATES = [
  * kullanıcı mesajını ve testini de içermelidir".
  */
 export const META_FAILURE_CODES = [
+  // D074 contracts the manual-label tombstone's permanent refusal code, so
+  // the uncontracted ratchet holds rather than being raised: the route is a
+  // 410 by design, forever.
+  "campaign_labels_retired",
   // D071 contracts the codes its demo branches emit, so the uncontracted
   // ratchet holds rather than being raised.
   "demo_journal_not_recorded",
@@ -152,6 +156,12 @@ interface FailureDescriptor {
 }
 
 export const META_FAILURES: Readonly<Record<MetaFailureCode, FailureDescriptor>> = {
+  campaign_labels_retired: {
+    message:
+      "Manual campaign labels are retired. Campaign roles are inferred automatically per account; there is nothing to fetch or save here.",
+    state: "refused",
+    operatorActionable: false,
+  },
   demo_workspace_envelope_unavailable: {
     message:
       "This demo workspace serves committed decision evidence, but the pacing and lane sources behind this screen are not part of the demo, so the workspace was withheld rather than served with invented figures.",

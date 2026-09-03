@@ -764,7 +764,7 @@ describe("CreativesBriefingPage", () => {
     const html = renderToStaticMarkup(<CreativesBriefingPage />);
 
     expect(html).toContain("Server lane summary");
-    expect(html).toContain("Near action 1, test maturing 0, diagnostic 1, labels 0");
+    expect(html).toContain("Near action 1, test maturing 0, diagnostic 1, roles unresolved 0");
     expect(html).toContain("Aggregate decisions not available");
     expect(html).toContain("Scale Hero");
     expect(html).toContain("Watcher A");
@@ -940,15 +940,18 @@ describe("CreativesBriefingPage", () => {
     expect(selectedCards[0]?.label).toBe("diagnose");
   });
 
-  it("builds page-level Launchpad overlay state and confirm href", () => {
+  it("refuses the page-level Launchpad overlay for cards without a launch-authority contract (D074b correction)", () => {
+    // Pre-correction this legacy card opened the promote overlay and built a
+    // confirm href. No card may open it until the canonical launch-authority
+    // contract exists.
     const card = makeBriefingData().actionNow[0] as any;
-    const openState = openLaunchpadOverlayState({ card, mode: "promote" });
-
-    expect(openState.open).toBe(true);
-    expect(openState.mode).toBe("promote");
-    expect(launchpadHrefFromOverlayState(openState)).toBe(
-      "/platforms/meta/launchpad?creativeIds=cr_action&mode=promote&fromBriefing=true",
+    expect(openLaunchpadOverlayState({ card, mode: "promote" })).toEqual(
+      CLOSED_LAUNCHPAD_OVERLAY_STATE,
     );
+    // Even a force-opened state cannot produce a confirm href.
+    expect(
+      launchpadHrefFromOverlayState({ open: true, mode: "promote", card }),
+    ).toBeNull();
     expect(launchpadHrefFromOverlayState(CLOSED_LAUNCHPAD_OVERLAY_STATE)).toBeNull();
   });
 
@@ -984,12 +987,15 @@ describe("CreativesBriefingPage", () => {
     ).toBeNull();
   });
 
-  it("hides page-level provider CTAs for canonical selections without a launch contract", () => {
+  it("hides page-level provider CTAs for every selection without a launch contract", () => {
+    // Pre-correction a legacy selection kept canDemote/canLaunchFreshTest
+    // true via the bridge's blockedActionType==null fallback. All provider
+    // CTAs must stay hidden without the canonical launch-authority contract.
     const legacy = makeBriefingData().actionNow[0] as any;
-    expect(briefingBulkProviderActionAvailability([legacy])).toMatchObject({
+    expect(briefingBulkProviderActionAvailability([legacy])).toEqual({
       canPause: false,
-      canDemote: true,
-      canLaunchFreshTest: true,
+      canDemote: false,
+      canLaunchFreshTest: false,
     });
 
     const canonical = {
@@ -1031,22 +1037,84 @@ describe("cardMatchesActionFilter (decision-center contract)", () => {
       ...legacy,
     }) as never;
 
-  it("uses buyerAction from the decision-center row over legacy card kind", () => {
-    const card = rowCard(decisionCenterRow({ buyerAction: "scale" }));
+  it("uses buyerAction from a CURRENT decision-center row over legacy card kind", () => {
+    // D074b correction 3: a scale row counts as current only when the
+    // resolved role, kind, and the server primary all confirm it.
+    const card = rowCard(decisionCenterRow({ buyerAction: "scale" }), {
+      campaignRoleStatus: "resolved",
+      campaignKind: "test",
+      primary: { kind: "promote", label: "Promote to main" },
+      label: "scale",
+    });
     expect(cardMatchesActionFilter(card, "scale")).toBe(true);
     expect(cardMatchesActionFilter(card, "cut")).toBe(false);
   });
 
-  it("matches promote via executionAction promote_to_main only", () => {
+  it("an invalid stale scale row is provenance: it neither classifies nor suppresses held truth (D074b correction 3)", () => {
+    // Correction-2 code let this stale row classify the card as Scale AND
+    // suppress blockedActionType. Both must fall through now.
+    const heldCard = rowCard(decisionCenterRow({ buyerAction: "scale" }), {
+      blockedActionType: "cut",
+      primary: { kind: "review", label: "Cut review" },
+      label: "diagnose",
+    });
+    expect(cardMatchesActionFilter(heldCard, "cut")).toBe(true);
+    expect(cardMatchesActionFilter(heldCard, "scale")).toBe(false);
+    expect(cardMatchesActionFilter(heldCard, "promote")).toBe(false);
+
+    // Without held state the card's own server primary classifies it.
+    const reviewCard = rowCard(decisionCenterRow({ buyerAction: "scale" }), {
+      primary: { kind: "review", label: "Refresh evidence" },
+      label: "scale",
+      campaignRoleStatus: "resolved",
+      campaignKind: "test",
+      authorityBlocker: "source_freshness",
+    });
+    expect(cardMatchesActionFilter(reviewCard, "promote")).toBe(false);
+    expect(cardMatchesActionFilter(reviewCard, "scale")).toBe(false);
+    expect(cardMatchesActionFilter(reviewCard, "diagnose")).toBe(true);
+  });
+
+  it("matches promote only for a current-primary-confirmed promote_to_main row (D074b corrections 2+3)", () => {
+    const resolvedTest = {
+      campaignRoleStatus: "resolved",
+      campaignKind: "test",
+      primary: { kind: "promote", label: "Promote to main" },
+      label: "scale",
+    };
+    expect(
+      cardMatchesActionFilter(
+        rowCard(decisionCenterRow({ executionAction: "promote_to_main" }), resolvedTest),
+        "promote",
+      ),
+    ).toBe(true);
+    // A kind-mismatched row is not current: classification falls through to
+    // the card's own server primary (here Scale budget), never the row.
+    expect(
+      cardMatchesActionFilter(
+        rowCard(decisionCenterRow({ executionAction: "scale_budget" }), {
+          campaignRoleStatus: "resolved",
+          campaignKind: "test",
+          primary: { kind: "scale_budget", label: "Scale budget" },
+          label: "scale",
+        }),
+        "promote",
+      ),
+    ).toBe(false);
+    // Pre-correction a stale row with no role authority matched the Promote
+    // filter; missing/legacy-only status must not.
     expect(
       cardMatchesActionFilter(
         rowCard(decisionCenterRow({ executionAction: "promote_to_main" })),
         "promote",
       ),
-    ).toBe(true);
+    ).toBe(false);
     expect(
       cardMatchesActionFilter(
-        rowCard(decisionCenterRow({ executionAction: "scale_budget" })),
+        rowCard(decisionCenterRow({ executionAction: "promote_to_main" }), {
+          campaignKind: "test",
+          campaignLabelStatus: "labeled",
+        }),
         "promote",
       ),
     ).toBe(false);

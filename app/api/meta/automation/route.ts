@@ -9,6 +9,7 @@ import {
   setMetaAutomationGuardrailPolicy,
   getMetaAutomationControlPlane,
   getMetaWriteBlockState,
+  writeActivityLedgerRow,
   META_AUTOMATION_DECISION_TYPES,
   type MetaAutomationDecisionType,
   type MetaAutomationDecisionMode,
@@ -31,6 +32,17 @@ import { fetchAssignedAccountIds } from "@/lib/meta/creatives-fetchers";
 import { resolveMetaCreativesAccountScope } from "@/lib/meta/creatives-warehouse";
 import { rejectIfAutomationDemoWrite } from "./demo-write-authority";
 import { rejectIfMetaGateClosed } from "@/lib/meta/release-gate-guard";
+import { getDb } from "@/lib/db";
+import {
+  disableBudgetAutoExecution,
+  setBudgetAutoExecutionEnabled,
+} from "@/lib/meta/budget-activation";
+import {
+  parseBudgetAutomationConfig,
+  saveBudgetAutomationConfiguration,
+} from "@/lib/meta/budget-automation-configuration";
+import { readBudgetActivationServerRead }
+  from "@/lib/meta/budget-activation-readiness-server";
 
 export const dynamic = "force-dynamic";
 
@@ -42,6 +54,35 @@ function sanitizeErrorMessage(error: unknown) {
   return (error instanceof Error ? error.message : String(error))
     .replace(/access_token=[^&\s]+/gi, "access_token=[redacted]")
     .replace(/Bearer\s+[A-Za-z0-9._~-]+/gi, "Bearer [redacted]");
+}
+
+/**
+ * The ONE write behind both automatic-execution paths.
+ *
+ * PRE-DEPLOY AUDIT: the fail-safe STOP and the enable ceremony must not be able
+ * to disagree about what "off" means. Enabling binds the exact account;
+ * disabling always clears it, so no scheduled run can find an activated
+ * account afterwards.
+ */
+async function persistBudgetAutoExecution(row: {
+  businessId: string;
+  providerAccountId: string;
+  enabled: boolean;
+  decidedBy: string;
+}): Promise<void> {
+  await getDb().query(
+    `INSERT INTO meta_automation_business_controls
+       (business_id, auto_execution_enabled,
+        auto_execution_provider_account_id, updated_at, updated_by)
+     VALUES ($1::uuid, $2, $4, now(), $3::uuid)
+     ON CONFLICT (business_id) DO UPDATE SET
+       auto_execution_enabled = EXCLUDED.auto_execution_enabled,
+       auto_execution_provider_account_id =
+         EXCLUDED.auto_execution_provider_account_id,
+       updated_at = now(), updated_by = EXCLUDED.updated_by`,
+    [row.businessId, row.enabled, row.decidedBy,
+      row.enabled ? row.providerAccountId : null],
+  );
 }
 
 async function resolveAutomationAccountScope(input: {
@@ -143,6 +184,8 @@ export async function POST(request: NextRequest) {
         rule?: unknown;
         ruleId?: unknown;
         active?: unknown;
+        enabled?: unknown;
+        confirmationPhrase?: unknown;
       }
     | null;
   const action = body?.action;
@@ -150,6 +193,8 @@ export async function POST(request: NextRequest) {
     action !== "engage_kill_switch" &&
     action !== "release_kill_switch" &&
     action !== "set_decision_type_mode" &&
+    action !== "set_budget_auto_execution" &&
+    action !== "save_budget_automation_config" &&
     action !== "set_guardrail_policy" &&
     action !== "create_rule" &&
     action !== "set_rule_active" &&
@@ -158,7 +203,7 @@ export async function POST(request: NextRequest) {
     return jsonError(
       400,
       "unsupported_automation_action",
-      "Only engage_kill_switch, release_kill_switch, set_decision_type_mode, set_guardrail_policy, create_rule, set_rule_active and evaluate_rules are supported from Automation.",
+      "Only engage_kill_switch, release_kill_switch, set_decision_type_mode, set_budget_auto_execution, save_budget_automation_config, set_guardrail_policy, create_rule, set_rule_active and evaluate_rules are supported from Automation.",
     );
   }
 
@@ -166,6 +211,21 @@ export async function POST(request: NextRequest) {
   // reach a provider, so they carry the same `collaborator` floor as
   // engage_kill_switch and set_decision_type_mode — their closest siblings.
   // `release_kill_switch` keeps its stricter `admin` floor untouched.
+  /*
+    PRE-DEPLOY AUDIT — arming a decision type is an ADMIN act.
+
+    Automatic execution needs two keys: the business-wide master switch
+    (`set_budget_auto_execution`, admin) and the decision type's own standing
+    mode set to Tier 3 (`set_decision_type_mode`). Only the first was
+    admin-gated, so once an admin had turned the master on, a COLLABORATOR
+    could set `budget` back to Tier 3 and re-arm the only decision type that
+    has an automatic executor — after an admin had deliberately demoted it.
+    Raising the floor for the `auto` rung closes that path. It only ever
+    tightens: demoting to Tier 1 or Tier 2 stays a collaborator preference,
+    because standing down must never be harder than standing up.
+  */
+  const armsAutoExecution =
+    action === "set_decision_type_mode" && body?.mode === "auto";
   const access = await requireBusinessAccess({
     request,
     businessId,
@@ -173,17 +233,15 @@ export async function POST(request: NextRequest) {
     // every automated action, so it takes the STOP-release role rather than the
     // weaker preference role used by set_decision_type_mode.
     minRole:
+      // D088 C1: enabling automatic budget writes is the strongest control in
+      // the product, so it takes the same admin floor the STOP release does.
       action === "release_kill_switch" || action === "set_guardrail_policy"
+      || action === "set_budget_auto_execution"
+      || action === "save_budget_automation_config" || armsAutoExecution
         ? "admin"
         : "collaborator",
   });
   if ("error" in access) return access.error;
-
-  const accountScope = await resolveAutomationAccountScope({
-    businessId: access.membership.businessId,
-    providerAccountId: requestedProviderAccountId,
-  });
-  if (!accountScope.ok) return accountScope.response;
 
   const REVIEWER_ACTION_LABELS: Record<string, string> = {
     release_kill_switch: "automation_kill_switch_release",
@@ -193,6 +251,8 @@ export async function POST(request: NextRequest) {
     create_rule: "automation_rule_create",
     set_rule_active: "automation_rule_toggle",
     evaluate_rules: "automation_rule_evaluate",
+    set_budget_auto_execution: "automation_budget_auto_execution",
+    save_budget_automation_config: "automation_budget_configuration",
   };
   const reviewerBlocked = rejectIfReviewerReadOnly(
     access,
@@ -218,6 +278,134 @@ export async function POST(request: NextRequest) {
     REVIEWER_ACTION_LABELS[action] ?? "automation_kill_switch_engage",
   );
   if (demoBlocked) return demoBlocked;
+
+  /*
+    THE FAIL-SAFE STOP, ahead of every dependency it does not need.
+
+    PRE-DEPLOY AUDIT: `set_budget_auto_execution` used to be reached only after
+    `resolveAutomationAccountScope`, which answers 503
+    `provider_account_scope_unavailable` when the account-assignment read
+    throws, and after a fresh readiness read. So an unrelated failure — a
+    provider assignment API outage, an unselected account, a readiness query
+    that could not run — could REFUSE a request to turn automatic execution
+    OFF. A stop that a failing dependency can refuse is not a stop.
+
+    Turning it off is therefore handled here: after authentication, the admin
+    floor, the reviewer gate and the demo gate — the four facts about the
+    CALLER, none of which needs an account — and before account resolution,
+    readiness, the control plane, or any provider lookup. It writes the
+    business-wide flag to false, clears the activated provider account, and
+    records the act in the activity ledger.
+
+    Turning it ON is untouched below: admin-only, typed phrase, fresh
+    server-owned readiness, and bound to the exact resolved account.
+  */
+  if (action === "set_budget_auto_execution" && body?.enabled === false) {
+    const stop = await disableBudgetAutoExecution({
+      businessId: access.membership.businessId,
+      // Recorded for the audit row only; the write below clears the binding.
+      providerAccountId: requestedProviderAccountId,
+      actor: { userId: access.session.user.id },
+      persist: persistBudgetAutoExecution,
+    }).catch((error: unknown) => ({ error } as const));
+
+    if ("error" in stop) {
+      /*
+        The one thing that can still refuse a stop is the write itself. Say so
+        exactly, rather than reporting a generic failure an operator might read
+        as "already off".
+      */
+      return jsonError(
+        503,
+        "budget_auto_execution_stop_unpersisted",
+        "The stop could not be recorded, so automatic budget execution may still be enabled. Retry, and engage the business STOP if it continues to fail.",
+      );
+    }
+
+    /*
+      The audit row is attempted, not required: a stop that landed must not be
+      reported as failed because its ledger entry could not be written.
+    */
+    await writeActivityLedgerRow({
+      businessId: access.membership.businessId,
+      activityType: "budget_auto_execution_disabled",
+      severity: "warning",
+      message: "Automatic budget execution disabled for this business.",
+      payload: {
+        enabled: false,
+        clearedActivatedProviderAccount: true,
+        requestedProviderAccountId,
+        path: "fail_safe_stop",
+      },
+      userId: access.session.user.id,
+      actorKind: "operator",
+      entityType: "automation_budget_auto_execution",
+      entityId: access.membership.businessId,
+      resultStatus: "recorded",
+      resultReceiptId: null,
+    }).catch(() => undefined);
+
+    return NextResponse.json({ ok: true, enabled: false, stopPath: "fail_safe" });
+  }
+
+
+  /*
+    PRE-DEPLOY AUDIT — PREPARE, which can never enable.
+
+    Placed beside the fail-safe STOP and before account resolution on purpose:
+    the guardrails it writes are BUSINESS-wide, so it needs no provider
+    account, and the five businesses that have no control row are exactly the
+    ones whose account scope is least likely to resolve cleanly.
+
+    Activation readiness requires a persisted control row with a lifted
+    dry-run guardrail and three real budget numbers, and nothing in the
+    product could write any of them. This action can: it is admin-only,
+    every value is explicitly validated, and the write pins
+    `auto_execution_enabled` to FALSE and clears the activated account on
+    every path. Preparing and enabling stay two different verbs.
+  */
+  if (action === "save_budget_automation_config") {
+    const parsed = parseBudgetAutomationConfig(body);
+    if (!parsed.ok) {
+      return jsonError(400, parsed.rejection, parsed.message);
+    }
+    const saved = await saveBudgetAutomationConfiguration({
+      businessId: access.membership.businessId,
+      actorUserId: access.session.user.id,
+      config: parsed.config,
+    });
+    await writeActivityLedgerRow({
+      businessId: access.membership.businessId,
+      activityType: "budget_automation_configuration_saved",
+      severity: "info",
+      message:
+        "Budget automation configuration saved. Automatic execution remains OFF.",
+      payload: {
+        config: parsed.config,
+        autoExecutionEnabled: false,
+        activatedProviderAccountCleared: true,
+      },
+      userId: access.session.user.id,
+      actorKind: "operator",
+      entityType: "automation_budget_configuration",
+      entityId: access.membership.businessId,
+      resultStatus: "recorded",
+      resultReceiptId: null,
+    }).catch(() => undefined);
+    return NextResponse.json({
+      ok: true,
+      saved: true,
+      /* Restated so a caller cannot read a successful save as an enable. */
+      autoExecutionEnabled: false,
+      guardrails: saved.storedGuardrails,
+    });
+  }
+
+  const accountScope = await resolveAutomationAccountScope({
+    businessId: access.membership.businessId,
+    providerAccountId: requestedProviderAccountId,
+  });
+  if (!accountScope.ok) return accountScope.response;
 
   /**
    * The Stop gate holds ENGAGE, and deliberately never holds RELEASE.
@@ -344,6 +532,86 @@ export async function POST(request: NextRequest) {
   }
 
   try {
+    /*
+      D088 C1 — activation.
+
+      Every fact the verdict needs is computed HERE, on the server. The browser
+      supplies exactly two things: the intent to enable or disable, and the
+      typed phrase. A readiness boolean from a client would be a client deciding
+      whether it may write.
+    */
+    if (action === "set_budget_auto_execution") {
+      const enabled = body?.enabled;
+      if (typeof enabled !== "boolean") {
+        return jsonError(400, "invalid_budget_auto_execution",
+          "enabled must be true or false.");
+      }
+      const { readiness } = await readBudgetActivationServerRead({
+        businessId: access.membership.businessId,
+        providerAccountId: accountScope.providerAccountId,
+        env: process.env,
+      });
+
+      const result = await setBudgetAutoExecutionEnabled({
+        businessId: access.membership.businessId,
+        providerAccountId: accountScope.providerAccountId,
+        enabled,
+        confirmationPhrase: typeof body?.confirmationPhrase === "string"
+          ? body.confirmationPhrase : null,
+        actor: {
+          userId: access.session.user.id,
+          isAdmin: true, // the requireBusinessAccess floor above proved it
+        },
+        readiness,
+        /*
+          D088 C3: activation is bound to the EXACT provider account.
+
+          The control row is business-wide, so C2's write enabled automatic
+          execution for every account the business holds while proving the
+          readiness of exactly one of them. The account this ceremony was run
+          for is now persisted alongside the flag, and cleared when execution is
+          turned off, so the scheduler and the runtime can refuse an account
+          nobody activated.
+        */
+        persist: persistBudgetAutoExecution,
+      });
+      if (!result.ok) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: {
+              code: result.refusal ?? "budget_auto_execution_refused",
+              message: "Automatic budget execution was not changed.",
+            },
+            blockers: result.blockers,
+            readiness,
+          },
+          { status: 409 },
+        );
+      }
+      /* The enable half of the audit trail. Attempted, never required. */
+      await writeActivityLedgerRow({
+        businessId: access.membership.businessId,
+        activityType: "budget_auto_execution_enabled",
+        severity: "warning",
+        message:
+          "Automatic budget execution ENABLED for "
+          + `${accountScope.providerAccountId}.`,
+        payload: {
+          enabled: true,
+          providerAccountId: accountScope.providerAccountId,
+          readiness,
+        },
+        userId: access.session.user.id,
+        actorKind: "operator",
+        entityType: "automation_budget_auto_execution",
+        entityId: access.membership.businessId,
+        resultStatus: "recorded",
+        resultReceiptId: null,
+      }).catch(() => undefined);
+      return NextResponse.json({ ok: true, enabled, readiness });
+    }
+
     if (action === "release_kill_switch") {
       const preflight = await getMetaAutomationControlPlane({
         businessId: access.membership.businessId,

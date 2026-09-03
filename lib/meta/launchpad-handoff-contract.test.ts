@@ -43,6 +43,7 @@ function decision(
       realAdId: "ad_1",
       authorizedAction: "refresh",
       jobRunId: "job_1",
+      executionReadiness: "live_preflight_required",
     },
     sourceDecision: { snapshotAsOf: "2026-08-17" },
     parentChain: {
@@ -254,6 +255,19 @@ describe("launchpad handoff authorization", () => {
     });
     expect(result).toEqual({ ok: false, refusal: "action_not_eligible" });
   });
+
+  it.each(["stale_decision", undefined] as const)(
+    "refuses decision-origin Launchpad when execution readiness is %s",
+    (executionReadiness) => {
+      const result = authorize({
+        sourceAuthority: {
+          ...(decision().sourceAuthority as object),
+          executionReadiness,
+        },
+      });
+      expect(result).toEqual({ ok: false, refusal: "execution_not_ready" });
+    },
+  );
 
   it("refuses a decision with no authorized action", () => {
     const result = authorize({

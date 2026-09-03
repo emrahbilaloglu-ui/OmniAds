@@ -133,8 +133,10 @@ describe("CreativeEvidenceDrawer", () => {
     expect(html).not.toContain("Decision Center");
     expect(html).toContain("Automation readiness");
     expect(html).toContain("Operator history");
-    expect(html).toContain("Add to existing");
-    expect(html).toContain("Fresh test");
+    // D074b correction: the drawer no longer offers Launchpad writes for
+    // cards without the canonical launch-authority contract — review-only.
+    expect(html).not.toContain("Add to existing");
+    expect(html).not.toContain("Fresh test");
     expect(html).toContain("data-media-shape=\"portrait\"");
     expect(html).toContain("Meta ad preview unavailable");
     expect(html).not.toContain("creative-evidence-phone-surface");
@@ -209,7 +211,7 @@ describe("CreativeEvidenceDrawer", () => {
     expect(html).not.toContain("creative-evidence-phone");
   });
 
-  it("renders only server-supplied decisionCenter row fields when present", () => {
+  it("renders the compatibility row only as an explicit non-authoritative snapshot (D074b correction 4)", () => {
     const html = renderDrawer(
       <CreativeEvidenceDrawer
         open
@@ -218,15 +220,60 @@ describe("CreativeEvidenceDrawer", () => {
       />,
     );
 
-    expect(html).toContain("Decision Center");
-    expect(html).toContain("Scale review");
-    expect(html).toContain("Server supplied V2.1 decision.");
+    expect(html).toContain("Compatibility snapshot (provenance)");
+    expect(html).toContain("Not the current decision");
+    expect(html).toContain("cannot execute any action");
+    // Composed row guidance never renders as a headline or body copy.
+    expect(html).not.toContain("Scale review");
+    expect(html).not.toContain("Server supplied V2.1 decision.");
+    // Raw fields survive strictly as attributed snapshot lines.
     expect(html).toContain("decision center - creative-decision-os.v2.1");
-    expect(html).not.toContain("shadow surface");
     expect(html).toContain("buyerAction scale - execution promote_to_main");
     expect(html).toContain("sourceDecision v3:scale");
-    expect(html).toContain("Queue false - apply false");
-    expect(html).toContain("engine queue false - apply false");
+    expect(html).toContain("convey no current eligibility");
+  });
+
+  it("keeps the current Cut headline over a stale Scale snapshot (D074b correction 4, exact bypass-D probe)", () => {
+    // The acceptance probe: current server decision/primary is Cut, but the
+    // retained row claims a queue/apply-eligible Promote with next-step
+    // guidance. Correction-3 code rendered "Scale - Promote to main" bold,
+    // the nextStep as guidance, and "Queue true - apply true".
+    const html = renderDrawer(
+      <CreativeEvidenceDrawer
+        open
+        card={card({
+          label: "cut",
+          primary: { kind: "cut", label: "Cut" },
+          decisionCenterRow: {
+            ...decisionCenterRow(),
+            buyerAction: "scale",
+            buyerLabel: "Scale - Promote to main",
+            executionAction: "promote_to_main",
+            nextStep: "Promote to main now.",
+            engine: {
+              ...decisionCenterRow().engine,
+              queueEligible: true,
+              applyEligible: true,
+            },
+          } as never,
+        })}
+        {...noopProps}
+      />,
+    );
+
+    expect(html).not.toContain("Scale - Promote to main");
+    expect(html).not.toContain("Promote to main now.");
+    expect(html).not.toContain("Queue true - apply true");
+    expect(html).toContain("Compatibility snapshot (provenance)");
+    expect(html).toContain("Not the current decision");
+    expect(html).toContain("cannot execute any action");
+    // Raw values stay inspectable as snapshot fields under the disclosure.
+    expect(html).toContain("buyerAction scale - execution promote_to_main");
+    expect(html).toContain("true/");
+    expect(html).toContain("convey no current eligibility");
+    // The current decision keeps the drawer headline; no Launchpad route.
+    expect(html).toContain(">Cut<");
+    expect(html).not.toContain("launchpad");
   });
 
   it("renders server-supplied automation readiness instead of stale missing-field copy", () => {

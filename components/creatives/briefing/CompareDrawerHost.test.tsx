@@ -43,9 +43,12 @@ describe("CompareDrawerHost", () => {
     expect(html).toContain("Creative 1");
     expect(html).toContain("Creative 3");
     expect(html).not.toContain("data-compare-action=\"cut-weakest\"");
-    expect(html).toContain("data-compare-action=\"scale-strongest\"");
-    expect(html).toContain("data-compare-action=\"launch-test\"");
-    expect(html).toContain("Send selected to Launchpad");
+    // D074b correction: Launchpad-bound compare actions stay hidden for
+    // cards without the canonical launch-authority contract — the drawer is
+    // evidence-only until that contract exists.
+    expect(html).not.toContain("data-compare-action=\"scale-strongest\"");
+    expect(html).not.toContain("data-compare-action=\"launch-test\"");
+    expect(html).not.toContain("Send selected to Launchpad");
   });
 
   it("hides bulk action controls when canonical cards are blocked", () => {

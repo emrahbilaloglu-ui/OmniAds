@@ -77,6 +77,23 @@ npm run test:staged-worker
 stage "Native ad decision database seam"
 node --import tsx scripts/ephemeral-postgres-native-ad-decision-seam.ts
 
+# PRE-DEPLOY AUDIT: the D088 budget seam was written and never wired, so the
+# canonical sequence never ran it. It boots its own cluster, applies the REAL
+# migration registry, and proves the complete D088 postcondition — the 26-column
+# journal contract with its types, nullability and safety defaults, both journal
+# indexes, every constraint resolved to its exact schema and table, and the
+# rollback-compatibility upsert BOTH application images must be able to issue.
+stage "D088 budget proposal migration seam (schema contract + rollback compatibility)"
+npm run test:d088-budget-migration-seam
+
+# The operator readback an actual deploy depends on, executed in BOTH schema
+# states: the schema production has today, and the schema after this release.
+# A statement that merely NAMES a table this release creates aborts the whole
+# transaction at parse time on the pre-deploy run, so "it should work" is not
+# good enough and the file is executed rather than reviewed.
+stage "Automation-OFF readback (pre-migration and post-migration, via psql)"
+npm run test:automation-off-readback-seam
+
 stage "Provider fixture seam"
 npm run test:provider-fixture-seam
 

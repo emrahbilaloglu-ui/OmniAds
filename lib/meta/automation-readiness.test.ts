@@ -314,8 +314,13 @@ describe("deriveMetaAutomationReadiness", () => {
     );
 
     expect(readiness.tier).toBe("read_only");
-    expect(readiness.blockers).toContain("missing_campaign_label");
-    expect(readiness.missingEvidence).toContain("campaign_label");
+    // D074b: legacy label-status signals on old persisted payloads map into
+    // the CANONICAL blocker; the deprecated blocker is never emitted again.
+    expect(readiness.blockers).toContain("campaign_context_unresolved");
+    expect(readiness.blockers).not.toContain("missing_campaign_label");
+    expect(readiness.missingEvidence).toContain(
+      "automatic_campaign_context_authority",
+    );
   });
 
   it("blocks execution on automatic context uncertainty without asking for a label", () => {

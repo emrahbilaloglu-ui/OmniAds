@@ -461,6 +461,18 @@ async function main() {
       [businessId, providerAccountRefId, PROVIDER_ACCOUNT_ID],
     );
 
+    // D072/AR-013: the shared write choke point now fails closed when the
+    // business has no persisted automation control row. This seam tests the
+    // duplicate write/reconciliation contract itself, so persist an explicit
+    // open control state; the missing-row refusal has its own coverage.
+    await admin.query(
+      `INSERT INTO meta_automation_business_controls
+         (business_id, kill_switch_engaged, auto_execution_enabled, readiness_tier)
+       VALUES ($1::uuid, FALSE, FALSE, 'manual_review')
+       ON CONFLICT (business_id) DO UPDATE SET kill_switch_engaged = FALSE`,
+      [businessId],
+    );
+
     // Write authority for this seam's in-process fake provider.
     //
     // readProviderWriteAuthority reads provider_connections +

@@ -1921,8 +1921,13 @@ const READINESS_FACT_LABELS: Readonly<Record<string, string>> = {
   not_action_state: "This is not an act-now decision",
   diagnostic_or_watch_state: "This is a diagnostic or watch-only decision",
   low_confidence: "Confidence is below the automation threshold",
-  missing_campaign_label: "The campaign role label is missing",
+  // Pre-D074b alias key: only older persisted payloads carry it.
+  missing_campaign_label: "The automatic campaign role is unresolved",
+  automatic_campaign_context_authority:
+    "Automatic campaign-role authority is required",
   campaign_context_unresolved: "The campaign context is unresolved",
+  campaign_context_resolver_unvalidated:
+    "The automatic campaign-role resolver is awaiting independent validation",
   missing_commercial_anchor:
     "Commercial target or break-even evidence is missing",
   missing_controlled_causal_evidence: "Controlled causal evidence is missing",
@@ -1946,7 +1951,9 @@ const READINESS_FACT_LABELS: Readonly<Record<string, string>> = {
   empirical_outcome_sample: "An empirical outcome sample is required",
   live_preflight: "Live Meta preflight evidence is required",
   rollback_plan: "A rollback plan is required",
-  campaign_label: "A campaign role label is required",
+  // Pre-D074b alias key retained for older persisted payloads; the copy
+  // never asks for a label — roles are inferred automatically.
+  campaign_label: "Automatic campaign-role authority is required",
   operator_enablement: "Operator enablement is required",
 };
 
@@ -2385,6 +2392,143 @@ function fact(
   };
 }
 
+function decisionPipelineTone(
+  workspace: MetaDecisionsWorkspacePayload,
+): MetaDecisionCenterExactTone {
+  const health = workspace.system?.pipelineHealth;
+  if (!health || health.overall === "unavailable" || health.overall === "blocked") {
+    return "negative";
+  }
+  return health.overall === "healthy" && health.executionReady
+    ? "positive"
+    : "warning";
+}
+
+/**
+ * The operational clocks are deliberately printed separately. A current
+ * decision snapshot cannot stand in for current sync admission or finalized
+ * warehouse truth, and a healthy worker heartbeat cannot stand in for either.
+ */
+function decisionPipelineFacts(
+  workspace: MetaDecisionsWorkspacePayload,
+): MetaDecisionCenterExactSourceFactViewModel[] {
+  const health = workspace.system?.pipelineHealth;
+  const tone = decisionPipelineTone(workspace);
+  if (!health) {
+    return [
+      fact(
+        "pipeline-health",
+        "Decision pipeline",
+        "unavailable (legacy payload)",
+        tone,
+      ),
+      fact(
+        "pipeline-execution-ready",
+        "Pipeline execution ready",
+        "no",
+        tone,
+      ),
+    ];
+  }
+  const offender = health.admission.offender;
+  const age = (value: number | null, unit: string) =>
+    value === null ? null : `${value.toFixed(1)} ${unit}`;
+  const bytes = (value: number) =>
+    `${Math.trunc(value).toLocaleString("en-US")} bytes`;
+  return [
+    fact(
+      "pipeline-contract",
+      "Pipeline contract",
+      health.contractVersion,
+    ),
+    fact(
+      "pipeline-evaluated",
+      "Pipeline evaluated at",
+      health.evaluatedAt,
+    ),
+    fact("pipeline-health", "Decision pipeline", health.overall, tone),
+    fact(
+      "pipeline-execution-ready",
+      "Pipeline execution ready",
+      health.executionReady ? "yes" : "no",
+      tone,
+    ),
+    fact(
+      "pipeline-blockers",
+      "Pipeline blockers",
+      health.blockers.length > 0 ? health.blockers.join(", ") : "none",
+      tone,
+    ),
+    fact("pipeline-sync-status", "Sync activity", health.syncActivity.status),
+    fact("pipeline-sync-latest", "Latest successful sync", health.syncActivity.latestAt),
+    fact(
+      "pipeline-sync-age",
+      "Successful sync age",
+      age(health.syncActivity.ageMinutes, "minutes"),
+    ),
+    fact(
+      "pipeline-sync-limit",
+      "Maximum sync age",
+      `${health.syncActivity.maxAgeMinutes} minutes`,
+    ),
+    fact("pipeline-sync-job-status", "Latest sync job status", health.syncActivity.latestJobStatus),
+    fact("pipeline-sync-run-status", "Latest sync run status", health.syncActivity.latestRunStatus),
+    fact("pipeline-sync-reason", "Sync status reason", health.syncActivity.reason),
+    fact("pipeline-warehouse-status", "Warehouse cutoff", health.warehouse.status),
+    fact("pipeline-warehouse-latest", "Latest finalized Ad day", health.warehouse.latestFinalizedDate),
+    fact("pipeline-warehouse-expected", "Expected finalized Ad day", health.warehouse.expectedFinalizedDate),
+    fact(
+      "pipeline-warehouse-lag",
+      "Warehouse lag",
+      health.warehouse.lagDays === null ? null : `${health.warehouse.lagDays} days`,
+    ),
+    fact("pipeline-account-timezone", "Provider account timezone", health.warehouse.accountTimeZone),
+    fact("pipeline-warehouse-reason", "Warehouse status reason", health.warehouse.reason),
+    fact("pipeline-admission-status", "Sync admission", health.admission.status),
+    fact(
+      "pipeline-admission-allowed",
+      "Sync admission allowed",
+      health.admission.allowed ? "yes" : "no",
+    ),
+    fact("pipeline-admission-reason", "Admission reason", health.admission.reason),
+    fact(
+      "pipeline-admission-evaluated",
+      "Admission evaluated at",
+      health.admission.evaluatedAt,
+    ),
+    fact("pipeline-admission-table", "Admission offender", offender?.table),
+    fact("pipeline-admission-bytes", "Offender physical size", offender ? bytes(offender.bytes) : null),
+    fact("pipeline-admission-budget", "Offender budget", offender ? bytes(offender.budget) : null),
+    fact("pipeline-admission-over", "Over budget by", offender ? bytes(offender.overByBytes) : null),
+    fact("pipeline-generation-status", "Decision generation", health.decisionGeneration.status),
+    fact("pipeline-generation-computed", "Decision computed at", health.decisionGeneration.computedAt),
+    fact(
+      "pipeline-generation-age",
+      "Decision generation age",
+      age(health.decisionGeneration.ageHours, "hours"),
+    ),
+    fact(
+      "pipeline-generation-limit",
+      "Maximum decision age",
+      `${health.decisionGeneration.maxAgeHours} hours`,
+    ),
+    fact("pipeline-generation-engine", "Decision engine", health.decisionGeneration.engineVersion),
+    fact("pipeline-generation-reason", "Decision generation reason", health.decisionGeneration.reason),
+    fact("pipeline-manifest-status", "Generation manifest", health.manifest.status),
+    fact("pipeline-manifest-authority", "Manifest authority", health.manifest.authority),
+    fact("pipeline-manifest-job", "Manifest job run", health.manifest.jobRunId),
+    fact("pipeline-manifest-hash", "Manifest hash", health.manifest.manifestHash),
+    fact(
+      "pipeline-manifest-expected",
+      "Manifest expected Ads",
+      health.manifest.expectedAdCount === null
+        ? null
+        : formatNumber(health.manifest.expectedAdCount),
+    ),
+    fact("pipeline-manifest-reason", "Manifest status reason", health.manifest.reason),
+  ];
+}
+
 /**
  * The eight named capability states, and how many are not available.
  *
@@ -2634,6 +2778,206 @@ function sectionCapFacts(
  * `omittedFromQueue.count`, because "nothing was withheld" is a fact and
  * "we could not tell" is a different one.
  */
+/**
+ * The canonical commercial-anchor explanation, rendered verbatim.
+ *
+ * Every value is copied from `system.commercialAnchor`, which the server
+ * projected from `AccountDecisionProfile.hardActionEligibility` — the same
+ * object the engine decided with. The client derives NOTHING: not eligibility,
+ * not a threshold, not a spend unit, not a campaign role. An absent or
+ * unavailable panel says so rather than implying an anchor exists.
+ */
+const ANCHOR_ACTION_FACT_IDS = {
+  scale: "anchor-action-scale",
+  cut: "anchor-action-cut",
+  refresh: "anchor-action-refresh",
+} as const;
+const ANCHOR_ACTION_COPY_IDS = {
+  scale: "anchor-action-scale-copy",
+  cut: "anchor-action-cut-copy",
+  refresh: "anchor-action-refresh-copy",
+} as const;
+
+function commercialAnchorFacts(
+  workspace: MetaDecisionsWorkspacePayload,
+): MetaDecisionCenterExactSourceFactViewModel[] {
+  const panel = workspace.system.commercialAnchor;
+  if (!panel) return [];
+  const currency = panel.currency;
+
+  const withheldFacts = [
+    fact(
+      "anchor-withheld-profile-evidence",
+      "Withheld · profile hard-action evidence",
+      formatNumber(panel.withheld.profileHardActionEvidence),
+      panel.withheld.profileHardActionEvidence > 0 ? "warning" : undefined,
+    ),
+    fact(
+      "anchor-withheld-campaign-context",
+      "Withheld · campaign role unresolved",
+      formatNumber(panel.withheld.campaignContext),
+    ),
+    fact(
+      "anchor-withheld-recovery",
+      "Withheld · recovery unverifiable",
+      formatNumber(panel.withheld.recentRecoveryUnverifiable),
+    ),
+  ];
+
+  // A supplied reason is always shown, independently of `status`: the server
+  // never sends one on a healthy panel, and hiding it behind the status would
+  // let a real explanation of an outage go unrendered.
+  const unavailableReasonFact = panel.unavailableReason
+    ? [
+        fact(
+          "anchor-unavailable-reason",
+          "Unavailable because",
+          panel.unavailableReason,
+          "warning",
+        ),
+      ]
+    : [];
+
+  if (panel.status !== "resolved" || !panel.explanation) {
+    // Honest unknown. Never a spend unit, never an eligibility claim.
+    return [
+      fact("anchor-status", "Commercial anchor", "unavailable", "warning"),
+      ...unavailableReasonFact,
+      ...withheldFacts,
+    ];
+  }
+
+  const explanation = panel.explanation;
+  const lineage = explanation.lineage;
+  const facts: MetaDecisionCenterExactSourceFactViewModel[] = [
+    fact(
+      "anchor-status",
+      "Commercial anchor",
+      explanation.status,
+      explanation.thresholdEligible ? undefined : "warning",
+    ),
+    ...unavailableReasonFact,
+    fact("anchor-currency", "Currency", currency ?? "account currency"),
+    fact(
+      "anchor-spend-unit",
+      "Hard-action spend unit",
+      explanation.spendUnit === null
+        ? null
+        : formatMoney(explanation.spendUnit, currency),
+    ),
+    fact("anchor-source", "Spend unit source", explanation.spendUnitSource),
+    fact(
+      "anchor-confidence",
+      "Spend unit confidence",
+      explanation.spendUnitConfidence,
+      explanation.spendUnitConfidence === "high" ||
+        explanation.spendUnitConfidence === "medium"
+        ? undefined
+        : "warning",
+    ),
+    fact(
+      "anchor-freshness",
+      "Target provenance",
+      `${explanation.targetPackFreshness ?? "unknown"}${
+        explanation.targetPackUpdatedAt
+          ? ` · ${explanation.targetPackUpdatedAt}`
+          : ""
+      }`,
+      (explanation.targetPackFreshness ?? "unknown") === "unknown"
+        ? "warning"
+        : undefined,
+    ),
+    fact(
+      "anchor-target-cpa",
+      "Target CPA",
+      lineage.targetCpa === null ? null : formatMoney(lineage.targetCpa, currency),
+    ),
+    fact(
+      "anchor-aov",
+      "AOV assumption",
+      lineage.operatorAovAssumption === null
+        ? null
+        : formatMoney(lineage.operatorAovAssumption, currency),
+    ),
+    fact(
+      "anchor-target-roas",
+      "Target ROAS",
+      lineage.targetRoas === null ? null : formatNumber(lineage.targetRoas),
+    ),
+    fact(
+      "anchor-break-even-roas",
+      "Break-even ROAS",
+      lineage.breakEvenRoas === null
+        ? null
+        : formatNumber(lineage.breakEvenRoas),
+    ),
+    fact(
+      "anchor-meta-aov",
+      "Sampled Meta AOV",
+      lineage.metaAttributedAovMean90d === null
+        ? null
+        : `${formatMoney(lineage.metaAttributedAovMean90d, currency)} · ${formatNumber(
+            lineage.metaAttributedAovPurchaseCount90d,
+          )} purchases (90d) · ${explanation.metaAovQuality}`,
+    ),
+    fact(
+      "anchor-account-cpa-p50",
+      "Account CPA p50 (history, not a target)",
+      lineage.accountCpaP50 === null || lineage.accountCpaP50 === undefined
+        ? null
+        : `${formatMoney(lineage.accountCpaP50, currency)} · ${formatNumber(
+            lineage.accountCpaSampleCount ?? 0,
+          )} sample`,
+    ),
+    fact(
+      "anchor-attribution-adjustment",
+      "Attribution AOV adjustment",
+      lineage.attributionAovAdjustmentMultiplier === null
+        ? null
+        : formatNumber(lineage.attributionAovAdjustmentMultiplier),
+    ),
+    ...withheldFacts,
+  ];
+
+  // Scale, Cut and Refresh each get their own row: the engine's effective
+  // decision, its stable code, and the server's own sentence.
+  for (const row of panel.actions) {
+    const name = `${row.action[0].toUpperCase()}${row.action.slice(1)}`;
+    facts.push(
+      fact(
+        ANCHOR_ACTION_FACT_IDS[row.action],
+        name,
+        `${row.eligible ? "eligible" : "withheld"}${
+          row.blockerCode ? ` · ${row.blockerCode}` : ""
+        }`,
+        row.eligible ? undefined : "warning",
+      ),
+    );
+    if (row.operatorCopy) {
+      facts.push(
+        fact(
+          ANCHOR_ACTION_COPY_IDS[row.action],
+          `${name} · next step`,
+          row.operatorCopy,
+          "warning",
+        ),
+      );
+    }
+  }
+
+  if (explanation.missingInputs.length > 0) {
+    facts.push(
+      fact(
+        "anchor-missing-inputs",
+        "Missing inputs",
+        explanation.missingInputs.join(", "),
+        "warning",
+      ),
+    );
+  }
+  return facts;
+}
+
 function sourceProvenance(input: {
   workspace: MetaDecisionsWorkspacePayload;
   shownCount: number;
@@ -2653,8 +2997,13 @@ function sourceProvenance(input: {
   const health = nonBlank(osSource?.health);
   const fallbackReason =
     nonBlank(readSource?.fallbackReason) ?? nonBlank(osSource?.fallbackReason);
+  const pipelineTone = decisionPipelineTone(workspace);
   const tone: MetaDecisionCenterExactTone =
-    health === "degraded" || (authority !== null && authority !== "native_ad")
+    pipelineTone === "negative"
+      ? "negative"
+      : health === "degraded" ||
+          pipelineTone === "warning" ||
+          (authority !== null && authority !== "native_ad")
       ? "warning"
       : health === "healthy"
         ? "positive"
@@ -2710,6 +3059,7 @@ function sourceProvenance(input: {
       ...readModelStatusFacts(readModel),
       fact("status", "Source status", readSource?.status),
       fact("health", "Health", health, tone),
+      ...decisionPipelineFacts(workspace),
       fact("ads-source", "Ads source", osSource?.adsSource),
       fact("fallback-reason", "Fallback reason", fallbackReason),
       fact("table", "Table", readSource?.table),
@@ -2817,6 +3167,7 @@ function sourceProvenance(input: {
         ),
       ),
     ],
+    commercialAnchor: commercialAnchorFacts(workspace),
     capabilityGaps,
   };
 }
@@ -2897,9 +3248,14 @@ function structureProvenance(
         (key) => readModel.capabilities[key]?.status !== "available",
       )
     : null;
+  const pipelineTone = decisionPipelineTone(workspace);
   const tone: MetaDecisionCenterExactTone =
-    sourceStatus !== null && sourceStatus !== "available"
+    pipelineTone === "negative"
       ? "negative"
+      : sourceStatus !== null && sourceStatus !== "available"
+        ? "negative"
+      : pipelineTone === "warning"
+        ? "warning"
       : writeBearingGap === true
         ? "warning"
         : sourceStatus === "available" && writeBearingGap === false
@@ -2961,6 +3317,7 @@ function structureProvenance(
        * panel is a claim about whether the SOURCE could be read.
        */
       fact("status", "Source status", sourceStatus, tone),
+      ...decisionPipelineFacts(workspace),
       ...snapshotFacts(readSource),
       fact(
         "scope-provider-account",
@@ -3118,7 +3475,7 @@ export function buildMetaDecisionCenterExactViewModel(
     nonBlank(workspace.os?.source?.engineVersion) ??
     nonBlank(workspace.system.engineVersion);
   const snapshotHealth = workspace.system.snapshotHealth;
-  const labelCoverage = workspace.pulse.labelCoverage;
+  const campaignRoleCoverage = workspace.pulse.campaignRoleCoverage;
   const pacing = workspace.pulse.pacing;
   const syncAge = relativeAge(workspace.pulse.lastSyncAt, input.now);
   const selection = resolveSelection({
@@ -3136,6 +3493,11 @@ export function buildMetaDecisionCenterExactViewModel(
   });
 
   return {
+    // D078 R4/C3.1: forwarded verbatim — all four states survive the
+    // adapter. `undefined` (absent legacy payload) must NOT collapse into
+    // `null` (read failed), or the UI would warn "unavailable" on payloads
+    // that never carried the field.
+    assignedAccountStates: workspace.assignedAccountStates,
     identity: {
       accountLabel:
         nonBlank(scopedAccount?.name) ??
@@ -3265,21 +3627,23 @@ export function buildMetaDecisionCenterExactViewModel(
           : EM_DASH,
         detail:
           [
-            engineVersion ? `engine ${engineVersion}` : null,
+            nonBlank(snapshotHealth?.engineVersion)
+              ? `recommendation engine ${snapshotHealth!.engineVersion}`
+              : null,
             syncAge ? `synced ${syncAge}` : null,
           ]
             .filter((value): value is string => Boolean(value))
             .join(" · ") || EM_DASH,
       },
-      labels: {
-        coverage: labelCoverage
-          ? `${labelCoverage.labeledCampaigns}/${labelCoverage.activeCampaigns}`
+      campaignRoles: {
+        coverage: campaignRoleCoverage
+          ? `${campaignRoleCoverage.classifiedCampaigns}/${campaignRoleCoverage.activeCampaigns}`
           : EM_DASH,
         percentage:
-          labelCoverage && labelCoverage.activeCampaigns > 0
+          campaignRoleCoverage && campaignRoleCoverage.activeCampaigns > 0
             ? `${Math.round(
-                (labelCoverage.labeledCampaigns /
-                  labelCoverage.activeCampaigns) *
+                (campaignRoleCoverage.classifiedCampaigns /
+                  campaignRoleCoverage.activeCampaigns) *
                   100,
               )}%`
             : EM_DASH,
@@ -3347,6 +3711,12 @@ export function buildMetaDecisionCenterExactViewModel(
     // The same envelope, said in the scope that draws the action buttons.
     // @see structureProvenance
     structureProvenance: structureProvenance(workspace),
+    // Forwarded verbatim, never flattened into the fact list: each blocker code
+    // must stay paired with its own sentence, which a fact list would separate.
+    // Absent means the server sent no panel — never "nothing is blocking".
+    budgetEvidence: workspace.system.budgetEvidence ?? null,
+    // D085 — carried verbatim; the adapter derives nothing from it.
+    budgetDryRun: workspace.system.budgetDryRun ?? null,
     creativePosture: creativePosture(workspace.os?.ads?.items ?? []),
     creativeDecisions: creativeDecisionRows,
     creativeGroups: creativeGroups({

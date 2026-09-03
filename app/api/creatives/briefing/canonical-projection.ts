@@ -11,6 +11,7 @@ import {
   type DecisionOutput,
   type TruthSource,
 } from "@/lib/creative-decision-engine/types";
+import { resolveCampaignRoleStatus } from "@/lib/creative-decision-engine/campaign-label-guard";
 import type { MetaCreativeApiRow } from "@/lib/meta/creatives-types";
 import {
   isExactActiveMetaDecisionDeliveryScope,
@@ -161,7 +162,13 @@ function canonicalPrimaryAction(
   decision: MetaCanonicalDecision,
 ): BriefingPrimaryAction {
   const authority = decision.sourceAuthority!;
-  if (!authority.actionEligible) {
+  if (
+    !authority.actionEligible ||
+    authority.executionReadiness !== "live_preflight_required"
+  ) {
+    if (authority.executionReadiness === "stale_decision") {
+      return { kind: "review", label: "Refresh decision" };
+    }
     if (decision.classification.heldAction === "cut") {
       if (decision.classification.resolution?.code === "refresh_decision_data") {
         return { kind: "review", label: "Refresh recent evidence" };
@@ -202,6 +209,8 @@ function canonicalLane(
   // UI operability until their full lineage tuple is validated by an executor.
   if (
     decision.sourceAuthority?.actionEligible &&
+    decision.sourceAuthority.executionReadiness ===
+      "live_preflight_required" &&
     decision.sourceAuthority.authorizedAction === "cut"
   ) {
     return "action";
@@ -256,6 +265,8 @@ function legacyDecisionCenterRow(
   const blockers = decision.classification.blockers.map((blocker) => blocker.code);
   const directlyExecutable =
     decision.sourceAuthority?.actionEligible === true &&
+    decision.sourceAuthority.executionReadiness ===
+      "live_preflight_required" &&
     decision.sourceAuthority.authorizedAction === "cut";
   return {
     scope: "creative",
@@ -352,10 +363,10 @@ function presentationDecision(
       roas: finite(decision.metrics.roas),
       recent7dRoas: finite(decision.metrics.recent7dRoas),
     },
-    campaignLabelStatus: decision.parentChain.campaign
-      ? lifecycle === "label_needed"
-        ? "unlabeled"
-        : "labeled"
+    campaignRoleStatus: decision.parentChain.campaign
+      ? lifecycle === "label_needed" || lifecycle === "role_unresolved"
+        ? "unresolved"
+        : "resolved"
       : "no_campaign",
     campaignKind:
       lifecycle === "main" || lifecycle === "test" || lifecycle === "mixed"
@@ -444,6 +455,8 @@ export function projectCanonicalNativeAdDecisionToBriefing(input: {
     authorizedAction: authority.authorizedAction,
     actionEligible: authority.actionEligible,
     reviewOnlyReason: authority.reviewOnlyReason,
+    executionReadiness: authority.executionReadiness,
+    decisionFreshness: authority.decisionFreshness,
   };
   const canonical: BriefingCanonicalNativeAdDecision = {
     contractVersion: BRIEFING_CANONICAL_NATIVE_AD_CONTRACT_VERSION,
@@ -528,13 +541,16 @@ export function projectCanonicalNativeAdDecisionToBriefing(input: {
     ...(decisionCenterRow ? { decisionCenterRow } : {}),
     status:
       decision.deliveryScope?.adStatus ?? row?.effective_status ?? null,
+    // D074b correction: a kind is served only under canonical resolved
+    // status, mirroring card-serialization's gate.
     campaignKind:
-      present.campaignKind === "main" ||
-      present.campaignKind === "test" ||
-      present.campaignKind === "mixed"
+      resolveCampaignRoleStatus(present) === "resolved" &&
+      (present.campaignKind === "main" ||
+        present.campaignKind === "test" ||
+        present.campaignKind === "mixed")
         ? present.campaignKind
         : null,
-    campaignLabelStatus: present.campaignLabelStatus,
+    campaignRoleStatus: resolveCampaignRoleStatus(present),
     blockedActionType: decision.classification.heldAction,
     engineVersion: decision.sourceDecision.engineVersion,
     sourceAsOf: decision.sourceDecision.snapshotAsOf,

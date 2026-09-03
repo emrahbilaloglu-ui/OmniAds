@@ -17,7 +17,18 @@ vi.mock("@/lib/meta/business-data-posture", () => ({
   readMetaBusinessDataPosture: vi.fn(),
 }));
 
+// D078 R4: the route additionally reads the full assigned-account states to
+// serve the deselected/historical read-only group. The policy formatter is
+// the real one so the served copy is the shipped copy.
+vi.mock("@/lib/meta/assigned-account-states", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@/lib/meta/assigned-account-states")
+  >()),
+  readMetaAssignedAccountStates: vi.fn(),
+}));
+
 const access = await import("@/lib/access");
+const accountStates = await import("@/lib/meta/assigned-account-states");
 const readModel = await import("@/lib/meta/history-read-model");
 const posture = await import("@/lib/meta/business-data-posture");
 const route = await import("@/app/api/meta/history/accounts/route");
@@ -36,6 +47,21 @@ describe("GET /api/meta/history/accounts", () => {
     vi.mocked(readModel.readMetaHistoryAssignedAccountIds).mockResolvedValue([
       "act_1",
     ]);
+    vi.mocked(accountStates.readMetaAssignedAccountStates).mockResolvedValue([
+      {
+        providerAccountId: "act_1",
+        accountName: "Primary",
+        selectionState: "selected",
+        accountCurrency: "EUR",
+        accountTimezone: "UTC",
+        latestFactDate: "2026-08-21",
+        spend14d: 100,
+        latestDecisionAsOf: "2026-08-22",
+        latestDecisionRows: 10,
+        latestDecisionAuthorizedRows: 1,
+        servedByCurrentSurfaces: true,
+      },
+    ]);
   });
 
   it("returns only the authenticated business account scopes", async () => {
@@ -50,6 +76,7 @@ describe("GET /api/meta/history/accounts", () => {
       mode: "read_only",
       businessId: "business_1",
       accounts: [{ id: "act_1", name: "Primary", currency: "EUR", timezone: "UTC" }],
+      historicalAccounts: [],
     });
     expect(access.requireBusinessAccess).toHaveBeenCalledWith({
       request,
@@ -70,6 +97,37 @@ describe("GET /api/meta/history/accounts", () => {
       "act_1",
     ]);
 
+    // D078 R4: the deselected-but-still-assigned identity is served as an
+    // explicitly-marked read-only historical group instead of vanishing.
+    vi.mocked(accountStates.readMetaAssignedAccountStates).mockResolvedValue([
+      {
+        providerAccountId: "act_1",
+        accountName: "Primary",
+        selectionState: "selected",
+        accountCurrency: "EUR",
+        accountTimezone: "UTC",
+        latestFactDate: "2026-08-21",
+        spend14d: 100,
+        latestDecisionAsOf: "2026-08-22",
+        latestDecisionRows: 10,
+        latestDecisionAuthorizedRows: 1,
+        servedByCurrentSurfaces: true,
+      },
+      {
+        providerAccountId: "act_stale",
+        accountName: "Removed",
+        selectionState: "deselected_historical",
+        accountCurrency: "EUR",
+        accountTimezone: "UTC",
+        latestFactDate: "2026-08-20",
+        spend14d: 1652.29,
+        latestDecisionAsOf: "2026-08-21",
+        latestDecisionRows: 126,
+        latestDecisionAuthorizedRows: 2,
+        servedByCurrentSurfaces: false,
+      },
+    ]);
+
     const response = await route.GET(
       new NextRequest("http://localhost/api/meta/history/accounts?businessId=business_1"),
     );
@@ -79,6 +137,14 @@ describe("GET /api/meta/history/accounts", () => {
     expect(body.accounts).toEqual([
       { id: "act_1", name: "Primary", currency: "EUR", timezone: "UTC" },
     ]);
+    expect(body.historicalAccounts).toHaveLength(1);
+    const historical = body.historicalAccounts[0];
+    expect(historical.id).toBe("act_stale");
+    expect(historical.selectionState).toBe("deselected_historical");
+    expect(historical.spend14d).toBe(1652.29);
+    expect(historical.latestDecisionRows).toBe(126);
+    expect(historical.policy).toContain("Deselected — read-only historical evidence");
+    expect(historical.policy).toContain("explicit operator decision");
   });
 
   it("is unavailable when the assignment cannot be read, not an empty list", async () => {

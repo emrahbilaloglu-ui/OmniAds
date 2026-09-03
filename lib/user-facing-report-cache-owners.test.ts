@@ -102,6 +102,14 @@ describe("user-facing report cache owners", () => {
       endDate: "2026-03-31",
       dimension: "country",
     });
+    // A provider-specific label, not the old ambiguous
+    // "user_facing_report_cache_warm" — the growth fence can only admit this
+    // as collateral-only outside a Meta (or other) breach if it can prove
+    // the operation's own family, and a generic shared label proved nothing.
+    expect(dbGrowthFence.assertSyncGrowthBoundary).toHaveBeenCalledWith(
+      "ga4_user_facing_report_cache_warm",
+      { fresh: true },
+    );
     expect(reportingCacheWriter.writeCachedRouteReport).toHaveBeenCalledTimes(1);
     const call = vi.mocked(reportingCacheWriter.writeCachedRouteReport).mock.calls[0]?.[0];
     expect(call).toEqual(
@@ -131,6 +139,10 @@ describe("user-facing report cache owners", () => {
       endDate: "2026-03-31",
     });
 
+    expect(dbGrowthFence.assertSyncGrowthBoundary).toHaveBeenCalledWith(
+      "ga4_user_facing_report_cache_warm",
+      { fresh: true },
+    );
     expect(reportingCacheWriter.writeCachedReportSnapshot).not.toHaveBeenCalled();
     expect(result).toEqual(
       expect.objectContaining({
@@ -154,6 +166,13 @@ describe("user-facing report cache owners", () => {
       endDate: "2026-03-31",
       forceRefresh: true,
     });
+    // The Shopify-specific label -- distinct from the GA4 warmers above, so
+    // the fence can positively tell them apart when only one provider's
+    // fenced table is over budget.
+    expect(dbGrowthFence.assertSyncGrowthBoundary).toHaveBeenCalledWith(
+      "shopify_user_facing_report_cache_warm",
+      { fresh: true },
+    );
     expect(reportingCacheWriter.writeCachedReportSnapshot).toHaveBeenCalledWith(
       expect.objectContaining({
         businessId: "biz_1",

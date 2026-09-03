@@ -44,8 +44,9 @@ vi.mock("@/lib/meta/config-snapshots", () => ({
   readMetaBidRegimeHistorySummaries: vi.fn(),
 }));
 
-vi.mock("@/lib/meta/campaign-labels", () => ({
-  readMetaCampaignLabels: vi.fn(async () => []),
+vi.mock("@/lib/creative-decision-engine/campaign-context/source", () => ({
+  resolveCampaignContextMode: vi.fn(() => "automatic"),
+  readCampaignContextLabelMap: vi.fn(async () => new Map()),
 }));
 
 vi.mock("@/lib/meta/decision-stability", async (importOriginal) => {
@@ -81,6 +82,24 @@ vi.mock("@/lib/meta/automation-proposals", () => ({
     expired: 0,
     ran: true,
   })),
+}));
+
+// Budget proposal projection is another collaborator of the snapshot pipeline.
+// Its real SQL/loader/insert path has dedicated production-path tests; keeping
+// it mocked here prevents those reads from polluting this suite's captured
+// decision-row payloads.
+vi.mock("@/lib/meta/budget-proposal-producer", () => ({
+  projectMetaBudgetProposals: vi.fn(async () => ({
+    ran: true,
+    candidates: 0,
+    projected: 0,
+    refusals: {},
+  })),
+  insertBudgetProposalRow: vi.fn(async () => null),
+}));
+
+vi.mock("@/lib/meta/budget-proposal-source-loader", () => ({
+  loadBudgetCompositionSourcesForCandidate: vi.fn(async () => null),
 }));
 
 vi.mock("@/lib/meta/commercial-targets", async (importOriginal) => {
@@ -123,7 +142,9 @@ const campaignSource = await import("@/lib/meta/campaigns-source");
 const adsetsSource = await import("@/lib/meta/adsets-source");
 const breakdownsSource = await import("@/lib/meta/breakdowns-source");
 const configSnapshots = await import("@/lib/meta/config-snapshots");
-const campaignLabels = await import("@/lib/meta/campaign-labels");
+const campaignContextSource = await import(
+  "@/lib/creative-decision-engine/campaign-context/source"
+);
 const anomalies = await import("@/lib/meta/anomalies");
 const evidenceTrail = await import("@/lib/meta/evidence-trail");
 const entitySignals = await import("@/lib/meta/entity-signals");
@@ -131,6 +152,35 @@ const entitySignalsBackfill = await import("@/lib/meta/entity-signals-backfill")
 const commercialTargets = await import("@/lib/meta/commercial-targets");
 const assignments = await import("@/lib/provider-account-assignments");
 const automationProposals = await import("@/lib/meta/automation-proposals");
+
+function automaticCampaignContext(
+  campaignId: string,
+  kind: "main" | "test" | "mixed",
+) {
+  return new Map([
+    [
+      campaignId,
+      {
+        kind,
+        testDimension: null,
+        contextTrust: "high" as const,
+        provenance: {
+          mode: "automatic" as const,
+          source: "system_inferred" as const,
+          campaignId,
+          kind,
+          testDimension: null,
+          contextTrust: "high" as const,
+          sourceRecordType: "engine_v3_campaign_context_daily" as const,
+          sourceRecordId: "00000000-0000-4000-8000-000000000101",
+          sourceAsOfDate: "2026-05-06",
+          sourceUpdatedAt: "2026-05-06T02:00:00.000Z",
+          sourceHash: "a".repeat(64),
+        },
+      },
+    ],
+  ]);
+}
 
 function makeSqlMock(tagRows: unknown[] = []) {
   const calls: string[] = [];
@@ -256,7 +306,9 @@ describe("meta snapshot job", () => {
       products: { available: false },
     } as never);
     vi.mocked(configSnapshots.readMetaBidRegimeHistorySummaries).mockResolvedValue(new Map());
-    vi.mocked(campaignLabels.readMetaCampaignLabels).mockResolvedValue([]);
+    vi.mocked(
+      campaignContextSource.readCampaignContextLabelMap,
+    ).mockResolvedValue(new Map());
     vi.mocked(anomalies.detectAnomaliesForBusiness).mockResolvedValue([]);
     vi.mocked(entitySignals.readMetaEntityDecisionSignalsDaily).mockResolvedValue(new Map());
     vi.mocked(entitySignalsBackfill.runMetaSignalsBackfillForBusiness).mockResolvedValue({
@@ -1052,7 +1104,9 @@ describe("meta snapshot job", () => {
       },
     ]);
     vi.mocked(db.getDb).mockReturnValue(sql.tag);
-    vi.mocked(campaignLabels.readMetaCampaignLabels).mockResolvedValue([]);
+    vi.mocked(
+      campaignContextSource.readCampaignContextLabelMap,
+    ).mockResolvedValue(new Map());
 
     const result = await readMetaDecisionSnapshotForRange({
       businessId: "biz_1",
@@ -1061,19 +1115,18 @@ describe("meta snapshot job", () => {
     });
 
     expect(result?.recommendations[0]).toMatchObject({
-      kind: "state",
       decisionState: "watch",
-      decisionLabel: "diagnose",
+      decisionLabel: "scale",
       confidence: "low",
-      confidenceReason: "unlabeled_campaign_soft_only",
+      confidenceReason: "automatic_campaign_context_review_only",
       signalQuality: {
-        label_status: "unlabeled",
-        blocked_action_type: "scale_for_volume",
+        campaign_context_status: "unknown",
+        campaign_context_action_authority: "review_only",
       },
     });
   });
 
-  it("keeps persisted hard actions when the campaign label exists", async () => {
+  it("keeps persisted hard actions when fresh automatic campaign role is high confidence", async () => {
     const sql = makeSqlMock([
       {
         scope_type: "campaign",
@@ -1099,20 +1152,9 @@ describe("meta snapshot job", () => {
       },
     ]);
     vi.mocked(db.getDb).mockReturnValue(sql.tag);
-    vi.mocked(campaignLabels.readMetaCampaignLabels).mockResolvedValue([
-      {
-        businessId: "biz_1",
-        campaignId: "cmp_1",
-        kind: "main",
-        testDimension: null,
-        source: "user",
-        providerAccountId: "act_1",
-        campaignName: "Campaign 1",
-        labeledBy: "user_1",
-        labeledAt: "2026-05-15T00:00:00.000Z",
-        updatedAt: "2026-05-15T00:00:00.000Z",
-      },
-    ]);
+    vi.mocked(
+      campaignContextSource.readCampaignContextLabelMap,
+    ).mockResolvedValue(automaticCampaignContext("cmp_1", "main"));
 
     const result = await readMetaDecisionSnapshotForRange({
       businessId: "biz_1",
@@ -1164,20 +1206,9 @@ describe("meta snapshot job", () => {
       freshness: "stale",
       updatedAt: "2026-03-01T00:00:00.000Z",
     });
-    vi.mocked(campaignLabels.readMetaCampaignLabels).mockResolvedValue([
-      {
-        businessId: "biz_1",
-        campaignId: "cmp_1",
-        kind: "main",
-        testDimension: null,
-        source: "user",
-        providerAccountId: "act_1",
-        campaignName: "Campaign 1",
-        labeledBy: "user_1",
-        labeledAt: "2026-05-15T00:00:00.000Z",
-        updatedAt: "2026-05-15T00:00:00.000Z",
-      },
-    ]);
+    vi.mocked(
+      campaignContextSource.readCampaignContextLabelMap,
+    ).mockResolvedValue(automaticCampaignContext("cmp_1", "main"));
 
     const result = await readMetaDecisionSnapshotForRange({
       businessId: "biz_1",

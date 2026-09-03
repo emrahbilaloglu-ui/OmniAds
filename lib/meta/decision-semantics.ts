@@ -93,7 +93,7 @@ function resolutionForAuthorityBlocker(
       owner: "system",
       label: "Automatic Classification Pending",
       nextStep:
-        "The automatic resolver will keep evaluating this campaign. No label is required; save an explicit correction only when the provisional role is wrong.",
+        "The automatic resolver will keep evaluating this campaign as fresh account-scoped evidence syncs. No operator input is required; hard actions stay review-only until the role resolves.",
     };
   }
   return {
@@ -160,6 +160,7 @@ function resolutionFor(codes: ReadonlySet<string>): MetaDecisionResolution {
     codes.has("campaign_context_unresolved") ||
     codes.has("campaign_context_low_confidence") ||
     codes.has("campaign_label_missing") ||
+    codes.has("campaign_role_unresolved") ||
     codes.has("unlabeled_campaign_context") ||
     codes.has("campaign_context")
   ) {
@@ -169,7 +170,7 @@ function resolutionFor(codes: ReadonlySet<string>): MetaDecisionResolution {
       owner: "system",
       label: "Automatic Classification Pending",
       nextStep:
-        "The automatic resolver will keep evaluating this campaign. No label is required; save an explicit correction only when the provisional role is wrong.",
+        "The automatic resolver will keep evaluating this campaign as fresh account-scoped evidence syncs. No operator input is required; hard actions stay review-only until the role resolves.",
     };
   }
   if (

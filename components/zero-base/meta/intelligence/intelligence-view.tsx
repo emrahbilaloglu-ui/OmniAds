@@ -150,9 +150,9 @@ export function IntelligenceView({
   // "Served" is a state, not a row count: a degraded or unavailable source is
   // still in `sources`, and counting it here would overstate the account's health.
   const servedCount = sources.filter((source) => source.state === "serving").length;
-  // The campaign-label authority's own facts. Reusing the pulse tiles' facts
-  // here showed connection/summary numbers under a "Campaign labels" heading.
-  const labelFacts = sources.find((source) => source.key === "labels")?.facts ?? [];
+  // The automatic campaign-role authority's own facts. The source key remains
+  // `labels` for one response-contract compatibility window only.
+  const roleFacts = sources.find((source) => source.key === "labels")?.facts ?? [];
 
   const sourcesPanel = (
     <>
@@ -306,13 +306,13 @@ export function IntelligenceView({
           measured by axe on the mounted route.
         */}
         <aside aria-labelledby="meta-intel-labels-heading" style={{ padding: 12, border: "1px solid var(--ledger-border-subtle)", borderRadius: "var(--ledger-radius-card)", background: "var(--ledger-bg-surface)" }}>
-          <h2 id="meta-intel-labels-heading" style={{ margin: 0, fontSize: 14, fontWeight: 700 }}>{copy.campaignLabels}</h2>
+          <h2 id="meta-intel-labels-heading" style={{ margin: 0, fontSize: 14, fontWeight: 700 }}>Campaign roles</h2>
           <div data-el="label-chips" style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 10 }}>
-            {labelFacts.length > 0 ? labelFacts.map((fact, index) => (
+            {roleFacts.length > 0 ? roleFacts.map((fact, index) => (
               <span key={`${fact.label}-${index}`} style={{ padding: "4px 8px", borderRadius: 999, background: "var(--ledger-accent-tint)", color: "var(--ledger-accent-action)", fontSize: 12 }}>{fact.label} · {fact.value}</span>
             )) : <span style={{ fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>{copy.nothingServed}</span>}
           </div>
-          <p style={{ margin: "10px 0 0", fontSize: 12, lineHeight: "18px", color: "var(--ledger-ink-tertiary)" }}>{copy.campaignLabelsSemanticOnly}</p>
+          <p style={{ margin: "10px 0 0", fontSize: 12, lineHeight: "18px", color: "var(--ledger-ink-tertiary)" }}>Main, Test, and Mixed are inferred from account-scoped behavior, structure, naming, lineage, and continuity signals.</p>
         </aside>
       </div>
     </>

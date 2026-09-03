@@ -7,7 +7,7 @@ import {
 } from "@/lib/meta/recommendations";
 import {
   hasMetaCampaignLabel,
-  META_CAMPAIGN_LABEL_GUARD_REASON,
+  META_AUTOMATIC_CONTEXT_REVIEW_REASON,
   type MetaCampaignLabelKindMap,
 } from "@/lib/meta/campaign-label-guard";
 import {
@@ -21,6 +21,8 @@ export type MetaEntityStateLabel =
   | "watch"
   | "out_of_scope"
   | "non_sales_eligible"
+  | "campaign_context_unresolved"
+  /** @deprecated pre-D074b alias; parse-only for older payloads. */
   | "unlabeled_campaign_context"
   | "archived"
   | "no_action"
@@ -65,7 +67,7 @@ function stateForCampaign(
     isPurchaseCohort(cohort) &&
     !hasMetaCampaignLabel(campaign.id, labelMap)
   ) {
-    return { state: "unlabeled_campaign_context", cohort };
+    return { state: "campaign_context_unresolved", cohort };
   }
   if (!isPurchaseCohort(cohort)) {
     if (cohort === "unknown") {
@@ -102,7 +104,7 @@ function stateForAdset(
     isPurchaseCohort(cohort) &&
     !hasMetaCampaignLabel(adset.campaignId, labelMap)
   ) {
-    return { state: "unlabeled_campaign_context", cohort };
+    return { state: "campaign_context_unresolved", cohort };
   }
   if (!isPurchaseCohort(cohort)) {
     if (cohort === "unknown") {
@@ -122,7 +124,7 @@ function stateForAdset(
 
 function decisionLabelForState(state: MetaEntityStateLabel): MetaRecommendation["decisionLabel"] {
   if (state === "out_of_scope" || state === "non_sales_eligible") return "out_of_scope";
-  if (state === "watch" || state === "unlabeled_campaign_context") return "diagnose";
+  if (state === "watch" || state === "campaign_context_unresolved") return "diagnose";
   return "keep";
 }
 
@@ -143,8 +145,8 @@ function stateReason(
       return "Entity is not a sales-action candidate; keep state coverage but exclude it from sales action density.";
     case "non_sales_eligible":
       return `${subject} is configured for ${formatCohort(cohort)} delivery; not evaluated in the purchase decision engine.`;
-    case "unlabeled_campaign_context":
-      return "Campaign is not labeled. Main/Test/Mixed context is required before the engine emits hard scale, cut, bid, or budget moves.";
+    case "campaign_context_unresolved":
+      return "Automatic Main/Test/Mixed campaign role is unresolved. Fresh high-confidence context is required before the engine emits hard scale, cut, bid, or budget moves.";
     case "archived":
       return "Paused or inactive entity has no current spend pressure; archive coverage only.";
     case "watch":
@@ -182,19 +184,19 @@ function stateRecommendation(input: {
     decisionLabel: label,
     stateReason: reason,
     lens: "structure",
-    priority: input.state === "unlabeled_campaign_context" ? "medium" : "low",
+    priority: input.state === "campaign_context_unresolved" ? "medium" : "low",
     confidence: input.state === "stable_winner_protected" ? "medium" : "low",
     confidenceScore:
       input.state === "stable_winner_protected"
         ? 0.6
-        : input.state === "unlabeled_campaign_context"
+        : input.state === "campaign_context_unresolved"
           ? 0.4
           : 0.35,
     confidenceReason:
       input.state === "watch"
         ? "thin_data_watching"
-        : input.state === "unlabeled_campaign_context"
-          ? META_CAMPAIGN_LABEL_GUARD_REASON
+        : input.state === "campaign_context_unresolved"
+          ? META_AUTOMATIC_CONTEXT_REVIEW_REASON
           : null,
     decisionState: "watch",
     decision: input.state,
@@ -202,8 +204,8 @@ function stateRecommendation(input: {
     why: reason,
     summary: `${input.name} is covered by Meta Engine v1 state evaluation at ${fmtRoas(input.roas)} ROAS on ${input.purchases} purchases.`,
     recommendedAction:
-      input.state === "unlabeled_campaign_context"
-        ? "Label this campaign as Main, Test, or Mixed before taking hard action."
+      input.state === "campaign_context_unresolved"
+        ? "Refresh campaign evidence and rerun automatic role inference before taking hard action."
         : label === "out_of_scope"
           ? "Keep out of sales action queue."
           : "No immediate operator action.",
@@ -213,8 +215,8 @@ function stateRecommendation(input: {
       { label: "Cohort", value: input.cohort, tone: "neutral" },
       { label: "ROAS", value: fmtRoas(input.roas), tone: "neutral" },
       { label: "Purchases", value: String(input.purchases), tone: "neutral" },
-      ...(input.state === "unlabeled_campaign_context"
-        ? [{ label: "Campaign label", value: "Missing", tone: "warning" as const }]
+      ...(input.state === "campaign_context_unresolved"
+        ? [{ label: "Campaign role", value: "Automatic inference unresolved", tone: "warning" as const }]
         : []),
     ],
     timeframeContext: {
@@ -233,11 +235,12 @@ function stateRecommendation(input: {
     engineVersion: META_RECOMMENDATION_ENGINE_VERSION,
     calibrationScope: input.context?.scope ? { ...input.context.scope } : {},
     signalQuality:
-      input.state === "unlabeled_campaign_context"
+      input.state === "campaign_context_unresolved"
         ? {
-            quality_status: "missing_campaign_label",
-            confidence_cap: META_CAMPAIGN_LABEL_GUARD_REASON,
-            label_status: "unlabeled",
+            quality_status: "campaign_context_unresolved",
+            confidence_cap: META_AUTOMATIC_CONTEXT_REVIEW_REASON,
+            campaign_context_status: "unavailable",
+            campaign_context_action_authority: "review_only",
           }
         : { quality_status: "missing", confidence_cap: "low_without_signal_table" },
     cohort: input.cohort,

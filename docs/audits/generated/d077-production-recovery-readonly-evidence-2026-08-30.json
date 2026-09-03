@@ -1,0 +1,707 @@
+{
+ "evidenceHash": "74c0078d3141020f8ba57f71bde20df621d0cf516f411e6fe00ecc51779e90e1",
+ "hashAlgorithm": "sha256",
+ "hashBasis": "sha256 over UTF-8 bytes of JSON.stringify(artifact, null, 1) of the artifact WITHOUT the evidenceHash/hashAlgorithm/hashBasis fields",
+ "contract": "adsecute.d077.production-recovery-readonly-evidence.v2",
+ "operatingClass": "production_read_only_preflight",
+ "generator": "scripts/audits/d077-production-recovery-readonly-preflight.ts",
+ "transactionMechanism": "single REPEATABLE READ READ ONLY transaction over the repository tunnel (127.0.0.1:15432), bounded SET LOCAL statement_timeout, unique application_name, in-transaction read-only/isolation/timeout/app-name proof, ended by ROLLBACK via sentinel",
+ "charterBusinesses": [
+  {
+   "name": "IwaStore",
+   "businessId": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+   "accounts": [
+    "act_1087566732415606"
+   ],
+   "releaseCanary": true
+  },
+  {
+   "name": "Grandmix",
+   "businessId": "5dbc7147-f051-4681-a4d6-20617170074f",
+   "accounts": [
+    "act_805150454596350"
+   ],
+   "releaseCanary": true
+  },
+  {
+   "name": "Bilsem Zeka",
+   "businessId": "6c690fa4-6395-40b5-9755-e99b34d69bc3",
+   "accounts": [
+    "act_840779107261785"
+   ],
+   "releaseCanary": false
+  },
+  {
+   "name": "TheSwaf",
+   "businessId": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+   "accounts": [
+    "act_822913786458311",
+    "act_921275999286619"
+   ],
+   "releaseCanary": true
+  },
+  {
+   "name": "IwaTR",
+   "businessId": "b79683b4-6f87-48c0-a3ca-44d4356fef51",
+   "accounts": [
+    "act_2335220976649516"
+   ],
+   "releaseCanary": false
+  },
+  {
+   "name": "ColorFullWorldsTR",
+   "businessId": "bc0c6178-7853-4f6f-b026-ef0222a4b9e7",
+   "accounts": [
+    "act_3554615364751964"
+   ],
+   "releaseCanary": false
+  }
+ ],
+ "payload": {
+  "transactionProofs": {
+   "transaction_read_only": "on",
+   "transaction_isolation": "repeatable read",
+   "application_name": "d077_recovery_preflight_c1_1788100231481",
+   "statement_timeout": "2min",
+   "database": "adsecute_prod",
+   "server_version": "16.15 (Ubuntu 16.15-0ubuntu0.24.04.1)",
+   "retrieved_at": "2026-08-30 14:30:32.38481+00"
+  },
+  "schemaState": {
+   "relations": {
+    "state_history": true,
+    "observation_runs": true,
+    "lineage_edges": true,
+    "archived_lineage_edges": true,
+    "response_events": true,
+    "compaction_journal": false,
+    "capacity_snapshots": true,
+    "automation_controls": true,
+    "worker_heartbeats": true
+   },
+   "observationRunColumnsPresent": [
+    "business_id",
+    "captured_at",
+    "completeness",
+    "endpoint",
+    "entity_type",
+    "last_checkpoint_at",
+    "last_seen_at",
+    "observed_at",
+    "provider_account_id",
+    "repeat_count",
+    "semantic_hash"
+   ],
+   "stateHistoryColumnsPresent": [
+    "business_id",
+    "captured_at",
+    "configured_status",
+    "created_at",
+    "entity_id",
+    "entity_type",
+    "provider_account_id",
+    "run_completeness",
+    "run_id",
+    "state_hash"
+   ]
+  },
+  "extensions": {
+   "pgstattuple": {
+    "name": "pgstattuple",
+    "default_version": "1.5",
+    "installed_version": null
+   },
+   "pgstattupleVersions": [
+    {
+     "name": "pgstattuple",
+     "version": "1.4",
+     "superuser": true,
+     "trusted": false,
+     "relocatable": true
+    },
+    {
+     "name": "pgstattuple",
+     "version": "1.5",
+     "superuser": true,
+     "trusted": false,
+     "relocatable": true
+    }
+   ],
+   "installed": [
+    "pgcrypto",
+    "plpgsql"
+   ],
+   "currentRoleCapabilities": {
+    "current_role": "adsecute_app",
+    "current_role_sql_identifier": "adsecute_app",
+    "rolsuper": false,
+    "rolcreaterole": false,
+    "rolcreatedb": false,
+    "rolreplication": false,
+    "has_database_create": true,
+    "member_of_pg_stat_scan_tables": false,
+    "member_of_pg_monitor": false
+   },
+   "functionExecutionNote": "has_function_privilege on pgstattuple_approx is undecidable pre-install (the function does not exist yet); since pgstattuple 1.5 the extension script revokes PUBLIC and grants EXECUTE to pg_stat_scan_tables, so member_of_pg_stat_scan_tables above is the decisive post-install capability fact."
+  },
+  "relationAnatomy": {
+   "table": "meta_entity_state_history",
+   "total_bytes": "5368750080",
+   "heap_toast_bytes": "2684198912",
+   "heap_main_bytes": "2683428864",
+   "index_bytes": "2684551168",
+   "stats": {
+    "n_live_tup": "4239834",
+    "n_dead_tup": "277",
+    "last_vacuum": null,
+    "last_autovacuum": "2026-08-19 09:24:43.708336+00",
+    "last_analyze": null,
+    "last_autoanalyze": "2026-08-20 23:19:28.997379+00",
+    "vacuum_count": "0",
+    "autovacuum_count": "3"
+   },
+   "statsNote": "n_live_tup / n_dead_tup are PLANNER ESTIMATES from pg_stat_user_tables, not exact row counts.",
+   "indexes": [
+    {
+     "index_name": "meta_entity_state_response_lineage_unique",
+     "bytes": "941056000"
+    },
+    {
+     "index_name": "idx_meta_entity_state_history_asof",
+     "bytes": "674013184"
+    },
+    {
+     "index_name": "meta_entity_state_history_run_entity_unique",
+     "bytes": "281026560"
+    },
+    {
+     "index_name": "idx_meta_entity_state_history_run",
+     "bytes": "281026560"
+    },
+    {
+     "index_name": "idx_meta_entity_state_history_run_ad_identity",
+     "bytes": "280379392"
+    },
+    {
+     "index_name": "meta_entity_state_history_pkey",
+     "bytes": "227049472"
+    }
+   ],
+   "fenceBudgetBytesFromLocalCode": 5368709120
+  },
+  "capacityTelemetry": {
+   "source": "db_host_healthcheck",
+   "sampled_at": "2026-08-30 14:17:00+00",
+   "database_name": "adsecute_prod",
+   "disks": [
+    {
+     "path": "/",
+     "mountedOn": "/",
+     "usedBytes": 18669088768,
+     "filesystem": "/dev/sda1",
+     "totalBytes": 80307429376,
+     "usedPercent": 25,
+     "availableBytes": 58315726848
+    },
+    {
+     "path": "/var/lib/postgresql",
+     "mountedOn": "/var/lib/postgresql",
+     "usedBytes": 105489203200,
+     "filesystem": "/dev/sdb",
+     "totalBytes": 221348159488,
+     "usedPercent": 48,
+     "availableBytes": 114746966016
+    }
+   ]
+  },
+  "ingestion": {
+   "lastStateHistoryWrite": {
+    "last_captured_at": "2026-08-22 14:53:48.51+00",
+    "last_created_at": "2026-08-22 14:53:48.604589+00"
+   },
+   "workerHeartbeats": [
+    {
+     "provider_scope": "shopify",
+     "instance_type": "durable_sync_worker",
+     "status": "idle",
+     "last_heartbeat_at": "2026-08-30 14:30:27.670601+00"
+    },
+    {
+     "provider_scope": "meta",
+     "instance_type": "durable_sync_worker",
+     "status": "idle",
+     "last_heartbeat_at": "2026-08-30 14:30:27.415148+00"
+    },
+    {
+     "provider_scope": "google_ads",
+     "instance_type": "durable_sync_worker",
+     "status": "idle",
+     "last_heartbeat_at": "2026-08-30 14:30:22.745124+00"
+    }
+   ]
+  },
+  "perPairClocks": [
+   {
+    "business": "IwaStore",
+    "businessId": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+    "providerAccountId": "act_1087566732415606",
+    "latest_job_status": "succeeded",
+    "latest_job_at": "2026-08-22 07:02:32.701+00",
+    "latest_success_at": "2026-08-22 14:49:45.254+00",
+    "latest_finalized_date": "2026-08-21"
+   },
+   {
+    "business": "Grandmix",
+    "businessId": "5dbc7147-f051-4681-a4d6-20617170074f",
+    "providerAccountId": "act_805150454596350",
+    "latest_job_status": "succeeded",
+    "latest_job_at": "2026-08-22 08:04:58.373+00",
+    "latest_success_at": "2026-08-22 14:53:53.925+00",
+    "latest_finalized_date": "2026-08-21"
+   },
+   {
+    "business": "Bilsem Zeka",
+    "businessId": "6c690fa4-6395-40b5-9755-e99b34d69bc3",
+    "providerAccountId": "act_840779107261785",
+    "latest_job_status": "succeeded",
+    "latest_job_at": "2026-08-21 21:04:48.667+00",
+    "latest_success_at": "2026-08-22 14:50:34.546+00",
+    "latest_finalized_date": "2026-08-21"
+   },
+   {
+    "business": "TheSwaf",
+    "businessId": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+    "providerAccountId": "act_822913786458311",
+    "latest_job_status": "succeeded",
+    "latest_job_at": "2026-08-22 06:01:39.964+00",
+    "latest_success_at": "2026-08-22 14:53:08.9+00",
+    "latest_finalized_date": "2026-08-21"
+   },
+   {
+    "business": "TheSwaf",
+    "businessId": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+    "providerAccountId": "act_921275999286619",
+    "latest_job_status": "succeeded",
+    "latest_job_at": "2026-08-21 05:04:38.905+00",
+    "latest_success_at": "2026-08-21 21:27:43.805+00",
+    "latest_finalized_date": "2026-08-20"
+   },
+   {
+    "business": "IwaTR",
+    "businessId": "b79683b4-6f87-48c0-a3ca-44d4356fef51",
+    "providerAccountId": "act_2335220976649516",
+    "latest_job_status": "succeeded",
+    "latest_job_at": "2026-08-21 21:05:50.762+00",
+    "latest_success_at": "2026-08-22 14:51:15.124+00",
+    "latest_finalized_date": "2026-08-21"
+   },
+   {
+    "business": "ColorFullWorldsTR",
+    "businessId": "bc0c6178-7853-4f6f-b026-ef0222a4b9e7",
+    "providerAccountId": "act_3554615364751964",
+    "latest_job_status": "succeeded",
+    "latest_job_at": "2026-08-21 21:00:16.566+00",
+    "latest_success_at": "2026-08-22 14:51:23.462+00",
+    "latest_finalized_date": "2026-08-21"
+   }
+  ],
+  "generations": [
+   {
+    "business": "IwaStore",
+    "businessId": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+    "latest_as_of": "2026-08-22",
+    "latest_rows": 1042,
+    "latest_authorized": 0
+   },
+   {
+    "business": "Grandmix",
+    "businessId": "5dbc7147-f051-4681-a4d6-20617170074f",
+    "latest_as_of": "2026-08-22",
+    "latest_rows": 2529,
+    "latest_authorized": 5
+   },
+   {
+    "business": "Bilsem Zeka",
+    "businessId": "6c690fa4-6395-40b5-9755-e99b34d69bc3",
+    "latest_as_of": "2026-08-22",
+    "latest_rows": 3204,
+    "latest_authorized": 0
+   },
+   {
+    "business": "TheSwaf",
+    "businessId": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+    "latest_as_of": "2026-08-22",
+    "latest_rows": 750,
+    "latest_authorized": 7
+   },
+   {
+    "business": "IwaTR",
+    "businessId": "b79683b4-6f87-48c0-a3ca-44d4356fef51",
+    "latest_as_of": "2026-08-22",
+    "latest_rows": 172,
+    "latest_authorized": 0
+   },
+   {
+    "business": "ColorFullWorldsTR",
+    "businessId": "bc0c6178-7853-4f6f-b026-ef0222a4b9e7",
+    "latest_as_of": "2026-08-22",
+    "latest_rows": 414,
+    "latest_authorized": 0
+   }
+  ],
+  "evidenceLanes": {
+   "outcome_rows": 0,
+   "calibration_daily_rows": 1358
+  },
+  "assignedAccountStates": [
+   {
+    "business": "IwaStore",
+    "provider_account_id": "act_1087566732415606",
+    "account_name": "IWA-MDNLLC",
+    "is_selected": true,
+    "account_currency": "USD",
+    "account_timezone": "America/Los_Angeles",
+    "latest_fact_date": "2026-08-21",
+    "spend_14d": 3394.0000000000005,
+    "latest_decision_as_of": "2026-08-22",
+    "generation_rows": 1042,
+    "authorized_rows": 0
+   },
+   {
+    "business": "Grandmix",
+    "provider_account_id": "act_805150454596350",
+    "account_name": "Grandmix",
+    "is_selected": true,
+    "account_currency": "USD",
+    "account_timezone": "America/Anchorage",
+    "latest_fact_date": "2026-08-21",
+    "spend_14d": 22503.21,
+    "latest_decision_as_of": "2026-08-22",
+    "generation_rows": 2529,
+    "authorized_rows": 5
+   },
+   {
+    "business": "Bilsem Zeka",
+    "provider_account_id": "act_840779107261785",
+    "account_name": "BİLSEM ZEKA-1",
+    "is_selected": true,
+    "account_currency": "TRY",
+    "account_timezone": "Europe/Istanbul",
+    "latest_fact_date": "2026-08-21",
+    "spend_14d": 252131.93000000002,
+    "latest_decision_as_of": "2026-08-22",
+    "generation_rows": 3204,
+    "authorized_rows": 0
+   },
+   {
+    "business": "TheSwaf",
+    "provider_account_id": "act_822913786458311",
+    "account_name": "TheSwaf-Main",
+    "is_selected": true,
+    "account_currency": "USD",
+    "account_timezone": "America/Chicago",
+    "latest_fact_date": "2026-08-21",
+    "spend_14d": 33887.25,
+    "latest_decision_as_of": "2026-08-22",
+    "generation_rows": 750,
+    "authorized_rows": 7
+   },
+   {
+    "business": "TheSwaf",
+    "provider_account_id": "act_921275999286619",
+    "account_name": "TheSwaf-NonTesvik",
+    "is_selected": false,
+    "account_currency": "USD",
+    "account_timezone": "America/Chicago",
+    "latest_fact_date": "2026-08-20",
+    "spend_14d": 1652.29,
+    "latest_decision_as_of": "2026-08-21",
+    "generation_rows": 126,
+    "authorized_rows": 2
+   },
+   {
+    "business": "IwaTR",
+    "provider_account_id": "act_2335220976649516",
+    "account_name": "IWA-TR",
+    "is_selected": true,
+    "account_currency": "USD",
+    "account_timezone": "Europe/Istanbul",
+    "latest_fact_date": "2026-08-21",
+    "spend_14d": 840.4600000000002,
+    "latest_decision_as_of": "2026-08-22",
+    "generation_rows": 172,
+    "authorized_rows": 0
+   },
+   {
+    "business": "ColorFullWorldsTR",
+    "provider_account_id": "act_3554615364751964",
+    "account_name": "ColorfullworldsTR",
+    "is_selected": true,
+    "account_currency": "USD",
+    "account_timezone": "Europe/Istanbul",
+    "latest_fact_date": "2026-08-21",
+    "spend_14d": 865.15,
+    "latest_decision_as_of": "2026-08-22",
+    "generation_rows": 414,
+    "authorized_rows": 0
+   }
+  ],
+  "coverageChecksum": {
+   "algorithm": "sha256 over UTF-8 bytes of sorted businessId|providerAccountId lines, LF-joined, no trailing LF",
+   "value": "18ea0e86085f2086d4d113a9239af9439648a2cec4aecd9907262ef2fff7fc39",
+   "pinnedIndependentValue": "18ea0e86085f2086d4d113a9239af9439648a2cec4aecd9907262ef2fff7fc39",
+   "lineCount": 7
+  },
+  "automation": {
+   "note": "Effective result derived from CONTROL-PLANE ROWS read in this transaction. Deployed host environment internals were NOT read and remain UNKNOWN; treat automation env flags on the host as a deploy precondition/stop condition, never as a read-back claim.",
+   "perBusiness": [
+    {
+     "business": "IwaStore",
+     "businessId": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+     "controlRow": {
+      "business_id": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+      "kill_switch_engaged": true,
+      "kill_switch_reason": "Zero-base Meta stop",
+      "auto_execution_enabled": false,
+      "readiness_tier": "manual_review",
+      "updated_at": "2026-08-13 10:54:04.841622+00"
+     },
+     "effectiveResult": "stopped_kill_switch"
+    },
+    {
+     "business": "Grandmix",
+     "businessId": "5dbc7147-f051-4681-a4d6-20617170074f",
+     "controlRow": null,
+     "effectiveResult": "fail_closed_not_configured"
+    },
+    {
+     "business": "Bilsem Zeka",
+     "businessId": "6c690fa4-6395-40b5-9755-e99b34d69bc3",
+     "controlRow": null,
+     "effectiveResult": "fail_closed_not_configured"
+    },
+    {
+     "business": "TheSwaf",
+     "businessId": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+     "controlRow": null,
+     "effectiveResult": "fail_closed_not_configured"
+    },
+    {
+     "business": "IwaTR",
+     "businessId": "b79683b4-6f87-48c0-a3ca-44d4356fef51",
+     "controlRow": null,
+     "effectiveResult": "fail_closed_not_configured"
+    },
+    {
+     "business": "ColorFullWorldsTR",
+     "businessId": "bc0c6178-7853-4f6f-b026-ef0222a4b9e7",
+     "controlRow": null,
+     "effectiveResult": "fail_closed_not_configured"
+    }
+   ]
+  },
+  "servingFreshness": {
+   "mechanism": "readServingFreshnessStatus executed INSIDE this same REPEATABLE READ READ ONLY transaction, serially per business, bounded by the transaction's statement_timeout",
+   "perBusiness": [
+    {
+     "business": "IwaStore",
+     "businessId": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+     "releaseCanary": true,
+     "classifications": {
+      "automated_present": 0,
+      "automated_missing": 3,
+      "manual_boundary": 3,
+      "manual_missing": 0,
+      "unknown": 28
+     },
+     "automatedMissingSurfaces": [
+      "provider_reporting_snapshots.overview_shopify_orders_aggregate_v6.recent_window",
+      "shopify_reconciliation_runs",
+      "shopify_serving_state"
+     ]
+    },
+    {
+     "business": "Grandmix",
+     "businessId": "5dbc7147-f051-4681-a4d6-20617170074f",
+     "releaseCanary": true,
+     "classifications": {
+      "automated_present": 0,
+      "automated_missing": 23,
+      "manual_boundary": 11,
+      "manual_missing": 0,
+      "unknown": 0
+     },
+     "automatedMissingSurfaces": [
+      "provider_reporting_snapshots.ecommerce_fallback",
+      "provider_reporting_snapshots.ecommerce_fallback",
+      "provider_reporting_snapshots.ga4_analytics_overview",
+      "provider_reporting_snapshots.ga4_analytics_overview",
+      "provider_reporting_snapshots.ga4_detailed_audience",
+      "provider_reporting_snapshots.ga4_detailed_audience",
+      "provider_reporting_snapshots.ga4_detailed_cohorts",
+      "provider_reporting_snapshots.ga4_detailed_cohorts",
+      "provider_reporting_snapshots.ga4_detailed_demographics",
+      "provider_reporting_snapshots.ga4_detailed_demographics",
+      "provider_reporting_snapshots.ga4_detailed_landing_pages",
+      "provider_reporting_snapshots.ga4_detailed_landing_pages",
+      "provider_reporting_snapshots.ga4_detailed_products",
+      "provider_reporting_snapshots.ga4_detailed_products",
+      "provider_reporting_snapshots.ga4_landing_page_performance_v1",
+      "provider_reporting_snapshots.ga4_landing_page_performance_v1",
+      "provider_reporting_snapshots.overview_shopify_orders_aggregate_v6.recent_window",
+      "seo_results_cache.findings",
+      "seo_results_cache.findings",
+      "seo_results_cache.overview",
+      "seo_results_cache.overview",
+      "shopify_reconciliation_runs",
+      "shopify_serving_state"
+     ]
+    },
+    {
+     "business": "Bilsem Zeka",
+     "businessId": "6c690fa4-6395-40b5-9755-e99b34d69bc3",
+     "releaseCanary": false,
+     "classifications": {
+      "automated_present": 0,
+      "automated_missing": 0,
+      "manual_boundary": 1,
+      "manual_missing": 0,
+      "unknown": 33
+     },
+     "automatedMissingSurfaces": []
+    },
+    {
+     "business": "TheSwaf",
+     "businessId": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+     "releaseCanary": true,
+     "classifications": {
+      "automated_present": 0,
+      "automated_missing": 3,
+      "manual_boundary": 3,
+      "manual_missing": 0,
+      "unknown": 28
+     },
+     "automatedMissingSurfaces": [
+      "provider_reporting_snapshots.overview_shopify_orders_aggregate_v6.recent_window",
+      "shopify_reconciliation_runs",
+      "shopify_serving_state"
+     ]
+    },
+    {
+     "business": "IwaTR",
+     "businessId": "b79683b4-6f87-48c0-a3ca-44d4356fef51",
+     "releaseCanary": false,
+     "classifications": {
+      "automated_present": 0,
+      "automated_missing": 0,
+      "manual_boundary": 1,
+      "manual_missing": 0,
+      "unknown": 33
+     },
+     "automatedMissingSurfaces": []
+    },
+    {
+     "business": "ColorFullWorldsTR",
+     "businessId": "bc0c6178-7853-4f6f-b026-ef0222a4b9e7",
+     "releaseCanary": false,
+     "classifications": {
+      "automated_present": 0,
+      "automated_missing": 0,
+      "manual_boundary": 1,
+      "manual_missing": 0,
+      "unknown": 33
+     },
+     "automatedMissingSurfaces": []
+    }
+   ]
+  }
+ },
+ "outOfTransactionEvidence": {
+  "note": "PUBLIC HTTPS/GitHub reads only — never SQL; collected outside the transaction on purpose",
+  "deployedBuildInfo": {
+   "adsecute.com": {
+    "retrievedAtUtc": "2026-08-30T14:31:45.392Z",
+    "buildId": "babf158e150fd33057117b39b175da044ac62d2e",
+    "deployGate": {
+     "id": "13f5a91d-b289-48d6-a1fc-24dc8605c8d8",
+     "buildId": "babf158e150fd33057117b39b175da044ac62d2e",
+     "environment": "production",
+     "gateKind": "deploy_gate",
+     "verdict": "pass",
+     "emittedAt": "2026-08-29T11:35:02.264Z"
+    },
+    "releaseGate": {
+     "id": "d7b97325-adb3-442f-bdf2-849c7b1b72c8",
+     "buildId": "babf158e150fd33057117b39b175da044ac62d2e",
+     "environment": "production",
+     "gateKind": "release_gate",
+     "verdict": "pass",
+     "emittedAt": "2026-08-29T11:35:02.071Z"
+    }
+   },
+   "www.adsecute.com": {
+    "retrievedAtUtc": "2026-08-30T14:31:46.021Z",
+    "buildId": "babf158e150fd33057117b39b175da044ac62d2e",
+    "deployGate": {
+     "id": "13f5a91d-b289-48d6-a1fc-24dc8605c8d8",
+     "buildId": "babf158e150fd33057117b39b175da044ac62d2e",
+     "environment": "production",
+     "gateKind": "deploy_gate",
+     "verdict": "pass",
+     "emittedAt": "2026-08-29T11:35:02.264Z"
+    },
+    "releaseGate": {
+     "id": "d7b97325-adb3-442f-bdf2-849c7b1b72c8",
+     "buildId": "babf158e150fd33057117b39b175da044ac62d2e",
+     "environment": "production",
+     "gateKind": "release_gate",
+     "verdict": "pass",
+     "emittedAt": "2026-08-29T11:35:02.071Z"
+    }
+   }
+  },
+  "workflows": {
+   "source": "gh run list / gh run download (emrahbilaloglu-ui/OmniAds), read 2026-08-30 ~11:20Z",
+   "sha": "babf158e150fd33057117b39b175da044ac62d2e",
+   "ci": "success 2026-08-29T11:10:44Z",
+   "deploy": "success 2026-08-29T11:32:11Z",
+   "postDeployVerify": "success 2026-08-29T11:35:06Z",
+   "postDeployArtifactInspected": {
+    "artifact": "post-deploy-verify-babf158e150fd33057117b39b175da044ac62d2e/post-deploy-release-authority.json",
+    "summaryResult": "pass",
+    "blockers": []
+   },
+   "previousDeployedSha": "843b6e9c8 (success 2026-08-22) — rollback anchor with published images"
+  },
+  "authenticatedDeployedIdentity": "NOT read (no operator session available) — limitation"
+ },
+ "plannerAttempt": {
+  "mode": "plan (dry-run) ONLY — execute was never invoked; plan mode performs zero writes",
+  "attempts": [
+   {
+    "statementTimeoutMs": 300000,
+    "outcome": "honest failure preserved: 'Error: Database query timed out after 300000ms' (lib/db wrapper; one census statement exceeded 300s through the tunnel); the read-only transaction rolled back server-side"
+   },
+   {
+    "statementTimeoutMs": 600000,
+    "outcome": "two attempts produced no output and no plan file: the long no-output, task-owned planner processes were TERMINATED BY THE CODEX SUPERVISOR after bounded waiting, to limit production read load; the final planner process received SIGINT. No writes occurred; the aborted read-only sessions rolled back server-side. (The earlier 'sandbox reaper' attribution was wrong and is withdrawn.)"
+   }
+  ],
+  "result": "NO VALID CURRENT PRODUCTION PLAN EXISTS. Planner totals (exact removable runs/rows, per-scope counts, protectionsByReason, plan hash) are UNKNOWN — not zero, not estimated, never inferred from the frozen census bounds (candidate <= 3,449,571 fleet / <= 1,774,467 six-business rows; lineage row-pins >= 160,477 are bounds only).",
+  "operatorPath": "run the packet-2 A3 command from an operator shell in a low-traffic window with DB_QUERY_TIMEOUT_MS=600000; this correction deliberately did NOT rerun the long planner",
+  "processHygieneNote": "Codex also terminated one task-owned orphaned `sleep 900` timeout watcher after the local cutover harness had already completed; the watcher alone held the output pipe open and its termination changed no test or DB result."
+ },
+ "dataQuality": {
+  "recoveryReadinessPreflight": "SUFFICIENT — fence bytes, schema presence, extension/privilege capability, admission clocks, bindings, control-plane state and serving freshness are current verified reads",
+  "decisionQualityEvaluation": "INSUFFICIENT — generations are 8 days stale; the hard-action recompute belongs to the frozen D078 evidence, not this preflight",
+  "observedOutcomeEvaluation": "INSUFFICIENT — the six-business outcome lane contains ZERO rows",
+  "offlinePolicyCounterfactualEstimation": "INSUFFICIENT — no retained counterfactual/holdout evidence; see the historical-simulation closure record",
+  "causalClaims": "INSUFFICIENT — no controlled treatment exists; no causal claim is made anywhere in this package"
+ },
+ "evidenceClassLedger": {
+  "verifiedProductionFacts": "payload.* (one RR RO transaction, proofs embedded) and outOfTransactionEvidence.deployedBuildInfo (public HTTPS)",
+  "derivedMetrics": "fence overage = total_bytes - budget; staleness ages from clocks; automation effectiveResult derived from control rows",
+  "estimates": "pg_stat_user_tables n_live_tup/n_dead_tup (planner estimates); capacity disk figures as sampled by the healthcheck",
+  "unknown": "planner totals/plan hash; deployed host env internals (incl. CAMPAIGN_CONTEXT_MODE override and any automation env) — deploy preconditions, not read-backs; authenticated deployed UI state"
+ }
+}

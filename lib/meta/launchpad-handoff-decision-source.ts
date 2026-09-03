@@ -20,9 +20,15 @@ import {
 } from "@/lib/api/meta";
 import type { MetaCanonicalDecision } from "@/lib/meta/decisions-workspace-contract";
 import {
+  applyMetaExecutionGovernanceToReadModel,
   readMetaDecisionsWorkspaceReadModel,
   type MetaCurrentAdStatusSourceRow,
 } from "@/lib/meta/decisions-workspace-read-model";
+import { readEffectiveMetaWriteGovernance } from "@/lib/meta/automation-control-plane";
+import {
+  buildMetaDecisionPipelineHealth,
+  readMetaDecisionPipelineOperationalHealth,
+} from "@/lib/meta/decision-pipeline-health";
 
 export type MetaDecisionsWorkspaceModel = Awaited<
   ReturnType<typeof readMetaDecisionsWorkspaceReadModel>
@@ -101,17 +107,42 @@ export async function readServedMetaDecision(input: {
   decisionId: string;
   sourceSnapshotId: string;
 }): Promise<ReadServedMetaDecisionResult> {
+  const now = new Date();
   const currentAds = await readCurrentMetaAdInventory({
     businessId: input.businessId,
     providerAccountId: input.providerAccountId,
   });
   let model: MetaDecisionsWorkspaceModel;
   try {
-    model = await readMetaDecisionsWorkspaceReadModel({
-      businessId: input.businessId,
-      providerAccountId: input.providerAccountId,
-      currentAds: currentAds.rows,
-      currentAdSourceComplete: currentAds.complete,
+    const [decisionModel, governance, operationalPipelineHealth] =
+      await Promise.all([
+      readMetaDecisionsWorkspaceReadModel({
+        businessId: input.businessId,
+        providerAccountId: input.providerAccountId,
+        currentAds: currentAds.rows,
+        currentAdSourceComplete: currentAds.complete,
+        generatedAt: now.toISOString(),
+      }),
+      readEffectiveMetaWriteGovernance({ businessId: input.businessId }),
+      readMetaDecisionPipelineOperationalHealth({
+        businessId: input.businessId,
+        providerAccountId: input.providerAccountId,
+        now,
+      }),
+    ]);
+    const pipelineHealth = buildMetaDecisionPipelineHealth({
+      operational: operationalPipelineHealth,
+      decisionReadModel: decisionModel,
+      now,
+    });
+    model = applyMetaExecutionGovernanceToReadModel({
+      model: decisionModel,
+      governance,
+      pipeline: {
+        verified: pipelineHealth.overall !== "unavailable",
+        executionReady: pipelineHealth.executionReady,
+      },
+      now,
     });
   } catch {
     return {

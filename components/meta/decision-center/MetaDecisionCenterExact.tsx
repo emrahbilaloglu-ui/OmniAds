@@ -8,6 +8,10 @@ import {
 } from "@/components/zero-base/i18n/copy-provider";
 
 import styles from "./MetaDecisionCenterExact.module.css";
+import { BudgetDecisionEvidencePanel } from "./BudgetDecisionEvidencePanel";
+import { BudgetDryRunPanel } from "./BudgetDryRunPanel";
+import type { MetaBudgetDryRunPanel } from "@/lib/meta/budget-dry-run-panel";
+import type { MetaBudgetDecisionEvidenceByDirection } from "@/lib/meta/budget-decision-evidence-panel";
 
 const EM_DASH = "—";
 
@@ -74,7 +78,7 @@ export interface MetaDecisionCenterExactKpisViewModel {
     freshness?: MetaDecisionCenterExactDisplayValue;
     detail?: MetaDecisionCenterExactDisplayValue;
   };
-  labels?: {
+  campaignRoles?: {
     coverage?: MetaDecisionCenterExactDisplayValue;
     percentage?: MetaDecisionCenterExactDisplayValue;
   };
@@ -353,6 +357,11 @@ export interface MetaDecisionCenterExactSourceProvenanceViewModel {
   /** The served limitations: the server's code and the server's message. */
   limitations?: readonly MetaDecisionCenterExactSourceFactViewModel[];
   capabilityGaps?: readonly MetaDecisionCenterExactCapabilityGapViewModel[];
+  /**
+   * The server-owned commercial spend-unit anchor and the counts it withholds.
+   * Rendered verbatim; the client never derives eligibility from it.
+   */
+  commercialAnchor?: readonly MetaDecisionCenterExactSourceFactViewModel[];
 }
 
 /**
@@ -580,6 +589,30 @@ export interface MetaDecisionCenterExactInspectorViewModel {
 }
 
 export interface MetaDecisionCenterExactViewModel {
+  /**
+   * The server-owned budget-decision evidence panel, carried as the OBJECT the
+   * server projected rather than flattened into the fact list every other
+   * provenance group uses. Flattening separates a blocker code from its own
+   * sentence, which is the defect this contract exists to prevent.
+   *
+   * `null` and `undefined` both mean the server sent no panel. Neither is ever
+   * rendered as "nothing is blocking".
+   */
+  budgetEvidence?: MetaBudgetDecisionEvidenceByDirection | null;
+  budgetDryRun?: MetaBudgetDryRunPanel | null;
+  /**
+   * D078 R4/C3.1: every assigned identity with its selection/coverage
+   * state. Display-only; a deselected identity is read-only historical
+   * evidence and never an actionable write scope. FOUR states, preserved
+   * verbatim from the workspace payload through the adapter: `undefined`
+   * = the payload never carried the field (legacy; render nothing),
+   * `null` = the server read FAILED (render the visible unavailable
+   * warning), `[]` = a successful read proved zero assigned identities
+   * (render the explicit anomalous state), populated = render the panel.
+   */
+  assignedAccountStates?:
+    | readonly import("@/components/meta/redesign/types").MetaAssignedAccountStateSummary[]
+    | null;
   identity?: MetaDecisionCenterExactIdentityViewModel;
   activeWindow?: MetaDecisionCenterExactWindow | null;
   counts?: MetaDecisionCenterExactCountsViewModel;
@@ -682,7 +715,6 @@ export interface MetaDecisionCenterExactProps {
   onLaneChange?: (lane: MetaDecisionCenterExactLane) => void;
   onRunSnapshot?: () => void;
   onNewCampaign?: () => void;
-  onManageLabels?: () => void;
   onSortChange?: (sort: MetaDecisionCenterExactSort) => void;
   /**
    * The levels the table is filtered to. Empty means every level.
@@ -952,11 +984,9 @@ function QueueSelectedMarker({ selected }: { selected?: boolean }) {
 
 function ExactKpiBand({
   kpis,
-  onManageLabels,
   activeWindow,
 }: {
   kpis?: MetaDecisionCenterExactKpisViewModel;
-  onManageLabels?: () => void;
   /**
    * The window the header control shows as pressed. Used ONLY while the
    * served label is absent — during loading the window is already known from
@@ -966,6 +996,7 @@ function ExactKpiBand({
   activeWindow: string;
 }) {
   const copy = useCopy();
+  const language = useZeroBaseLanguage();
   const modeChips = slots(kpis?.mode?.chips, 2);
   return (
     <div className={styles.kpiGrid} data-meta-exact-section="kpis">
@@ -1027,7 +1058,11 @@ function ExactKpiBand({
       </article>
 
       <article className={styles.kpiCard}>
-        <p className={styles.kpiLabel}>{copy.snapshot}</p>
+        <p className={styles.kpiLabel}>
+          {language === "tr"
+            ? "Öneri anlık görüntüsü"
+            : "Recommendation snapshot"}
+        </p>
         <span className={styles.freshnessPill}>
           {display(kpis?.snapshot?.freshness)}
         </span>
@@ -1037,15 +1072,17 @@ function ExactKpiBand({
       </article>
 
       <article className={styles.kpiCard}>
-        <p className={styles.kpiLabel}>{copy.labels}</p>
+        <p className={styles.kpiLabel}>
+          {language === "tr" ? "Kampanya rolleri" : "Campaign roles"}
+        </p>
         <p className={styles.kpiValue}>
-          {display(kpis?.labels?.coverage)}{" "}
-          <span className={styles.labelPercentage}>
-            {display(kpis?.labels?.percentage)}
+          {display(kpis?.campaignRoles?.coverage)}{" "}
+          <span className={styles.rolePercentage}>
+            {display(kpis?.campaignRoles?.percentage)}
           </span>
         </p>
-        <p className={styles.manageLabels} {...controlProps(onManageLabels)}>
-          Manage labels →
+        <p className={styles.roleInference}>
+          {language === "tr" ? "Otomatik sınıflandırma" : "Automatic inference"}
         </p>
       </article>
 
@@ -2004,6 +2041,12 @@ function SourceProvenancePanel({
         group="limitations"
         heading={copy.limitations}
       />
+      <SourceFactGroup
+        facts={model.commercialAnchor}
+        group="commercial-anchor"
+        heading="Commercial anchor"
+      />
+
       {model.capabilityGaps && model.capabilityGaps.length > 0 ? (
         <div
           className={styles.provenanceGroup}
@@ -2724,7 +2767,6 @@ export function MetaDecisionCenterExact({
   onLaneChange,
   onRunSnapshot,
   onNewCampaign,
-  onManageLabels,
   onSortChange,
   levels = [],
   onLevelsChange,
@@ -2906,7 +2948,6 @@ export function MetaDecisionCenterExact({
 
       <ExactKpiBand
         kpis={viewModel.kpis}
-        onManageLabels={onManageLabels}
         activeWindow={activeWindow ?? EM_DASH}
       />
 
@@ -3089,6 +3130,98 @@ export function MetaDecisionCenterExact({
         carries an action. The control opens the lane rather than a second
         panel that would say the same thing twice.
       */}
+      {/*
+        D078 R4 (correction 2): account-coverage panel — every ASSIGNED
+        identity with its selection state, so a deselected-but-spending
+        account is an explicit fact rather than an invisible one. All
+        evidence — id/name, state, currency, TIMEZONE, own-window spend,
+        fact freshness, latest generation and produced/authorized counts,
+        and the operator policy implication — is VISIBLE text (no
+        hover-only facts). Display-only: no control, no scope switch, no
+        write affordance. Tri-state: null = the read FAILED (warning; never
+        assume one/no account); [] = a successful read proved zero
+        (anomalous, said so); undefined = legacy payload (nothing).
+      */}
+      {viewModel.assignedAccountStates === null ? (
+        <p
+          className={styles.inactiveStrip}
+          data-meta-exact-account-coverage
+          data-testid="assigned-account-coverage-unavailable"
+          role="alert"
+        >
+          Assigned-account coverage unavailable — the account-state read
+          failed. Do not assume there is only one account or no historical
+          account for this business.
+        </p>
+      ) : null}
+      {viewModel.assignedAccountStates &&
+      viewModel.assignedAccountStates.length === 0 ? (
+        <p
+          className={styles.inactiveStrip}
+          data-meta-exact-account-coverage
+          data-testid="assigned-account-coverage-empty"
+        >
+          Account-state read succeeded and found ZERO assigned Meta
+          identities — anomalous for an active Meta workspace; verify the
+          account assignment before trusting any decision surface here.
+        </p>
+      ) : null}
+      {viewModel.assignedAccountStates &&
+      viewModel.assignedAccountStates.length > 0 ? (
+        <section
+          className={styles.inactiveStrip}
+          data-meta-exact-account-coverage
+          data-testid="assigned-account-coverage"
+        >
+          <strong>Assigned accounts</strong>
+          {viewModel.assignedAccountStates.map((state) => (
+            <div
+              key={state.providerAccountId}
+              data-account-coverage-id={state.providerAccountId}
+              data-account-selection-state={state.selectionState}
+              style={{ display: "grid", gap: 2, margin: "6px 0" }}
+            >
+              <span>
+                {state.accountName
+                  ? `${state.accountName} | ${state.providerAccountId}`
+                  : state.providerAccountId}{" "}
+                —{" "}
+                {state.selectionState === "selected"
+                  ? "selected · serving"
+                  : "deselected · read-only history"}
+              </span>
+              <span data-account-coverage-facts>
+                {[
+                  state.accountCurrency ? `currency ${state.accountCurrency}` : null,
+                  state.accountTimezone ? `timezone ${state.accountTimezone}` : null,
+                  state.spend14d !== null
+                    ? `spend 14d ${state.spend14d.toLocaleString("en-US", { maximumFractionDigits: 0 })}${state.accountCurrency ? ` ${state.accountCurrency}` : ""}`
+                    : "spend 14d unavailable",
+                  state.latestFactDate
+                    ? `facts to ${state.latestFactDate}`
+                    : "fact freshness unavailable",
+                  state.latestDecisionAsOf
+                    ? `latest decisions ${state.latestDecisionAsOf}`
+                    : "no produced decision generation",
+                  state.latestDecisionRows !== null
+                    ? `${state.latestDecisionRows} decision rows` +
+                      (state.latestDecisionAuthorizedRows
+                        ? ` (${state.latestDecisionAuthorizedRows} authorized)`
+                        : "") +
+                      (state.selectionState === "deselected_historical" &&
+                      state.latestDecisionRows > 0
+                        ? " — unserved"
+                        : "")
+                    : null,
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
+              </span>
+              <span data-account-coverage-policy>{state.policy}</span>
+            </div>
+          ))}
+        </section>
+      ) : null}
       {activeScope === "structure" ? (
         <p className={styles.inactiveStrip} data-meta-exact-inactive-strip>
           <span>
@@ -3146,6 +3279,22 @@ export function MetaDecisionCenterExact({
               scope="structure"
             />
           ) : null}
+          {/*
+            The server's own budget-decision gate verdict, rendered verbatim.
+            It is account-scoped rather than lane-scoped, so it is not hidden
+            behind a scope: a blocker that only appears in one tab is a blocker
+            an operator can miss. The surface evaluates no gate of its own and
+            never enables an action from this.
+          */}
+          <BudgetDecisionEvidencePanel
+            evidence={viewModel.budgetEvidence ?? null}
+          />
+          {/*
+            D085 — the server-owned budget dry run, beside the evidence panel
+            and under the same account scope. It renders verbatim and offers no
+            enabled control.
+          */}
+          <BudgetDryRunPanel panel={viewModel.budgetDryRun ?? null} />
           {activeScope === "structure" && activeLane === "action" ? (
             <ActionLane
               emptyReason={laneEmptyReason}

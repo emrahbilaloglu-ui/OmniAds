@@ -76,15 +76,20 @@ function campaignContext(
         {
           kind,
           testDimension: kind === "test" ? "creative" : null,
-          contextTrust: "override" as const,
+          // D074: there is no override path. The demo authors its synthetic
+          // campaigns as fully trusted automatic inference — the state a
+          // validated resolver produces — so the fixture can showcase the
+          // engine's differentiated verdicts. Demo authority stays
+          // review-only regardless (demo_synthetic_review_only).
+          contextTrust: "high" as const,
           provenance: {
             mode: "automatic" as const,
-            source: "user_override" as const,
+            source: "system_inferred" as const,
             campaignId: row.campaign_id,
             kind,
             testDimension: kind === "test" ? "creative" : null,
-            contextTrust: "override" as const,
-            sourceRecordType: "meta_campaign_label" as const,
+            contextTrust: "high" as const,
+            sourceRecordType: "engine_v3_campaign_context_daily" as const,
             sourceRecordId: `demo-context-${row.campaign_id}`,
             sourceAsOfDate: AS_OF_DATE,
             sourceUpdatedAt: COMPUTED_AT,

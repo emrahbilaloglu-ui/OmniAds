@@ -10,6 +10,7 @@ const {
   engageMetaAutomationKillSwitch,
   getMetaAutomationControlPlane,
   getMetaWriteBlockState,
+  readEffectiveMetaWriteGovernance,
   isGlobalMetaAdsWriteKillSwitchEngaged,
   setMetaAutomationDecisionTypeMode,
   setMetaAutomationGuardrailPolicy,
@@ -683,6 +684,43 @@ describe("meta automation control plane", () => {
       reason: "control_state_unavailable",
       message:
         "Meta writes are temporarily blocked because automation control state could not be verified.",
+    });
+  });
+
+  it("keeps decisions readable but blocks writes when the business has no persisted controls", async () => {
+    vi.stubEnv("META_AUTOMATION_WRITE_GUARD_TEST_READS", "1");
+    const sql = vi.fn().mockResolvedValue([
+      {
+        business_id: null,
+        is_demo_business: false,
+        kill_switch_engaged: null,
+        kill_switch_reason: null,
+        auto_execution_enabled: null,
+        readiness_tier: null,
+        guardrails_json: null,
+        updated_at: null,
+        updated_by: null,
+      },
+    ]);
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    await expect(
+      readEffectiveMetaWriteGovernance({ businessId: BUSINESS_ID }),
+    ).resolves.toEqual({
+      verified: true,
+      controlsConfigured: false,
+      writeBlocked: true,
+      blockReason: "business_control_not_configured",
+      killSwitchEngaged: false,
+      killSwitchReason: null,
+    });
+    await expect(
+      getMetaWriteBlockState({ businessId: BUSINESS_ID }),
+    ).resolves.toEqual({
+      blocked: true,
+      reason: "control_state_unavailable",
+      message:
+        "Meta writes are blocked because this business has no persisted automation control state.",
     });
   });
 

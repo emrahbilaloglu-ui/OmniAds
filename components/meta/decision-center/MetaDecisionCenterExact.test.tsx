@@ -16,6 +16,10 @@ import {
   type MetaDecisionCenterExactProps,
   type MetaDecisionCenterExactViewModel,
 } from "./MetaDecisionCenterExact";
+import type {
+  MetaBudgetDecisionEvidenceByDirection,
+  MetaBudgetDecisionEvidencePanel,
+} from "@/lib/meta/budget-decision-evidence-panel";
 
 afterEach(cleanup);
 
@@ -54,7 +58,7 @@ function exactViewModel(
         sparkPath: "M0 10 L100 4",
       },
       snapshot: { freshness: "fixture fresh", detail: "fixture source" },
-      labels: {
+      campaignRoles: {
         coverage: "fixture coverage",
         percentage: "fixture percentage",
       },
@@ -332,8 +336,9 @@ describe("MetaDecisionCenterExact canonical desktop anatomy", () => {
     expect(screen.getByRole("button", { name: "+ New campaign" })).toBeTruthy();
     expect(screen.getByText("Spend · today")).toBeTruthy();
     expect(screen.getByText("ROAS · 28d")).toBeTruthy();
-    expect(screen.getByText("Snapshot")).toBeTruthy();
-    expect(screen.getByText("Labels")).toBeTruthy();
+    expect(screen.getByText("Recommendation snapshot")).toBeTruthy();
+    expect(screen.getByText("Campaign roles")).toBeTruthy();
+    expect(screen.getByText("Automatic inference")).toBeTruthy();
     expect(screen.getByText("Mode")).toBeTruthy();
     expect(
       screen.getByText(
@@ -1325,5 +1330,182 @@ describe("the Structures scope states the envelope its actions answer to", () =>
         "data-meta-exact-action-row",
       ),
     ).toBe("action-a");
+  });
+});
+
+/**
+ * D084 Correction 2 — the directional panel is mounted on the real surface and
+ * is visible at both desktop and mobile widths.
+ */
+describe("the Decision Center mounts the budget-decision evidence", () => {
+  const panel = (over: Partial<MetaBudgetDecisionEvidencePanel> = {}): MetaBudgetDecisionEvidencePanel => ({
+    contractVersion: "meta-budget-decision-evidence-panel.v4",
+    status: "resolved",
+    unavailableReason: null,
+    authority: "blocked",
+    primaryBlocker: {
+      code: "budget_fact_absent",
+      reason: "no retained budget fact exists for this entity, so nothing can be proposed",
+    },
+    sections: [
+      { section: "input_integrity", blockerCodes: [], reasons: [], clear: true },
+      { section: "commercial_target", blockerCodes: [], reasons: [], clear: true },
+      {
+        section: "evidence_floor",
+        blockerCodes: ["budget_fact_absent"],
+        reasons: ["no retained budget fact exists for this entity, so nothing can be proposed"],
+        clear: false,
+      },
+      {
+        section: "change_safety",
+        blockerCodes: ["change_safety_history_unavailable"],
+        reasons: ["recent-change history was not read, so no cap can be evaluated"],
+        clear: false,
+      },
+      { section: "execution_capability", blockerCodes: [], reasons: [], clear: true },
+    ],
+    commercialLineage: {
+      selectedAction: "scale",
+      eligible: false,
+      code: "commercial_anchor_not_hard_action_eligible",
+      reason: "the canonical profile reports scale ineligible",
+      anchorExplanation: { spendUnitSource: "unresolved" },
+      contractVersion: "adsecute.account-decision-profile.v1",
+      availability: { status: "resolved" },
+    },
+    executionReadiness: { state: "not_executable", why: "at least one local gate is unmet", ctaEnabled: false },
+    counterfactual: null,
+    ...over,
+  });
+
+  const evidence = (
+    over: Partial<MetaBudgetDecisionEvidenceByDirection> = {},
+  ): MetaBudgetDecisionEvidenceByDirection => ({
+    contractVersion: "meta-budget-decision-evidence-directional.v3",
+    directionToAction: { increase: "scale", decrease: "cut" },
+    directionToActionWhy: "an increase is a scale decision and a decrease is a cut decision",
+    directionSelected: null,
+    directionSelectedWhy: "this panel is account-scoped and no proposal direction has been selected",
+    increase: panel(),
+    decrease: panel({ authority: "validated_only", primaryBlocker: null }),
+    ...over,
+  });
+
+  const mounted = () => root().querySelector('[data-el="budget-decision-evidence"]');
+  const direction = (d: "increase" | "decrease") =>
+    root().querySelector(`[data-el="budget-decision-direction"][data-direction="${d}"]`);
+
+  it("renders both served directions in the real surface", () => {
+    render(<MetaDecisionCenterExact viewModel={exactViewModel({ budgetEvidence: evidence() })} />);
+    expect(mounted(), "the panel component is not mounted").toBeTruthy();
+    expect(direction("increase")).toBeTruthy();
+    expect(direction("decrease")).toBeTruthy();
+    expect(mounted()?.getAttribute("data-direction-selected")).toBe("none");
+  });
+
+  it("shows each direction's own verdict and its own primary pair", () => {
+    render(<MetaDecisionCenterExact viewModel={exactViewModel({ budgetEvidence: evidence() })} />);
+    const primary = direction("increase")?.querySelector('[data-el="primary-blocker"]');
+    expect(primary?.getAttribute("data-code")).toBe("budget_fact_absent");
+    expect(primary?.textContent).toContain("no retained budget fact exists");
+    expect(direction("decrease")?.querySelector('[data-el="authority"]')?.getAttribute("data-authority"))
+      .toBe("validated_only");
+    expect(direction("decrease")?.querySelector('[data-el="primary-blocker"]')).toBeNull();
+  });
+
+  it("shows the unavailable-history blocker where a buyer can read it", () => {
+    render(<MetaDecisionCenterExact viewModel={exactViewModel({ budgetEvidence: evidence() })} />);
+    const section = direction("increase")?.querySelector('[data-section="change_safety"]');
+    expect(section?.getAttribute("data-clear")).toBe("false");
+    expect(section?.textContent).toContain("was not read");
+  });
+
+  it("renders an unsupported compatibility state without claiming it is clear", () => {
+    render(
+      <MetaDecisionCenterExact
+        viewModel={exactViewModel({
+          budgetEvidence: evidence({
+            increase: panel({
+              sections: [
+                { section: "input_integrity", blockerCodes: [], reasons: [], clear: true },
+                { section: "commercial_target", blockerCodes: [], reasons: [], clear: true },
+                { section: "evidence_floor", blockerCodes: [], reasons: [], clear: true },
+                { section: "change_safety", blockerCodes: [], reasons: [], clear: true },
+                {
+                  section: "execution_capability",
+                  blockerCodes: ["provider_compatibility_unknown"],
+                  reasons: ["no provider write-capability fact has been observed"],
+                  clear: false,
+                },
+              ],
+              primaryBlocker: {
+                code: "provider_compatibility_unknown",
+                reason: "no provider write-capability fact has been observed",
+              },
+            }),
+          }),
+        })}
+      />,
+    );
+    const section = direction("increase")?.querySelector('[data-section="execution_capability"]');
+    expect(section?.getAttribute("data-clear")).toBe("false");
+    expect(section?.textContent).toContain("write-capability");
+  });
+
+  it("renders nothing at all when the server sent no evidence", () => {
+    render(<MetaDecisionCenterExact viewModel={exactViewModel({})} />);
+    expect(mounted()).toBeNull();
+  });
+
+  it("renders an unavailable direction as unavailable, never as clear", () => {
+    render(
+      <MetaDecisionCenterExact
+        viewModel={exactViewModel({
+          budgetEvidence: evidence({
+            increase: panel({ status: "unavailable", unavailableReason: "gate_verdict_absent", authority: null, primaryBlocker: null }),
+          }),
+        })}
+      />,
+    );
+    expect(direction("increase")?.getAttribute("data-status")).toBe("unavailable");
+    expect(direction("increase")?.textContent).toContain("could not be resolved");
+  });
+
+  it("never renders an enabled call to action", () => {
+    render(<MetaDecisionCenterExact viewModel={exactViewModel({ budgetEvidence: evidence() })} />);
+    const buttons = mounted()?.querySelectorAll("button") ?? [];
+    expect(buttons.length).toBeGreaterThan(0);
+    for (const button of Array.from(buttons)) {
+      expect(button.hasAttribute("disabled"), button.textContent ?? "").toBe(true);
+    }
+  });
+
+  it("is present and laid out at BOTH desktop and mobile widths", () => {
+    // jsdom applies no CSS, so presence is asserted in the DOM and the layout
+    // rule is asserted against the stylesheet that governs it — never inferred
+    // from a source string alone.
+    for (const width of [1440, 390]) {
+      cleanup();
+      Object.defineProperty(window, "innerWidth", { value: width, configurable: true });
+      window.dispatchEvent(new Event("resize"));
+      render(<MetaDecisionCenterExact viewModel={exactViewModel({ budgetEvidence: evidence() })} />);
+      expect(mounted(), `not mounted at ${width}px`).toBeTruthy();
+      expect(direction("increase"), `increase missing at ${width}px`).toBeTruthy();
+      expect(direction("decrease"), `decrease missing at ${width}px`).toBeTruthy();
+      // Both directions stay readable: neither is hidden at either width.
+      for (const d of ["increase", "decrease"] as const) {
+        expect(direction(d)?.getAttribute("hidden"), `${d}@${width}`).toBeNull();
+        expect((direction(d) as HTMLElement | null)?.style.display).not.toBe("none");
+      }
+    }
+  });
+
+  it("derives no buyer action, role, threshold or arithmetic on the client", () => {
+    const source = readFileSync(
+      join(process.cwd(), "components/meta/decision-center/BudgetDecisionEvidencePanel.tsx"),
+      "utf8",
+    );
+    expect(source).not.toMatch(/buyerAction|inferredKind|campaignRole/i);
+    expect(source).not.toMatch(/Math\.|reduce\(|parseFloat|Number\(/);
   });
 });

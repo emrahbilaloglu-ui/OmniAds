@@ -459,14 +459,17 @@ function campaignContext(): CampaignContextLabelMap {
       {
         kind: "main" as const,
         testDimension: null,
+        contextTrust: "high" as const,
         provenance: {
-          mode: "legacy_labels" as const,
-          source: "legacy_label" as const,
+          // D074: runtime context is automatic-only; the frozen archetypes
+          // represent the fully trusted high-confidence validated state.
+          mode: "automatic" as const,
+          source: "system_inferred" as const,
           campaignId,
           kind: "main" as const,
           testDimension: null,
-          contextTrust: null,
-          sourceRecordType: "meta_campaign_label" as const,
+          contextTrust: "high" as const,
+          sourceRecordType: "engine_v3_campaign_context_daily" as const,
           sourceRecordId: `anonymous-label-${index}`,
           sourceAsOfDate: fixture.firstAsOfDate,
           sourceUpdatedAt: `${fixture.firstAsOfDate}T01:00:00.000Z`,
@@ -517,7 +520,7 @@ function compute(
     profile: group.profile,
     dataHealth,
     adInputs,
-    campaignContextMode: "legacy_labels",
+    campaignContextMode: "automatic",
     campaignContextById: campaignContext(),
     previousLabels,
   });
@@ -701,13 +704,13 @@ function makeReplayBaselineRow(input: {
     evaluatedAt: `${fixture.firstAsOfDate}T03:10:00.000Z`,
     creativeInput: input.adInput,
     campaignContext: {
-      mode: "legacy_labels",
-      source: "legacy_label",
+      mode: "automatic",
+      source: "system_inferred",
       campaignId,
       kind: "main",
       testDimension: null,
-      contextTrust: null,
-      sourceRecordType: "meta_campaign_label",
+      contextTrust: "high",
+      sourceRecordType: "engine_v3_campaign_context_daily",
       sourceRecordId: `label-${input.index}`,
       sourceAsOfDate: fixture.firstAsOfDate,
       sourceUpdatedAt: `${fixture.firstAsOfDate}T02:00:00.000Z`,

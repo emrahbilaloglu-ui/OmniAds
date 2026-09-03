@@ -67,6 +67,7 @@ function decision(
       realAdId: "ad_1",
       authorizedAction: "refresh",
       jobRunId: "job_1",
+      executionReadiness: "live_preflight_required",
     },
     sourceDecision: { snapshotAsOf: "2026-08-17" },
     parentChain: {
@@ -248,6 +249,12 @@ suite("meta launchpad handoff persistence", () => {
           engineVersion: "engine-v3",
           realAdId: "ad_1",
           authorizedAction: "scale",
+          // D072: execution readiness is server-owned and the handoff law
+          // reads it; this fixture replaces the WHOLE sourceAuthority object,
+          // so it must state the one value that may open a route. Omitting it
+          // refused with `execution_not_ready` (the recorded fail-first) —
+          // a stale fixture, not a product defect; the gate is correct.
+          executionReadiness: "live_preflight_required",
           jobRunId: null,
         },
         classification: {
@@ -256,7 +263,14 @@ suite("meta launchpad handoff persistence", () => {
         },
       }),
     });
-    if (!minted.ok) throw new Error("mint failed");
+    // Surface the SERVER'S refusal, never a generic "mint failed": the exact
+    // refusal code is the evidence a stale fixture (or a real authority
+    // regression) gets diagnosed from.
+    if (!minted.ok) {
+      throw new Error(
+        `mint refused: ${JSON.stringify(minted)}`,
+      );
+    }
     expect(minted.envelope.mode).toBe("duplicate");
     expect(minted.envelope.selection.campaignIds).toEqual(["camp_1"]);
     expect(minted.envelope.selection.adsetIds).toEqual(["adset_1"]);

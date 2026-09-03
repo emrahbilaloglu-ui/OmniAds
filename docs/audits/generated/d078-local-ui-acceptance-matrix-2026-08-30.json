@@ -1,0 +1,502 @@
+{
+ "contract": "adsecute.meta.d078-local-ui-acceptance-matrix.v3",
+ "generatedAt": "2026-08-30T07:59:42.201Z",
+ "basis": "local ephemeral cluster + real deploy migrations + sanitized bundle-derived fixture; Playwright Chromium driven by this harness (secrets in process memory only); business changes exclusively via the real topbar switcher; row-level CTA proof via the DB-backed actual-route test recorded in routeCtaProof",
+ "switcherProof": [
+  {
+   "width": 1440,
+   "from": "TheSwaf",
+   "to": "IwaStore",
+   "selectedIdentity": "IwaStore",
+   "renderedIdentity": "url:IwaStore",
+   "pass": true
+  },
+  {
+   "width": 1440,
+   "from": "IwaStore",
+   "to": "Grandmix",
+   "selectedIdentity": "Grandmix",
+   "renderedIdentity": "url:Grandmix",
+   "pass": true
+  },
+  {
+   "width": 1440,
+   "from": "Grandmix",
+   "to": "Bilsem Zeka",
+   "selectedIdentity": "Bilsem Zeka",
+   "renderedIdentity": "url:Bilsem Zeka",
+   "pass": true
+  },
+  {
+   "width": 1440,
+   "from": "Bilsem Zeka",
+   "to": "IwaTR",
+   "selectedIdentity": "IwaTR",
+   "renderedIdentity": "url:IwaTR",
+   "pass": true
+  },
+  {
+   "width": 1440,
+   "from": "IwaTR",
+   "to": "ColorFullWorldsTR",
+   "selectedIdentity": "ColorFullWorldsTR",
+   "renderedIdentity": "url:ColorFullWorldsTR",
+   "pass": true
+  },
+  {
+   "width": 390,
+   "from": "ColorFullWorldsTR",
+   "to": "TheSwaf",
+   "selectedIdentity": "TheSwaf",
+   "renderedIdentity": "url:TheSwaf",
+   "pass": true
+  },
+  {
+   "width": 390,
+   "from": "TheSwaf",
+   "to": "IwaStore",
+   "selectedIdentity": "IwaStore",
+   "renderedIdentity": "url:IwaStore",
+   "pass": true
+  },
+  {
+   "width": 390,
+   "from": "IwaStore",
+   "to": "Grandmix",
+   "selectedIdentity": "Grandmix",
+   "renderedIdentity": "url:Grandmix",
+   "pass": true
+  },
+  {
+   "width": 390,
+   "from": "Grandmix",
+   "to": "Bilsem Zeka",
+   "selectedIdentity": "Bilsem Zeka",
+   "renderedIdentity": "url:Bilsem Zeka",
+   "pass": true
+  },
+  {
+   "width": 390,
+   "from": "Bilsem Zeka",
+   "to": "IwaTR",
+   "selectedIdentity": "IwaTR",
+   "renderedIdentity": "url:IwaTR",
+   "pass": true
+  },
+  {
+   "width": 390,
+   "from": "IwaTR",
+   "to": "ColorFullWorldsTR",
+   "selectedIdentity": "ColorFullWorldsTR",
+   "renderedIdentity": "url:ColorFullWorldsTR",
+   "pass": true
+  }
+ ],
+ "routeCtaProof": {
+  "ran": true,
+  "exitCode": 0,
+  "summary": "route: Test Files 1 passed (1) Tests 5 passed | 1 skipped (6) | drawer: Test Files 1 passed (1) Tests 4 passed | 1 skipped (5)"
+ },
+ "matrix": [
+  {
+   "business": "TheSwaf",
+   "surface": "decisions",
+   "width": 1440,
+   "observed": "rendered",
+   "assertions": {
+    "noManualLabelAsk": true,
+    "businessNamed": true,
+    "admissionStateOrRowsNamed": true,
+    "accountCoveragePanel": true,
+    "deselectedAccountExplicit": true,
+    "timezoneAndPolicyVisible": true
+   },
+   "screenshot": "docs/audits/generated/d078-local-ui-screenshots/TheSwaf-decisions-1440.png"
+  },
+  {
+   "business": "TheSwaf",
+   "surface": "creatives",
+   "width": 1440,
+   "observed": "stale:false fresh:false; {\"source\":{\"status\":\"unavailable\",\"authority\":\"unavailable\",\"table\":\"engine_v3_decision_snapshots_daily\",\"snapshotAsOf\":null,\"computedAt\":null,\"engineVersion\":null,\"fallbackReason\":null,\"generation\":null},\"osAdCount\":0}",
+   "assertions": {
+    "noManualLabelAsk": true,
+    "businessNamed": true,
+    "nativeRowsWithheldWithoutProviderInventory": true,
+    "noEnabledMutationControlOffline": true
+   },
+   "screenshot": "docs/audits/generated/d078-local-ui-screenshots/TheSwaf-creatives-1440.png"
+  },
+  {
+   "business": "TheSwaf",
+   "surface": "automation",
+   "width": 1440,
+   "observed": "rendered",
+   "assertions": {
+    "noManualLabelAsk": true,
+    "businessNamed": true,
+    "recoverySectionPresent": true,
+    "killPillEnabled": true
+   },
+   "screenshot": "docs/audits/generated/d078-local-ui-screenshots/TheSwaf-automation-1440.png"
+  },
+  {
+   "business": "TheSwaf",
+   "surface": "history",
+   "width": 1440,
+   "observed": "rendered",
+   "assertions": {
+    "noManualLabelAsk": true,
+    "businessNamed": true,
+    "readOnlyChrome": true,
+    "historicalOptgroupOffered": true,
+    "nonTesvikNoteVisible": true,
+    "nonTesvikCurrencyTimezoneVisible": true,
+    "nonTesvikSpendFreshnessVisible": true,
+    "nonTesvikGenerationVisible": true,
+    "nonTesvikPolicyVisible": true,
+    "nonTesvikIdentityVisible": true,
+    "nonTesvikJournalScopeMarked": true,
+    "nonTesvikNoWriteControls": true
+   },
+   "screenshot": "docs/audits/generated/d078-local-ui-screenshots/TheSwaf-history-1440.png"
+  },
+  {
+   "business": "IwaStore",
+   "surface": "decisions",
+   "width": 1440,
+   "observed": "rendered",
+   "assertions": {
+    "noManualLabelAsk": true,
+    "businessNamed": true,
+    "admissionStateOrRowsNamed": true,
+    "accountCoveragePanel": true
+   },
+   "screenshot": "docs/audits/generated/d078-local-ui-screenshots/IwaStore-decisions-1440.png"
+  },
+  {
+   "business": "IwaStore",
+   "surface": "creatives",
+   "width": 1440,
+   "observed": "rendered",
+   "assertions": {
+    "noManualLabelAsk": true,
+    "businessNamed": true
+   },
+   "screenshot": "docs/audits/generated/d078-local-ui-screenshots/IwaStore-creatives-1440.png"
+  },
+  {
+   "business": "IwaStore",
+   "surface": "automation",
+   "width": 1440,
+   "observed": "rendered",
+   "assertions": {
+    "noManualLabelAsk": true,
+    "businessNamed": true,
+    "recoverySectionPresent": true,
+    "killPillStopped": true
+   },
+   "screenshot": "docs/audits/generated/d078-local-ui-screenshots/IwaStore-automation-1440.png"
+  },
+  {
+   "business": "IwaStore",
+   "surface": "history",
+   "width": 1440,
+   "observed": "rendered",
+   "assertions": {
+    "noManualLabelAsk": true,
+    "businessNamed": true,
+    "readOnlyChrome": true
+   },
+   "screenshot": "docs/audits/generated/d078-local-ui-screenshots/IwaStore-history-1440.png"
+  },
+  {
+   "business": "Grandmix",
+   "surface": "decisions",
+   "width": 1440,
+   "observed": "rendered",
+   "assertions": {
+    "noManualLabelAsk": true,
+    "businessNamed": true,
+    "admissionStateOrRowsNamed": true,
+    "accountCoveragePanel": true
+   },
+   "screenshot": "docs/audits/generated/d078-local-ui-screenshots/Grandmix-decisions-1440.png"
+  },
+  {
+   "business": "Grandmix",
+   "surface": "creatives",
+   "width": 1440,
+   "observed": "rendered",
+   "assertions": {
+    "noManualLabelAsk": true,
+    "businessNamed": true
+   },
+   "screenshot": "docs/audits/generated/d078-local-ui-screenshots/Grandmix-creatives-1440.png"
+  },
+  {
+   "business": "Grandmix",
+   "surface": "automation",
+   "width": 1440,
+   "observed": "rendered",
+   "assertions": {
+    "noManualLabelAsk": true,
+    "businessNamed": true,
+    "recoverySectionPresent": true,
+    "killPillBlockedNotConfigured": true
+   },
+   "screenshot": "docs/audits/generated/d078-local-ui-screenshots/Grandmix-automation-1440.png"
+  },
+  {
+   "business": "Grandmix",
+   "surface": "history",
+   "width": 1440,
+   "observed": "rendered",
+   "assertions": {
+    "noManualLabelAsk": true,
+    "businessNamed": true,
+    "readOnlyChrome": true
+   },
+   "screenshot": "docs/audits/generated/d078-local-ui-screenshots/Grandmix-history-1440.png"
+  },
+  {
+   "business": "Bilsem Zeka",
+   "surface": "decisions",
+   "width": 1440,
+   "observed": "rendered",
+   "assertions": {
+    "noManualLabelAsk": true,
+    "businessNamed": true,
+    "admissionStateOrRowsNamed": true,
+    "accountCoveragePanel": true
+   },
+   "screenshot": "docs/audits/generated/d078-local-ui-screenshots/Bilsem-Zeka-decisions-1440.png"
+  },
+  {
+   "business": "Bilsem Zeka",
+   "surface": "creatives",
+   "width": 1440,
+   "observed": "rendered",
+   "assertions": {
+    "noManualLabelAsk": true,
+    "businessNamed": true
+   },
+   "screenshot": "docs/audits/generated/d078-local-ui-screenshots/Bilsem-Zeka-creatives-1440.png"
+  },
+  {
+   "business": "Bilsem Zeka",
+   "surface": "automation",
+   "width": 1440,
+   "observed": "rendered",
+   "assertions": {
+    "noManualLabelAsk": true,
+    "businessNamed": true,
+    "recoverySectionPresent": true,
+    "killPillBlockedNotConfigured": true
+   },
+   "screenshot": "docs/audits/generated/d078-local-ui-screenshots/Bilsem-Zeka-automation-1440.png"
+  },
+  {
+   "business": "Bilsem Zeka",
+   "surface": "history",
+   "width": 1440,
+   "observed": "rendered",
+   "assertions": {
+    "noManualLabelAsk": true,
+    "businessNamed": true,
+    "readOnlyChrome": true
+   },
+   "screenshot": "docs/audits/generated/d078-local-ui-screenshots/Bilsem-Zeka-history-1440.png"
+  },
+  {
+   "business": "IwaTR",
+   "surface": "decisions",
+   "width": 1440,
+   "observed": "rendered",
+   "assertions": {
+    "noManualLabelAsk": true,
+    "businessNamed": true,
+    "admissionStateOrRowsNamed": true,
+    "accountCoveragePanel": true
+   },
+   "screenshot": "docs/audits/generated/d078-local-ui-screenshots/IwaTR-decisions-1440.png"
+  },
+  {
+   "business": "IwaTR",
+   "surface": "creatives",
+   "width": 1440,
+   "observed": "rendered",
+   "assertions": {
+    "noManualLabelAsk": true,
+    "businessNamed": true
+   },
+   "screenshot": "docs/audits/generated/d078-local-ui-screenshots/IwaTR-creatives-1440.png"
+  },
+  {
+   "business": "IwaTR",
+   "surface": "automation",
+   "width": 1440,
+   "observed": "rendered",
+   "assertions": {
+    "noManualLabelAsk": true,
+    "businessNamed": true,
+    "recoverySectionPresent": true,
+    "killPillBlockedNotConfigured": true
+   },
+   "screenshot": "docs/audits/generated/d078-local-ui-screenshots/IwaTR-automation-1440.png"
+  },
+  {
+   "business": "IwaTR",
+   "surface": "history",
+   "width": 1440,
+   "observed": "rendered",
+   "assertions": {
+    "noManualLabelAsk": true,
+    "businessNamed": true,
+    "readOnlyChrome": true
+   },
+   "screenshot": "docs/audits/generated/d078-local-ui-screenshots/IwaTR-history-1440.png"
+  },
+  {
+   "business": "ColorFullWorldsTR",
+   "surface": "decisions",
+   "width": 1440,
+   "observed": "rendered",
+   "assertions": {
+    "noManualLabelAsk": true,
+    "businessNamed": true,
+    "admissionStateOrRowsNamed": true,
+    "accountCoveragePanel": true
+   },
+   "screenshot": "docs/audits/generated/d078-local-ui-screenshots/ColorFullWorldsTR-decisions-1440.png"
+  },
+  {
+   "business": "ColorFullWorldsTR",
+   "surface": "creatives",
+   "width": 1440,
+   "observed": "rendered",
+   "assertions": {
+    "noManualLabelAsk": true,
+    "businessNamed": true
+   },
+   "screenshot": "docs/audits/generated/d078-local-ui-screenshots/ColorFullWorldsTR-creatives-1440.png"
+  },
+  {
+   "business": "ColorFullWorldsTR",
+   "surface": "automation",
+   "width": 1440,
+   "observed": "rendered",
+   "assertions": {
+    "noManualLabelAsk": true,
+    "businessNamed": true,
+    "recoverySectionPresent": true,
+    "killPillBlockedNotConfigured": true
+   },
+   "screenshot": "docs/audits/generated/d078-local-ui-screenshots/ColorFullWorldsTR-automation-1440.png"
+  },
+  {
+   "business": "ColorFullWorldsTR",
+   "surface": "history",
+   "width": 1440,
+   "observed": "rendered",
+   "assertions": {
+    "noManualLabelAsk": true,
+    "businessNamed": true,
+    "readOnlyChrome": true
+   },
+   "screenshot": "docs/audits/generated/d078-local-ui-screenshots/ColorFullWorldsTR-history-1440.png"
+  },
+  {
+   "business": "TheSwaf",
+   "surface": "decisions",
+   "width": 390,
+   "observed": "rendered",
+   "assertions": {
+    "noManualLabelAsk": true,
+    "businessNamed": true,
+    "admissionStateOrRowsNamed": true
+   },
+   "screenshot": "docs/audits/generated/d078-local-ui-screenshots/TheSwaf-decisions-390.png"
+  },
+  {
+   "business": "TheSwaf",
+   "surface": "history",
+   "width": 390,
+   "observed": "rendered",
+   "assertions": {
+    "noManualLabelAsk": true,
+    "businessNamed": true,
+    "readOnlyChrome": true,
+    "historicalOptgroupOffered": true,
+    "nonTesvikNoteVisible": true,
+    "nonTesvikCurrencyTimezoneVisible": true,
+    "nonTesvikSpendFreshnessVisible": true,
+    "nonTesvikGenerationVisible": true,
+    "nonTesvikPolicyVisible": true,
+    "nonTesvikIdentityVisible": true,
+    "nonTesvikJournalScopeMarked": true,
+    "nonTesvikNoWriteControls": true
+   },
+   "screenshot": "docs/audits/generated/d078-local-ui-screenshots/TheSwaf-history-390.png"
+  },
+  {
+   "business": "IwaStore",
+   "surface": "decisions",
+   "width": 390,
+   "observed": "rendered",
+   "assertions": {
+    "noManualLabelAsk": true,
+    "businessNamed": true,
+    "admissionStateOrRowsNamed": true
+   },
+   "screenshot": "docs/audits/generated/d078-local-ui-screenshots/IwaStore-decisions-390.png"
+  },
+  {
+   "business": "Grandmix",
+   "surface": "decisions",
+   "width": 390,
+   "observed": "rendered",
+   "assertions": {
+    "noManualLabelAsk": true,
+    "businessNamed": true,
+    "admissionStateOrRowsNamed": true
+   },
+   "screenshot": "docs/audits/generated/d078-local-ui-screenshots/Grandmix-decisions-390.png"
+  },
+  {
+   "business": "Bilsem Zeka",
+   "surface": "decisions",
+   "width": 390,
+   "observed": "rendered",
+   "assertions": {
+    "noManualLabelAsk": true,
+    "businessNamed": true,
+    "admissionStateOrRowsNamed": true
+   },
+   "screenshot": "docs/audits/generated/d078-local-ui-screenshots/Bilsem-Zeka-decisions-390.png"
+  },
+  {
+   "business": "IwaTR",
+   "surface": "decisions",
+   "width": 390,
+   "observed": "rendered",
+   "assertions": {
+    "noManualLabelAsk": true,
+    "businessNamed": true,
+    "admissionStateOrRowsNamed": true
+   },
+   "screenshot": "docs/audits/generated/d078-local-ui-screenshots/IwaTR-decisions-390.png"
+  },
+  {
+   "business": "ColorFullWorldsTR",
+   "surface": "decisions",
+   "width": 390,
+   "observed": "rendered",
+   "assertions": {
+    "noManualLabelAsk": true,
+    "businessNamed": true,
+    "admissionStateOrRowsNamed": true
+   },
+   "screenshot": "docs/audits/generated/d078-local-ui-screenshots/ColorFullWorldsTR-decisions-390.png"
+  }
+ ]
+}

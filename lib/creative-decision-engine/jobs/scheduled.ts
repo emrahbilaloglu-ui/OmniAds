@@ -297,7 +297,7 @@ export async function runEngineV3ProducerChainForActiveBusinessesIfDue(
       "engine_v3_decision_snapshots_daily",
       "engine_v3_decision_events",
       "engine_v3_job_runs",
-      "meta_campaign_labels",
+      "engine_v3_campaign_context_daily",
       "meta_creative_daily",
     ],
   }).catch(() => null);

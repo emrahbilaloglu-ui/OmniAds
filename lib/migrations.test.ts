@@ -26,6 +26,27 @@ vi.mock("@/lib/meta/automation-claim-schema-verification", () => ({
   assertMetaAutomationClaimSchema: vi.fn(async () => []),
 }));
 
+vi.mock("@/lib/meta/budget-schema-verification", () => ({
+  /*
+    PRE-DEPLOY AUDIT — the D088 budget schema postcondition, neutralized here
+    on exactly the terms of the two gates above: this suite drives the
+    migration statements against a fake SQL client, so `information_schema`
+    and `pg_constraint` answer nothing and the assertion could only ever
+    report the fake catalog's emptiness.
+
+    It is NOT weakened by being mocked here. It is proven end to end against a
+    real PostgreSQL by scripts/d088-budget-proposal-migration-seam.ts, which
+    migrates from zero, asserts all nine objects by name and definition, and
+    then executes both the previous image's three-column upsert and the
+    current one to prove the migration stayed survivable by a rollback.
+  */
+  assertD088BudgetSchema: vi.fn(async () => ({
+    contract: "meta.d088-budget-schema-verification.v1",
+    verified: [],
+  })),
+  D088BudgetSchemaError: class extends Error {},
+}));
+
 vi.mock("@/lib/db", () => ({
   getDb: vi.fn(),
   getDbWithTimeout: vi.fn(),

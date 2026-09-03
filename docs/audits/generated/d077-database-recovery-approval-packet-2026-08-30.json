@@ -1,0 +1,142 @@
+{
+ "packetHash": "432e473e37f1e9931cb00a3f4ace196b0d6dcc2bbe450c391237f536c01043aa",
+ "hashAlgorithm": "sha256",
+ "hashBasis": "sha256 over UTF-8 bytes of JSON.stringify(artifact, null, 1) of the artifact WITHOUT its embedded hash fields (the artifact object before {<hashField>, hashAlgorithm, hashBasis} are prepended)",
+ "contract": "adsecute.d077.database-recovery-approval-packet.v2",
+ "status": "PREPARED_AWAITING_OPERATOR_APPROVAL — nothing executed; submitted for Codex independent acceptance — not self-accepted",
+ "generatedAtUtc": "2026-09-03T19:54:23.356Z",
+ "decision": "GO_WITH_EXACT_LIMITS — approvable now: A1a (superuser pgstattuple install), A1b (least-privilege EXECUTE capability for the app role — REQUIRED, see privilege facts), and scheduling the A3 planner dry-run. A4 execution stays sequence-blocked behind the release packet and a fresh ready plan",
+ "scope": {
+  "businessIds": [
+   "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+   "5dbc7147-f051-4681-a4d6-20617170074f",
+   "6c690fa4-6395-40b5-9755-e99b34d69bc3",
+   "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+   "b79683b4-6f87-48c0-a3ca-44d4356fef51",
+   "bc0c6178-7853-4f6f-b026-ef0222a4b9e7"
+  ],
+  "rule": "the compaction CLI refuses a global scope; every plan/execute names exactly these six ids"
+ },
+ "privilegeFacts": {
+  "provenance": {
+   "boundProgrammaticallyToEvidence": true,
+   "retrievedAt": "2026-08-30 14:30:32.38481+00",
+   "applicationName": "d077_recovery_preflight_c1_1788100231481",
+   "transactionReadOnly": "on",
+   "transactionIsolation": "repeatable read",
+   "note": "every privilege/extension/role fact in this packet comes from THIS one refreshed RR/RO evidence transaction (no other observation is mixed in); the values above are copied programmatically from payload.transactionProofs of the frozen evidence artifact at packet-generation time"
+  },
+  "pgstattuple": "available versions 1.4 and 1.5; BOTH superuser=true, trusted=FALSE — installation therefore REQUIRES a PostgreSQL superuser regardless of database CREATE; installed_version is NULL",
+  "appRole": "role adsecute_app (server-quoted identifier of current_user read in-transaction): rolsuper=false, rolcreaterole=false, rolcreatedb=false; has_database_privilege(current_database,'CREATE')=TRUE (irrelevant for an untrusted extension); pg_has_role('pg_stat_scan_tables','MEMBER')=FALSE; pg_has_role('pg_monitor','MEMBER')=FALSE",
+  "consequence": "installation alone does NOT let the app role execute pgstattuple_approx: since pgstattuple 1.5 the extension script revokes PUBLIC and grants EXECUTE to pg_stat_scan_tables, and the app role is not a member. Without A1b the fence stays on raw bytes and ingestion stays refused even after A1a + compaction + vacuum."
+ },
+ "currentPlan": {
+  "candidatePlanHash": null,
+  "why": "NO valid current production dry-run plan exists (attempt provenance: one honest 300s statement timeout; the 600s attempts were terminated by the Codex supervisor after bounded waiting — SIGINT to the final planner — to limit production read load; no output, no plan file, no writes). Totals are UNKNOWN — never zero, never inferred from census bounds.",
+  "frozenCensusBoundsOnly": {
+   "candidateMassUpperBoundRows": 3449571,
+   "sixBusinessCandidateUpperBoundRows": 1774467,
+   "rowLevelLineagePinLowerBound": 160477,
+   "provenance": "D077 ADR SELECT-only census 2026-08-30 (DECISION_LOG); NOT planner output; may not be quoted as removable"
+  },
+  "protectionCountsByReason": "UNKNOWN pending the fresh planner (families: headDuplicate, liveLineagePinned, archivedLineagePinned, responseEventPinned, interleavedExcluded, multiEndpointExcluded; overlapping, non-additive)",
+  "insufficiencyToday": "even a completed plan today would be status=insufficient_evidence: no effective-size proof (extension uninstalled + no EXECUTE capability) and D075/D077 schema undeployed; the executor refuses insufficiency outright"
+ },
+ "sequence": [
+  {
+   "id": "A1a",
+   "action": "Install pgstattuple (superuser DDL)",
+   "sqlShape": "CREATE EXTENSION IF NOT EXISTS pgstattuple;",
+   "actorPrivilege": "PostgreSQL SUPERUSER on the DB host (verified: the extension is untrusted, so database CREATE does NOT suffice; the app role is non-superuser)",
+   "reversibility": "fully reversible (DROP EXTENSION pgstattuple)",
+   "lockRuntimeIoRisk": "catalog-only, instantaneous; no user-table lock or IO",
+   "maxExposure": "none — read-only inspection functions",
+   "idempotency": "IF NOT EXISTS; safe to re-run",
+   "beforeReadback": "SELECT name, default_version, installed_version FROM pg_available_extensions WHERE name='pgstattuple';",
+   "successPredicate": "installed_version = '1.5'",
+   "abortTrigger": "any error / privilege refusal",
+   "rollbackCompensation": "DROP EXTENSION pgstattuple",
+   "residualRisk": "negligible (contrib module)"
+  },
+  {
+   "id": "A1b",
+   "action": "Least-privilege EXECUTE capability for the exact app role adsecute_app (REQUIRED — verified absent)",
+   "sqlShape": "preferred (narrowest): GRANT EXECUTE ON FUNCTION pgstattuple_approx(regclass) TO adsecute_app;  — alternative (broader, standard): GRANT pg_stat_scan_tables TO adsecute_app;  (identifier produced by the server's quote_ident(current_user) inside the RR/RO evidence transaction — injection-safe by construction)",
+   "actorPrivilege": "PostgreSQL superuser (or the function owner)",
+   "reversibility": "fully reversible: REVOKE EXECUTE ON FUNCTION pgstattuple_approx(regclass) FROM adsecute_app;  /  REVOKE pg_stat_scan_tables FROM adsecute_app;",
+   "lockRuntimeIoRisk": "catalog-only, instantaneous",
+   "maxExposure": "adsecute_app gains read-only physical-statistics visibility on relations it can already see (function-grant variant: exactly one function); no data rows exposed",
+   "idempotency": "GRANT is idempotent",
+   "beforeReadback": "before (post-A1a): SELECT has_function_privilege('adsecute_app', 'pgstattuple_approx(regclass)', 'EXECUTE');  → false; after the grant: the same query → true; then the READ-ONLY smoke: SELECT * FROM pgstattuple_approx('meta_entity_state_history'::regclass);  executed AS adsecute_app",
+   "successPredicate": "adsecute_app's fence read reports metric=effective_reusable_heap with a sane sample instead of falling back to raw",
+   "abortTrigger": "grant error; smoke returns error or inconsistent values",
+   "rollbackCompensation": "the exact REVOKE above",
+   "residualRisk": "negligible; the grant is named in the readiness contract and revocable at any time",
+   "note": "NOT executed in this task; the planner must remain insufficient until BOTH extension availability AND executable measurement are proved via read-back"
+  },
+  {
+   "id": "A2",
+   "action": "Release/deploy the D074–D078 candidate (adds D075 columns + D077 journal; stops the duplicate-rewrite refill class)",
+   "reference": "d077-release-deploy-approval-packet-2026-08-30.json — NO_GO until its remaining blocker clears; A4 MUST NOT run before this lands (executor needs the journal; without D075 the reclaimed space refills at the measured ~0.89 GiB/4-day rate)",
+   "actorPrivilege": "operator (git push + workflow dispatch)",
+   "reversibility": "app-image rollback to babf158e1…; additive schema remains",
+   "successPredicate": "packet-1 read-backs green",
+   "abortTrigger": "packet-1 stop conditions"
+  },
+  {
+   "id": "A3",
+   "action": "Fresh planner dry-run (SELECT-only) in a low-traffic window",
+   "commandShape": "DB_QUERY_TIMEOUT_MS=600000 npx tsx scripts/state-history-compaction-cli.ts --mode plan --business-ids <the six ids, comma-joined> --statement-timeout-ms 600000 --plan-out <fresh mkdtemp under /tmp>/plan.json",
+   "actorPrivilege": "operator shell with the read tunnel; app-role SELECT suffices; the planner enforces REPEATABLE READ READ ONLY and refuses weaker isolation",
+   "reversibility": "nothing to reverse (zero writes)",
+   "lockRuntimeIoRisk": "minutes-class census reads; run off-peak; bounded per-statement 600s",
+   "maxExposure": "none",
+   "idempotency": "re-runnable; each run makes a new plan+hash",
+   "beforeReadback": "the plan file + printed planHash/totals/protectionsByReason ARE the readback",
+   "successPredicate": "status='ready' with exact removable runs/rows per scope, all protection families, fence projection under the effective metric; else an honest insufficiency stops the sequence",
+   "abortTrigger": "statement timeout, isolation refusal, count-validator refusal, or insufficiency",
+   "residualRisk": "read load during the census"
+  },
+  {
+   "id": "A4",
+   "action": "Operator-approved compaction execution (CLI ONLY; never scheduled)",
+   "commandShape": "npx tsx scripts/state-history-compaction-cli.ts --mode execute --business-ids <same six ids> --plan-file <A3 plan.json> --approval-token <operator-constructed from the printed planHash> --acknowledge-physical-shrink-required",
+   "actorPrivilege": "operator shell; DB app role (DELETE on meta_entity_state_history; INSERT on the journal)",
+   "reversibility": "DELETED rows are NOT restorable (byte-identical duplicate manifests whose content survives in each streak's retained copy; per-batch in-transaction proofs guarantee semantic equivalence; the journal is the durable record). The approval must name the plan's exact maximum deletions.",
+   "lockRuntimeIoRisk": "batched row DELETEs, bounded batch size, statement/lock timeouts, journal lease, kill switch STATE_HISTORY_COMPACTION_ABORT honored between batches; RESTRICT FKs fail loud",
+   "maxExposure": "exactly the fresh plan's removableRows (UNKNOWN today; upper-bounded by the frozen six-business candidate mass 1,774,467 rows); financial exposure: none",
+   "idempotency": "idempotent resume of an admitted plan; a completed plan never executes twice; forged/stale plans refuse with zero writes (authoritative re-plan equality before ANY write, journal included)",
+   "beforeReadback": "executor's own authoritative re-plan; after: journal rows for the plan hash, per-scope deleted-row accounting, final whole-timeline recheck, follow-up planner nothing_to_do",
+   "successPredicate": "status completed (completed_with_skips only in the documented race window) with deleted counts == plan; timelines proven equal",
+   "abortTrigger": "ANY hash/scope/count/schema/fence/pin/interleave/worker/build drift → typed zero-write refusal; STOP on authoritative_replan_mismatch",
+   "rollbackCompensation": "none for deleted rows; compensation is the retained-copy equivalence + journal",
+   "residualRisk": "the documented race window between re-plan and a batch (per-batch revalidation covers it)"
+  },
+  {
+   "id": "A5",
+   "action": "Ordinary vacuum + effective-size read-back (NO physical shrink implied)",
+   "sqlShape": "VACUUM (VERBOSE) meta_entity_state_history; -- or await autovacuum; then read the fence",
+   "actorPrivilege": "table owner/superuser (or autovacuum)",
+   "lockRuntimeIoRisk": "non-exclusive; IO proportional to dead tuples",
+   "maxExposure": "none",
+   "beforeReadback": "pg_total_relation_size + pgstattuple_approx before/after",
+   "successPredicate": "effective size (raw − proven reusable free space) < 5,368,709,120 with the planner-stated margin. EXPLICIT: DELETE + ordinary VACUUM may NOT reduce the RAW relation bytes at all; only the effective metric is expected to clear. VACUUM FULL, pg_repack, and any physical shrink are NOT part of this action and are NOT silently included.",
+   "abortTrigger": "effective metric fails to clear → stop and investigate; no exclusive-lock escalation without a separate approval"
+  },
+  {
+   "id": "A6",
+   "action": "Ingestion re-admission observation (no action taken)",
+   "readback": "next natural worker tick: meta_entity_state_history MAX(captured_at) advances past 2026-08-22 14:53:48Z; meta_sync_runs succeed for the six accounts; fence admission allows",
+   "successPredicate": "fresh accepted Meta observation writes without any manual trigger",
+   "abortTrigger": "admission still refused after a healthy fence read → stop, re-measure"
+  },
+  {
+   "id": "A7",
+   "action": "OPTIONAL, SEPARATE APPROVAL — physical byte return",
+   "options": "REINDEX CONCURRENTLY per index (non-exclusive; indexes are ~2.68 GB) and/or pg_repack / VACUUM FULL (EXCLUSIVE lock; high risk)",
+   "explicit": "kept OUTSIDE this packet; requires its own packet"
+  }
+ ],
+ "driftPolicy": "A NEW plan is required immediately before execution; the executor independently re-derives the authoritative plan pre-write and refuses on ANY mismatch. Stop on any hash, scope, count, schema, fence, pin, interleave, worker, or build drift. Automation, activation, and every Meta/provider action remain OUTSIDE this packet.",
+ "secretsPolicy": "no credential and no approval token in this packet; the token is constructed by the operator from the fresh plan's printed planHash at execution time. The app ROLE NAME is serialized deliberately (a PostgreSQL role name is an identity, not a credential); no password, DSN, token, cookie, or host credential appears anywhere"
+}

@@ -15,10 +15,20 @@ import type {
   MetaLanePayload,
   MetaStructureInventoryEntity,
 } from "@/components/meta/redesign/types";
+import type { MetaDecisionPipelineHealth } from "@/lib/meta/decision-pipeline-health";
+import { isCampaignContextResolverAuthorityValidated } from "@/lib/creative-decision-engine/campaign-context/source";
+import {
+  toCanonicalDecisionAction,
+  type ValidatedBudgetIntent,
+} from "@/lib/meta/budget-intent-contract";
 import {
   META_OS_DECISIONS_PRESENTATION_VERSION,
   type MetaOsAdDecision,
+  type MetaOsCampaignRoleExplanation,
+  assertCanonicalDecisionAction,
+  type MetaOsBudgetDecisionAction,
   type MetaOsCommandIntent,
+  type MetaOsLegacyDecisionAction,
   type MetaOsDecisionAuthorityProvenance,
   type MetaOsDecisionAction,
   type MetaOsDecisionLane,
@@ -599,6 +609,7 @@ function structureNode(
     campaignRoleSource: campaignRole.source,
     campaignRoleConfidence: campaignRole.confidence,
     campaignRoleTrustedForAction: campaignRole.trustedForAction,
+    campaignRoleExplanation: campaignRole.explanation,
     ...ownership,
     status: rec.entityConfiguration?.status ?? null,
     optimizationGoal: rec.entityConfiguration?.optimizationGoal ?? null,
@@ -678,6 +689,7 @@ function inventoryStructureNode(
     campaignRoleSource: campaignRole.source,
     campaignRoleConfidence: campaignRole.confidence,
     campaignRoleTrustedForAction: campaignRole.trustedForAction,
+    campaignRoleExplanation: campaignRole.explanation,
     budgetOwner: configuration.budgetOwner,
     budgetMode: configuration.budgetMode,
     controlOwner: configuration.controlOwner,
@@ -755,6 +767,7 @@ function syntheticCampaignNode(
     campaignRoleSource: child.campaignRoleSource,
     campaignRoleConfidence: child.campaignRoleConfidence,
     campaignRoleTrustedForAction: child.campaignRoleTrustedForAction,
+    campaignRoleExplanation: child.campaignRoleExplanation,
     budgetOwner: child.budgetOwner === "adset" ? "adset" : "unknown",
     budgetMode:
       child.budgetMode === "adset_budget" ? "adset_budget" : "unknown",
@@ -823,11 +836,22 @@ function adAction(
   const buyerAction = decision.classification.buyerAction;
   const role = decision.classification.lifecycleRole.value;
   const targetLevel = "ad" as const;
-  const nativeActionEligible =
+  const nativeDecisionAuthorized =
     decision.sourceAuthority?.status === "native_exact" &&
     decision.sourceAuthority.actionEligible === true &&
     decision.sourceAuthority.realAdId === decision.parentChain.ad?.id;
-  const base = (input: Omit<MetaOsDecisionAction, "targetLevel">) => ({
+  const nativeActionEligible =
+    nativeDecisionAuthorized &&
+    decision.sourceAuthority?.executionReadiness ===
+      "live_preflight_required";
+  // D081 C2 — this builder produces the LEGACY branch only. Naming the branch
+  // keeps every existing creative/ad action byte-identical while making it a
+  // compile-time fact that no budget payload leaks in here; budget actions are
+  // produced by `toCanonicalDecisionAction` inside this builder and served in
+  // the optional `budgetReview` block.
+  const base = (
+    input: Omit<MetaOsLegacyDecisionAction, "targetLevel">,
+  ): MetaOsLegacyDecisionAction => ({
     ...input,
     targetLevel,
   });
@@ -861,6 +885,41 @@ function adAction(
         providerMutation: null,
         scopeNote:
           "Current commercial target authority is unavailable; no hard Scale/Cut action is authorized",
+      }),
+    };
+  }
+
+  if (
+    buyerAction === "cut" &&
+    nativeDecisionAuthorized &&
+    !nativeActionEligible
+  ) {
+    const readiness = decision.sourceAuthority?.executionReadiness;
+    const stale = readiness === "stale_decision";
+    const killed = readiness === "kill_switched";
+    const versionDrift = readiness === "engine_version_drift";
+    return {
+      lane: "blocked",
+      action: base({
+        code: stale
+          ? "refresh_decision_data"
+          : killed
+            ? "review_kill_switch"
+            : versionDrift
+              ? "review_engine_version"
+              : "review_execution_governance",
+        label: stale
+          ? "Refresh Decision"
+          : killed
+            ? "Review Kill Switch"
+            : versionDrift
+              ? "Review Engine Version"
+              : "Review Execution Governance",
+        intent: "review",
+        providerMutation: null,
+        scopeNote: stale
+          ? "The exact-Ad decision is outside the 12-hour execution window"
+          : "No provider write is offered until server governance is verified and a live preflight can run",
       }),
     };
   }
@@ -920,7 +979,7 @@ function adAction(
             ? "pause"
             : null,
         scopeNote: nativeActionEligible
-          ? "Pauses this exact ad only"
+          ? "Runs a live preflight, then pauses this exact ad only"
           : "Review only until exact native ad authority is available",
       }),
     };
@@ -1000,6 +1059,46 @@ function adAction(
   };
 }
 
+/**
+ * D074/D076: the served explanation for one campaign's automatically inferred
+ * role, restated VERBATIM from the resolver's context row. No kind is computed
+ * here: a campaign the resolver has not resolved keeps `kind: null` with the
+ * server-derived unresolved reason, and a campaign with no context row at all
+ * reads as not yet evaluated.
+ */
+function campaignRoleExplanationFor(
+  context: MetaDecisionCampaignContextSourceRow | null,
+): MetaOsCampaignRoleExplanation {
+  if (!context) {
+    return {
+      kind: null,
+      confidenceClass: "unknown",
+      confidenceScore: null,
+      evidence: [],
+      conflictReasons: [],
+      unresolvedReason: "not_yet_evaluated",
+      lastEvaluatedAt: null,
+      resolverVersion: null,
+    };
+  }
+  const kind = context.kind ?? null;
+  return {
+    kind,
+    confidenceClass: context.confidenceClass,
+    confidenceScore: context.confidenceScore ?? null,
+    evidence: [...(context.evidence ?? [])],
+    conflictReasons: [...(context.conflictReasons ?? [])],
+    // The reader derives the reason from the persisted row; a row built before
+    // these fields existed defaults to the conservative "not yet evaluated"
+    // rather than to a fabricated diagnosis.
+    unresolvedReason: kind
+      ? null
+      : (context.unresolvedReason ?? "not_yet_evaluated"),
+    lastEvaluatedAt: context.lastEvaluatedAt ?? context.sourceUpdatedAt ?? null,
+    resolverVersion: context.resolverVersion,
+  };
+}
+
 function presentedCampaignRole(input: {
   campaignId: string | null;
   campaignName?: string | null;
@@ -1013,40 +1112,39 @@ function presentedCampaignRole(input: {
   source: MetaOsAdDecision["campaignRoleSource"];
   confidence: MetaOsAdDecision["campaignRoleConfidence"];
   trustedForAction: boolean;
+  explanation: MetaOsCampaignRoleExplanation;
 } {
   const context = input.campaignId
     ? (input.contexts.get(input.campaignId) ?? null)
     : null;
+  const explanation = campaignRoleExplanationFor(context);
   const contextValue = context?.kind ?? context?.suggestedKind ?? null;
   const contextSource =
-    context?.source === "persisted_label"
-      ? ("user_override" as const)
-      : context?.source === "system_inferred"
-        ? ("automatic" as const)
-        : ("unknown" as const);
+    context?.source === "system_inferred"
+      ? ("automatic" as const)
+      : ("unknown" as const);
   if (
     input.currentValue &&
     input.currentValue !== "label_needed" &&
-    input.currentValue !== "unknown"
+    input.currentValue !== "role_unresolved" &&
+    input.currentValue !== "unknown" &&
+    input.currentSource === "automatic" &&
+    contextValue === input.currentValue
   ) {
-    const contextMatchesCurrentValue = contextValue === input.currentValue;
     return {
       value: input.currentValue,
-      source:
-        input.currentSource ??
-        (contextMatchesCurrentValue ? contextSource : ("unknown" as const)),
-      confidence:
-        input.currentConfidence ??
-        (contextMatchesCurrentValue
-          ? (context?.confidenceClass ?? ("unknown" as const))
-          : ("unknown" as const)),
-      trustedForAction:
-        input.currentTrustedForAction ??
-        Boolean(
-          contextMatchesCurrentValue &&
-          context?.kind &&
-          context.source === "persisted_label",
-        ),
+      source: contextSource,
+      confidence: context?.confidenceClass ?? "unknown",
+      trustedForAction: Boolean(
+        context?.kind &&
+          context.source === "system_inferred" &&
+          context.confidenceClass === "high" &&
+          isCampaignContextResolverAuthorityValidated(
+            context.resolverVersion,
+          ) &&
+          input.currentTrustedForAction !== false,
+      ),
+      explanation,
     };
   }
   const hasCampaignIdentity = Boolean(input.campaignId?.trim());
@@ -1070,8 +1168,12 @@ function presentedCampaignRole(input: {
           : ("unknown" as const),
     confidence: context?.confidenceClass ?? ("unknown" as const),
     trustedForAction: Boolean(
-      context?.kind && context.source === "persisted_label",
+        context?.kind &&
+        context.source === "system_inferred" &&
+        context.confidenceClass === "high" &&
+        isCampaignContextResolverAuthorityValidated(context.resolverVersion),
     ),
+    explanation,
   };
 }
 
@@ -1098,10 +1200,7 @@ function adDecision(
     currentValue: decision.classification.lifecycleRole.value,
     currentSource:
       decision.classification.lifecycleRole.provenance?.source ===
-      "meta_campaign_labels"
-        ? "user_override"
-        : decision.classification.lifecycleRole.provenance?.source ===
-            "engine_v3_campaign_context_daily"
+      "engine_v3_campaign_context_daily"
           ? "automatic"
           : "unknown",
     currentConfidence: decision.classification.lifecycleRole.confidence,
@@ -1129,6 +1228,7 @@ function adDecision(
     campaignRoleSource: campaignRole.source,
     campaignRoleConfidence: campaignRole.confidence,
     campaignRoleTrustedForAction: campaignRole.trustedForAction,
+    campaignRoleExplanation: campaignRole.explanation,
     action: mapped.action,
     lane: mapped.lane,
     priority: priorityForDecision(decision),
@@ -1204,6 +1304,7 @@ function activeInventoryAd(
     campaignRoleSource: campaignRole.source,
     campaignRoleConfidence: campaignRole.confidence,
     campaignRoleTrustedForAction: campaignRole.trustedForAction,
+    campaignRoleExplanation: campaignRole.explanation,
     action: {
       code: "await_ad_grain_evidence",
       label: "Evidence pending",
@@ -1476,7 +1577,20 @@ export function buildMetaOsDecisionsPresentation(input: {
   currentAdCampaignContexts?: readonly MetaDecisionCampaignContextSourceRow[];
   currency: string | null;
   targetHardActionEligibility?: MetaTargetHardActionEligibility;
+  pipelineHealth?: Pick<
+    MetaDecisionPipelineHealth,
+    "overall" | "executionReady" | "blockers"
+  >;
   generatedAt?: string;
+  /**
+   * D081 — validated budget intents to serve as canonical review-only actions.
+   *
+   * The builder ASSEMBLES; it does not decide. It picks no rung, no entity and
+   * no magnitude — the validated intent already carries the operation and the
+   * composite scope. Omitted or empty means the served payload is byte-identical
+   * to a build without this parameter.
+   */
+  budgetIntents?: readonly ValidatedBudgetIntent[];
 }): MetaOsDecisionsPresentation {
   const currentAdCampaignContexts = new Map(
     (input.currentAdCampaignContexts ?? []).map((context) => [
@@ -1725,6 +1839,13 @@ export function buildMetaOsDecisionsPresentation(input: {
       (right.metrics.spend ?? -1) - (left.metrics.spend ?? -1) ||
       left.id.localeCompare(right.id),
   );
+  // D081 — assemble the canonical budget actions from the validated intents the
+  // caller supplied. Each is validated again through the shared runtime guard,
+  // so an invalid branch cannot enter the served payload.
+  const budgetActions = (input.budgetIntents ?? []).map((intent) =>
+    assertCanonicalDecisionAction(toCanonicalDecisionAction(intent)),
+  ) as MetaOsBudgetDecisionAction[];
+
   return {
     contractVersion: META_OS_DECISIONS_PRESENTATION_VERSION,
     generatedAt: input.generatedAt ?? new Date().toISOString(),
@@ -1739,12 +1860,14 @@ export function buildMetaOsDecisionsPresentation(input: {
       health:
         input.decisionReadModel.source?.status === "available" &&
         input.decisionReadModel.source.authority === "native_ad" &&
-        input.decisionReadModel.source.fallbackReason == null
+        input.decisionReadModel.source.fallbackReason == null &&
+        input.pipelineHealth?.executionReady === true
           ? "healthy"
           : "degraded",
       fallbackReason:
         input.decisionReadModel.source?.fallbackReason ??
         input.decisionReadModel.unavailable?.code ??
+        input.pipelineHealth?.blockers[0] ??
         null,
     },
     structure: {
@@ -1796,6 +1919,11 @@ export function buildMetaOsDecisionsPresentation(input: {
         (item) => item.deliveryState === "unknown",
       ).length,
     },
+    // Spread, not assigned: with no intents the key is absent entirely and the
+    // serialized payload is byte-identical to a build without this feature.
+    ...(budgetActions.length > 0
+      ? { budgetReview: { actions: budgetActions, count: budgetActions.length } }
+      : {}),
     limitations: [
       ...(input.decisionReadModel.source?.authority === "native_ad"
         ? []

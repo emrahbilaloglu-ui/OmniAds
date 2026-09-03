@@ -230,17 +230,17 @@ describe("Meta Engine v1 state rows funnel cohort labels", () => {
     });
 
     expect(rows.find((row) => row.level === "campaign")).toMatchObject({
-      decision: "unlabeled_campaign_context",
+      decision: "campaign_context_unresolved",
       decisionLabel: "diagnose",
       decisionState: "watch",
       confidence: "low",
       signalQuality: {
-        quality_status: "missing_campaign_label",
-        label_status: "unlabeled",
+        quality_status: "campaign_context_unresolved",
+        campaign_context_action_authority: "review_only",
       },
     });
     expect(rows.find((row) => row.level === "adset")).toMatchObject({
-      decision: "unlabeled_campaign_context",
+      decision: "campaign_context_unresolved",
     });
   });
 
@@ -256,7 +256,7 @@ describe("Meta Engine v1 state rows funnel cohort labels", () => {
       ]),
     });
 
-    expect(rows.find((row) => row.level === "campaign")?.decision).not.toBe("unlabeled_campaign_context");
-    expect(rows.find((row) => row.level === "adset")?.decision).not.toBe("unlabeled_campaign_context");
+    expect(rows.find((row) => row.level === "campaign")?.decision).not.toBe("campaign_context_unresolved");
+    expect(rows.find((row) => row.level === "adset")?.decision).not.toBe("campaign_context_unresolved");
   });
 });

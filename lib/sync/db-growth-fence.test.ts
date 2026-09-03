@@ -8,6 +8,8 @@ const {
   fencedTableProviderFamily,
   operationProviderFamily,
   assertDbGrowthFenceAdmits,
+  assertSyncGrowthBoundary,
+  resetDbGrowthFenceCache,
   evaluateGrowthFenceOverride,
   DbGrowthFenceRefusal,
   FENCED_TABLES,
@@ -686,17 +688,117 @@ describe("a single relation over budget refuses its own provider, not all of the
     expect(fencedTableProviderFamily("google_ads_product_daily")).toBe("google_ads");
   });
 
-  it("maps boundary labels to their provider, including the older google_ prefix", () => {
+  it("maps boundary labels to their provider, including the older google_ prefix, GA4 and Search Console", () => {
     expect(operationProviderFamily("meta_business_cycle")).toBe("meta");
     expect(operationProviderFamily("shopify_business_cycle")).toBe("shopify");
     expect(operationProviderFamily("google_ads_business_cycle")).toBe("google_ads");
     expect(operationProviderFamily("google_sync_recent")).toBe("google_ads");
     expect(operationProviderFamily("google_lifecycle_partition")).toBe("google_ads");
+    // Neither GA4 nor Search Console writes any FENCED table (no
+    // `ga4_*`/`search_console_*` relation is measured — see
+    // `fencedTableProviderFamily` below), but their OPERATION labels must
+    // still be positively recognised: a Meta table over budget must not
+    // refuse GA4/Search Console sync just because their family was null.
+    expect(operationProviderFamily("ga4_reports_sync")).toBe("ga4");
+    expect(operationProviderFamily("ga4_report_window")).toBe("ga4");
+    expect(operationProviderFamily("ga4_user_facing_report_cache_warm")).toBe("ga4");
+    expect(operationProviderFamily("search_console_reports_sync")).toBe("search_console");
+    expect(operationProviderFamily("search_console_report_window")).toBe("search_console");
+    expect(operationProviderFamily("shopify_user_facing_report_cache_warm")).toBe("shopify");
   });
 
   it("refuses an unrecognised label rather than guessing it is unrelated", () => {
     // Null is the fail-closed answer: a label added without thought must refuse.
     expect(operationProviderFamily("retention_compaction")).toBeNull();
     expect(operationProviderFamily("")).toBeNull();
+    // The OLD ambiguous label every cache warmer used to share must stay
+    // unrecognised too -- proving the fix was a rename, not a new alias.
+    expect(operationProviderFamily("user_facing_report_cache_warm")).toBeNull();
+  });
+
+  it("fencedTableProviderFamily still returns null for GA4/Search Console -- no fenced table backs either", () => {
+    // No `ga4_*`/`search_console_*` relation exists in FENCED_TABLES, so
+    // neither can ever be an OFFENDER's family, only an OPERATION's.
+    expect(fencedTableProviderFamily("sync_release_gates")).toBeNull();
+  });
+});
+
+describe("collateral-only admission: GA4/Search Console/Shopify report-cache work when only Meta's table is over budget", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+  });
+
+  /** meta_entity_state_history alone over budget -- the exact 2026-08-08/2026-09-03 shape. */
+  function installMetaTableOverBudget() {
+    return installDb(
+      sizes({
+        meta_entity_state_history:
+          DEFAULT_TABLE_BUDGET_BYTES.meta_entity_state_history + 40_960,
+      }),
+    );
+  }
+
+  const COLLATERAL_OPERATIONS = [
+    "ga4_reports_sync",
+    "ga4_report_window",
+    "search_console_reports_sync",
+    "search_console_report_window",
+    "ga4_user_facing_report_cache_warm",
+    "shopify_user_facing_report_cache_warm",
+  ] as const;
+
+  it.each(COLLATERAL_OPERATIONS)(
+    "admits %s (with a warning) when only meta_entity_state_history is over budget",
+    async (operation) => {
+      installMetaTableOverBudget();
+      resetDbGrowthFenceCache();
+      const decision = await assertSyncGrowthBoundary(operation, { env: {}, fresh: true });
+      expect(decision.allowed).toBe(true);
+      expect(decision.warning).toBe(true);
+      resetDbGrowthFenceCache();
+    },
+  );
+
+  it("still refuses a same-provider Meta operation when meta_entity_state_history alone is over budget", async () => {
+    installMetaTableOverBudget();
+    resetDbGrowthFenceCache();
+    await expect(
+      assertSyncGrowthBoundary("meta_sync_recent", { env: {}, fresh: true }),
+    ).rejects.toBeInstanceOf(DbGrowthFenceRefusal);
+    resetDbGrowthFenceCache();
+  });
+
+  it("a database-wide breach still refuses every one of these operations, GA4/Search Console/Shopify included", async () => {
+    installDb(sizes({ database_bytes: 500 * GiB }));
+    resetDbGrowthFenceCache();
+    for (const operation of COLLATERAL_OPERATIONS) {
+      await expect(
+        assertSyncGrowthBoundary(operation, { env: {}, fresh: true }),
+      ).rejects.toBeInstanceOf(DbGrowthFenceRefusal);
+    }
+    resetDbGrowthFenceCache();
+  });
+
+  it("an unknown operation label still refuses even when only meta_entity_state_history is over budget", async () => {
+    installMetaTableOverBudget();
+    resetDbGrowthFenceCache();
+    await expect(
+      assertSyncGrowthBoundary("some_new_operation_nobody_labeled_yet", {
+        env: {},
+        fresh: true,
+      }),
+    ).rejects.toBeInstanceOf(DbGrowthFenceRefusal);
+    resetDbGrowthFenceCache();
+  });
+
+  it("the OLD ambiguous label is STILL refused when only meta_entity_state_history is over budget -- proving the rename, not a broadened heuristic, is what fixed this", async () => {
+    installMetaTableOverBudget();
+    resetDbGrowthFenceCache();
+    await expect(
+      assertSyncGrowthBoundary("user_facing_report_cache_warm", { env: {}, fresh: true }),
+    ).rejects.toBeInstanceOf(DbGrowthFenceRefusal);
+    resetDbGrowthFenceCache();
   });
 });

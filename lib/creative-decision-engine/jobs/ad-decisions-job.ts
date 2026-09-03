@@ -15,9 +15,9 @@ import {
 } from "../campaign-label-guard";
 import {
   campaignContextProvenanceFor,
-  readCampaignContextLabelMap,
+  readCampaignContextMap,
   resolveCampaignContextMode,
-  type CampaignContextLabelMap,
+  type CampaignContextMap,
 } from "../campaign-context/source";
 import {
   buildCanonicalEvaluationProvenance,
@@ -1379,7 +1379,7 @@ function computeReadyNativeAdDecisions(input: {
   businessId: string;
   dataHealth: DataHealth;
   campaignContextMode: ReturnType<typeof resolveCampaignContextMode>;
-  campaignContextById: CampaignContextLabelMap;
+  campaignContextById: CampaignContextMap;
   previousLabels: Map<string, PreviousAdPublishedLabel>;
 }) {
   if (
@@ -1408,7 +1408,7 @@ export function computeSoftOnlyNativeAdDecisions(input: {
   profile: AccountDecisionProfile | NativeAdSoftOnlyDecisionProfile;
   adInputs: AdDecisionInput[];
   campaignContextMode: ReturnType<typeof resolveCampaignContextMode>;
-  campaignContextById: CampaignContextLabelMap;
+  campaignContextById: CampaignContextMap;
   previousLabels: Map<string, PreviousAdPublishedLabel>;
   evaluatedAt: string;
 }): AdDecisionComputation[] {
@@ -1483,10 +1483,10 @@ export function computeSoftOnlyNativeAdDecisions(input: {
             roas: withCampaign.roas,
             recent7dRoas: withCampaign.recent7dRoas,
           },
-          campaignLabelStatus: withCampaign.campaignId
+          campaignRoleStatus: withCampaign.campaignId
             ? withCampaign.campaignKind
-              ? "labeled"
-              : "unlabeled"
+              ? "resolved"
+              : "unresolved"
             : "no_campaign",
           campaignKind: withCampaign.campaignKind ?? null,
           preAuthorityLabel: optimizationOutOfScope
@@ -1535,7 +1535,7 @@ export function computeNativeAdDecisions(input: {
   dataHealth: DataHealth;
   adInputs: AdDecisionInput[];
   campaignContextMode: ReturnType<typeof resolveCampaignContextMode>;
-  campaignContextById: CampaignContextLabelMap;
+  campaignContextById: CampaignContextMap;
   previousLabels: Map<string, PreviousAdPublishedLabel>;
   resolveDecision?: (
     input: CreativeInput,
@@ -1739,17 +1739,28 @@ async function readAdCampaignContext(
     mode: ReturnType<typeof resolveCampaignContextMode>;
   },
 ) {
-  const campaignIds = Array.from(
-    new Set(
-      input.adInputs.map((ad) => ad.campaignId?.trim() ?? "").filter(Boolean),
+  const campaignIdsByAccount = new Map<string, Set<string>>();
+  for (const ad of input.adInputs) {
+    const providerAccountId = ad.providerAccountId.trim();
+    const campaignId = ad.campaignId?.trim() ?? "";
+    if (!providerAccountId || !campaignId) continue;
+    const campaignIds =
+      campaignIdsByAccount.get(providerAccountId) ?? new Set<string>();
+    campaignIds.add(campaignId);
+    campaignIdsByAccount.set(providerAccountId, campaignIds);
+  }
+  const maps = await Promise.all(
+    [...campaignIdsByAccount].map(([providerAccountId, campaignIds]) =>
+      readCampaignContextMap({
+        businessId: input.businessId,
+        providerAccountId,
+        campaignIds: [...campaignIds].sort(),
+        asOf: input.asOf,
+        mode: input.mode,
+      }),
     ),
-  ).sort();
-  return readCampaignContextLabelMap({
-    businessId: input.businessId,
-    campaignIds,
-    asOf: input.asOf,
-    mode: input.mode,
-  });
+  );
+  return new Map(maps.flatMap((map) => [...map]));
 }
 
 export function toNativeSnapshotPayload(input: {

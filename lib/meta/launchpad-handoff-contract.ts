@@ -90,6 +90,7 @@ export type LaunchpadHandoffRefusalCode =
   | "source_authority_review_only"
   | "demo_synthetic_review_only"
   | "action_not_eligible"
+  | "execution_not_ready"
   | "no_authorized_action"
   | "decision_state_not_act"
   | "decision_held"
@@ -314,6 +315,9 @@ export function authorizeLaunchpadHandoff(input: {
   if (authority.actionEligible !== true) {
     return { ok: false, refusal: "action_not_eligible" };
   }
+  if (authority.executionReadiness !== "live_preflight_required") {
+    return { ok: false, refusal: "execution_not_ready" };
+  }
   if (!authority.authorizedAction) {
     return { ok: false, refusal: "no_authorized_action" };
   }
@@ -477,6 +481,7 @@ const ALL_LAUNCHPAD_HANDOFF_REFUSALS: readonly LaunchpadHandoffAnyRefusal[] = [
   "source_authority_review_only",
   "demo_synthetic_review_only",
   "action_not_eligible",
+  "execution_not_ready",
   "no_authorized_action",
   "decision_state_not_act",
   "decision_held",
@@ -543,6 +548,8 @@ export function describeLaunchpadHandoffRefusal(
       return "Demo decisions have no Meta write authority, so they cannot open a launch.";
     case "action_not_eligible":
       return "The server did not mark this decision action-eligible.";
+    case "execution_not_ready":
+      return "The decision cannot open a launch until its freshness and execution governance are verified.";
     case "no_authorized_action":
       return "The server authorized no action for this decision.";
     case "decision_state_not_act":

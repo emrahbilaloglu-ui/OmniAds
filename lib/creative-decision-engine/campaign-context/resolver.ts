@@ -6,8 +6,22 @@
 // in ./data.ts and the daily producer job in ../jobs/campaign-context-job.ts.
 // Spec: docs/creative-decision-center/AUTOMATIC_CAMPAIGN_CONTEXT_SPEC_2026-07-06.md
 
+/**
+ * D081 C5 — the identity moves with the semantics.
+ *
+ * Correction 2 changed high-confidence semantics while leaving this string at
+ * `...v2-account-scoped-2026-08-29`, so a row computed by the pre-change
+ * algorithm was indistinguishable from a post-change row. Once that string was
+ * approved, stale name-load-bearing rows could masquerade as safe. The old
+ * string is deliberately NOT reused and must fail validation.
+ */
 export const CAMPAIGN_CONTEXT_RESOLVER_VERSION =
-  "campaign-context-resolver.v1-shadow-2026-07-06";
+  "campaign-context-resolver.v2-account-scoped-name-neutral-2026-09-01";
+
+/** Retired identities. Never approvable; kept only so a reader can see why. */
+export const RETIRED_CAMPAIGN_CONTEXT_RESOLVER_VERSIONS = [
+  "campaign-context-resolver.v2-account-scoped-2026-08-29",
+] as const;
 
 export const FEATURE_WINDOW_DAYS = 28;
 
@@ -103,6 +117,17 @@ export interface ContextResolverConfig {
     minTurnoverForActiveTesting: number;
     minNewCreativesForActiveTesting: number;
   };
+  strongTestSignature: {
+    minCampaignAgeDays: number;
+    minActiveDays: number;
+    minActiveCreatives: number;
+    minNewCreatives: number;
+    minTurnover: number;
+    minAdsets: number;
+    maxTop3SpendShare: number;
+    maxMedianCreativeSpendRatio: number;
+    confidenceScore: number;
+  };
 }
 
 export const DEFAULT_CONTEXT_CONFIG: ContextResolverConfig = {
@@ -169,6 +194,26 @@ export const DEFAULT_CONTEXT_CONFIG: ContextResolverConfig = {
     minStableWinnerCreatives: 2,
     minTurnoverForActiveTesting: 0.35,
     minNewCreativesForActiveTesting: 5,
+  },
+  // A deterministic, account-normalized test-lab signature. This closes a
+  // measured blind spot where young-but-established creative labs (for
+  // example, 23/15 and 50/50 active/new creative cohorts) never reached Test
+  // because campaign-age normalization suppressed turnover. Requiring three
+  // or more ad sets, broad creative breadth, sustained delivery and below-
+  // account median creative spend prevents a newly launched Main/DPA lane
+  // from becoming high-confidence Test merely because all of its creatives
+  // are new. Naming does not gate this shortcut: D081 C5 removed the Main
+  // name-token veto, so an explicit Main token neither blocks nor weakens it.
+  strongTestSignature: {
+    minCampaignAgeDays: 14,
+    minActiveDays: 14,
+    minActiveCreatives: 12,
+    minNewCreatives: 8,
+    minTurnover: 0.5,
+    minAdsets: 3,
+    maxTop3SpendShare: 0.75,
+    maxMedianCreativeSpendRatio: 1,
+    confidenceScore: 0.8,
   },
 };
 
@@ -388,9 +433,71 @@ export function classifyCampaignContext(
     };
   }
 
-  const topKind: CampaignKind = testScore >= mainScore ? "test" : "main";
-  const topScore = Math.max(testScore, mainScore);
+  const signature = config.strongTestSignature;
+  const medianCreativeSpendRatio =
+    features.medianCreativeSpend !== null &&
+    features.accountMedianCreativeSpend !== null &&
+    features.accountMedianCreativeSpend > 0
+      ? features.medianCreativeSpend / features.accountMedianCreativeSpend
+      : null;
+  const strongTestSignature =
+    (features.campaignAgeDays ?? 0) >= signature.minCampaignAgeDays &&
+    features.activeDays >= signature.minActiveDays &&
+    features.activeCreatives >= signature.minActiveCreatives &&
+    features.newCreatives >= signature.minNewCreatives &&
+    turnover >= signature.minTurnover &&
+    features.adsetCount >= signature.minAdsets &&
+    (features.top3SpendShare ?? 1) <= signature.maxTop3SpendShare &&
+    medianCreativeSpendRatio !== null &&
+    medianCreativeSpendRatio <= signature.maxMedianCreativeSpendRatio;
+  // D081 C5 — the naming veto (`signals.namingMain < conflictFamilyStrength`)
+  // is gone: a Main-flavoured name could otherwise cancel a high Test shortcut
+  // that behavioural and structural evidence had already earned.
+
+  if (strongTestSignature) {
+    const agreeingFamilies = ["behavioral", "structure"];
+    if (signals.namingTest > 0) agreeingFamilies.push("naming");
+    evidence.push(
+      `strong_test_signature active=${features.activeCreatives} new=${features.newCreatives} turnover=${round4(turnover)} adsets=${features.adsetCount} top3=${features.top3SpendShare} median_spend_ratio=${round4(medianCreativeSpendRatio)}`,
+    );
+    return {
+      campaignId: features.campaignId,
+      campaignName: features.campaignName,
+      kind: "test",
+      kindSource: "system_inferred",
+      confidenceClass: "high",
+      confidenceScore: Math.max(testScore, signature.confidenceScore),
+      testScore,
+      mainScore,
+      mixedScore,
+      agreeingFamilies,
+      conflictReasons,
+      evidence,
+      resolverVersion: CAMPAIGN_CONTEXT_RESOLVER_VERSION,
+    };
+  }
+
+  // D081 C5 — the authoritative kind is chosen from naming-free evidence.
+  // Choosing it from naming-inclusive scores let a name decide WHICH kind the
+  // naming-free high gate then evaluated.
+  const testScoreExNaming = round4(
+    weights.behavioral * signals.behavioralTest +
+      weights.structure * signals.structureTest +
+      lineageWeight * signals.lineageTest +
+      weights.continuity * signals.continuityTest,
+  );
+  const mainScoreExNaming = round4(
+    weights.behavioral * signals.behavioralMain +
+      weights.structure * signals.structureMain +
+      lineageWeight * signals.lineageMain +
+      weights.continuity * signals.continuityMain,
+  );
+  const topKind: CampaignKind =
+    testScoreExNaming >= mainScoreExNaming ? "test" : "main";
+  const topScore = topKind === "test" ? testScore : mainScore;
   const margin = round4(Math.abs(testScore - mainScore));
+  /** Conflict reasons that may actually remove authority. Naming is excluded. */
+  const authoritativeConflictReasons: string[] = [];
 
   const familyPairs: Record<(typeof FAMILY_KEYS)[number], [number, number]> = {
     behavioral: [signals.behavioralTest, signals.behavioralMain],
@@ -414,12 +521,16 @@ export function classifyCampaignContext(
     (signals.namingTest >= strength && signals.behavioralMain >= strength) ||
     (signals.namingMain >= strength && signals.behavioralTest >= strength);
   if (namingOpposesBehavior) {
+    // D081 C5 — recorded as evidence, but NOT authoritative. A name that
+    // contradicts behaviour previously forced `conflict`, which removed
+    // authority a rename could then restore. Only non-naming reasons decide
+    // the class.
     conflictReasons.push("naming_contradicts_behavior");
   }
   if (margin < config.thresholds.conflictMargin && topScore >= 0.5) {
-    conflictReasons.push("top_classes_too_close");
+    authoritativeConflictReasons.push("top_classes_too_close");
   }
-  if (conflictReasons.length > 0) {
+  if (authoritativeConflictReasons.length > 0) {
     return {
       campaignId: features.campaignId,
       campaignName: features.campaignName,
@@ -442,15 +553,46 @@ export function classifyCampaignContext(
       ? config.thresholds.highMarginTest
       : config.thresholds.highMarginMain;
   const behavioralAgrees = agreeingFamilies.includes("behavioral");
-  // Naming alone can never produce high-confidence Test (spec requirement).
-  const testHighEligible = topKind !== "test" || behavioralAgrees;
+  /**
+   * D081 C2 — naming is explanatory evidence, never load-bearing for high
+   * confidence, for ANY kind.
+   *
+   * The former rule guarded Test only, so for Main and Mixed a human-authored
+   * campaign name could be one of the two agreeing families that produced
+   * `high` — the exact value that grants hard-action authority. Renaming a
+   * campaign could therefore create or preserve authority.
+   *
+   * Naming keeps its score weight and still appears in `agreeingFamilies` and
+   * in the evidence, so it can still carry a row to medium. It simply cannot
+   * be counted toward the high-confidence family threshold. Behavioural
+   * agreement is now required for high confidence in all three kinds.
+   */
+  const authoritativeAgreeingFamilies = agreeingFamilies.filter(
+    (family) => family !== "naming",
+  );
+  /**
+   * Naming is also removed from the SCORE the high gate reads. Excluding it
+   * from the family count alone was not enough: its weight still moved
+   * `topScore` and `margin`, so a rename could carry a campaign over the high
+   * threshold without ever being counted as a family. The reported scores keep
+   * naming — it remains explanatory and can still hold medium — but the
+   * high-confidence gate is evaluated on evidence a rename cannot touch.
+   */
+  const topScoreExNaming =
+    topKind === "test" ? testScoreExNaming : mainScoreExNaming;
+  const marginExNaming = round4(
+    topKind === "test"
+      ? testScoreExNaming - mainScoreExNaming
+      : mainScoreExNaming - testScoreExNaming,
+  );
+  const highEligible = behavioralAgrees;
 
   let confidenceClass: ContextConfidenceClass;
   if (
-    topScore >= config.thresholds.highTopScore &&
-    margin >= highMargin &&
-    agreeingFamilies.length >= config.thresholds.highMinAgreeingFamilies &&
-    testHighEligible
+    topScoreExNaming >= config.thresholds.highTopScore &&
+    marginExNaming >= highMargin &&
+    authoritativeAgreeingFamilies.length >= config.thresholds.highMinAgreeingFamilies &&
+    highEligible
   ) {
     confidenceClass = "high";
   } else if (

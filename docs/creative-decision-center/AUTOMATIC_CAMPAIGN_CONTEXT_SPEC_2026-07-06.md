@@ -1,7 +1,10 @@
 # Automatic Campaign Context Resolver Spec - 2026-07-06
 
-Status: design/spec only. No resolver behavior, DB migration, UI behavior, or
-production decision path changes are approved by this document alone.
+Status: implemented locally under D074 on 2026-08-29; not deployed. Automatic
+campaign-role inference is the sole runtime source. The exact resolver version
+still has zero hard-action authority until its independent validation gate is
+explicitly configured. This document does not authorize a provider write,
+automation enablement, deployment, or production DB mutation.
 
 ## Decision
 
@@ -15,11 +18,10 @@ evidence, provenance, and a resolver version. If context cannot be inferred
 safely, the engine keeps the current conservative posture under new automatic
 context language.
 
-User clarification on 2026-07-06: removing manual labeling does not mean
-removing campaign context or removing all correction paths. The default source
-must be backend automatic assignment. A user may later correct that assignment,
-and the correction should be treated as an explicit, auditable override rather
-than as the old required labeling workflow.
+User clarification on 2026-08-29 supersedes the earlier optional-correction
+design: there is no manual role assignment or override path. A disagreement is
+reported as resolver evidence and remains review-only; it is corrected by
+improving and revalidating a versioned resolver, not by writing a label.
 
 ## Why Not Delete Context Outright
 
@@ -40,32 +42,28 @@ actions.
 
 - `campaignKind`: the campaign role consumed by the engine: `main`, `test`,
   `mixed`, or null/unknown.
-- `campaignKindSource`: where the role came from: `user_override`,
-  `system_inferred`, or `unknown`.
+- `campaignKindSource`: the runtime provenance: `system_inferred` or `unknown`.
 - `campaignContextConfidenceClass`: `high`, `medium`, `low`, `unknown`, or
   `conflict`.
 - `campaignContextEvidence`: bounded evidence payload with signal family
   scores and reason codes.
 - `campaignContextResolverVersion`: deterministic resolver version string.
-- `campaignContextOverride`: optional user correction with actor, timestamp,
-  previous automatic value, reason, and resolver version being overridden.
-
 The old phrase "campaign label missing" should disappear from buyer-facing
-copy once the automatic system is active. Internal compatibility can keep old
-fields as deprecated aliases during migration.
+copy. Historical snapshots and evaluation fixtures may retain deprecated field
+names, but no live route or decision consumer may read manual-role storage.
 
 ## Source Priority
 
-Runtime source priority should be:
+Runtime source priority is exactly:
 
-1. `user_override`, when a user explicitly corrects the automatic assignment.
-   This is optional, auditable, and must not be a buyer-required workflow.
-2. `system_inferred`, from the automatic resolver.
-3. `unknown`, when no fresh, reliable context exists.
+1. `system_inferred`, from a fresh account-scoped persisted resolver row.
+2. `unknown`, when account identity, freshness, confidence, evidence, or the
+   exact authority-version gate is insufficient.
 
-Existing `meta_campaign_labels` rows may be used as evaluation labels,
-backfill seeds, or migration input for explicit user overrides. They must not
-remain the primary operational source of truth.
+Existing `meta_campaign_labels` rows are frozen evaluation/migration evidence
+only. They are not a fallback, a seed for runtime authority, or an override.
+The buyer-facing GET/PUT route is a 410 tombstone and the management UI is
+removed.
 
 ## Signals
 
@@ -78,7 +76,7 @@ The resolver should score signal families, not a single raw rule.
 | Budget and structure | CBO/ABO, budget share, adset count, bid strategy, optimization goal | medium strength; must be account-normalized |
 | Naming | account-specific tokens such as test, retest, perm, main, scale | high precision but low coverage; never sufficient alone |
 | Age and continuity | campaign age, active duration, pause/reactivation pattern | supporting signal only |
-| Historical labels | existing manual labels | evaluation ground truth, backfill seed, or migration input for explicit user overrides only |
+| Historical labels | existing manual rows | imperfect evaluation comparator only; never runtime input or authority |
 
 ## Known Data Constraints
 
@@ -99,10 +97,10 @@ If lineage is sparse or polluted for an account, it should lower confidence or
 carry a lower account-specific weight. It must not be the deciding signal for a
 high-confidence Test/Main/Mixed classification.
 
-Manual-label coverage is also uneven by account. Accounts with few or zero
-historical labels, such as EMOLOS-like cases, cannot be validated by labeled
-accuracy alone and need a user spot-check package before production
-consumption.
+Historical comparator coverage is uneven by account and may itself be stale or
+wrong. Accounts with few or zero reviewed examples cannot be validated by
+agreement alone and need an independent adjudication set before the exact
+resolver version receives authority.
 
 ## Resolver Shape
 
@@ -162,8 +160,7 @@ Replace buyer-facing label blockers with automatic context blockers:
   current label guard, including preserving `blockedActionType`.
 - `campaign_context_low_confidence`: context is plausible but not strong
   enough for kind-aware calibration or Test-specific transforms.
-- `campaign_context_conflict`: signal families disagree or a user override
-  conflicts with inferred context.
+- `campaign_context_conflict`: strong signal families disagree.
 
 Buyer copy should explain evidence, not ask for labels. Example intent:
 "Campaign role could not be resolved automatically; review structure before
@@ -203,55 +200,66 @@ unknown rather than recomputing expensive context inline.
 The UI may display the context source and evidence summary, but must not
 compute `buyerAction`, `campaignKind`, fallback semantics, or confidence class.
 
-## Migration Plan
+## Implemented Migration State
 
-1. Land this ADR/spec with no behavior change.
-2. Add classifier golden cases for signal scoring, false-Test protection,
-   conflict, unknown, hysteresis, and determinism.
-3. Add a read-only historical evaluation harness against existing manual labels
-   and historical replay output. Existing labels are evaluation evidence, not
-   runtime truth.
-4. Add a shadow-only producer/table path. The table can be populated without
-   decisions consuming it.
-5. Run live shadow for enough days to measure context distribution, flapping,
-   inferred-vs-manual divergence, and decision divergence.
-6. Flip decision consumption behind a kill switch such as
-   `CAMPAIGN_CONTEXT_MODE=legacy_labels|automatic|unknown`. Default remains
-   `legacy_labels` until the automatic path is approved for consumption:
-   - `legacy_labels`: current behavior; existing labels are consumed and missing
-     label/context keeps today's conservative guard behavior.
-   - `automatic`: effective source priority is `user_override`,
-     `system_inferred`, then `unknown`.
-   - `unknown`: emergency context circuit breaker; all campaign context is
-     treated as unresolved and hard actions demote under the existing
-     missing-context safety posture.
-
-   Because semantics change, bump the decision engine version.
-7. Replace the manual label UI with an automatic-context review/correction
-   surface, or hide it when no correction is needed, only after inferred context
-   is proven. The user correction path is optional and must not block normal
-   decision generation.
-8. Keep additive snapshot fields and old field compatibility until historical
-   snapshots no longer depend on old label status names.
+1. The deterministic producer persists account-scoped daily context under the
+   unique identity `(business_id, provider_account_id, campaign_id, as_of_date)`.
+2. Every live Meta decision consumer reads that automatic source. Missing
+   provider-account scope fails closed; no cross-account campaign-ID collapse is
+   allowed.
+3. `CAMPAIGN_CONTEXT_MODE` now resolves to `automatic` unless explicitly set to
+   the emergency `unknown` circuit breaker. The old `legacy_labels` value cannot
+   restore manual authority.
+4. `CAMPAIGN_CONTEXT_AUTHORITY_RESOLVER_VERSION` is an exact-version allowlist.
+   It is intentionally unset by default. A high-confidence result from any
+   unapproved/stale resolver remains review-only.
+5. The manual management section and modal are deleted. `/api/meta/campaign-labels`
+   returns 410 for reads and writes. Live pulse/workspace payloads expose
+   `campaignRoleCoverage` with `classifiedCampaigns` and
+   `unresolvedCampaigns`; they do not emit the old label-coverage wire field.
+6. Historical snapshot fields and helper names remain readable only where
+   required for immutable evidence compatibility. They grant no live authority.
 
 ## Validation Gates
 
 Minimum gates before production consumption:
 
-- High-confidence inferred rows should reach at least 90% accuracy against a
-  reviewed labeled evaluation subset and must be reported as exact counts, for
-  example `27/30` rather than only a percentage.
+- High-confidence inferred rows must reach at least 90% on a frozen,
+  independently adjudicated holdout with an agreed minimum denominator; exact
+  counts are mandatory, not only percentages.
 - False-Test rate must be explicitly measured and separately bounded. Recommended
   initial bar: zero false-Test classifications in the reviewed labeled subset,
   unless the user explicitly accepts a different integer bound.
-- High-confidence unlabeled rows need a 10-15 campaign user spot-check package,
-  prioritized toward accounts with sparse labels and EMOLOS-like coverage gaps.
+- High-confidence rows lacking historical comparators need an independent
+  10-15 campaign adjudication package, prioritized toward sparse accounts.
 - Context flapping must remain below an agreed threshold after hysteresis.
 - Historical replay must quantify decision-label divergence and hard-action
   unlock/demotion changes.
 - Live shadow must prove that unresolved/conflict rows use conservative
   fallback behavior.
-- Full test suite, typecheck, lint, and diff checks must pass.
+- Full test suite, typecheck, lint, diff checks, and seven natural production
+  shadow waves must pass before setting the exact authority version.
+
+Current evidence is useful but not sufficient for authority: the six-business
+replay reaches 9/10 agreement on the high-confidence comparator subset, catches
+both active Test examples, and emits no false Test there. The locked post-hoc
+H11 regression remains rejected (high-confidence 63.64%, selected P1 72.73%,
+historical Test recall 0/12). Therefore the authority env remains unset.
+
+2026-08-29 addendum (D076): a lifecycle challenger
+(`campaign-context-resolver.v3-lifecycle-2026-08-29`) was evaluated on the
+new H11B frozen bundle (six businesses, truth-freshness-paired anchors
+2026-06-15..2026-08-17). Its predeclared local gate returned **REJECT**
+(high-confidence n=4 at 0.50 vs the 0.8 @ n>=5 bar; one low-class false
+Test; LOBO-unstable at that n), so v2 remains the compiled default and the
+challenger is parked offline. The run also measured the CURRENT resolver at
+0.20 high-confidence accuracy on the fresh-label validation fold —
+independent confirmation that the authority env must stay unset. The 90%
+adjudicated-holdout gate above is unchanged and remains the only path to
+authority; the sparse-account adjudication package (10-15 campaigns) is
+still the binding blocker for Test-recall evidence, because five of the
+seven frozen Test labels describe tests that concluded before observable
+history begins.
 
 ## Golden Case List
 
@@ -274,23 +282,16 @@ Required golden cases:
 - Medium-confidence mature cut remains a user-approval golden case, not an
   implemented behavior change.
 - Hysteresis prevents one-day context flips.
-- Existing old snapshots with `campaignLabelStatus` remain readable.
+- Existing old snapshots with `campaignLabelStatus` remain readable but cannot
+  become a live role source.
 
-## Remaining User Approval Gates
+## Remaining Activation Gates
 
-The user has approved the product direction that backend automatic assignment is
-the default and users may optionally correct the assignment. Remaining gates
-before production consumption are:
-
-1. Should medium-confidence context allow mature severe stop-loss cuts to stay
-   visible, or should all medium/low/unknown context demote hard actions exactly
-   like today's unlabeled guard?
-2. Does the user want to keep Main/Test/Mixed semantics, or remove those product
-   semantics too? Removing them would also remove promote-to-main and Test
-   refresh-to-cut behavior and needs a separate ADR.
-3. What validation bar should block rollout if the high-confidence classifier
-   misses the recommended 90% accuracy, exact false-Test bound, or user
-   spot-check bar?
+No product choice remains about manual labels: they are not part of runtime.
+Before automatic role context may authorize hard actions, the exact resolver
+version must pass the independent holdout, false-Test, flapping, natural-wave,
+and decision-divergence gates above. Until then Main/Test/Mixed is visible as
+inference evidence while provider execution remains review-only.
 
 ## Non-Goals
 
@@ -299,5 +300,7 @@ before production consumption are:
 - No UI-side context inference.
 - No row-level `brief_variation`.
 - No removal of old snapshot compatibility.
-- No immediate deletion of `meta_campaign_labels`, its route, or existing tests
-  before the automatic path is proven and a user-override migration path exists.
+- No destructive production-table deletion in this local slice. Historical
+  `meta_campaign_labels` data is retained only for audit/evaluation and can be
+  removed later through a separately verified migration after all immutable
+  compatibility readers are inventoried.

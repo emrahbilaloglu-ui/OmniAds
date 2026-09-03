@@ -499,7 +499,9 @@ async function createHydrationSourceSchema(client: Client) {
       captured_at TIMESTAMPTZ NOT NULL, completeness TEXT NOT NULL,
       page_count INTEGER NOT NULL, row_count INTEGER NOT NULL,
       source_snapshot_id TEXT, payload_hash CHAR(64), run_hash CHAR(64) NOT NULL,
-      error_json JSONB, created_at TIMESTAMPTZ NOT NULL
+      error_json JSONB, created_at TIMESTAMPTZ NOT NULL,
+      last_seen_at TIMESTAMPTZ, last_captured_at TIMESTAMPTZ,
+      manifest_kind TEXT, base_run_id UUID, delta_stats_json JSONB
     );
     CREATE TABLE engine_v3_creative_lifecycle_daily (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(), business_ref_id UUID NOT NULL,
@@ -1331,6 +1333,269 @@ async function verifyGenerationBoundLargeManifestHydration(
   };
 }
 
+/**
+ * D075 — delta-bounded manifests through the FULL hydration path.
+ *
+ * A delta run persists only what changed; its manifest is the reconstructed
+ * complete lane at or before the run's payload capture clock. Hydration must
+ * resolve the exact logical membership (including carried members whose rows
+ * live in OLDER runs), honor scope-exit rows, and accept a zero-row forced
+ * checkpoint as a complete authoritative source.
+ */
+async function verifyDeltaManifestHydration(client: Client) {
+  const businessId = "00000000-0000-4000-8000-000000000d70";
+  const providerAccountRefId = "00000000-0000-4000-8000-000000000d71";
+  const providerAccountId = "act_delta_manifest";
+  const fullRunId = "00000000-0000-4000-8000-000000000d72";
+  const deltaRunId = "00000000-0000-4000-8000-000000000d73";
+  const shrinkRunId = "00000000-0000-4000-8000-000000000d74";
+  const checkpointRunId = "00000000-0000-4000-8000-000000000d75";
+  const asOf = new Date().toISOString().slice(0, 10);
+  const decisionCutoff = `${asOf}T12:00:00.000Z`;
+  const adIds = ["ad-delta-1", "ad-delta-2", "ad-delta-3"];
+
+  await client.query(`INSERT INTO businesses (id) VALUES ($1)`, [businessId]);
+  await client.query(
+    `INSERT INTO provider_accounts (
+       id, provider, external_account_id, timezone, currency
+     ) VALUES ($1, 'meta', $2, 'UTC', 'USD')`,
+    [providerAccountRefId, providerAccountId],
+  );
+  await client.query(
+    `INSERT INTO business_provider_accounts (
+       business_id, provider, provider_account_ref_id, provider_account_id, is_selected
+     ) VALUES ($1, 'meta', $2, $3, TRUE)`,
+    [businessId, providerAccountRefId, providerAccountId],
+  );
+
+  const insertRun = async (input: {
+    id: string;
+    observedAt: string;
+    capturedAt: string;
+    rowCount: number;
+    manifestKind: string | null;
+    baseRunId: string | null;
+    hashSeed: string;
+  }) => {
+    await client.query(
+      `INSERT INTO meta_entity_observation_runs (
+         id, business_ref_id, business_id, provider_account_ref_id,
+         provider_account_id, entity_type, endpoint, observed_at, captured_at,
+         completeness, page_count, row_count, payload_hash, run_hash,
+         created_at, manifest_kind, base_run_id
+       ) VALUES (
+         $1, $2::uuid, $2::text, $3, $4, 'ad', 'ad_configs', $5, $6,
+         'complete', 1, $7, $8, $9, $6, $10, $11::uuid
+       )`,
+      [
+        input.id,
+        businessId,
+        providerAccountRefId,
+        providerAccountId,
+        input.observedAt,
+        input.capturedAt,
+        input.rowCount,
+        input.hashSeed.repeat(64),
+        input.hashSeed.repeat(32) + input.hashSeed.repeat(32),
+        input.manifestKind,
+        input.baseRunId,
+      ],
+    );
+  };
+  const insertState = async (input: {
+    runId: string;
+    adId: string;
+    status: string;
+    presence: string;
+    observedAt: string;
+    capturedAt: string;
+  }) => {
+    await client.query(
+      `INSERT INTO meta_entity_state_history (
+         run_id, business_ref_id, business_id, provider_account_ref_id,
+         provider_account_id, entity_type, entity_id, entity_name, campaign_id,
+         adset_id, creative_id, configured_status, effective_status,
+         observed_at, captured_at, created_at, run_completeness, presence
+       ) VALUES (
+         $1::uuid, $2::uuid, $2::text, $3::uuid, $4, 'ad', $5, $5,
+         'campaign-delta', 'adset-delta', 'creative-' || $5, $6, $6,
+         $7::timestamptz, $8::timestamptz, $8::timestamptz, 'complete', $9
+       )`,
+      [
+        input.runId,
+        businessId,
+        providerAccountRefId,
+        providerAccountId,
+        input.adId,
+        input.status,
+        input.observedAt,
+        input.capturedAt,
+        input.presence,
+      ],
+    );
+  };
+
+  // T03: the full baseline manifest — all three ads, one row each.
+  await insertRun({
+    id: fullRunId,
+    observedAt: `${asOf}T03:00:00.000Z`,
+    capturedAt: `${asOf}T03:00:05.000Z`,
+    rowCount: 3,
+    manifestKind: "full",
+    baseRunId: null,
+    hashSeed: "5",
+  });
+  for (const adId of adIds) {
+    await insertState({
+      runId: fullRunId,
+      adId,
+      status: "ACTIVE",
+      presence: "present",
+      observedAt: `${asOf}T03:00:00.000Z`,
+      capturedAt: `${asOf}T03:00:05.000Z`,
+    });
+  }
+  await client.query(
+    `INSERT INTO meta_ad_dimensions (
+       business_id, provider_account_id, ad_id, ad_name_current, creative_id,
+       campaign_id, adset_id, ad_status, first_seen_at, last_seen_at,
+       created_at, updated_at
+     )
+     SELECT $1, $2, ad_id, ad_id, 'creative-' || ad_id, 'campaign-delta',
+       'adset-delta', 'ACTIVE', $3::timestamptz, $3::timestamptz,
+       $3::timestamptz, $3::timestamptz
+     FROM unnest($4::text[]) AS ad_id`,
+    [businessId, providerAccountId, `${asOf}T03:00:05.000Z`, adIds],
+  );
+
+  // T04: a 1-of-3 delta — ONLY the changed ad has a physical row; the other
+  // two members live solely in the full run.
+  await insertRun({
+    id: deltaRunId,
+    observedAt: `${asOf}T04:00:00.000Z`,
+    capturedAt: `${asOf}T04:00:05.000Z`,
+    rowCount: 3,
+    manifestKind: "delta",
+    baseRunId: fullRunId,
+    hashSeed: "6",
+  });
+  await insertState({
+    runId: deltaRunId,
+    adId: "ad-delta-2",
+    status: "PAUSED",
+    presence: "present",
+    observedAt: `${asOf}T04:00:00.000Z`,
+    capturedAt: `${asOf}T04:00:05.000Z`,
+  });
+
+  const warehouse = new WarehouseDataSource();
+  const deltaResult = await warehouse.hydrateAdDecisionInputs({
+    businessId,
+    asOf,
+    decisionCutoff,
+    providerAccountIds: [providerAccountId],
+  });
+  assert(
+    deltaResult.inputs.length === 3 &&
+      deltaResult.accountCoverageComplete &&
+      deltaResult.receipts[0]?.sourceManifestKind === "delta" &&
+      deltaResult.receipts[0]?.expectedAdCount === 3 &&
+      deltaResult.receipts[0]?.hydratedAdCount === 3,
+    `Delta 1-of-3 manifest did not hydrate the full logical scope: ${JSON.stringify(
+      {
+        inputs: deltaResult.inputs.length,
+        receipt: deltaResult.receipts[0],
+      },
+    )}`,
+  );
+  const changed = deltaResult.inputs.find((row) => row.adId === "ad-delta-2");
+  const carried = deltaResult.inputs.find((row) => row.adId === "ad-delta-1");
+  assert(
+    changed?.effectiveStatus === "PAUSED" &&
+      changed.statusEvidence.source === "entity_state_history" &&
+      changed.statusEvidence.capturedAt ===
+        new Date(`${asOf}T04:00:05.000Z`).toISOString(),
+    "The delta run's changed row did not win status resolution.",
+  );
+  assert(
+    carried?.effectiveStatus === "ACTIVE" &&
+      carried.statusEvidence.source === "entity_state_history" &&
+      carried.statusEvidence.capturedAt ===
+        new Date(`${asOf}T03:00:05.000Z`).toISOString(),
+    "A carried member's state (older run, no delta row) was not resolved.",
+  );
+
+  // T05: scope exit — one absent_unconfirmed row shrinks the manifest to 2.
+  await insertRun({
+    id: shrinkRunId,
+    observedAt: `${asOf}T05:00:00.000Z`,
+    capturedAt: `${asOf}T05:00:05.000Z`,
+    rowCount: 2,
+    manifestKind: "delta",
+    baseRunId: deltaRunId,
+    hashSeed: "7",
+  });
+  await insertState({
+    runId: shrinkRunId,
+    adId: "ad-delta-3",
+    status: "ACTIVE",
+    presence: "absent_unconfirmed",
+    observedAt: `${asOf}T05:00:00.000Z`,
+    capturedAt: `${asOf}T05:00:05.000Z`,
+  });
+  const shrinkResult = await warehouse.hydrateAdDecisionInputs({
+    businessId,
+    asOf,
+    decisionCutoff,
+    providerAccountIds: [providerAccountId],
+  });
+  assert(
+    shrinkResult.inputs.length === 2 &&
+      shrinkResult.accountCoverageComplete &&
+      shrinkResult.receipts[0]?.expectedAdCount === 2 &&
+      shrinkResult.receipts[0]?.hydratedAdCount === 2 &&
+      shrinkResult.inputs.every((row) => row.adId !== "ad-delta-3"),
+    `A delta scope exit did not shrink the hydrated membership: ${JSON.stringify(
+      {
+        inputs: shrinkResult.inputs.map((row) => row.adId),
+        receipt: shrinkResult.receipts[0],
+      },
+    )}`,
+  );
+
+  // T06: a zero-change forced checkpoint owns no state rows at all, yet is a
+  // complete authoritative source for the same reconstructed membership.
+  await insertRun({
+    id: checkpointRunId,
+    observedAt: `${asOf}T06:00:00.000Z`,
+    capturedAt: `${asOf}T06:00:05.000Z`,
+    rowCount: 2,
+    manifestKind: "delta",
+    baseRunId: shrinkRunId,
+    hashSeed: "8",
+  });
+  const checkpointResult = await warehouse.hydrateAdDecisionInputs({
+    businessId,
+    asOf,
+    decisionCutoff,
+    providerAccountIds: [providerAccountId],
+  });
+  assert(
+    checkpointResult.inputs.length === 2 &&
+      checkpointResult.accountCoverageComplete &&
+      checkpointResult.receipts[0]?.sourceManifestKind === "delta" &&
+      checkpointResult.receipts[0]?.expectedAdCount === 2 &&
+      checkpointResult.receipts[0]?.hydratedAdCount === 2,
+    `A zero-row delta checkpoint was not accepted as the authoritative source: ${JSON.stringify(
+      checkpointResult.receipts[0],
+    )}`,
+  );
+
+  console.log(
+    "[native-ad-decision-seam] D075 PASS delta hydration: a 1-of-3 delta run hydrates all 3 members (changed row from the delta run, carried rows from the older full run), a scope-exit row shrinks membership to 2, and a zero-row forced checkpoint still proves a complete source.",
+  );
+}
+
 function rollbackJobInputs(
   fixture: GenerationBoundLargeManifestFixture,
   mode: "baseline" | "non_purchase",
@@ -1407,6 +1672,8 @@ function rollbackJobHydration(input: {
         sourceRunId: "00000000-0000-4000-8000-000000000993",
         sourceObservedAt: sourceTimestamp,
         sourceCapturedAt: sourceTimestamp,
+        sourcePayloadCapturedAt: sourceTimestamp,
+        sourceManifestKind: null,
         sourceRunHash: "3".repeat(64),
         sourcePayloadHash: "4".repeat(64),
         sourceExpectedRowCount: expectedAdIds.length,
@@ -2112,6 +2379,8 @@ function receipt(
     sourceRunId: "00000000-0000-4000-8000-000000000999",
     sourceObservedAt: `${AS_OF}T02:00:00.000Z`,
     sourceCapturedAt: `${AS_OF}T02:01:00.000Z`,
+    sourcePayloadCapturedAt: `${AS_OF}T02:01:00.000Z`,
+    sourceManifestKind: null,
     sourceRunHash: "f".repeat(64),
     sourcePayloadHash: "e".repeat(64),
     sourceExpectedRowCount: ids.length,
@@ -2586,6 +2855,7 @@ async function runSeam(client: Client) {
   await verifyHydrationReceiptCaptureAxis(client);
   const largeManifestFixture =
     await verifyGenerationBoundLargeManifestHydration(client);
+  await verifyDeltaManifestHydration(client);
   await verifyTombstoneAndHistoricalCutoff(client);
   await verifyCurrentIdentityAndConfigFallback(client);
   await verifyFirstWriteEvaluationLinkage(client);

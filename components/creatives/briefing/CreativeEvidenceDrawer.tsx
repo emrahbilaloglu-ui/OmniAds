@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react"
 import { useQueries } from "@tanstack/react-query";
 import { ArrowRight, Plus, TestTube2, X } from "lucide-react";
 import {
+  cardCampaignRoleStatus,
   asDecisionLabel,
   cardAdset,
   cardCampaign,
@@ -151,8 +152,13 @@ function decisionCenterMissingDataText(value: string[] | null | undefined) {
 }
 
 function campaignContext(card: BriefingCreativeCard) {
-  if (card.campaignLabelStatus === "unlabeled") {
-    return { label: "Unlabeled campaign", className: "chip--warn" };
+  const roleStatus = cardCampaignRoleStatus(card);
+  if (roleStatus === "unresolved") {
+    return { label: "Campaign role unresolved", className: "chip--warn" };
+  }
+  // D074b correction: kind copy renders only under canonical resolved status.
+  if (roleStatus !== "resolved") {
+    return { label: "Campaign context unavailable", className: "chip--ghost" };
   }
   if (card.campaignKind === "main") {
     return { label: "Main campaign", className: "chip--healthy" };
@@ -1196,11 +1202,24 @@ function CreativeEvidenceDrawerContent({
             ) : null}
 
             {decisionCenterRow ? (
+              /* D074b correction 4: the raw compatibility row is rendered
+                 ONLY as an explicitly non-authoritative snapshot. Its
+                 composed buyerLabel/nextStep never appear as current
+                 guidance; raw action/queue/apply values are nested as
+                 technical snapshot fields under the disclosure. The current
+                 decision and its primary live in the drawer headline above. */
               <section className="creative-evidence-section">
-                <h4>Decision Center</h4>
+                <h4>Compatibility snapshot (provenance)</h4>
                 <div className="creative-evidence-callout">
-                  <strong>{decisionCenterRow.buyerLabel}</strong>
-                  <p>{decisionCenterRow.oneLine}</p>
+                  <strong>
+                    Not the current decision — this stored Decision Center
+                    snapshot cannot execute any action.
+                  </strong>
+                  <p>
+                    The card&apos;s current decision and action are shown in
+                    the header above. The raw snapshot below is retained for
+                    audit/debugging only.
+                  </p>
                   <span className="src">
                     decision center - {decisionCenterRow.engine.contractVersion} -{" "}
                     {decisionCenterRow.engine.engineVersion}
@@ -1209,41 +1228,30 @@ function CreativeEvidenceDrawerContent({
                 <ul className="creative-evidence-list">
                   <li className="creative-evidence-list-item">
                     <div>
-                      <b>
-                        {decisionCenterText(decisionCenterRow.buyerAction)} -{" "}
-                        {decisionCenterRow.engine.primaryDecision}
-                      </b>
-                      {decisionCenterText(decisionCenterRow.engine.problemClass)} -{" "}
-                      {decisionCenterText(decisionCenterRow.engine.actionability)}
+                      <b>Snapshot fields</b>
                       <span className="src">
                         buyerAction {decisionCenterRow.buyerAction} - execution{" "}
-                        {decisionCenterRow.executionAction ?? "none"}
+                        {decisionCenterRow.executionAction ?? "none"} - primary{" "}
+                        {decisionCenterRow.engine.primaryDecision}
                       </span>
-                    </div>
-                  </li>
-                  <li className="creative-evidence-list-item">
-                    <div>
-                      <b>
-                        Priority {decisionCenterRow.priority} - confidence{" "}
+                      <span className="src">
+                        problemClass{" "}
+                        {decisionCenterText(decisionCenterRow.engine.problemClass)} -
+                        actionability{" "}
+                        {decisionCenterText(decisionCenterRow.engine.actionability)} -
+                        priority {decisionCenterRow.priority} - confidence{" "}
                         {decisionCenterRow.confidenceBand}
-                      </b>
-                      {decisionCenterRow.nextStep}
-                      <span className="src">
-                        sourceDecision {decisionCenterRow.sourceDecision ?? "unavailable"}
                       </span>
-                    </div>
-                  </li>
-                  <li className="creative-evidence-list-item">
-                    <div>
-                      <b>
-                        Queue {String(decisionCenterRow.engine.queueEligible)} - apply{" "}
-                        {String(decisionCenterRow.engine.applyEligible)}
-                      </b>
-                      Missing data:{" "}
-                      {decisionCenterMissingDataText(decisionCenterRow.missingData)}
                       <span className="src">
-                        engine queue {String(decisionCenterRow.engine.queueEligible)} -
-                        apply {String(decisionCenterRow.engine.applyEligible)}
+                        snapshot queue/apply flags{" "}
+                        {String(decisionCenterRow.engine.queueEligible)}/
+                        {String(decisionCenterRow.engine.applyEligible)} (stored
+                        values; convey no current eligibility)
+                      </span>
+                      <span className="src">
+                        sourceDecision {decisionCenterRow.sourceDecision ?? "unavailable"} -
+                        missing data:{" "}
+                        {decisionCenterMissingDataText(decisionCenterRow.missingData)}
                       </span>
                     </div>
                   </li>

@@ -4,6 +4,10 @@ import {
   readMetaHistoryAccounts,
   readMetaHistoryAssignedAccountIds,
 } from "@/lib/meta/history-read-model";
+import {
+  describeAccountStatePolicy,
+  readMetaAssignedAccountStates,
+} from "@/lib/meta/assigned-account-states";
 import { readMetaBusinessDataPosture } from "@/lib/meta/business-data-posture";
 import { metaPostureUnavailable } from "@/app/api/meta/read-posture";
 import { getDemoMetaStatus } from "@/lib/demo-business";
@@ -67,16 +71,40 @@ export async function GET(request: NextRequest) {
     // this list is what an account picker offers, and offering a deselected
     // account would let the operator pick a scope the journal read then refuses
     // — or, before `is_selected` was honoured, silently served.
-    const [accounts, assignedAccountIds] = await Promise.all([
+    const [accounts, assignedAccountIds, accountStates] = await Promise.all([
       readMetaHistoryAccounts(businessId),
       readMetaHistoryAssignedAccountIds(businessId),
+      // Additive evidence: a failing states read must not take down the
+      // selected picker. null = unread (not "proven none"); the response
+      // then omits the historical group rather than asserting emptiness.
+      readMetaAssignedAccountStates(businessId).catch(() => null),
     ]);
     const currentlyAssigned = new Set(assignedAccountIds);
+    // D078 R4: assigned-but-deselected identities are served as an explicit,
+    // clearly-marked read-only historical evidence group. They never join
+    // `accounts` (the actionable/selected picker group used by write-capable
+    // scopes elsewhere); History itself is read-only, so offering them here
+    // grants no authority.
+    const historicalAccounts = (accountStates ?? [])
+      .filter((state) => state.selectionState === "deselected_historical")
+      .map((state) => ({
+        id: state.providerAccountId,
+        name: state.accountName,
+        currency: state.accountCurrency,
+        timezone: state.accountTimezone,
+        selectionState: state.selectionState,
+        latestFactDate: state.latestFactDate,
+        spend14d: state.spend14d,
+        latestDecisionAsOf: state.latestDecisionAsOf,
+        latestDecisionRows: state.latestDecisionRows,
+        policy: describeAccountStatePolicy(state),
+      }));
     return NextResponse.json(
       {
         mode: "read_only",
         businessId,
         accounts: accounts.filter((account) => currentlyAssigned.has(account.id)),
+        historicalAccounts: accountStates === null ? null : historicalAccounts,
       },
       { headers: { "Cache-Control": "private, no-store" } },
     );

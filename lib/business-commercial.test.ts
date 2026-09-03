@@ -1409,3 +1409,212 @@ describe("upsertBusinessCommercialTruthSnapshot", () => {
     }
   });
 });
+
+describe("commercial spend-unit anchor capture (hard-action eligibility slice)", () => {
+  const BUSINESS_ID = "11111111-1111-4111-8111-111111111111";
+  const USER_ID = "22222222-2222-4222-8222-222222222222";
+
+  beforeEach(() => {
+    queryLog.length = 0;
+    queryCalls.length = 0;
+    tableResponses.targetPack = [];
+    tableResponses.targetHistory = [];
+    tableResponses.countryEconomics = [];
+    tableResponses.promoCalendar = [];
+    tableResponses.operatingConstraints = [];
+    tableResponses.calibrationProfiles = [];
+    currentTargetPack = null;
+    targetHistorySequence = 0;
+    vi.clearAllMocks();
+  });
+
+  it.each([
+    ["zero", 0],
+    ["negative", -12.5],
+  ])(
+    "rejects a %s operator AOV assumption instead of persisting a dead anchor",
+    (_label, value) => {
+      expect(() =>
+        businessCommercial.sanitizeBusinessCommercialTruthInput(BUSINESS_ID, {
+          targetPack: { targetRoas: 3, aovAssumption: value } as never,
+        }),
+      ).toThrowError(
+        "targetPack.aovAssumption must be a finite number greater than zero or null.",
+      );
+    },
+  );
+
+  it("accepts a positive operator AOV assumption and preserves an explicit null", () => {
+    const set = businessCommercial.sanitizeBusinessCommercialTruthInput(
+      BUSINESS_ID,
+      { targetPack: { targetRoas: 3, aovAssumption: 90 } as never },
+    );
+    expect(set.targetPack?.aovAssumption).toBe(90);
+
+    const cleared = businessCommercial.sanitizeBusinessCommercialTruthInput(
+      BUSINESS_ID,
+      { targetPack: { targetRoas: 3, aovAssumption: null } as never },
+    );
+    // Clearing an anchor must restore the pre-anchor state exactly, never 0.
+    expect(cleared.targetPack?.aovAssumption).toBeNull();
+  });
+
+  it("captures an explicit Target CPA with server-owned provenance", async () => {
+    await businessCommercial.upsertBusinessCommercialTruthSnapshot({
+      businessId: BUSINESS_ID,
+      updatedByUserId: USER_ID,
+      snapshot: {
+        targetPack: {
+          targetCpa: 25,
+          targetRoas: 3,
+          breakEvenRoas: 2,
+          sourceLabel: "settings_manual_entry",
+        },
+      } as never,
+    });
+    const write = queryCalls.find(
+      (call) =>
+        call.text.includes("INSERT INTO business_target_packs") &&
+        call.text.includes("WITH write_clock AS"),
+    );
+    expect(write).toBeDefined();
+    // The anchor and the updater identity both reach the write, and the
+    // updater is the server session user — never a client-supplied approver.
+    expect(write?.values).toContain(25);
+    expect(write?.values).toContain(USER_ID);
+    const history = queryCalls.find((call) =>
+      call.text.includes("INSERT INTO business_target_pack_history"),
+    );
+    expect(history).toBeDefined();
+  });
+
+  it("a client-supplied updater identity can never override the session user", async () => {
+    await businessCommercial.upsertBusinessCommercialTruthSnapshot({
+      businessId: BUSINESS_ID,
+      updatedByUserId: USER_ID,
+      snapshot: {
+        targetPack: {
+          targetCpa: 25,
+          updatedByUserId: "99999999-9999-4999-8999-999999999999",
+          updatedAt: "1999-01-01T00:00:00.000Z",
+        },
+      } as never,
+    });
+    const write = queryCalls.find((call) =>
+      call.text.includes("INSERT INTO business_target_packs"),
+    );
+    expect(write?.values).toContain(USER_ID);
+    expect(write?.values).not.toContain("99999999-9999-4999-8999-999999999999");
+    expect(write?.values).not.toContain("1999-01-01T00:00:00.000Z");
+  });
+
+  it("a commercial-truth save no longer resets engine-owned calibration columns", async () => {
+    // A profile that already exists and is still present in the payload must be
+    // UPDATED in place, not deleted and re-inserted: the engine-owned columns
+    // (engine_preset_label, the threshold multipliers and
+    // attribution_aov_adjustment_multiplier) live only on that row.
+    tableResponses.calibrationProfiles = [
+      {
+        channel: "meta",
+        objective_family: "sales",
+        bid_regime: "cost_cap",
+        archetype: "winner_scale",
+      },
+    ];
+    await businessCommercial.upsertBusinessCommercialTruthSnapshot({
+      businessId: BUSINESS_ID,
+      updatedByUserId: USER_ID,
+      snapshot: {
+        targetPack: { targetCpa: 25 },
+        calibrationProfiles: [
+          {
+            channel: "meta",
+            objectiveFamily: "sales",
+            bidRegime: "cost_cap",
+            archetype: "winner_scale",
+            targetRoasMultiplier: 1.1,
+            breakEvenRoasMultiplier: 1.02,
+            targetCpaMultiplier: 0.92,
+            breakEvenCpaMultiplier: 0.97,
+            confidenceCap: 0.78,
+            actionCeiling: "review_hold",
+            notes: null,
+            sourceLabel: "test",
+            updatedAt: null,
+            updatedByUserId: null,
+          },
+        ],
+      } as never,
+    });
+    const deletes = queryCalls.filter(
+      (call) =>
+        call.text.includes("DELETE FROM business_decision_calibration_profiles"),
+    );
+    // The surviving profile is not deleted, so its engine columns persist.
+    expect(deletes).toHaveLength(0);
+    expect(
+      queryCalls.some((call) =>
+        call.text.includes(
+          "INSERT INTO business_decision_calibration_profiles",
+        ),
+      ),
+    ).toBe(true);
+    // And no unscoped business-wide delete may exist any more.
+    expect(
+      queryLog.some(
+        (text) =>
+          text.includes(
+            "DELETE FROM business_decision_calibration_profiles",
+          ) && !text.includes("AND channel ="),
+      ),
+    ).toBe(false);
+  });
+
+  it("still removes a calibration profile the operator actually dropped", async () => {
+    tableResponses.calibrationProfiles = [
+      {
+        channel: "meta",
+        objective_family: "sales",
+        bid_regime: "cost_cap",
+        archetype: "winner_scale",
+      },
+      {
+        channel: "meta",
+        objective_family: "sales",
+        bid_regime: "lowest_cost",
+        archetype: "retired",
+      },
+    ];
+    await businessCommercial.upsertBusinessCommercialTruthSnapshot({
+      businessId: BUSINESS_ID,
+      updatedByUserId: USER_ID,
+      snapshot: {
+        targetPack: { targetCpa: 25 },
+        calibrationProfiles: [
+          {
+            channel: "meta",
+            objectiveFamily: "sales",
+            bidRegime: "cost_cap",
+            archetype: "winner_scale",
+            targetRoasMultiplier: 1.1,
+            breakEvenRoasMultiplier: 1.02,
+            targetCpaMultiplier: 0.92,
+            breakEvenCpaMultiplier: 0.97,
+            confidenceCap: 0.78,
+            actionCeiling: "review_hold",
+            notes: null,
+            sourceLabel: "test",
+            updatedAt: null,
+            updatedByUserId: null,
+          },
+        ],
+      } as never,
+    });
+    const deletes = queryCalls.filter((call) =>
+      call.text.includes("DELETE FROM business_decision_calibration_profiles"),
+    );
+    expect(deletes).toHaveLength(1);
+    expect(deletes[0]?.values).toContain("retired");
+    expect(deletes[0]?.values).not.toContain("winner_scale");
+  });
+});

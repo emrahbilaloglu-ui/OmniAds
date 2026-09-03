@@ -179,6 +179,7 @@ const S = {
   BANNERS: "page · workspace posture banners",
   MOBILE: "page · mobile posture panels",
   EVIDENCE: "page · creative evidence window",
+  COVERAGE: "decision center · assigned-account coverage strip",
 } as const;
 
 const SURFACES: ReadonlySet<string> = new Set(Object.values(S));
@@ -351,6 +352,53 @@ const PACING_IS_EXTRAPOLATED_FROM_SPEND = [
 ] as const;
 
 const COVERAGE: Record<string, Coverage> = {
+  // D078 R4: the account-coverage strip. A deselected-but-spending assigned
+  // identity is an explicit fact on this screen; the strip is display-only
+  // and grants nothing.
+  "MetaAssignedAccountStateSummary.providerAccountId": R(
+    S.COVERAGE,
+    "each account chip's id and data-account-coverage-id",
+  ),
+  "MetaAssignedAccountStateSummary.accountName": R(
+    S.COVERAGE,
+    "each account chip's name prefix",
+  ),
+  "MetaAssignedAccountStateSummary.selectionState": R(
+    S.COVERAGE,
+    "the 'selected · serving' / 'deselected · read-only history' wording and data-account-selection-state",
+  ),
+  "MetaAssignedAccountStateSummary.accountCurrency": R(
+    S.COVERAGE,
+    "the visible 'currency <code>' fact and the spend suffix",
+  ),
+  "MetaAssignedAccountStateSummary.accountTimezone": R(
+    S.COVERAGE,
+    "the visible 'timezone <tz>' fact on each account row",
+  ),
+  "MetaAssignedAccountStateSummary.latestDecisionAuthorizedRows": R(
+    S.COVERAGE,
+    "the '(<n> authorized)' suffix on the decision-rows fact",
+  ),
+  "MetaAssignedAccountStateSummary.latestFactDate": R(
+    S.COVERAGE,
+    "the 'facts to <date>' suffix",
+  ),
+  "MetaAssignedAccountStateSummary.spend14d": R(
+    S.COVERAGE,
+    "the 'spend 14d <amount>' suffix",
+  ),
+  "MetaAssignedAccountStateSummary.latestDecisionAsOf": R(
+    S.COVERAGE,
+    "inside the chip's title/policy line (server-composed sentence)",
+  ),
+  "MetaAssignedAccountStateSummary.latestDecisionRows": R(
+    S.COVERAGE,
+    "the '<n> produced decisions unserved' suffix on deselected chips",
+  ),
+  "MetaAssignedAccountStateSummary.policy": R(
+    S.COVERAGE,
+    "each chip's title attribute (hover) — the operator policy sentence",
+  ),
   "MetaDecisionsWorkspacePayload.readState": N(
     "Not rendered BY THIS BODY, and deliberately so: the Decision Center forwards the §9 envelope to the surface-state region the canonical page mounts beside it (components/meta/meta-surface-state-live.tsx), which prints the state, the operator sentence and the failure code. Rendering it here as well would put two statements about the same read on one screen, and the body would then need its own opinion about which is current.",
   ),
@@ -397,6 +445,178 @@ const COVERAGE: Record<string, Coverage> = {
   "MetaDecisionsWorkspacePayload.queue.actionStates.missingActionKind": N(
     "A tally of action KINDS inside Action Now; every row already states its own served action label, and a per-kind total the operator cannot click adds no decision. It would belong in the source panel's coverage group.",
   ),
+  // The server-owned commercial spend-unit anchor. Every leaf is copied into
+  // the source-provenance panel's "Commercial anchor" group by
+  // meta-decision-center-exact-adapter.commercialAnchorFacts; the client
+  // derives none of it.
+  "MetaCommercialAnchorPanel.contractVersion": N(
+    "The panel's own contract version. The screen prints the anchor, not the version of the envelope that carried it; the version exists so a stale client can refuse the payload, which is not a rendering job.",
+  ),
+  "MetaCommercialAnchorPanel.status": R(
+    S.PROVENANCE,
+    "the Commercial anchor group's first row, and the tone that marks it as withholding",
+  "anchor-status",
+  ),
+  "MetaCommercialAnchorPanel.currency": R(
+    S.PROVENANCE,
+    "the currency every anchor money value in the group is formatted in; never defaulted to USD",
+  "anchor-currency",
+  ),
+  "MetaCommercialAnchorPanel.withheld.profileHardActionEvidence": R(
+    S.PROVENANCE,
+    "the Withheld · profile hard-action evidence count. Deliberately generic: the persisted `profile_hard_action_ineligible` family also covers scale calibration, so naming a commercial-threshold cause here would assert a sub-cause the row does not record",
+    "anchor-withheld-profile-evidence",
+  ),
+  "MetaCommercialAnchorPanel.withheld.campaignContext": R(
+    S.PROVENANCE,
+    "the Withheld · campaign role unresolved count, which separates the independent gate from the anchor",
+  "anchor-withheld-campaign-context",
+  ),
+  "MetaCommercialAnchorPanel.withheld.recentRecoveryUnverifiable": R(
+    S.PROVENANCE,
+    "the Withheld · recovery unverifiable count",
+  "anchor-withheld-recovery",
+  ),
+  "MetaCommercialAnchorPanel.withheld.total": N(
+    "The sum of the four withholding counts, three of which are already rows in the same group. A total the operator can add up from the rows above it invites a reader to look for the difference.",
+  ),
+  "MetaCommercialAnchorPanel.withheld.other": N(
+    "A catch-all for an authority blocker this contract does not name. It is zero for every blocker the engine currently emits; a row that is always zero teaches an operator to ignore the group.",
+  ),
+  // The canonical commercial-anchor explanation, copied verbatim from
+  // AccountDecisionProfile.hardActionEligibility and rendered by
+  // meta-decision-center-exact-adapter.commercialAnchorFacts. The client
+  // derives none of it.
+  "MetaCommercialAnchorPanel.unavailableReason": R(
+    S.PROVENANCE,
+    "the 'Unavailable because' row, shown when the canonical profile could not be served",
+    "anchor-unavailable-reason",
+  ),
+  "CommercialAnchorExplanation.contractVersion": N(
+    "The explanation's own contract version. The screen prints the anchor, not the version of the envelope that carried it; the version exists so a stale client can refuse the payload.",
+  ),
+  "CommercialAnchorExplanation.status": R(
+    S.PROVENANCE,
+    "the Commercial anchor row: the engine's own resolved status",
+    "anchor-status",
+  ),
+  "CommercialAnchorExplanation.thresholdEligible": R(
+    S.PROVENANCE,
+    "the tone of the Commercial anchor row: warning while the threshold gate is unsatisfied",
+    "anchor-status",
+  ),
+  "CommercialAnchorExplanation.spendUnit": R(
+    S.PROVENANCE,
+    "the resolved hard-action spend unit, formatted in the business currency",
+    "anchor-spend-unit",
+  ),
+  "CommercialAnchorExplanation.spendUnitSource": R(
+    S.PROVENANCE,
+    "the Spend unit source row — the engine's actual rung, including meta_derived_aov and account_history",
+    "anchor-source",
+  ),
+  "CommercialAnchorExplanation.spendUnitConfidence": R(
+    S.PROVENANCE,
+    "the Spend unit confidence row, warning-toned below medium",
+    "anchor-confidence",
+  ),
+  "CommercialAnchorExplanation.currency": N(
+    "The explanation's own currency slot. The panel attaches the business/account currency it knows and the adapter renders that one; printing two currency facts for one screen would be ambiguous.",
+  ),
+  "CommercialAnchorExplanation.targetPackFreshness": R(
+    S.PROVENANCE,
+    "the Target provenance row, warning-toned when the timestamp is unverifiable",
+    "anchor-freshness",
+  ),
+  "CommercialAnchorExplanation.targetPackUpdatedAt": R(
+    S.PROVENANCE,
+    "the timestamp appended to the Target provenance row",
+    "anchor-freshness",
+  ),
+  "CommercialAnchorExplanation.metaAovQuality": R(
+    S.PROVENANCE,
+    "the sample-quality suffix on the Sampled Meta AOV row",
+    "anchor-meta-aov",
+  ),
+  "CommercialAnchorExplanation.missingInputs": R(
+    S.PROVENANCE,
+    "the Missing inputs row, which is the actionable half of the panel",
+    "anchor-missing-inputs",
+  ),
+  "CommercialAnchorLineage.targetCpa": R(
+    S.PROVENANCE,
+    "the Target CPA lineage row",
+    "anchor-target-cpa",
+  ),
+  "CommercialAnchorLineage.operatorAovAssumption": R(
+    S.PROVENANCE,
+    "the AOV assumption lineage row",
+    "anchor-aov",
+  ),
+  "CommercialAnchorLineage.targetRoas": R(
+    S.PROVENANCE,
+    "the Target ROAS lineage row",
+    "anchor-target-roas",
+  ),
+  "CommercialAnchorLineage.breakEvenRoas": R(
+    S.PROVENANCE,
+    "the Break-even ROAS lineage row",
+    "anchor-break-even-roas",
+  ),
+  "CommercialAnchorLineage.metaAttributedAovMean90d": R(
+    S.PROVENANCE,
+    "the Sampled Meta AOV row's amount",
+    "anchor-meta-aov",
+  ),
+  "CommercialAnchorLineage.metaAttributedAovPurchaseCount90d": R(
+    S.PROVENANCE,
+    "the purchase count behind the Sampled Meta AOV row",
+    "anchor-meta-aov",
+  ),
+  "CommercialAnchorLineage.attributionAovAdjustmentMultiplier": R(
+    S.PROVENANCE,
+    "the Attribution AOV adjustment row, which scales the Meta-derived spend unit",
+    "anchor-attribution-adjustment",
+  ),
+  "CommercialAnchorLineage.accountCpaP50": R(
+    S.PROVENANCE,
+    "the Account CPA p50 row, labelled as history and explicitly not an operator target",
+    "anchor-account-cpa-p50",
+  ),
+  "CommercialAnchorLineage.accountCpaSampleCount": R(
+    S.PROVENANCE,
+    "the sample size printed beside the account CPA p50",
+    "anchor-account-cpa-p50",
+  ),
+  "CommercialAnchorActionExplanation.eligible": N(
+    "The canonical anchor's own per-action verdict. The screen shows the profile's EFFECTIVE verdict (MetaCommercialAnchorActionRow.eligible), which the Cut-only stop-loss overlay can widen; showing both would contradict itself on one row.",
+  ),
+  "CommercialAnchorActionExplanation.blockerCode": N(
+    "Same reason as the sibling `eligible`: the effective code on the action row is the one the surface renders.",
+  ),
+  "CommercialAnchorActionExplanation.operatorCopy": N(
+    "The canonical anchor's own copy. The surface renders the EFFECTIVE row's copy (MetaCommercialAnchorActionRow.operatorCopy), which the projection sources from here for a withheld action; rendering both would print the same sentence twice.",
+  ),
+  "MetaCommercialAnchorActionRow.action": R(
+    S.PROVENANCE,
+    "the Scale / Cut / Refresh row label",
+    "anchor-action-scale",
+  ),
+  "MetaCommercialAnchorActionRow.eligible": R(
+    S.PROVENANCE,
+    "whether that action reads 'eligible' or 'withheld'",
+    "anchor-action-scale",
+  ),
+  "MetaCommercialAnchorActionRow.blockerCode": R(
+    S.PROVENANCE,
+    "the stable code printed beside the verdict on the action row",
+    "anchor-action-scale",
+  ),
+  "MetaCommercialAnchorActionRow.operatorCopy": R(
+    S.PROVENANCE,
+    "the action's own next-step row",
+    "anchor-action-scale-copy",
+  ),
   "MetaDecisionsWorkspacePayload.system.trackingBlocked": R(
     S.BANNERS,
     "the server-authoritative tracking safety gate used by the desktop and mobile warning surfaces",
@@ -422,6 +642,208 @@ const COVERAGE: Record<string, Coverage> = {
   "MetaDecisionsWorkspacePayload.system.killSwitchReason": R(
     S.BANNERS,
     "the kill-switch banner's detail, and the mobile viewer-authority panel",
+  ),
+  "MetaDecisionsWorkspacePayload.system.governanceVerified": N(
+    "The workspace route already converts this server fact into the blocking execution-governance banner and row-level executionReadiness. Rendering the raw boolean beside those conclusions would duplicate the same gate without adding an operator action.",
+  ),
+  "MetaDecisionsWorkspacePayload.system.businessControlsConfigured": N(
+    "The workspace route already converts this server fact into the blocking execution-governance banner and row-level executionReadiness. Rendering the raw boolean beside those conclusions would duplicate the same gate without adding an operator action.",
+  ),
+  "MetaDecisionsWorkspacePayload.system.executionGovernanceState": N(
+    "The server-authored banner and each exact row's executionReadiness are the operator-facing projections of this summary enum; a third rendering would give one gate two competing labels.",
+  ),
+  "MetaDecisionsWorkspacePayload.system.executionGovernanceReason": N(
+    "The server-authored execution-governance banner already states this reason in actionable prose; the raw code remains a response diagnostic rather than a second banner line.",
+  ),
+  "MetaDecisionPipelineOperationalHealth.contractVersion": W(
+    S.PROVENANCE,
+    "the pipeline contract row on both source-provenance scopes",
+    "pipeline-contract",
+  ),
+  "MetaDecisionPipelineOperationalHealth.evaluatedAt": W(
+    S.PROVENANCE,
+    "the pipeline evaluation timestamp row",
+    "pipeline-evaluated",
+  ),
+  "MetaDecisionPipelineOperationalHealth.overall": W(
+    S.PROVENANCE,
+    "the decision-pipeline health row and provenance tone",
+    "pipeline-health",
+  ),
+  "MetaDecisionPipelineOperationalHealth.executionReady": W(
+    S.PROVENANCE,
+    "the explicit pipeline execution-readiness row",
+    "pipeline-execution-ready",
+  ),
+  "MetaDecisionPipelineOperationalHealth.blockers": W(
+    S.PROVENANCE,
+    "the complete server blocker-code row",
+    "pipeline-blockers",
+  ),
+  "MetaDecisionPipelineOperationalHealth.syncActivity.status": W(
+    S.PROVENANCE,
+    "the durable sync-activity status row",
+    "pipeline-sync-status",
+  ),
+  "MetaDecisionPipelineOperationalHealth.syncActivity.latestAt": W(
+    S.PROVENANCE,
+    "the latest successful scoped sync timestamp row",
+    "pipeline-sync-latest",
+  ),
+  "MetaDecisionPipelineOperationalHealth.syncActivity.ageMinutes": W(
+    S.PROVENANCE,
+    "the successful sync age row",
+    "pipeline-sync-age",
+  ),
+  "MetaDecisionPipelineOperationalHealth.syncActivity.maxAgeMinutes": W(
+    S.PROVENANCE,
+    "the sync-age ceiling row",
+    "pipeline-sync-limit",
+  ),
+  "MetaDecisionPipelineOperationalHealth.syncActivity.latestJobStatus": W(
+    S.PROVENANCE,
+    "the latest durable sync job status row",
+    "pipeline-sync-job-status",
+  ),
+  "MetaDecisionPipelineOperationalHealth.syncActivity.latestRunStatus": W(
+    S.PROVENANCE,
+    "the latest durable sync run status row",
+    "pipeline-sync-run-status",
+  ),
+  "MetaDecisionPipelineOperationalHealth.syncActivity.reason": W(
+    S.PROVENANCE,
+    "the sync-dimension reason row",
+    "pipeline-sync-reason",
+  ),
+  "MetaDecisionPipelineOperationalHealth.warehouse.status": W(
+    S.PROVENANCE,
+    "the finalized warehouse cutoff status row",
+    "pipeline-warehouse-status",
+  ),
+  "MetaDecisionPipelineOperationalHealth.warehouse.latestFinalizedDate": W(
+    S.PROVENANCE,
+    "the latest finalized and validated Ad-day row",
+    "pipeline-warehouse-latest",
+  ),
+  "MetaDecisionPipelineOperationalHealth.warehouse.expectedFinalizedDate": W(
+    S.PROVENANCE,
+    "the account-timezone-derived expected cutoff row",
+    "pipeline-warehouse-expected",
+  ),
+  "MetaDecisionPipelineOperationalHealth.warehouse.lagDays": W(
+    S.PROVENANCE,
+    "the warehouse lag row",
+    "pipeline-warehouse-lag",
+  ),
+  "MetaDecisionPipelineOperationalHealth.warehouse.accountTimeZone": W(
+    S.PROVENANCE,
+    "the provider account timezone used for cutoff evaluation",
+    "pipeline-account-timezone",
+  ),
+  "MetaDecisionPipelineOperationalHealth.warehouse.reason": W(
+    S.PROVENANCE,
+    "the warehouse-dimension reason row",
+    "pipeline-warehouse-reason",
+  ),
+  "MetaDecisionPipelineOperationalHealth.admission.status": W(
+    S.PROVENANCE,
+    "the live sync-admission status row",
+    "pipeline-admission-status",
+  ),
+  "MetaDecisionPipelineOperationalHealth.admission.allowed": W(
+    S.PROVENANCE,
+    "the explicit live admission verdict row",
+    "pipeline-admission-allowed",
+  ),
+  "MetaDecisionPipelineOperationalHealth.admission.reason": W(
+    S.PROVENANCE,
+    "the live growth-fence reason row",
+    "pipeline-admission-reason",
+  ),
+  "MetaDecisionPipelineOperationalHealth.admission.evaluatedAt": W(
+    S.PROVENANCE,
+    "the admission evaluation timestamp row",
+    "pipeline-admission-evaluated",
+  ),
+  "MetaDecisionPipelineOperationalHealth.admission.offender.table": W(
+    S.PROVENANCE,
+    "the physical-growth offender table row",
+    "pipeline-admission-table",
+  ),
+  "MetaDecisionPipelineOperationalHealth.admission.offender.bytes": W(
+    S.PROVENANCE,
+    "the offender's exact physical byte-size row",
+    "pipeline-admission-bytes",
+  ),
+  "MetaDecisionPipelineOperationalHealth.admission.offender.budget": W(
+    S.PROVENANCE,
+    "the offender's exact byte-budget row",
+    "pipeline-admission-budget",
+  ),
+  "MetaDecisionPipelineOperationalHealth.admission.offender.overByBytes": W(
+    S.PROVENANCE,
+    "the exact over-budget byte count row",
+    "pipeline-admission-over",
+  ),
+  "MetaDecisionPipelineHealth.decisionGeneration.status": W(
+    S.PROVENANCE,
+    "the exact decision-generation clock status row",
+    "pipeline-generation-status",
+  ),
+  "MetaDecisionPipelineHealth.decisionGeneration.computedAt": W(
+    S.PROVENANCE,
+    "the exact generation computed-at row",
+    "pipeline-generation-computed",
+  ),
+  "MetaDecisionPipelineHealth.decisionGeneration.ageHours": W(
+    S.PROVENANCE,
+    "the exact generation age row",
+    "pipeline-generation-age",
+  ),
+  "MetaDecisionPipelineHealth.decisionGeneration.maxAgeHours": W(
+    S.PROVENANCE,
+    "the shared exact-decision age ceiling row",
+    "pipeline-generation-limit",
+  ),
+  "MetaDecisionPipelineHealth.decisionGeneration.engineVersion": W(
+    S.PROVENANCE,
+    "the generation engine row",
+    "pipeline-generation-engine",
+  ),
+  "MetaDecisionPipelineHealth.decisionGeneration.reason": W(
+    S.PROVENANCE,
+    "the generation-dimension reason row",
+    "pipeline-generation-reason",
+  ),
+  "MetaDecisionPipelineHealth.manifest.status": W(
+    S.PROVENANCE,
+    "the exact native manifest status row",
+    "pipeline-manifest-status",
+  ),
+  "MetaDecisionPipelineHealth.manifest.authority": W(
+    S.PROVENANCE,
+    "the manifest authority row",
+    "pipeline-manifest-authority",
+  ),
+  "MetaDecisionPipelineHealth.manifest.jobRunId": W(
+    S.PROVENANCE,
+    "the manifest job-run lineage row",
+    "pipeline-manifest-job",
+  ),
+  "MetaDecisionPipelineHealth.manifest.manifestHash": W(
+    S.PROVENANCE,
+    "the manifest identity hash row",
+    "pipeline-manifest-hash",
+  ),
+  "MetaDecisionPipelineHealth.manifest.expectedAdCount": W(
+    S.PROVENANCE,
+    "the manifest's expected exact-Ad population row",
+    "pipeline-manifest-expected",
+  ),
+  "MetaDecisionPipelineHealth.manifest.reason": W(
+    S.PROVENANCE,
+    "the manifest validation reason row",
+    "pipeline-manifest-reason",
   ),
   "MetaPulsePayload.businessId": N(
     "The pulse echoes the business it was computed for; the shell names the account once.",
@@ -624,8 +1046,9 @@ const COVERAGE: Record<string, Coverage> = {
   "MetaSnapshotHealth.lastRunAt": N(
     "The header states the snapshot's computed-at from the read model, which is the same run.",
   ),
-  "MetaSnapshotHealth.engineVersion": N(
-    "The freshness tile states the status word the version comparison produces, and the header states the engine that actually ran.",
+  "MetaSnapshotHealth.engineVersion": W(
+    S.KPI,
+    "the Recommendation snapshot tile's explicitly labelled recommendation-engine detail",
   ),
   "MetaSnapshotHealth.currentEngineVersion": N(
     "The freshness tile states the status word the version comparison produces, and the header states the engine that actually ran.",
@@ -1047,19 +1470,19 @@ const COVERAGE: Record<string, Coverage> = {
     S.PROVENANCE,
     "the Limitations group in both scopes, the creatives notice, and the mobile posture panel",
   ),
-  "MetaLabelCoverage.activeCampaigns": R(
+  "MetaCampaignRoleCoverage.activeCampaigns": R(
     S.KPI,
-    "the labels tile's denominator and its percentage",
+    "the automatic campaign-role tile's denominator and its percentage",
   ),
-  "MetaLabelCoverage.labeledCampaigns": R(
+  "MetaCampaignRoleCoverage.classifiedCampaigns": R(
     S.KPI,
-    "the labels tile's numerator and its percentage",
+    "the automatic campaign-role tile's numerator and its percentage",
   ),
-  "MetaLabelCoverage.unlabeledCampaigns": N(
-    "The tile states labelled over active; unlabelled is the remainder of that same pair and can be read off it.",
+  "MetaCampaignRoleCoverage.unresolvedCampaigns": N(
+    "The tile states classified over active; unresolved is the remainder of that same pair and can be read off it.",
   ),
-  "MetaLabelCoverage.latestUpdatedAt": N(
-    "When the labelling last changed is coverage freshness; the tile states the coverage itself, which is what gates campaign context.",
+  "MetaCampaignRoleCoverage.latestUpdatedAt": N(
+    "When automatic role inference last changed is coverage freshness; the tile states the coverage itself, which is what gates campaign context.",
   ),
   "MetaTargetAnchor.configured": N(
     "The ROAS tile states the effective target and its freshness from pulse.roas, which is the number the engine decides against; the anchor's configured and break-even pairs are the Commercial Truth surface's subject.",
@@ -1378,8 +1801,10 @@ const COVERAGE: Record<string, Coverage> = {
     S.EVIDENCE,
     "the window's as-of date",
   ),
-  "MetaCanonicalDecision.sourceDecision.computedAt": N(
-    "The queue's own source.computedAt is printed in the diagnostics and in the header; the per-decision copy is the same run.",
+  "MetaCanonicalDecision.sourceDecision.computedAt": W(
+    S.EVIDENCE,
+    "the audit block's exact decision computed-at row, kept separate from recommendation snapshot and sync clocks",
+    "exact-decision-computed-at",
   ),
   "MetaCanonicalDecision.sourceDecision.badges": N(
     "Free-form engine badges with no served label or ordering; the blockers, the resolution and the authority provenance already state the facts a badge abbreviates, in words the operator can act on.",
@@ -1615,6 +2040,52 @@ const COVERAGE: Record<string, Coverage> = {
     "the 'served campaign role' line and its tone",
     "served-campaign-role",
   ),
+  /*
+   * D074/D076: the resolver's own explanation for the campaign's automatically
+   * inferred role, printed verbatim on its own rows so it can never be read as
+   * the provisional display role above it. A null kind prints as unresolved
+   * with the server's own reason beside it — never as a fallback kind.
+   */
+  "MetaOsCampaignRoleExplanation.kind": W(
+    S.EVIDENCE,
+    "the 'Automatically inferred role' row — the resolver's own published kind, or 'unresolved' when it published none",
+    "served-role-inference",
+  ),
+  "MetaOsCampaignRoleExplanation.confidenceClass": W(
+    S.EVIDENCE,
+    "the 'Automatically inferred role' row, beside the kind",
+    "served-role-inference",
+  ),
+  "MetaOsCampaignRoleExplanation.confidenceScore": W(
+    S.EVIDENCE,
+    "the 'Automatically inferred role' row: a measured zero prints score 0.00, a null score prints no score at all",
+    "served-role-inference",
+  ),
+  "MetaOsCampaignRoleExplanation.evidence": W(
+    S.EVIDENCE,
+    "the 'Why' row — the resolver's evidence sentences, joined verbatim",
+    "served-role-evidence",
+  ),
+  "MetaOsCampaignRoleExplanation.conflictReasons": W(
+    S.EVIDENCE,
+    "the 'Conflicting signals' row and its tone",
+    "served-role-conflicts",
+  ),
+  "MetaOsCampaignRoleExplanation.unresolvedReason": W(
+    S.EVIDENCE,
+    "the 'Unresolved' row — the server's own reason, humanised; an em dash when a kind is published",
+    "served-role-status",
+  ),
+  "MetaOsCampaignRoleExplanation.lastEvaluatedAt": W(
+    S.EVIDENCE,
+    "the 'Last evaluated' row",
+    "served-role-evaluated",
+  ),
+  "MetaOsCampaignRoleExplanation.resolverVersion": W(
+    S.EVIDENCE,
+    "the 'Last evaluated' row, beside the evaluation time",
+    "served-role-evaluated",
+  ),
   "MetaOsAdDecision.lane": R(
     S.CREATIVES,
     "the group a row is filed under, its state chip and the blocked row's edge tone",
@@ -1793,7 +2264,7 @@ const COVERAGE: Record<string, Coverage> = {
   ),
   "MetaDecisionSourceAuthority.actionEligible": R(
     S.EVIDENCE,
-    "the audit block's 'Action eligible', which is never inferred from the served action label",
+    "the audit block's 'Decision-authorized', which is never inferred from the served action label or confused with current execution readiness",
     "action-eligibility",
   ),
   "MetaDecisionSourceAuthority.reviewOnlyReason": R(
@@ -1844,6 +2315,29 @@ const COVERAGE: Record<string, Coverage> = {
     S.EVIDENCE,
     "the diagnostics' job run id",
     "job-run-id",
+  ),
+  "MetaDecisionSourceAuthority.executionReadiness": W(
+    S.EVIDENCE,
+    "the audit block's server-owned execution-readiness row",
+    "execution-readiness",
+  ),
+  "MetaDecisionSourceAuthority.decisionFreshness.status": W(
+    S.EVIDENCE,
+    "the audit block's exact-decision freshness status",
+    "exact-decision-freshness",
+  ),
+  "MetaDecisionSourceAuthority.decisionFreshness.ageHours": W(
+    S.EVIDENCE,
+    "the audit block's exact-decision age, distinct from recommendation snapshot age",
+    "exact-decision-freshness",
+  ),
+  "MetaDecisionSourceAuthority.decisionFreshness.maxAgeHours": W(
+    S.EVIDENCE,
+    "the audit block's exact-decision execution-age ceiling",
+    "exact-decision-freshness",
+  ),
+  "MetaDecisionSourceAuthority.decisionFreshness.computedAt": N(
+    "The exact decision computed-at row renders sourceDecision.computedAt, the canonical decision timestamp. Repeating the identical timestamp nested inside the derived freshness receipt would imply a second clock.",
   ),
   "MetaDecisionProvenance.source": R(
     S.EVIDENCE,
@@ -2136,26 +2630,39 @@ const COVERAGE: Record<string, Coverage> = {
   "MetaOsDecisionUrgency.reason": N(
     "Urgency's reason and the node's why-now are the same question answered twice; the row prints why-now.",
   ),
-  "MetaOsDecisionAction.code": R(
+  /*
+    PRE-DEPLOY AUDIT: `MetaOsDecisionAction` became a UNION when D081 added the
+    budget branch, so the walk now emits these leaves under the base interface
+    they are declared on. The classifications below are the established ones,
+    moved to the keys the walk produces — not new judgements.
+  */
+  "MetaOsLegacyDecisionAction.budgetIntent": N(
+    "Typed `never`: the legacy branch cannot carry a budget payload, and the type says so at compile time. There is no value to render — a field that cannot exist is not information withheld from the operator.",
+  ),
+  "MetaOsDecisionActionBase.code": R(
     S.EVIDENCE,
     "the 'Served action' row, as 'code · intent · targetLevel'; the queue's own button prints the LABEL and never the code, and the served tuple travels to onStructurePrimary by reference",
     "served-action",
   ),
-  "MetaOsDecisionAction.label": R(
+  "MetaOsDecisionActionBase.label": R(
     S.ACTION,
     "the row's action button, the creative row's decision label, and the inspector's server verdict",
   ),
-  "MetaOsDecisionAction.intent": R(S.ACTION, "the action button's tone"),
-  "MetaOsDecisionAction.targetLevel": R(
+  "MetaOsDecisionActionBase.intent": R(
+    S.EVIDENCE,
+    "the second part of the 'Served action' row, beside the code and the target level; the queue's button carries the action's TONE, which the provider mutation decides",
+    "served-action",
+  ),
+  "MetaOsDecisionActionBase.targetLevel": R(
     S.EVIDENCE,
     "the third part of the 'Served action' row; the queue's row states the grain in words instead, and the tuple carries the level to the callback boundary unchanged",
     "served-action",
   ),
-  "MetaOsDecisionAction.providerMutation": R(
+  "MetaOsDecisionActionBase.providerMutation": R(
     S.ACTION,
     "the action button's tone: a pause reads negative and a resume positive",
   ),
-  "MetaOsDecisionAction.scopeNote": R(
+  "MetaOsDecisionActionBase.scopeNote": R(
     S.CREATIVES,
     "the creative row's money sub-line, and the inspector's contract detail",
   ),
@@ -2329,6 +2836,448 @@ const COVERAGE: Record<string, Coverage> = {
   "MetaOsStructureBidConfiguration.budgetUtilization": N(
     "A ratio of spend to a budget this surface refuses to print; a percentage whose denominator is not on screen cannot be checked by the reader.",
   ),
+
+  /*
+    ══ PRE-DEPLOY AUDIT — the budget evidence and dry-run branches ══════════
+
+    `system.budgetEvidence` and `system.budgetDryRun` are served by
+    `app/api/meta/decisions-workspace/route.ts` and rendered by
+    `components/meta/decision-center/BudgetDecisionEvidencePanel.tsx` and
+    `BudgetDryRunPanel.tsx`, mounted on the desktop provenance panel and again
+    on the mobile stage. Their interfaces were declared in files the walk did
+    not open, so the probe threw at import and this whole matrix — the thing
+    that proves every served field reaches a surface — could not run at all.
+
+    Each leaf below is classified from the component that renders it, by its
+    `data-el` marker, not from the field name.
+  */
+
+  // ── the directional wrapper ──────────────────────────────────────────────
+  "MetaBudgetDecisionEvidenceByDirection.contractVersion": N(
+    "A contract discriminator the panel branches on; the operator reads the evidence, not the schema version that carried it.",
+  ),
+  "MetaBudgetDecisionEvidenceByDirection.directionSelected": W(
+    S.MOBILE,
+    "the wrapper's selected-direction attribute, always `none` on an account panel",
+  ),
+  "MetaBudgetDecisionEvidenceByDirection.directionSelectedWhy": W(
+    S.MOBILE,
+    "the sentence explaining why no direction is selected on an account-scoped panel",
+  ),
+  /*
+    PRE-DEPLOY AUDIT — reclassified W -> N against the running code. The first
+    draft claimed this sentence was printed beside `directionSelectedWhy`; a
+    grep across app/, components/, lib/ and scripts/ finds the route producing
+    it and NO component reading it. It is not withheld information either:
+    each DirectionPanel prints the profile action it consulted from
+    `directionToAction.increase` / `.decrease` at `direction-action`, so the
+    mapping is on screen per direction rather than restated once in prose.
+  */
+  "MetaBudgetDecisionEvidenceByDirection.directionToActionWhy": N(
+    "A single prose gloss on the direction-to-action mapping. Each direction panel already prints the action it consulted, which states the same mapping where the reader is looking.",
+  ),
+  "MetaBudgetDecisionEvidenceByDirection.directionToAction.increase": W(
+    S.MOBILE,
+    "the increase panel's action attribute — the server's own direction-to-action mapping",
+  ),
+  "MetaBudgetDecisionEvidenceByDirection.directionToAction.decrease": W(
+    S.MOBILE,
+    "the decrease panel's action attribute — the server's own direction-to-action mapping",
+  ),
+
+  // ── one direction's panel ────────────────────────────────────────────────
+  "MetaBudgetDecisionEvidencePanel.contractVersion": N(
+    "The panel's own schema version. The surface prints the PROFILE contract it consulted, which is the one an operator can reconcile.",
+  ),
+  "MetaBudgetDecisionEvidencePanel.status": W(
+    S.MOBILE,
+    "the direction group's status attribute, which selects the resolved or unavailable body",
+  ),
+  "MetaBudgetDecisionEvidencePanel.unavailableReason": W(
+    S.MOBILE,
+    "the reason line shown when the direction's evidence could not be resolved",
+  ),
+  "MetaBudgetDecisionEvidencePanel.authority": W(
+    S.MOBILE,
+    "the authority line — validated for review only, or blocked",
+  ),
+  "MetaBudgetDecisionEvidencePanel.primaryBlocker.code": W(
+    S.MOBILE,
+    "the first blocker's canonical code",
+  ),
+  "MetaBudgetDecisionEvidencePanel.primaryBlocker.reason": W(
+    S.MOBILE,
+    "the first blocker's operator sentence, beside its code",
+  ),
+
+  // ── the commercial lineage this direction consulted ──────────────────────
+  "MetaBudgetDecisionEvidencePanel.commercialLineage.selectedAction": W(
+    S.MOBILE,
+    "the availability line's action attribute — which profile action this direction read",
+  ),
+  "MetaBudgetDecisionEvidencePanel.commercialLineage.eligible": W(
+    S.MOBILE,
+    "the canonical eligibility line, which prints `unknown` rather than false when the profile did not say",
+  ),
+  "MetaBudgetDecisionEvidencePanel.commercialLineage.code": W(
+    S.MOBILE,
+    "the canonical code line, which prints `none` when the profile published no code",
+  ),
+  "MetaBudgetDecisionEvidencePanel.commercialLineage.reason": W(
+    S.MOBILE,
+    "the unresolved-availability sentence, printed when the gates could not be resolved",
+  ),
+  "MetaBudgetDecisionEvidencePanel.commercialLineage.contractVersion": W(
+    S.MOBILE,
+    "the profile-contract line, printed beside the expected and observed contracts",
+  ),
+  "MetaBudgetDecisionEvidencePanel.commercialLineage.availability.status": W(
+    S.MOBILE,
+    "the source status printed on the contract line and carried as the availability attribute",
+  ),
+  "MetaBudgetDecisionEvidencePanel.commercialLineage.anchorExplanation": W(
+    S.MOBILE,
+    "the canonical anchor explanation block, rendered verbatim and never re-derived",
+  ),
+
+  // ── execution readiness, and the control it does not enable ──────────────
+  "MetaBudgetDecisionEvidencePanel.executionReadiness.state": W(
+    S.MOBILE,
+    "the readiness attribute on the execution line — `not_executable` in this slice",
+  ),
+  "MetaBudgetDecisionEvidencePanel.executionReadiness.ctaEnabled": W(
+    S.MOBILE,
+    "the CTA-enabled attribute on the execution line, which the disabled button restates",
+  ),
+  "MetaBudgetDecisionEvidencePanel.executionReadiness.why": W(
+    S.MOBILE,
+    "the sentence saying why this direction is not executable",
+  ),
+
+  // ── the counterfactual, which is never authority ─────────────────────────
+  "MetaBudgetDecisionEvidencePanel.counterfactual.label": N(
+    "Set only by an explicitly labelled counterfactual scenario, which the served account panel never carries; the offline replay owns it. Rendering a hypothetical beside measured evidence is exactly the confusion the panel exists to prevent.",
+  ),
+  "MetaBudgetDecisionEvidencePanel.counterfactual.neverActionAuthority": N(
+    "A constant `true` restating that a counterfactual grants no authority. It qualifies a label this surface does not print.",
+  ),
+
+  // ── one gate section within a direction ──────────────────────────────────
+  "EvidencePanelSection.section": W(
+    S.MOBILE,
+    "the section list item's key attribute, and the title it selects",
+  ),
+  "EvidencePanelSection.clear": W(
+    S.MOBILE,
+    "the section's clear attribute, and the ` · clear` marker it selects",
+  ),
+  "EvidencePanelSection.blockerCodes": W(
+    S.MOBILE,
+    "one list item per blocker code, each carrying the code as an attribute",
+  ),
+  "EvidencePanelSection.reasons": W(
+    S.MOBILE,
+    "the operator sentence printed inside each blocker list item, positionally paired with its code",
+  ),
+
+  // ── the D085 dry-run panel ───────────────────────────────────────────────
+  "DryRunPanelFact.label": W(
+    S.MOBILE,
+    "the label half of every observed, proposed and simulated fact row",
+  ),
+  "DryRunPanelFact.value": W(
+    S.MOBILE,
+    "the value half of every observed, proposed and simulated fact row",
+  ),
+
+  // ── the D085 dry-run panel's own fields ──────────────────────────────────
+  /*
+    PRE-DEPLOY AUDIT — reclassified N -> W by the probe, not by intent. The
+    claim was that the surface prints the three fingerprints instead; the
+    literal search found this version string on MOBILE in every baseline,
+    because `BudgetDryRunPanel` puts it on the wrapper as `data-contract`.
+    A withholding the probe can see through is a false claim, so it is
+    recorded as what it is.
+  */
+  "MetaBudgetDryRunPanel.contractVersion": W(
+    S.MOBILE,
+    "the panel wrapper's data-contract attribute, which pins the schema the preview was built against",
+  ),
+  "MetaBudgetDryRunPanel.status": W(
+    S.MOBILE,
+    "selects the unavailable body or the full preview",
+  ),
+  "MetaBudgetDryRunPanel.unavailableReason": W(
+    S.MOBILE,
+    "the reason line shown when no dry run could be built",
+  ),
+  "MetaBudgetDryRunPanel.headline": W(
+    S.MOBILE,
+    "the panel heading",
+  ),
+  "MetaBudgetDryRunPanel.observed.title": W(
+    S.MOBILE, "the observed-state section heading",
+  ),
+  "MetaBudgetDryRunPanel.observed.note": W(
+    S.MOBILE, "the observed-state note beneath its heading",
+  ),
+  "MetaBudgetDryRunPanel.proposed.title": W(
+    S.MOBILE, "the proposed-change section heading",
+  ),
+  "MetaBudgetDryRunPanel.proposed.note": W(
+    S.MOBILE, "the proposed-change note beneath its heading",
+  ),
+  "MetaBudgetDryRunPanel.proposed.available": W(
+    S.MOBILE,
+    "the availability attribute on the proposed-change note, which distinguishes an absent proposal from a refused one",
+  ),
+  "MetaBudgetDryRunPanel.simulated.title": W(
+    S.MOBILE, "the simulated-result section heading",
+  ),
+  "MetaBudgetDryRunPanel.simulated.note": W(
+    S.MOBILE, "the simulated-result note beneath its heading",
+  ),
+  "MetaBudgetDryRunPanel.simulated.available": W(
+    S.MOBILE,
+    "the availability attribute on the simulated-result note",
+  ),
+  "MetaBudgetDryRunPanel.required.title": W(
+    S.MOBILE, "the requirements section heading",
+  ),
+  "MetaBudgetDryRunPanel.required.note": W(
+    S.MOBILE, "the requirements note, printed as the blocker line",
+  ),
+  "MetaBudgetDryRunPanel.required.writeSafetyMissing": W(
+    S.MOBILE,
+    "the §10 write-safety steps this preview reports as unmet, listed by name",
+  ),
+  "MetaBudgetDryRunPanel.required.blockers[].code": W(
+    S.MOBILE,
+    "each blocker's canonical code, carried as the attribute on its own line",
+  ),
+  "MetaBudgetDryRunPanel.required.blockers[].why": W(
+    S.MOBILE,
+    "each blocker's operator sentence, printed on that line",
+  ),
+  "MetaBudgetDryRunPanel.required.readbackRequirement": W(
+    S.MOBILE,
+    "the independent read-back a real write would still owe",
+  ),
+  "MetaBudgetDryRunPanel.execution.executionState": W(
+    S.MOBILE,
+    "the execution line's state attribute and its printed value",
+  ),
+  "MetaBudgetDryRunPanel.execution.providerWriteAttempted": W(
+    S.MOBILE,
+    "the execution line's 'provider write attempted' half — false, and printed rather than implied",
+  ),
+  "MetaBudgetDryRunPanel.execution.providerOutcome": W(
+    S.MOBILE,
+    "the execution line's provider-outcome attribute and printed value",
+  ),
+  "MetaBudgetDryRunPanel.execution.readbackClassification": W(
+    S.MOBILE,
+    "the execution line's read-back classification",
+  ),
+  "MetaBudgetDryRunPanel.execution.nextRequirement": W(
+    S.MOBILE,
+    "the 'next requirement' line — what would have to become true next",
+  ),
+  "MetaBudgetDryRunPanel.execution.ctaLabel": W(
+    S.MOBILE,
+    "the label on the permanently disabled CTA",
+  ),
+  "MetaBudgetDryRunPanel.execution.ctaEnabled": W(
+    S.MOBILE,
+    "the CTA's enabled attribute, which is false and drives its disabled state",
+  ),
+  "MetaBudgetDryRunPanel.execution.executable": N(
+    "The server's own executable flag. The surface prints `executionState`, `providerOutcome` and the disabled CTA instead: three facts an operator can check, rather than one boolean that would have to be trusted.",
+  ),
+  "MetaBudgetDryRunPanel.fingerprints.input": W(
+    S.MOBILE, "the input fingerprint on the fingerprints line",
+  ),
+  "MetaBudgetDryRunPanel.fingerprints.policy": W(
+    S.MOBILE, "the policy fingerprint on the fingerprints line",
+  ),
+  "MetaBudgetDryRunPanel.fingerprints.preflight": W(
+    S.MOBILE, "the preflight fingerprint on the fingerprints line",
+  ),
+
+  /*
+    ── the canonical decision ACTION ────────────────────────────────────────
+
+    `MetaOsDecisionAction` became a union when D081 added the budget branch, so
+    its base members surfaced in this walk for the first time. The queue prints
+    the served action LABEL and searches it; the rest of the action is decision
+    information the row does not print.
+  */
+  "MetaOsBudgetDecisionAction.intent": N(
+    "Pinned to `review` by the type. A constant that cannot vary is not information an operator can act on. @see MetaOsDecisionActionBase.intent",
+  ),
+  "MetaOsBudgetDecisionAction.targetLevel": N(
+    "Narrowed to campaign or ad set by the type. @see MetaOsDecisionActionBase.targetLevel",
+  ),
+  "MetaOsBudgetDecisionAction.providerMutation": N(
+    "Pinned to `null` by the type: a budget review action is never dispatchable. The panel states non-executability directly. @see MetaOsDecisionActionBase.providerMutation",
+  ),
+  "MetaOsDecisionsPresentation.budgetReview.count": N(
+    "How many budget review actions the presentation carries. The Decision Center renders the evidence panel per direction rather than a count, and a count with no list beside it is a number the reader cannot check.",
+  ),
+
+  /*
+    ── the LOSSLESS canonical budget intent ─────────────────────────────────
+
+    `MetaOsBudgetDecisionAction.budgetIntent` carries the complete operation a
+    budget review action was derived from: scope, amounts in provider minor
+    units, clocks, rounding, read-back and rollback plans, source digests and
+    producer provenance. It exists so a review action is losslessly replayable
+    and so nothing downstream has to re-derive it.
+
+    None of it is rendered, and that is the design rather than an omission.
+    The Decision Center prints the EVIDENCE panel — gate sections, the
+    canonical code, the first blocker, execution readiness — which is the same
+    decision stated in facts an operator can check. Printing the raw intent
+    beside it would put two vocabularies for one decision on one screen, and
+    the amounts specifically arrive in minor units with no scale in the
+    contract, which is the same hundredfold hazard the structure surface
+    already refuses.
+  */
+  "MetaOsBudgetIntentPayload.authorityEvidenceAsOf": N(
+    "The day the role authority resolved. @see MetaOsBudgetIntentPayload.effectiveAsOf",
+  ),
+  "MetaOsBudgetIntentPayload.authorityStatus": N(
+    "The validator's own authorised/rejected verdict. The panel prints the canonical eligibility and the first blocker instead, which say the same thing in the operator's vocabulary.",
+  ),
+  "MetaOsBudgetIntentPayload.blockerCodes": N(
+    "The intent validator's rejection codes. The panel prints the DECISION gate blockers per section, which are the codes this surface's own contract owns.",
+  ),
+  "MetaOsBudgetIntentPayload.budgetField": N(
+    "Daily or lifetime. Part of the proposal the account panel does not select.",
+  ),
+  "MetaOsBudgetIntentPayload.contractVersion": N(
+    "The intent schema version. The panel prints the profile contract it consulted, which is the version an operator can reconcile against retained evidence.",
+  ),
+  "MetaOsBudgetIntentPayload.createdBy.contractVersion": N(
+    "That producer's contract version. @see MetaOsBudgetIntentPayload.createdBy.module",
+  ),
+  "MetaOsBudgetIntentPayload.createdBy.module": N(
+    "The module that produced the intent. Build provenance, not account evidence.",
+  ),
+  "MetaOsBudgetIntentPayload.currency": N(
+    "The account currency of the amounts above, which this panel does not print. @see MetaOsBudgetIntentPayload.currentMinorUnits",
+  ),
+  "MetaOsBudgetIntentPayload.currencyExponent": N(
+    "The captured minor-unit exponent for that currency. It exists so the amounts can be scaled correctly by a consumer that prints them; this surface prints none.",
+  ),
+  "MetaOsBudgetIntentPayload.currencyRegistry.source": N(
+    "Where the minor-unit exponent came from. It qualifies a scale used on amounts this surface does not print.",
+  ),
+  "MetaOsBudgetIntentPayload.currencyRegistry.version": N(
+    "The version of that registry. @see MetaOsBudgetIntentPayload.currencyRegistry.source",
+  ),
+  "MetaOsBudgetIntentPayload.currentMinorUnits": N(
+    "The observed amount, in provider minor units with no scale in the contract. @see MetaOsStructureBidConfiguration.dailyBudget",
+  ),
+  "MetaOsBudgetIntentPayload.deltaMinorUnits": N(
+    "The signed change, in provider minor units. @see MetaOsStructureBidConfiguration.dailyBudget",
+  ),
+  "MetaOsBudgetIntentPayload.direction": N(
+    "Increase or decrease. The panel is laid out BY direction — two labelled groups — so the direction is the structure of the surface rather than a field inside it.",
+  ),
+  "MetaOsBudgetIntentPayload.effectiveAsOf": N(
+    "The day the owner row was true. Replay provenance, not a fact a reader of the panel can act on.",
+  ),
+  "MetaOsBudgetIntentPayload.evidenceWindow.from": N(
+    "The first day of the window the evidence spans. The page's own window pills state the window the operator selected.",
+  ),
+  "MetaOsBudgetIntentPayload.evidenceWindow.to": N(
+    "The last day of that window. @see MetaOsBudgetIntentPayload.evidenceWindow.from",
+  ),
+  "MetaOsBudgetIntentPayload.executionState": N(
+    "The intent's execution state. The dry-run panel prints its own execution state, provider outcome and read-back classification; two execution states on one screen could disagree.",
+  ),
+  "MetaOsBudgetIntentPayload.idempotencyKey": N(
+    "The durable write identity a real execution would claim. Printing it beside a non-executable review would imply a claim exists.",
+  ),
+  "MetaOsBudgetIntentPayload.intentKey": N(
+    "The canonical intent identity. It joins a review action to its replay; the surface identifies the decision by its own row, not by a second key.",
+  ),
+  "MetaOsBudgetIntentPayload.kind": N(
+    "The payload discriminator. It selects the branch; it is not a fact about the account.",
+  ),
+  "MetaOsBudgetIntentPayload.knowledgeAsOf": N(
+    "The point-in-time cutoff the facts were read as of. @see MetaOsBudgetIntentPayload.effectiveAsOf",
+  ),
+  "MetaOsBudgetIntentPayload.originDate": N(
+    "The day the intent originated. The evidence panel reports the gates as of the served decision, whose own clock the row already carries.",
+  ),
+  "MetaOsBudgetIntentPayload.ownerMode": N(
+    "Which entity owns the budget. Structural provenance for the write path; the panel states the gates, not the ownership resolution.",
+  ),
+  "MetaOsBudgetIntentPayload.percent": N(
+    "The change magnitude as a percentage. The evidence panel is account-scoped and selects no direction, so there is no single proposal whose magnitude it could print.",
+  ),
+  "MetaOsBudgetIntentPayload.proposedMinorUnits": N(
+    "The proposed amount, in provider minor units. @see MetaOsStructureBidConfiguration.dailyBudget",
+  ),
+  "MetaOsBudgetIntentPayload.readback.expectedMinorUnits": N(
+    "The value that read-back would have to observe. @see MetaOsBudgetIntentPayload.readback.field",
+  ),
+  "MetaOsBudgetIntentPayload.readback.field": N(
+    "The field an independent read-back would verify after a write. It describes a write this slice never performs; the dry-run panel states the read-back requirement in words.",
+  ),
+  "MetaOsBudgetIntentPayload.readback.independentRead": N(
+    "That the read-back must be an independent GET. @see MetaOsBudgetIntentPayload.readback.field",
+  ),
+  "MetaOsBudgetIntentPayload.rollback.field": N(
+    "The field that rollback would restore. @see MetaOsBudgetIntentPayload.rollback.operation",
+  ),
+  "MetaOsBudgetIntentPayload.rollback.operation": N(
+    "The compensating operation a landed write would need. It describes a rollback for a write that cannot happen here.",
+  ),
+  "MetaOsBudgetIntentPayload.rollback.priorMinorUnits": N(
+    "The value it would restore. @see MetaOsBudgetIntentPayload.rollback.operation",
+  ),
+  "MetaOsBudgetIntentPayload.rounding.applied": N(
+    "Whether that rounding changed the value. @see MetaOsBudgetIntentPayload.rounding.rule",
+  ),
+  "MetaOsBudgetIntentPayload.rounding.exactUnrounded": N(
+    "The pre-rounding amount. @see MetaOsBudgetIntentPayload.rounding.rule",
+  ),
+  "MetaOsBudgetIntentPayload.rounding.rule": N(
+    "How a fractional amount would be rounded to minor units. It qualifies amounts this surface does not print.",
+  ),
+  "MetaOsBudgetIntentPayload.scope.businessId": N(
+    "The workspace this intent belongs to, already the identity of the whole page.",
+  ),
+  "MetaOsBudgetIntentPayload.scope.entityGrain": N(
+    "The grain of the target entity. The panel is account-scoped and names no entity.",
+  ),
+  "MetaOsBudgetIntentPayload.scope.entityId": N(
+    "The target entity id. @see MetaOsBudgetIntentPayload.scope.entityGrain",
+  ),
+  "MetaOsBudgetIntentPayload.scope.parentCampaignId": N(
+    "The parent campaign of an ad-set target. @see MetaOsBudgetIntentPayload.scope.entityGrain",
+  ),
+  "MetaOsBudgetIntentPayload.scope.providerAccountId": N(
+    "The account, already printed in the identity header and the account inventory.",
+  ),
+  "MetaOsBudgetIntentPayload.sourceFingerprints.configStateHash": N(
+    "A digest of the subject row the intent was built from. Provenance for replay; the panel prints the contract versions a reader can reconcile.",
+  ),
+  "MetaOsBudgetIntentPayload.sourceFingerprints.ownerStateHash": N(
+    "A digest of the owner row. @see MetaOsBudgetIntentPayload.sourceFingerprints.configStateHash",
+  ),
+  "MetaOsBudgetIntentPayload.sourceFingerprints.roleAuthorityHash": N(
+    "A digest of the role resolution. @see MetaOsBudgetIntentPayload.sourceFingerprints.configStateHash",
+  ),
+  "MetaOsBudgetIntentPayload.targetSource.source": N(
+    "Which commercial target the intent read. The panel prints the profile contract and the canonical code, which is the same lineage in the vocabulary this surface uses.",
+  ),
+  "MetaOsBudgetIntentPayload.targetSource.version": N(
+    "The version of that target. @see MetaOsBudgetIntentPayload.targetSource.source",
+  ),
 };
 
 /**
@@ -2352,6 +3301,14 @@ const EXTERNAL_BOUNDARY: ReadonlySet<string> = new Set([
   // `components/meta/MetaSurfaceState`; this matrix classifies the FIELD that
   // carries it, not the contract inside it.
   "MetaResponseEnvelope",
+  /*
+    PRE-DEPLOY AUDIT: the §10 write-safety step vocabulary, reached through the
+    dry-run panel's `required.writeSafetyMissing`. It is owned by
+    `lib/meta/write-safety-contract.ts` and machine-checked against the code by
+    its own conformance test; this matrix classifies the FIELD that carries the
+    list, not the eighteen steps inside it.
+  */
+  "WriteSafetyStep",
 ]);
 
 /**
@@ -2401,9 +3358,18 @@ describe("Meta Decision payload · served-field coverage matrix", () => {
      * becoming pinned would move a claim from the strong proof to the weak one
      * with nothing said.
      */
-    expect(fields.length).toBe(545);
-    expect(new Set(fields.map((field) => field.iface)).size).toBe(45);
-    expect(fields.filter((field) => field.varies).length).toBe(521);
+    /*
+      PRE-DEPLOY AUDIT: 647 -> 756 leaves, 54 -> 63 interfaces, 620 -> 706
+      varying. The increase is the two served branches the walk could not enter
+      at all before — `system.budgetEvidence` and `system.budgetDryRun`, whose
+      contracts lived in unopened files — plus the canonical decision ACTION,
+      whose union type stopped the walk at its alias. Every new leaf was NAMED
+      by "classifies every served field" before these numbers moved, which is
+      the order the paragraph above requires.
+    */
+    expect(fields.length).toBe(756);
+    expect(new Set(fields.map((field) => field.iface)).size).toBe(62);
+    expect(fields.filter((field) => field.varies).length).toBe(706);
     expect(fields.some((field) => field.key.endsWith(".metrics.cpa"))).toBe(
       true,
     );
@@ -2588,6 +3554,7 @@ const PROBE_SURFACE: Record<string, string> = {
   [S.BANNERS]: "BANNERS",
   [S.MOBILE]: "MOBILE",
   [S.EVIDENCE]: "EVIDENCE",
+  [S.COVERAGE]: "COVERAGE",
 };
 
 /**
@@ -2825,6 +3792,46 @@ const SCENARIOS: readonly ProbeScenario[] = [
       "MetaDecisionSourceAuthority.actionEligible": false,
     },
   },
+  {
+    /*
+     * PRE-DEPLOY AUDIT — THE BUDGET PANELS' OTHER ARM.
+     *
+     * Six budget leaves reached no surface in any scenario above, and the
+     * first draft of this pass excused them in a register: "rendered only
+     * when the panel is unavailable / the section is not clear, and the
+     * fixture never builds that state". That is the empty-fixture argument
+     * this file was written to refuse — an excuse is not a measurement, and a
+     * branch nothing constructs is a branch nothing checks.
+     *
+     * So the state is constructed instead. `BudgetDecisionEvidencePanel`
+     * prints `unavailableReason` only under `status === "unavailable"`, and
+     * `section.blockerCodes` / `section.reasons` only for a section whose
+     * `clear` is false. `BudgetDryRunPanel` prints its own reason AND
+     * `required.note` on the same unavailable arm. One scenario reaches all
+     * five, and they are now proven the way every other claim here is.
+     */
+    name: "budgetUnavailable",
+    force: {
+      // Only the three GATES are pinned. The reasons themselves are left to
+      // the probe: `leafValueFor` lets a mutation win over a force, so each of
+      // them still gets its own turn under test in this very scenario.
+      "MetaBudgetDecisionEvidencePanel.status": "unavailable",
+      "MetaBudgetDryRunPanel.status": "unavailable",
+    },
+  },
+  {
+    /*
+     * PRE-DEPLOY AUDIT — and the section arm, which needs the OPPOSITE state.
+     * An unavailable evidence panel returns before it renders `sections` at
+     * all, so the not-clear branch is only reachable while the panel is
+     * resolved. Measured, not reasoned: with both gates in one scenario the
+     * two section leaves still reached nothing.
+     */
+    name: "budgetSectionBlocked",
+    force: {
+      "EvidencePanelSection.clear": false,
+    },
+  },
 ];
 
 /**
@@ -2859,23 +3866,32 @@ const PROBE_NOW = "2026-03-30T12:00:00.000Z";
  * stating rather than averaging. @see Coverage.element
  */
 const ELEMENT_PROOF_BY_SURFACE: Record<string, [number, number]> = {
-  ACTION: [0, 10],
+  // D078 R4 (correction 2): eleven surface-level claims (timezone and the
+  // authorized-rows suffix added); the panel has no keyable row ids.
+  COVERAGE: [0, 11],
+  // PRE-DEPLOY AUDIT — 10 -> 9. `MetaOsDecisionActionBase.intent` was recorded
+  // as the action button's TONE; the probe shows the tone follows
+  // `providerMutation`, and `intent` moves the 'Served action' row instead.
+  ACTION: [0, 9],
   ARCHIVE: [0, 10],
   BANNERS: [0, 25],
   CREATIVES: [0, 14],
-  EVIDENCE: [80, 22],
+  EVIDENCE: [94, 22],
   HEADER: [0, 10],
   HEALTHY: [0, 10],
   // Five more claims on this panel, none of them keyed to a stable row id:
   // the provenance band is one band, not a table of rows.
   INSPECTOR: [2, 13],
   INVENTORY: [0, 14],
-  KPI: [0, 18],
-  MOBILE: [0, 6],
+  KPI: [0, 19],
+  // PRE-DEPLOY AUDIT — 6 -> 59: the budget evidence, gate and dry-run panels
+  // render here. Element-level stays 0 by construction (see
+  // SURFACES_WITHOUT_ELEMENT_IDS), not by omission.
+  MOBILE: [0, 59],
   NONSALES: [0, 1],
   PILLS: [0, 7],
   POSTURE: [2, 0],
-  PROVENANCE: [31, 5],
+  PROVENANCE: [97, 5],
   WATCHING: [0, 4],
 };
 
@@ -2893,9 +3909,11 @@ const ELEMENT_PROOF_BY_SURFACE: Record<string, [number, number]> = {
 const DOM_PROOF_BY_SURFACE: Record<string, [number, number]> = {
   // Drawn by the desktop component in the state the page mounts in, and
   // therefore proven in rendered HTML rather than in a view model.
-  ACTION: [10, 0],
+  // PRE-DEPLOY AUDIT — 10 -> 9: `MetaOsDecisionActionBase.intent` moves the
+  // evidence window's 'Served action' row, not the queue button's tone.
+  ACTION: [9, 0],
   HEADER: [10, 0],
-  KPI: [18, 0],
+  KPI: [19, 0],
   PILLS: [7, 0],
   // Partly: the inspector's own facts render, the ones it only shows for a
   // selected creative do not; the Creatives queue and the source panel sit
@@ -2905,7 +3923,7 @@ const DOM_PROOF_BY_SURFACE: Record<string, [number, number]> = {
   // never reached a screen: the evidence window's two dates, the engine write
   // time, and the two metrics whose ABSENCE the gap line now names.
   INSPECTOR: [8, 6],
-  PROVENANCE: [13, 22],
+  PROVENANCE: [50, 50],
   WATCHING: [1, 3],
   // Behind a lane tab the default render never presses. This is the whole
   // demonstration: ARCHIVE's claims are real and none of them is in the DOM
@@ -2920,16 +3938,29 @@ const DOM_PROOF_BY_SURFACE: Record<string, [number, number]> = {
   // own right, so a zero here says "not this component" and not "not on
   // screen".
   BANNERS: [0, 25],
-  EVIDENCE: [1, 97],
+  EVIDENCE: [1, 111],
   INVENTORY: [0, 14],
-  MOBILE: [0, 6],
+  // PRE-DEPLOY AUDIT — 0 -> 40 in the DOM: the budget evidence, gate and
+  // dry-run panels are drawn by the default render, so their claims are
+  // proven in rendered HTML rather than in a view model.
+  MOBILE: [40, 6],
+  // D078 R4 (correction 2): the coverage PANEL renders every one of its
+  // eleven leaves as visible text in the resting desktop DOM — including
+  // the policy sentence and timezone that correction 1 hid or dropped.
+  COVERAGE: [11, 0],
 };
 
 /** `[in the DOM, view model only]`, over every claim whose field can vary. */
-const DOM_PROOF_TOTALS: [number, number] = [71, 207];
+// PRE-DEPLOY AUDIT — [120, 248] -> [159, 249]. The budget panels render in
+// the default markup, so 39 of their claims are proven in the DOM rather than
+// in a view model; one more sits behind a control.
+const DOM_PROOF_TOTALS: [number, number] = [159, 249];
 
 /** Claims on leaves the contract pins to one value, which cannot be varied. */
-const DOM_PROOF_PINNED_LEAVES = 6;
+// PRE-DEPLOY AUDIT — 7 -> 20. Thirteen more claims sit on leaves the budget
+// contracts pin in the TYPE (`ctaEnabled: false`, `intent: "review"`,
+// `executionState: "validated_only"`, …), which the probe cannot vary.
+const DOM_PROOF_PINNED_LEAVES = 20;
 
 /**
  * Leaves the probe varies that move NO surface, in any scenario.
@@ -2938,7 +3969,12 @@ const DOM_PROOF_PINNED_LEAVES = 6;
  * than a feeling. @see the test that reads it for what it does and does not
  * mean.
  */
-const NOWHERE_LEAVES = 243;
+// PRE-DEPLOY AUDIT — 252 -> 298. The 46 are budget contract leaves the two
+// panels do not print: the intent envelope's idempotency, rollback and
+// read-back plumbing, the gate verdict's internal codes, and the dry-run's
+// server-side executable flag. Each is classified with its own reason above;
+// this is their total.
+const NOWHERE_LEAVES = 298;
 
 /**
  * Of those, the ones that DO reach the callback boundary — the served tuple
@@ -3301,6 +4337,8 @@ function observeSurfaces(
     });
 
   const groups: Record<string, unknown> = {
+    // D078 R4: the coverage strip renders this view-model list verbatim.
+    COVERAGE: viewModel.assignedAccountStates,
     HEADER: viewModel.identity,
     KPI: viewModel.kpis,
     PILLS: { counts: viewModel.counts, window: viewModel.activeWindow },
@@ -3424,7 +4462,7 @@ const NEGATIVE_CLAIM_PINS: Record<string, { observed: string[]; why: string }> =
       observed: ["INSPECTOR", "EVIDENCE", "callback"],
       why: "the note says the queue prints no snapshot id; the queue is CREATIVES and it must stay out of this set",
     },
-    "MetaOsDecisionAction.code": {
+    "MetaOsDecisionActionBase.code": {
       observed: ["EVIDENCE", "callback"],
       why: "the note says the button prints the label and never the code; ACTION and CREATIVES must both stay out of this set",
     },
@@ -3439,9 +4477,25 @@ const NEGATIVE_CLAIM_PINS: Record<string, { observed: string[]; why: string }> =
  * list is asserted exactly, so a new unprovable claim fails here and so does an
  * entry that starts being provable.
  *
- * IT IS EMPTY, and that is a statement rather than an absence. The ten entries
- * it held were resolved by REDERIVING each one from the running code instead of
- * leaving it parked:
+ * PRE-DEPLOY AUDIT — it holds SIX entries again, and each one names the exact
+ * branch the probe cannot enter rather than a wiring gap.
+ *
+ * All six render on the panels' UNAVAILABLE or BLOCKED branch:
+ * `BudgetDecisionEvidencePanel` prints `unavailableReason` and the per-section
+ * blocker list only when the direction did not resolve, and `BudgetDryRunPanel`
+ * prints its own reason and requirement note only when the preview is
+ * unavailable. The probe changes ONE field at a time and leaves `status`
+ * alone, so its fixture always renders the resolved branch and these fields
+ * are legitimately absent from that render.
+ *
+ * They are parked here rather than reclassified because the third move is the
+ * forbidden one: calling a field the component demonstrably renders
+ * "INTENTIONALLY-NOT-RENDERED" because this probe could not reach it would
+ * launder a probe limitation into a stated product choice. They leave when the
+ * probe can drive a second fixture in the unavailable state.
+ *
+ * The ten entries it held BEFORE were resolved by REDERIVING each one from the
+ * running code instead of leaving it parked:
  *
  *   - `MetaDecisionsWorkspaceReadModel.status` and
  *     `queue.adCandidates.eligiblePreCapCount` reached no operator at all and
@@ -3533,6 +4587,34 @@ const CONTRADICTED_WITHHOLDINGS: Record<
  * is the honest answer; asserting a search that cannot fail is not.
  */
 const PINNED_BEYOND_TEXT_PROOF: Record<string, string> = {
+  // PRE-DEPLOY AUDIT — three leaves the budget contracts pin in the TYPE
+  // (`ctaEnabled: false`, `providerWriteAttempted: false`,
+  // `directionSelected: null`). They are rendered — the matrix proves the
+  // row and the surface — but the value itself has no text to search for.
+  // The withheld side of the same condition: seven leaves the budget
+  // contracts pin to a value text cannot decide.
+  "MetaBudgetDecisionEvidencePanel.counterfactual.neverActionAuthority":
+    "the pinned value is `true`, which has no text to search for",
+  "MetaBudgetDryRunPanel.execution.executable":
+    "the pinned value is `false`, which has no text to search for",
+  "MetaOsBudgetDecisionAction.intent":
+    "the literal is 'review', an ordinary word the surfaces use in their own prose",
+  "MetaOsBudgetDecisionAction.providerMutation":
+    "the pinned value is `null`, which has no text to search for",
+  "MetaOsBudgetIntentPayload.executionState":
+    "the literal is 'validated_only', shared with MetaBudgetDryRunPanel.execution.executionState, which IS rendered",
+  "MetaOsBudgetIntentPayload.readback.independentRead":
+    "the pinned value is `true`, which has no text to search for",
+  "MetaOsLegacyDecisionAction.budgetIntent":
+    "the field is typed `never`: there is no value, and so no literal, to search for",
+  "MetaBudgetDecisionEvidenceByDirection.directionSelected":
+    "the type pins the value to `null`, which has no text to search for",
+  "MetaBudgetDecisionEvidencePanel.executionReadiness.ctaEnabled":
+    "the type pins the value to `false`, which has no text to search for",
+  "MetaBudgetDryRunPanel.execution.ctaEnabled":
+    "the type pins the value to `false`, which has no text to search for",
+  "MetaBudgetDryRunPanel.execution.providerWriteAttempted":
+    "the type pins the value to `false`, which has no text to search for",
   "MetaDecisionsDigest.labelFlips.items[].status":
     "the literal is 'published', a word the surfaces use in their own prose",
   "MetaDecisionsWorkspaceReadModel.scope.decisionMode":
@@ -3657,7 +4739,8 @@ describe("Meta Decision payload · every claim, proven against the running code"
     expect(outcomes.size).toBe(fields.filter((field) => field.varies).length);
     // Exact, for the reason the walk's own size is exact: a probe that stopped
     // probing would satisfy every "nothing changed" assertion in the file.
-    expect(outcomes.size).toBe(521);
+    // PRE-DEPLOY AUDIT: 620 -> 706, tracking the walk's own varying-leaf pin.
+    expect(outcomes.size).toBe(706);
     // And the baseline surfaces are not empty, or "nothing changed" would be
     // true of everything.
     for (const [surface, text] of Object.entries(baseline)) {
@@ -3751,6 +4834,19 @@ describe("Meta Decision payload · every claim, proven against the running code"
           everyBaseline.some((scenario) =>
             flatten(scenario[surface] ?? "").includes(flatten(text)),
           );
+        /*
+          PRE-DEPLOY AUDIT — a pin whose literal is `false` or `null` has no
+          text to search for, so `seen` can never become true for it and the
+          check would report a rendering leaf as missing. That is the same
+          condition `PINNED_BEYOND_TEXT_PROOF` already records for withheld
+          leaves, so it is routed there rather than asserted by text. The
+          route is only open when the probe itself produced no literal: a
+          rendered leaf that HAS one must still be found.
+        */
+        if (text === null) {
+          beyondProof.push(field.key);
+          continue;
+        }
         if (!seen) {
           wrong.push(
             `${field.key} claims ${surface} but its literal is not there`,
@@ -3869,9 +4965,20 @@ describe("Meta Decision payload · every claim, proven against the running code"
     const withElement = rendered.filter(([, value]) => value.element);
     const withoutElement = rendered.filter(([, value]) => !value.element);
 
-    expect(rendered.length).toBe(284);
-    expect(withElement.length).toBe(115);
-    expect(withoutElement.length).toBe(169);
+    /*
+     * PRE-DEPLOY AUDIT — 375/194/181 -> 428/195/233. The 53 new rendered
+     * claims are the budget evidence, gate and dry-run leaves, and 52 of them
+     * are recorded at the SURFACE strength only. That moves the
+     * proven-at-element share from 52% to 45%, and the reason is the one this
+     * file already names rather than a lapse: they land on MOBILE, an HTML
+     * surface listed in SURFACES_WITHOUT_ELEMENT_IDS because it emits no
+     * `{ id, label, value }` row for a claim to key on. Surface-level is the
+     * strongest proof available there, so the honest thing is to let the
+     * ratio move and say why.
+     */
+    expect(rendered.length).toBe(428);
+    expect(withElement.length).toBe(195);
+    expect(withoutElement.length).toBe(233);
 
     /*
      * AND WHICH ENTRIES, not merely how many.
@@ -4911,6 +6018,116 @@ describe("Meta Decision payload · the named starting points", () => {
       .map(([key]) => key)
       .sort();
     expect(wired).toEqual([
+      /*
+        PRE-DEPLOY AUDIT — the budget wiring lane of THIS round: the
+        directional evidence panel, the gate verdict it publishes and the
+        dry-run preview, all three mounted by `MetaPlatformPage`. Every entry
+        below is measured on the MOBILE surface by the probe, and the five
+        that only render on an unavailable panel or a not-clear section are
+        measured in the two scenarios added for exactly that.
+      */
+      "DryRunPanelFact.label",
+      "DryRunPanelFact.value",
+      "EvidencePanelSection.blockerCodes",
+      "EvidencePanelSection.clear",
+      "EvidencePanelSection.reasons",
+      "EvidencePanelSection.section",
+      "MetaBudgetDecisionEvidenceByDirection.directionSelected",
+      "MetaBudgetDecisionEvidenceByDirection.directionSelectedWhy",
+      "MetaBudgetDecisionEvidenceByDirection.directionToAction.decrease",
+      "MetaBudgetDecisionEvidenceByDirection.directionToAction.increase",
+      "MetaBudgetDecisionEvidencePanel.authority",
+      "MetaBudgetDecisionEvidencePanel.commercialLineage.anchorExplanation",
+      "MetaBudgetDecisionEvidencePanel.commercialLineage.availability.status",
+      "MetaBudgetDecisionEvidencePanel.commercialLineage.code",
+      "MetaBudgetDecisionEvidencePanel.commercialLineage.contractVersion",
+      "MetaBudgetDecisionEvidencePanel.commercialLineage.eligible",
+      "MetaBudgetDecisionEvidencePanel.commercialLineage.reason",
+      "MetaBudgetDecisionEvidencePanel.commercialLineage.selectedAction",
+      "MetaBudgetDecisionEvidencePanel.executionReadiness.ctaEnabled",
+      "MetaBudgetDecisionEvidencePanel.executionReadiness.state",
+      "MetaBudgetDecisionEvidencePanel.executionReadiness.why",
+      "MetaBudgetDecisionEvidencePanel.primaryBlocker.code",
+      "MetaBudgetDecisionEvidencePanel.primaryBlocker.reason",
+      "MetaBudgetDecisionEvidencePanel.status",
+      "MetaBudgetDecisionEvidencePanel.unavailableReason",
+      "MetaBudgetDryRunPanel.contractVersion",
+      "MetaBudgetDryRunPanel.execution.ctaEnabled",
+      "MetaBudgetDryRunPanel.execution.ctaLabel",
+      "MetaBudgetDryRunPanel.execution.executionState",
+      "MetaBudgetDryRunPanel.execution.nextRequirement",
+      "MetaBudgetDryRunPanel.execution.providerOutcome",
+      "MetaBudgetDryRunPanel.execution.providerWriteAttempted",
+      "MetaBudgetDryRunPanel.execution.readbackClassification",
+      "MetaBudgetDryRunPanel.fingerprints.input",
+      "MetaBudgetDryRunPanel.fingerprints.policy",
+      "MetaBudgetDryRunPanel.fingerprints.preflight",
+      "MetaBudgetDryRunPanel.headline",
+      "MetaBudgetDryRunPanel.observed.note",
+      "MetaBudgetDryRunPanel.observed.title",
+      "MetaBudgetDryRunPanel.proposed.available",
+      "MetaBudgetDryRunPanel.proposed.note",
+      "MetaBudgetDryRunPanel.proposed.title",
+      "MetaBudgetDryRunPanel.required.blockers[].code",
+      "MetaBudgetDryRunPanel.required.blockers[].why",
+      "MetaBudgetDryRunPanel.required.note",
+      "MetaBudgetDryRunPanel.required.readbackRequirement",
+      "MetaBudgetDryRunPanel.required.title",
+      "MetaBudgetDryRunPanel.required.writeSafetyMissing",
+      "MetaBudgetDryRunPanel.simulated.available",
+      "MetaBudgetDryRunPanel.simulated.note",
+      "MetaBudgetDryRunPanel.simulated.title",
+      "MetaBudgetDryRunPanel.status",
+      "MetaBudgetDryRunPanel.unavailableReason",
+      "MetaCanonicalDecision.sourceDecision.computedAt",
+      // D073's pipeline-health envelope: the exact decision-generation clock,
+      // the generation manifest, and the four operational facts (successful
+      // sync activity, finalized warehouse cutoff, growth-fence admission with
+      // its exact offender, and the overall/executionReady verdict). All 38
+      // leaves landed on the source-provenance panel and blocking banner in
+      // this round.
+      "MetaDecisionPipelineHealth.decisionGeneration.ageHours",
+      "MetaDecisionPipelineHealth.decisionGeneration.computedAt",
+      "MetaDecisionPipelineHealth.decisionGeneration.engineVersion",
+      "MetaDecisionPipelineHealth.decisionGeneration.maxAgeHours",
+      "MetaDecisionPipelineHealth.decisionGeneration.reason",
+      "MetaDecisionPipelineHealth.decisionGeneration.status",
+      "MetaDecisionPipelineHealth.manifest.authority",
+      "MetaDecisionPipelineHealth.manifest.expectedAdCount",
+      "MetaDecisionPipelineHealth.manifest.jobRunId",
+      "MetaDecisionPipelineHealth.manifest.manifestHash",
+      "MetaDecisionPipelineHealth.manifest.reason",
+      "MetaDecisionPipelineHealth.manifest.status",
+      "MetaDecisionPipelineOperationalHealth.admission.allowed",
+      "MetaDecisionPipelineOperationalHealth.admission.evaluatedAt",
+      "MetaDecisionPipelineOperationalHealth.admission.offender.budget",
+      "MetaDecisionPipelineOperationalHealth.admission.offender.bytes",
+      "MetaDecisionPipelineOperationalHealth.admission.offender.overByBytes",
+      "MetaDecisionPipelineOperationalHealth.admission.offender.table",
+      "MetaDecisionPipelineOperationalHealth.admission.reason",
+      "MetaDecisionPipelineOperationalHealth.admission.status",
+      "MetaDecisionPipelineOperationalHealth.blockers",
+      "MetaDecisionPipelineOperationalHealth.contractVersion",
+      "MetaDecisionPipelineOperationalHealth.evaluatedAt",
+      "MetaDecisionPipelineOperationalHealth.executionReady",
+      "MetaDecisionPipelineOperationalHealth.overall",
+      "MetaDecisionPipelineOperationalHealth.syncActivity.ageMinutes",
+      "MetaDecisionPipelineOperationalHealth.syncActivity.latestAt",
+      "MetaDecisionPipelineOperationalHealth.syncActivity.latestJobStatus",
+      "MetaDecisionPipelineOperationalHealth.syncActivity.latestRunStatus",
+      "MetaDecisionPipelineOperationalHealth.syncActivity.maxAgeMinutes",
+      "MetaDecisionPipelineOperationalHealth.syncActivity.reason",
+      "MetaDecisionPipelineOperationalHealth.syncActivity.status",
+      "MetaDecisionPipelineOperationalHealth.warehouse.accountTimeZone",
+      "MetaDecisionPipelineOperationalHealth.warehouse.expectedFinalizedDate",
+      "MetaDecisionPipelineOperationalHealth.warehouse.lagDays",
+      "MetaDecisionPipelineOperationalHealth.warehouse.latestFinalizedDate",
+      "MetaDecisionPipelineOperationalHealth.warehouse.reason",
+      "MetaDecisionPipelineOperationalHealth.warehouse.status",
+      "MetaDecisionSourceAuthority.decisionFreshness.ageHours",
+      "MetaDecisionSourceAuthority.decisionFreshness.maxAgeHours",
+      "MetaDecisionSourceAuthority.decisionFreshness.status",
+      "MetaDecisionSourceAuthority.executionReadiness",
       // The five fields of one sentence on the silent-failure banner: the
       // count, the denominator it is a share of, the window it covers, whether
       // that count is capped, and the cap that capped it. The last two are the
@@ -4931,6 +6148,16 @@ describe("Meta Decision payload · the named starting points", () => {
       "MetaLanePayload.endDate",
       "MetaLanePayload.snapshotCreatedAt",
       "MetaLanePayload.startDate",
+      // D074b/D076: the automatic campaign-role explanation the workspace
+      // serves per campaign — rendered verbatim on the evidence window.
+      "MetaOsCampaignRoleExplanation.confidenceClass",
+      "MetaOsCampaignRoleExplanation.confidenceScore",
+      "MetaOsCampaignRoleExplanation.conflictReasons",
+      "MetaOsCampaignRoleExplanation.evidence",
+      "MetaOsCampaignRoleExplanation.kind",
+      "MetaOsCampaignRoleExplanation.lastEvaluatedAt",
+      "MetaOsCampaignRoleExplanation.resolverVersion",
+      "MetaOsCampaignRoleExplanation.unresolvedReason",
       "MetaOsDecisionMetrics.cpa",
       "MetaOsDecisionMetrics.ctr",
       // The token that says whether the figures on this page measure this
@@ -4940,6 +6167,7 @@ describe("Meta Decision payload · the named starting points", () => {
       // The account median, which this round moved off the WITHHELD_BY_DEFECT
       // list and onto the ROAS tile under its own noun.
       "MetaPulsePayload.roas.median",
+      "MetaSnapshotHealth.engineVersion",
       "MetaStructureInventoryEntity.metrics.cpa",
       "MetaStructureInventoryEntity.metrics.ctr",
     ]);

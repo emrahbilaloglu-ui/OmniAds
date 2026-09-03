@@ -429,3 +429,156 @@ fixtures:
 | AR-008 | A soft daily decision sits between two Cut signals but is outside the outcome-scored cooldown sample | advance the soft decision before the later Cut; the later Cut remains first signal instead of false confirmation | `native-ad-account-aov-closed-window-replay.test.ts` |
 | AR-009 | A future loser had not met commercial maturity at decision time | exclude it from Cut-opportunity recall while retaining any emitted-Cut precision classification | `d061-account-aov-closed-window-gate.test.ts` |
 | AR-010 | Lane B has finalized daily facts but the requested exact optimization cell is absent | report exact-cell coverage failure; do not borrow an account-wide cell or grant automation authority | `native-ad-account-aov-closed-window-replay.test.ts`, `d061-account-aov-closed-window-gate.test.ts` |
+| AR-011 | Exact native Cut is decision-authorized, but `computedAt` is more than 12 hours old | retain the persisted Cut evidence; serve `stale_decision`, a blocked review action, and zero provider mutation | `execution-safety.test.ts`, `decisions-workspace-read-model.test.ts`, `decisions-os-presentation.test.ts`, `meta-native-ad-pause.test.ts` |
+| AR-012 | Exact native Cut is fresh and authorized, persisted business controls are verified/open | serve `live_preflight_required`; offer only a control that runs the existing live preflight before the exact-Ad pause | `decisions-workspace-read-model.test.ts`, `meta-native-ad-pause.test.ts` |
+| AR-013 | Business exists but has no `meta_automation_business_controls` row | keep the Decisions read available, serve `governance_unavailable` and a blocking banner; central write guard refuses before provider mutation | `automation-control-plane.test.ts`, `decisions-workspace/route.test.ts` |
+| AR-014 | Cached decision inventory crosses the 12-hour boundary between requests | recompute exact freshness on the request-specific cloned read model; cached source object remains unchanged and no action stays enabled | `decisions-workspace-read-model.test.ts` |
+| AR-015 | Exact native Cut is fresh and decision-authorized, but sync admission is blocked, durable sync is stale, warehouse cutoff lags, or the generation manifest is invalid | retain and render the decision evidence; serve blocking pipeline health and `source_pipeline_unready`; Creative Briefing, Launchpad, and the decision-origin write boundary offer or perform zero provider mutation | `decision-pipeline-health.test.ts`, `decisions-workspace/route.test.ts`, `meta-decision-center-exact-adapter.test.ts`, `decision-origin-action-preflight.test.ts` |
+
+### D076 campaign-role resolver challenger guards (2026-08-29)
+
+| Case   | Input                                                                                                   | Required result                                                                                                    | Executable proof                          |
+| ------ | ------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ | ----------------------------------------- |
+| CR-001 | Small old campaign (8 creatives, 5 recently rotated, tiny spend share) — the v2 `mixed/high` regression | v3 must NOT publish `mixed`; the campaign resolves toward `main` on the weighted path                              | `campaign-context-resolver-v3.test.ts`    |
+| CR-002 | Broad hybrid (32 creatives, 12 new, top3SpendShare 0.4747)                                              | v3 publishes `mixed` (0.45 winner-core bar applies at >=15 creatives)                                              | `campaign-context-resolver-v3.test.ts`    |
+| CR-003 | Small low-share campaign named with a test token (3 creatives, top3 structurally 1.0)                    | no `naming_contradicts_behavior` conflict; concentration at N<=3 is structural, not Main behavior                  | `campaign-context-resolver-v3.test.ts`    |
+| CR-004 | Test-token-named campaign carrying ~40% of account spend with settled winners                            | conflict surfaces (`naming_contradicts_behavior`) as evidence only; kind stays `main` — D081 C5: the name may not change the tuple the non-naming evidence already earned | `campaign-context-resolver-v3.test.ts` |
+| CR-005 | Scope with <7 days of status coverage or missing budget median                                           | lifecycle family renormalizes away; confidence may only drop, never rise; floors still fail closed                 | `campaign-context-resolver-v3.test.ts`    |
+| CR-006 | Any v3 resolution                                                                                        | stamped `campaign-context-resolver.v3-lifecycle-name-neutral-2026-09-01`; runtime constant stays v2 while the D076 gate is REJECT | `campaign-context-resolver-v3.test.ts`    |
+
+### D077 state-history compaction guards (2026-08-30)
+
+| Case   | Input                                                                           | Required result                                                                                     | Executable proof                                            |
+| ------ | ------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- | ----------------------------------------------------------- |
+| SC-001 | Duplicate run with one lineage-pinned row                                       | whole run protected (`pinnedRunRows` = all rows), never deleted                                     | `ephemeral-postgres-state-history-compaction-seam-child.ts` |
+| SC-002 | Duplicate run with a partial observation interleaved before it                   | excluded (`interleavedExcludedRuns`); as-of winners byte-stable                                     | compaction seam                                             |
+| SC-003 | Invalid token / tampered payload / missing acknowledgement                       | refusal with ZERO writes, journal included                                                          | compaction seam                                             |
+| SC-004 | Foreign run id injected into an honestly re-hashed plan                          | batch validation fails, whole batch rolls back, no row deleted                                      | compaction seam                                             |
+| SC-005 | Scope changed after planning                                                     | `stale_plan_scope_changed` refusal                                                                  | compaction seam                                             |
+| SC-006 | Kill switch mid-run, then two concurrent re-executions                           | one lease winner resumes with exact accounting (`runsAlreadyEmpty`); other refused; totals match     | compaction seam                                             |
+| SC-007 | Plan without pgstattuple proof                                                   | `insufficient_evidence`, strictly refused — acknowledgement cannot override                          | compaction seam                                             |
+| SC-008 | Malformed/negative/overlarge fence measurements                                  | explicit unavailable or raw fallback, never a zero that admits                                      | `state-history-effective-size.test.ts`                      |
+| SC-009 | Post-compaction 1-of-N observation on a compacted scope                          | delta stats identical to an uncompacted twin; identical payload still coalesces                     | compaction seam                                             |
+| SC-010 | Absent winner reaches any serving surface (workspace status, History feed, status recovery) | NULL status (never `DELETED`), no fabricated transition entry, no resurrected present/dimension status | seam leg D15b/D15c, workspace SQL pins, consumer closure guard |
+| SC-011 | Unchanged entity at an operator-response window end (heartbeat and/or sibling delta in scope) | terminal truth certified by `confirmed_until`; superseded rows stop at their own confirmation; pre-heartbeat cutoff caps at first capture; `no_response` classifiable again | detection regression + seam leg D15a |
+| SC-012 | Operational verifier over a delta manifest                                        | membership counted by reconstruction (equals logical `row_count`), never run-bound physical rows      | seam leg D15d + closure guard pins |
+| SC-013 | Older exact replay after later heartbeats/delta confirmation                      | heartbeat clocks never move backward; established `confirmed_until` survives; `last_captured_at >= last_seen_at` | seam leg D15e (failed on pre-fix writer) + closure guard |
+| SC-014 | Equal-captured competing rows / sibling-endpoint row for the same identity        | only the deterministic `(captured_at, created_at, id)` winner is confirmed, within its own endpoint scope; the tuple-loser and the sibling endpoint get and give nothing | seam legs D15f/D15g (failed on pre-fix predicate) + closure guard |
+| SC-015 | Policy-forged compaction plan (edited status/totals/projection, honestly re-hashed token) | refused by the authoritative pre-write re-plan with ZERO journal rows and ZERO deletions (fail-first: the forged plan deleted rows) | compaction seam hardening leg |
+| SC-016 | Compaction plan built under READ COMMITTED / concurrent commit mid-plan            | planner refuses weaker-than-REPEATABLE-READ isolation; under RR the whole multi-statement plan reads one snapshot (fingerprint stable) | compaction seam hardening leg (failed pre-fix) |
+| SC-017 | Run pinned by several FK families at once / head-duplicate / archived-schema / response-event pins | per-reason counts attribute each family exactly; the union counts the run once (families are non-additive); head and interleave counted explicitly | compaction seam per-family fixtures + planner consistency check |
+| SC-020 | Multi-endpoint unsupported scope                                                   | exact measured exclusion counts (every complete run + its rows, wholesale, disjoint from all other reasons) per scope and in hash-bound totals — never a boolean or a zero (seam failed pre-fix) | compaction seam multi-endpoint counts + counts validator |
+| SC-021 | Plan whose own counts disagree at ROW level (candidate-row reconciliation, pinned-row union outside family bounds) | the planner refuses to serialize it — `validateCompactionScopeCounts` throws, per scope and on totals | `state-history-compaction-counts.test.ts` perturbation matrix |
+| SC-022 | Journal-ONLY read failure on the readiness surface                                 | explicit `journalRead: unavailable` + `UNKNOWN_JOURNAL_UNAVAILABLE` + blocker; desktop and mobile render "journal state unavailable", never "NOT_EXECUTED"/"no journal entries"; a successful empty read stays honestly NOT_EXECUTED | readiness helper/section/route/page tests (failed pre-fix) |
+| SC-018 | Response-event pin arriving AFTER planning                                         | refused before lease/journal (`authoritative_replan_mismatch`), zero deletions, pinned run intact; a fresh plan classifies it response-event-pinned with nothing removable | compaction seam hardening leg |
+| SC-019 | Readiness surface under failure / cross-business journal / undeployed D075 writer  | journal strictly business-scoped; D075 evidence measured (observed / not_observed / unknown), never asserted; read failure visibly unavailable; UI display-only on desktop and mobile with no token or mutation affordance | readiness helper + route + section + page tests, isolation guard |
+
+### D074b vocabulary-closure guards (2026-08-30)
+
+| Case   | Input                                                                    | Required result                                                                                   | Executable proof                                    |
+| ------ | ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------- | --------------------------------------------------- |
+| VC-001 | Unresolved automatic role on a hard decision                             | review-only/watch, no provider mutation, no manual-label task, canonical blocker + evidence names | `campaign-label-guard.test.ts` (both modules)       |
+| VC-002 | Legacy persisted payload (`label_status`/`unlabeled_campaign_soft_only`) | recognized and mapped into `campaign_context_unresolved`; deprecated blocker never re-emitted     | `automation-readiness.test.ts`                      |
+| VC-003 | Legacy `campaignLabelStatus` alias vs canonical `campaignRoleStatus`     | contradiction fails closed as unresolved (never silently the authority-granting side); legacy-only `labeled` parses but NEVER resolves; missing-both is unresolved | `campaign-role-vocabulary-closure.test.ts`          |
+| VC-004 | Any buyer-facing surface                                                  | zero label-request AND zero manual-correction copy; role shown as automatic inference with refresh/evidence ask | closure guard copy scan                             |
+| VC-005 | Active writers across app/components/lib/scripts                          | every legacy-identifier occurrence matches the per-file per-token exact-count ledger; zero emissions | closure guard ledger + emission scans               |
+| VC-006 | `campaignKind === "test"` scale decision                                  | "Promote to main" fires ONLY under canonical resolved status; missing/legacy/contradictory status asks to resolve the role and serves no kind | `card-serialization.test.ts` |
+| VC-007 | Any briefing card, any Launchpad mode                                     | `canOpenBriefingCardInLaunchpad` false; no mode derived from label text/`campaignKind`/absent `blockedActionType`; all consumers review-only | `launchpad-bridge.test.ts`, page/bulk/drawer suites |
+| VC-008 | Persisted legacy guardrail row `requireCampaignLabel: false`              | cannot disable `requireResolvedCampaignRole` (alias is tighten-only)                              | `campaign-role-vocabulary-closure.test.ts`          |
+| VC-009 | Card with `campaignKind` but missing/legacy-only status                   | UI renders "Role unresolved", never Main/Test/Mixed as trusted; primary not executable            | `ActionNowCard.test.tsx`, `card-utils.test.tsx`     |
+| VC-010 | Stale Decision Center row (`scale`/`promote_to_main`) on a card without resolved role | row is provenance only: serialized primary stays review, no Promote CTA/filter/label anywhere | `card-serialization.test.ts`, `ActionNowCard.test.tsx`, page/asset suites, closure precedence guard |
+| VC-011 | Stale Scale row + resolved agreeing role but a DIFFERENT current decision (keep/diagnose/cut/refresh/test_more) or a blocked/held Scale | current decision's own primary wins everywhere — server, ActionNowCard label, action filter; the row may only exactly CONFIRM a current unblocked Scale CTA | `card-serialization.test.ts` label+blocked matrices, `card-utils.test.tsx` current-primary matrix, `ActionNowCard.test.tsx` source-freshness probe, closure precedence guard |
+| VC-012 | Current `cut` server label + stale `scale`/"Scale - Promote to main" row on Asset Library and Evidence Drawer | Label cell/filter/CSV stay cut (current-projection-only; no current label → explicit "Review"); drawer keeps the Cut headline and renders the raw row only under the "Compatibility snapshot (provenance) … cannot execute any action" disclosure, with no composed buyerLabel/nextStep guidance and queue/apply marked as stored values | `AssetLibrarySection.test.tsx` bypass-C fixtures, `CreativeEvidenceDrawer.test.tsx` bypass-D probe, closure raw-row field census |
+
+### D078 canonical-route readiness + governance display truth (2026-08-30)
+
+| Case   | Input                                                                    | Required result                                                                                   | Executable proof                                    |
+| ------ | ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------- | --------------------------------------------------- |
+| SC-023 | Canonical `/platforms/meta/automation` (zero-base off) with a readable DB | the legacy body SERVER-reads the business-scoped D077 readiness (access-gated) and passes it verbatim — incl. `journalRead: "unavailable"` states; missing businessId / denied access / throwing read fail closed to null (rendered "unavailable", never ready) | `legacy-page.test.tsx` (5 tests; 5/5 failed on the rejected re-export) |
+| SC-024 | Successful control-plane read of a business with NO persisted controls row | the kill-switch business pill renders `BLOCKED · NOT CONFIGURED` (stopped tone), never green ENABLED, because the write boundary refuses `business_control_not_configured`; an engaged stop stays STOPPED regardless of provenance; a FAILED read still withholds with `—` | automation `page.test.tsx` missing-row probe (failed pre-fix) + pre-existing failed-read withhold test |
+
+### D078 correction 1 — account-state evidence and vocabulary (2026-08-30)
+
+| Case   | Input                                                                    | Required result                                                                                   | Executable proof                                    |
+| ------ | ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------- | --------------------------------------------------- |
+| SC-025 | A business with an assigned-but-DESELECTED account holding spend and produced decisions | every read surface states it explicitly: workspace `assignedAccountStates` + coverage strip (selected · serving vs deselected · read-only history with spend/facts/unserved-decision counts); History offers it in a marked read-only optgroup and serves its journal with `accountScope: "deselected_historical"`; an UNBOUND id still 404s; no write control ever lists it | assigned-account route/view/strip tests (fail-first), journal-route contract tests, local-UI matrix |
+| SC-026 | Persisted history rows of kind `label_flips`                              | rendered as automatic-decision vocabulary ("Decision transitions"); no buyer-facing surface says "Label flips" or asks for a manual label | history page render test (failed on the rejected copy) |
+| SC-027 | A stale authorized hard decision and a fresh one, freshness DERIVED by the shared 12h evaluator | server presentation + adapter + rendered Decision Center: stale ⇒ review-only "Refresh Decision", provider mutation null, no enabled Cut in its card; fresh ⇒ supervised Cut stating a live preflight runs on submit; offline (no live provider inventory read) NO native row is presented at all | AMENDED by correction 2: primary proof is now the actual-route test (SC-028); `stale-fresh-cta-boundary.test.tsx` is the static function-level complement (relabeled in-file); the harness browser probe proves fail-closed withholding only |
+
+### D078 correction 2 — actual-route proof, tri-state evidence, exit-guarded matrix (2026-08-30)
+
+| Case   | Input                                                                    | Required result                                                                                   | Executable proof                                    |
+| ------ | ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------- | --------------------------------------------------- |
+| SC-028 | The ACTUAL `/api/meta/decisions-workspace` GET over a constitutionally valid ephemeral lattice; REAL cookie auth + REAL posture read; only the external provider-inventory boundary mocked; throwing fetch spy | the route response itself contains both exact seeded Ad rows; the shipped 12h evaluator derives stale ⇒ `stale_decision` (review-only Refresh Decision + providerMutation null) and fresh ⇒ `live_preflight_required` (supervised Cut + live-preflight scopeNote); zero provider/network calls; the rendered queue carries each served action as row text scoped to the exact row (decision information — the ACTION control proof is SC-032) | AMENDED by correction 3: `route.lattice-cta.db.test.tsx` (5 passed / 1 skipped; auth/posture mocks removed — a static guard scans for them; the correction-2 `data-decision-id` region check was vacuous and is replaced by a throwing extractor over real selectors) |
+| SC-029 | The account-state read FAILS (`null`) vs returns proven-zero (`[]`) vs is absent (legacy `undefined`) — through the REAL adapter, not component props | workspace: `null` ⇒ visible "Assigned-account coverage unavailable…" warning; `[]` ⇒ explicit anomalous proven-zero state; `undefined` ⇒ legacy-silent — all four preserved VERBATIM by `buildMetaDecisionCenterExactViewModel` (correction 2's adapter collapsed undefined→null; C3.1). History: `array \| null` ONLY — a failed read AND an absent legacy field both map to null/unavailable, fail-closed by design; no undefined state exists or is claimed. Journal deep link under a failed authority read ⇒ 503 `meta_history_account_scope_unavailable`; 404 only after a successful read proves absence | AMENDED by correction 3: `assigned-account-tri-state-adapter.test.tsx` (fail-first vs the `?? null` line) + the existing server→client→render suites |
+| SC-030 | TheSwaf History with the deselected NonTesvik scope, driven in a REAL browser at 1440 AND 390 px | the harness actually SELECTS the scope and asserts `accountScope: "deselected_historical"` from the journal plus visible identity/currency/timezone/spend/freshness/generation/policy text and ZERO write controls | local-UI harness NonTesvik probe (12 assertions per width, in the matrix artifact) |
+| SC-031 | Any matrix violation: failed assertion, failed/self/disconnected/duplicate-target/wrong-order hop, wrong hop count, unproven selected/rendered hop identity, missing/duplicate entry, missing/zero-byte screenshot, contract mismatch, failed/missing route or drawer proof, single-string switcher shape | the shared validator validates the DECLARED ordered chain per width (`D078_SWITCH_ORDER`, imported by the harness) — not a name set — and the harness exits NONZERO after `finally` teardown; a fully valid artifact yields zero failures and exit 0 | AMENDED by correction 3: `d078-matrix-contract.test.ts` (14 tests; 7 new C3.3 fail-first cases for the shapes the correction-2 set check accepted) |
+
+### D078 correction 3 — drawer/action proof, four-state adapter, ordered-chain + top-level guards (2026-08-30)
+
+| Case   | Input                                                                    | Required result                                                                                   | Executable proof                                    |
+| ------ | ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------- | --------------------------------------------------- |
+| SC-032 | The captured ACTUAL route payload driven through the REAL `MetaPlatformPage` wiring in a real DOM: row review click → `CreativeEvidenceWindowExact` → `authorizeMetaNativeAdPause` | stale row: drawer opens scoped to that exact ad, stale evidence visible, review-only "Refresh Decision" primary DISABLED, zero Cut/Pause controls, no ceremony; fresh row: drawer opens, live-preflight copy visible, supervised Cut primary ENABLED, click opens ONLY the real `MetaNativeAdPauseDialog` ceremony (confirm present, not clicked), zero provider mutation/POST; every required selector throws on zero matches; no data/provider boundary mocked in the drawer file | `app/api/meta/decisions-workspace/drawer-cta.db.test.tsx` (4 passed / 1 skipped in the runner/harness; recorded inside `routeCtaProof`) |
+| SC-033 | The frozen bundle's TOP-LEVEL `businesses` array | exactly six unique charter ids equal to `scopeContract.charterBusinessIds`, each with the pinned charter name; an extra, missing, duplicated, or renamed row fails | `d078-acceptance-guards.test.ts` C3.4 helper + fail-first cases |
+
+## D079 commercial spend-unit anchor (golden cases)
+
+Fail-closed capture (`lib/business-commercial.test.ts`):
+
+| input | expected |
+|---|---|
+| `aovAssumption: 0` or negative | rejected, `targetPack.aovAssumption must be a finite number greater than zero or null.` |
+| `aovAssumption: null` | accepted, anchor cleared, prior behaviour restored |
+| client-supplied `updatedByUserId` / `updatedAt` | ignored; the server session user is persisted |
+| a calibration profile still present in the payload | updated in place; engine-owned columns survive |
+| a calibration profile removed from the payload | deleted, scoped to its exact identity |
+
+Ladder and explanation (`lib/creative-decision-engine/commercial-anchor.test.ts`):
+
+| anchor state | source | threshold eligible | code |
+|---|---|---|---|
+| explicit Target CPA | `target_cpa` | yes | — |
+| operator AOV + Target ROAS | `operator_aov` | yes | — |
+| Meta AOV, ≥20 purchases/90d | `meta_derived_aov` | yes | — |
+| Meta AOV, <20 purchases/90d | `meta_derived_aov` | no | `commercial_anchor_sample_insufficient` |
+| account CPA p50 only | `account_history` | no | `commercial_anchor_missing` |
+| break-even fallback only | `break_even_aov` | no | `commercial_anchor_missing` |
+| anchor present, timestamp unverifiable | any | no | `commercial_anchor_provenance_unverified` |
+| anchor fine, no Target ROAS | — | Scale only blocked | `target_roas_missing` |
+| anchor fine, no break-even ROAS | — | Cut only blocked | `break_even_roas_missing` |
+| anchor fine, calibration below floor | — | Scale only blocked | `scale_calibration_below_floor` |
+| shadow-only account | any | no | `shadow_only` |
+
+Offline counterfactual (`scripts/creative-decision-center/commercial-anchor-counterfactual.test.ts`):
+the no-anchor baseline reproduces 15,508 / 1,993 / 1,872 / 95 / 26 with 0
+enabled hard actions; a candidate is rejected when absent, zero, negative,
+malformed, currency-mismatched (a USD anchor for TRY-denominated Bilsem Zeka),
+when it borrows a ROAS under as-of-origin semantics, or when it omits either
+paired ROAS under declared-all-window semantics.
+
+Per-action counterexample, pinned (a Target CPA candidate for IwaTR, which has
+no frozen target pack):
+
+| action | held before | eligible after | still blocked | code |
+|---|---|---|---|---|
+| Cut | 282 | 0 | 282 | `break_even_roas_missing` |
+| Refresh | 9 | 9 | 0 | — |
+| Scale | 0 | 0 | 0 | — |
+
+No-future-leakage counterexample, pinned: Bilsem Zeka's only pack is
+`effectiveAt 2026-04-22` / `recordedAt 2026-07-14`, so
+`targetPackAsOfOrigin` returns null at origins 2026-05-11 and 2026-07-13 and a
+pack only from 2026-07-15. All 603 of its held rows therefore resolve with no
+knowable pack, and its Cuts stay blocked on `break_even_roas_missing`.
+
+### D079 correction 2 golden cases
+
+| case | expected |
+|---|---|
+| Commercial Truth rendered HTML | contains neither `CPA ceiling` nor `AOV floor`; names `Target CPA` and `AOV assumption` |
+| real profile, Target CPA set, calibration below floor | `thresholdEligible: true`, `scale: false`, code `scale_calibration_below_floor`; panel reports `withheld.profileHardActionEvidence`, never a commercial-threshold gate |
+| real Cut-only stop-loss overlay | base code `commercial_anchor_missing`, effective code `break_even_roas_missing`; panel copy is derived from the EFFECTIVE code and mentions break-even ROAS |
+| eligible action | no blocker code and no operator copy |
+| every replay action row and total | partitions completely; `blockedAfterTotal = heldBefore - eligibleAfter`; baseline `blockedAfterTotal = 1993` |
+| per-action independent gates | Scale 8/0, Cut 86/26, Refresh 1/0 campaign-context/recovery |
+| independent-gate transitions | `campaign_context->campaign_context`, never recast as a commercial-anchor transition |

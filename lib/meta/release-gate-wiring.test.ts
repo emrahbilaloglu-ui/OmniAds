@@ -43,13 +43,50 @@ const WIRED_GATES: Record<
   },
   automationStopUi: {
     server: ["app/api/meta/automation/route.ts"],
-    offer: ["app/c/[businessId]/meta/automation/page.tsx"],
+    /*
+      PRE-DEPLOY AUDIT 2026-09-03 — the legacy dashboard route joined the
+      offer list. `app/(dashboard)/platforms/meta/automation/legacy-page.tsx`
+      is not dead: the `/platforms/meta/automation` shim imports it, and it
+      renders whenever ZERO_BASE_UI_MODE is off (the default) or the
+      compatibility fallback engages. It reads this gate directly via
+      `readMetaGateRefusal("automationStopUi")`, restating the same refusal
+      the canonical route shows.
+    */
+    offer: [
+      "app/c/[businessId]/meta/automation/page.tsx",
+      "app/(dashboard)/platforms/meta/automation/legacy-page.tsx",
+    ],
     governs:
       "ENGAGING the business-scoped Meta Stop. Releasing one is never gated: a stop that cannot be lifted is the trap this gate exists to avoid",
   },
   automationLiveWrites: {
-    server: ["app/api/meta/automation/proposals/route.ts"],
-    offer: ["app/c/[businessId]/meta/automation/page.tsx"],
+    /*
+      PRE-DEPLOY AUDIT 2026-09-03 — three D087/D088 readers joined this gate.
+
+      `budget-proposal-server-readers.ts` reads it inside `readGates`, the one
+      fresh verdict both the manual approval and the scheduled sweep consult
+      before anything is claimed or composed. `budget-automation-scheduled.ts`
+      reads it FIRST, before any database work, so a closed gate costs one
+      environment read and nothing else. `budget-activation-readiness-server.ts`
+      reads it as a named activation condition, so the surface cannot advertise
+      a ceremony the route is guaranteed to refuse.
+
+      The legacy dashboard route also joined the offer list, for the same
+      reason as `automationStopUi` above: it is a real served surface (the
+      `/platforms/meta/automation` shim, ZERO_BASE_UI_MODE off by default,
+      compatibility fallback) and it reads this gate directly via
+      `readMetaGateRefusal("automationLiveWrites")`.
+    */
+    server: [
+      "app/api/meta/automation/proposals/route.ts",
+      "lib/meta/budget-proposal-server-readers.ts",
+      "lib/meta/budget-automation-scheduled.ts",
+      "lib/meta/budget-activation-readiness-server.ts",
+    ],
+    offer: [
+      "app/c/[businessId]/meta/automation/page.tsx",
+      "app/(dashboard)/platforms/meta/automation/legacy-page.tsx",
+    ],
     governs:
       "whether an approved proposal may reach Meta. The gate can only ADD dry-run; the persisted guardrail stays authoritative",
   },

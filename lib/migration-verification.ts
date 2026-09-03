@@ -272,6 +272,15 @@ export const VERIFIED_COLUMNS: readonly ColumnSpec[] = [
   // change removes.
   { table: "meta_entity_observation_runs", column: "semantic_hash", dataType: "text", isNullable: true },
   { table: "meta_entity_observation_runs", column: "last_seen_at", dataType: "timestamp with time zone", isNullable: true },
+  { table: "meta_entity_observation_runs", column: "last_captured_at", dataType: "timestamp with time zone", isNullable: true },
+  { table: "meta_entity_observation_runs", column: "manifest_kind", dataType: "text", isNullable: true },
+  { table: "meta_entity_observation_runs", column: "base_run_id", dataType: "uuid", isNullable: true },
+  { table: "meta_entity_observation_runs", column: "delta_stats_json", dataType: "jsonb", isNullable: true },
+  { table: "meta_state_history_compaction_journal", column: "plan_hash", dataType: "character", isNullable: false },
+  { table: "meta_state_history_compaction_journal", column: "business_ids", dataType: "ARRAY", isNullable: false },
+  { table: "meta_state_history_compaction_journal", column: "event", dataType: "text", isNullable: false },
+  { table: "meta_state_history_compaction_journal", column: "rows_deleted", dataType: "bigint", isNullable: true },
+  { table: "meta_state_history_compaction_journal", column: "detail_json", dataType: "jsonb", isNullable: true },
   { table: "meta_entity_observation_runs", column: "repeat_count", dataType: "integer", isNullable: false, columnDefault: "1" },
   { table: "meta_entity_observation_runs", column: "last_checkpoint_at", dataType: "timestamp with time zone", isNullable: true },
   // Stable logical identity for lineage edges.

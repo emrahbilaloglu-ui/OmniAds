@@ -98,6 +98,10 @@ function card(
         actionEligible: value.sourceDecisionActionEligible === true,
         reviewOnlyReason:
           value.sourceDecisionActionEligible === true ? null : "review_only",
+        executionReadiness:
+          value.sourceDecisionActionEligible === true
+            ? "live_preflight_required"
+            : "decision_not_authorized",
       },
     };
   }
@@ -112,6 +116,7 @@ function evidence(
 ): DecisionOriginAdExecutionEvidence {
   return {
     killSwitch: { verified: true, engaged: false },
+    pipeline: { verified: true, executionReady: true },
     currentAccount: {
       found: true,
       businessId: "biz_1",

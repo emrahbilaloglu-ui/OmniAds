@@ -166,13 +166,6 @@ describe("Meta read keys carry the account they were read for", () => {
 
   it("keeps the account in the keys this sweep fixed", () => {
     // Named explicitly so a revert is loud rather than a silent regression.
-    const labels = readFileSync(
-      "components/meta/redesign/MetaCampaignLabelsSection.tsx",
-      "utf8",
-    );
-    expect(labels).toContain('"meta-campaigns-for-labels", businessId, providerAccountId');
-    expect(labels).toContain("providerAccountId,\n      campaignIds.join(\",\")");
-
     const actions = readFileSync(
       "components/creatives/CreativeAdActionsSection.tsx",
       "utf8",

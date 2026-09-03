@@ -235,7 +235,12 @@ function workspace(rows: number, blocked: number): MetaDecisionsWorkspacePayload
       trackingHealth: { status: "healthy", detail: "" },
       lastSyncAt: "2026-08-09T05:40:00.000Z",
       currency: "USD",
-      labelCoverage: { labelled: 9, total: 11 },
+      campaignRoleCoverage: {
+        activeCampaigns: 11,
+        classifiedCampaigns: 9,
+        unresolvedCampaigns: 2,
+        latestUpdatedAt: "2026-08-09T06:00:00.000Z",
+      },
     },
     lanes: {
       businessId: "biz",

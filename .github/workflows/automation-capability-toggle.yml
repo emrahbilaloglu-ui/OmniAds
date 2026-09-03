@@ -1,0 +1,388 @@
+name: Meta Automation Capability Toggle (Manual)
+
+# PRE-DEPLOY AUDIT — the safe Phase A -> B environment-capability transition.
+#
+# This workflow does exactly one thing: it flips `META_AUTOMATION_LIVE_WRITES`
+# in production's `.env.production`, atomically and with a verified rollback
+# path. It NEVER writes a `meta_automation_business_controls` or
+# `meta_automation_decision_type_modes` row, and it never enables a business —
+# opening the capability makes the admin UI's master switch usable; it does
+# not use it. See `docs/audits/AUTOMATION_RELEASE_POSTURE_2026-09-03.md` for
+# the phase A/B/C model this workflow moves the deployment between (A -> B
+# only; C is an operator, in the product, afterward).
+#
+# `workflow_dispatch` ONLY — no push, no schedule, no pull_request trigger.
+# `open` additionally requires an exact typed confirmation phrase.
+
+on:
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: Exact commit SHA currently deployed to production (40 lowercase hex)
+        required: true
+        type: string
+      capability:
+        description: Target environment capability
+        required: false
+        default: closed
+        type: choice
+        options:
+          - closed
+          - open
+      confirm_open:
+        description: Required exact phrase when capability=open
+        required: false
+        default: ""
+        type: string
+      require_current_main_head:
+        description: Refuse unless sha is the current main HEAD
+        required: false
+        default: "true"
+        type: string
+
+# Same group as the deploy and the release-gate promotion — a capability
+# change and an ordinary deploy must never race the same host.
+concurrency:
+  group: deploy-production-main
+  cancel-in-progress: false
+
+jobs:
+  toggle:
+    if: inputs.sha != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Resolve and validate the exact deploy SHA
+        id: expected
+        shell: bash
+        env:
+          INPUT_SHA: ${{ inputs.sha }}
+        run: |
+          set -euo pipefail
+          sha="${INPUT_SHA}"
+          if [ -z "${sha}" ]; then
+            echo "sha is required."
+            exit 1
+          fi
+          case "${sha}" in
+            *[!0-9a-f]*)
+              echo "sha must be lowercase hexadecimal."
+              exit 1
+              ;;
+          esac
+          if [ "${#sha}" -ne 40 ]; then
+            echo "sha must be the full 40-character commit SHA."
+            exit 1
+          fi
+          echo "sha=${sha}" >> "$GITHUB_OUTPUT"
+
+      - name: Validate the capability request
+        shell: bash
+        env:
+          CAPABILITY: ${{ inputs.capability }}
+          CONFIRM_OPEN: ${{ inputs.confirm_open }}
+        run: |
+          set -euo pipefail
+          case "${CAPABILITY}" in
+            closed|open) ;;
+            *)
+              echo "capability must be 'closed' or 'open', got '${CAPABILITY}'."
+              exit 1
+              ;;
+          esac
+          if [ "${CAPABILITY}" = "open" ] && [ "${CONFIRM_OPEN}" != "OPEN_AUTOMATION_CAPABILITY" ]; then
+            echo "confirm_open must equal OPEN_AUTOMATION_CAPABILITY when capability=open."
+            exit 1
+          fi
+
+      - name: Skip a superseded request
+        id: freshness
+        if: inputs.require_current_main_head == 'true'
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ steps.expected.outputs.sha }}
+          REPOSITORY: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          current_main_sha="$(
+            git ls-remote "https://x-access-token:${GH_TOKEN}@github.com/${REPOSITORY}.git" refs/heads/main \
+              | awk '{print $1}'
+          )"
+          if [ -z "${current_main_sha}" ]; then
+            echo "Unable to resolve current main HEAD."
+            exit 1
+          fi
+          echo "current_main_sha=${current_main_sha}" >> "$GITHUB_OUTPUT"
+          if [ "${EXPECTED_SHA}" != "${current_main_sha}" ]; then
+            echo "should_run=false" >> "$GITHUB_OUTPUT"
+            echo "Skipping — ${EXPECTED_SHA} is not current main (${current_main_sha})."
+            exit 0
+          fi
+          echo "should_run=true" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout expected ref
+        if: inputs.require_current_main_head != 'true' || steps.freshness.outputs.should_run == 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.expected.outputs.sha }}
+          fetch-depth: 1
+
+      - name: Prepare SSH access
+        if: inputs.require_current_main_head != 'true' || steps.freshness.outputs.should_run == 'true'
+        shell: bash
+        env:
+          HETZNER_HOST: ${{ secrets.HETZNER_HOST }}
+          HETZNER_USER: ${{ secrets.HETZNER_USER }}
+          HETZNER_PORT: ${{ secrets.HETZNER_PORT }}
+          HETZNER_KNOWN_HOSTS: ${{ secrets.HETZNER_KNOWN_HOSTS }}
+          HETZNER_SSH_KEY: ${{ secrets.HETZNER_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${HETZNER_USER}" ] || [ -z "${HETZNER_SSH_KEY}" ] || [ -z "${HETZNER_KNOWN_HOSTS}" ] || [ -z "${HETZNER_HOST}" ]; then
+            echo "Missing required Hetzner secrets."
+            exit 1
+          fi
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "${HETZNER_SSH_KEY}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' "${HETZNER_KNOWN_HOSTS}" > ~/.ssh/known_hosts
+          ssh-keyscan -H "${HETZNER_HOST}" 2>/dev/null >> ~/.ssh/known_hosts || true
+          chmod 644 ~/.ssh/known_hosts
+          {
+            echo "PRIMARY_DEPLOY_HOST=${HETZNER_HOST}"
+            echo "REMOTE_APP_DIR=/var/www/adsecute"
+          } >> "$GITHUB_ENV"
+
+      # ── The one place every phase below funnels through ──────────────────
+      #
+      # Both scripts, concatenated over stdin into ONE `bash -s` process — the
+      # env-writer defined before the phase dispatcher runs, exactly the idiom
+      # `.github/scripts/hetzner-ssh.sh`'s `run_remote_phase_on_host` already
+      # uses for the main deploy. No file lands on the host beyond
+      # `.env.production` itself and its timestamped backup.
+      - name: Run a capability phase on the host
+        if: inputs.require_current_main_head != 'true' || steps.freshness.outputs.should_run == 'true'
+        id: run_phase
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ steps.expected.outputs.sha }}
+          HETZNER_PORT: ${{ secrets.HETZNER_PORT }}
+          HETZNER_USER: ${{ secrets.HETZNER_USER }}
+          CAPABILITY: ${{ inputs.capability }}
+        run: |
+          set -euo pipefail
+
+          phase="capability_close"
+          if [ "${CAPABILITY}" = "open" ]; then
+            phase="capability_open"
+          fi
+
+          port="${HETZNER_PORT:-22}"
+          ssh_opts=(-i ~/.ssh/id_ed25519 -p "${port}" -o BatchMode=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=6)
+
+          out_file="$(mktemp)"
+          concat_file="$(mktemp)"
+
+          # The concatenation is a PLAIN redirect with its own directly-
+          # checked exit status — never a pipe stage — so a cat that cannot
+          # read either script (or reads only ONE of the two) is caught
+          # immediately, on its own. If it fails, ssh is NEVER dispatched:
+          # sending a partial/wrong script to the remote `bash -s` would be
+          # worse than not sending anything, since remote.sh's own
+          # `command -v atomic_set_env_var` self-check does not fire for
+          # every possible truncation (e.g. env.sh present, remote.sh cut
+          # off mid-function).
+          # `if ! cmd; then status=$?; fi` would be WRONG here: `!` inverts
+          # the exit status bash itself sees for the if-condition, so `$?`
+          # inside the `then` branch would read the INVERTED value (0)
+          # instead of cat's real failure code. The positive form below
+          # captures cat's own, real exit status.
+          if cat .github/scripts/automation-capability-env.sh .github/scripts/automation-capability-remote.sh > "${concat_file}"; then
+            cat_status=0
+          else
+            cat_status=$?
+          fi
+
+          ssh_status=0
+          tee_status=0
+          if [ "${cat_status}" -eq 0 ]; then
+            set +e
+            ssh "${ssh_opts[@]}" "${HETZNER_USER}@${PRIMARY_DEPLOY_HOST}" \
+              "cd ${REMOTE_APP_DIR} && EXPECTED_SHA=${EXPECTED_SHA} PHASE=${phase} REMOTE_APP_DIR=${REMOTE_APP_DIR} bash -s" \
+              < "${concat_file}" \
+              | tee "${out_file}"
+            # PIPESTATUS is overwritten by the NEXT command bash runs —
+            # INCLUDING a plain assignment statement with no external
+            # command at all, which itself completes as a trivial
+            # one-element pipeline. Reading `ssh_status="${PIPESTATUS[0]}"`
+            # then `tee_status="${PIPESTATUS[1]}"` as two separate
+            # statements therefore loses tee's real status: by the second
+            # read, PIPESTATUS has already been reset by the FIRST
+            # assignment to reflect only that trivial assignment (a single
+            # successful "pipeline"), so index 1 is genuinely unset.
+            # Snapshotting the WHOLE array in ONE statement, immediately
+            # after the pipe and before any other command runs, is the only
+            # correct way to read more than one stage of it.
+            stage_status=("${PIPESTATUS[@]}")
+            set -e
+            # Missing entries fail closed (99), never default to success.
+            ssh_status="${stage_status[0]:-99}"
+            tee_status="${stage_status[1]:-99}"
+          else
+            echo "concatenating the phase scripts failed (exit ${cat_status}) — refusing to dispatch ssh with partial or missing input" >&2
+          fi
+          rm -f "${concat_file}"
+
+          # ANY of the three nonzero fails the phase: a cat that could not
+          # read either script means ssh was never even run; a nonzero ssh
+          # is the phase's own failure; a nonzero tee means this runner's
+          # own capture of the remote output may be incomplete, so the
+          # summary extracted from it cannot be trusted either. Reported as
+          # whichever stage failed, in pipeline order, for diagnosis.
+          phase_status=0
+          if [ "${cat_status}" -ne 0 ]; then
+            phase_status="${cat_status}"
+          elif [ "${ssh_status}" -ne 0 ]; then
+            phase_status="${ssh_status}"
+          elif [ "${tee_status}" -ne 0 ]; then
+            phase_status="${tee_status}"
+          fi
+
+          echo "phase=${phase}" >> "$GITHUB_OUTPUT"
+          echo "phase_status=${phase_status}" >> "$GITHUB_OUTPUT"
+          echo "out_file=${out_file}" >> "$GITHUB_OUTPUT"
+
+          # The status is recorded but this step does NOT silently absorb a
+          # non-zero exit into success — the next step reads it and fails the
+          # JOB, so a refused or failed phase cannot be reported as green by
+          # omission.
+          if [ "${phase_status}" -ne 0 ]; then
+            echo "capability phase '${phase}' exited ${phase_status} (cat=${cat_status} ssh=${ssh_status} tee=${tee_status})"
+          fi
+
+      - name: Build the redacted result artifact
+        if: inputs.require_current_main_head != 'true' || steps.freshness.outputs.should_run == 'true'
+        shell: bash
+        env:
+          PHASE_STATUS: ${{ steps.run_phase.outputs.phase_status }}
+          OUT_FILE: ${{ steps.run_phase.outputs.out_file }}
+          EXPECTED_SHA: ${{ steps.expected.outputs.sha }}
+          CAPABILITY: ${{ inputs.capability }}
+        run: |
+          set -euo pipefail
+          mkdir -p .artifacts
+
+          # The phase script's own line, prefixed CAPABILITY_JSON: — never the
+          # raw phase output, which may include container logs. Written to a
+          # FILE (never interpolated into a python string literal) so the
+          # JSON is parsed exactly, whatever characters it happens to contain.
+          #
+          # `grep` exits 1 (no match, tolerated) when the phase never
+          # printed a CAPABILITY_JSON line at all; ANY other combination —
+          # grep exiting >1, or `tail`/`sed` exiting nonzero for ANY reason
+          # (including writing valid-looking output before failing) — is a
+          # genuine extraction failure, never silently accepted just
+          # because a file ended up non-empty. All three stage statuses are
+          # snapshotted in ONE statement immediately after the pipe (see
+          # the phase-runner step above for why: reading PIPESTATUS across
+          # separate statements loses everything after the first read).
+          set +e
+          grep '^CAPABILITY_JSON: ' "${OUT_FILE}" | tail -n1 | sed 's/^CAPABILITY_JSON: //' > .artifacts/_phase-summary.json
+          extraction_stage_status=("${PIPESTATUS[@]}")
+          set -e
+          grep_status="${extraction_stage_status[0]:-99}"
+          tail_status="${extraction_stage_status[1]:-99}"
+          sed_status="${extraction_stage_status[2]:-99}"
+
+          # The ONLY two acceptable combinations: every stage exited 0
+          # (extraction genuinely worked), or grep alone exited exactly 1
+          # with tail and sed both exiting 0 (a legitimate no-match — the
+          # phase never printed a CAPABILITY_JSON line). Everything else —
+          # grep >1, any nonzero tail/sed, or a missing/unset status — is a
+          # real extraction failure.
+          extraction_ok=false
+          if [ "${grep_status}" = "0" ] && [ "${tail_status}" = "0" ] && [ "${sed_status}" = "0" ]; then
+            extraction_ok=true
+          elif [ "${grep_status}" = "1" ] && [ "${tail_status}" = "0" ] && [ "${sed_status}" = "0" ]; then
+            extraction_ok=true
+          fi
+
+          if [ "${extraction_ok}" != "true" ]; then
+            echo '{"result":"fail","blockers":["capability_json_extraction_failed"]}' > .artifacts/_phase-summary.json
+          elif [ ! -s .artifacts/_phase-summary.json ]; then
+            echo '{"result":"fail","blockers":["no_capability_json_emitted"]}' > .artifacts/_phase-summary.json
+          fi
+
+          python3 - <<'PY'
+          import json
+          import os
+
+          with open(".artifacts/_phase-summary.json", encoding="utf-8") as handle:
+              summary = json.load(handle)
+
+          phase_status = int(os.environ["PHASE_STATUS"])
+          result = summary.get("result")
+          if phase_status != 0 and result == "pass":
+              # The phase script's own exit code disagrees with the JSON it
+              # printed -- the exit code wins. A non-zero phase must never be
+              # reported as pass.
+              result = "fail"
+              summary.setdefault("blockers", []).append("phase_exit_nonzero_despite_pass_json")
+
+          if (summary.get("blockers") or []) and result == "pass":
+              # A non-empty blockers list disagrees with result == "pass" --
+              # the two must never be reported inconsistently, regardless of
+              # which field a caller happens to read first.
+              result = "fail"
+              summary.setdefault("blockers", []).append("blockers_present_despite_pass_result")
+
+          artifact = {
+              "workflow": "automation-capability-toggle",
+              "requestedCapability": os.environ["CAPABILITY"],
+              "expectedSha": os.environ["EXPECTED_SHA"],
+              "phaseStatus": phase_status,
+              "summary": {**summary, "result": result},
+          }
+          with open(".artifacts/automation-capability-toggle.json", "w", encoding="utf-8") as handle:
+              json.dump(artifact, handle, indent=2)
+          print(json.dumps(artifact, indent=2))
+          PY
+          rm -f .artifacts/_phase-summary.json
+
+      - name: Fail the job on anything but summary.result == pass
+        if: inputs.require_current_main_head != 'true' || steps.freshness.outputs.should_run == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          import sys
+
+          with open(".artifacts/automation-capability-toggle.json", encoding="utf-8") as handle:
+              artifact = json.load(handle)
+
+          summary = artifact["summary"]
+          result = summary.get("result")
+          blockers = summary.get("blockers") or []
+          print("result=" + str(result) + " blockers=[" + ", ".join(str(b) for b in blockers) + "]")
+          # BOTH must hold -- result == "pass" alone is not proof by itself;
+          # a "pass" carrying a non-empty blockers list is refused here too,
+          # even though the artifact-building step above already tries to
+          # downgrade that exact case, so this gate never depends solely on
+          # that earlier step having run correctly.
+          if result != "pass" or blockers:
+              print("Capability toggle did NOT pass -- see the uploaded artifact for the exact blockers.")
+              sys.exit(1)
+          PY
+
+      - name: Upload result artifact
+        if: always() && (inputs.require_current_main_head != 'true' || steps.freshness.outputs.should_run == 'true')
+        uses: actions/upload-artifact@v4
+        with:
+          name: automation-capability-toggle-${{ steps.expected.outputs.sha }}
+          path: .artifacts/automation-capability-toggle.json
+          if-no-files-found: error

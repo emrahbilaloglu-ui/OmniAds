@@ -36,11 +36,7 @@ import {
   readPreviousDifferentMetaAdSetConfigHistoryDiffs,
   readPreviousDifferentMetaCampaignConfigHistoryDiffs,
 } from "@/lib/meta/request-model-store";
-import { readMetaCampaignLabels } from "@/lib/meta/campaign-labels";
-import {
-  buildMetaCampaignLabelKindMap,
-  type MetaCampaignLabelKindMap,
-} from "@/lib/meta/campaign-label-guard";
+import { readCampaignContextMap } from "@/lib/creative-decision-engine/campaign-context/source";
 import type { MetaCampaignKind } from "@/lib/meta/campaign-label-types";
 import { getCachedValue } from "@/lib/server-cache";
 
@@ -178,38 +174,54 @@ function rowBudgetUtilization(
   return spend / ((row.dailyBudget / 100) * rangeDays);
 }
 
-async function readCampaignLabelKinds(input: {
+type MetaCampaignRoleMap = ReadonlyMap<string, MetaCampaignKind>;
+
+async function readAutomaticCampaignRoles(input: {
   businessId: string;
+  providerAccountId: string | null;
+  asOf: string;
   campaignIds: Array<string | null | undefined>;
-}): Promise<MetaCampaignLabelKindMap> {
+}): Promise<MetaCampaignRoleMap> {
   const campaignIds = Array.from(
     new Set(input.campaignIds.filter((id): id is string => Boolean(id))),
   );
   if (campaignIds.length === 0) return new Map();
-  const labels = await readMetaCampaignLabels({
+  const contexts = await readCampaignContextMap({
     businessId: input.businessId,
+    providerAccountId: input.providerAccountId,
     campaignIds,
+    asOf: input.asOf,
   }).catch((error) => {
-    console.warn("[meta-lane-classify] campaign_label_read_failed", {
+    console.warn("[meta-lane-classify] campaign_role_read_failed", {
       businessId: input.businessId,
       campaignCount: campaignIds.length,
       message: error instanceof Error ? error.message : String(error),
     });
-    return [];
+    return new Map();
   });
-  return buildMetaCampaignLabelKindMap(labels);
+  const roles = new Map<string, MetaCampaignKind>();
+  for (const [campaignId, entry] of contexts) {
+    if (
+      entry.kind === "main" ||
+      entry.kind === "test" ||
+      entry.kind === "mixed"
+    ) {
+      roles.set(campaignId, entry.kind);
+    }
+  }
+  return roles;
 }
 
 function campaignKindForId(
   campaignId: string | null | undefined,
-  campaignLabelsById: MetaCampaignLabelKindMap,
+  campaignLabelsById: MetaCampaignRoleMap,
 ) {
   return campaignId ? campaignLabelsById.get(campaignId) ?? null : null;
 }
 
 function campaignKindForRecommendation(input: {
   rec: MetaRecommendation;
-  campaignLabelsById: MetaCampaignLabelKindMap;
+  campaignLabelsById: MetaCampaignRoleMap;
   activeCampaignIds: string[];
 }): MetaCampaignKind | null {
   const campaignIds =
@@ -236,7 +248,7 @@ function campaignKindForRecommendation(input: {
 
 function attachCampaignKindToRecommendation(input: {
   rec: MetaRecommendation;
-  campaignLabelsById: MetaCampaignLabelKindMap;
+  campaignLabelsById: MetaCampaignRoleMap;
   activeCampaignIds: string[];
 }): MetaRecommendation {
   const campaignKind =
@@ -339,7 +351,7 @@ function entityConfigurationForRow(input: {
 function structureInventoryForRows(input: {
   campaignRows: CampaignRow[];
   adsetRows: AdsetRow[];
-  campaignLabelsById: MetaCampaignLabelKindMap;
+  campaignLabelsById: MetaCampaignRoleMap;
   rangeDays: number | null;
 }): MetaStructureInventoryEntity[] {
   const campaignNamesById = new Map(
@@ -754,11 +766,21 @@ function watchSegmentForRec(input: {
 }): MetaWatchingSegmentKey {
   if (input.deferredIds.has(input.rec.id)) return "deferred";
   if (
+    hasAutomationBlocker(input.rec, "campaign_context_unresolved") ||
+    input.rec.confidenceReason === "automatic_campaign_context_review_only" ||
+    input.rec.confidenceReason ===
+      "automatic_campaign_context_resolver_unvalidated" ||
+    hasSignalQualityValue(
+      input.rec,
+      "campaign_context_action_authority",
+      "review_only",
+    ) ||
+    // Pre-D074b aliases: recognition-only for older persisted payloads.
     hasAutomationBlocker(input.rec, "missing_campaign_label") ||
     input.rec.confidenceReason === "unlabeled_campaign_soft_only" ||
     hasSignalQualityValue(input.rec, "label_status", "unlabeled")
   ) {
-    return "unlabeled";
+    return "role_unresolved";
   }
   if (hasAutomationBlocker(input.rec, "missing_commercial_anchor")) return "missing_target";
   if (isWithIssuesRec(input)) return "issues";
@@ -1180,7 +1202,7 @@ function healthyCampaignRows(input: {
   rows: Awaited<ReturnType<typeof getMetaCampaignsForRange>>["rows"];
   recommendedScopeIds: Set<string>;
   statusFilter: BriefingStatusFilter;
-  campaignLabelsById: MetaCampaignLabelKindMap;
+  campaignLabelsById: MetaCampaignRoleMap;
 }): HealthyMetaRow[] {
   return input.rows
     .filter((row) => isPurchaseScopedCohort(cohortForCampaignRow(row)))
@@ -1221,7 +1243,7 @@ function healthyAdsetRows(input: {
   campaignNamesById?: Map<string, string>;
   campaignsById: Map<string, CampaignRow>;
   statusFilter: BriefingStatusFilter;
-  campaignLabelsById: MetaCampaignLabelKindMap;
+  campaignLabelsById: MetaCampaignRoleMap;
 }): HealthyMetaRow[] {
   return input.rows
     .filter((row) => isPurchaseScopedCohort(cohortForAdsetRow(row)))
@@ -1329,7 +1351,7 @@ function archiveCampaignRows(input: {
   rows: CampaignRow[];
   statusFilter: BriefingStatusFilter;
   window: PulseWindow;
-  campaignLabelsById: MetaCampaignLabelKindMap;
+  campaignLabelsById: MetaCampaignRoleMap;
 }): ArchivedMetaRow[] {
   return input.rows
     .filter((row) => !isVisibleForStatusLane(row, input.statusFilter))
@@ -1358,7 +1380,7 @@ function archiveAdsetRows(input: {
   window: PulseWindow;
   campaignNamesById?: Map<string, string>;
   campaignsById: Map<string, CampaignRow>;
-  campaignLabelsById: MetaCampaignLabelKindMap;
+  campaignLabelsById: MetaCampaignRoleMap;
 }): ArchivedMetaRow[] {
   return input.rows
     .map((row) => {
@@ -1404,7 +1426,7 @@ function nonSalesCampaignRows(input: {
   statusFilter: BriefingStatusFilter;
   costPerThruplayP50: number | null;
   cpmAccountP50: number | null;
-  campaignLabelsById: MetaCampaignLabelKindMap;
+  campaignLabelsById: MetaCampaignRoleMap;
 }): MetaRecommendation[] {
   return input.rows
     .map((row) => ({ row, cohort: cohortForCampaignRow(row) }))
@@ -1441,7 +1463,7 @@ function nonSalesAdsetRows(input: {
   statusFilter: BriefingStatusFilter;
   costPerThruplayP50: number | null;
   cpmAccountP50: number | null;
-  campaignLabelsById: MetaCampaignLabelKindMap;
+  campaignLabelsById: MetaCampaignRoleMap;
 }): MetaRecommendation[] {
   return input.rows
     .map((row) => ({ row, cohort: cohortForAdsetRow(row) }))
@@ -1648,8 +1670,10 @@ export async function GET(request: NextRequest) {
         adsets.evidenceSource === "live" || adsets.evidenceSource === "demo",
     },
   );
-  const campaignLabelsById = await readCampaignLabelKinds({
+  const campaignLabelsById = await readAutomaticCampaignRoles({
     businessId,
+    providerAccountId,
+    asOf: endDate,
     campaignIds: [
       ...campaignRows
         .filter(
@@ -1958,7 +1982,7 @@ export async function GET(request: NextRequest) {
               `adsets;dur=${(baseStageDurations.adsets ?? 0).toFixed(1)}`,
               `upper_funnel;dur=${(baseStageDurations.upper_funnel ?? 0).toFixed(1)}`,
               `live_status;dur=${(liveStatusesCompletedAt - baseEvidenceCompletedAt).toFixed(1)}`,
-              `campaign_labels;dur=${(campaignLabelsCompletedAt - liveStatusesCompletedAt).toFixed(1)}`,
+              `campaign_roles;dur=${(campaignLabelsCompletedAt - liveStatusesCompletedAt).toFixed(1)}`,
               `presentation;dur=${(payloadCompletedAt - campaignLabelsCompletedAt).toFixed(1)}`,
               `total;dur=${(payloadCompletedAt - requestStartedAt).toFixed(1)}`,
             ].join(", "),

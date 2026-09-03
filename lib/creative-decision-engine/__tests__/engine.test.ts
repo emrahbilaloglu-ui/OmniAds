@@ -480,7 +480,7 @@ describe("creative-decision-engine v3", () => {
     expect(rawDecision.label).toBe("scale");
     expect(rawDecision.decisionKindSource).toBe("all_fallback");
     expect(guarded.label).toBe("diagnose");
-    expect(guarded.campaignLabelStatus).toBe("unlabeled");
+    expect(guarded.campaignRoleStatus).toBe("unresolved");
     expect(guarded.blockedActionType).toBe("scale");
     expect(guarded.decisionKindSource).toBe("all_fallback");
   });

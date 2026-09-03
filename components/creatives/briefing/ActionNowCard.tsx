@@ -16,6 +16,8 @@ import {
   type TileMetric,
 } from "@/components/common/briefing";
 import {
+  cardCurrentRowScaleAction,
+  cardCampaignRoleStatus,
   BadgeChip,
   CampaignKindChip,
   PrimaryActionButton,
@@ -84,7 +86,11 @@ function creativeChipLabel(label: string) {
 }
 
 function campaignKindLabel(card: BriefingCreativeCard) {
-  if (card.campaignLabelStatus === "unlabeled") return "Unlabeled";
+  const roleStatus = cardCampaignRoleStatus(card);
+  if (roleStatus === "unresolved") return "Role unresolved";
+  // D074b correction: Main/Test/Mixed renders only under canonical resolved
+  // status; a kind without that provenance must not display as trusted.
+  if (roleStatus !== "resolved") return null;
   if (card.campaignKind === "main") return "Main";
   if (card.campaignKind === "test") return "Test";
   if (card.campaignKind === "mixed") return "Mixed";
@@ -93,7 +99,7 @@ function campaignKindLabel(card: BriefingCreativeCard) {
 
 function campaignKindClass(label: string | null) {
   if (label === "Test") return "chip--info";
-  if (label === "Mixed" || label === "Unlabeled") return "chip--warn";
+  if (label === "Mixed" || label === "Role unresolved") return "chip--warn";
   return "";
 }
 
@@ -123,11 +129,14 @@ export function ActionNowCard({
   const canExecuteCut = hasBriefingCanonicalNativeActionAuthority(card, "cut");
   const launchpadMode = mapBriefingPrimaryToLaunchpadMode(card);
   const hasCanonicalDecision = hasBriefingCanonicalDecision(card);
-  // Server-supplied execution CTA wins over the legacy primary label; cut
-  // stays cut (the execution CTA never overrides a cut decision).
+  // D074b correction 2: the Decision Center row's execution CTA may
+  // override the primary label only when the row's scale action is backed
+  // by a resolved automatic role that agrees with the kind; a stale or
+  // inconsistent row is provenance and the server review primary stands.
+  // Cut stays cut (the execution CTA never overrides a cut decision).
   const executionAction = cutAction || hasCanonicalDecision
     ? null
-    : (card.decisionCenterRow?.executionAction ?? null);
+    : cardCurrentRowScaleAction(card);
   const executionLabel = executionActionDisplay(executionAction);
   const canonicalReviewLabel =
     card.primary?.kind === "review" && card.primary.label

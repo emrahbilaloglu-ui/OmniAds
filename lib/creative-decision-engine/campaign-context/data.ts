@@ -12,6 +12,12 @@ import {
 type Row = Record<string, unknown>;
 
 export interface CreativeDayRow {
+  /**
+   * Physical Meta ad-account scope. Optional only for frozen/offline fixtures
+   * created before the account-scoped resolver contract; live warehouse reads
+   * always populate it.
+   */
+  providerAccountId?: string | null;
   campaignId: string;
   adsetId: string | null;
   creativeId: string;
@@ -21,6 +27,7 @@ export interface CreativeDayRow {
 }
 
 export interface CampaignMetaRow {
+  providerAccountId?: string | null;
   campaignId: string;
   campaignName: string | null;
   firstSeenDate: string | null;
@@ -94,14 +101,15 @@ export async function readCampaignContextCreativeDays(
   const rows = await getDb().query<Row>(
     `
     WITH first_spend AS (
-      SELECT creative_id, MIN(date) AS first_spend_date
+      SELECT provider_account_id, creative_id, MIN(date) AS first_spend_date
       FROM meta_creative_daily
       WHERE (business_ref_id::text = $1 OR business_id = $1)
         AND spend > 0
         AND date <= $3::date
-      GROUP BY creative_id
+      GROUP BY provider_account_id, creative_id
     )
     SELECT
+      d.provider_account_id,
       d.campaign_id,
       d.adset_id,
       d.creative_id,
@@ -109,7 +117,9 @@ export async function readCampaignContextCreativeDays(
       d.spend,
       fs.first_spend_date::text AS first_spend_date
     FROM meta_creative_daily d
-    JOIN first_spend fs ON fs.creative_id = d.creative_id
+    JOIN first_spend fs
+      ON fs.provider_account_id = d.provider_account_id
+     AND fs.creative_id = d.creative_id
     WHERE (d.business_ref_id::text = $1 OR d.business_id = $1)
       AND d.spend > 0
       AND d.campaign_id IS NOT NULL
@@ -119,6 +129,7 @@ export async function readCampaignContextCreativeDays(
   );
   return rows
     .map((row) => ({
+      providerAccountId: toText(row.provider_account_id),
       campaignId: toText(row.campaign_id) ?? "",
       adsetId: toText(row.adset_id),
       creativeId: toText(row.creative_id) ?? "",
@@ -132,39 +143,47 @@ export async function readCampaignContextCreativeDays(
 export async function readCampaignContextCampaignMeta(
   businessId: string,
   ceiling: string,
+  providerAccountId?: string | null,
 ): Promise<Map<string, CampaignMetaRow>> {
   const rows = await getDb().query<Row>(
     `
     WITH names AS (
-      SELECT DISTINCT ON (campaign_id)
+      SELECT DISTINCT ON (provider_account_id, campaign_id)
+        provider_account_id,
         campaign_id,
         COALESCE(campaign_name_current, campaign_name_historical) AS campaign_name
       FROM meta_campaign_daily
       WHERE (business_ref_id::text = $1 OR business_id = $1)
         AND date <= $2::date
-      ORDER BY campaign_id, date DESC
+        AND ($3::text IS NULL OR provider_account_id = $3)
+      ORDER BY provider_account_id, campaign_id, date DESC
     ),
     first_seen AS (
-      SELECT campaign_id, MIN(date) AS first_date
+      SELECT provider_account_id, campaign_id, MIN(date) AS first_date
       FROM meta_campaign_daily
       WHERE (business_ref_id::text = $1 OR business_id = $1)
         AND date <= $2::date
-      GROUP BY campaign_id
+        AND ($3::text IS NULL OR provider_account_id = $3)
+      GROUP BY provider_account_id, campaign_id
     )
     SELECT
+      n.provider_account_id,
       n.campaign_id,
       n.campaign_name,
       fs.first_date::text AS first_seen_date
     FROM names n
-    LEFT JOIN first_seen fs ON fs.campaign_id = n.campaign_id
+    LEFT JOIN first_seen fs
+      ON fs.provider_account_id = n.provider_account_id
+     AND fs.campaign_id = n.campaign_id
     `,
-    [businessId, ceiling],
+    [businessId, ceiling, providerAccountId ?? null],
   );
   const map = new Map<string, CampaignMetaRow>();
   for (const row of rows) {
     const campaignId = toText(row.campaign_id);
     if (!campaignId) continue;
     map.set(campaignId, {
+      providerAccountId: toText(row.provider_account_id),
       campaignId,
       campaignName: toText(row.campaign_name),
       firstSeenDate: toDateOnly(row.first_seen_date),

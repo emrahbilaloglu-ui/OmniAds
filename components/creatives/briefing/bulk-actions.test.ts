@@ -95,6 +95,7 @@ function card(
         authorizedAction: "cut",
         actionEligible: true,
         reviewOnlyReason: null,
+        executionReadiness: "live_preflight_required",
       },
     };
   }
@@ -378,14 +379,18 @@ describe("bulk briefing actions", () => {
     ).toEqual([]);
   });
 
-  it("builds bulk Launchpad URLs for 1, 3, and 5 selected creatives", () => {
+  it("refuses bulk Launchpad URLs for legacy selections of any size (D074b correction)", () => {
+    // Pre-correction these built provider-write prefill URLs for 1, 3, and 5
+    // legacy cards. The bridge now fails closed for every selection until the
+    // canonical launch-authority contract exists; the page hides the CTA and
+    // the teleport handler early-returns before this throw can be reached.
     const legacyCard = (
       overrides: Partial<DecisionOriginBriefingCard> = {},
     ) => card({ canonicalDecision: null, ...overrides });
-    expect(buildBulkLaunchpadHref([legacyCard()], "demote")).toBe(
-      "/platforms/meta/launchpad?creativeIds=creative_1&mode=demote&fromBriefing=true",
+    expect(() => buildBulkLaunchpadHref([legacyCard()], "demote")).toThrow(
+      "canonical_launch_authority_contract_required",
     );
-    expect(
+    expect(() =>
       buildBulkLaunchpadHref(
         [
           legacyCard(),
@@ -394,8 +399,8 @@ describe("bulk briefing actions", () => {
         ],
         "fresh_test",
       ),
-    ).toBe("/platforms/meta/launchpad?creativeIds=creative_1,creative_2,creative_3&mode=fresh_test&fromBriefing=true");
-    expect(
+    ).toThrow("canonical_launch_authority_contract_required");
+    expect(() =>
       buildBulkLaunchpadHref(
         [
           legacyCard(),
@@ -406,7 +411,7 @@ describe("bulk briefing actions", () => {
         ],
         "add_existing",
       ),
-    ).toBe("/platforms/meta/launchpad?creativeIds=creative_1,creative_2,creative_3,creative_4,creative_5&mode=add_existing&fromBriefing=true");
+    ).toThrow("canonical_launch_authority_contract_required");
   });
 
   it("maps selected cards into CompareDrawer metrics", () => {

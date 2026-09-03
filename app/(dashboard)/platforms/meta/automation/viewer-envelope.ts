@@ -167,3 +167,145 @@ export const AUTOMATION_VIEWER_NOT_ESTABLISHED: AutomationViewerEnvelope =
     reviewerReadOnly: false,
     writeAuthority: "not_established",
   });
+
+/**
+ * PRE-DEPLOY AUDIT — who may touch the automatic-execution MASTER switch.
+ *
+ * `buildAutomationViewerEnvelope` above answers for the controls this surface
+ * has always shown, whose routes take a `collaborator` floor. The master
+ * switch is not one of them: `set_budget_auto_execution` and
+ * `set_guardrail_policy` take `admin`, and so does arming a decision type to
+ * Tier 3. A collaborator who was shown an enabled button would be told "no" by
+ * the server after pressing it, which is the pattern this file exists to
+ * remove.
+ *
+ * It is also SURFACE-aware. The mobile pane declares itself read-only; it must
+ * therefore carry no actionable form at all, whatever the viewer's role.
+ */
+export interface BudgetMasterSwitchAuthorization {
+  /** May press Enable and may save the configuration. Admin only. */
+  canConfigure: boolean;
+  /**
+   * May press Disable. Same admin floor as enabling — the route enforces one
+   * `minRole` for the whole action — but deliberately NOT gated on readiness:
+   * a stop that readiness could refuse is not a stop.
+   */
+  canDisable: boolean;
+  /** The FIRST refusal that applies, spelled the way the route spells it. */
+  reason: string | null;
+  reasonCode:
+    | "reviewer_read_only" | "demo_business_read_only" | "demo_status_unverified"
+    | "insufficient_role" | "read_only_surface" | "viewer_not_established" | null;
+  surface: "desktop" | "mobile_read_only";
+}
+
+export const BUDGET_MASTER_SWITCH_ADMIN_REFUSAL =
+  "Changing automatic execution requires admin access on this business.";
+
+export const BUDGET_MASTER_SWITCH_MOBILE_REFUSAL =
+  "This is the read-only mobile view. Open Automation on a desktop browser to change automatic execution.";
+
+/**
+ * PRE-DEPLOY AUDIT — the render that started this correction pass. The
+ * canonical `/platforms/meta/automation` route never supplied a `viewer`
+ * prop at all, so this component always received `AUTOMATION_VIEWER_NOT_
+ * ESTABLISHED` (`role: null`). The PREVIOUS version of the function below
+ * read that as "no server fact to restate, so let the routes decide" and
+ * fell all the way through to a full grant — meaning every visitor to the
+ * production route, whatever their real role, saw the master-switch Enable /
+ * Disable / Save-preparation controls exactly as an admin would. The route's
+ * own 403 on the eventual POST is not a defense here: showing a live control
+ * that the server will refuse is the precise defect this surface exists to
+ * remove, and it is not undone by the request failing one step later.
+ */
+export const BUDGET_MASTER_SWITCH_VIEWER_UNESTABLISHED_REFUSAL =
+  "This render has no verified viewer identity, so automatic execution controls stay held. Open Automation from an authorized business page.";
+
+/**
+ * PRE-DEPLOY AUDIT — an ALLOWLIST, not a denylist.
+ *
+ * The grant is the FIRST thing decided, from an explicit conjunction of every
+ * fact required, and it is the ONLY place in this function that returns
+ * `canConfigure`/`canDisable: true`. Every other path — including one this
+ * function has never had to name before, `viewer.role === null` — refuses.
+ * `viewer.canMutate` and `viewer.reason === null` are equivalent by
+ * construction in `buildAutomationViewerEnvelope` (`canMutate: reason ===
+ * null`), so checking both is redundant on purpose: if a future edit ever
+ * lets that invariant drift, this still fails closed on whichever one is
+ * false rather than trusting the other.
+ */
+export function buildBudgetMasterSwitchAuthorization(input: {
+  viewer: AutomationViewerEnvelope;
+  surface: "desktop" | "mobile_read_only";
+}): BudgetMasterSwitchAuthorization {
+  const { viewer, surface } = input;
+
+  const grantedAdmin =
+    surface === "desktop"
+    && viewer.role === "admin"
+    && viewer.canMutate === true
+    && viewer.reason === null;
+
+  if (grantedAdmin) {
+    return {
+      canConfigure: true,
+      canDisable: true,
+      reason: null,
+      reasonCode: null,
+      surface,
+    };
+  }
+
+  // The read-only surface is a fact about the pane, not about the person,
+  // and it cannot be argued with — checked first among the refusals so it
+  // is never shadowed by a role-shaped explanation that would be misleading
+  // on a pane that refuses unconditionally.
+  if (surface === "mobile_read_only") {
+    return {
+      canConfigure: false,
+      canDisable: false,
+      reason: BUDGET_MASTER_SWITCH_MOBILE_REFUSAL,
+      reasonCode: "read_only_surface",
+      surface,
+    };
+  }
+
+  // The caller's own named refusal (reviewer / demo / unverified /
+  // insufficient role), restated verbatim rather than re-derived.
+  if (viewer.reason !== null) {
+    return {
+      canConfigure: false,
+      canDisable: false,
+      reason: viewer.reason,
+      reasonCode: viewer.reasonCode,
+      surface,
+    };
+  }
+
+  /*
+    `viewer.role === null` is the preserved legacy mount with no server fact
+    established for this render — "not established" is NOT "admin", and it
+    is no longer treated as one. This is the exact case the whole correction
+    pass exists to close.
+  */
+  if (viewer.role === null) {
+    return {
+      canConfigure: false,
+      canDisable: false,
+      reason: BUDGET_MASTER_SWITCH_VIEWER_UNESTABLISHED_REFUSAL,
+      reasonCode: "viewer_not_established",
+      surface,
+    };
+  }
+
+  // An ESTABLISHED role below admin, or a `reason === null` viewer whose role
+  // is established but not `"admin"` — either way, named and refused rather
+  // than defaulted through.
+  return {
+    canConfigure: false,
+    canDisable: false,
+    reason: BUDGET_MASTER_SWITCH_ADMIN_REFUSAL,
+    reasonCode: "insufficient_role",
+    surface,
+  };
+}

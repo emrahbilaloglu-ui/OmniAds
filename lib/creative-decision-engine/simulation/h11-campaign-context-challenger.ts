@@ -53,6 +53,7 @@ function cloneDefaultConfig(): ContextResolverConfig {
     floors: { ...DEFAULT_CONTEXT_CONFIG.floors },
     thresholds: { ...DEFAULT_CONTEXT_CONFIG.thresholds },
     mixed: { ...DEFAULT_CONTEXT_CONFIG.mixed },
+    strongTestSignature: { ...DEFAULT_CONTEXT_CONFIG.strongTestSignature },
   };
 }
 

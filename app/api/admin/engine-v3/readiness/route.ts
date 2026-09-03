@@ -4,7 +4,12 @@ import { getDb, type DbClient } from "@/lib/db";
 import {
   resolveAccountDecisionProfile,
 } from "@/lib/creative-decision-engine/account-decision-profile";
+import {
+  CAMPAIGN_CONTEXT_MAX_AGE_DAYS,
+  campaignContextAuthorityResolverVersion,
+} from "@/lib/creative-decision-engine/campaign-context/source";
 import { WarehouseDataSource } from "@/lib/creative-decision-engine/data-source";
+import type { CommercialAnchorExplanation } from "@/lib/creative-decision-engine/commercial-anchor";
 import {
   resolveEngineV3Flags,
   type EngineV3Flags,
@@ -91,6 +96,25 @@ interface ReadinessAccountProfile {
     calibrationReady: boolean;
     metaAovQuality: OutputMetaAovQuality;
     thresholdQuality: OutputThresholdQuality;
+  };
+  /**
+   * The canonical commercial-anchor explanation from
+   * `AccountDecisionProfile.hardActionEligibility.anchor`, verbatim: resolved
+   * spend unit, source, confidence, target provenance, full input lineage, the
+   * missing inputs, and the per-action blocker codes. Null when the profile
+   * predates the contract; absence is never read as eligible.
+   */
+  commercialAnchor: CommercialAnchorExplanation | null;
+  /** The profile's effective per-action decision and its stable codes. */
+  hardActionEligibility: {
+    scale: boolean;
+    cut: boolean;
+    refresh: boolean;
+    codes: {
+      scale: string | null;
+      cut: string | null;
+      refresh: string | null;
+    };
   };
 }
 
@@ -522,13 +546,13 @@ async function readDecisionsSummary(db: DbClient, businessId: string) {
         CASE
           WHEN snapshots.label IN ('scale', 'refresh', 'cut')
             AND lifecycle.campaign_id IS NOT NULL
-            AND labels.campaign_id IS NULL
+            AND campaign_context.trusted IS DISTINCT FROM true
           THEN 'diagnose'
           ELSE snapshots.label
         END AS label
       FROM snapshots
       LEFT JOIN LATERAL (
-        SELECT lifecycle.campaign_id
+        SELECT lifecycle.campaign_id, lifecycle.provider_account_id
         FROM engine_v3_creative_lifecycle_daily lifecycle
         WHERE lifecycle.business_ref_id = snapshots.business_ref_id
           AND lifecycle.creative_id = snapshots.creative_id
@@ -537,9 +561,25 @@ async function readDecisionsSummary(db: DbClient, businessId: string) {
         ORDER BY lifecycle.as_of_date DESC, lifecycle.computed_at DESC
         LIMIT 1
       ) lifecycle ON true
-      LEFT JOIN meta_campaign_labels labels
-        ON labels.business_id = COALESCE(snapshots.business_id, snapshots.business_ref_id::text)
-       AND labels.campaign_id = lifecycle.campaign_id
+      LEFT JOIN LATERAL (
+        SELECT true AS trusted
+        FROM engine_v3_campaign_context_daily context
+        WHERE context.business_id = COALESCE(
+            snapshots.business_id,
+            snapshots.business_ref_id::text
+          )
+          AND context.provider_account_id = lifecycle.provider_account_id
+          AND context.campaign_id = lifecycle.campaign_id
+          AND context.as_of_date <= snapshots.as_of_date
+          AND context.as_of_date >= (
+            snapshots.as_of_date - (${CAMPAIGN_CONTEXT_MAX_AGE_DAYS} * INTERVAL '1 day')
+          )
+          AND context.inferred_kind IS NOT NULL
+          AND context.confidence_class = 'high'
+          AND context.resolver_version = $2::text
+        ORDER BY context.as_of_date DESC, context.updated_at DESC, context.id DESC
+        LIMIT 1
+      ) campaign_context ON true
     )
     SELECT
       COUNT(*) FILTER (WHERE computed_at > NOW() - INTERVAL '24 hours') AS last_24h,
@@ -554,7 +594,7 @@ async function readDecisionsSummary(db: DbClient, businessId: string) {
       ) AS hard_action_count
     FROM guarded
     `,
-    [businessId],
+    [businessId, campaignContextAuthorityResolverVersion()],
   );
 
   return {
@@ -604,6 +644,9 @@ function mapAccountProfile(
   matureCount: number | null,
 ): ReadinessAccountProfile {
   const aov = resolveAov(profile);
+  const eligibility = profile.hardActionEligibility as
+    | AccountDecisionProfile["hardActionEligibility"]
+    | undefined;
 
   return {
     spendUnit: profile.spendUnit,
@@ -619,6 +662,20 @@ function mapAccountProfile(
       calibrationReady: profile.quality.calibrationReady,
       metaAovQuality: mapMetaAovQuality(profile.quality.metaAovQuality),
       thresholdQuality: mapThresholdQuality(profile.quality.thresholdQuality),
+    },
+    // Defensive: a readiness read must degrade to "unknown", never 500, if a
+    // profile arrives without its eligibility block. Absence is reported as
+    // ineligible with no code — it is never read as eligible.
+    commercialAnchor: eligibility?.anchor ?? null,
+    hardActionEligibility: {
+      scale: eligibility?.scale ?? false,
+      cut: eligibility?.cut ?? false,
+      refresh: eligibility?.refresh ?? false,
+      codes: {
+        scale: eligibility?.codes?.scale ?? null,
+        cut: eligibility?.codes?.cut ?? null,
+        refresh: eligibility?.codes?.refresh ?? null,
+      },
     },
   };
 }
@@ -666,6 +723,26 @@ function buildGating(input: {
     canEvaluate: reasons.length === 0,
     reasons,
   };
+}
+
+/**
+ * D077 read-only readiness contract for the state-history growth-fence
+ * recovery — served from the shared server-owned read model
+ * (lib/meta/state-history-compaction-readiness.ts). Display-only: the UI
+ * renders these fields and must not execute compaction or compute safety
+ * itself. Approval status can only progress through the operator CLI; this
+ * route never returns a token or anything executable. Journal state is
+ * business-scoped, and D075 writer evidence is MEASURED (manifest_kind
+ * presence), never asserted from an assumption.
+ */
+async function readCompactionReadinessSection(
+  db: DbClient,
+  businessId: string,
+) {
+  const { readStateHistoryCompactionReadiness } = await import(
+    "@/lib/meta/state-history-compaction-readiness"
+  );
+  return readStateHistoryCompactionReadiness(db, { businessId });
 }
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
@@ -739,6 +816,10 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       accountProfile,
       jobs,
     });
+    const stateHistoryCompaction = await readCompactionReadinessSection(
+      db,
+      business.id,
+    );
 
     return noStoreJson({
       businessId: business.id,
@@ -751,6 +832,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       decisionsSummary,
       gating,
       nativeAd,
+      stateHistoryCompaction,
     });
   } catch (error) {
     console.error("[admin/engine-v3/readiness GET]", error);

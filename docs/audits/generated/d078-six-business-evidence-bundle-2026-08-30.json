@@ -1,0 +1,3196 @@
+{
+ "bundleHash": "13074631deb57836cabc3831f37172f85508c629bf16ac5d11a054be3e760be1",
+ "contract": "adsecute.meta.d078-six-business-evidence-bundle.v3",
+ "generatedFor": "D078 six-business Meta decision + UI readiness acceptance",
+ "operatingClass": "read_only",
+ "businesses": [
+  {
+   "name": "IwaStore",
+   "businessId": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2"
+  },
+  {
+   "name": "Grandmix",
+   "businessId": "5dbc7147-f051-4681-a4d6-20617170074f"
+  },
+  {
+   "name": "Bilsem Zeka",
+   "businessId": "6c690fa4-6395-40b5-9755-e99b34d69bc3"
+  },
+  {
+   "name": "TheSwaf",
+   "businessId": "172d0ab8-495b-4679-a4c6-ffa404c389d3"
+  },
+  {
+   "name": "IwaTR",
+   "businessId": "b79683b4-6f87-48c0-a3ca-44d4356fef51"
+  },
+  {
+   "name": "ColorFullWorldsTR",
+   "businessId": "bc0c6178-7853-4f6f-b026-ef0222a4b9e7"
+  }
+ ],
+ "scopeContract": {
+  "charterBusinessIds": [
+   "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+   "5dbc7147-f051-4681-a4d6-20617170074f",
+   "6c690fa4-6395-40b5-9755-e99b34d69bc3",
+   "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+   "b79683b4-6f87-48c0-a3ca-44d4356fef51",
+   "bc0c6178-7853-4f6f-b026-ef0222a4b9e7"
+  ],
+  "charterAccountIds": [
+   "act_1087566732415606",
+   "act_805150454596350",
+   "act_840779107261785",
+   "act_822913786458311",
+   "act_921275999286619",
+   "act_2335220976649516",
+   "act_3554615364751964"
+  ],
+  "charterAssignments": {
+   "f8a3b5ac-588c-462f-8702-11cd24ff3cd2": [
+    "act_1087566732415606"
+   ],
+   "5dbc7147-f051-4681-a4d6-20617170074f": [
+    "act_805150454596350"
+   ],
+   "6c690fa4-6395-40b5-9755-e99b34d69bc3": [
+    "act_840779107261785"
+   ],
+   "172d0ab8-495b-4679-a4c6-ffa404c389d3": [
+    "act_822913786458311",
+    "act_921275999286619"
+   ],
+   "b79683b4-6f87-48c0-a3ca-44d4356fef51": [
+    "act_2335220976649516"
+   ],
+   "bc0c6178-7853-4f6f-b026-ef0222a4b9e7": [
+    "act_3554615364751964"
+   ]
+  },
+  "rule": "Every business_id / provider_account_id occurring outside payload.fleetGlobal must belong to the lists above (or be null), and every row carrying BOTH must be one of the seven pinned business->account assignments exactly. payload.fleetGlobal carries explicitly-labelled fleet facts only."
+ },
+ "localWorktree": {
+  "gitHead": "babf158e150fd33057117b39b175da044ac62d2e",
+  "dirtyEntries": 212
+ },
+ "payload": {
+  "retrievedAt": "2026-08-30 05:42:39.349145+00",
+  "transactionIsolation": "repeatable read",
+  "identity": {
+   "businesses": [
+    {
+     "business_id": "6c690fa4-6395-40b5-9755-e99b34d69bc3",
+     "name": "Bilsem Zeka",
+     "timezone": null,
+     "timezone_source": null,
+     "currency": "TRY",
+     "is_demo_business": false
+    },
+    {
+     "business_id": "bc0c6178-7853-4f6f-b026-ef0222a4b9e7",
+     "name": "ColorFullWorldsTR",
+     "timezone": null,
+     "timezone_source": null,
+     "currency": "USD",
+     "is_demo_business": false
+    },
+    {
+     "business_id": "5dbc7147-f051-4681-a4d6-20617170074f",
+     "name": "Grandmix",
+     "timezone": "America/Los_Angeles",
+     "timezone_source": "shopify",
+     "currency": "USD",
+     "is_demo_business": false
+    },
+    {
+     "business_id": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+     "name": "IwaStore",
+     "timezone": "America/Los_Angeles",
+     "timezone_source": "shopify",
+     "currency": "USD",
+     "is_demo_business": false
+    },
+    {
+     "business_id": "b79683b4-6f87-48c0-a3ca-44d4356fef51",
+     "name": "IwaTR",
+     "timezone": null,
+     "timezone_source": null,
+     "currency": "USD",
+     "is_demo_business": false
+    },
+    {
+     "business_id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+     "name": "TheSwaf",
+     "timezone": "America/New_York",
+     "timezone_source": "shopify",
+     "currency": "USD",
+     "is_demo_business": false
+    }
+   ],
+   "accounts": [
+    {
+     "business_id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+     "provider_account_id": "act_822913786458311",
+     "is_selected": true,
+     "position": 0,
+     "assignment_updated_at": "2026-08-22 05:58:27.593637+00"
+    },
+    {
+     "business_id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+     "provider_account_id": "act_921275999286619",
+     "is_selected": false,
+     "position": 0,
+     "assignment_updated_at": "2026-08-21 21:29:28.076494+00"
+    },
+    {
+     "business_id": "5dbc7147-f051-4681-a4d6-20617170074f",
+     "provider_account_id": "act_805150454596350",
+     "is_selected": true,
+     "position": 0,
+     "assignment_updated_at": "2026-04-14 22:27:31.954729+00"
+    },
+    {
+     "business_id": "6c690fa4-6395-40b5-9755-e99b34d69bc3",
+     "provider_account_id": "act_840779107261785",
+     "is_selected": true,
+     "position": 0,
+     "assignment_updated_at": "2026-04-14 22:29:55.258212+00"
+    },
+    {
+     "business_id": "b79683b4-6f87-48c0-a3ca-44d4356fef51",
+     "provider_account_id": "act_2335220976649516",
+     "is_selected": true,
+     "position": 0,
+     "assignment_updated_at": "2026-04-22 14:43:00.081308+00"
+    },
+    {
+     "business_id": "bc0c6178-7853-4f6f-b026-ef0222a4b9e7",
+     "provider_account_id": "act_3554615364751964",
+     "is_selected": true,
+     "position": 0,
+     "assignment_updated_at": "2026-04-22 14:46:17.206929+00"
+    },
+    {
+     "business_id": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+     "provider_account_id": "act_1087566732415606",
+     "is_selected": true,
+     "position": 0,
+     "assignment_updated_at": "2026-04-14 22:28:14.388033+00"
+    }
+   ],
+   "accountIdentity": [
+    {
+     "business_id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+     "provider_account_id": "act_822913786458311",
+     "account_name": "TheSwaf-Main",
+     "account_timezone": "America/Chicago",
+     "account_currency": "USD",
+     "latest_fact_date": "2026-08-21"
+    },
+    {
+     "business_id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+     "provider_account_id": "act_921275999286619",
+     "account_name": "TheSwaf-NonTesvik",
+     "account_timezone": "America/Chicago",
+     "account_currency": "USD",
+     "latest_fact_date": "2026-08-20"
+    },
+    {
+     "business_id": "5dbc7147-f051-4681-a4d6-20617170074f",
+     "provider_account_id": "act_805150454596350",
+     "account_name": "Grandmix",
+     "account_timezone": "America/Anchorage",
+     "account_currency": "USD",
+     "latest_fact_date": "2026-08-21"
+    },
+    {
+     "business_id": "6c690fa4-6395-40b5-9755-e99b34d69bc3",
+     "provider_account_id": "act_840779107261785",
+     "account_name": "BİLSEM ZEKA-1",
+     "account_timezone": "Europe/Istanbul",
+     "account_currency": "TRY",
+     "latest_fact_date": "2026-08-21"
+    },
+    {
+     "business_id": "b79683b4-6f87-48c0-a3ca-44d4356fef51",
+     "provider_account_id": "act_2335220976649516",
+     "account_name": "IWA-TR",
+     "account_timezone": "Europe/Istanbul",
+     "account_currency": "USD",
+     "latest_fact_date": "2026-08-21"
+    },
+    {
+     "business_id": "bc0c6178-7853-4f6f-b026-ef0222a4b9e7",
+     "provider_account_id": "act_3554615364751964",
+     "account_name": "ColorfullworldsTR",
+     "account_timezone": "Europe/Istanbul",
+     "account_currency": "USD",
+     "latest_fact_date": "2026-08-21"
+    },
+    {
+     "business_id": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+     "provider_account_id": "act_1087566732415606",
+     "account_name": "IWA-MDNLLC",
+     "account_timezone": "America/Los_Angeles",
+     "account_currency": "USD",
+     "latest_fact_date": "2026-08-21"
+    }
+   ],
+   "accountSpend14": [
+    {
+     "business_id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+     "provider_account_id": "act_822913786458311",
+     "window_end": "2026-08-21",
+     "window_start": "2026-08-08",
+     "account_currency": "USD",
+     "spend_14d": 33887.25,
+     "revenue_14d": 46441.310000000005,
+     "conversions_14d": 258
+    },
+    {
+     "business_id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+     "provider_account_id": "act_921275999286619",
+     "window_end": "2026-08-20",
+     "window_start": "2026-08-07",
+     "account_currency": "USD",
+     "spend_14d": 1652.2900000000004,
+     "revenue_14d": 4138.79,
+     "conversions_14d": 20
+    },
+    {
+     "business_id": "5dbc7147-f051-4681-a4d6-20617170074f",
+     "provider_account_id": "act_805150454596350",
+     "window_end": "2026-08-21",
+     "window_start": "2026-08-08",
+     "account_currency": "USD",
+     "spend_14d": 22503.210000000003,
+     "revenue_14d": 47033.579999999994,
+     "conversions_14d": 221
+    },
+    {
+     "business_id": "6c690fa4-6395-40b5-9755-e99b34d69bc3",
+     "provider_account_id": "act_840779107261785",
+     "window_end": "2026-08-21",
+     "window_start": "2026-08-08",
+     "account_currency": "TRY",
+     "spend_14d": 252131.93,
+     "revenue_14d": 1548882,
+     "conversions_14d": 120
+    },
+    {
+     "business_id": "b79683b4-6f87-48c0-a3ca-44d4356fef51",
+     "provider_account_id": "act_2335220976649516",
+     "window_end": "2026-08-21",
+     "window_start": "2026-08-08",
+     "account_currency": "USD",
+     "spend_14d": 840.4600000000002,
+     "revenue_14d": 4856.19,
+     "conversions_14d": 75
+    },
+    {
+     "business_id": "bc0c6178-7853-4f6f-b026-ef0222a4b9e7",
+     "provider_account_id": "act_3554615364751964",
+     "window_end": "2026-08-21",
+     "window_start": "2026-08-08",
+     "account_currency": "USD",
+     "spend_14d": 865.1499999999999,
+     "revenue_14d": 5708.4,
+     "conversions_14d": 48
+    },
+    {
+     "business_id": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+     "provider_account_id": "act_1087566732415606",
+     "window_end": "2026-08-21",
+     "window_start": "2026-08-08",
+     "account_currency": "USD",
+     "spend_14d": 3394.0000000000005,
+     "revenue_14d": 18377.55,
+     "conversions_14d": 110
+    }
+   ]
+  },
+  "freshnessClocks": {
+   "warehouseFreshness": [
+    {
+     "business_id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+     "provider_account_id": "act_822913786458311",
+     "max_fact_date": "2026-08-21",
+     "max_finalized_date": "2026-08-21",
+     "max_row_updated_at": "2026-08-22 14:48:07.322716+00"
+    },
+    {
+     "business_id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+     "provider_account_id": "act_921275999286619",
+     "max_fact_date": "2026-08-20",
+     "max_finalized_date": "2026-08-20",
+     "max_row_updated_at": "2026-08-21 21:27:42.090549+00"
+    },
+    {
+     "business_id": "5dbc7147-f051-4681-a4d6-20617170074f",
+     "provider_account_id": "act_805150454596350",
+     "max_fact_date": "2026-08-21",
+     "max_finalized_date": "2026-08-21",
+     "max_row_updated_at": "2026-08-22 14:48:56.54454+00"
+    },
+    {
+     "business_id": "6c690fa4-6395-40b5-9755-e99b34d69bc3",
+     "provider_account_id": "act_840779107261785",
+     "max_fact_date": "2026-08-21",
+     "max_finalized_date": "2026-08-21",
+     "max_row_updated_at": "2026-08-22 14:44:37.044244+00"
+    },
+    {
+     "business_id": "b79683b4-6f87-48c0-a3ca-44d4356fef51",
+     "provider_account_id": "act_2335220976649516",
+     "max_fact_date": "2026-08-21",
+     "max_finalized_date": "2026-08-21",
+     "max_row_updated_at": "2026-08-22 14:45:43.620362+00"
+    },
+    {
+     "business_id": "bc0c6178-7853-4f6f-b026-ef0222a4b9e7",
+     "provider_account_id": "act_3554615364751964",
+     "max_fact_date": "2026-08-21",
+     "max_finalized_date": "2026-08-21",
+     "max_row_updated_at": "2026-08-22 14:45:56.995124+00"
+    },
+    {
+     "business_id": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+     "provider_account_id": "act_1087566732415606",
+     "max_fact_date": "2026-08-21",
+     "max_finalized_date": "2026-08-21",
+     "max_row_updated_at": "2026-08-22 14:49:33.411007+00"
+    }
+   ],
+   "syncFreshness": [
+    {
+     "business_id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+     "provider_account_id": "act_822913786458311",
+     "last_succeeded_at": "2026-08-22 14:53:08.9+00",
+     "last_any_finished_at": "2026-08-22 14:53:08.9+00"
+    },
+    {
+     "business_id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+     "provider_account_id": "act_921275999286619",
+     "last_succeeded_at": "2026-08-21 21:27:43.805+00",
+     "last_any_finished_at": "2026-08-21 21:27:43.805+00"
+    },
+    {
+     "business_id": "5dbc7147-f051-4681-a4d6-20617170074f",
+     "provider_account_id": "act_805150454596350",
+     "last_succeeded_at": "2026-08-22 14:53:53.925+00",
+     "last_any_finished_at": "2026-08-22 14:53:53.925+00"
+    },
+    {
+     "business_id": "6c690fa4-6395-40b5-9755-e99b34d69bc3",
+     "provider_account_id": "act_840779107261785",
+     "last_succeeded_at": "2026-08-22 14:50:34.546+00",
+     "last_any_finished_at": "2026-08-22 14:50:34.546+00"
+    },
+    {
+     "business_id": "b79683b4-6f87-48c0-a3ca-44d4356fef51",
+     "provider_account_id": "act_2335220976649516",
+     "last_succeeded_at": "2026-08-22 14:51:15.124+00",
+     "last_any_finished_at": "2026-08-22 14:51:15.124+00"
+    },
+    {
+     "business_id": "bc0c6178-7853-4f6f-b026-ef0222a4b9e7",
+     "provider_account_id": "act_3554615364751964",
+     "last_succeeded_at": "2026-08-22 14:51:23.462+00",
+     "last_any_finished_at": "2026-08-22 14:51:23.462+00"
+    },
+    {
+     "business_id": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+     "provider_account_id": "act_1087566732415606",
+     "last_succeeded_at": "2026-08-22 14:49:45.254+00",
+     "last_any_finished_at": "2026-08-22 14:49:45.254+00"
+    }
+   ],
+   "syncTail": [
+    {
+     "business_id": "5dbc7147-f051-4681-a4d6-20617170074f",
+     "provider_account_id": "act_805150454596350",
+     "lane": "maintenance",
+     "scope": "account_daily",
+     "status": "succeeded",
+     "error_class": null,
+     "finished_at": "2026-08-22 14:53:53.925+00"
+    },
+    {
+     "business_id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+     "provider_account_id": "act_822913786458311",
+     "lane": "maintenance",
+     "scope": "account_daily",
+     "status": "succeeded",
+     "error_class": null,
+     "finished_at": "2026-08-22 14:53:08.9+00"
+    },
+    {
+     "business_id": "bc0c6178-7853-4f6f-b026-ef0222a4b9e7",
+     "provider_account_id": "act_3554615364751964",
+     "lane": "maintenance",
+     "scope": "account_daily",
+     "status": "succeeded",
+     "error_class": null,
+     "finished_at": "2026-08-22 14:51:23.462+00"
+    },
+    {
+     "business_id": "b79683b4-6f87-48c0-a3ca-44d4356fef51",
+     "provider_account_id": "act_2335220976649516",
+     "lane": "maintenance",
+     "scope": "account_daily",
+     "status": "succeeded",
+     "error_class": null,
+     "finished_at": "2026-08-22 14:51:15.124+00"
+    },
+    {
+     "business_id": "6c690fa4-6395-40b5-9755-e99b34d69bc3",
+     "provider_account_id": "act_840779107261785",
+     "lane": "maintenance",
+     "scope": "account_daily",
+     "status": "succeeded",
+     "error_class": null,
+     "finished_at": "2026-08-22 14:50:34.546+00"
+    },
+    {
+     "business_id": "6c690fa4-6395-40b5-9755-e99b34d69bc3",
+     "provider_account_id": "act_840779107261785",
+     "lane": "maintenance",
+     "scope": "account_daily",
+     "status": "failed",
+     "error_class": "lease_conflict",
+     "finished_at": "2026-08-22 14:50:09.359+00"
+    },
+    {
+     "business_id": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+     "provider_account_id": "act_1087566732415606",
+     "lane": "maintenance",
+     "scope": "account_daily",
+     "status": "succeeded",
+     "error_class": null,
+     "finished_at": "2026-08-22 14:49:45.254+00"
+    },
+    {
+     "business_id": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+     "provider_account_id": "act_1087566732415606",
+     "lane": "maintenance",
+     "scope": "account_daily",
+     "status": "succeeded",
+     "error_class": null,
+     "finished_at": "2026-08-22 14:49:36.009+00"
+    }
+   ],
+   "observationFreshness": [
+    {
+     "business_id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+     "provider_account_id": "act_822913786458311",
+     "entity_type": "ad",
+     "last_complete_observed_at": "2026-08-22 06:02:04.762+00",
+     "last_any_observed_at": "2026-08-22 06:02:04.762+00"
+    },
+    {
+     "business_id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+     "provider_account_id": "act_822913786458311",
+     "entity_type": "adset",
+     "last_complete_observed_at": "2026-08-22 14:22:56.522+00",
+     "last_any_observed_at": "2026-08-22 14:22:56.522+00"
+    },
+    {
+     "business_id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+     "provider_account_id": "act_822913786458311",
+     "entity_type": "campaign",
+     "last_complete_observed_at": "2026-08-22 06:02:01.012+00",
+     "last_any_observed_at": "2026-08-22 06:02:01.012+00"
+    },
+    {
+     "business_id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+     "provider_account_id": "act_921275999286619",
+     "entity_type": "ad",
+     "last_complete_observed_at": "2026-08-21 03:52:44.489+00",
+     "last_any_observed_at": "2026-08-21 03:52:44.489+00"
+    },
+    {
+     "business_id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+     "provider_account_id": "act_921275999286619",
+     "entity_type": "adset",
+     "last_complete_observed_at": "2026-08-21 03:52:44.195+00",
+     "last_any_observed_at": "2026-08-21 03:52:44.195+00"
+    },
+    {
+     "business_id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+     "provider_account_id": "act_921275999286619",
+     "entity_type": "campaign",
+     "last_complete_observed_at": "2026-08-21 03:52:44.065+00",
+     "last_any_observed_at": "2026-08-21 03:52:44.065+00"
+    },
+    {
+     "business_id": "5dbc7147-f051-4681-a4d6-20617170074f",
+     "provider_account_id": "act_805150454596350",
+     "entity_type": "ad",
+     "last_complete_observed_at": "2026-08-22 14:53:48.414+00",
+     "last_any_observed_at": "2026-08-22 14:53:48.414+00"
+    },
+    {
+     "business_id": "5dbc7147-f051-4681-a4d6-20617170074f",
+     "provider_account_id": "act_805150454596350",
+     "entity_type": "adset",
+     "last_complete_observed_at": "2026-08-22 13:32:37.789+00",
+     "last_any_observed_at": "2026-08-22 14:13:25.522+00"
+    },
+    {
+     "business_id": "5dbc7147-f051-4681-a4d6-20617170074f",
+     "provider_account_id": "act_805150454596350",
+     "entity_type": "campaign",
+     "last_complete_observed_at": "2026-08-21 16:02:20.302+00",
+     "last_any_observed_at": "2026-08-21 16:02:20.302+00"
+    },
+    {
+     "business_id": "6c690fa4-6395-40b5-9755-e99b34d69bc3",
+     "provider_account_id": "act_840779107261785",
+     "entity_type": "ad",
+     "last_complete_observed_at": "2026-08-22 06:44:45.187+00",
+     "last_any_observed_at": "2026-08-22 06:44:45.187+00"
+    },
+    {
+     "business_id": "6c690fa4-6395-40b5-9755-e99b34d69bc3",
+     "provider_account_id": "act_840779107261785",
+     "entity_type": "adset",
+     "last_complete_observed_at": "2026-08-22 14:19:20.605+00",
+     "last_any_observed_at": "2026-08-22 14:19:20.605+00"
+    },
+    {
+     "business_id": "6c690fa4-6395-40b5-9755-e99b34d69bc3",
+     "provider_account_id": "act_840779107261785",
+     "entity_type": "campaign",
+     "last_complete_observed_at": "2026-08-22 03:57:59.679+00",
+     "last_any_observed_at": "2026-08-22 03:57:59.679+00"
+    },
+    {
+     "business_id": "b79683b4-6f87-48c0-a3ca-44d4356fef51",
+     "provider_account_id": "act_2335220976649516",
+     "entity_type": "ad",
+     "last_complete_observed_at": "2026-08-22 07:56:27.107+00",
+     "last_any_observed_at": "2026-08-22 07:56:27.107+00"
+    },
+    {
+     "business_id": "b79683b4-6f87-48c0-a3ca-44d4356fef51",
+     "provider_account_id": "act_2335220976649516",
+     "entity_type": "adset",
+     "last_complete_observed_at": "2026-08-22 14:30:56.598+00",
+     "last_any_observed_at": "2026-08-22 14:30:56.598+00"
+    },
+    {
+     "business_id": "b79683b4-6f87-48c0-a3ca-44d4356fef51",
+     "provider_account_id": "act_2335220976649516",
+     "entity_type": "campaign",
+     "last_complete_observed_at": "2026-08-22 03:59:04.375+00",
+     "last_any_observed_at": "2026-08-22 03:59:04.375+00"
+    },
+    {
+     "business_id": "bc0c6178-7853-4f6f-b026-ef0222a4b9e7",
+     "provider_account_id": "act_3554615364751964",
+     "entity_type": "ad",
+     "last_complete_observed_at": "2026-08-22 03:59:18.922+00",
+     "last_any_observed_at": "2026-08-22 03:59:18.922+00"
+    },
+    {
+     "business_id": "bc0c6178-7853-4f6f-b026-ef0222a4b9e7",
+     "provider_account_id": "act_3554615364751964",
+     "entity_type": "adset",
+     "last_complete_observed_at": "2026-08-22 12:20:41.174+00",
+     "last_any_observed_at": "2026-08-22 12:20:41.174+00"
+    },
+    {
+     "business_id": "bc0c6178-7853-4f6f-b026-ef0222a4b9e7",
+     "provider_account_id": "act_3554615364751964",
+     "entity_type": "campaign",
+     "last_complete_observed_at": "2026-08-22 03:59:17.623+00",
+     "last_any_observed_at": "2026-08-22 03:59:17.623+00"
+    },
+    {
+     "business_id": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+     "provider_account_id": "act_1087566732415606",
+     "entity_type": "ad",
+     "last_complete_observed_at": "2026-08-22 13:43:19.855+00",
+     "last_any_observed_at": "2026-08-22 13:43:19.855+00"
+    },
+    {
+     "business_id": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+     "provider_account_id": "act_1087566732415606",
+     "entity_type": "adset",
+     "last_complete_observed_at": "2026-08-22 14:24:01.811+00",
+     "last_any_observed_at": "2026-08-22 14:24:01.811+00"
+    },
+    {
+     "business_id": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+     "provider_account_id": "act_1087566732415606",
+     "entity_type": "campaign",
+     "last_complete_observed_at": "2026-08-22 03:57:20.606+00",
+     "last_any_observed_at": "2026-08-22 03:57:20.606+00"
+    }
+   ],
+   "osSnapshotFreshness": [
+    {
+     "business_id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+     "surface": "creative",
+     "status": "ready",
+     "decision_as_of": "2026-05-01",
+     "generated_at": "2026-05-02 11:55:22.868+00"
+    },
+    {
+     "business_id": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+     "surface": "creative",
+     "status": "ready",
+     "decision_as_of": "2026-04-30",
+     "generated_at": "2026-05-01 20:30:50.139+00"
+    }
+   ],
+   "recommendationFreshness": [
+    {
+     "business_id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+     "max_snapshot_date": "2026-08-26",
+     "max_created_at": "2026-08-26 17:42:17.867545+00",
+     "total_rows": 22465
+    },
+    {
+     "business_id": "5dbc7147-f051-4681-a4d6-20617170074f",
+     "max_snapshot_date": "2026-08-22",
+     "max_created_at": "2026-08-22 03:51:22.261031+00",
+     "total_rows": 121076
+    },
+    {
+     "business_id": "6c690fa4-6395-40b5-9755-e99b34d69bc3",
+     "max_snapshot_date": "2026-08-26",
+     "max_created_at": "2026-08-26 06:24:23.447002+00",
+     "total_rows": 63266
+    },
+    {
+     "business_id": "b79683b4-6f87-48c0-a3ca-44d4356fef51",
+     "max_snapshot_date": "2026-08-22",
+     "max_created_at": "2026-08-22 03:51:03.631366+00",
+     "total_rows": 3209
+    },
+    {
+     "business_id": "bc0c6178-7853-4f6f-b026-ef0222a4b9e7",
+     "max_snapshot_date": "2026-08-22",
+     "max_created_at": "2026-08-22 03:51:09.557126+00",
+     "total_rows": 8737
+    },
+    {
+     "business_id": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+     "max_snapshot_date": "2026-08-24",
+     "max_created_at": "2026-08-24 16:16:13.164515+00",
+     "total_rows": 16667
+    }
+   ]
+  },
+  "scheduler": {
+   "syncIncidents": [
+    {
+     "business_id": "5dbc7147-f051-4681-a4d6-20617170074f",
+     "provider_scope": "meta",
+     "fault_class": "dead_letter_backlog",
+     "status": "eligible",
+     "blocker_class": "queue_blocked",
+     "observation_count": 5635,
+     "first_seen_at": "2026-04-20 18:29:48.874+00",
+     "last_seen_at": "2026-04-29 21:27:59.743+00",
+     "cleared_at": "2026-04-28 09:44:53.711+00"
+    },
+    {
+     "business_id": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+     "provider_scope": "meta",
+     "fault_class": "dead_letter_backlog",
+     "status": "cleared",
+     "blocker_class": "queue_blocked",
+     "observation_count": 4989,
+     "first_seen_at": "2026-04-20 18:28:52.136+00",
+     "last_seen_at": "2026-04-28 09:58:05.835+00",
+     "cleared_at": "2026-04-28 09:58:05.835+00"
+    },
+    {
+     "business_id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+     "provider_scope": "meta",
+     "fault_class": "dead_letter_backlog",
+     "status": "cleared",
+     "blocker_class": "queue_blocked",
+     "observation_count": 5609,
+     "first_seen_at": "2026-04-20 18:26:32.635+00",
+     "last_seen_at": "2026-04-28 09:56:08.546+00",
+     "cleared_at": "2026-04-28 09:56:08.546+00"
+    },
+    {
+     "business_id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+     "provider_scope": "meta",
+     "fault_class": "checkpoint_stall",
+     "status": "cleared",
+     "blocker_class": "stalled",
+     "observation_count": 3401,
+     "first_seen_at": "2026-04-21 07:39:23.812+00",
+     "last_seen_at": "2026-04-28 09:53:08.573+00",
+     "cleared_at": "2026-04-28 09:53:08.573+00"
+    },
+    {
+     "business_id": "5dbc7147-f051-4681-a4d6-20617170074f",
+     "provider_scope": "meta",
+     "fault_class": "publication_mismatch",
+     "status": "cleared",
+     "blocker_class": "not_release_ready",
+     "observation_count": 829,
+     "first_seen_at": "2026-04-20 18:30:09.773+00",
+     "last_seen_at": "2026-04-28 08:59:21.283+00",
+     "cleared_at": "2026-04-28 08:59:21.283+00"
+    },
+    {
+     "business_id": "5dbc7147-f051-4681-a4d6-20617170074f",
+     "provider_scope": "meta",
+     "fault_class": "lease_coordination",
+     "status": "cleared",
+     "blocker_class": "queue_blocked",
+     "observation_count": 234,
+     "first_seen_at": "2026-04-20 18:27:50.153+00",
+     "last_seen_at": "2026-04-28 08:58:20.876+00",
+     "cleared_at": "2026-04-28 08:58:20.876+00"
+    },
+    {
+     "business_id": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+     "provider_scope": "meta",
+     "fault_class": "integrity_mismatch",
+     "status": "cleared",
+     "blocker_class": "stalled",
+     "observation_count": 126,
+     "first_seen_at": "2026-04-22 05:40:13.27+00",
+     "last_seen_at": "2026-04-28 08:14:46.259+00",
+     "cleared_at": "2026-04-28 08:14:46.259+00"
+    },
+    {
+     "business_id": "5dbc7147-f051-4681-a4d6-20617170074f",
+     "provider_scope": "meta",
+     "fault_class": "integrity_mismatch",
+     "status": "cleared",
+     "blocker_class": "stalled",
+     "observation_count": 148,
+     "first_seen_at": "2026-04-20 22:02:18.841+00",
+     "last_seen_at": "2026-04-28 08:13:28.625+00",
+     "cleared_at": "2026-04-28 08:13:28.625+00"
+    },
+    {
+     "business_id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+     "provider_scope": "meta",
+     "fault_class": "queue_starvation",
+     "status": "cleared",
+     "blocker_class": "stalled",
+     "observation_count": 30,
+     "first_seen_at": "2026-04-24 21:31:47.886+00",
+     "last_seen_at": "2026-04-28 08:12:19.967+00",
+     "cleared_at": "2026-04-28 08:12:19.967+00"
+    },
+    {
+     "business_id": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+     "provider_scope": "meta",
+     "fault_class": "integrity_mismatch",
+     "status": "cleared",
+     "blocker_class": "worker_unavailable",
+     "observation_count": 149,
+     "first_seen_at": "2026-04-20 19:10:13.968+00",
+     "last_seen_at": "2026-04-28 08:12:05.989+00",
+     "cleared_at": "2026-04-28 08:12:05.989+00"
+    }
+   ],
+   "syncJobsTail": [
+    {
+     "business_id": "5dbc7147-f051-4681-a4d6-20617170074f",
+     "provider_account_id": "act_805150454596350",
+     "sync_type": "repair_window",
+     "status": "succeeded",
+     "trigger_source": "repair_recent_day",
+     "finished_at": "2026-08-22 08:04:58.373+00",
+     "updated_at": "2026-08-22 08:04:58.374166+00"
+    },
+    {
+     "business_id": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+     "provider_account_id": "act_1087566732415606",
+     "sync_type": "repair_window",
+     "status": "succeeded",
+     "trigger_source": "repair_recent_day",
+     "finished_at": "2026-08-22 07:02:32.701+00",
+     "updated_at": "2026-08-22 07:02:32.70143+00"
+    },
+    {
+     "business_id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+     "provider_account_id": "act_822913786458311",
+     "sync_type": "repair_window",
+     "status": "succeeded",
+     "trigger_source": "repair_recent_day",
+     "finished_at": "2026-08-22 06:01:39.964+00",
+     "updated_at": "2026-08-22 06:01:39.965573+00"
+    },
+    {
+     "business_id": "b79683b4-6f87-48c0-a3ca-44d4356fef51",
+     "provider_account_id": "act_2335220976649516",
+     "sync_type": "repair_window",
+     "status": "succeeded",
+     "trigger_source": "repair_recent_day",
+     "finished_at": "2026-08-21 21:05:50.762+00",
+     "updated_at": "2026-08-21 21:05:50.762367+00"
+    },
+    {
+     "business_id": "6c690fa4-6395-40b5-9755-e99b34d69bc3",
+     "provider_account_id": "act_840779107261785",
+     "sync_type": "repair_window",
+     "status": "succeeded",
+     "trigger_source": "repair_recent_day",
+     "finished_at": "2026-08-21 21:04:48.667+00",
+     "updated_at": "2026-08-21 21:04:48.666441+00"
+    },
+    {
+     "business_id": "bc0c6178-7853-4f6f-b026-ef0222a4b9e7",
+     "provider_account_id": "act_3554615364751964",
+     "sync_type": "repair_window",
+     "status": "succeeded",
+     "trigger_source": "repair_recent_day",
+     "finished_at": "2026-08-21 21:00:16.566+00",
+     "updated_at": "2026-08-21 21:00:16.565955+00"
+    },
+    {
+     "business_id": "5dbc7147-f051-4681-a4d6-20617170074f",
+     "provider_account_id": "act_805150454596350",
+     "sync_type": "repair_window",
+     "status": "succeeded",
+     "trigger_source": "repair_recent_day",
+     "finished_at": "2026-08-21 08:05:28.171+00",
+     "updated_at": "2026-08-21 08:05:28.173664+00"
+    },
+    {
+     "business_id": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+     "provider_account_id": "act_1087566732415606",
+     "sync_type": "repair_window",
+     "status": "succeeded",
+     "trigger_source": "repair_recent_day",
+     "finished_at": "2026-08-21 07:01:19.783+00",
+     "updated_at": "2026-08-21 07:01:19.784468+00"
+    }
+   ]
+  },
+  "economics": {
+   "targetPacks": [
+    {
+     "business_id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+     "target_cpa": null,
+     "target_roas": 2,
+     "break_even_cpa": null,
+     "break_even_roas": 1.71,
+     "contribution_margin_assumption": null,
+     "aov_assumption": null,
+     "cost_cogs_percent": 0.29,
+     "cost_shipping_percent": 0.05,
+     "cost_fulfillment_percent": 0.046,
+     "cost_payment_processing_percent": 0.03,
+     "source_label": "settings_manual_entry",
+     "updated_at": "2026-07-17 09:26:46.139232+00"
+    },
+    {
+     "business_id": "5dbc7147-f051-4681-a4d6-20617170074f",
+     "target_cpa": null,
+     "target_roas": 2.2,
+     "break_even_cpa": null,
+     "break_even_roas": 1.8,
+     "contribution_margin_assumption": null,
+     "aov_assumption": null,
+     "cost_cogs_percent": null,
+     "cost_shipping_percent": null,
+     "cost_fulfillment_percent": null,
+     "cost_payment_processing_percent": null,
+     "source_label": "settings_manual_entry",
+     "updated_at": "2026-05-10 10:23:27.828135+00"
+    },
+    {
+     "business_id": "6c690fa4-6395-40b5-9755-e99b34d69bc3",
+     "target_cpa": null,
+     "target_roas": 3,
+     "break_even_cpa": null,
+     "break_even_roas": 2,
+     "contribution_margin_assumption": null,
+     "aov_assumption": null,
+     "cost_cogs_percent": null,
+     "cost_shipping_percent": null,
+     "cost_fulfillment_percent": null,
+     "cost_payment_processing_percent": null,
+     "source_label": "settings_manual_entry",
+     "updated_at": "2026-04-22 17:57:14.969947+00"
+    },
+    {
+     "business_id": "bc0c6178-7853-4f6f-b026-ef0222a4b9e7",
+     "target_cpa": null,
+     "target_roas": 4,
+     "break_even_cpa": null,
+     "break_even_roas": 3,
+     "contribution_margin_assumption": null,
+     "aov_assumption": null,
+     "cost_cogs_percent": null,
+     "cost_shipping_percent": null,
+     "cost_fulfillment_percent": null,
+     "cost_payment_processing_percent": null,
+     "source_label": "settings_manual_entry",
+     "updated_at": "2026-05-20 10:26:08.871811+00"
+    },
+    {
+     "business_id": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+     "target_cpa": null,
+     "target_roas": 3.5,
+     "break_even_cpa": null,
+     "break_even_roas": 2.7,
+     "contribution_margin_assumption": null,
+     "aov_assumption": null,
+     "cost_cogs_percent": null,
+     "cost_shipping_percent": null,
+     "cost_fulfillment_percent": null,
+     "cost_payment_processing_percent": null,
+     "source_label": "settings_manual_entry",
+     "updated_at": "2026-08-13 05:01:18.140827+00"
+    }
+   ],
+   "costModels": [
+    {
+     "business_id": "5dbc7147-f051-4681-a4d6-20617170074f",
+     "cogs_percent": 0.22,
+     "shipping_percent": 0.16,
+     "fee_percent": 0.035,
+     "fixed_monthly_cost": 0,
+     "updated_at": "2026-03-24 10:20:32.647109+00"
+    },
+    {
+     "business_id": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+     "cogs_percent": 0,
+     "shipping_percent": 0,
+     "fee_percent": 0,
+     "fixed_monthly_cost": 0,
+     "updated_at": "2026-08-13 05:00:40.704941+00"
+    }
+   ],
+   "calibrationProfiles": [],
+   "goalMix": [
+    {
+     "business_id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+     "provider_account_id": "act_822913786458311",
+     "objective": "OUTCOME_SALES",
+     "optimization_goal": "Value",
+     "custom_event_type": "PURCHASE",
+     "spend_14d": 30428.220000000005,
+     "revenue_14d": 40099.56999999999,
+     "campaigns": 3
+    },
+    {
+     "business_id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+     "provider_account_id": "act_822913786458311",
+     "objective": "OUTCOME_SALES",
+     "optimization_goal": "Offsite Conversions",
+     "custom_event_type": "PURCHASE",
+     "spend_14d": 3459.0299999999997,
+     "revenue_14d": 5349.639999999999,
+     "campaigns": 1
+    },
+    {
+     "business_id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+     "provider_account_id": "act_921275999286619",
+     "objective": "OUTCOME_SALES",
+     "optimization_goal": "Offsite Conversions",
+     "custom_event_type": "PURCHASE",
+     "spend_14d": 1652.2900000000002,
+     "revenue_14d": 4138.79,
+     "campaigns": 2
+    },
+    {
+     "business_id": "5dbc7147-f051-4681-a4d6-20617170074f",
+     "provider_account_id": "act_805150454596350",
+     "objective": "OUTCOME_SALES",
+     "optimization_goal": "UNKNOWN",
+     "custom_event_type": "",
+     "spend_14d": 22503.20999999999,
+     "revenue_14d": 47033.58,
+     "campaigns": 5
+    },
+    {
+     "business_id": "6c690fa4-6395-40b5-9755-e99b34d69bc3",
+     "provider_account_id": "act_840779107261785",
+     "objective": "OUTCOME_SALES",
+     "optimization_goal": "Offsite Conversions",
+     "custom_event_type": "PURCHASE",
+     "spend_14d": 192846.35,
+     "revenue_14d": 1518885,
+     "campaigns": 5
+    },
+    {
+     "business_id": "6c690fa4-6395-40b5-9755-e99b34d69bc3",
+     "provider_account_id": "act_840779107261785",
+     "objective": "OUTCOME_LEADS",
+     "optimization_goal": "Offsite Conversions",
+     "custom_event_type": "LEAD",
+     "spend_14d": 45776.85,
+     "revenue_14d": 29997,
+     "campaigns": 2
+    },
+    {
+     "business_id": "6c690fa4-6395-40b5-9755-e99b34d69bc3",
+     "provider_account_id": "act_840779107261785",
+     "objective": "OUTCOME_TRAFFIC",
+     "optimization_goal": "Profile Visit",
+     "custom_event_type": "",
+     "spend_14d": 6952.24,
+     "revenue_14d": 0,
+     "campaigns": 1
+    },
+    {
+     "business_id": "6c690fa4-6395-40b5-9755-e99b34d69bc3",
+     "provider_account_id": "act_840779107261785",
+     "objective": "OUTCOME_ENGAGEMENT",
+     "optimization_goal": "ThruPlay",
+     "custom_event_type": "",
+     "spend_14d": 6556.489999999999,
+     "revenue_14d": 0,
+     "campaigns": 1
+    },
+    {
+     "business_id": "b79683b4-6f87-48c0-a3ca-44d4356fef51",
+     "provider_account_id": "act_2335220976649516",
+     "objective": "OUTCOME_SALES",
+     "optimization_goal": "Offsite Conversions",
+     "custom_event_type": "PURCHASE",
+     "spend_14d": 840.46,
+     "revenue_14d": 4856.19,
+     "campaigns": 1
+    },
+    {
+     "business_id": "bc0c6178-7853-4f6f-b026-ef0222a4b9e7",
+     "provider_account_id": "act_3554615364751964",
+     "objective": "OUTCOME_SALES",
+     "optimization_goal": "Offsite Conversions",
+     "custom_event_type": "PURCHASE",
+     "spend_14d": 683.05,
+     "revenue_14d": 3754.3399999999997,
+     "campaigns": 1
+    },
+    {
+     "business_id": "bc0c6178-7853-4f6f-b026-ef0222a4b9e7",
+     "provider_account_id": "act_3554615364751964",
+     "objective": "OUTCOME_SALES",
+     "optimization_goal": "Value",
+     "custom_event_type": "PURCHASE",
+     "spend_14d": 182.10000000000002,
+     "revenue_14d": 1954.06,
+     "campaigns": 1
+    },
+    {
+     "business_id": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+     "provider_account_id": "act_1087566732415606",
+     "objective": "OUTCOME_SALES",
+     "optimization_goal": "Offsite Conversions",
+     "custom_event_type": "PURCHASE",
+     "spend_14d": 3394.0000000000005,
+     "revenue_14d": 18377.55,
+     "campaigns": 2
+    }
+   ]
+  },
+  "campaignContext": {
+   "contextRows": [
+    {
+     "business_id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+     "total_rows": 758,
+     "account_null_rows": 758,
+     "account_bound_rows": 0,
+     "max_as_of": "2026-08-22",
+     "resolver_versions": [
+      "campaign-context-resolver.v1-shadow-2026-07-06"
+     ]
+    },
+    {
+     "business_id": "5dbc7147-f051-4681-a4d6-20617170074f",
+     "total_rows": 379,
+     "account_null_rows": 379,
+     "account_bound_rows": 0,
+     "max_as_of": "2026-08-22",
+     "resolver_versions": [
+      "campaign-context-resolver.v1-shadow-2026-07-06"
+     ]
+    },
+    {
+     "business_id": "6c690fa4-6395-40b5-9755-e99b34d69bc3",
+     "total_rows": 405,
+     "account_null_rows": 405,
+     "account_bound_rows": 0,
+     "max_as_of": "2026-08-22",
+     "resolver_versions": [
+      "campaign-context-resolver.v1-shadow-2026-07-06"
+     ]
+    },
+    {
+     "business_id": "b79683b4-6f87-48c0-a3ca-44d4356fef51",
+     "total_rows": 149,
+     "account_null_rows": 149,
+     "account_bound_rows": 0,
+     "max_as_of": "2026-08-22",
+     "resolver_versions": [
+      "campaign-context-resolver.v1-shadow-2026-07-06"
+     ]
+    },
+    {
+     "business_id": "bc0c6178-7853-4f6f-b026-ef0222a4b9e7",
+     "total_rows": 103,
+     "account_null_rows": 103,
+     "account_bound_rows": 0,
+     "max_as_of": "2026-08-22",
+     "resolver_versions": [
+      "campaign-context-resolver.v1-shadow-2026-07-06"
+     ]
+    },
+    {
+     "business_id": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+     "total_rows": 556,
+     "account_null_rows": 556,
+     "account_bound_rows": 0,
+     "max_as_of": "2026-08-22",
+     "resolver_versions": [
+      "campaign-context-resolver.v1-shadow-2026-07-06"
+     ]
+    }
+   ]
+  },
+  "assignedAccountStatesProbe": [
+   {
+    "business_id": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+    "provider_account_id": "act_1087566732415606",
+    "account_name": "IWA-MDNLLC",
+    "is_selected": true,
+    "account_currency": "USD",
+    "account_timezone": "America/Los_Angeles",
+    "latest_fact_date": "2026-08-21",
+    "spend_14d": 3394.0000000000005,
+    "latest_decision_as_of": "2026-08-22",
+    "generation_rows": 1042,
+    "authorized_rows": 0
+   },
+   {
+    "business_id": "5dbc7147-f051-4681-a4d6-20617170074f",
+    "provider_account_id": "act_805150454596350",
+    "account_name": "Grandmix",
+    "is_selected": true,
+    "account_currency": "USD",
+    "account_timezone": "America/Anchorage",
+    "latest_fact_date": "2026-08-21",
+    "spend_14d": 22503.21,
+    "latest_decision_as_of": "2026-08-22",
+    "generation_rows": 2529,
+    "authorized_rows": 5
+   },
+   {
+    "business_id": "6c690fa4-6395-40b5-9755-e99b34d69bc3",
+    "provider_account_id": "act_840779107261785",
+    "account_name": "BİLSEM ZEKA-1",
+    "is_selected": true,
+    "account_currency": "TRY",
+    "account_timezone": "Europe/Istanbul",
+    "latest_fact_date": "2026-08-21",
+    "spend_14d": 252131.93000000002,
+    "latest_decision_as_of": "2026-08-22",
+    "generation_rows": 3204,
+    "authorized_rows": 0
+   },
+   {
+    "business_id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+    "provider_account_id": "act_822913786458311",
+    "account_name": "TheSwaf-Main",
+    "is_selected": true,
+    "account_currency": "USD",
+    "account_timezone": "America/Chicago",
+    "latest_fact_date": "2026-08-21",
+    "spend_14d": 33887.25,
+    "latest_decision_as_of": "2026-08-22",
+    "generation_rows": 750,
+    "authorized_rows": 7
+   },
+   {
+    "business_id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+    "provider_account_id": "act_921275999286619",
+    "account_name": "TheSwaf-NonTesvik",
+    "is_selected": false,
+    "account_currency": "USD",
+    "account_timezone": "America/Chicago",
+    "latest_fact_date": "2026-08-20",
+    "spend_14d": 1652.29,
+    "latest_decision_as_of": "2026-08-21",
+    "generation_rows": 126,
+    "authorized_rows": 2
+   },
+   {
+    "business_id": "b79683b4-6f87-48c0-a3ca-44d4356fef51",
+    "provider_account_id": "act_2335220976649516",
+    "account_name": "IWA-TR",
+    "is_selected": true,
+    "account_currency": "USD",
+    "account_timezone": "Europe/Istanbul",
+    "latest_fact_date": "2026-08-21",
+    "spend_14d": 840.4600000000002,
+    "latest_decision_as_of": "2026-08-22",
+    "generation_rows": 172,
+    "authorized_rows": 0
+   },
+   {
+    "business_id": "bc0c6178-7853-4f6f-b026-ef0222a4b9e7",
+    "provider_account_id": "act_3554615364751964",
+    "account_name": "ColorfullworldsTR",
+    "is_selected": true,
+    "account_currency": "USD",
+    "account_timezone": "Europe/Istanbul",
+    "latest_fact_date": "2026-08-21",
+    "spend_14d": 865.15,
+    "latest_decision_as_of": "2026-08-22",
+    "generation_rows": 414,
+    "authorized_rows": 0
+   }
+  ],
+  "nativeDecisions": {
+   "nativeGenerations": [
+    {
+     "business_id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+     "provider_account_id": "act_822913786458311",
+     "as_of_date": "2026-08-22",
+     "rows": 750,
+     "engine_versions": [
+      "v3-ad-2026-07-18-decision-presentation-hardening-shadow"
+     ],
+     "max_computed_at": "2026-08-22 14:51:26.766+00",
+     "authorized_rows": 7,
+     "blocked_rows": 34,
+     "authority_blocked_rows": 32
+    },
+    {
+     "business_id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+     "provider_account_id": "act_921275999286619",
+     "as_of_date": "2026-08-21",
+     "rows": 126,
+     "engine_versions": [
+      "v3-ad-2026-07-18-decision-presentation-hardening-shadow"
+     ],
+     "max_computed_at": "2026-08-21 21:20:42.318+00",
+     "authorized_rows": 2,
+     "blocked_rows": 0,
+     "authority_blocked_rows": 27
+    },
+    {
+     "business_id": "5dbc7147-f051-4681-a4d6-20617170074f",
+     "provider_account_id": "act_805150454596350",
+     "as_of_date": "2026-08-22",
+     "rows": 2529,
+     "engine_versions": [
+      "v3-ad-2026-07-18-decision-presentation-hardening-shadow"
+     ],
+     "max_computed_at": "2026-08-22 14:50:25.127+00",
+     "authorized_rows": 5,
+     "blocked_rows": 5,
+     "authority_blocked_rows": 759
+    },
+    {
+     "business_id": "6c690fa4-6395-40b5-9755-e99b34d69bc3",
+     "provider_account_id": "act_840779107261785",
+     "as_of_date": "2026-08-22",
+     "rows": 3204,
+     "engine_versions": [
+      "v3-ad-2026-07-18-decision-presentation-hardening-shadow"
+     ],
+     "max_computed_at": "2026-08-22 06:01:55.373+00",
+     "authorized_rows": 0,
+     "blocked_rows": 1,
+     "authority_blocked_rows": 109
+    },
+    {
+     "business_id": "b79683b4-6f87-48c0-a3ca-44d4356fef51",
+     "provider_account_id": "act_2335220976649516",
+     "as_of_date": "2026-08-22",
+     "rows": 172,
+     "engine_versions": [
+      "v3-ad-2026-07-18-decision-presentation-hardening-shadow"
+     ],
+     "max_computed_at": "2026-08-22 08:02:07.026+00",
+     "authorized_rows": 0,
+     "blocked_rows": 1,
+     "authority_blocked_rows": 1
+    },
+    {
+     "business_id": "bc0c6178-7853-4f6f-b026-ef0222a4b9e7",
+     "provider_account_id": "act_3554615364751964",
+     "as_of_date": "2026-08-22",
+     "rows": 414,
+     "engine_versions": [
+      "v3-ad-2026-07-18-decision-presentation-hardening-shadow"
+     ],
+     "max_computed_at": "2026-08-22 04:03:53.8+00",
+     "authorized_rows": 0,
+     "blocked_rows": 0,
+     "authority_blocked_rows": 89
+    },
+    {
+     "business_id": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+     "provider_account_id": "act_1087566732415606",
+     "as_of_date": "2026-08-22",
+     "rows": 1042,
+     "engine_versions": [
+      "v3-ad-2026-07-18-decision-presentation-hardening-shadow"
+     ],
+     "max_computed_at": "2026-08-22 13:50:25.898+00",
+     "authorized_rows": 0,
+     "blocked_rows": 11,
+     "authority_blocked_rows": 26
+    }
+   ],
+   "nativeLabelMix": [
+    {
+     "business_id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+     "provider_account_id": "act_822913786458311",
+     "label": "diagnose",
+     "rows": 672
+    },
+    {
+     "business_id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+     "provider_account_id": "act_822913786458311",
+     "label": "test_more",
+     "rows": 44
+    },
+    {
+     "business_id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+     "provider_account_id": "act_822913786458311",
+     "label": "cut",
+     "rows": 19
+    },
+    {
+     "business_id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+     "provider_account_id": "act_822913786458311",
+     "label": "keep",
+     "rows": 10
+    },
+    {
+     "business_id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+     "provider_account_id": "act_822913786458311",
+     "label": "out_of_scope",
+     "rows": 5
+    },
+    {
+     "business_id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+     "provider_account_id": "act_921275999286619",
+     "label": "diagnose",
+     "rows": 94
+    },
+    {
+     "business_id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+     "provider_account_id": "act_921275999286619",
+     "label": "out_of_scope",
+     "rows": 19
+    },
+    {
+     "business_id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+     "provider_account_id": "act_921275999286619",
+     "label": "test_more",
+     "rows": 10
+    },
+    {
+     "business_id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+     "provider_account_id": "act_921275999286619",
+     "label": "cut",
+     "rows": 2
+    },
+    {
+     "business_id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+     "provider_account_id": "act_921275999286619",
+     "label": "keep",
+     "rows": 1
+    },
+    {
+     "business_id": "5dbc7147-f051-4681-a4d6-20617170074f",
+     "provider_account_id": "act_805150454596350",
+     "label": "diagnose",
+     "rows": 2335
+    },
+    {
+     "business_id": "5dbc7147-f051-4681-a4d6-20617170074f",
+     "provider_account_id": "act_805150454596350",
+     "label": "out_of_scope",
+     "rows": 139
+    },
+    {
+     "business_id": "5dbc7147-f051-4681-a4d6-20617170074f",
+     "provider_account_id": "act_805150454596350",
+     "label": "test_more",
+     "rows": 35
+    },
+    {
+     "business_id": "5dbc7147-f051-4681-a4d6-20617170074f",
+     "provider_account_id": "act_805150454596350",
+     "label": "keep",
+     "rows": 15
+    },
+    {
+     "business_id": "5dbc7147-f051-4681-a4d6-20617170074f",
+     "provider_account_id": "act_805150454596350",
+     "label": "cut",
+     "rows": 3
+    },
+    {
+     "business_id": "5dbc7147-f051-4681-a4d6-20617170074f",
+     "provider_account_id": "act_805150454596350",
+     "label": "scale",
+     "rows": 2
+    },
+    {
+     "business_id": "6c690fa4-6395-40b5-9755-e99b34d69bc3",
+     "provider_account_id": "act_840779107261785",
+     "label": "out_of_scope",
+     "rows": 2007
+    },
+    {
+     "business_id": "6c690fa4-6395-40b5-9755-e99b34d69bc3",
+     "provider_account_id": "act_840779107261785",
+     "label": "diagnose",
+     "rows": 1081
+    },
+    {
+     "business_id": "6c690fa4-6395-40b5-9755-e99b34d69bc3",
+     "provider_account_id": "act_840779107261785",
+     "label": "test_more",
+     "rows": 105
+    },
+    {
+     "business_id": "6c690fa4-6395-40b5-9755-e99b34d69bc3",
+     "provider_account_id": "act_840779107261785",
+     "label": "keep",
+     "rows": 11
+    },
+    {
+     "business_id": "b79683b4-6f87-48c0-a3ca-44d4356fef51",
+     "provider_account_id": "act_2335220976649516",
+     "label": "diagnose",
+     "rows": 109
+    },
+    {
+     "business_id": "b79683b4-6f87-48c0-a3ca-44d4356fef51",
+     "provider_account_id": "act_2335220976649516",
+     "label": "test_more",
+     "rows": 58
+    },
+    {
+     "business_id": "b79683b4-6f87-48c0-a3ca-44d4356fef51",
+     "provider_account_id": "act_2335220976649516",
+     "label": "keep",
+     "rows": 5
+    },
+    {
+     "business_id": "bc0c6178-7853-4f6f-b026-ef0222a4b9e7",
+     "provider_account_id": "act_3554615364751964",
+     "label": "diagnose",
+     "rows": 388
+    },
+    {
+     "business_id": "bc0c6178-7853-4f6f-b026-ef0222a4b9e7",
+     "provider_account_id": "act_3554615364751964",
+     "label": "test_more",
+     "rows": 12
+    },
+    {
+     "business_id": "bc0c6178-7853-4f6f-b026-ef0222a4b9e7",
+     "provider_account_id": "act_3554615364751964",
+     "label": "out_of_scope",
+     "rows": 10
+    },
+    {
+     "business_id": "bc0c6178-7853-4f6f-b026-ef0222a4b9e7",
+     "provider_account_id": "act_3554615364751964",
+     "label": "keep",
+     "rows": 4
+    },
+    {
+     "business_id": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+     "provider_account_id": "act_1087566732415606",
+     "label": "diagnose",
+     "rows": 945
+    },
+    {
+     "business_id": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+     "provider_account_id": "act_1087566732415606",
+     "label": "out_of_scope",
+     "rows": 40
+    },
+    {
+     "business_id": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+     "provider_account_id": "act_1087566732415606",
+     "label": "test_more",
+     "rows": 36
+    },
+    {
+     "business_id": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+     "provider_account_id": "act_1087566732415606",
+     "label": "keep",
+     "rows": 13
+    },
+    {
+     "business_id": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+     "provider_account_id": "act_1087566732415606",
+     "label": "cut",
+     "rows": 4
+    },
+    {
+     "business_id": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+     "provider_account_id": "act_1087566732415606",
+     "label": "scale",
+     "rows": 4
+    }
+   ],
+   "hardActions": [
+    {
+     "business_id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+     "provider_account_id": "act_822913786458311",
+     "as_of_date": "2026-08-22",
+     "ad_id": "120251377938760042",
+     "creative_id": "1605022074518949",
+     "label": "cut",
+     "raw_label": "cut",
+     "authorized_action": "cut",
+     "blocked_action_type": null,
+     "authority_blocker": null,
+     "confidence": 75,
+     "truth_source": "commercial_truth",
+     "effective_target_roas": 2,
+     "ratio_to_target": 0.4548279046471223,
+     "spend": 1277.78,
+     "purchases": 8,
+     "roas": 0.9096558092942446,
+     "recent7d_roas": 0.5750515427892511,
+     "engine_version": "v3-ad-2026-07-18-decision-presentation-hardening-shadow",
+     "computed_at": "2026-08-22 14:51:26.766+00",
+     "evaluation_id": "6971462e-cc18-4260-a4a6-631e2227830c",
+     "input_hash": "b69f18be4095db378b8919bf76dd6290c43206b8dac1e2fd88b882b85e0114ef",
+     "decision_hash": "a853e4f3d974c4f083a46aead935117ad00631c1bc0b1cfe7f7fd5919ce26710",
+     "reason": "[economic stop-loss] ROAS 0.91 (28d) = 45% of commercial target, below explicit break-even, after 1,278 spend (28d) — clear loser at scale. Recent 7d ROAS 0.58 remains below break-even 1.71 on 1,145 recent spend."
+    },
+    {
+     "business_id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+     "provider_account_id": "act_822913786458311",
+     "as_of_date": "2026-08-22",
+     "ad_id": "120251378505620042",
+     "creative_id": "1764943368290730",
+     "label": "cut",
+     "raw_label": "cut",
+     "authorized_action": "cut",
+     "blocked_action_type": null,
+     "authority_blocker": null,
+     "confidence": 75,
+     "truth_source": "commercial_truth",
+     "effective_target_roas": 2,
+     "ratio_to_target": 0.3225494307002548,
+     "spend": 310.03,
+     "purchases": 1,
+     "roas": 0.6450988614005096,
+     "recent7d_roas": 0.6523582751647204,
+     "engine_version": "v3-ad-2026-07-18-decision-presentation-hardening-shadow",
+     "computed_at": "2026-08-22 14:51:26.766+00",
+     "evaluation_id": "6226bd5d-ef02-4d81-9951-d3dc9a32438d",
+     "input_hash": "564fabc7bab997f68b64861176d4e54cbea5ad44268f2eff7f8b2bf95081e32b",
+     "decision_hash": "51042db019b562a5f2baf52e146dbcc61f523df07494ec9eb4318844084d8dd0",
+     "reason": "ROAS 0.65 (28d) = 32% of commercial target after 310 spend (28d) — clear loser at scale."
+    },
+    {
+     "business_id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+     "provider_account_id": "act_822913786458311",
+     "as_of_date": "2026-08-22",
+     "ad_id": "120251378514420042",
+     "creative_id": "1864876177806898",
+     "label": "cut",
+     "raw_label": "cut",
+     "authorized_action": "cut",
+     "blocked_action_type": null,
+     "authority_blocker": null,
+     "confidence": 75,
+     "truth_source": "commercial_truth",
+     "effective_target_roas": 2,
+     "ratio_to_target": 0.29193371441769156,
+     "spend": 173.19,
+     "purchases": 1,
+     "roas": 0.5838674288353831,
+     "recent7d_roas": 0.7864364597915694,
+     "engine_version": "v3-ad-2026-07-18-decision-presentation-hardening-shadow",
+     "computed_at": "2026-08-22 14:51:26.766+00",
+     "evaluation_id": "5742dfe4-4386-41d5-94dd-b584bfc40542",
+     "input_hash": "43f4cc5fb81c6b0c1f4f248f68c17865f3f0580f8cb55d372000c07939d3115e",
+     "decision_hash": "30e816240e3d2f169804a18f39387018075d20e8a1158baab039b502798fa358",
+     "reason": "ROAS 0.58 (28d) = 29% of commercial target after 173 spend (28d) — loss-budget maturity reached at 142; cut underperforming creative."
+    },
+    {
+     "business_id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+     "provider_account_id": "act_822913786458311",
+     "as_of_date": "2026-08-22",
+     "ad_id": "120251381043730042",
+     "creative_id": "1410136187640001",
+     "label": "cut",
+     "raw_label": "cut",
+     "authorized_action": "cut",
+     "blocked_action_type": null,
+     "authority_blocker": null,
+     "confidence": 75,
+     "truth_source": "commercial_truth",
+     "effective_target_roas": 2,
+     "ratio_to_target": 0.6968934729064038,
+     "spend": 6496.000000000001,
+     "purchases": 37,
+     "roas": 1.3937869458128076,
+     "recent7d_roas": 1.0949574811140848,
+     "engine_version": "v3-ad-2026-07-18-decision-presentation-hardening-shadow",
+     "computed_at": "2026-08-22 14:51:26.766+00",
+     "evaluation_id": "df3c3309-b0b1-4a51-ad23-9baa5d28ac0c",
+     "input_hash": "dbeb36024a1c35792c3e803db23b45fc1c65f236068f65d64cc5c981e724932b",
+     "decision_hash": "5d15d6e1b5eab373c009b7bd4a13f0ae8ed45486d2a23a13fef42879c9200596",
+     "reason": "[economic stop-loss] ROAS 1.39 (28d) = 70% of commercial target, below explicit break-even, after 6,496 spend (28d) — clear loser at scale. Recent 7d ROAS 1.09 remains below break-even 1.71 on 2,444 recent spend."
+    },
+    {
+     "business_id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+     "provider_account_id": "act_822913786458311",
+     "as_of_date": "2026-08-22",
+     "ad_id": "120251381050900042",
+     "creative_id": "1579543550547980",
+     "label": "cut",
+     "raw_label": "cut",
+     "authorized_action": "cut",
+     "blocked_action_type": null,
+     "authority_blocker": null,
+     "confidence": 75,
+     "truth_source": "commercial_truth",
+     "effective_target_roas": 2,
+     "ratio_to_target": 0.821168467724261,
+     "spend": 4745.360000000001,
+     "purchases": 45,
+     "roas": 1.642336935448522,
+     "recent7d_roas": 1.5388443157132512,
+     "engine_version": "v3-ad-2026-07-18-decision-presentation-hardening-shadow",
+     "computed_at": "2026-08-22 14:51:26.766+00",
+     "evaluation_id": "885753f4-6c08-42ab-9b6a-658ae15430ce",
+     "input_hash": "d54cda21b5718fdb581a57d82aead2117bd2376640ff54198a3db28dd5592df1",
+     "decision_hash": "8b4711919f803157c01ab4510cb1cf5a469c7a3210fa861c12d1cdd8674e0587",
+     "reason": "[economic stop-loss] ROAS 1.64 (28d) = 82% of commercial target, below explicit break-even, after 4,745 spend (28d) — clear loser at scale. Recent 7d ROAS 1.54 remains below break-even 1.71 on 1,726 recent spend."
+    },
+    {
+     "business_id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+     "provider_account_id": "act_822913786458311",
+     "as_of_date": "2026-08-22",
+     "ad_id": "120251381061900042",
+     "creative_id": "1046270348105455",
+     "label": "cut",
+     "raw_label": "cut",
+     "authorized_action": "cut",
+     "blocked_action_type": null,
+     "authority_blocker": null,
+     "confidence": 75,
+     "truth_source": "commercial_truth",
+     "effective_target_roas": 2,
+     "ratio_to_target": 0.6794549671434094,
+     "spend": 2069.6000000000004,
+     "purchases": 14,
+     "roas": 1.3589099342868187,
+     "recent7d_roas": 0.39575274438055413,
+     "engine_version": "v3-ad-2026-07-18-decision-presentation-hardening-shadow",
+     "computed_at": "2026-08-22 14:51:26.766+00",
+     "evaluation_id": "9a5d3810-cf8e-4317-8114-8c7ed6611f1c",
+     "input_hash": "681a6be11195962880ab8629112cd7b675e9fc09901f4eb779c3f2c021f4ee40",
+     "decision_hash": "f60f4a764f708975445d42f814aa9f8918b0c9185b1c2343f77782f15fd25463",
+     "reason": "[economic stop-loss] ROAS 1.36 (28d) = 68% of commercial target, below explicit break-even, after 2,070 spend (28d) — clear loser at scale. Recent 7d ROAS 0.40 remains below break-even 1.71 on 765 recent spend."
+    },
+    {
+     "business_id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+     "provider_account_id": "act_822913786458311",
+     "as_of_date": "2026-08-22",
+     "ad_id": "120251387421080042",
+     "creative_id": "1392213496114012",
+     "label": "cut",
+     "raw_label": "cut",
+     "authorized_action": "cut",
+     "blocked_action_type": null,
+     "authority_blocker": null,
+     "confidence": 75,
+     "truth_source": "commercial_truth",
+     "effective_target_roas": 2,
+     "ratio_to_target": 0.6704036262348401,
+     "spend": 2312.0400000000004,
+     "purchases": 18,
+     "roas": 1.3408072524696801,
+     "recent7d_roas": 1.258850433176481,
+     "engine_version": "v3-ad-2026-07-18-decision-presentation-hardening-shadow",
+     "computed_at": "2026-08-22 14:51:26.766+00",
+     "evaluation_id": "7bc36de5-3286-4758-bd79-b7d0c11ecdbe",
+     "input_hash": "1630a3809359e0e3cbfa5afe852113cf67e3d100ffa56ad7333749a82bd9a8b6",
+     "decision_hash": "8480cf42dcb405e577e9d290accb3e498d53caf796db3c94f93da746dbca3e9a",
+     "reason": "[economic stop-loss] ROAS 1.34 (28d) = 67% of commercial target, below explicit break-even, after 2,312 spend (28d) — clear loser at scale. Recent 7d ROAS 1.26 remains below break-even 1.71 on 910 recent spend."
+    },
+    {
+     "business_id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+     "provider_account_id": "act_921275999286619",
+     "as_of_date": "2026-08-21",
+     "ad_id": "120244829387250430",
+     "creative_id": "1458286545601777",
+     "label": "cut",
+     "raw_label": "cut",
+     "authorized_action": "cut",
+     "blocked_action_type": null,
+     "authority_blocker": null,
+     "confidence": 45,
+     "truth_source": "commercial_truth",
+     "effective_target_roas": 2,
+     "ratio_to_target": 0.5613901165126555,
+     "spend": 373.3500000000001,
+     "purchases": 3,
+     "roas": 1.122780233025311,
+     "recent7d_roas": 1.249404166987007,
+     "engine_version": "v3-ad-2026-07-18-decision-presentation-hardening-shadow",
+     "computed_at": "2026-08-21 21:20:42.318+00",
+     "evaluation_id": "e32ab0ba-64ad-45b5-aaf8-04a531058b19",
+     "input_hash": "d0673f8c76bf18f3b33ff612e1dbe49de3f04adfb95783a84933db60df4c13fb",
+     "decision_hash": "9c6996e39405c05e303405a142b1926d293484c985cebbd52f79f92ca0d659ca",
+     "reason": "ROAS 1.12 (28d) = 56% of commercial target after 373 spend (28d) — clear loser at scale."
+    },
+    {
+     "business_id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+     "provider_account_id": "act_921275999286619",
+     "as_of_date": "2026-08-21",
+     "ad_id": "120244829399580430",
+     "creative_id": "2255782421625220",
+     "label": "cut",
+     "raw_label": "cut",
+     "authorized_action": "cut",
+     "blocked_action_type": null,
+     "authority_blocker": null,
+     "confidence": 45,
+     "truth_source": "commercial_truth",
+     "effective_target_roas": 2,
+     "ratio_to_target": 0.23669728182054808,
+     "spend": 268.93,
+     "purchases": 1,
+     "roas": 0.47339456364109617,
+     "recent7d_roas": 0,
+     "engine_version": "v3-ad-2026-07-18-decision-presentation-hardening-shadow",
+     "computed_at": "2026-08-21 21:20:42.318+00",
+     "evaluation_id": "8a2b5052-60ce-4702-a9e1-f9bc883dcd35",
+     "input_hash": "26af3d161615c4b96f7f3323580e0483eb5c255e017b86525125c13031cb37b1",
+     "decision_hash": "e011e2e668afeedc8cbc9505f2e948c8ba70072787a361407aadc9ac5288ae9d",
+     "reason": "ROAS 0.47 (28d) = 24% of commercial target after 269 spend (28d) — loss-budget maturity reached at 164; cut underperforming creative."
+    },
+    {
+     "business_id": "5dbc7147-f051-4681-a4d6-20617170074f",
+     "provider_account_id": "act_805150454596350",
+     "as_of_date": "2026-08-22",
+     "ad_id": "120247018755120316",
+     "creative_id": "2533787297105379",
+     "label": "cut",
+     "raw_label": "cut",
+     "authorized_action": "cut",
+     "blocked_action_type": null,
+     "authority_blocker": null,
+     "confidence": 75,
+     "truth_source": "commercial_truth",
+     "effective_target_roas": 2.2,
+     "ratio_to_target": 0.49637755801469235,
+     "spend": 3587.61,
+     "purchases": 17,
+     "roas": 1.0920306276323233,
+     "recent7d_roas": 0.9612273646422648,
+     "engine_version": "v3-ad-2026-07-18-decision-presentation-hardening-shadow",
+     "computed_at": "2026-08-22 14:50:25.127+00",
+     "evaluation_id": "e5347097-b74c-4df8-b70f-8252f1bb0b16",
+     "input_hash": "b5649c4e676aff30886bd4c0da2165e898f51f67f3aa48b0bbedbac69a3bf86d",
+     "decision_hash": "eabbf9ac5f8dacc5f29e5b320dbce2a970b032be1f728141a9acb9a8851263a0",
+     "reason": "ROAS 1.09 (28d) = 50% of commercial target after 3,588 spend (28d) — clear loser at scale."
+    },
+    {
+     "business_id": "5dbc7147-f051-4681-a4d6-20617170074f",
+     "provider_account_id": "act_805150454596350",
+     "as_of_date": "2026-08-22",
+     "ad_id": "120249371638060316",
+     "creative_id": "2026274487993766",
+     "label": "scale",
+     "raw_label": "scale",
+     "authorized_action": "scale",
+     "blocked_action_type": null,
+     "authority_blocker": null,
+     "confidence": 75,
+     "truth_source": "commercial_truth",
+     "effective_target_roas": 2.2,
+     "ratio_to_target": 1.7021406333928946,
+     "spend": 663.4399999999998,
+     "purchases": 9,
+     "roas": 3.7447093934643685,
+     "recent7d_roas": 9.384768065867823,
+     "engine_version": "v3-ad-2026-07-18-decision-presentation-hardening-shadow",
+     "computed_at": "2026-08-22 14:50:25.127+00",
+     "evaluation_id": "484a91b4-1a81-47e9-a252-f977b2ca2c0d",
+     "input_hash": "dc8eb4ca01dd133a4c7b8f14b9c1ba5b76182276b52b1de9a99be6580553f280",
+     "decision_hash": "4d424bbeb9e1d5ba3a0fa85cbc2b734deabdc7aae881642c468b019ea6d3bfd1",
+     "reason": "ROAS 3.74 (28d) = 170% of commercial target 2.20 with 9 purchases (28d) and recent 7d holding at 9.38 — scale the ad set budget."
+    },
+    {
+     "business_id": "5dbc7147-f051-4681-a4d6-20617170074f",
+     "provider_account_id": "act_805150454596350",
+     "as_of_date": "2026-08-22",
+     "ad_id": "120249371651280316",
+     "creative_id": "3533864196772914",
+     "label": "scale",
+     "raw_label": "scale",
+     "authorized_action": "scale",
+     "blocked_action_type": null,
+     "authority_blocker": null,
+     "confidence": 75,
+     "truth_source": "commercial_truth",
+     "effective_target_roas": 2.2,
+     "ratio_to_target": 1.5025608889590654,
+     "spend": 552.7199999999999,
+     "purchases": 7,
+     "roas": 3.305633955709944,
+     "recent7d_roas": 3.7262863382011737,
+     "engine_version": "v3-ad-2026-07-18-decision-presentation-hardening-shadow",
+     "computed_at": "2026-08-22 14:50:25.127+00",
+     "evaluation_id": "6f5e7805-81c4-4f71-bcc4-a6e273017829",
+     "input_hash": "1729484291684437675de3283d394f96c9ecef6fd79ba247cd1a4fce060c5d8b",
+     "decision_hash": "e5a198cbaa1cbd0a97e7ee37e29b3ec7c6986b4ef641540bce228ecdcd925d65",
+     "reason": "ROAS 3.31 (28d) = 150% of commercial target 2.20 with 7 purchases (28d) and recent 7d holding at 3.73 — scale the ad set budget."
+    },
+    {
+     "business_id": "5dbc7147-f051-4681-a4d6-20617170074f",
+     "provider_account_id": "act_805150454596350",
+     "as_of_date": "2026-08-22",
+     "ad_id": "120249371667370316",
+     "creative_id": "1625994111845870",
+     "label": "cut",
+     "raw_label": "cut",
+     "authorized_action": "cut",
+     "blocked_action_type": null,
+     "authority_blocker": null,
+     "confidence": 75,
+     "truth_source": "commercial_truth",
+     "effective_target_roas": 2.2,
+     "ratio_to_target": 0.5373707076433998,
+     "spend": 1640.3100000000004,
+     "purchases": 10,
+     "roas": 1.1822155568154795,
+     "recent7d_roas": 1.2566170462216222,
+     "engine_version": "v3-ad-2026-07-18-decision-presentation-hardening-shadow",
+     "computed_at": "2026-08-22 14:50:25.127+00",
+     "evaluation_id": "a79063f7-f885-46eb-a695-fa4935930ea1",
+     "input_hash": "1472d00f81dee8dd17c21b58642bae791c328e700b32deaae837058318ac9dc0",
+     "decision_hash": "b155bbe031cadd22100ac28a3037c1ea96039b9a2cbc93fb527d70b6ef6856c5",
+     "reason": "ROAS 1.18 (28d) = 54% of commercial target after 1,640 spend (28d) — clear loser at scale."
+    },
+    {
+     "business_id": "5dbc7147-f051-4681-a4d6-20617170074f",
+     "provider_account_id": "act_805150454596350",
+     "as_of_date": "2026-08-22",
+     "ad_id": "120251840549020316",
+     "creative_id": "1040676091990270",
+     "label": "cut",
+     "raw_label": "cut",
+     "authorized_action": "cut",
+     "blocked_action_type": null,
+     "authority_blocker": null,
+     "confidence": 75,
+     "truth_source": "commercial_truth",
+     "effective_target_roas": 2.2,
+     "ratio_to_target": 0.592924103726531,
+     "spend": 1847.2699999999998,
+     "purchases": 13,
+     "roas": 1.3044330281983685,
+     "recent7d_roas": 0.970428317798491,
+     "engine_version": "v3-ad-2026-07-18-decision-presentation-hardening-shadow",
+     "computed_at": "2026-08-22 14:50:25.127+00",
+     "evaluation_id": "9819de0e-7e54-4850-9bc7-6400dee80abf",
+     "input_hash": "e6597eabbe43c1b371c37048850d0d295d00703ced1be5820e30623d71ec44dd",
+     "decision_hash": "e8a99f6ee5d295a5e288578a3445a338f67f097932641d1ba63988a3e0732a42",
+     "reason": "[economic stop-loss] ROAS 1.30 (28d) = 59% of commercial target, below explicit break-even, after 1,847 spend (28d) — clear loser at scale. Recent 7d ROAS 0.97 remains below break-even 1.80 on 541 recent spend."
+    }
+   ],
+   "stratifiedSample": [
+    {
+     "business_id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+     "provider_account_id": "act_822913786458311",
+     "as_of_date": "2026-08-22",
+     "ad_id": "120211632476230042",
+     "stratum": "blocked_or_diagnose",
+     "label": "diagnose",
+     "raw_label": "diagnose",
+     "blocked_action_type": null,
+     "authority_blocker": null,
+     "confidence": 40,
+     "spend": 0,
+     "purchases": 0,
+     "roas": null,
+     "effective_target_roas": 2,
+     "ratio_to_target": null,
+     "truth_source": "commercial_truth",
+     "evaluation_id": "e91c8132-e9a4-45de-9157-073e3f54f870",
+     "input_hash": "379fe5ed8c23a6c7ef8eff6c52319a79310e6614fe37211db74c9ced5a27a970",
+     "decision_hash": "f37be15cdabc822d645bb928701787e2e08c92e91098c4a9c8d849827c2dccbe",
+     "computed_at": "2026-08-22 14:51:26.766+00",
+     "reason": "[Ad metrics unavailable - fail closed] Tracking anomaly: contradictory purchase truth (purchase ROAS is missing, negative, or non-finite). Verify pixel/CAPI purchase count, value, and ROAS aggregation before acting."
+    },
+    {
+     "business_id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+     "provider_account_id": "act_822913786458311",
+     "as_of_date": "2026-08-22",
+     "ad_id": "120211664599160042",
+     "stratum": "blocked_or_diagnose",
+     "label": "diagnose",
+     "raw_label": "diagnose",
+     "blocked_action_type": null,
+     "authority_blocker": null,
+     "confidence": 40,
+     "spend": 0,
+     "purchases": 0,
+     "roas": null,
+     "effective_target_roas": 2,
+     "ratio_to_target": null,
+     "truth_source": "commercial_truth",
+     "evaluation_id": "0ba4aa28-2145-4a74-bbc2-06ef2e2729fd",
+     "input_hash": "f95655f1cdbd4b5fba38ae04076ca34ecb6b1545caf7b73a88c5bad306c35010",
+     "decision_hash": "a576af5a0debd9d3917cb3259f8691a4ac363d2bef475361e38bba5a474fdeb1",
+     "computed_at": "2026-08-22 14:51:26.766+00",
+     "reason": "[Ad metrics unavailable - fail closed] Tracking anomaly: contradictory purchase truth (purchase ROAS is missing, negative, or non-finite). Verify pixel/CAPI purchase count, value, and ROAS aggregation before acting."
+    },
+    {
+     "business_id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+     "provider_account_id": "act_822913786458311",
+     "as_of_date": "2026-08-22",
+     "ad_id": "120250744723690042",
+     "stratum": "keep_or_test_more",
+     "label": "keep",
+     "raw_label": "keep",
+     "blocked_action_type": null,
+     "authority_blocker": null,
+     "confidence": 65,
+     "spend": 197.42,
+     "purchases": 5,
+     "roas": 4.535609360753723,
+     "effective_target_roas": 2,
+     "ratio_to_target": 2.2678046803768614,
+     "truth_source": "commercial_truth",
+     "evaluation_id": "f9e8140d-3ace-4777-8d89-0059ddaf8970",
+     "input_hash": "5fdb396d55710f66d78a3998b44ac4048dd0435920fe21f98339cd2afac1d9b3",
+     "decision_hash": "dda6d4d7810d72466e11196687252f8a06dde30798f16170dd69cd55e525d962",
+     "computed_at": "2026-08-22 14:51:26.766+00",
+     "reason": "[near scale] ROAS 4.54 (28d) above commercial target (227%) — recent 7d ROAS missing; account scale calibration thin (29 mature creatives; need 30+); source evidence is stale (225h); scale requires fresh recent performance proof; observe."
+    },
+    {
+     "business_id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+     "provider_account_id": "act_822913786458311",
+     "as_of_date": "2026-08-22",
+     "ad_id": "120234521344850042",
+     "stratum": "out_of_scope",
+     "label": "out_of_scope",
+     "raw_label": "out_of_scope",
+     "blocked_action_type": null,
+     "authority_blocker": null,
+     "confidence": 40,
+     "spend": 0,
+     "purchases": 0,
+     "roas": null,
+     "effective_target_roas": 0,
+     "ratio_to_target": null,
+     "truth_source": "global_default",
+     "evaluation_id": "23c47971-7ae3-4d95-9068-444d3d330194",
+     "input_hash": "edda4b45a7e8d4ad1689d27499277053328fc54496a697cd95bb50d961937d9f",
+     "decision_hash": "3f8a1f1cbf06531231e8c56b8451bc62616412719247dcde136445e3561bb05d",
+     "computed_at": "2026-08-22 14:51:26.766+00",
+     "reason": "[Ad metrics unavailable - fail closed] [Purchase ROAS decision not applicable] This Ad optimizes for a non-purchase outcome, so purchase-ROAS scale/cut/refresh actions do not apply."
+    },
+    {
+     "business_id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+     "provider_account_id": "act_921275999286619",
+     "as_of_date": "2026-08-21",
+     "ad_id": "120227005238840430",
+     "stratum": "blocked_or_diagnose",
+     "label": "diagnose",
+     "raw_label": "diagnose",
+     "blocked_action_type": null,
+     "authority_blocker": null,
+     "confidence": 40,
+     "spend": 0,
+     "purchases": 0,
+     "roas": null,
+     "effective_target_roas": 2,
+     "ratio_to_target": null,
+     "truth_source": "commercial_truth",
+     "evaluation_id": "f4985aae-19f7-4399-891f-91a2b7c59e52",
+     "input_hash": "84d3c046956e2cd5e1dfdde7f6e38a029967540ba4e40299b8ef92e41b67ca85",
+     "decision_hash": "a2e423b192756985adbc9b504ad4534ab4cedeec3c308306f17ed3313603dbf7",
+     "computed_at": "2026-08-21 21:20:42.318+00",
+     "reason": "[Ad metrics unavailable - fail closed] Tracking anomaly: contradictory purchase truth (purchase ROAS is missing, negative, or non-finite). Verify pixel/CAPI purchase count, value, and ROAS aggregation before acting."
+    },
+    {
+     "business_id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+     "provider_account_id": "act_921275999286619",
+     "as_of_date": "2026-08-21",
+     "ad_id": "120227005451340430",
+     "stratum": "blocked_or_diagnose",
+     "label": "diagnose",
+     "raw_label": "diagnose",
+     "blocked_action_type": null,
+     "authority_blocker": null,
+     "confidence": 40,
+     "spend": 0,
+     "purchases": 0,
+     "roas": null,
+     "effective_target_roas": 2,
+     "ratio_to_target": null,
+     "truth_source": "commercial_truth",
+     "evaluation_id": "12723672-ccce-4dbb-84d3-4689d07a7fd4",
+     "input_hash": "b532983a67dbd834253f731988799fc4d779daf9631d68d6a709fc2a4fc5f8a7",
+     "decision_hash": "c6143c0a3f117b60ff01366e88faf95d1b48411cbac0a142247ea107e1cbc7ab",
+     "computed_at": "2026-08-21 21:20:42.318+00",
+     "reason": "[Ad metrics unavailable - fail closed] Tracking anomaly: contradictory purchase truth (purchase ROAS is missing, negative, or non-finite). Verify pixel/CAPI purchase count, value, and ROAS aggregation before acting."
+    },
+    {
+     "business_id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+     "provider_account_id": "act_921275999286619",
+     "as_of_date": "2026-08-21",
+     "ad_id": "120244828486290430",
+     "stratum": "keep_or_test_more",
+     "label": "test_more",
+     "raw_label": "test_more",
+     "blocked_action_type": null,
+     "authority_blocker": null,
+     "confidence": 45,
+     "spend": 2.2300000000000004,
+     "purchases": 0,
+     "roas": 0,
+     "effective_target_roas": 2,
+     "ratio_to_target": 0,
+     "truth_source": "commercial_truth",
+     "evaluation_id": "d4cdb3ab-bd16-4ad9-8f0b-d6c2212af232",
+     "input_hash": "de20885e479e3f46f9a4f60464a140be12a4ac92bb3296e742322be016526854",
+     "decision_hash": "8b713f5bd2529c9da8ffa34c06b70fa139ee57e8931d4d0d1708649ddc658d24",
+     "computed_at": "2026-08-21 21:20:42.318+00",
+     "reason": "Below commercial maturity (28d spend 2 < 300 loss-budget floor, 0 purchases, age 89d) — let the creative accumulate signal."
+    },
+    {
+     "business_id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+     "provider_account_id": "act_921275999286619",
+     "as_of_date": "2026-08-21",
+     "ad_id": "120232295655210430",
+     "stratum": "out_of_scope",
+     "label": "out_of_scope",
+     "raw_label": "out_of_scope",
+     "blocked_action_type": null,
+     "authority_blocker": null,
+     "confidence": 40,
+     "spend": 0,
+     "purchases": 0,
+     "roas": null,
+     "effective_target_roas": 0,
+     "ratio_to_target": null,
+     "truth_source": "global_default",
+     "evaluation_id": "91bf769e-e263-4dc7-bcb2-09847513251a",
+     "input_hash": "3f8ec7c3a744771a645f8a9692c3158be1431bdc0a5b0c1bfc3ff0b4ff1d541e",
+     "decision_hash": "db651e3c2c45fb1cd3cac149e962ca86a1e127e4c3124c8268bbce54d511ff0c",
+     "computed_at": "2026-08-21 21:20:42.318+00",
+     "reason": "[Ad metrics unavailable - fail closed] [Purchase ROAS decision not applicable] This Ad optimizes for a non-purchase outcome, so purchase-ROAS scale/cut/refresh actions do not apply."
+    },
+    {
+     "business_id": "5dbc7147-f051-4681-a4d6-20617170074f",
+     "provider_account_id": "act_805150454596350",
+     "as_of_date": "2026-08-22",
+     "ad_id": "120200150888000316",
+     "stratum": "blocked_or_diagnose",
+     "label": "diagnose",
+     "raw_label": "diagnose",
+     "blocked_action_type": null,
+     "authority_blocker": null,
+     "confidence": 40,
+     "spend": 0,
+     "purchases": 0,
+     "roas": null,
+     "effective_target_roas": 2.2,
+     "ratio_to_target": null,
+     "truth_source": "commercial_truth",
+     "evaluation_id": "25bcd2b7-7a6f-4865-ab91-212934506021",
+     "input_hash": "d45030775c93ff41f4bfcdd345cb5e1879807ff8428b271367937dccc59fa5d4",
+     "decision_hash": "5028340a9275f7e0ecdd9ef705cae7b9e1f23211b74a2498ca2af58fdef1cc39",
+     "computed_at": "2026-08-22 14:50:25.127+00",
+     "reason": "[Ad metrics unavailable - fail closed] Tracking anomaly: contradictory purchase truth (purchase ROAS is missing, negative, or non-finite). Verify pixel/CAPI purchase count, value, and ROAS aggregation before acting."
+    },
+    {
+     "business_id": "5dbc7147-f051-4681-a4d6-20617170074f",
+     "provider_account_id": "act_805150454596350",
+     "as_of_date": "2026-08-22",
+     "ad_id": "120200150888010316",
+     "stratum": "blocked_or_diagnose",
+     "label": "diagnose",
+     "raw_label": "diagnose",
+     "blocked_action_type": null,
+     "authority_blocker": null,
+     "confidence": 40,
+     "spend": 0,
+     "purchases": 0,
+     "roas": null,
+     "effective_target_roas": 2.2,
+     "ratio_to_target": null,
+     "truth_source": "commercial_truth",
+     "evaluation_id": "44e3f986-5ac2-4e62-bc81-2b12111253d3",
+     "input_hash": "d8ab1029bd3f0276b24f24a39e4e3440a821f9310141171091a4af27134ee6bb",
+     "decision_hash": "85f9416cd29eac1684d7ca32b576de7a7870b2cc21a0b90618c516d0e5fd138d",
+     "computed_at": "2026-08-22 14:50:25.127+00",
+     "reason": "[Ad metrics unavailable - fail closed] Tracking anomaly: contradictory purchase truth (purchase ROAS is missing, negative, or non-finite). Verify pixel/CAPI purchase count, value, and ROAS aggregation before acting."
+    },
+    {
+     "business_id": "5dbc7147-f051-4681-a4d6-20617170074f",
+     "provider_account_id": "act_805150454596350",
+     "as_of_date": "2026-08-22",
+     "ad_id": "120241060762550316",
+     "stratum": "keep_or_test_more",
+     "label": "test_more",
+     "raw_label": "test_more",
+     "blocked_action_type": null,
+     "authority_blocker": null,
+     "confidence": 75,
+     "spend": 229.17000000000007,
+     "purchases": 3,
+     "roas": 2.9763930706462443,
+     "effective_target_roas": 2.2,
+     "ratio_to_target": 1.3529059412028381,
+     "truth_source": "commercial_truth",
+     "evaluation_id": "020a162d-e569-49ed-8faa-f81821d6d6b5",
+     "input_hash": "ff9b071852ce5a74028c561792d9f60944df42f793744b8ddf47396f12e07e42",
+     "decision_hash": "5f1b015ef91a2b629819fa8258b6e7c0ef77f77a0cd650a6f2e4a4bab4475d26",
+     "computed_at": "2026-08-22 14:50:25.127+00",
+     "reason": "Below commercial maturity (28d spend 229 < 250 loss-budget floor, 3 purchases, age 230d) — let the creative accumulate signal."
+    },
+    {
+     "business_id": "5dbc7147-f051-4681-a4d6-20617170074f",
+     "provider_account_id": "act_805150454596350",
+     "as_of_date": "2026-08-22",
+     "ad_id": "120200089349500316",
+     "stratum": "out_of_scope",
+     "label": "out_of_scope",
+     "raw_label": "out_of_scope",
+     "blocked_action_type": null,
+     "authority_blocker": null,
+     "confidence": 40,
+     "spend": 0,
+     "purchases": 0,
+     "roas": null,
+     "effective_target_roas": 0,
+     "ratio_to_target": null,
+     "truth_source": "global_default",
+     "evaluation_id": "b739e1ea-d382-44d5-bc0b-d979333f62c1",
+     "input_hash": "9662c56c61e176cfa304671f4769ecff217e8ea3e0047b433af6b8c057f24d3a",
+     "decision_hash": "f20b0e534d6e351568fc9e39bbd1983cdfdb952aab466d991fc390da29e56f1b",
+     "computed_at": "2026-08-22 14:50:25.127+00",
+     "reason": "[Ad metrics unavailable - fail closed] [Purchase ROAS decision not applicable] This Ad optimizes for a non-purchase outcome, so purchase-ROAS scale/cut/refresh actions do not apply."
+    },
+    {
+     "business_id": "6c690fa4-6395-40b5-9755-e99b34d69bc3",
+     "provider_account_id": "act_840779107261785",
+     "as_of_date": "2026-08-22",
+     "ad_id": "120200414463890626",
+     "stratum": "blocked_or_diagnose",
+     "label": "diagnose",
+     "raw_label": "diagnose",
+     "blocked_action_type": null,
+     "authority_blocker": null,
+     "confidence": 40,
+     "spend": 0,
+     "purchases": 0,
+     "roas": null,
+     "effective_target_roas": 3,
+     "ratio_to_target": null,
+     "truth_source": "commercial_truth",
+     "evaluation_id": "536ce595-dc23-4896-a597-f7f79a27f176",
+     "input_hash": "77fcabfc16fb4643d6580548e0083e4f9f2a61a697a342e92cfaedf609314aa1",
+     "decision_hash": "b3e6b9a3998aca00b78c2a5d2acc6ea6e179cae437d5a19901a085aa6e5cc308",
+     "computed_at": "2026-08-22 06:01:55.373+00",
+     "reason": "[Ad metrics unavailable - fail closed] Tracking anomaly: contradictory purchase truth (purchase ROAS is missing, negative, or non-finite). Verify pixel/CAPI purchase count, value, and ROAS aggregation before acting."
+    },
+    {
+     "business_id": "6c690fa4-6395-40b5-9755-e99b34d69bc3",
+     "provider_account_id": "act_840779107261785",
+     "as_of_date": "2026-08-22",
+     "ad_id": "120200415321640626",
+     "stratum": "blocked_or_diagnose",
+     "label": "diagnose",
+     "raw_label": "diagnose",
+     "blocked_action_type": null,
+     "authority_blocker": null,
+     "confidence": 40,
+     "spend": 0,
+     "purchases": 0,
+     "roas": null,
+     "effective_target_roas": 3,
+     "ratio_to_target": null,
+     "truth_source": "commercial_truth",
+     "evaluation_id": "7b87070b-8a92-445c-860d-f26e7a16d333",
+     "input_hash": "f34dfba01f6bfcad4c6c224ca63acc9b5dcde1ec6272baa2918bbf7d1b6e8cae",
+     "decision_hash": "f2e819301bb38141ebd254f3a13cc3b95d6eff9f9d70ff0fb0e5f4a82eb8dd6b",
+     "computed_at": "2026-08-22 06:01:55.373+00",
+     "reason": "[Ad metrics unavailable - fail closed] Tracking anomaly: contradictory purchase truth (purchase ROAS is missing, negative, or non-finite). Verify pixel/CAPI purchase count, value, and ROAS aggregation before acting."
+    },
+    {
+     "business_id": "6c690fa4-6395-40b5-9755-e99b34d69bc3",
+     "provider_account_id": "act_840779107261785",
+     "as_of_date": "2026-08-22",
+     "ad_id": "120248075133830626",
+     "stratum": "keep_or_test_more",
+     "label": "keep",
+     "raw_label": "keep",
+     "blocked_action_type": null,
+     "authority_blocker": null,
+     "confidence": 75,
+     "spend": 70625.07999999999,
+     "purchases": 26,
+     "roas": 4.499478089086767,
+     "effective_target_roas": 3,
+     "ratio_to_target": 1.499826029695589,
+     "truth_source": "commercial_truth",
+     "evaluation_id": "2756fe62-715b-4978-a6ed-b900c78b1aef",
+     "input_hash": "1f7b84fe61a06abcf3df42a4b7f66af7f85a451335e8d628468bd9b938277a97",
+     "decision_hash": "3ae0256655dc74fb5b881b20cd7181d72469c3944397d0cc929169daae2f0fa8",
+     "computed_at": "2026-08-22 06:01:55.373+00",
+     "reason": "[near scale] ROAS 4.50 (28d) above commercial target (150%) — account scale calibration thin (24 mature creatives; need 30+); observe."
+    },
+    {
+     "business_id": "6c690fa4-6395-40b5-9755-e99b34d69bc3",
+     "provider_account_id": "act_840779107261785",
+     "as_of_date": "2026-08-22",
+     "ad_id": "120200239107890626",
+     "stratum": "out_of_scope",
+     "label": "out_of_scope",
+     "raw_label": "out_of_scope",
+     "blocked_action_type": null,
+     "authority_blocker": null,
+     "confidence": 40,
+     "spend": 0,
+     "purchases": 0,
+     "roas": null,
+     "effective_target_roas": 0,
+     "ratio_to_target": null,
+     "truth_source": "global_default",
+     "evaluation_id": "9bc05abb-d4d4-4e80-8c49-0b712a2c27d4",
+     "input_hash": "cd6590146cc237f94f8a78a50450dcb75c04703f444981ff03fb66fa3ce22e9d",
+     "decision_hash": "1f86124d7da784c4bad6c19f8c6bd67e5cce69fd46136e076f766b75bb4caae1",
+     "computed_at": "2026-08-22 06:01:55.373+00",
+     "reason": "[Ad metrics unavailable - fail closed] [Purchase ROAS decision not applicable] This Ad optimizes for a non-purchase outcome, so purchase-ROAS scale/cut/refresh actions do not apply."
+    },
+    {
+     "business_id": "b79683b4-6f87-48c0-a3ca-44d4356fef51",
+     "provider_account_id": "act_2335220976649516",
+     "as_of_date": "2026-08-22",
+     "ad_id": "120211041360560594",
+     "stratum": "blocked_or_diagnose",
+     "label": "diagnose",
+     "raw_label": "diagnose",
+     "blocked_action_type": null,
+     "authority_blocker": null,
+     "confidence": 40,
+     "spend": 0,
+     "purchases": 0,
+     "roas": null,
+     "effective_target_roas": 3.0356005422045422,
+     "ratio_to_target": null,
+     "truth_source": "account_baseline_thin",
+     "evaluation_id": "cb0f16a2-cd9c-4eb4-afa0-2be0bce825cf",
+     "input_hash": "d6c9dbdd960d70b64337251a717a23652dff662b2c40411c2dc3bdfd04c0110d",
+     "decision_hash": "214715411fe4efb0852a34dab0c6c19ab4daa2f7716059627d2158b3c30c06ac",
+     "computed_at": "2026-08-22 08:02:07.026+00",
+     "reason": "[Ad metrics unavailable - fail closed] Tracking anomaly: contradictory purchase truth (purchase ROAS is missing, negative, or non-finite). Verify pixel/CAPI purchase count, value, and ROAS aggregation before acting."
+    },
+    {
+     "business_id": "b79683b4-6f87-48c0-a3ca-44d4356fef51",
+     "provider_account_id": "act_2335220976649516",
+     "as_of_date": "2026-08-22",
+     "ad_id": "120211041409680594",
+     "stratum": "blocked_or_diagnose",
+     "label": "diagnose",
+     "raw_label": "diagnose",
+     "blocked_action_type": null,
+     "authority_blocker": null,
+     "confidence": 40,
+     "spend": 0,
+     "purchases": 0,
+     "roas": null,
+     "effective_target_roas": 3.0356005422045422,
+     "ratio_to_target": null,
+     "truth_source": "account_baseline_thin",
+     "evaluation_id": "c014ef93-e169-429c-997b-0fa4e81d7d48",
+     "input_hash": "e8978e49538986836886316e65bf850bd567fd5b678135798af1fec4d87c018d",
+     "decision_hash": "26bea51724a931e52f5b2ef0d636ba594baacba7088a19dde97ec3ea97471976",
+     "computed_at": "2026-08-22 08:02:07.026+00",
+     "reason": "[Ad metrics unavailable - fail closed] Tracking anomaly: contradictory purchase truth (purchase ROAS is missing, negative, or non-finite). Verify pixel/CAPI purchase count, value, and ROAS aggregation before acting."
+    },
+    {
+     "business_id": "b79683b4-6f87-48c0-a3ca-44d4356fef51",
+     "provider_account_id": "act_2335220976649516",
+     "as_of_date": "2026-08-22",
+     "ad_id": "120228618484880594",
+     "stratum": "keep_or_test_more",
+     "label": "test_more",
+     "raw_label": "test_more",
+     "blocked_action_type": null,
+     "authority_blocker": null,
+     "confidence": 50,
+     "spend": 2.65,
+     "purchases": 0,
+     "roas": 0,
+     "effective_target_roas": 3.0356005422045422,
+     "ratio_to_target": 0,
+     "truth_source": "account_baseline_thin",
+     "evaluation_id": "039585db-a2b1-4603-8e4e-c87759c19143",
+     "input_hash": "1dbfdb61aa901c003ba5185c0e2813a6e95ddfcc0b079eaffcce2d75857f0494",
+     "decision_hash": "c5c0eacce781d670b2c851443bd44549f77b7a87871d2a55753dc8fad3b6d430",
+     "computed_at": "2026-08-22 08:02:07.026+00",
+     "reason": "Below commercial maturity (28d spend 3 < 48 loss-budget floor, 0 purchases, age 420d) — let the creative accumulate signal."
+    },
+    {
+     "business_id": "bc0c6178-7853-4f6f-b026-ef0222a4b9e7",
+     "provider_account_id": "act_3554615364751964",
+     "as_of_date": "2026-08-22",
+     "ad_id": "120201054787670340",
+     "stratum": "blocked_or_diagnose",
+     "label": "diagnose",
+     "raw_label": "diagnose",
+     "blocked_action_type": null,
+     "authority_blocker": null,
+     "confidence": 40,
+     "spend": 0,
+     "purchases": 0,
+     "roas": null,
+     "effective_target_roas": 4,
+     "ratio_to_target": null,
+     "truth_source": "commercial_truth",
+     "evaluation_id": "e3c9d5b9-f90b-4afd-b9ad-e9b39f9f6f91",
+     "input_hash": "0fdeb03c842a4e06087c095401d4633bd48773aad0d01ff46e0ef1a5ff70f434",
+     "decision_hash": "14deccada6f352fb939946555eec940380083d8c31758f6da205243c9ba70d9a",
+     "computed_at": "2026-08-22 04:03:53.8+00",
+     "reason": "[Ad metrics unavailable - fail closed] Delivery status is unavailable; resolve the current ad, ad set, and campaign state before applying a performance action."
+    },
+    {
+     "business_id": "bc0c6178-7853-4f6f-b026-ef0222a4b9e7",
+     "provider_account_id": "act_3554615364751964",
+     "as_of_date": "2026-08-22",
+     "ad_id": "120201054904650340",
+     "stratum": "blocked_or_diagnose",
+     "label": "diagnose",
+     "raw_label": "diagnose",
+     "blocked_action_type": null,
+     "authority_blocker": null,
+     "confidence": 40,
+     "spend": 0,
+     "purchases": 0,
+     "roas": null,
+     "effective_target_roas": 4,
+     "ratio_to_target": null,
+     "truth_source": "commercial_truth",
+     "evaluation_id": "e3dfaf0e-2761-4c7b-bc2d-764de75aa755",
+     "input_hash": "aebb5eecc6a924bdc697613ce7e5cebe87c6ec112c19b6313c365c377e5e1911",
+     "decision_hash": "55908666f9121da8765536650a4e48718148de2ec2542fbb5fafaefdc9ea2e31",
+     "computed_at": "2026-08-22 04:03:53.8+00",
+     "reason": "[Ad metrics unavailable - fail closed] Tracking anomaly: contradictory purchase truth (purchase ROAS is missing, negative, or non-finite). Verify pixel/CAPI purchase count, value, and ROAS aggregation before acting."
+    },
+    {
+     "business_id": "bc0c6178-7853-4f6f-b026-ef0222a4b9e7",
+     "provider_account_id": "act_3554615364751964",
+     "as_of_date": "2026-08-22",
+     "ad_id": "120243489401790340",
+     "stratum": "keep_or_test_more",
+     "label": "keep",
+     "raw_label": "keep",
+     "blocked_action_type": null,
+     "authority_blocker": null,
+     "confidence": 65,
+     "spend": 363.4000000000001,
+     "purchases": 21,
+     "roas": 7.474766097963675,
+     "effective_target_roas": 4,
+     "ratio_to_target": 1.8686915244909188,
+     "truth_source": "commercial_truth",
+     "evaluation_id": "ca6a324f-25de-4e0b-93f9-8eacfe0dc537",
+     "input_hash": "421a85f4b5e98f97163f2fa3f00b5bd89ad5f6a2e03185abc9276a8c08ae9f64",
+     "decision_hash": "bb56c26ca7ec12bd5011fbc53d5ba7248d17a2a80b930f20530d7020080b899a",
+     "computed_at": "2026-08-22 04:03:53.8+00",
+     "reason": "[near scale] ROAS 7.47 (28d) above commercial target (187%) — account scale calibration thin (4 mature creatives; need 30+); observe."
+    },
+    {
+     "business_id": "bc0c6178-7853-4f6f-b026-ef0222a4b9e7",
+     "provider_account_id": "act_3554615364751964",
+     "as_of_date": "2026-08-22",
+     "ad_id": "120201054372970340",
+     "stratum": "out_of_scope",
+     "label": "out_of_scope",
+     "raw_label": "out_of_scope",
+     "blocked_action_type": null,
+     "authority_blocker": null,
+     "confidence": 40,
+     "spend": 0,
+     "purchases": 0,
+     "roas": null,
+     "effective_target_roas": 0,
+     "ratio_to_target": null,
+     "truth_source": "global_default",
+     "evaluation_id": "8d0bf7ea-a390-413b-ad83-40669d61508e",
+     "input_hash": "04016618c35198277d4698b120c27c420b0526380fb49f38e66671b64b8e11e5",
+     "decision_hash": "12c36bd2dad3a2115e594735082b5b059b203e04e2a01bb82fbd3ea696be450d",
+     "computed_at": "2026-08-22 04:03:53.8+00",
+     "reason": "[Ad metrics unavailable - fail closed] [Purchase ROAS decision not applicable] This Ad optimizes for a non-purchase outcome, so purchase-ROAS scale/cut/refresh actions do not apply."
+    },
+    {
+     "business_id": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+     "provider_account_id": "act_1087566732415606",
+     "as_of_date": "2026-08-22",
+     "ad_id": "120203861603630077",
+     "stratum": "blocked_or_diagnose",
+     "label": "diagnose",
+     "raw_label": "diagnose",
+     "blocked_action_type": null,
+     "authority_blocker": "native_profile_unavailable",
+     "confidence": 0,
+     "spend": 0,
+     "purchases": 0,
+     "roas": null,
+     "effective_target_roas": 0,
+     "ratio_to_target": null,
+     "truth_source": "global_default",
+     "evaluation_id": "c775a724-ff2d-4424-92c2-c6919b0aecbc",
+     "input_hash": "3e7a9be699bf7c60ab7a04189a62a80b58b6914b4505225387a0f96964791e36",
+     "decision_hash": "e36e4585f95f92fb02f0f4050b13fa357c56f85e2fb08b56287231da5a8a5ce1",
+     "computed_at": "2026-08-22 13:50:25.898+00",
+     "reason": "[Ad metrics unavailable - fail closed] [Native calibration unavailable - hard actions blocked] native_ad_profile_context_missing:objective"
+    },
+    {
+     "business_id": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+     "provider_account_id": "act_1087566732415606",
+     "as_of_date": "2026-08-22",
+     "ad_id": "120203861616120077",
+     "stratum": "blocked_or_diagnose",
+     "label": "diagnose",
+     "raw_label": "diagnose",
+     "blocked_action_type": null,
+     "authority_blocker": "native_profile_unavailable",
+     "confidence": 0,
+     "spend": 0,
+     "purchases": 0,
+     "roas": null,
+     "effective_target_roas": 0,
+     "ratio_to_target": null,
+     "truth_source": "global_default",
+     "evaluation_id": "26e17a0f-ddf8-424d-8108-b860485e0002",
+     "input_hash": "d34c37d47996a6adf257f9f054aeade0bf4829f319d903ac1e226035ab471a96",
+     "decision_hash": "949d9112e60e33436ab9c225a818f04a6b4eb7328ab360a0dcdf0f71aa1f198b",
+     "computed_at": "2026-08-22 13:50:25.898+00",
+     "reason": "[Ad metrics unavailable - fail closed] [Native calibration unavailable - hard actions blocked] native_ad_profile_context_missing:objective"
+    },
+    {
+     "business_id": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+     "provider_account_id": "act_1087566732415606",
+     "as_of_date": "2026-08-22",
+     "ad_id": "120247019318980077",
+     "stratum": "keep_or_test_more",
+     "label": "keep",
+     "raw_label": "keep",
+     "blocked_action_type": null,
+     "authority_blocker": null,
+     "confidence": 65,
+     "spend": 406.93,
+     "purchases": 10,
+     "roas": 3.9515150025802965,
+     "effective_target_roas": 3.5,
+     "ratio_to_target": 1.1290042864515133,
+     "truth_source": "commercial_truth",
+     "evaluation_id": "498f296c-b01c-49ff-8f67-1b59d17e1da9",
+     "input_hash": "61559502c745ded7703b694e4d2c7fa28ce248e4936369600853a1518179ebe9",
+     "decision_hash": "ee55e47022ba43ff5ead45eb64ea0b521019e6213999e57fef44838afcbf9ec2",
+     "computed_at": "2026-08-22 13:50:25.898+00",
+     "reason": "[at target] ROAS 3.95 (28d) at/around commercial target 3.50 (113%) — stable, let it run."
+    },
+    {
+     "business_id": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+     "provider_account_id": "act_1087566732415606",
+     "as_of_date": "2026-08-22",
+     "ad_id": "120209671132800077",
+     "stratum": "out_of_scope",
+     "label": "out_of_scope",
+     "raw_label": "out_of_scope",
+     "blocked_action_type": null,
+     "authority_blocker": null,
+     "confidence": 40,
+     "spend": 0,
+     "purchases": 0,
+     "roas": null,
+     "effective_target_roas": 0,
+     "ratio_to_target": null,
+     "truth_source": "global_default",
+     "evaluation_id": "8d5cb926-cc33-4ef9-b860-72f413ea54f8",
+     "input_hash": "ac11f81f984e3b86e1e5832edc95545d8ec7a88206358a3293cd55280ba862de",
+     "decision_hash": "43cdd74d10581a54f8392a7f028d6164f07f6732412428a2afb62a1a4f9c9d86",
+     "computed_at": "2026-08-22 13:50:25.898+00",
+     "reason": "[Ad metrics unavailable - fail closed] [Purchase ROAS decision not applicable] This Ad optimizes for a non-purchase outcome, so purchase-ROAS scale/cut/refresh actions do not apply."
+    }
+   ],
+   "nativeJobTail": [
+    {
+     "business_id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+     "job_name": "engine_v3_native_ad_decisions_shadow_job",
+     "as_of_date": "2026-08-22",
+     "status": "success",
+     "error_code": null,
+     "finished_at": "2026-08-22 14:51:42.277266+00",
+     "row_count": 750
+    },
+    {
+     "business_id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+     "job_name": "engine_v3_native_ad_calibration_shadow_job",
+     "as_of_date": "2026-08-22",
+     "status": "success",
+     "error_code": null,
+     "finished_at": "2026-08-22 14:51:26.727514+00",
+     "row_count": 5
+    },
+    {
+     "business_id": "5dbc7147-f051-4681-a4d6-20617170074f",
+     "job_name": "engine_v3_native_ad_decisions_shadow_job",
+     "as_of_date": "2026-08-22",
+     "status": "success",
+     "error_code": null,
+     "finished_at": "2026-08-22 14:51:07.553408+00",
+     "row_count": 2529
+    },
+    {
+     "business_id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+     "job_name": "engine_v3_native_ad_decisions_shadow_job",
+     "as_of_date": "2026-08-22",
+     "status": "success",
+     "error_code": null,
+     "finished_at": "2026-08-22 14:41:43.050344+00",
+     "row_count": 750
+    },
+    {
+     "business_id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+     "job_name": "engine_v3_native_ad_calibration_shadow_job",
+     "as_of_date": "2026-08-22",
+     "status": "success",
+     "error_code": null,
+     "finished_at": "2026-08-22 14:41:27.942525+00",
+     "row_count": 5
+    },
+    {
+     "business_id": "5dbc7147-f051-4681-a4d6-20617170074f",
+     "job_name": "engine_v3_native_ad_decisions_shadow_job",
+     "as_of_date": "2026-08-22",
+     "status": "success",
+     "error_code": null,
+     "finished_at": "2026-08-22 14:41:06.729965+00",
+     "row_count": 2529
+    },
+    {
+     "business_id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+     "job_name": "engine_v3_native_ad_decisions_shadow_job",
+     "as_of_date": "2026-08-22",
+     "status": "success",
+     "error_code": null,
+     "finished_at": "2026-08-22 14:31:45.870223+00",
+     "row_count": 750
+    },
+    {
+     "business_id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+     "job_name": "engine_v3_native_ad_calibration_shadow_job",
+     "as_of_date": "2026-08-22",
+     "status": "success",
+     "error_code": null,
+     "finished_at": "2026-08-22 14:31:28.960764+00",
+     "row_count": 5
+    },
+    {
+     "business_id": "5dbc7147-f051-4681-a4d6-20617170074f",
+     "job_name": "engine_v3_native_ad_decisions_shadow_job",
+     "as_of_date": "2026-08-22",
+     "status": "success",
+     "error_code": null,
+     "finished_at": "2026-08-22 14:31:09.124695+00",
+     "row_count": 2529
+    },
+    {
+     "business_id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+     "job_name": "engine_v3_native_ad_decisions_shadow_job",
+     "as_of_date": "2026-08-22",
+     "status": "success",
+     "error_code": null,
+     "finished_at": "2026-08-22 14:21:45.362006+00",
+     "row_count": 750
+    },
+    {
+     "business_id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+     "job_name": "engine_v3_native_ad_calibration_shadow_job",
+     "as_of_date": "2026-08-22",
+     "status": "success",
+     "error_code": null,
+     "finished_at": "2026-08-22 14:21:29.239631+00",
+     "row_count": 5
+    },
+    {
+     "business_id": "5dbc7147-f051-4681-a4d6-20617170074f",
+     "job_name": "engine_v3_native_ad_decisions_shadow_job",
+     "as_of_date": "2026-08-22",
+     "status": "success",
+     "error_code": null,
+     "finished_at": "2026-08-22 14:21:09.597482+00",
+     "row_count": 2529
+    },
+    {
+     "business_id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+     "job_name": "engine_v3_native_ad_decisions_shadow_job",
+     "as_of_date": "2026-08-22",
+     "status": "success",
+     "error_code": null,
+     "finished_at": "2026-08-22 14:11:47.054174+00",
+     "row_count": 750
+    },
+    {
+     "business_id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+     "job_name": "engine_v3_native_ad_calibration_shadow_job",
+     "as_of_date": "2026-08-22",
+     "status": "success",
+     "error_code": null,
+     "finished_at": "2026-08-22 14:11:31.837475+00",
+     "row_count": 5
+    },
+    {
+     "business_id": "5dbc7147-f051-4681-a4d6-20617170074f",
+     "job_name": "engine_v3_native_ad_decisions_shadow_job",
+     "as_of_date": "2026-08-22",
+     "status": "success",
+     "error_code": null,
+     "finished_at": "2026-08-22 14:11:12.352791+00",
+     "row_count": 2529
+    },
+    {
+     "business_id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+     "job_name": "engine_v3_native_ad_decisions_shadow_job",
+     "as_of_date": "2026-08-22",
+     "status": "success",
+     "error_code": null,
+     "finished_at": "2026-08-22 14:01:47.85219+00",
+     "row_count": 750
+    },
+    {
+     "business_id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+     "job_name": "engine_v3_native_ad_calibration_shadow_job",
+     "as_of_date": "2026-08-22",
+     "status": "success",
+     "error_code": null,
+     "finished_at": "2026-08-22 14:01:32.788467+00",
+     "row_count": 5
+    },
+    {
+     "business_id": "5dbc7147-f051-4681-a4d6-20617170074f",
+     "job_name": "engine_v3_native_ad_decisions_shadow_job",
+     "as_of_date": "2026-08-22",
+     "status": "success",
+     "error_code": null,
+     "finished_at": "2026-08-22 14:01:15.217155+00",
+     "row_count": 2529
+    }
+   ]
+  },
+  "governance": {
+   "automationControls": [
+    {
+     "business_id": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+     "kill_switch_engaged": true,
+     "kill_switch_reason": "Zero-base Meta stop",
+     "auto_execution_enabled": false,
+     "readiness_tier": "manual_review",
+     "guardrails_json": {
+      "dryRunOnly": true,
+      "dailyAutoActionCap": 3,
+      "notificationPolicy": "every_auto_action",
+      "requireRollbackPlan": true,
+      "maxBudgetIncreasePct": 15,
+      "requireCampaignLabel": true,
+      "requireLivePreflight": true,
+      "requireCommercialAnchor": true,
+      "maxDailyBudgetChangeMinor": null,
+      "perActionSpendCeilingMinor": 5000,
+      "perActionSpendCeilingCurrency": "EUR"
+     },
+     "min_roas_floor": null,
+     "quiet_hours_start": null,
+     "quiet_hours_end": null,
+     "quiet_hours_timezone": null,
+     "updated_at": "2026-08-13 10:54:04.841622+00"
+    }
+   ],
+   "automationRules": [],
+   "proposals": [
+    {
+     "business_id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+     "status": "expired",
+     "rows": 3,
+     "latest_at": "2026-08-26 17:42:17.973601+00"
+    }
+   ],
+   "promotionRecords": [],
+   "decisionTypeModes": [],
+   "engineFlags": [
+    {
+     "business_id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+     "enabled": null,
+     "surface_visible": true,
+     "shadow_only": false,
+     "preset_override": null
+    },
+    {
+     "business_id": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+     "enabled": null,
+     "surface_visible": true,
+     "shadow_only": false,
+     "preset_override": null
+    }
+   ],
+   "actionLog": [
+    {
+     "business_id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+     "status": "failure",
+     "rows": 29,
+     "dry_run_rows": 0,
+     "provider_verified_rows": 0,
+     "native_origin_rows": 0,
+     "latest_requested_at": "2026-05-07 12:41:14.883282+00"
+    },
+    {
+     "business_id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+     "status": "silent_failure",
+     "rows": 4,
+     "dry_run_rows": 0,
+     "provider_verified_rows": 0,
+     "native_origin_rows": 0,
+     "latest_requested_at": "2026-05-06 18:59:44.098476+00"
+    },
+    {
+     "business_id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+     "status": "success",
+     "rows": 56,
+     "dry_run_rows": 0,
+     "provider_verified_rows": 0,
+     "native_origin_rows": 0,
+     "latest_requested_at": "2026-07-06 08:40:22.043471+00"
+    },
+    {
+     "business_id": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+     "status": "silent_failure",
+     "rows": 1,
+     "dry_run_rows": 0,
+     "provider_verified_rows": 0,
+     "native_origin_rows": 0,
+     "latest_requested_at": "2026-05-18 04:37:09.950165+00"
+    },
+    {
+     "business_id": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+     "status": "success",
+     "rows": 2,
+     "dry_run_rows": 0,
+     "provider_verified_rows": 0,
+     "native_origin_rows": 0,
+     "latest_requested_at": "2026-05-18 04:37:30.910323+00"
+    }
+   ],
+   "operatorReceipts": [],
+   "commandJournal": []
+  },
+  "outcomes": {
+   "outcomesSixBusinesses": {
+    "total_rows": 0
+   },
+   "outcomesPerBusiness": [],
+   "outcomeRunsTail": [
+    {
+     "business_id": "bc0c6178-7853-4f6f-b026-ef0222a4b9e7",
+     "evaluation_date": "2026-08-12",
+     "status": "complete",
+     "candidate_row_count": 0,
+     "persisted_row_count": 0,
+     "started_at": "2026-08-12 04:02:52.040604+00",
+     "completed_at": "2026-08-12 04:02:52.055013+00"
+    },
+    {
+     "business_id": "b79683b4-6f87-48c0-a3ca-44d4356fef51",
+     "evaluation_date": "2026-08-12",
+     "status": "complete",
+     "candidate_row_count": 0,
+     "persisted_row_count": 0,
+     "started_at": "2026-08-12 04:02:51.676039+00",
+     "completed_at": "2026-08-12 04:02:51.717502+00"
+    },
+    {
+     "business_id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+     "evaluation_date": "2026-08-12",
+     "status": "complete",
+     "candidate_row_count": 0,
+     "persisted_row_count": 0,
+     "started_at": "2026-08-12 04:02:52.184087+00",
+     "completed_at": "2026-08-12 04:02:52.191411+00"
+    },
+    {
+     "business_id": "6c690fa4-6395-40b5-9755-e99b34d69bc3",
+     "evaluation_date": "2026-08-12",
+     "status": "complete",
+     "candidate_row_count": 0,
+     "persisted_row_count": 0,
+     "started_at": "2026-08-12 04:02:52.585086+00",
+     "completed_at": "2026-08-12 04:02:52.587746+00"
+    },
+    {
+     "business_id": "5dbc7147-f051-4681-a4d6-20617170074f",
+     "evaluation_date": "2026-08-12",
+     "status": "complete",
+     "candidate_row_count": 0,
+     "persisted_row_count": 0,
+     "started_at": "2026-08-12 04:02:52.479914+00",
+     "completed_at": "2026-08-12 04:02:52.482907+00"
+    },
+    {
+     "business_id": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+     "evaluation_date": "2026-08-12",
+     "status": "complete",
+     "candidate_row_count": 0,
+     "persisted_row_count": 0,
+     "started_at": "2026-08-12 04:02:52.470586+00",
+     "completed_at": "2026-08-12 04:02:52.473477+00"
+    },
+    {
+     "business_id": "bc0c6178-7853-4f6f-b026-ef0222a4b9e7",
+     "evaluation_date": "2026-08-11",
+     "status": "complete",
+     "candidate_row_count": 0,
+     "persisted_row_count": 0,
+     "started_at": "2026-08-11 04:00:49.650809+00",
+     "completed_at": "2026-08-11 04:00:49.662951+00"
+    },
+    {
+     "business_id": "b79683b4-6f87-48c0-a3ca-44d4356fef51",
+     "evaluation_date": "2026-08-11",
+     "status": "complete",
+     "candidate_row_count": 0,
+     "persisted_row_count": 0,
+     "started_at": "2026-08-11 04:00:49.33122+00",
+     "completed_at": "2026-08-11 04:00:49.362316+00"
+    },
+    {
+     "business_id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+     "evaluation_date": "2026-08-11",
+     "status": "complete",
+     "candidate_row_count": 0,
+     "persisted_row_count": 0,
+     "started_at": "2026-08-11 04:00:49.938936+00",
+     "completed_at": "2026-08-11 04:00:49.9514+00"
+    },
+    {
+     "business_id": "6c690fa4-6395-40b5-9755-e99b34d69bc3",
+     "evaluation_date": "2026-08-11",
+     "status": "complete",
+     "candidate_row_count": 0,
+     "persisted_row_count": 0,
+     "started_at": "2026-08-11 04:00:50.138333+00",
+     "completed_at": "2026-08-11 04:00:50.141246+00"
+    }
+   ],
+   "operatorResponses": [],
+   "experimentsSixBusinesses": {
+    "experiments": 0
+   },
+   "jobHealth": [
+    {
+     "job_name": "engine_v3_ad_decision_outcomes_job",
+     "last_succeeded_at": "2026-08-12 04:02:49.846699+00",
+     "last_non_success_at": "2026-08-22 04:54:36.815133+00",
+     "non_success_rows": 870
+    },
+    {
+     "job_name": "engine_v3_calibration_job",
+     "last_succeeded_at": "2026-08-22 03:02:29.115123+00",
+     "last_non_success_at": "2026-07-28 03:12:40.683308+00",
+     "non_success_rows": 3
+    },
+    {
+     "job_name": "engine_v3_campaign_context_job",
+     "last_succeeded_at": "2026-08-22 03:02:28.140562+00",
+     "last_non_success_at": null,
+     "non_success_rows": 0
+    },
+    {
+     "job_name": "engine_v3_decision_outcomes_job",
+     "last_succeeded_at": "2026-08-22 04:05:31.1315+00",
+     "last_non_success_at": null,
+     "non_success_rows": 0
+    },
+    {
+     "job_name": "engine_v3_decisions_job",
+     "last_succeeded_at": "2026-08-22 03:02:30.130668+00",
+     "last_non_success_at": null,
+     "non_success_rows": 0
+    },
+    {
+     "job_name": "engine_v3_lifecycle_job",
+     "last_succeeded_at": "2026-08-22 03:02:29.913815+00",
+     "last_non_success_at": "2026-07-03 05:22:08.305666+00",
+     "non_success_rows": 1
+    },
+    {
+     "job_name": "engine_v3_native_ad_calibration_shadow_job",
+     "last_succeeded_at": "2026-08-22 14:51:23.918727+00",
+     "last_non_success_at": "2026-07-14 04:10:32.5369+00",
+     "non_success_rows": 372
+    },
+    {
+     "job_name": "engine_v3_native_ad_decisions_shadow_job",
+     "last_succeeded_at": "2026-08-22 14:51:26.734173+00",
+     "last_non_success_at": "2026-08-22 06:52:32.432455+00",
+     "non_success_rows": 96
+    },
+    {
+     "job_name": "engine_v3_native_ad_operator_response_shadow_job",
+     "last_succeeded_at": "2026-08-22 13:50:45.335216+00",
+     "last_non_success_at": "2026-08-22 14:41:43.057593+00",
+     "non_success_rows": 8027
+    },
+    {
+     "job_name": "engine_v3_operator_response_job",
+     "last_succeeded_at": "2026-05-05 12:30:48.681905+00",
+     "last_non_success_at": null,
+     "non_success_rows": 0
+    }
+   ],
+   "jobFailureTail": [
+    {
+     "job_name": "engine_v3_native_ad_operator_response_shadow_job",
+     "business_id": "bc0c6178-7853-4f6f-b026-ef0222a4b9e7",
+     "status": "failed",
+     "error_code": null,
+     "error_message": "column \"business_ref_id\" does not exist",
+     "created_at": "2026-08-22 14:41:43.057593+00"
+    },
+    {
+     "job_name": "engine_v3_native_ad_operator_response_shadow_job",
+     "business_id": "5dbc7147-f051-4681-a4d6-20617170074f",
+     "status": "failed",
+     "error_code": null,
+     "error_message": "column \"business_ref_id\" does not exist",
+     "created_at": "2026-08-22 14:41:06.737699+00"
+    },
+    {
+     "job_name": "engine_v3_native_ad_operator_response_shadow_job",
+     "business_id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+     "status": "failed",
+     "error_code": null,
+     "error_message": "column \"business_ref_id\" does not exist",
+     "created_at": "2026-08-22 14:11:47.063481+00"
+    },
+    {
+     "job_name": "engine_v3_native_ad_operator_response_shadow_job",
+     "business_id": "bc0c6178-7853-4f6f-b026-ef0222a4b9e7",
+     "status": "failed",
+     "error_code": null,
+     "error_message": "column \"business_ref_id\" does not exist",
+     "created_at": "2026-08-22 13:32:06.879469+00"
+    },
+    {
+     "job_name": "engine_v3_native_ad_operator_response_shadow_job",
+     "business_id": "5dbc7147-f051-4681-a4d6-20617170074f",
+     "status": "failed",
+     "error_code": null,
+     "error_message": "column \"business_ref_id\" does not exist",
+     "created_at": "2026-08-22 13:31:36.462808+00"
+    },
+    {
+     "job_name": "engine_v3_native_ad_operator_response_shadow_job",
+     "business_id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+     "status": "failed",
+     "error_code": null,
+     "error_message": "column \"business_ref_id\" does not exist",
+     "created_at": "2026-08-22 13:02:11.454519+00"
+    },
+    {
+     "job_name": "engine_v3_native_ad_operator_response_shadow_job",
+     "business_id": "bc0c6178-7853-4f6f-b026-ef0222a4b9e7",
+     "status": "failed",
+     "error_code": null,
+     "error_message": "column \"business_ref_id\" does not exist",
+     "created_at": "2026-08-22 12:22:23.776982+00"
+    },
+    {
+     "job_name": "engine_v3_native_ad_operator_response_shadow_job",
+     "business_id": "5dbc7147-f051-4681-a4d6-20617170074f",
+     "status": "failed",
+     "error_code": null,
+     "error_message": "column \"business_ref_id\" does not exist",
+     "created_at": "2026-08-22 12:21:31.467349+00"
+    },
+    {
+     "job_name": "engine_v3_native_ad_operator_response_shadow_job",
+     "business_id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+     "status": "failed",
+     "error_code": null,
+     "error_message": "column \"business_ref_id\" does not exist",
+     "created_at": "2026-08-22 11:52:04.555046+00"
+    },
+    {
+     "job_name": "engine_v3_native_ad_operator_response_shadow_job",
+     "business_id": "bc0c6178-7853-4f6f-b026-ef0222a4b9e7",
+     "status": "failed",
+     "error_code": null,
+     "error_message": "column \"business_ref_id\" does not exist",
+     "created_at": "2026-08-22 11:12:25.523103+00"
+    },
+    {
+     "job_name": "engine_v3_native_ad_operator_response_shadow_job",
+     "business_id": "5dbc7147-f051-4681-a4d6-20617170074f",
+     "status": "failed",
+     "error_code": null,
+     "error_message": "column \"business_ref_id\" does not exist",
+     "created_at": "2026-08-22 11:11:34.844836+00"
+    },
+    {
+     "job_name": "engine_v3_native_ad_operator_response_shadow_job",
+     "business_id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+     "status": "failed",
+     "error_code": null,
+     "error_message": "column \"business_ref_id\" does not exist",
+     "created_at": "2026-08-22 10:42:20.408516+00"
+    }
+   ]
+  },
+  "fleetGlobal": {
+   "scopeNote": "Every value in this object is fleet-wide (all businesses / physical database objects / singleton worker processes). Six-business claims live exclusively in the sibling sections.",
+   "stateHistoryFence": {
+    "scope": "physical table, whole fleet",
+    "stateHistoryTable": "meta_entity_state_history",
+    "measuredBytes": "5368750080",
+    "approxRows": "3988413",
+    "localHeadBudgetBytes": 5368709120,
+    "deployedBudgetBytes": "unknown_not_readable_from_here",
+    "lastStateWriteAt": "2026-08-22 14:53:48.604589+00"
+   },
+   "workerHeartbeats": {
+    "scope": "singleton durable workers, whole fleet",
+    "rows": [
+     {
+      "worker_id": "sync-worker:18:4z5f31g0:google_ads",
+      "instance_type": "durable_sync_worker",
+      "provider_scope": "google_ads",
+      "status": "idle",
+      "last_heartbeat_at": "2026-08-30 05:42:26.036051+00"
+     },
+     {
+      "worker_id": "sync-worker:18:4z5f31g0:meta",
+      "instance_type": "durable_sync_worker",
+      "provider_scope": "meta",
+      "status": "idle",
+      "last_heartbeat_at": "2026-08-30 05:42:19.847549+00"
+     },
+     {
+      "worker_id": "sync-worker:18:4z5f31g0:shopify",
+      "instance_type": "durable_sync_worker",
+      "provider_scope": "shopify",
+      "status": "idle",
+      "last_heartbeat_at": "2026-08-30 05:42:19.733869+00"
+     },
+     {
+      "worker_id": "sync-worker:18:4z5f31g0",
+      "instance_type": "durable_sync_worker",
+      "provider_scope": "all",
+      "status": "idle",
+      "last_heartbeat_at": "2026-08-30 05:42:19.69911+00"
+     },
+     {
+      "worker_id": "sync-worker:18:68ovr0vm",
+      "instance_type": "durable_sync_worker",
+      "provider_scope": "all",
+      "status": "stopped",
+      "last_heartbeat_at": "2026-08-29 11:33:27.133346+00"
+     }
+    ]
+   },
+   "campaignContext": {
+    "scope": "all businesses (denominator for the account-NULL census)",
+    "total": 4440,
+    "account_null": 4440,
+    "max_as_of": "2026-08-22"
+   },
+   "outcomes": {
+    "scope": "all businesses",
+    "total_rows": 0
+   },
+   "experiments": {
+    "scope": "all businesses (arms/assignments tables carry no business key)",
+    "experiments": 0,
+    "arms": 0,
+    "assignments": 0
+   },
+   "jobHealth": {
+    "scope": "all businesses; numerator non_success_rows over denominator total_rows per job",
+    "rows": [
+     {
+      "job_name": "engine_v3_ad_decision_outcomes_job",
+      "non_success_rows": 1468,
+      "total_rows": 1559
+     },
+     {
+      "job_name": "engine_v3_calibration_job",
+      "non_success_rows": 4,
+      "total_rows": 820
+     },
+     {
+      "job_name": "engine_v3_campaign_context_job",
+      "non_success_rows": 1,
+      "total_rows": 709
+     },
+     {
+      "job_name": "engine_v3_decision_outcomes_job",
+      "non_success_rows": 0,
+      "total_rows": 1019
+     },
+     {
+      "job_name": "engine_v3_decisions_job",
+      "non_success_rows": 0,
+      "total_rows": 783
+     },
+     {
+      "job_name": "engine_v3_lifecycle_job",
+      "non_success_rows": 2,
+      "total_rows": 794
+     },
+     {
+      "job_name": "engine_v3_native_ad_calibration_shadow_job",
+      "non_success_rows": 806,
+      "total_rows": 1443
+     },
+     {
+      "job_name": "engine_v3_native_ad_decisions_shadow_job",
+      "non_success_rows": 288,
+      "total_rows": 3589
+     },
+     {
+      "job_name": "engine_v3_native_ad_operator_response_shadow_job",
+      "non_success_rows": 8513,
+      "total_rows": 10751
+     },
+     {
+      "job_name": "engine_v3_operator_response_job",
+      "non_success_rows": 0,
+      "total_rows": 2
+     }
+    ]
+   }
+  },
+  "schemaCompatibility": {
+   "d075ObservationRunColumnsPresent": [],
+   "compactionTablesPresent": [],
+   "note": "Local HEAD expects manifest_kind/base_run_id/delta_stats_json/last_captured_at on meta_entity_observation_runs and the D077 compaction journal table; their absence above is the exact local-HEAD-versus-production schema gap."
+  }
+ }
+}

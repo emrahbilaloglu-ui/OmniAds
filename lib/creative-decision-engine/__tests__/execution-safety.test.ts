@@ -6,6 +6,7 @@ import {
   createDecisionOriginAdActionIdempotencyKey,
   createCreativePostActionMonitorPlan,
   evaluateDecisionOriginAdExecutionPreflight,
+  evaluateDecisionOriginAdDecisionFreshness,
   evaluateCreativeExecutionReadiness,
   evaluateCreativeMutationPreflight,
   runDecisionOriginAdExecutionPreflight,
@@ -414,6 +415,7 @@ function nativeEvidence(
     >;
     receipt?: DecisionOriginAdExecutionEvidence["idempotencyReceipt"];
     killSwitch?: Partial<DecisionOriginAdExecutionEvidence["killSwitch"]>;
+    pipeline?: Partial<DecisionOriginAdExecutionEvidence["pipeline"]>;
   } = {},
 ): DecisionOriginAdExecutionEvidence {
   return {
@@ -421,6 +423,11 @@ function nativeEvidence(
       verified: true,
       engaged: false,
       ...overrides.killSwitch,
+    },
+    pipeline: {
+      verified: true,
+      executionReady: true,
+      ...overrides.pipeline,
     },
     currentAccount: {
       found: true,
@@ -472,6 +479,41 @@ function nativeEvidence(
 }
 
 describe("exact native-ad decision execution", () => {
+  it("uses one fail-closed 12-hour decision clock for presentation and preflight", () => {
+    const now = new Date("2026-07-12T18:00:00.000Z");
+    expect(
+      evaluateDecisionOriginAdDecisionFreshness({
+        computedAt: "2026-07-12T06:00:00.000Z",
+        now,
+      }),
+    ).toMatchObject({ status: "fresh", ageHours: 12, maxAgeHours: 12 });
+    expect(
+      evaluateDecisionOriginAdDecisionFreshness({
+        computedAt: "2026-07-12T05:59:59.000Z",
+        now,
+      }).status,
+    ).toBe("stale");
+    expect(
+      evaluateDecisionOriginAdDecisionFreshness({
+        computedAt: "2026-07-12T18:02:00.000Z",
+        now,
+      }).status,
+    ).toBe("future");
+    expect(
+      evaluateDecisionOriginAdDecisionFreshness({
+        computedAt: "not-a-timestamp",
+        now,
+      }).status,
+    ).toBe("unavailable");
+    expect(
+      evaluateDecisionOriginAdDecisionFreshness({
+        computedAt: "2026-07-12T17:59:59.000Z",
+        now,
+        maxAgeHours: 0,
+      }),
+    ).toMatchObject({ status: "stale", maxAgeHours: 0 });
+  });
+
   it("builds idempotency from exact account, ad, source, epoch, hash, and action", () => {
     const first = createDecisionOriginAdActionIdempotencyKey(nativeRequest());
     const sameCreativeOtherAd = createDecisionOriginAdActionIdempotencyKey(

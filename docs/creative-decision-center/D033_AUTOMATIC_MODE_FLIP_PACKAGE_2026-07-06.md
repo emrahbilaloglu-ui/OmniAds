@@ -63,8 +63,15 @@ under both modes through the production decide+guard path:
 4. Day-1: `campaign-context-day1-check.ts` + briefing spot-check that
    campaign kind chips match resolver kinds; overrides (manual labels) win
    where present.
-5. Rollback: unset `CAMPAIGN_CONTEXT_MODE` (reverts to legacy_labels);
-   previous-version snapshots intact under their version key.
+5. Rollback: **this lever no longer exists** (corrected 2026-09-03 by the
+   D077-D088 pre-deploy audit). D074b closed the manual label vocabulary, so
+   `resolveCampaignContextMode()` maps `legacy_labels` to `automatic` and only
+   the literal `unknown` behaves differently; `docker-compose.yml` also now
+   defaults the variable to `automatic`, and its `environment:` key overrides
+   anything set in `.env.production`. Unsetting the variable therefore leaves
+   automatic mode running. `CAMPAIGN_CONTEXT_MODE=unknown` narrows role
+   authority to unresolved — it never re-arms manual labels. Previous-version
+   snapshots remain intact under their own version key.
 
 ## What automatic mode changes for the operator
 

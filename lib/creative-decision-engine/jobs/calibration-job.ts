@@ -13,6 +13,7 @@ import {
 } from "../types";
 import { getBusinessGuardFailure } from "./business-guard";
 import { ENGINE_V3_JOB_TRANSACTION_TIMEOUT_MS } from "./job-runtime";
+import { CAMPAIGN_CONTEXT_MAX_AGE_DAYS } from "../campaign-context/source";
 
 export const JOB_NAME = "engine_v3_calibration_job";
 export const FUNNEL_METRIC_SAMPLE_FLOOR = 20;
@@ -228,14 +229,32 @@ per_creative_raw AS (
     SUM(d.spend) FILTER (WHERE d.date >= ($1::date - INTERVAL '6 days')) AS recent_7d_spend,
     SUM(d.revenue) FILTER (WHERE d.date >= ($1::date - INTERVAL '6 days')) AS recent_7d_revenue
   FROM meta_creative_daily d
-  LEFT JOIN meta_campaign_labels labels
-    ON labels.business_id = d.business_id
-   AND labels.campaign_id = d.campaign_id
+  LEFT JOIN LATERAL (
+    SELECT
+      context.inferred_kind,
+      context.confidence_class
+    FROM engine_v3_campaign_context_daily context
+    WHERE context.business_id = d.business_ref_id::text
+      AND context.provider_account_id = d.provider_account_id
+      AND context.campaign_id = d.campaign_id
+      AND context.as_of_date <= $1::date
+      AND context.as_of_date >= (
+        $1::date - (${CAMPAIGN_CONTEXT_MAX_AGE_DAYS} * INTERVAL '1 day')
+      )
+    ORDER BY context.as_of_date DESC, context.updated_at DESC, context.id DESC
+    LIMIT 1
+  ) campaign_context ON true
   WHERE d.business_ref_id = $2::uuid
     AND d.date BETWEEN ($1::date - INTERVAL '89 days') AND $1::date
     AND d.objective = ANY($5::text[])
     AND ($6::text IS NULL OR d.campaign_id = $6::text)
-    AND ($7::text = 'all' OR labels.campaign_kind = $7::text)
+    AND (
+      $7::text = 'all'
+      OR (
+        campaign_context.confidence_class = 'high'
+        AND campaign_context.inferred_kind = $7::text
+      )
+    )
   GROUP BY d.creative_id
 ),
 per_creative AS (
@@ -451,14 +470,32 @@ source_bounds AS (
     MAX(d.date) AS source_max_date,
     MAX(d.updated_at) AS source_max_updated_at
   FROM meta_creative_daily d
-  LEFT JOIN meta_campaign_labels labels
-    ON labels.business_id = d.business_id
-   AND labels.campaign_id = d.campaign_id
+  LEFT JOIN LATERAL (
+    SELECT
+      context.inferred_kind,
+      context.confidence_class
+    FROM engine_v3_campaign_context_daily context
+    WHERE context.business_id = d.business_ref_id::text
+      AND context.provider_account_id = d.provider_account_id
+      AND context.campaign_id = d.campaign_id
+      AND context.as_of_date <= $1::date
+      AND context.as_of_date >= (
+        $1::date - (${CAMPAIGN_CONTEXT_MAX_AGE_DAYS} * INTERVAL '1 day')
+      )
+    ORDER BY context.as_of_date DESC, context.updated_at DESC, context.id DESC
+    LIMIT 1
+  ) campaign_context ON true
   WHERE d.business_ref_id = $2::uuid
     AND d.date BETWEEN ($1::date - INTERVAL '89 days') AND $1::date
     AND d.objective = ANY($5::text[])
     AND ($6::text IS NULL OR d.campaign_id = $6::text)
-    AND ($7::text = 'all' OR labels.campaign_kind = $7::text)
+    AND (
+      $7::text = 'all'
+      OR (
+        campaign_context.confidence_class = 'high'
+        AND campaign_context.inferred_kind = $7::text
+      )
+    )
 )
 SELECT
   ($1::date - INTERVAL '89 days')::date AS sample_window_start,

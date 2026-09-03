@@ -1216,3 +1216,10 @@
 .resultsHeader > div:first-child {
   min-width: 0;
 }
+
+.historicalScopeNote {
+  display: block;
+  margin-top: 4px;
+  max-width: 420px;
+  color: var(--adc-text-muted, #6b6b66);
+}

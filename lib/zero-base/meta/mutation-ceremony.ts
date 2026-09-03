@@ -164,6 +164,15 @@ export function confirmationFor(action: MutationAction): ConfirmationLevel {
     case "resume":
     case "bid":
       return "typed_phrase";
+    case "budget":
+      /*
+        D088. There is no operator ceremony for a budget change: the browser
+        chooses no entity, field or magnitude, and `MUTATION_ENDPOINTS` names
+        no path, so `buildDispatchDescriptor` refuses before a confirmation is
+        ever needed. The strictest level is returned anyway, so a future
+        ceremony cannot inherit a weaker default by omission.
+      */
+      return "typed_phrase";
   }
 }
 

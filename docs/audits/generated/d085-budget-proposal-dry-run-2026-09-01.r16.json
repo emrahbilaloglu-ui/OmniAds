@@ -1,0 +1,3274 @@
+{
+ "contract": "d085.budget-proposal-dry-run.v16",
+ "snapshot": {
+  "contract": "d085.budget-proposal-dry-run.v16",
+  "provenance": {
+   "operatingClass": "prepare_read_only",
+   "automation": "off",
+   "maximumReachableAuthority": "validated_only",
+   "databaseAccess": "none",
+   "queriesExecuted": 0,
+   "providerWritesAttempted": 0,
+   "localRouteProbesAttempted": 3,
+   "providerContactsAttempted": 0,
+   "readbackAttempts": 0,
+   "wallClockFields": "none — the artifact is a pure function of the pinned bytes and the recorded provider-read ledger",
+   "note": "D085 assembles a dry run only. It adds no provider endpoint, no dispatch verb and no persistence. The strongest state reachable is validated_only."
+  },
+  "sourceManifest": [
+   {
+    "key": "d079",
+    "path": "docs/audits/generated/commercial-anchor-counterfactual-2026-08-31.json",
+    "expectedSha256": "33aad581fc578c863880cc2710428ed1c0500957ed986ba2b99c1cf0ab03f8f8",
+    "observedSha256": "33aad581fc578c863880cc2710428ed1c0500957ed986ba2b99c1cf0ab03f8f8",
+    "matches": true
+   },
+   {
+    "key": "d080a",
+    "path": "docs/audits/generated/d080-meta-budget-edit-evidence-2026-08-31.json",
+    "expectedSha256": "d4a1898aba14bcb2a37ae60a335f207eb668df13d37619bdffb44330da4d7a69",
+    "observedSha256": "d4a1898aba14bcb2a37ae60a335f207eb668df13d37619bdffb44330da4d7a69",
+    "matches": true
+   },
+   {
+    "key": "d080b",
+    "path": "docs/audits/generated/d080b-meta-budget-policy-simulation-2026-09-01.json",
+    "expectedSha256": "b46e6aa80c75aec0ebc724f2b8fcc288cda611353e9924a85504d3e498d155df",
+    "observedSha256": "b46e6aa80c75aec0ebc724f2b8fcc288cda611353e9924a85504d3e498d155df",
+    "matches": true
+   },
+   {
+    "key": "d081",
+    "path": "docs/audits/generated/d081-meta-budget-capability-foundations-2026-09-01.json",
+    "expectedSha256": "5514023bbad12923651b1a59810bf1ce2684f4361cac8bfcb0148033bbb402b3",
+    "observedSha256": "5514023bbad12923651b1a59810bf1ce2684f4361cac8bfcb0148033bbb402b3",
+    "matches": true
+   },
+   {
+    "key": "d082",
+    "path": "docs/audits/generated/d082-meta-role-provenance-replay-2026-09-01.json",
+    "expectedSha256": "bc4d06d0ea2b2e1ef22d8016e7f4a5191ad633657140564b21c3adb48480868e",
+    "observedSha256": "bc4d06d0ea2b2e1ef22d8016e7f4a5191ad633657140564b21c3adb48480868e",
+    "matches": true
+   },
+   {
+    "key": "d083",
+    "path": "docs/audits/generated/d083-meta-budget-fact-observation-2026-09-01.json",
+    "expectedSha256": "0c437aed77ca47148c7af27b59e850a32561d9dc6e8d934e507de7491cf5e747",
+    "observedSha256": "0c437aed77ca47148c7af27b59e850a32561d9dc6e8d934e507de7491cf5e747",
+    "matches": true
+   },
+   {
+    "key": "d084v1",
+    "path": "docs/audits/generated/d084-commercial-target-evidence-2026-09-01.json",
+    "expectedSha256": "af8f8a9e1ea7e609af067f42b51a2a7950ffede7b4479ed49ce77769af214584",
+    "observedSha256": "af8f8a9e1ea7e609af067f42b51a2a7950ffede7b4479ed49ce77769af214584",
+    "matches": true
+   }
+  ],
+  "predecessorPins": {
+   "d083": "0c437aed77ca47148c7af27b59e850a32561d9dc6e8d934e507de7491cf5e747",
+   "d084File": "517780847ea93128d16406e75751e203034f7990fa5fbe34550d3f5c9f8c5b23",
+   "d084Artifact": "9274bd6c57c5c00688eb36181458538643ef8daf571b296361ea7b976b1fc2fd",
+   "d083Observed": "0c437aed77ca47148c7af27b59e850a32561d9dc6e8d934e507de7491cf5e747",
+   "d084FileObserved": "517780847ea93128d16406e75751e203034f7990fa5fbe34550d3f5c9f8c5b23",
+   "d084ArtifactObserved": "9274bd6c57c5c00688eb36181458538643ef8daf571b296361ea7b976b1fc2fd"
+  },
+  "bindings": [
+   {
+    "business": "IwaStore",
+    "businessId": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+    "providerAccountId": "act_1087566732415606",
+    "accountSelected": true,
+    "currency": "USD",
+    "candidateObservations": 1206,
+    "candidateDistinctEntities": 184
+   },
+   {
+    "business": "Grandmix",
+    "businessId": "5dbc7147-f051-4681-a4d6-20617170074f",
+    "providerAccountId": "act_805150454596350",
+    "accountSelected": true,
+    "currency": "USD",
+    "candidateObservations": 8610,
+    "candidateDistinctEntities": 1231
+   },
+   {
+    "business": "Bilsem Zeka",
+    "businessId": "6c690fa4-6395-40b5-9755-e99b34d69bc3",
+    "providerAccountId": "act_840779107261785",
+    "accountSelected": true,
+    "currency": "TRY",
+    "candidateObservations": 4481,
+    "candidateDistinctEntities": 640
+   },
+   {
+    "business": "TheSwaf",
+    "businessId": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+    "providerAccountId": "act_822913786458311",
+    "accountSelected": true,
+    "currency": "USD",
+    "candidateObservations": 1450,
+    "candidateDistinctEntities": 218
+   },
+   {
+    "business": "TheSwaf",
+    "businessId": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+    "providerAccountId": "act_921275999286619",
+    "accountSelected": false,
+    "currency": "USD",
+    "candidateObservations": 378,
+    "candidateDistinctEntities": 54
+   },
+   {
+    "business": "IwaTR",
+    "businessId": "b79683b4-6f87-48c0-a3ca-44d4356fef51",
+    "providerAccountId": "act_2335220976649516",
+    "accountSelected": true,
+    "currency": "USD",
+    "candidateObservations": 215,
+    "candidateDistinctEntities": 30
+   },
+   {
+    "business": "ColorFullWorldsTR",
+    "businessId": "bc0c6178-7853-4f6f-b026-ef0222a4b9e7",
+    "providerAccountId": "act_3554615364751964",
+    "accountSelected": true,
+    "currency": "USD",
+    "candidateObservations": 547,
+    "candidateDistinctEntities": 78
+   }
+  ],
+  "upstreamFunnel": [
+   {
+    "stage": "0 - entity-origin pairs with any observation",
+    "survivors": 41242,
+    "eliminated": 0,
+    "gate": null
+   },
+   {
+    "stage": "1 - observed at the origin",
+    "survivors": 38683,
+    "eliminated": 2559,
+    "gate": "budget_not_observed"
+   },
+   {
+    "stage": "2 - complete scope and present",
+    "survivors": 38683,
+    "eliminated": 0,
+    "gate": "observation_not_complete_scope"
+   },
+   {
+    "stage": "3 - hierarchy resolved",
+    "survivors": 38521,
+    "eliminated": 162,
+    "gate": "owner_unresolved_hierarchy"
+   },
+   {
+    "stage": "4 - owner and amount proven",
+    "survivors": 34865,
+    "eliminated": 3656,
+    "gate": "budget_field_none"
+   },
+   {
+    "stage": "5 - schedule where required",
+    "survivors": 32859,
+    "eliminated": 2006,
+    "gate": "lifetime_schedule_unretained"
+   },
+   {
+    "stage": "6 - captured currency exponent",
+    "survivors": 0,
+    "eliminated": 32859,
+    "gate": "currency_exponent_not_captured"
+   },
+   {
+    "stage": "7 - observed budget shape",
+    "survivors": 0,
+    "eliminated": 0,
+    "gate": "budget_shape_not_observed"
+   },
+   {
+    "stage": "intent-ready",
+    "survivors": 0,
+    "eliminated": 0,
+    "gate": null
+   }
+  ],
+  "upstreamDenominators": {
+   "proposals": 247050,
+   "origins": 17,
+   "bindings": 7,
+   "note": "Recovered by re-deriving the pinned D080B analysis from its own frozen reads. D083 never re-counts the proposal universe."
+  },
+  "canonicalProfileAvailability": [
+   {
+    "businessId": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+    "business": "IwaStore",
+    "byAction": [
+     {
+      "action": "scale",
+      "status": "not_determinable",
+      "reasonCode": "canonical_profile_output_not_retained",
+      "reason": "no pinned artifact retains an AccountDecisionProfile.hardActionEligibility output for IwaStore, so this package cannot state whether scale is eligible; only a byte-inspectable production resolver result over fully frozen inputs may populate it",
+      "eligible": null,
+      "code": null,
+      "actionReason": null,
+      "anchorExplanation": null,
+      "expectedContract": "adsecute.account-decision-profile.v1",
+      "observedContract": null
+     },
+     {
+      "action": "cut",
+      "status": "not_determinable",
+      "reasonCode": "canonical_profile_output_not_retained",
+      "reason": "no pinned artifact retains an AccountDecisionProfile.hardActionEligibility output for IwaStore, so this package cannot state whether cut is eligible; only a byte-inspectable production resolver result over fully frozen inputs may populate it",
+      "eligible": null,
+      "code": null,
+      "actionReason": null,
+      "anchorExplanation": null,
+      "expectedContract": "adsecute.account-decision-profile.v1",
+      "observedContract": null
+     },
+     {
+      "action": "refresh",
+      "status": "not_determinable",
+      "reasonCode": "canonical_profile_output_not_retained",
+      "reason": "no pinned artifact retains an AccountDecisionProfile.hardActionEligibility output for IwaStore, so this package cannot state whether refresh is eligible; only a byte-inspectable production resolver result over fully frozen inputs may populate it",
+      "eligible": null,
+      "code": null,
+      "actionReason": null,
+      "anchorExplanation": null,
+      "expectedContract": "adsecute.account-decision-profile.v1",
+      "observedContract": null
+     }
+    ],
+    "persistedDecisionCensus": {
+     "businessId": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+     "businessName": "IwaStore",
+     "currency": "USD",
+     "byAction": [
+      {
+       "action": "scale",
+       "heldBefore": 0,
+       "eligibleBefore": 0,
+       "profileFamilyTransitions": 0
+      },
+      {
+       "action": "cut",
+       "heldBefore": 520,
+       "eligibleBefore": 0,
+       "profileFamilyTransitions": 497
+      },
+      {
+       "action": "refresh",
+       "heldBefore": 14,
+       "eligibleBefore": 0,
+       "profileFamilyTransitions": 14
+      }
+     ],
+     "sourceContract": "adsecute.meta.commercial-anchor-counterfactual.v2"
+    },
+    "censusIsNotAProfile": "the D079 census counts PERSISTED HISTORICAL decision rows by withheld family; it is not a current AccountDecisionProfile, carries no per-action code, reason or anchor explanation, and may never be read as eligibility"
+   },
+   {
+    "businessId": "5dbc7147-f051-4681-a4d6-20617170074f",
+    "business": "Grandmix",
+    "byAction": [
+     {
+      "action": "scale",
+      "status": "not_determinable",
+      "reasonCode": "canonical_profile_output_not_retained",
+      "reason": "no pinned artifact retains an AccountDecisionProfile.hardActionEligibility output for Grandmix, so this package cannot state whether scale is eligible; only a byte-inspectable production resolver result over fully frozen inputs may populate it",
+      "eligible": null,
+      "code": null,
+      "actionReason": null,
+      "anchorExplanation": null,
+      "expectedContract": "adsecute.account-decision-profile.v1",
+      "observedContract": null
+     },
+     {
+      "action": "cut",
+      "status": "not_determinable",
+      "reasonCode": "canonical_profile_output_not_retained",
+      "reason": "no pinned artifact retains an AccountDecisionProfile.hardActionEligibility output for Grandmix, so this package cannot state whether cut is eligible; only a byte-inspectable production resolver result over fully frozen inputs may populate it",
+      "eligible": null,
+      "code": null,
+      "actionReason": null,
+      "anchorExplanation": null,
+      "expectedContract": "adsecute.account-decision-profile.v1",
+      "observedContract": null
+     },
+     {
+      "action": "refresh",
+      "status": "not_determinable",
+      "reasonCode": "canonical_profile_output_not_retained",
+      "reason": "no pinned artifact retains an AccountDecisionProfile.hardActionEligibility output for Grandmix, so this package cannot state whether refresh is eligible; only a byte-inspectable production resolver result over fully frozen inputs may populate it",
+      "eligible": null,
+      "code": null,
+      "actionReason": null,
+      "anchorExplanation": null,
+      "expectedContract": "adsecute.account-decision-profile.v1",
+      "observedContract": null
+     }
+    ],
+    "persistedDecisionCensus": {
+     "businessId": "5dbc7147-f051-4681-a4d6-20617170074f",
+     "businessName": "Grandmix",
+     "currency": "USD",
+     "byAction": [
+      {
+       "action": "scale",
+       "heldBefore": 1,
+       "eligibleBefore": 0,
+       "profileFamilyTransitions": 0
+      },
+      {
+       "action": "cut",
+       "heldBefore": 164,
+       "eligibleBefore": 0,
+       "profileFamilyTransitions": 149
+      },
+      {
+       "action": "refresh",
+       "heldBefore": 4,
+       "eligibleBefore": 0,
+       "profileFamilyTransitions": 3
+      }
+     ],
+     "sourceContract": "adsecute.meta.commercial-anchor-counterfactual.v2"
+    },
+    "censusIsNotAProfile": "the D079 census counts PERSISTED HISTORICAL decision rows by withheld family; it is not a current AccountDecisionProfile, carries no per-action code, reason or anchor explanation, and may never be read as eligibility"
+   },
+   {
+    "businessId": "6c690fa4-6395-40b5-9755-e99b34d69bc3",
+    "business": "Bilsem Zeka",
+    "byAction": [
+     {
+      "action": "scale",
+      "status": "not_determinable",
+      "reasonCode": "canonical_profile_output_not_retained",
+      "reason": "no pinned artifact retains an AccountDecisionProfile.hardActionEligibility output for Bilsem Zeka, so this package cannot state whether scale is eligible; only a byte-inspectable production resolver result over fully frozen inputs may populate it",
+      "eligible": null,
+      "code": null,
+      "actionReason": null,
+      "anchorExplanation": null,
+      "expectedContract": "adsecute.account-decision-profile.v1",
+      "observedContract": null
+     },
+     {
+      "action": "cut",
+      "status": "not_determinable",
+      "reasonCode": "canonical_profile_output_not_retained",
+      "reason": "no pinned artifact retains an AccountDecisionProfile.hardActionEligibility output for Bilsem Zeka, so this package cannot state whether cut is eligible; only a byte-inspectable production resolver result over fully frozen inputs may populate it",
+      "eligible": null,
+      "code": null,
+      "actionReason": null,
+      "anchorExplanation": null,
+      "expectedContract": "adsecute.account-decision-profile.v1",
+      "observedContract": null
+     },
+     {
+      "action": "refresh",
+      "status": "not_determinable",
+      "reasonCode": "canonical_profile_output_not_retained",
+      "reason": "no pinned artifact retains an AccountDecisionProfile.hardActionEligibility output for Bilsem Zeka, so this package cannot state whether refresh is eligible; only a byte-inspectable production resolver result over fully frozen inputs may populate it",
+      "eligible": null,
+      "code": null,
+      "actionReason": null,
+      "anchorExplanation": null,
+      "expectedContract": "adsecute.account-decision-profile.v1",
+      "observedContract": null
+     }
+    ],
+    "persistedDecisionCensus": {
+     "businessId": "6c690fa4-6395-40b5-9755-e99b34d69bc3",
+     "businessName": "Bilsem Zeka",
+     "currency": "TRY",
+     "byAction": [
+      {
+       "action": "scale",
+       "heldBefore": 5,
+       "eligibleBefore": 0,
+       "profileFamilyTransitions": 0
+      },
+      {
+       "action": "cut",
+       "heldBefore": 583,
+       "eligibleBefore": 0,
+       "profileFamilyTransitions": 576
+      },
+      {
+       "action": "refresh",
+       "heldBefore": 27,
+       "eligibleBefore": 0,
+       "profileFamilyTransitions": 27
+      }
+     ],
+     "sourceContract": "adsecute.meta.commercial-anchor-counterfactual.v2"
+    },
+    "censusIsNotAProfile": "the D079 census counts PERSISTED HISTORICAL decision rows by withheld family; it is not a current AccountDecisionProfile, carries no per-action code, reason or anchor explanation, and may never be read as eligibility"
+   },
+   {
+    "businessId": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+    "business": "TheSwaf",
+    "byAction": [
+     {
+      "action": "scale",
+      "status": "not_determinable",
+      "reasonCode": "canonical_profile_output_not_retained",
+      "reason": "no pinned artifact retains an AccountDecisionProfile.hardActionEligibility output for TheSwaf, so this package cannot state whether scale is eligible; only a byte-inspectable production resolver result over fully frozen inputs may populate it",
+      "eligible": null,
+      "code": null,
+      "actionReason": null,
+      "anchorExplanation": null,
+      "expectedContract": "adsecute.account-decision-profile.v1",
+      "observedContract": null
+     },
+     {
+      "action": "cut",
+      "status": "not_determinable",
+      "reasonCode": "canonical_profile_output_not_retained",
+      "reason": "no pinned artifact retains an AccountDecisionProfile.hardActionEligibility output for TheSwaf, so this package cannot state whether cut is eligible; only a byte-inspectable production resolver result over fully frozen inputs may populate it",
+      "eligible": null,
+      "code": null,
+      "actionReason": null,
+      "anchorExplanation": null,
+      "expectedContract": "adsecute.account-decision-profile.v1",
+      "observedContract": null
+     },
+     {
+      "action": "refresh",
+      "status": "not_determinable",
+      "reasonCode": "canonical_profile_output_not_retained",
+      "reason": "no pinned artifact retains an AccountDecisionProfile.hardActionEligibility output for TheSwaf, so this package cannot state whether refresh is eligible; only a byte-inspectable production resolver result over fully frozen inputs may populate it",
+      "eligible": null,
+      "code": null,
+      "actionReason": null,
+      "anchorExplanation": null,
+      "expectedContract": "adsecute.account-decision-profile.v1",
+      "observedContract": null
+     }
+    ],
+    "persistedDecisionCensus": {
+     "businessId": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+     "businessName": "TheSwaf",
+     "currency": "USD",
+     "byAction": [
+      {
+       "action": "scale",
+       "heldBefore": 2,
+       "eligibleBefore": 0,
+       "profileFamilyTransitions": 0
+      },
+      {
+       "action": "cut",
+       "heldBefore": 202,
+       "eligibleBefore": 0,
+       "profileFamilyTransitions": 139
+      },
+      {
+       "action": "refresh",
+       "heldBefore": 3,
+       "eligibleBefore": 0,
+       "profileFamilyTransitions": 3
+      }
+     ],
+     "sourceContract": "adsecute.meta.commercial-anchor-counterfactual.v2"
+    },
+    "censusIsNotAProfile": "the D079 census counts PERSISTED HISTORICAL decision rows by withheld family; it is not a current AccountDecisionProfile, carries no per-action code, reason or anchor explanation, and may never be read as eligibility"
+   },
+   {
+    "businessId": "b79683b4-6f87-48c0-a3ca-44d4356fef51",
+    "business": "IwaTR",
+    "byAction": [
+     {
+      "action": "scale",
+      "status": "not_determinable",
+      "reasonCode": "canonical_profile_output_not_retained",
+      "reason": "no pinned artifact retains an AccountDecisionProfile.hardActionEligibility output for IwaTR, so this package cannot state whether scale is eligible; only a byte-inspectable production resolver result over fully frozen inputs may populate it",
+      "eligible": null,
+      "code": null,
+      "actionReason": null,
+      "anchorExplanation": null,
+      "expectedContract": "adsecute.account-decision-profile.v1",
+      "observedContract": null
+     },
+     {
+      "action": "cut",
+      "status": "not_determinable",
+      "reasonCode": "canonical_profile_output_not_retained",
+      "reason": "no pinned artifact retains an AccountDecisionProfile.hardActionEligibility output for IwaTR, so this package cannot state whether cut is eligible; only a byte-inspectable production resolver result over fully frozen inputs may populate it",
+      "eligible": null,
+      "code": null,
+      "actionReason": null,
+      "anchorExplanation": null,
+      "expectedContract": "adsecute.account-decision-profile.v1",
+      "observedContract": null
+     },
+     {
+      "action": "refresh",
+      "status": "not_determinable",
+      "reasonCode": "canonical_profile_output_not_retained",
+      "reason": "no pinned artifact retains an AccountDecisionProfile.hardActionEligibility output for IwaTR, so this package cannot state whether refresh is eligible; only a byte-inspectable production resolver result over fully frozen inputs may populate it",
+      "eligible": null,
+      "code": null,
+      "actionReason": null,
+      "anchorExplanation": null,
+      "expectedContract": "adsecute.account-decision-profile.v1",
+      "observedContract": null
+     }
+    ],
+    "persistedDecisionCensus": {
+     "businessId": "b79683b4-6f87-48c0-a3ca-44d4356fef51",
+     "businessName": "IwaTR",
+     "currency": "USD",
+     "byAction": [
+      {
+       "action": "scale",
+       "heldBefore": 0,
+       "eligibleBefore": 0,
+       "profileFamilyTransitions": 0
+      },
+      {
+       "action": "cut",
+       "heldBefore": 282,
+       "eligibleBefore": 0,
+       "profileFamilyTransitions": 282
+      },
+      {
+       "action": "refresh",
+       "heldBefore": 9,
+       "eligibleBefore": 0,
+       "profileFamilyTransitions": 9
+      }
+     ],
+     "sourceContract": "adsecute.meta.commercial-anchor-counterfactual.v2"
+    },
+    "censusIsNotAProfile": "the D079 census counts PERSISTED HISTORICAL decision rows by withheld family; it is not a current AccountDecisionProfile, carries no per-action code, reason or anchor explanation, and may never be read as eligibility"
+   },
+   {
+    "businessId": "bc0c6178-7853-4f6f-b026-ef0222a4b9e7",
+    "business": "ColorFullWorldsTR",
+    "byAction": [
+     {
+      "action": "scale",
+      "status": "not_determinable",
+      "reasonCode": "canonical_profile_output_not_retained",
+      "reason": "no pinned artifact retains an AccountDecisionProfile.hardActionEligibility output for ColorFullWorldsTR, so this package cannot state whether scale is eligible; only a byte-inspectable production resolver result over fully frozen inputs may populate it",
+      "eligible": null,
+      "code": null,
+      "actionReason": null,
+      "anchorExplanation": null,
+      "expectedContract": "adsecute.account-decision-profile.v1",
+      "observedContract": null
+     },
+     {
+      "action": "cut",
+      "status": "not_determinable",
+      "reasonCode": "canonical_profile_output_not_retained",
+      "reason": "no pinned artifact retains an AccountDecisionProfile.hardActionEligibility output for ColorFullWorldsTR, so this package cannot state whether cut is eligible; only a byte-inspectable production resolver result over fully frozen inputs may populate it",
+      "eligible": null,
+      "code": null,
+      "actionReason": null,
+      "anchorExplanation": null,
+      "expectedContract": "adsecute.account-decision-profile.v1",
+      "observedContract": null
+     },
+     {
+      "action": "refresh",
+      "status": "not_determinable",
+      "reasonCode": "canonical_profile_output_not_retained",
+      "reason": "no pinned artifact retains an AccountDecisionProfile.hardActionEligibility output for ColorFullWorldsTR, so this package cannot state whether refresh is eligible; only a byte-inspectable production resolver result over fully frozen inputs may populate it",
+      "eligible": null,
+      "code": null,
+      "actionReason": null,
+      "anchorExplanation": null,
+      "expectedContract": "adsecute.account-decision-profile.v1",
+      "observedContract": null
+     }
+    ],
+    "persistedDecisionCensus": {
+     "businessId": "bc0c6178-7853-4f6f-b026-ef0222a4b9e7",
+     "businessName": "ColorFullWorldsTR",
+     "currency": "USD",
+     "byAction": [
+      {
+       "action": "scale",
+       "heldBefore": 0,
+       "eligibleBefore": 0,
+       "profileFamilyTransitions": 0
+      },
+      {
+       "action": "cut",
+       "heldBefore": 174,
+       "eligibleBefore": 0,
+       "profileFamilyTransitions": 170
+      },
+      {
+       "action": "refresh",
+       "heldBefore": 3,
+       "eligibleBefore": 0,
+       "profileFamilyTransitions": 3
+      }
+     ],
+     "sourceContract": "adsecute.meta.commercial-anchor-counterfactual.v2"
+    },
+    "censusIsNotAProfile": "the D079 census counts PERSISTED HISTORICAL decision rows by withheld family; it is not a current AccountDecisionProfile, carries no per-action code, reason or anchor explanation, and may never be read as eligibility"
+   }
+  ],
+  "fleet": {
+   "charterBusinesses": 6,
+   "businessesWithPackAtLatestOrigin": 5,
+   "businessesEconomicallyReconciledAtLatestOrigin": 1,
+   "canonicalProfileActionsNotDeterminable": 18,
+   "canonicalProfileActionsEligible": 0,
+   "proposalsEvaluatedByD080B": 247050,
+   "strictlyEligibleProposals": 0,
+   "eventGroups": 14,
+   "distinctActionsLowerBound": 14,
+   "distinctActionsUpperBound": 23,
+   "ambiguousGroups": 8,
+   "provedOwnerMirrorGroups": 0,
+   "groupsInsideDeclaredLadder": 2,
+   "eventsWithAConfoundedWindow": 14,
+   "evidenceGridCells": 578,
+   "pitBudgetEvaluations": 39094,
+   "pitBudgetResolved": 21673,
+   "pitBudgetNotDeterminable": 17421,
+   "collapsedConfigRows": 3780,
+   "databaseQueriesExecuted": 0,
+   "maximumReachableAuthority": "validated_only",
+   "automation": "off"
+  },
+  "policyFingerprint": "meta.budget-proposal-dry-run.v16:a29e5c6a0c8ea19bc32f1fa71d6795304a591c40db945f11d131f5844bed88e0"
+ },
+ "analysis": {
+  "contractVersion": "d085.budget-proposal-dry-run.v16",
+  "policyFingerprint": "meta.budget-proposal-dry-run.v16:a29e5c6a0c8ea19bc32f1fa71d6795304a591c40db945f11d131f5844bed88e0",
+  "cells": [
+   {
+    "business": "TheSwaf",
+    "businessId": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+    "providerAccountId": "act_822913786458311",
+    "accountSelected": true,
+    "direction": "decrease",
+    "canonicalAction": "cut",
+    "candidateEntityOriginEvaluations": 1450,
+    "status": "blocked",
+    "blockers": [
+     "no_concrete_entity_selected",
+     "budget_fact_unavailable",
+     "current_value_unknown",
+     "currency_exponent_unknown",
+     "owner_mode_unknown",
+     "role_context_unresolved",
+     "commercial_profile_unavailable",
+     "evidence_floor_unmet",
+     "change_safety_not_clear",
+     "decision_absent",
+     "decision_identity_incomplete",
+     "kill_switch_unverified",
+     "admission_unverified",
+     "cap_unverified",
+     "cooldown_unverified",
+     "conflict_unverified",
+     "provider_preflight_not_readable",
+     "unit_confidence_not_exact",
+     "write_safety_step_missing",
+     "intent_not_validated",
+     "no_provider_write_path_exists"
+    ],
+    "blockerDetail": [
+     {
+      "code": "no_concrete_entity_selected",
+      "why": "no concrete campaign or ad set is selected, so there is no entity to write to"
+     },
+     {
+      "code": "budget_fact_unavailable",
+      "why": "no canonical budget fact: D083's readiness funnel ends at 0 intent-ready: every one of the 32,859 pairs that survived scope, hierarchy, ownership and schedule was eliminated on currency_exponent_not_captured"
+     },
+     {
+      "code": "current_value_unknown",
+      "why": "the current provider-unit budget value is not retained, so no delta can be computed"
+     },
+     {
+      "code": "currency_exponent_unknown",
+      "why": "the account currency minor-unit exponent is not established, so a raw value would be off by an uncaptured power of ten"
+     },
+     {
+      "code": "owner_mode_unknown",
+      "why": "the budget owner mode is unknown, so which entity actually owns the budget is undetermined"
+     },
+     {
+      "code": "role_context_unresolved",
+      "why": "automatic role context is unresolved: D081 proved automatic role authority has no retained qualifying rows; unresolved stays unresolved"
+     },
+     {
+      "code": "commercial_profile_unavailable",
+      "why": "canonical profile source is output_not_retained, so no commercial eligibility may be stated"
+     },
+     {
+      "code": "evidence_floor_unmet",
+      "why": "evidence floors are not clear: canonical_profile_output_not_retained"
+     },
+     {
+      "code": "change_safety_not_clear",
+      "why": "change-safety controls are not_determinable for this proposal, so they cannot be called clear"
+     },
+     {
+      "code": "decision_absent",
+      "why": "no decision timestamp is available, so decision freshness cannot be established"
+     },
+     {
+      "code": "decision_identity_incomplete",
+      "why": "the decision identity tuple is incomplete or blank (id=null, hash=null, version=null)"
+     },
+     {
+      "code": "kill_switch_unverified",
+      "why": "the server-side kill switch was not read, so it is unverified and cannot clear this proposal: no pinned artifact retains the server-side kill-switch state"
+     },
+     {
+      "code": "admission_unverified",
+      "why": "decision-pipeline admission was not read, so it is unverified and cannot clear this proposal: no pinned artifact retains decision-pipeline admission state"
+     },
+     {
+      "code": "cap_unverified",
+      "why": "the per-day cap was not read, so it is unverified and cannot clear this proposal: no pinned artifact retains per-day change history, so the cap is unverified"
+     },
+     {
+      "code": "cooldown_unverified",
+      "why": "the cooldown window was not read, so it is unverified and cannot clear this proposal: no pinned artifact retains per-day change history, so the cooldown is unverified"
+     },
+     {
+      "code": "conflict_unverified",
+      "why": "the conflict lock was not read, so it is unverified and cannot clear this proposal: no pinned artifact retains conflict-lock state"
+     },
+     {
+      "code": "provider_preflight_not_readable",
+      "why": "no preflight read was attempted: all three GETs returned evidenceSource=unknown with zero rows; the route resolved a warehouse-readiness branch and never took the live-provider fallback, so no provider preflight projection exists"
+     },
+     {
+      "code": "unit_confidence_not_exact",
+      "why": "unitConfidence is unknown; only exact may support a proposal"
+     },
+     {
+      "code": "write_safety_step_missing",
+      "why": "write-safety steps not satisfied: exact_role_and_posture, fresh_provider_or_current_state_read, parent_hierarchy_and_policy, server_side_kill_switch, persisted_preflight, preflight_age_and_no_provider_contact_disclosure, typed_or_explicit_confirmation, durable_idempotency_claim, at_most_one_provider_post, immutable_attempt_receipt, independent_provider_readback, exact_identity_and_state_verification, durable_terminal_receipt_or_reconciliation_marker, rollback_or_compensation_record"
+     },
+     {
+      "code": "intent_not_validated",
+      "why": "no canonical D081 intent could be derived: current_value_missing, currency_exponent_unknown"
+     },
+     {
+      "code": "no_provider_write_path_exists",
+      "why": "MutationAction is pause|resume|bid|duplicate and MUTATION_ENDPOINTS has no budget action at any grain, so no provider write path exists for a budget proposal (source: lib/zero-base/meta/dispatch-contract.MUTATION_ENDPOINTS)"
+     }
+    ],
+    "wouldWriteAvailable": false,
+    "preflightOutcome": "not_attempted",
+    "readbackClassification": "not_attempted",
+    "inputFingerprint": "meta.budget-proposal-dry-run.v16:7bc17b0f85c5a4f844a2c4a81ab248192d7916dd69a3fc8adb7d0e449af655df",
+    "cellHash": "1c7792d2bfdee860f27d01f8933403802b95f719f37834d04c566ee144a2bc6c"
+   },
+   {
+    "business": "TheSwaf",
+    "businessId": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+    "providerAccountId": "act_822913786458311",
+    "accountSelected": true,
+    "direction": "increase",
+    "canonicalAction": "scale",
+    "candidateEntityOriginEvaluations": 1450,
+    "status": "blocked",
+    "blockers": [
+     "no_concrete_entity_selected",
+     "budget_fact_unavailable",
+     "current_value_unknown",
+     "currency_exponent_unknown",
+     "owner_mode_unknown",
+     "role_context_unresolved",
+     "commercial_profile_unavailable",
+     "evidence_floor_unmet",
+     "change_safety_not_clear",
+     "decision_absent",
+     "decision_identity_incomplete",
+     "kill_switch_unverified",
+     "admission_unverified",
+     "cap_unverified",
+     "cooldown_unverified",
+     "conflict_unverified",
+     "provider_preflight_not_readable",
+     "unit_confidence_not_exact",
+     "write_safety_step_missing",
+     "intent_not_validated",
+     "no_provider_write_path_exists"
+    ],
+    "blockerDetail": [
+     {
+      "code": "no_concrete_entity_selected",
+      "why": "no concrete campaign or ad set is selected, so there is no entity to write to"
+     },
+     {
+      "code": "budget_fact_unavailable",
+      "why": "no canonical budget fact: D083's readiness funnel ends at 0 intent-ready: every one of the 32,859 pairs that survived scope, hierarchy, ownership and schedule was eliminated on currency_exponent_not_captured"
+     },
+     {
+      "code": "current_value_unknown",
+      "why": "the current provider-unit budget value is not retained, so no delta can be computed"
+     },
+     {
+      "code": "currency_exponent_unknown",
+      "why": "the account currency minor-unit exponent is not established, so a raw value would be off by an uncaptured power of ten"
+     },
+     {
+      "code": "owner_mode_unknown",
+      "why": "the budget owner mode is unknown, so which entity actually owns the budget is undetermined"
+     },
+     {
+      "code": "role_context_unresolved",
+      "why": "automatic role context is unresolved: D081 proved automatic role authority has no retained qualifying rows; unresolved stays unresolved"
+     },
+     {
+      "code": "commercial_profile_unavailable",
+      "why": "canonical profile source is output_not_retained, so no commercial eligibility may be stated"
+     },
+     {
+      "code": "evidence_floor_unmet",
+      "why": "evidence floors are not clear: canonical_profile_output_not_retained"
+     },
+     {
+      "code": "change_safety_not_clear",
+      "why": "change-safety controls are not_determinable for this proposal, so they cannot be called clear"
+     },
+     {
+      "code": "decision_absent",
+      "why": "no decision timestamp is available, so decision freshness cannot be established"
+     },
+     {
+      "code": "decision_identity_incomplete",
+      "why": "the decision identity tuple is incomplete or blank (id=null, hash=null, version=null)"
+     },
+     {
+      "code": "kill_switch_unverified",
+      "why": "the server-side kill switch was not read, so it is unverified and cannot clear this proposal: no pinned artifact retains the server-side kill-switch state"
+     },
+     {
+      "code": "admission_unverified",
+      "why": "decision-pipeline admission was not read, so it is unverified and cannot clear this proposal: no pinned artifact retains decision-pipeline admission state"
+     },
+     {
+      "code": "cap_unverified",
+      "why": "the per-day cap was not read, so it is unverified and cannot clear this proposal: no pinned artifact retains per-day change history, so the cap is unverified"
+     },
+     {
+      "code": "cooldown_unverified",
+      "why": "the cooldown window was not read, so it is unverified and cannot clear this proposal: no pinned artifact retains per-day change history, so the cooldown is unverified"
+     },
+     {
+      "code": "conflict_unverified",
+      "why": "the conflict lock was not read, so it is unverified and cannot clear this proposal: no pinned artifact retains conflict-lock state"
+     },
+     {
+      "code": "provider_preflight_not_readable",
+      "why": "no preflight read was attempted: all three GETs returned evidenceSource=unknown with zero rows; the route resolved a warehouse-readiness branch and never took the live-provider fallback, so no provider preflight projection exists"
+     },
+     {
+      "code": "unit_confidence_not_exact",
+      "why": "unitConfidence is unknown; only exact may support a proposal"
+     },
+     {
+      "code": "write_safety_step_missing",
+      "why": "write-safety steps not satisfied: exact_role_and_posture, fresh_provider_or_current_state_read, parent_hierarchy_and_policy, server_side_kill_switch, persisted_preflight, preflight_age_and_no_provider_contact_disclosure, typed_or_explicit_confirmation, durable_idempotency_claim, at_most_one_provider_post, immutable_attempt_receipt, independent_provider_readback, exact_identity_and_state_verification, durable_terminal_receipt_or_reconciliation_marker, rollback_or_compensation_record"
+     },
+     {
+      "code": "intent_not_validated",
+      "why": "no canonical D081 intent could be derived: current_value_missing, currency_exponent_unknown"
+     },
+     {
+      "code": "no_provider_write_path_exists",
+      "why": "MutationAction is pause|resume|bid|duplicate and MUTATION_ENDPOINTS has no budget action at any grain, so no provider write path exists for a budget proposal (source: lib/zero-base/meta/dispatch-contract.MUTATION_ENDPOINTS)"
+     }
+    ],
+    "wouldWriteAvailable": false,
+    "preflightOutcome": "not_attempted",
+    "readbackClassification": "not_attempted",
+    "inputFingerprint": "meta.budget-proposal-dry-run.v16:2bee2f9e4e5887d27537dff18a08d8fd8b2f8c65e407fbfe698ed3ead69183ff",
+    "cellHash": "b5f4d6ab00174b7dcf1a57d6af337eef1c70c77ff5edec6bbfa8b260678a48d4"
+   },
+   {
+    "business": "TheSwaf",
+    "businessId": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+    "providerAccountId": "act_921275999286619",
+    "accountSelected": false,
+    "direction": "decrease",
+    "canonicalAction": "cut",
+    "candidateEntityOriginEvaluations": 378,
+    "status": "blocked",
+    "blockers": [
+     "no_concrete_entity_selected",
+     "account_not_write_scope",
+     "budget_fact_unavailable",
+     "current_value_unknown",
+     "currency_exponent_unknown",
+     "owner_mode_unknown",
+     "role_context_unresolved",
+     "commercial_profile_unavailable",
+     "evidence_floor_unmet",
+     "change_safety_not_clear",
+     "decision_absent",
+     "decision_identity_incomplete",
+     "kill_switch_unverified",
+     "admission_unverified",
+     "cap_unverified",
+     "cooldown_unverified",
+     "conflict_unverified",
+     "provider_preflight_not_readable",
+     "unit_confidence_not_exact",
+     "write_safety_step_missing",
+     "intent_not_validated",
+     "no_provider_write_path_exists"
+    ],
+    "blockerDetail": [
+     {
+      "code": "no_concrete_entity_selected",
+      "why": "no concrete campaign or ad set is selected, so there is no entity to write to"
+     },
+     {
+      "code": "account_not_write_scope",
+      "why": "this account is not write scope: deselected account — read-only, never write scope"
+     },
+     {
+      "code": "budget_fact_unavailable",
+      "why": "no canonical budget fact: D083's readiness funnel ends at 0 intent-ready: every one of the 32,859 pairs that survived scope, hierarchy, ownership and schedule was eliminated on currency_exponent_not_captured"
+     },
+     {
+      "code": "current_value_unknown",
+      "why": "the current provider-unit budget value is not retained, so no delta can be computed"
+     },
+     {
+      "code": "currency_exponent_unknown",
+      "why": "the account currency minor-unit exponent is not established, so a raw value would be off by an uncaptured power of ten"
+     },
+     {
+      "code": "owner_mode_unknown",
+      "why": "the budget owner mode is unknown, so which entity actually owns the budget is undetermined"
+     },
+     {
+      "code": "role_context_unresolved",
+      "why": "automatic role context is unresolved: D081 proved automatic role authority has no retained qualifying rows; unresolved stays unresolved"
+     },
+     {
+      "code": "commercial_profile_unavailable",
+      "why": "canonical profile source is output_not_retained, so no commercial eligibility may be stated"
+     },
+     {
+      "code": "evidence_floor_unmet",
+      "why": "evidence floors are not clear: canonical_profile_output_not_retained"
+     },
+     {
+      "code": "change_safety_not_clear",
+      "why": "change-safety controls are not_determinable for this proposal, so they cannot be called clear"
+     },
+     {
+      "code": "decision_absent",
+      "why": "no decision timestamp is available, so decision freshness cannot be established"
+     },
+     {
+      "code": "decision_identity_incomplete",
+      "why": "the decision identity tuple is incomplete or blank (id=null, hash=null, version=null)"
+     },
+     {
+      "code": "kill_switch_unverified",
+      "why": "the server-side kill switch was not read, so it is unverified and cannot clear this proposal: no pinned artifact retains the server-side kill-switch state"
+     },
+     {
+      "code": "admission_unverified",
+      "why": "decision-pipeline admission was not read, so it is unverified and cannot clear this proposal: no pinned artifact retains decision-pipeline admission state"
+     },
+     {
+      "code": "cap_unverified",
+      "why": "the per-day cap was not read, so it is unverified and cannot clear this proposal: no pinned artifact retains per-day change history, so the cap is unverified"
+     },
+     {
+      "code": "cooldown_unverified",
+      "why": "the cooldown window was not read, so it is unverified and cannot clear this proposal: no pinned artifact retains per-day change history, so the cooldown is unverified"
+     },
+     {
+      "code": "conflict_unverified",
+      "why": "the conflict lock was not read, so it is unverified and cannot clear this proposal: no pinned artifact retains conflict-lock state"
+     },
+     {
+      "code": "provider_preflight_not_readable",
+      "why": "no preflight read was attempted: all three GETs returned evidenceSource=unknown with zero rows; the route resolved a warehouse-readiness branch and never took the live-provider fallback, so no provider preflight projection exists"
+     },
+     {
+      "code": "unit_confidence_not_exact",
+      "why": "unitConfidence is unknown; only exact may support a proposal"
+     },
+     {
+      "code": "write_safety_step_missing",
+      "why": "write-safety steps not satisfied: exact_role_and_posture, fresh_provider_or_current_state_read, parent_hierarchy_and_policy, server_side_kill_switch, persisted_preflight, preflight_age_and_no_provider_contact_disclosure, typed_or_explicit_confirmation, durable_idempotency_claim, at_most_one_provider_post, immutable_attempt_receipt, independent_provider_readback, exact_identity_and_state_verification, durable_terminal_receipt_or_reconciliation_marker, rollback_or_compensation_record"
+     },
+     {
+      "code": "intent_not_validated",
+      "why": "no canonical D081 intent could be derived: current_value_missing, currency_exponent_unknown"
+     },
+     {
+      "code": "no_provider_write_path_exists",
+      "why": "MutationAction is pause|resume|bid|duplicate and MUTATION_ENDPOINTS has no budget action at any grain, so no provider write path exists for a budget proposal (source: lib/zero-base/meta/dispatch-contract.MUTATION_ENDPOINTS)"
+     }
+    ],
+    "wouldWriteAvailable": false,
+    "preflightOutcome": "not_attempted",
+    "readbackClassification": "not_attempted",
+    "inputFingerprint": "meta.budget-proposal-dry-run.v16:4ebc9547435bb39df158e402b84274e44ff5a3da2f53e7f14bcd2044ec9a71e3",
+    "cellHash": "fc07e92e03033039ff1d63d23e16cd94cffcf06f6dbd7fed9f92c23a04f713e9"
+   },
+   {
+    "business": "TheSwaf",
+    "businessId": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+    "providerAccountId": "act_921275999286619",
+    "accountSelected": false,
+    "direction": "increase",
+    "canonicalAction": "scale",
+    "candidateEntityOriginEvaluations": 378,
+    "status": "blocked",
+    "blockers": [
+     "no_concrete_entity_selected",
+     "account_not_write_scope",
+     "budget_fact_unavailable",
+     "current_value_unknown",
+     "currency_exponent_unknown",
+     "owner_mode_unknown",
+     "role_context_unresolved",
+     "commercial_profile_unavailable",
+     "evidence_floor_unmet",
+     "change_safety_not_clear",
+     "decision_absent",
+     "decision_identity_incomplete",
+     "kill_switch_unverified",
+     "admission_unverified",
+     "cap_unverified",
+     "cooldown_unverified",
+     "conflict_unverified",
+     "provider_preflight_not_readable",
+     "unit_confidence_not_exact",
+     "write_safety_step_missing",
+     "intent_not_validated",
+     "no_provider_write_path_exists"
+    ],
+    "blockerDetail": [
+     {
+      "code": "no_concrete_entity_selected",
+      "why": "no concrete campaign or ad set is selected, so there is no entity to write to"
+     },
+     {
+      "code": "account_not_write_scope",
+      "why": "this account is not write scope: deselected account — read-only, never write scope"
+     },
+     {
+      "code": "budget_fact_unavailable",
+      "why": "no canonical budget fact: D083's readiness funnel ends at 0 intent-ready: every one of the 32,859 pairs that survived scope, hierarchy, ownership and schedule was eliminated on currency_exponent_not_captured"
+     },
+     {
+      "code": "current_value_unknown",
+      "why": "the current provider-unit budget value is not retained, so no delta can be computed"
+     },
+     {
+      "code": "currency_exponent_unknown",
+      "why": "the account currency minor-unit exponent is not established, so a raw value would be off by an uncaptured power of ten"
+     },
+     {
+      "code": "owner_mode_unknown",
+      "why": "the budget owner mode is unknown, so which entity actually owns the budget is undetermined"
+     },
+     {
+      "code": "role_context_unresolved",
+      "why": "automatic role context is unresolved: D081 proved automatic role authority has no retained qualifying rows; unresolved stays unresolved"
+     },
+     {
+      "code": "commercial_profile_unavailable",
+      "why": "canonical profile source is output_not_retained, so no commercial eligibility may be stated"
+     },
+     {
+      "code": "evidence_floor_unmet",
+      "why": "evidence floors are not clear: canonical_profile_output_not_retained"
+     },
+     {
+      "code": "change_safety_not_clear",
+      "why": "change-safety controls are not_determinable for this proposal, so they cannot be called clear"
+     },
+     {
+      "code": "decision_absent",
+      "why": "no decision timestamp is available, so decision freshness cannot be established"
+     },
+     {
+      "code": "decision_identity_incomplete",
+      "why": "the decision identity tuple is incomplete or blank (id=null, hash=null, version=null)"
+     },
+     {
+      "code": "kill_switch_unverified",
+      "why": "the server-side kill switch was not read, so it is unverified and cannot clear this proposal: no pinned artifact retains the server-side kill-switch state"
+     },
+     {
+      "code": "admission_unverified",
+      "why": "decision-pipeline admission was not read, so it is unverified and cannot clear this proposal: no pinned artifact retains decision-pipeline admission state"
+     },
+     {
+      "code": "cap_unverified",
+      "why": "the per-day cap was not read, so it is unverified and cannot clear this proposal: no pinned artifact retains per-day change history, so the cap is unverified"
+     },
+     {
+      "code": "cooldown_unverified",
+      "why": "the cooldown window was not read, so it is unverified and cannot clear this proposal: no pinned artifact retains per-day change history, so the cooldown is unverified"
+     },
+     {
+      "code": "conflict_unverified",
+      "why": "the conflict lock was not read, so it is unverified and cannot clear this proposal: no pinned artifact retains conflict-lock state"
+     },
+     {
+      "code": "provider_preflight_not_readable",
+      "why": "no preflight read was attempted: all three GETs returned evidenceSource=unknown with zero rows; the route resolved a warehouse-readiness branch and never took the live-provider fallback, so no provider preflight projection exists"
+     },
+     {
+      "code": "unit_confidence_not_exact",
+      "why": "unitConfidence is unknown; only exact may support a proposal"
+     },
+     {
+      "code": "write_safety_step_missing",
+      "why": "write-safety steps not satisfied: exact_role_and_posture, fresh_provider_or_current_state_read, parent_hierarchy_and_policy, server_side_kill_switch, persisted_preflight, preflight_age_and_no_provider_contact_disclosure, typed_or_explicit_confirmation, durable_idempotency_claim, at_most_one_provider_post, immutable_attempt_receipt, independent_provider_readback, exact_identity_and_state_verification, durable_terminal_receipt_or_reconciliation_marker, rollback_or_compensation_record"
+     },
+     {
+      "code": "intent_not_validated",
+      "why": "no canonical D081 intent could be derived: current_value_missing, currency_exponent_unknown"
+     },
+     {
+      "code": "no_provider_write_path_exists",
+      "why": "MutationAction is pause|resume|bid|duplicate and MUTATION_ENDPOINTS has no budget action at any grain, so no provider write path exists for a budget proposal (source: lib/zero-base/meta/dispatch-contract.MUTATION_ENDPOINTS)"
+     }
+    ],
+    "wouldWriteAvailable": false,
+    "preflightOutcome": "not_attempted",
+    "readbackClassification": "not_attempted",
+    "inputFingerprint": "meta.budget-proposal-dry-run.v16:1c1f310606a9871f99d945b86887860a9382c6c34dc5c9303da1dc87a7a47e04",
+    "cellHash": "3f31fc383fc5cb05ae94421889dbd05c994ab112e34f57b58c5c4fa0fcfff992"
+   },
+   {
+    "business": "Grandmix",
+    "businessId": "5dbc7147-f051-4681-a4d6-20617170074f",
+    "providerAccountId": "act_805150454596350",
+    "accountSelected": true,
+    "direction": "decrease",
+    "canonicalAction": "cut",
+    "candidateEntityOriginEvaluations": 8610,
+    "status": "blocked",
+    "blockers": [
+     "no_concrete_entity_selected",
+     "budget_fact_unavailable",
+     "current_value_unknown",
+     "currency_exponent_unknown",
+     "owner_mode_unknown",
+     "role_context_unresolved",
+     "commercial_profile_unavailable",
+     "evidence_floor_unmet",
+     "change_safety_not_clear",
+     "decision_absent",
+     "decision_identity_incomplete",
+     "kill_switch_unverified",
+     "admission_unverified",
+     "cap_unverified",
+     "cooldown_unverified",
+     "conflict_unverified",
+     "provider_preflight_not_readable",
+     "unit_confidence_not_exact",
+     "write_safety_step_missing",
+     "intent_not_validated",
+     "no_provider_write_path_exists"
+    ],
+    "blockerDetail": [
+     {
+      "code": "no_concrete_entity_selected",
+      "why": "no concrete campaign or ad set is selected, so there is no entity to write to"
+     },
+     {
+      "code": "budget_fact_unavailable",
+      "why": "no canonical budget fact: D083's readiness funnel ends at 0 intent-ready: every one of the 32,859 pairs that survived scope, hierarchy, ownership and schedule was eliminated on currency_exponent_not_captured"
+     },
+     {
+      "code": "current_value_unknown",
+      "why": "the current provider-unit budget value is not retained, so no delta can be computed"
+     },
+     {
+      "code": "currency_exponent_unknown",
+      "why": "the account currency minor-unit exponent is not established, so a raw value would be off by an uncaptured power of ten"
+     },
+     {
+      "code": "owner_mode_unknown",
+      "why": "the budget owner mode is unknown, so which entity actually owns the budget is undetermined"
+     },
+     {
+      "code": "role_context_unresolved",
+      "why": "automatic role context is unresolved: D081 proved automatic role authority has no retained qualifying rows; unresolved stays unresolved"
+     },
+     {
+      "code": "commercial_profile_unavailable",
+      "why": "canonical profile source is output_not_retained, so no commercial eligibility may be stated"
+     },
+     {
+      "code": "evidence_floor_unmet",
+      "why": "evidence floors are not clear: canonical_profile_output_not_retained"
+     },
+     {
+      "code": "change_safety_not_clear",
+      "why": "change-safety controls are not_determinable for this proposal, so they cannot be called clear"
+     },
+     {
+      "code": "decision_absent",
+      "why": "no decision timestamp is available, so decision freshness cannot be established"
+     },
+     {
+      "code": "decision_identity_incomplete",
+      "why": "the decision identity tuple is incomplete or blank (id=null, hash=null, version=null)"
+     },
+     {
+      "code": "kill_switch_unverified",
+      "why": "the server-side kill switch was not read, so it is unverified and cannot clear this proposal: no pinned artifact retains the server-side kill-switch state"
+     },
+     {
+      "code": "admission_unverified",
+      "why": "decision-pipeline admission was not read, so it is unverified and cannot clear this proposal: no pinned artifact retains decision-pipeline admission state"
+     },
+     {
+      "code": "cap_unverified",
+      "why": "the per-day cap was not read, so it is unverified and cannot clear this proposal: no pinned artifact retains per-day change history, so the cap is unverified"
+     },
+     {
+      "code": "cooldown_unverified",
+      "why": "the cooldown window was not read, so it is unverified and cannot clear this proposal: no pinned artifact retains per-day change history, so the cooldown is unverified"
+     },
+     {
+      "code": "conflict_unverified",
+      "why": "the conflict lock was not read, so it is unverified and cannot clear this proposal: no pinned artifact retains conflict-lock state"
+     },
+     {
+      "code": "provider_preflight_not_readable",
+      "why": "no preflight read was attempted: all three GETs returned evidenceSource=unknown with zero rows; the route resolved a warehouse-readiness branch and never took the live-provider fallback, so no provider preflight projection exists"
+     },
+     {
+      "code": "unit_confidence_not_exact",
+      "why": "unitConfidence is unknown; only exact may support a proposal"
+     },
+     {
+      "code": "write_safety_step_missing",
+      "why": "write-safety steps not satisfied: exact_role_and_posture, fresh_provider_or_current_state_read, parent_hierarchy_and_policy, server_side_kill_switch, persisted_preflight, preflight_age_and_no_provider_contact_disclosure, typed_or_explicit_confirmation, durable_idempotency_claim, at_most_one_provider_post, immutable_attempt_receipt, independent_provider_readback, exact_identity_and_state_verification, durable_terminal_receipt_or_reconciliation_marker, rollback_or_compensation_record"
+     },
+     {
+      "code": "intent_not_validated",
+      "why": "no canonical D081 intent could be derived: current_value_missing, currency_exponent_unknown"
+     },
+     {
+      "code": "no_provider_write_path_exists",
+      "why": "MutationAction is pause|resume|bid|duplicate and MUTATION_ENDPOINTS has no budget action at any grain, so no provider write path exists for a budget proposal (source: lib/zero-base/meta/dispatch-contract.MUTATION_ENDPOINTS)"
+     }
+    ],
+    "wouldWriteAvailable": false,
+    "preflightOutcome": "not_attempted",
+    "readbackClassification": "not_attempted",
+    "inputFingerprint": "meta.budget-proposal-dry-run.v16:79d659b7aeace26cef8f95cd9a1ea37a21e7f2a0c9f36be3e42fffc9566db197",
+    "cellHash": "399cfa43a27d4163f5caa3b376b382a28a5bb4d349760a841952bfb098de727f"
+   },
+   {
+    "business": "Grandmix",
+    "businessId": "5dbc7147-f051-4681-a4d6-20617170074f",
+    "providerAccountId": "act_805150454596350",
+    "accountSelected": true,
+    "direction": "increase",
+    "canonicalAction": "scale",
+    "candidateEntityOriginEvaluations": 8610,
+    "status": "blocked",
+    "blockers": [
+     "no_concrete_entity_selected",
+     "budget_fact_unavailable",
+     "current_value_unknown",
+     "currency_exponent_unknown",
+     "owner_mode_unknown",
+     "role_context_unresolved",
+     "commercial_profile_unavailable",
+     "evidence_floor_unmet",
+     "change_safety_not_clear",
+     "decision_absent",
+     "decision_identity_incomplete",
+     "kill_switch_unverified",
+     "admission_unverified",
+     "cap_unverified",
+     "cooldown_unverified",
+     "conflict_unverified",
+     "provider_preflight_not_readable",
+     "unit_confidence_not_exact",
+     "write_safety_step_missing",
+     "intent_not_validated",
+     "no_provider_write_path_exists"
+    ],
+    "blockerDetail": [
+     {
+      "code": "no_concrete_entity_selected",
+      "why": "no concrete campaign or ad set is selected, so there is no entity to write to"
+     },
+     {
+      "code": "budget_fact_unavailable",
+      "why": "no canonical budget fact: D083's readiness funnel ends at 0 intent-ready: every one of the 32,859 pairs that survived scope, hierarchy, ownership and schedule was eliminated on currency_exponent_not_captured"
+     },
+     {
+      "code": "current_value_unknown",
+      "why": "the current provider-unit budget value is not retained, so no delta can be computed"
+     },
+     {
+      "code": "currency_exponent_unknown",
+      "why": "the account currency minor-unit exponent is not established, so a raw value would be off by an uncaptured power of ten"
+     },
+     {
+      "code": "owner_mode_unknown",
+      "why": "the budget owner mode is unknown, so which entity actually owns the budget is undetermined"
+     },
+     {
+      "code": "role_context_unresolved",
+      "why": "automatic role context is unresolved: D081 proved automatic role authority has no retained qualifying rows; unresolved stays unresolved"
+     },
+     {
+      "code": "commercial_profile_unavailable",
+      "why": "canonical profile source is output_not_retained, so no commercial eligibility may be stated"
+     },
+     {
+      "code": "evidence_floor_unmet",
+      "why": "evidence floors are not clear: canonical_profile_output_not_retained"
+     },
+     {
+      "code": "change_safety_not_clear",
+      "why": "change-safety controls are not_determinable for this proposal, so they cannot be called clear"
+     },
+     {
+      "code": "decision_absent",
+      "why": "no decision timestamp is available, so decision freshness cannot be established"
+     },
+     {
+      "code": "decision_identity_incomplete",
+      "why": "the decision identity tuple is incomplete or blank (id=null, hash=null, version=null)"
+     },
+     {
+      "code": "kill_switch_unverified",
+      "why": "the server-side kill switch was not read, so it is unverified and cannot clear this proposal: no pinned artifact retains the server-side kill-switch state"
+     },
+     {
+      "code": "admission_unverified",
+      "why": "decision-pipeline admission was not read, so it is unverified and cannot clear this proposal: no pinned artifact retains decision-pipeline admission state"
+     },
+     {
+      "code": "cap_unverified",
+      "why": "the per-day cap was not read, so it is unverified and cannot clear this proposal: no pinned artifact retains per-day change history, so the cap is unverified"
+     },
+     {
+      "code": "cooldown_unverified",
+      "why": "the cooldown window was not read, so it is unverified and cannot clear this proposal: no pinned artifact retains per-day change history, so the cooldown is unverified"
+     },
+     {
+      "code": "conflict_unverified",
+      "why": "the conflict lock was not read, so it is unverified and cannot clear this proposal: no pinned artifact retains conflict-lock state"
+     },
+     {
+      "code": "provider_preflight_not_readable",
+      "why": "no preflight read was attempted: all three GETs returned evidenceSource=unknown with zero rows; the route resolved a warehouse-readiness branch and never took the live-provider fallback, so no provider preflight projection exists"
+     },
+     {
+      "code": "unit_confidence_not_exact",
+      "why": "unitConfidence is unknown; only exact may support a proposal"
+     },
+     {
+      "code": "write_safety_step_missing",
+      "why": "write-safety steps not satisfied: exact_role_and_posture, fresh_provider_or_current_state_read, parent_hierarchy_and_policy, server_side_kill_switch, persisted_preflight, preflight_age_and_no_provider_contact_disclosure, typed_or_explicit_confirmation, durable_idempotency_claim, at_most_one_provider_post, immutable_attempt_receipt, independent_provider_readback, exact_identity_and_state_verification, durable_terminal_receipt_or_reconciliation_marker, rollback_or_compensation_record"
+     },
+     {
+      "code": "intent_not_validated",
+      "why": "no canonical D081 intent could be derived: current_value_missing, currency_exponent_unknown"
+     },
+     {
+      "code": "no_provider_write_path_exists",
+      "why": "MutationAction is pause|resume|bid|duplicate and MUTATION_ENDPOINTS has no budget action at any grain, so no provider write path exists for a budget proposal (source: lib/zero-base/meta/dispatch-contract.MUTATION_ENDPOINTS)"
+     }
+    ],
+    "wouldWriteAvailable": false,
+    "preflightOutcome": "not_attempted",
+    "readbackClassification": "not_attempted",
+    "inputFingerprint": "meta.budget-proposal-dry-run.v16:bc6c36ae15ba870fe54bbace596f4dbae4f73ab1c77d550e41bfecc3b04b016f",
+    "cellHash": "540a3bc8ff196cd0b45a7597bb908117d189855d4a6cc5f47a5f271d355b9f4e"
+   },
+   {
+    "business": "Bilsem Zeka",
+    "businessId": "6c690fa4-6395-40b5-9755-e99b34d69bc3",
+    "providerAccountId": "act_840779107261785",
+    "accountSelected": true,
+    "direction": "decrease",
+    "canonicalAction": "cut",
+    "candidateEntityOriginEvaluations": 4481,
+    "status": "blocked",
+    "blockers": [
+     "no_concrete_entity_selected",
+     "budget_fact_unavailable",
+     "current_value_unknown",
+     "currency_exponent_unknown",
+     "owner_mode_unknown",
+     "role_context_unresolved",
+     "commercial_profile_unavailable",
+     "evidence_floor_unmet",
+     "change_safety_not_clear",
+     "decision_absent",
+     "decision_identity_incomplete",
+     "kill_switch_unverified",
+     "admission_unverified",
+     "cap_unverified",
+     "cooldown_unverified",
+     "conflict_unverified",
+     "provider_preflight_not_readable",
+     "unit_confidence_not_exact",
+     "write_safety_step_missing",
+     "intent_not_validated",
+     "no_provider_write_path_exists"
+    ],
+    "blockerDetail": [
+     {
+      "code": "no_concrete_entity_selected",
+      "why": "no concrete campaign or ad set is selected, so there is no entity to write to"
+     },
+     {
+      "code": "budget_fact_unavailable",
+      "why": "no canonical budget fact: D083's readiness funnel ends at 0 intent-ready: every one of the 32,859 pairs that survived scope, hierarchy, ownership and schedule was eliminated on currency_exponent_not_captured"
+     },
+     {
+      "code": "current_value_unknown",
+      "why": "the current provider-unit budget value is not retained, so no delta can be computed"
+     },
+     {
+      "code": "currency_exponent_unknown",
+      "why": "the account currency minor-unit exponent is not established, so a raw value would be off by an uncaptured power of ten"
+     },
+     {
+      "code": "owner_mode_unknown",
+      "why": "the budget owner mode is unknown, so which entity actually owns the budget is undetermined"
+     },
+     {
+      "code": "role_context_unresolved",
+      "why": "automatic role context is unresolved: D081 proved automatic role authority has no retained qualifying rows; unresolved stays unresolved"
+     },
+     {
+      "code": "commercial_profile_unavailable",
+      "why": "canonical profile source is output_not_retained, so no commercial eligibility may be stated"
+     },
+     {
+      "code": "evidence_floor_unmet",
+      "why": "evidence floors are not clear: canonical_profile_output_not_retained"
+     },
+     {
+      "code": "change_safety_not_clear",
+      "why": "change-safety controls are not_determinable for this proposal, so they cannot be called clear"
+     },
+     {
+      "code": "decision_absent",
+      "why": "no decision timestamp is available, so decision freshness cannot be established"
+     },
+     {
+      "code": "decision_identity_incomplete",
+      "why": "the decision identity tuple is incomplete or blank (id=null, hash=null, version=null)"
+     },
+     {
+      "code": "kill_switch_unverified",
+      "why": "the server-side kill switch was not read, so it is unverified and cannot clear this proposal: no pinned artifact retains the server-side kill-switch state"
+     },
+     {
+      "code": "admission_unverified",
+      "why": "decision-pipeline admission was not read, so it is unverified and cannot clear this proposal: no pinned artifact retains decision-pipeline admission state"
+     },
+     {
+      "code": "cap_unverified",
+      "why": "the per-day cap was not read, so it is unverified and cannot clear this proposal: no pinned artifact retains per-day change history, so the cap is unverified"
+     },
+     {
+      "code": "cooldown_unverified",
+      "why": "the cooldown window was not read, so it is unverified and cannot clear this proposal: no pinned artifact retains per-day change history, so the cooldown is unverified"
+     },
+     {
+      "code": "conflict_unverified",
+      "why": "the conflict lock was not read, so it is unverified and cannot clear this proposal: no pinned artifact retains conflict-lock state"
+     },
+     {
+      "code": "provider_preflight_not_readable",
+      "why": "no preflight read was attempted: all three GETs returned evidenceSource=unknown with zero rows; the route resolved a warehouse-readiness branch and never took the live-provider fallback, so no provider preflight projection exists"
+     },
+     {
+      "code": "unit_confidence_not_exact",
+      "why": "unitConfidence is unknown; only exact may support a proposal"
+     },
+     {
+      "code": "write_safety_step_missing",
+      "why": "write-safety steps not satisfied: exact_role_and_posture, fresh_provider_or_current_state_read, parent_hierarchy_and_policy, server_side_kill_switch, persisted_preflight, preflight_age_and_no_provider_contact_disclosure, typed_or_explicit_confirmation, durable_idempotency_claim, at_most_one_provider_post, immutable_attempt_receipt, independent_provider_readback, exact_identity_and_state_verification, durable_terminal_receipt_or_reconciliation_marker, rollback_or_compensation_record"
+     },
+     {
+      "code": "intent_not_validated",
+      "why": "no canonical D081 intent could be derived: current_value_missing, currency_exponent_unknown"
+     },
+     {
+      "code": "no_provider_write_path_exists",
+      "why": "MutationAction is pause|resume|bid|duplicate and MUTATION_ENDPOINTS has no budget action at any grain, so no provider write path exists for a budget proposal (source: lib/zero-base/meta/dispatch-contract.MUTATION_ENDPOINTS)"
+     }
+    ],
+    "wouldWriteAvailable": false,
+    "preflightOutcome": "not_attempted",
+    "readbackClassification": "not_attempted",
+    "inputFingerprint": "meta.budget-proposal-dry-run.v16:73df33d48b7671447e06c8ca052799dfdfbff42c49d9cb0cb73c19951b54dc61",
+    "cellHash": "76896466849a306abd036eb0be644aaec4b9006ac70cedeebde3d7dde679dc48"
+   },
+   {
+    "business": "Bilsem Zeka",
+    "businessId": "6c690fa4-6395-40b5-9755-e99b34d69bc3",
+    "providerAccountId": "act_840779107261785",
+    "accountSelected": true,
+    "direction": "increase",
+    "canonicalAction": "scale",
+    "candidateEntityOriginEvaluations": 4481,
+    "status": "blocked",
+    "blockers": [
+     "no_concrete_entity_selected",
+     "budget_fact_unavailable",
+     "current_value_unknown",
+     "currency_exponent_unknown",
+     "owner_mode_unknown",
+     "role_context_unresolved",
+     "commercial_profile_unavailable",
+     "evidence_floor_unmet",
+     "change_safety_not_clear",
+     "decision_absent",
+     "decision_identity_incomplete",
+     "kill_switch_unverified",
+     "admission_unverified",
+     "cap_unverified",
+     "cooldown_unverified",
+     "conflict_unverified",
+     "provider_preflight_not_readable",
+     "unit_confidence_not_exact",
+     "write_safety_step_missing",
+     "intent_not_validated",
+     "no_provider_write_path_exists"
+    ],
+    "blockerDetail": [
+     {
+      "code": "no_concrete_entity_selected",
+      "why": "no concrete campaign or ad set is selected, so there is no entity to write to"
+     },
+     {
+      "code": "budget_fact_unavailable",
+      "why": "no canonical budget fact: D083's readiness funnel ends at 0 intent-ready: every one of the 32,859 pairs that survived scope, hierarchy, ownership and schedule was eliminated on currency_exponent_not_captured"
+     },
+     {
+      "code": "current_value_unknown",
+      "why": "the current provider-unit budget value is not retained, so no delta can be computed"
+     },
+     {
+      "code": "currency_exponent_unknown",
+      "why": "the account currency minor-unit exponent is not established, so a raw value would be off by an uncaptured power of ten"
+     },
+     {
+      "code": "owner_mode_unknown",
+      "why": "the budget owner mode is unknown, so which entity actually owns the budget is undetermined"
+     },
+     {
+      "code": "role_context_unresolved",
+      "why": "automatic role context is unresolved: D081 proved automatic role authority has no retained qualifying rows; unresolved stays unresolved"
+     },
+     {
+      "code": "commercial_profile_unavailable",
+      "why": "canonical profile source is output_not_retained, so no commercial eligibility may be stated"
+     },
+     {
+      "code": "evidence_floor_unmet",
+      "why": "evidence floors are not clear: canonical_profile_output_not_retained"
+     },
+     {
+      "code": "change_safety_not_clear",
+      "why": "change-safety controls are not_determinable for this proposal, so they cannot be called clear"
+     },
+     {
+      "code": "decision_absent",
+      "why": "no decision timestamp is available, so decision freshness cannot be established"
+     },
+     {
+      "code": "decision_identity_incomplete",
+      "why": "the decision identity tuple is incomplete or blank (id=null, hash=null, version=null)"
+     },
+     {
+      "code": "kill_switch_unverified",
+      "why": "the server-side kill switch was not read, so it is unverified and cannot clear this proposal: no pinned artifact retains the server-side kill-switch state"
+     },
+     {
+      "code": "admission_unverified",
+      "why": "decision-pipeline admission was not read, so it is unverified and cannot clear this proposal: no pinned artifact retains decision-pipeline admission state"
+     },
+     {
+      "code": "cap_unverified",
+      "why": "the per-day cap was not read, so it is unverified and cannot clear this proposal: no pinned artifact retains per-day change history, so the cap is unverified"
+     },
+     {
+      "code": "cooldown_unverified",
+      "why": "the cooldown window was not read, so it is unverified and cannot clear this proposal: no pinned artifact retains per-day change history, so the cooldown is unverified"
+     },
+     {
+      "code": "conflict_unverified",
+      "why": "the conflict lock was not read, so it is unverified and cannot clear this proposal: no pinned artifact retains conflict-lock state"
+     },
+     {
+      "code": "provider_preflight_not_readable",
+      "why": "no preflight read was attempted: all three GETs returned evidenceSource=unknown with zero rows; the route resolved a warehouse-readiness branch and never took the live-provider fallback, so no provider preflight projection exists"
+     },
+     {
+      "code": "unit_confidence_not_exact",
+      "why": "unitConfidence is unknown; only exact may support a proposal"
+     },
+     {
+      "code": "write_safety_step_missing",
+      "why": "write-safety steps not satisfied: exact_role_and_posture, fresh_provider_or_current_state_read, parent_hierarchy_and_policy, server_side_kill_switch, persisted_preflight, preflight_age_and_no_provider_contact_disclosure, typed_or_explicit_confirmation, durable_idempotency_claim, at_most_one_provider_post, immutable_attempt_receipt, independent_provider_readback, exact_identity_and_state_verification, durable_terminal_receipt_or_reconciliation_marker, rollback_or_compensation_record"
+     },
+     {
+      "code": "intent_not_validated",
+      "why": "no canonical D081 intent could be derived: current_value_missing, currency_exponent_unknown"
+     },
+     {
+      "code": "no_provider_write_path_exists",
+      "why": "MutationAction is pause|resume|bid|duplicate and MUTATION_ENDPOINTS has no budget action at any grain, so no provider write path exists for a budget proposal (source: lib/zero-base/meta/dispatch-contract.MUTATION_ENDPOINTS)"
+     }
+    ],
+    "wouldWriteAvailable": false,
+    "preflightOutcome": "not_attempted",
+    "readbackClassification": "not_attempted",
+    "inputFingerprint": "meta.budget-proposal-dry-run.v16:c4ff5ecaf0a4ec1badbaa5a21644098eb346524f6dd7ca6c62b3934b193bac95",
+    "cellHash": "533485c2c3ef91b8f1ae5e499878b9a7bcfe19a2652ee3a51fd99d7c109be420"
+   },
+   {
+    "business": "IwaTR",
+    "businessId": "b79683b4-6f87-48c0-a3ca-44d4356fef51",
+    "providerAccountId": "act_2335220976649516",
+    "accountSelected": true,
+    "direction": "decrease",
+    "canonicalAction": "cut",
+    "candidateEntityOriginEvaluations": 215,
+    "status": "blocked",
+    "blockers": [
+     "no_concrete_entity_selected",
+     "budget_fact_unavailable",
+     "current_value_unknown",
+     "currency_exponent_unknown",
+     "owner_mode_unknown",
+     "role_context_unresolved",
+     "commercial_profile_unavailable",
+     "evidence_floor_unmet",
+     "change_safety_not_clear",
+     "decision_absent",
+     "decision_identity_incomplete",
+     "kill_switch_unverified",
+     "admission_unverified",
+     "cap_unverified",
+     "cooldown_unverified",
+     "conflict_unverified",
+     "provider_preflight_not_readable",
+     "unit_confidence_not_exact",
+     "write_safety_step_missing",
+     "intent_not_validated",
+     "no_provider_write_path_exists"
+    ],
+    "blockerDetail": [
+     {
+      "code": "no_concrete_entity_selected",
+      "why": "no concrete campaign or ad set is selected, so there is no entity to write to"
+     },
+     {
+      "code": "budget_fact_unavailable",
+      "why": "no canonical budget fact: D083's readiness funnel ends at 0 intent-ready: every one of the 32,859 pairs that survived scope, hierarchy, ownership and schedule was eliminated on currency_exponent_not_captured"
+     },
+     {
+      "code": "current_value_unknown",
+      "why": "the current provider-unit budget value is not retained, so no delta can be computed"
+     },
+     {
+      "code": "currency_exponent_unknown",
+      "why": "the account currency minor-unit exponent is not established, so a raw value would be off by an uncaptured power of ten"
+     },
+     {
+      "code": "owner_mode_unknown",
+      "why": "the budget owner mode is unknown, so which entity actually owns the budget is undetermined"
+     },
+     {
+      "code": "role_context_unresolved",
+      "why": "automatic role context is unresolved: D081 proved automatic role authority has no retained qualifying rows; unresolved stays unresolved"
+     },
+     {
+      "code": "commercial_profile_unavailable",
+      "why": "canonical profile source is output_not_retained, so no commercial eligibility may be stated"
+     },
+     {
+      "code": "evidence_floor_unmet",
+      "why": "evidence floors are not clear: canonical_profile_output_not_retained"
+     },
+     {
+      "code": "change_safety_not_clear",
+      "why": "change-safety controls are not_determinable for this proposal, so they cannot be called clear"
+     },
+     {
+      "code": "decision_absent",
+      "why": "no decision timestamp is available, so decision freshness cannot be established"
+     },
+     {
+      "code": "decision_identity_incomplete",
+      "why": "the decision identity tuple is incomplete or blank (id=null, hash=null, version=null)"
+     },
+     {
+      "code": "kill_switch_unverified",
+      "why": "the server-side kill switch was not read, so it is unverified and cannot clear this proposal: no pinned artifact retains the server-side kill-switch state"
+     },
+     {
+      "code": "admission_unverified",
+      "why": "decision-pipeline admission was not read, so it is unverified and cannot clear this proposal: no pinned artifact retains decision-pipeline admission state"
+     },
+     {
+      "code": "cap_unverified",
+      "why": "the per-day cap was not read, so it is unverified and cannot clear this proposal: no pinned artifact retains per-day change history, so the cap is unverified"
+     },
+     {
+      "code": "cooldown_unverified",
+      "why": "the cooldown window was not read, so it is unverified and cannot clear this proposal: no pinned artifact retains per-day change history, so the cooldown is unverified"
+     },
+     {
+      "code": "conflict_unverified",
+      "why": "the conflict lock was not read, so it is unverified and cannot clear this proposal: no pinned artifact retains conflict-lock state"
+     },
+     {
+      "code": "provider_preflight_not_readable",
+      "why": "no preflight read was attempted: all three GETs returned evidenceSource=unknown with zero rows; the route resolved a warehouse-readiness branch and never took the live-provider fallback, so no provider preflight projection exists"
+     },
+     {
+      "code": "unit_confidence_not_exact",
+      "why": "unitConfidence is unknown; only exact may support a proposal"
+     },
+     {
+      "code": "write_safety_step_missing",
+      "why": "write-safety steps not satisfied: exact_role_and_posture, fresh_provider_or_current_state_read, parent_hierarchy_and_policy, server_side_kill_switch, persisted_preflight, preflight_age_and_no_provider_contact_disclosure, typed_or_explicit_confirmation, durable_idempotency_claim, at_most_one_provider_post, immutable_attempt_receipt, independent_provider_readback, exact_identity_and_state_verification, durable_terminal_receipt_or_reconciliation_marker, rollback_or_compensation_record"
+     },
+     {
+      "code": "intent_not_validated",
+      "why": "no canonical D081 intent could be derived: current_value_missing, currency_exponent_unknown"
+     },
+     {
+      "code": "no_provider_write_path_exists",
+      "why": "MutationAction is pause|resume|bid|duplicate and MUTATION_ENDPOINTS has no budget action at any grain, so no provider write path exists for a budget proposal (source: lib/zero-base/meta/dispatch-contract.MUTATION_ENDPOINTS)"
+     }
+    ],
+    "wouldWriteAvailable": false,
+    "preflightOutcome": "not_attempted",
+    "readbackClassification": "not_attempted",
+    "inputFingerprint": "meta.budget-proposal-dry-run.v16:64b37eb35b73aa0465181cf255b88a987e4c532df635185efd39fcfee60da0b5",
+    "cellHash": "e4b4945010feec58d980a810d99f31ea6f164d85e6b9925328581a407378bbbb"
+   },
+   {
+    "business": "IwaTR",
+    "businessId": "b79683b4-6f87-48c0-a3ca-44d4356fef51",
+    "providerAccountId": "act_2335220976649516",
+    "accountSelected": true,
+    "direction": "increase",
+    "canonicalAction": "scale",
+    "candidateEntityOriginEvaluations": 215,
+    "status": "blocked",
+    "blockers": [
+     "no_concrete_entity_selected",
+     "budget_fact_unavailable",
+     "current_value_unknown",
+     "currency_exponent_unknown",
+     "owner_mode_unknown",
+     "role_context_unresolved",
+     "commercial_profile_unavailable",
+     "evidence_floor_unmet",
+     "change_safety_not_clear",
+     "decision_absent",
+     "decision_identity_incomplete",
+     "kill_switch_unverified",
+     "admission_unverified",
+     "cap_unverified",
+     "cooldown_unverified",
+     "conflict_unverified",
+     "provider_preflight_not_readable",
+     "unit_confidence_not_exact",
+     "write_safety_step_missing",
+     "intent_not_validated",
+     "no_provider_write_path_exists"
+    ],
+    "blockerDetail": [
+     {
+      "code": "no_concrete_entity_selected",
+      "why": "no concrete campaign or ad set is selected, so there is no entity to write to"
+     },
+     {
+      "code": "budget_fact_unavailable",
+      "why": "no canonical budget fact: D083's readiness funnel ends at 0 intent-ready: every one of the 32,859 pairs that survived scope, hierarchy, ownership and schedule was eliminated on currency_exponent_not_captured"
+     },
+     {
+      "code": "current_value_unknown",
+      "why": "the current provider-unit budget value is not retained, so no delta can be computed"
+     },
+     {
+      "code": "currency_exponent_unknown",
+      "why": "the account currency minor-unit exponent is not established, so a raw value would be off by an uncaptured power of ten"
+     },
+     {
+      "code": "owner_mode_unknown",
+      "why": "the budget owner mode is unknown, so which entity actually owns the budget is undetermined"
+     },
+     {
+      "code": "role_context_unresolved",
+      "why": "automatic role context is unresolved: D081 proved automatic role authority has no retained qualifying rows; unresolved stays unresolved"
+     },
+     {
+      "code": "commercial_profile_unavailable",
+      "why": "canonical profile source is output_not_retained, so no commercial eligibility may be stated"
+     },
+     {
+      "code": "evidence_floor_unmet",
+      "why": "evidence floors are not clear: canonical_profile_output_not_retained"
+     },
+     {
+      "code": "change_safety_not_clear",
+      "why": "change-safety controls are not_determinable for this proposal, so they cannot be called clear"
+     },
+     {
+      "code": "decision_absent",
+      "why": "no decision timestamp is available, so decision freshness cannot be established"
+     },
+     {
+      "code": "decision_identity_incomplete",
+      "why": "the decision identity tuple is incomplete or blank (id=null, hash=null, version=null)"
+     },
+     {
+      "code": "kill_switch_unverified",
+      "why": "the server-side kill switch was not read, so it is unverified and cannot clear this proposal: no pinned artifact retains the server-side kill-switch state"
+     },
+     {
+      "code": "admission_unverified",
+      "why": "decision-pipeline admission was not read, so it is unverified and cannot clear this proposal: no pinned artifact retains decision-pipeline admission state"
+     },
+     {
+      "code": "cap_unverified",
+      "why": "the per-day cap was not read, so it is unverified and cannot clear this proposal: no pinned artifact retains per-day change history, so the cap is unverified"
+     },
+     {
+      "code": "cooldown_unverified",
+      "why": "the cooldown window was not read, so it is unverified and cannot clear this proposal: no pinned artifact retains per-day change history, so the cooldown is unverified"
+     },
+     {
+      "code": "conflict_unverified",
+      "why": "the conflict lock was not read, so it is unverified and cannot clear this proposal: no pinned artifact retains conflict-lock state"
+     },
+     {
+      "code": "provider_preflight_not_readable",
+      "why": "no preflight read was attempted: all three GETs returned evidenceSource=unknown with zero rows; the route resolved a warehouse-readiness branch and never took the live-provider fallback, so no provider preflight projection exists"
+     },
+     {
+      "code": "unit_confidence_not_exact",
+      "why": "unitConfidence is unknown; only exact may support a proposal"
+     },
+     {
+      "code": "write_safety_step_missing",
+      "why": "write-safety steps not satisfied: exact_role_and_posture, fresh_provider_or_current_state_read, parent_hierarchy_and_policy, server_side_kill_switch, persisted_preflight, preflight_age_and_no_provider_contact_disclosure, typed_or_explicit_confirmation, durable_idempotency_claim, at_most_one_provider_post, immutable_attempt_receipt, independent_provider_readback, exact_identity_and_state_verification, durable_terminal_receipt_or_reconciliation_marker, rollback_or_compensation_record"
+     },
+     {
+      "code": "intent_not_validated",
+      "why": "no canonical D081 intent could be derived: current_value_missing, currency_exponent_unknown"
+     },
+     {
+      "code": "no_provider_write_path_exists",
+      "why": "MutationAction is pause|resume|bid|duplicate and MUTATION_ENDPOINTS has no budget action at any grain, so no provider write path exists for a budget proposal (source: lib/zero-base/meta/dispatch-contract.MUTATION_ENDPOINTS)"
+     }
+    ],
+    "wouldWriteAvailable": false,
+    "preflightOutcome": "not_attempted",
+    "readbackClassification": "not_attempted",
+    "inputFingerprint": "meta.budget-proposal-dry-run.v16:ee5e745dc903c86d4570669d49c8c2ba6ce2bbf2e275366eae1901a3d6503a2b",
+    "cellHash": "55e8db5121b84bb926e36df154ab452cdf5602fd33ce9b4194683131bbe1b0e0"
+   },
+   {
+    "business": "ColorFullWorldsTR",
+    "businessId": "bc0c6178-7853-4f6f-b026-ef0222a4b9e7",
+    "providerAccountId": "act_3554615364751964",
+    "accountSelected": true,
+    "direction": "decrease",
+    "canonicalAction": "cut",
+    "candidateEntityOriginEvaluations": 547,
+    "status": "blocked",
+    "blockers": [
+     "no_concrete_entity_selected",
+     "budget_fact_unavailable",
+     "current_value_unknown",
+     "currency_exponent_unknown",
+     "owner_mode_unknown",
+     "role_context_unresolved",
+     "commercial_profile_unavailable",
+     "evidence_floor_unmet",
+     "change_safety_not_clear",
+     "decision_absent",
+     "decision_identity_incomplete",
+     "kill_switch_unverified",
+     "admission_unverified",
+     "cap_unverified",
+     "cooldown_unverified",
+     "conflict_unverified",
+     "provider_preflight_not_readable",
+     "unit_confidence_not_exact",
+     "write_safety_step_missing",
+     "intent_not_validated",
+     "no_provider_write_path_exists"
+    ],
+    "blockerDetail": [
+     {
+      "code": "no_concrete_entity_selected",
+      "why": "no concrete campaign or ad set is selected, so there is no entity to write to"
+     },
+     {
+      "code": "budget_fact_unavailable",
+      "why": "no canonical budget fact: D083's readiness funnel ends at 0 intent-ready: every one of the 32,859 pairs that survived scope, hierarchy, ownership and schedule was eliminated on currency_exponent_not_captured"
+     },
+     {
+      "code": "current_value_unknown",
+      "why": "the current provider-unit budget value is not retained, so no delta can be computed"
+     },
+     {
+      "code": "currency_exponent_unknown",
+      "why": "the account currency minor-unit exponent is not established, so a raw value would be off by an uncaptured power of ten"
+     },
+     {
+      "code": "owner_mode_unknown",
+      "why": "the budget owner mode is unknown, so which entity actually owns the budget is undetermined"
+     },
+     {
+      "code": "role_context_unresolved",
+      "why": "automatic role context is unresolved: D081 proved automatic role authority has no retained qualifying rows; unresolved stays unresolved"
+     },
+     {
+      "code": "commercial_profile_unavailable",
+      "why": "canonical profile source is output_not_retained, so no commercial eligibility may be stated"
+     },
+     {
+      "code": "evidence_floor_unmet",
+      "why": "evidence floors are not clear: canonical_profile_output_not_retained"
+     },
+     {
+      "code": "change_safety_not_clear",
+      "why": "change-safety controls are not_determinable for this proposal, so they cannot be called clear"
+     },
+     {
+      "code": "decision_absent",
+      "why": "no decision timestamp is available, so decision freshness cannot be established"
+     },
+     {
+      "code": "decision_identity_incomplete",
+      "why": "the decision identity tuple is incomplete or blank (id=null, hash=null, version=null)"
+     },
+     {
+      "code": "kill_switch_unverified",
+      "why": "the server-side kill switch was not read, so it is unverified and cannot clear this proposal: no pinned artifact retains the server-side kill-switch state"
+     },
+     {
+      "code": "admission_unverified",
+      "why": "decision-pipeline admission was not read, so it is unverified and cannot clear this proposal: no pinned artifact retains decision-pipeline admission state"
+     },
+     {
+      "code": "cap_unverified",
+      "why": "the per-day cap was not read, so it is unverified and cannot clear this proposal: no pinned artifact retains per-day change history, so the cap is unverified"
+     },
+     {
+      "code": "cooldown_unverified",
+      "why": "the cooldown window was not read, so it is unverified and cannot clear this proposal: no pinned artifact retains per-day change history, so the cooldown is unverified"
+     },
+     {
+      "code": "conflict_unverified",
+      "why": "the conflict lock was not read, so it is unverified and cannot clear this proposal: no pinned artifact retains conflict-lock state"
+     },
+     {
+      "code": "provider_preflight_not_readable",
+      "why": "no preflight read was attempted: all three GETs returned evidenceSource=unknown with zero rows; the route resolved a warehouse-readiness branch and never took the live-provider fallback, so no provider preflight projection exists"
+     },
+     {
+      "code": "unit_confidence_not_exact",
+      "why": "unitConfidence is unknown; only exact may support a proposal"
+     },
+     {
+      "code": "write_safety_step_missing",
+      "why": "write-safety steps not satisfied: exact_role_and_posture, fresh_provider_or_current_state_read, parent_hierarchy_and_policy, server_side_kill_switch, persisted_preflight, preflight_age_and_no_provider_contact_disclosure, typed_or_explicit_confirmation, durable_idempotency_claim, at_most_one_provider_post, immutable_attempt_receipt, independent_provider_readback, exact_identity_and_state_verification, durable_terminal_receipt_or_reconciliation_marker, rollback_or_compensation_record"
+     },
+     {
+      "code": "intent_not_validated",
+      "why": "no canonical D081 intent could be derived: current_value_missing, currency_exponent_unknown"
+     },
+     {
+      "code": "no_provider_write_path_exists",
+      "why": "MutationAction is pause|resume|bid|duplicate and MUTATION_ENDPOINTS has no budget action at any grain, so no provider write path exists for a budget proposal (source: lib/zero-base/meta/dispatch-contract.MUTATION_ENDPOINTS)"
+     }
+    ],
+    "wouldWriteAvailable": false,
+    "preflightOutcome": "not_attempted",
+    "readbackClassification": "not_attempted",
+    "inputFingerprint": "meta.budget-proposal-dry-run.v16:2a90e1888c42c39f0233d43221d5b45895d9ee340c46ffe6e2aeac6166dd383e",
+    "cellHash": "13b0fa01db749af16461e91bdc6a621e73b8071648c4f6cc5223e6921daba9b8"
+   },
+   {
+    "business": "ColorFullWorldsTR",
+    "businessId": "bc0c6178-7853-4f6f-b026-ef0222a4b9e7",
+    "providerAccountId": "act_3554615364751964",
+    "accountSelected": true,
+    "direction": "increase",
+    "canonicalAction": "scale",
+    "candidateEntityOriginEvaluations": 547,
+    "status": "blocked",
+    "blockers": [
+     "no_concrete_entity_selected",
+     "budget_fact_unavailable",
+     "current_value_unknown",
+     "currency_exponent_unknown",
+     "owner_mode_unknown",
+     "role_context_unresolved",
+     "commercial_profile_unavailable",
+     "evidence_floor_unmet",
+     "change_safety_not_clear",
+     "decision_absent",
+     "decision_identity_incomplete",
+     "kill_switch_unverified",
+     "admission_unverified",
+     "cap_unverified",
+     "cooldown_unverified",
+     "conflict_unverified",
+     "provider_preflight_not_readable",
+     "unit_confidence_not_exact",
+     "write_safety_step_missing",
+     "intent_not_validated",
+     "no_provider_write_path_exists"
+    ],
+    "blockerDetail": [
+     {
+      "code": "no_concrete_entity_selected",
+      "why": "no concrete campaign or ad set is selected, so there is no entity to write to"
+     },
+     {
+      "code": "budget_fact_unavailable",
+      "why": "no canonical budget fact: D083's readiness funnel ends at 0 intent-ready: every one of the 32,859 pairs that survived scope, hierarchy, ownership and schedule was eliminated on currency_exponent_not_captured"
+     },
+     {
+      "code": "current_value_unknown",
+      "why": "the current provider-unit budget value is not retained, so no delta can be computed"
+     },
+     {
+      "code": "currency_exponent_unknown",
+      "why": "the account currency minor-unit exponent is not established, so a raw value would be off by an uncaptured power of ten"
+     },
+     {
+      "code": "owner_mode_unknown",
+      "why": "the budget owner mode is unknown, so which entity actually owns the budget is undetermined"
+     },
+     {
+      "code": "role_context_unresolved",
+      "why": "automatic role context is unresolved: D081 proved automatic role authority has no retained qualifying rows; unresolved stays unresolved"
+     },
+     {
+      "code": "commercial_profile_unavailable",
+      "why": "canonical profile source is output_not_retained, so no commercial eligibility may be stated"
+     },
+     {
+      "code": "evidence_floor_unmet",
+      "why": "evidence floors are not clear: canonical_profile_output_not_retained"
+     },
+     {
+      "code": "change_safety_not_clear",
+      "why": "change-safety controls are not_determinable for this proposal, so they cannot be called clear"
+     },
+     {
+      "code": "decision_absent",
+      "why": "no decision timestamp is available, so decision freshness cannot be established"
+     },
+     {
+      "code": "decision_identity_incomplete",
+      "why": "the decision identity tuple is incomplete or blank (id=null, hash=null, version=null)"
+     },
+     {
+      "code": "kill_switch_unverified",
+      "why": "the server-side kill switch was not read, so it is unverified and cannot clear this proposal: no pinned artifact retains the server-side kill-switch state"
+     },
+     {
+      "code": "admission_unverified",
+      "why": "decision-pipeline admission was not read, so it is unverified and cannot clear this proposal: no pinned artifact retains decision-pipeline admission state"
+     },
+     {
+      "code": "cap_unverified",
+      "why": "the per-day cap was not read, so it is unverified and cannot clear this proposal: no pinned artifact retains per-day change history, so the cap is unverified"
+     },
+     {
+      "code": "cooldown_unverified",
+      "why": "the cooldown window was not read, so it is unverified and cannot clear this proposal: no pinned artifact retains per-day change history, so the cooldown is unverified"
+     },
+     {
+      "code": "conflict_unverified",
+      "why": "the conflict lock was not read, so it is unverified and cannot clear this proposal: no pinned artifact retains conflict-lock state"
+     },
+     {
+      "code": "provider_preflight_not_readable",
+      "why": "no preflight read was attempted: all three GETs returned evidenceSource=unknown with zero rows; the route resolved a warehouse-readiness branch and never took the live-provider fallback, so no provider preflight projection exists"
+     },
+     {
+      "code": "unit_confidence_not_exact",
+      "why": "unitConfidence is unknown; only exact may support a proposal"
+     },
+     {
+      "code": "write_safety_step_missing",
+      "why": "write-safety steps not satisfied: exact_role_and_posture, fresh_provider_or_current_state_read, parent_hierarchy_and_policy, server_side_kill_switch, persisted_preflight, preflight_age_and_no_provider_contact_disclosure, typed_or_explicit_confirmation, durable_idempotency_claim, at_most_one_provider_post, immutable_attempt_receipt, independent_provider_readback, exact_identity_and_state_verification, durable_terminal_receipt_or_reconciliation_marker, rollback_or_compensation_record"
+     },
+     {
+      "code": "intent_not_validated",
+      "why": "no canonical D081 intent could be derived: current_value_missing, currency_exponent_unknown"
+     },
+     {
+      "code": "no_provider_write_path_exists",
+      "why": "MutationAction is pause|resume|bid|duplicate and MUTATION_ENDPOINTS has no budget action at any grain, so no provider write path exists for a budget proposal (source: lib/zero-base/meta/dispatch-contract.MUTATION_ENDPOINTS)"
+     }
+    ],
+    "wouldWriteAvailable": false,
+    "preflightOutcome": "not_attempted",
+    "readbackClassification": "not_attempted",
+    "inputFingerprint": "meta.budget-proposal-dry-run.v16:bc2940cdd2fdbd7c48c91226b740115f414017269dfdcd1206ed6a92ccd232dd",
+    "cellHash": "e6c45c65dc9599ca781355b767f870f80fca1fb6298d870f84a075f09de7bfda"
+   },
+   {
+    "business": "IwaStore",
+    "businessId": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+    "providerAccountId": "act_1087566732415606",
+    "accountSelected": true,
+    "direction": "decrease",
+    "canonicalAction": "cut",
+    "candidateEntityOriginEvaluations": 1206,
+    "status": "blocked",
+    "blockers": [
+     "no_concrete_entity_selected",
+     "budget_fact_unavailable",
+     "current_value_unknown",
+     "currency_exponent_unknown",
+     "owner_mode_unknown",
+     "role_context_unresolved",
+     "commercial_profile_unavailable",
+     "evidence_floor_unmet",
+     "change_safety_not_clear",
+     "decision_absent",
+     "decision_identity_incomplete",
+     "kill_switch_unverified",
+     "admission_unverified",
+     "cap_unverified",
+     "cooldown_unverified",
+     "conflict_unverified",
+     "provider_preflight_not_readable",
+     "unit_confidence_not_exact",
+     "write_safety_step_missing",
+     "intent_not_validated",
+     "no_provider_write_path_exists"
+    ],
+    "blockerDetail": [
+     {
+      "code": "no_concrete_entity_selected",
+      "why": "no concrete campaign or ad set is selected, so there is no entity to write to"
+     },
+     {
+      "code": "budget_fact_unavailable",
+      "why": "no canonical budget fact: D083's readiness funnel ends at 0 intent-ready: every one of the 32,859 pairs that survived scope, hierarchy, ownership and schedule was eliminated on currency_exponent_not_captured"
+     },
+     {
+      "code": "current_value_unknown",
+      "why": "the current provider-unit budget value is not retained, so no delta can be computed"
+     },
+     {
+      "code": "currency_exponent_unknown",
+      "why": "the account currency minor-unit exponent is not established, so a raw value would be off by an uncaptured power of ten"
+     },
+     {
+      "code": "owner_mode_unknown",
+      "why": "the budget owner mode is unknown, so which entity actually owns the budget is undetermined"
+     },
+     {
+      "code": "role_context_unresolved",
+      "why": "automatic role context is unresolved: D081 proved automatic role authority has no retained qualifying rows; unresolved stays unresolved"
+     },
+     {
+      "code": "commercial_profile_unavailable",
+      "why": "canonical profile source is output_not_retained, so no commercial eligibility may be stated"
+     },
+     {
+      "code": "evidence_floor_unmet",
+      "why": "evidence floors are not clear: canonical_profile_output_not_retained"
+     },
+     {
+      "code": "change_safety_not_clear",
+      "why": "change-safety controls are not_determinable for this proposal, so they cannot be called clear"
+     },
+     {
+      "code": "decision_absent",
+      "why": "no decision timestamp is available, so decision freshness cannot be established"
+     },
+     {
+      "code": "decision_identity_incomplete",
+      "why": "the decision identity tuple is incomplete or blank (id=null, hash=null, version=null)"
+     },
+     {
+      "code": "kill_switch_unverified",
+      "why": "the server-side kill switch was not read, so it is unverified and cannot clear this proposal: no pinned artifact retains the server-side kill-switch state"
+     },
+     {
+      "code": "admission_unverified",
+      "why": "decision-pipeline admission was not read, so it is unverified and cannot clear this proposal: no pinned artifact retains decision-pipeline admission state"
+     },
+     {
+      "code": "cap_unverified",
+      "why": "the per-day cap was not read, so it is unverified and cannot clear this proposal: no pinned artifact retains per-day change history, so the cap is unverified"
+     },
+     {
+      "code": "cooldown_unverified",
+      "why": "the cooldown window was not read, so it is unverified and cannot clear this proposal: no pinned artifact retains per-day change history, so the cooldown is unverified"
+     },
+     {
+      "code": "conflict_unverified",
+      "why": "the conflict lock was not read, so it is unverified and cannot clear this proposal: no pinned artifact retains conflict-lock state"
+     },
+     {
+      "code": "provider_preflight_not_readable",
+      "why": "no preflight read was attempted: all three GETs returned evidenceSource=unknown with zero rows; the route resolved a warehouse-readiness branch and never took the live-provider fallback, so no provider preflight projection exists"
+     },
+     {
+      "code": "unit_confidence_not_exact",
+      "why": "unitConfidence is unknown; only exact may support a proposal"
+     },
+     {
+      "code": "write_safety_step_missing",
+      "why": "write-safety steps not satisfied: exact_role_and_posture, fresh_provider_or_current_state_read, parent_hierarchy_and_policy, server_side_kill_switch, persisted_preflight, preflight_age_and_no_provider_contact_disclosure, typed_or_explicit_confirmation, durable_idempotency_claim, at_most_one_provider_post, immutable_attempt_receipt, independent_provider_readback, exact_identity_and_state_verification, durable_terminal_receipt_or_reconciliation_marker, rollback_or_compensation_record"
+     },
+     {
+      "code": "intent_not_validated",
+      "why": "no canonical D081 intent could be derived: current_value_missing, currency_exponent_unknown"
+     },
+     {
+      "code": "no_provider_write_path_exists",
+      "why": "MutationAction is pause|resume|bid|duplicate and MUTATION_ENDPOINTS has no budget action at any grain, so no provider write path exists for a budget proposal (source: lib/zero-base/meta/dispatch-contract.MUTATION_ENDPOINTS)"
+     }
+    ],
+    "wouldWriteAvailable": false,
+    "preflightOutcome": "not_attempted",
+    "readbackClassification": "not_attempted",
+    "inputFingerprint": "meta.budget-proposal-dry-run.v16:ebced6504613cf19ec8f94e094896ebc4985c0209b960f309e838c48616269db",
+    "cellHash": "f22f493600d4c3326d46d452905abc1a3a7ee3d4f0517c298ee88319bf6d3790"
+   },
+   {
+    "business": "IwaStore",
+    "businessId": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+    "providerAccountId": "act_1087566732415606",
+    "accountSelected": true,
+    "direction": "increase",
+    "canonicalAction": "scale",
+    "candidateEntityOriginEvaluations": 1206,
+    "status": "blocked",
+    "blockers": [
+     "no_concrete_entity_selected",
+     "budget_fact_unavailable",
+     "current_value_unknown",
+     "currency_exponent_unknown",
+     "owner_mode_unknown",
+     "role_context_unresolved",
+     "commercial_profile_unavailable",
+     "evidence_floor_unmet",
+     "change_safety_not_clear",
+     "decision_absent",
+     "decision_identity_incomplete",
+     "kill_switch_unverified",
+     "admission_unverified",
+     "cap_unverified",
+     "cooldown_unverified",
+     "conflict_unverified",
+     "provider_preflight_not_readable",
+     "unit_confidence_not_exact",
+     "write_safety_step_missing",
+     "intent_not_validated",
+     "no_provider_write_path_exists"
+    ],
+    "blockerDetail": [
+     {
+      "code": "no_concrete_entity_selected",
+      "why": "no concrete campaign or ad set is selected, so there is no entity to write to"
+     },
+     {
+      "code": "budget_fact_unavailable",
+      "why": "no canonical budget fact: D083's readiness funnel ends at 0 intent-ready: every one of the 32,859 pairs that survived scope, hierarchy, ownership and schedule was eliminated on currency_exponent_not_captured"
+     },
+     {
+      "code": "current_value_unknown",
+      "why": "the current provider-unit budget value is not retained, so no delta can be computed"
+     },
+     {
+      "code": "currency_exponent_unknown",
+      "why": "the account currency minor-unit exponent is not established, so a raw value would be off by an uncaptured power of ten"
+     },
+     {
+      "code": "owner_mode_unknown",
+      "why": "the budget owner mode is unknown, so which entity actually owns the budget is undetermined"
+     },
+     {
+      "code": "role_context_unresolved",
+      "why": "automatic role context is unresolved: D081 proved automatic role authority has no retained qualifying rows; unresolved stays unresolved"
+     },
+     {
+      "code": "commercial_profile_unavailable",
+      "why": "canonical profile source is output_not_retained, so no commercial eligibility may be stated"
+     },
+     {
+      "code": "evidence_floor_unmet",
+      "why": "evidence floors are not clear: canonical_profile_output_not_retained"
+     },
+     {
+      "code": "change_safety_not_clear",
+      "why": "change-safety controls are not_determinable for this proposal, so they cannot be called clear"
+     },
+     {
+      "code": "decision_absent",
+      "why": "no decision timestamp is available, so decision freshness cannot be established"
+     },
+     {
+      "code": "decision_identity_incomplete",
+      "why": "the decision identity tuple is incomplete or blank (id=null, hash=null, version=null)"
+     },
+     {
+      "code": "kill_switch_unverified",
+      "why": "the server-side kill switch was not read, so it is unverified and cannot clear this proposal: no pinned artifact retains the server-side kill-switch state"
+     },
+     {
+      "code": "admission_unverified",
+      "why": "decision-pipeline admission was not read, so it is unverified and cannot clear this proposal: no pinned artifact retains decision-pipeline admission state"
+     },
+     {
+      "code": "cap_unverified",
+      "why": "the per-day cap was not read, so it is unverified and cannot clear this proposal: no pinned artifact retains per-day change history, so the cap is unverified"
+     },
+     {
+      "code": "cooldown_unverified",
+      "why": "the cooldown window was not read, so it is unverified and cannot clear this proposal: no pinned artifact retains per-day change history, so the cooldown is unverified"
+     },
+     {
+      "code": "conflict_unverified",
+      "why": "the conflict lock was not read, so it is unverified and cannot clear this proposal: no pinned artifact retains conflict-lock state"
+     },
+     {
+      "code": "provider_preflight_not_readable",
+      "why": "no preflight read was attempted: all three GETs returned evidenceSource=unknown with zero rows; the route resolved a warehouse-readiness branch and never took the live-provider fallback, so no provider preflight projection exists"
+     },
+     {
+      "code": "unit_confidence_not_exact",
+      "why": "unitConfidence is unknown; only exact may support a proposal"
+     },
+     {
+      "code": "write_safety_step_missing",
+      "why": "write-safety steps not satisfied: exact_role_and_posture, fresh_provider_or_current_state_read, parent_hierarchy_and_policy, server_side_kill_switch, persisted_preflight, preflight_age_and_no_provider_contact_disclosure, typed_or_explicit_confirmation, durable_idempotency_claim, at_most_one_provider_post, immutable_attempt_receipt, independent_provider_readback, exact_identity_and_state_verification, durable_terminal_receipt_or_reconciliation_marker, rollback_or_compensation_record"
+     },
+     {
+      "code": "intent_not_validated",
+      "why": "no canonical D081 intent could be derived: current_value_missing, currency_exponent_unknown"
+     },
+     {
+      "code": "no_provider_write_path_exists",
+      "why": "MutationAction is pause|resume|bid|duplicate and MUTATION_ENDPOINTS has no budget action at any grain, so no provider write path exists for a budget proposal (source: lib/zero-base/meta/dispatch-contract.MUTATION_ENDPOINTS)"
+     }
+    ],
+    "wouldWriteAvailable": false,
+    "preflightOutcome": "not_attempted",
+    "readbackClassification": "not_attempted",
+    "inputFingerprint": "meta.budget-proposal-dry-run.v16:23c2144b124eb57792575ca85d807957b7e97ff3712c341c249dea7e8f5e51f3",
+    "cellHash": "40c559975d33bfd278480f4b73c6577e683cb549137eec7526cb002b7780afcd"
+   }
+  ],
+  "funnel": [
+   {
+    "stage": "0 - binding x direction cells",
+    "survivors": 14,
+    "eliminated": 0,
+    "gate": null
+   },
+   {
+    "stage": "1 - account is write scope",
+    "survivors": 12,
+    "eliminated": 2,
+    "gate": "account_not_write_scope"
+   },
+   {
+    "stage": "2 - a concrete entity is selected",
+    "survivors": 0,
+    "eliminated": 12,
+    "gate": "no_concrete_entity_selected"
+   },
+   {
+    "stage": "3 - canonical budget fact available",
+    "survivors": 0,
+    "eliminated": 0,
+    "gate": "budget_fact_unavailable"
+   },
+   {
+    "stage": "4 - currency exponent captured",
+    "survivors": 0,
+    "eliminated": 0,
+    "gate": "currency_exponent_unknown"
+   },
+   {
+    "stage": "5 - commercial authority resolved",
+    "survivors": 0,
+    "eliminated": 0,
+    "gate": "commercial_profile_unavailable"
+   },
+   {
+    "stage": "6 - provider preflight readable",
+    "survivors": 0,
+    "eliminated": 0,
+    "gate": "provider_preflight_not_readable"
+   },
+   {
+    "stage": "would-write available",
+    "survivors": 0,
+    "eliminated": 0,
+    "gate": "no_provider_write_path_exists"
+   }
+  ],
+  "blockerCensus": [
+   {
+    "code": "no_concrete_entity_selected",
+    "cells": 14,
+    "entityOriginDirectionEvaluations": 33774
+   },
+   {
+    "code": "account_not_write_scope",
+    "cells": 2,
+    "entityOriginDirectionEvaluations": 756
+   },
+   {
+    "code": "budget_fact_unavailable",
+    "cells": 14,
+    "entityOriginDirectionEvaluations": 33774
+   },
+   {
+    "code": "current_value_unknown",
+    "cells": 14,
+    "entityOriginDirectionEvaluations": 33774
+   },
+   {
+    "code": "currency_exponent_unknown",
+    "cells": 14,
+    "entityOriginDirectionEvaluations": 33774
+   },
+   {
+    "code": "owner_mode_unknown",
+    "cells": 14,
+    "entityOriginDirectionEvaluations": 33774
+   },
+   {
+    "code": "role_context_unresolved",
+    "cells": 14,
+    "entityOriginDirectionEvaluations": 33774
+   },
+   {
+    "code": "commercial_profile_unavailable",
+    "cells": 14,
+    "entityOriginDirectionEvaluations": 33774
+   },
+   {
+    "code": "evidence_floor_unmet",
+    "cells": 14,
+    "entityOriginDirectionEvaluations": 33774
+   },
+   {
+    "code": "change_safety_not_clear",
+    "cells": 14,
+    "entityOriginDirectionEvaluations": 33774
+   },
+   {
+    "code": "decision_absent",
+    "cells": 14,
+    "entityOriginDirectionEvaluations": 33774
+   },
+   {
+    "code": "decision_identity_incomplete",
+    "cells": 14,
+    "entityOriginDirectionEvaluations": 33774
+   },
+   {
+    "code": "kill_switch_unverified",
+    "cells": 14,
+    "entityOriginDirectionEvaluations": 33774
+   },
+   {
+    "code": "admission_unverified",
+    "cells": 14,
+    "entityOriginDirectionEvaluations": 33774
+   },
+   {
+    "code": "cap_unverified",
+    "cells": 14,
+    "entityOriginDirectionEvaluations": 33774
+   },
+   {
+    "code": "cooldown_unverified",
+    "cells": 14,
+    "entityOriginDirectionEvaluations": 33774
+   },
+   {
+    "code": "conflict_unverified",
+    "cells": 14,
+    "entityOriginDirectionEvaluations": 33774
+   },
+   {
+    "code": "provider_preflight_not_readable",
+    "cells": 14,
+    "entityOriginDirectionEvaluations": 33774
+   },
+   {
+    "code": "unit_confidence_not_exact",
+    "cells": 14,
+    "entityOriginDirectionEvaluations": 33774
+   },
+   {
+    "code": "write_safety_step_missing",
+    "cells": 14,
+    "entityOriginDirectionEvaluations": 33774
+   },
+   {
+    "code": "intent_not_validated",
+    "cells": 14,
+    "entityOriginDirectionEvaluations": 33774
+   },
+   {
+    "code": "no_provider_write_path_exists",
+    "cells": 14,
+    "entityOriginDirectionEvaluations": 33774
+   }
+  ],
+  "perBusiness": [
+   {
+    "business": "TheSwaf",
+    "businessId": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+    "cells": 4,
+    "blockedCells": 4,
+    "wouldWriteCells": 0,
+    "candidateEntityOriginEvaluations": 3656,
+    "blockers": [
+     "no_concrete_entity_selected",
+     "account_not_write_scope",
+     "budget_fact_unavailable",
+     "current_value_unknown",
+     "currency_exponent_unknown",
+     "owner_mode_unknown",
+     "role_context_unresolved",
+     "commercial_profile_unavailable",
+     "evidence_floor_unmet",
+     "change_safety_not_clear",
+     "decision_absent",
+     "decision_identity_incomplete",
+     "kill_switch_unverified",
+     "admission_unverified",
+     "cap_unverified",
+     "cooldown_unverified",
+     "conflict_unverified",
+     "provider_preflight_not_readable",
+     "unit_confidence_not_exact",
+     "write_safety_step_missing",
+     "intent_not_validated",
+     "no_provider_write_path_exists"
+    ]
+   },
+   {
+    "business": "Grandmix",
+    "businessId": "5dbc7147-f051-4681-a4d6-20617170074f",
+    "cells": 2,
+    "blockedCells": 2,
+    "wouldWriteCells": 0,
+    "candidateEntityOriginEvaluations": 17220,
+    "blockers": [
+     "no_concrete_entity_selected",
+     "budget_fact_unavailable",
+     "current_value_unknown",
+     "currency_exponent_unknown",
+     "owner_mode_unknown",
+     "role_context_unresolved",
+     "commercial_profile_unavailable",
+     "evidence_floor_unmet",
+     "change_safety_not_clear",
+     "decision_absent",
+     "decision_identity_incomplete",
+     "kill_switch_unverified",
+     "admission_unverified",
+     "cap_unverified",
+     "cooldown_unverified",
+     "conflict_unverified",
+     "provider_preflight_not_readable",
+     "unit_confidence_not_exact",
+     "write_safety_step_missing",
+     "intent_not_validated",
+     "no_provider_write_path_exists"
+    ]
+   },
+   {
+    "business": "Bilsem Zeka",
+    "businessId": "6c690fa4-6395-40b5-9755-e99b34d69bc3",
+    "cells": 2,
+    "blockedCells": 2,
+    "wouldWriteCells": 0,
+    "candidateEntityOriginEvaluations": 8962,
+    "blockers": [
+     "no_concrete_entity_selected",
+     "budget_fact_unavailable",
+     "current_value_unknown",
+     "currency_exponent_unknown",
+     "owner_mode_unknown",
+     "role_context_unresolved",
+     "commercial_profile_unavailable",
+     "evidence_floor_unmet",
+     "change_safety_not_clear",
+     "decision_absent",
+     "decision_identity_incomplete",
+     "kill_switch_unverified",
+     "admission_unverified",
+     "cap_unverified",
+     "cooldown_unverified",
+     "conflict_unverified",
+     "provider_preflight_not_readable",
+     "unit_confidence_not_exact",
+     "write_safety_step_missing",
+     "intent_not_validated",
+     "no_provider_write_path_exists"
+    ]
+   },
+   {
+    "business": "IwaTR",
+    "businessId": "b79683b4-6f87-48c0-a3ca-44d4356fef51",
+    "cells": 2,
+    "blockedCells": 2,
+    "wouldWriteCells": 0,
+    "candidateEntityOriginEvaluations": 430,
+    "blockers": [
+     "no_concrete_entity_selected",
+     "budget_fact_unavailable",
+     "current_value_unknown",
+     "currency_exponent_unknown",
+     "owner_mode_unknown",
+     "role_context_unresolved",
+     "commercial_profile_unavailable",
+     "evidence_floor_unmet",
+     "change_safety_not_clear",
+     "decision_absent",
+     "decision_identity_incomplete",
+     "kill_switch_unverified",
+     "admission_unverified",
+     "cap_unverified",
+     "cooldown_unverified",
+     "conflict_unverified",
+     "provider_preflight_not_readable",
+     "unit_confidence_not_exact",
+     "write_safety_step_missing",
+     "intent_not_validated",
+     "no_provider_write_path_exists"
+    ]
+   },
+   {
+    "business": "ColorFullWorldsTR",
+    "businessId": "bc0c6178-7853-4f6f-b026-ef0222a4b9e7",
+    "cells": 2,
+    "blockedCells": 2,
+    "wouldWriteCells": 0,
+    "candidateEntityOriginEvaluations": 1094,
+    "blockers": [
+     "no_concrete_entity_selected",
+     "budget_fact_unavailable",
+     "current_value_unknown",
+     "currency_exponent_unknown",
+     "owner_mode_unknown",
+     "role_context_unresolved",
+     "commercial_profile_unavailable",
+     "evidence_floor_unmet",
+     "change_safety_not_clear",
+     "decision_absent",
+     "decision_identity_incomplete",
+     "kill_switch_unverified",
+     "admission_unverified",
+     "cap_unverified",
+     "cooldown_unverified",
+     "conflict_unverified",
+     "provider_preflight_not_readable",
+     "unit_confidence_not_exact",
+     "write_safety_step_missing",
+     "intent_not_validated",
+     "no_provider_write_path_exists"
+    ]
+   },
+   {
+    "business": "IwaStore",
+    "businessId": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+    "cells": 2,
+    "blockedCells": 2,
+    "wouldWriteCells": 0,
+    "candidateEntityOriginEvaluations": 2412,
+    "blockers": [
+     "no_concrete_entity_selected",
+     "budget_fact_unavailable",
+     "current_value_unknown",
+     "currency_exponent_unknown",
+     "owner_mode_unknown",
+     "role_context_unresolved",
+     "commercial_profile_unavailable",
+     "evidence_floor_unmet",
+     "change_safety_not_clear",
+     "decision_absent",
+     "decision_identity_incomplete",
+     "kill_switch_unverified",
+     "admission_unverified",
+     "cap_unverified",
+     "cooldown_unverified",
+     "conflict_unverified",
+     "provider_preflight_not_readable",
+     "unit_confidence_not_exact",
+     "write_safety_step_missing",
+     "intent_not_validated",
+     "no_provider_write_path_exists"
+    ]
+   }
+  ],
+  "perAccount": [
+   {
+    "providerAccountId": "act_1087566732415606",
+    "business": "IwaStore",
+    "accountSelected": true,
+    "cells": 2,
+    "blockedCells": 2,
+    "wouldWriteCells": 0,
+    "candidateEntityOriginEvaluations": 2412
+   },
+   {
+    "providerAccountId": "act_2335220976649516",
+    "business": "IwaTR",
+    "accountSelected": true,
+    "cells": 2,
+    "blockedCells": 2,
+    "wouldWriteCells": 0,
+    "candidateEntityOriginEvaluations": 430
+   },
+   {
+    "providerAccountId": "act_3554615364751964",
+    "business": "ColorFullWorldsTR",
+    "accountSelected": true,
+    "cells": 2,
+    "blockedCells": 2,
+    "wouldWriteCells": 0,
+    "candidateEntityOriginEvaluations": 1094
+   },
+   {
+    "providerAccountId": "act_805150454596350",
+    "business": "Grandmix",
+    "accountSelected": true,
+    "cells": 2,
+    "blockedCells": 2,
+    "wouldWriteCells": 0,
+    "candidateEntityOriginEvaluations": 17220
+   },
+   {
+    "providerAccountId": "act_822913786458311",
+    "business": "TheSwaf",
+    "accountSelected": true,
+    "cells": 2,
+    "blockedCells": 2,
+    "wouldWriteCells": 0,
+    "candidateEntityOriginEvaluations": 2900
+   },
+   {
+    "providerAccountId": "act_840779107261785",
+    "business": "Bilsem Zeka",
+    "accountSelected": true,
+    "cells": 2,
+    "blockedCells": 2,
+    "wouldWriteCells": 0,
+    "candidateEntityOriginEvaluations": 8962
+   },
+   {
+    "providerAccountId": "act_921275999286619",
+    "business": "TheSwaf",
+    "accountSelected": false,
+    "cells": 2,
+    "blockedCells": 2,
+    "wouldWriteCells": 0,
+    "candidateEntityOriginEvaluations": 756
+   }
+  ],
+  "perDirection": [
+   {
+    "direction": "increase",
+    "canonicalAction": "scale",
+    "cells": 7,
+    "blockedCells": 7,
+    "wouldWriteCells": 0
+   },
+   {
+    "direction": "decrease",
+    "canonicalAction": "cut",
+    "cells": 7,
+    "blockedCells": 7,
+    "wouldWriteCells": 0
+   }
+  ],
+  "writeSafetyCensus": [
+   {
+    "step": "exact_business_access",
+    "satisfied": 14,
+    "missing": 0,
+    "notApplicable": 0
+   },
+   {
+    "step": "exact_physical_provider_account",
+    "satisfied": 14,
+    "missing": 0,
+    "notApplicable": 0
+   },
+   {
+    "step": "exact_role_and_posture",
+    "satisfied": 0,
+    "missing": 14,
+    "notApplicable": 0
+   },
+   {
+    "step": "explicit_action_origin",
+    "satisfied": 14,
+    "missing": 0,
+    "notApplicable": 0
+   },
+   {
+    "step": "exact_target_identity",
+    "satisfied": 14,
+    "missing": 0,
+    "notApplicable": 0
+   },
+   {
+    "step": "fresh_provider_or_current_state_read",
+    "satisfied": 0,
+    "missing": 14,
+    "notApplicable": 0
+   },
+   {
+    "step": "parent_hierarchy_and_policy",
+    "satisfied": 0,
+    "missing": 14,
+    "notApplicable": 0
+   },
+   {
+    "step": "server_side_kill_switch",
+    "satisfied": 0,
+    "missing": 14,
+    "notApplicable": 0
+   },
+   {
+    "step": "persisted_preflight",
+    "satisfied": 0,
+    "missing": 14,
+    "notApplicable": 0
+   },
+   {
+    "step": "preflight_age_and_no_provider_contact_disclosure",
+    "satisfied": 0,
+    "missing": 14,
+    "notApplicable": 0
+   },
+   {
+    "step": "typed_or_explicit_confirmation",
+    "satisfied": 0,
+    "missing": 14,
+    "notApplicable": 0
+   },
+   {
+    "step": "durable_idempotency_claim",
+    "satisfied": 0,
+    "missing": 14,
+    "notApplicable": 0
+   },
+   {
+    "step": "at_most_one_provider_post",
+    "satisfied": 0,
+    "missing": 14,
+    "notApplicable": 0
+   },
+   {
+    "step": "immutable_attempt_receipt",
+    "satisfied": 0,
+    "missing": 14,
+    "notApplicable": 0
+   },
+   {
+    "step": "independent_provider_readback",
+    "satisfied": 0,
+    "missing": 14,
+    "notApplicable": 0
+   },
+   {
+    "step": "exact_identity_and_state_verification",
+    "satisfied": 0,
+    "missing": 14,
+    "notApplicable": 0
+   },
+   {
+    "step": "durable_terminal_receipt_or_reconciliation_marker",
+    "satisfied": 0,
+    "missing": 14,
+    "notApplicable": 0
+   },
+   {
+    "step": "rollback_or_compensation_record",
+    "satisfied": 0,
+    "missing": 14,
+    "notApplicable": 0
+   }
+  ],
+  "providerPreflight": {
+   "localRouteProbes": {
+    "attempted": 3,
+    "succeeded": 3,
+    "failed": 0,
+    "methods": [
+     "GET"
+    ],
+    "statuses": [
+     200,
+     200,
+     200
+    ]
+   },
+   "providerContacts": {
+    "attempted": 0,
+    "succeeded": 0,
+    "failed": 0,
+    "notAttempted": 7
+   },
+   "readbackAttempts": {
+    "attempted": 0,
+    "classification": "not_attempted"
+   },
+   "perBinding": [
+    {
+     "business": "IwaStore",
+     "providerAccountId": "act_1087566732415606",
+     "outcome": "not_attempted",
+     "why": "three bounded GET probes were issued for this binding; all three GETs returned evidenceSource=unknown with zero rows; the route resolved a warehouse-readiness branch and never took the live-provider fallback, so no provider preflight projection exists"
+    },
+    {
+     "business": "Grandmix",
+     "providerAccountId": "act_805150454596350",
+     "outcome": "not_attempted",
+     "why": "no bounded GET probe was issued for this binding"
+    },
+    {
+     "business": "Bilsem Zeka",
+     "providerAccountId": "act_840779107261785",
+     "outcome": "not_attempted",
+     "why": "no bounded GET probe was issued for this binding"
+    },
+    {
+     "business": "TheSwaf",
+     "providerAccountId": "act_822913786458311",
+     "outcome": "not_attempted",
+     "why": "no bounded GET probe was issued for this binding"
+    },
+    {
+     "business": "TheSwaf",
+     "providerAccountId": "act_921275999286619",
+     "outcome": "not_attempted",
+     "why": "no bounded GET probe was issued for this binding"
+    },
+    {
+     "business": "IwaTR",
+     "providerAccountId": "act_2335220976649516",
+     "outcome": "not_attempted",
+     "why": "no bounded GET probe was issued for this binding"
+    },
+    {
+     "business": "ColorFullWorldsTR",
+     "providerAccountId": "act_3554615364751964",
+     "outcome": "not_attempted",
+     "why": "no bounded GET probe was issued for this binding"
+    }
+   ],
+   "semantics": "a LOCAL route probe is an app GET and is never provider contact; a provider contact is a request that actually reached Meta; a read-back attempt exists only after a write. All three are counted separately and none substitutes for another.",
+   "note": "3 bounded LOCAL route GET probes to /api/meta/adsets (all HTTP 200, zero mutating requests). Meta provider contact was ZERO: the route resolved a warehouse-readiness branch before the live fallback. A local route probe is not a provider read."
+  },
+  "readback": {
+   "classification": "not_attempted",
+   "everyCellNotAttempted": true,
+   "why": "D085 dispatches no provider mutation, so no post-write read-back exists. A preflight GET or an unchanged no-write GET is preflight evidence and is never relabelled as write success."
+  },
+  "exposure": {
+   "basis": "nominal_proposed_only",
+   "unit": "raw_provider_minor_units",
+   "spendMoved": null,
+   "revenueMoved": null,
+   "roasLift": null,
+   "profitLift": null,
+   "optimalPercent": null,
+   "proposedExposureByAccount": [
+    {
+     "providerAccountId": "act_1087566732415606",
+     "currency": "USD",
+     "proposedMinorUnits": null,
+     "why": "no proposal reached a would-write request, and the minor-unit exponent was never captured, so no authoritative raw exposure may be published"
+    },
+    {
+     "providerAccountId": "act_805150454596350",
+     "currency": "USD",
+     "proposedMinorUnits": null,
+     "why": "no proposal reached a would-write request, and the minor-unit exponent was never captured, so no authoritative raw exposure may be published"
+    },
+    {
+     "providerAccountId": "act_840779107261785",
+     "currency": "TRY",
+     "proposedMinorUnits": null,
+     "why": "no proposal reached a would-write request, and the minor-unit exponent was never captured, so no authoritative raw exposure may be published"
+    },
+    {
+     "providerAccountId": "act_822913786458311",
+     "currency": "USD",
+     "proposedMinorUnits": null,
+     "why": "no proposal reached a would-write request, and the minor-unit exponent was never captured, so no authoritative raw exposure may be published"
+    },
+    {
+     "providerAccountId": "act_921275999286619",
+     "currency": "USD",
+     "proposedMinorUnits": null,
+     "why": "no proposal reached a would-write request, and the minor-unit exponent was never captured, so no authoritative raw exposure may be published"
+    },
+    {
+     "providerAccountId": "act_2335220976649516",
+     "currency": "USD",
+     "proposedMinorUnits": null,
+     "why": "no proposal reached a would-write request, and the minor-unit exponent was never captured, so no authoritative raw exposure may be published"
+    },
+    {
+     "providerAccountId": "act_3554615364751964",
+     "currency": "USD",
+     "proposedMinorUnits": null,
+     "why": "no proposal reached a would-write request, and the minor-unit exponent was never captured, so no authoritative raw exposure may be published"
+    }
+   ],
+   "note": "No proposal was executed, queued, served or approved. No causal ROAS, revenue or profit lift and no optimal percent is supportable: D084 proves 14-23 possible economic actions with no randomised assignment."
+  },
+  "reconciliation": {
+   "bindings": 7,
+   "directions": 2,
+   "expectedCells": 14,
+   "observedCells": 14,
+   "cellsBalanced": true,
+   "blockedPlusWouldWriteEqualsCells": true,
+   "uniqueEntityOriginObservations": 16887,
+   "uniqueEntityOriginObservationsFromBindings": 16887,
+   "uniqueObservationsBalanced": true,
+   "entityOriginDirectionEvaluations": 33774,
+   "entityOriginDirectionEvaluationsFromBindings": 33774,
+   "evaluationsBalanced": true,
+   "denominatorSemantics": "uniqueEntityOriginObservations counts each binding-level entity-origin observation ONCE; entityOriginDirectionEvaluations counts one evaluation per observation per direction. The second is the first multiplied by the direction count and is never a unique-pair denominator."
+  },
+  "limits": [
+   "Every fact is read from a pinned artifact; D085 opened no database transaction and issued no provider write.",
+   "The pinned artifacts do not retain live kill-switch, admission, cap, cooldown or conflict state. Those flags are recorded UNKNOWN, not false: unknown is not clear, so every replay cell carries the corresponding *_unverified blocker. The earlier wording here said they were recorded false 'so that no blocker is inflated', which contradicted the implementation and understated the published blocker set.",
+   "A fleet replay selects no single concrete entity, so `no_concrete_entity_selected` is expected and correct for every cell; a per-entity dry run is the surface path, not the replay path.",
+   "D083's seven additive budget-fact columns are not applied in production and no admitted sync has accrued schedule/exponent/API provenance. D085 does not apply that migration."
+  ],
+  "residualBlockers": [
+   {
+    "blocker": "no_provider_write_path_exists",
+    "evidence": "MutationAction is pause|resume|bid|duplicate and MUTATION_ENDPOINTS has no budget action at any grain",
+    "consequence": "no budget proposal can be dispatched from this codebase, whatever its evidence",
+    "closes": "a budget endpoint, its dispatch verb, and the full write-safety ceremony are added under a separate approved slice"
+   },
+   {
+    "blocker": "currency_exponent_not_captured",
+    "evidence": "D083 stage 6 eliminates all 32,859 surviving entity-origin pairs",
+    "consequence": "no authoritative raw provider-unit value or delta may be published for any binding",
+    "closes": "D083's additive exponent capture is applied and an admitted sync accrues it"
+   },
+   {
+    "blocker": "canonical_profile_output_not_retained",
+    "evidence": "all 18 business-action pairs are not_determinable in D084 r6",
+    "consequence": "no commercial eligibility may be stated in either direction",
+    "closes": "a byte-inspectable production resolver result over fully frozen inputs is captured"
+   },
+   {
+    "blocker": "automatic_role_authority_absent",
+    "evidence": "D081 found no retained qualifying rows for automatic role authority",
+    "consequence": "role context stays unresolved and no role-scoped proposal may be raised",
+    "closes": "qualifying role-provenance rows accrue under the existing automatic resolver"
+   }
+  ]
+ },
+ "snapshotHash": "08f40b473623343a54b50c1cbf1656ff0470a1292022b73848899fde9ed7cfe8",
+ "analysisHash": "2dc6789625ec68e61c29da977dfe4a83926501e5a71442ef7615aa06391bb469",
+ "rejectedLineage": [
+  {
+   "contract": "d085.budget-proposal-dry-run.v1",
+   "fileSha256": "4f728bef6c91ac5345d4f3b7c44c262c647f734d2c12547cef7dc4343bf4d18c",
+   "status": "rejected"
+  },
+  {
+   "contract": "d085.budget-proposal-dry-run.v2",
+   "fileSha256": "0495c156fcc2cf84eacf6c1a93b0efd7ac5fda2bcaed1159c5696181732af86d",
+   "status": "rejected"
+  },
+  {
+   "contract": "d085.budget-proposal-dry-run.v3",
+   "fileSha256": "2848f8423b1875ddc2ab9d6910ce64172e2a29fc1478b53cb4246b50c45a4220",
+   "status": "rejected"
+  },
+  {
+   "contract": "d085.budget-proposal-dry-run.v4",
+   "fileSha256": "992f0a599a6ddf41131511023b20112973fd502a9c2db8acffa13d1035b65dc9",
+   "status": "rejected"
+  },
+  {
+   "contract": "d085.budget-proposal-dry-run.v5",
+   "fileSha256": "a55a091ac3cb157b5389bbc65e418129cb54fffe800d41ded0e3902da2c6799f",
+   "status": "rejected"
+  },
+  {
+   "contract": "d085.budget-proposal-dry-run.v6",
+   "fileSha256": "6771eb63574ba8d410809c62fc54394d93606622c2153adbf5e30d4abd311d32",
+   "status": "rejected"
+  },
+  {
+   "contract": "d085.budget-proposal-dry-run.v7",
+   "fileSha256": "b9e65b3d885fe2eb852c6ad2ed181a420cf66c2a6a33b29cab543ab7dd592c02",
+   "status": "rejected"
+  },
+  {
+   "contract": "d085.budget-proposal-dry-run.v8",
+   "fileSha256": "6652bc4b599f3281ae1f4fde63a8584f23835ad2fce09208908ae2c59d98e260",
+   "status": "rejected"
+  },
+  {
+   "contract": "d085.budget-proposal-dry-run.v9",
+   "fileSha256": "3442f8c5ff506ee036ac549317702c6f7ff7c3f68a19abbfc94b4d77aae1565a",
+   "status": "rejected"
+  },
+  {
+   "contract": "d085.budget-proposal-dry-run.v10",
+   "fileSha256": "3c73cc02866f1b39b3deacfc46bb2b669bb34f4d6ab93109b71c886825342185",
+   "status": "rejected"
+  },
+  {
+   "contract": "d085.budget-proposal-dry-run.v11",
+   "fileSha256": "245dcfac0ef48eae9e9962774edbabce3c8fb0567805646f0a99d0de6f025d00",
+   "status": "rejected"
+  },
+  {
+   "contract": "d085.budget-proposal-dry-run.v12",
+   "fileSha256": "7c992a40267142d959d1ee0786e7d15cf6414a685a5d2a76f236883da249070d",
+   "status": "rejected"
+  },
+  {
+   "contract": "d085.budget-proposal-dry-run.v13",
+   "fileSha256": "150277bab191a92ea68a82bf6cb258cbc8d87b9e116947679c5d1864365342cc",
+   "status": "rejected"
+  },
+  {
+   "contract": "d085.budget-proposal-dry-run.v14",
+   "fileSha256": "4ae8676b7a65bab4306e4960625c5c075a137c9dd91bd7363069fa0b5f1625dd",
+   "status": "rejected"
+  },
+  {
+   "contract": "d085.budget-proposal-dry-run.v15",
+   "fileSha256": "26523fcb7ab1ec09a469b6ec6777f2c93c1068033348745c456af85c6aee0862",
+   "status": "rejected"
+  }
+ ],
+ "receiptLineage": {
+  "current": "meta.budget-preview-receipt.v12",
+  "rejected": [
+   "meta.budget-preview-receipt.v1",
+   "meta.budget-preview-receipt.v2",
+   "meta.budget-preview-receipt.v3",
+   "meta.budget-preview-receipt.v4",
+   "meta.budget-preview-receipt.v5",
+   "meta.budget-preview-receipt.v6",
+   "meta.budget-preview-receipt.v7",
+   "meta.budget-preview-receipt.v8",
+   "meta.budget-preview-receipt.v9",
+   "meta.budget-preview-receipt.v10",
+   "meta.budget-preview-receipt.v11"
+  ],
+  "migration": "A receipt carrying any earlier contract identifier is reported UNVERIFIABLE. Stricter semantics are never applied retroactively to a receipt issued under an older identifier, and an older receipt is never silently reported false for the wrong reason."
+ },
+ "verificationGuarantee": {
+  "nonRecomputableFields": [
+   {
+    "field": "receipt.inputFingerprint",
+    "reason": "a digest over the whole dry-run input, which the receipt does not carry"
+   },
+   {
+    "field": "receipt.keySeed.intentKeyDigest",
+    "reason": "a digest of the durable intent key. The durable key is deliberately absent so a preview cannot reserve a durable claim, which also means the digest cannot be independently recomputed."
+   },
+   {
+    "field": "receipt.keySeed.idempotencyKeyDigest",
+    "reason": "a digest of the durable idempotency key, absent for the same reason and with the same consequence."
+   },
+   {
+    "field": "request.casPrecondition.fingerprint",
+    "reason": "a digest of a provider projection this code has never read. Only its namespace/form and its equality with the receipt's own casBaselineFingerprint are checked; no underlying projection exists to recompute it from."
+   },
+   {
+    "field": "receipt.casBaselineFingerprint",
+    "reason": "the same attested provider-projection digest, seen from the receipt side. Equality between the two published values is receipt-internal agreement, not agreement with a provider baseline."
+   },
+   {
+    "field": "receipt.readbackFingerprint",
+    "reason": "a digest of the projection an independent post-write read would have to reproduce. No such read has occurred and no projection is carried, so any other valid meta.provider-readback.v4 digest is indistinguishable locally."
+   }
+  ],
+  "establishes": [
+   "exact schema: every map is exactly its canonical keys and every collection element is typed",
+   "literal dry-run invariants: no provider attempt, no outcome, no read-back, non-durable, validated_only, CTA disabled, every redaction flag false, a system actor with no human approval, preview-namespaced keys",
+   "cross-field semantics: request and receipt agree with each other and with the CAS baseline on grain, entity, field, amounts, currency, exponent, rollback and the write-safety partition",
+   "capability permission: the published snapshot actually permits the write, by the same validators the builder used",
+   "deterministic corruption detection: the canonical hash reproduces from the request and receipt",
+   "key derivation RELATIVE TO ATTESTED SEEDS: both preview keys are recomputed from the receipt's published seed digests, fingerprint and scope, so an isolated preview-key substitution is rejected",
+   "exact producing-contract namespaces: CAS and read-back fingerprints must be meta.provider-readback.v4, and the input fingerprint the current D085 contract. This establishes FORM and receipt-internal EQUALITY only — never agreement with a provider projection, which this code has never read",
+   "registry-backed currency: the code resolves through the ISO-4217 registry and the exponent must be the registry's, not merely agreed between the two artefacts",
+   "exact hierarchy per grain: a campaign carries a null parentCampaignId and an ad set a non-empty one; an unrecognised grain rejects",
+   "canonical ORDER on every canonical collection; verification never sorts input into acceptance"
+  ],
+  "doesNotEstablish": [
+   "that receipt.inputFingerprint is the right digest. Its namespace and form are exact, but the receipt carries no material to recompute it from, so a different well-formed value cannot be distinguished locally.",
+   "that any attested fingerprint holds the RIGHT digest. request.casPrecondition.fingerprint, receipt.casBaselineFingerprint and receipt.readbackFingerprint are opaque: a coherent replacement with any other valid meta.provider-readback.v4 digest is accepted, because no provider projection is carried to falsify it.",
+   "that receipt.keySeed holds the RIGHT digests. A coherent substitution — both seed digests replaced and both preview keys recomputed from them — is accepted, because the durable keys that would falsify it are deliberately absent. Detecting it requires a server-held secret or an authoritative durable lookup; D085 has neither and does not claim to.",
+   "authenticity or origin. The hash is an ordinary SHA-256 over the payload, not a signature. An actor who can edit the payload can recompute it, because that actor holds everything the verifier holds.",
+   "that this request/receipt pair describes any particular real proposal. A fully coherent forgery — every mutually consistent field rewritten and re-hashed — is field-for-field a genuine receipt for a different proposal, and cannot be distinguished locally."
+  ],
+  "wouldRequire": "a server-held secret and a signature over the payload, or an authoritative lookup against a durable receipt store. Neither exists while automation is OFF and no durable receipt is ever written."
+ },
+ "providerContactEvidence": {
+  "evidenceClass": "recorded_by_local_process",
+  "assertion": "No Meta provider endpoint was contacted while producing this artifact.",
+  "basis": "The three attempted reads were local Next.js route probes that short-circuited on warehouse readiness before any provider call. The count is recorded by this process and re-derived from that same record by the generator and the verifier.",
+  "limitation": "This is a local recording, not independent evidence. A genuinely independent claim would require a fail-if-called transport sentinel installed at the outbound seam, observed by a party other than the code under test. No such sentinel is installed, so this assertion must be read as recorded-by-this-process."
+ },
+ "pointInTimePolicy": {
+  "version": "meta.point-in-time-policy.v1",
+  "dateOnlyInterpretation": "A value is compared at its own granularity: an instant instant-to-instant, a date-only YYYY-MM-DD value day-to-day in UTC. A date-only value may never name a LATER calendar day than the bound; it carries no time-of-day claim, so no finer comparison is asserted.",
+  "invalidTimestamps": "A non-empty value that cannot be parsed as a strict instant or calendar day BLOCKS. It is never skipped, and non-empty is never treated as valid provenance.",
+  "ordering": "Every clock the proposal rests on must be at or before BOTH the outer origin and the outer knowledge cutoff. Each comparison is made at the coarser of the two granularities: instant-to-instant only when both sides are instants, day-to-day whenever either side is date-only."
+ },
+ "artifactHash": "8b0a1fc69e22d33692ff8b438699b59564fc3e23868ab1f431268601a3764da7"
+}

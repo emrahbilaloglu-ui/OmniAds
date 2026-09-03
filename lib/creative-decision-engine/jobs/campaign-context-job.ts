@@ -2,9 +2,8 @@
 //
 // Computes the daily inferred campaign role (main/test/mixed) per campaign and
 // persists it into engine_v3_campaign_context_daily. Decisions consume this
-// table only when CAMPAIGN_CONTEXT_MODE=automatic; under the default
-// legacy_labels mode this job is shadow data collection with no behavior
-// impact.
+// table as the sole runtime campaign-role source. CAMPAIGN_CONTEXT_MODE=unknown
+// is the only emergency fallback and makes every role review-only.
 import { getDb, runDbTransaction } from "@/lib/db";
 import { ENGINE_VERSION } from "../types";
 import { resolveEngineV3Flags } from "../feature-flags";
@@ -268,23 +267,33 @@ async function readPreviousHysteresis(
 ): Promise<Map<string, HysteresisState>> {
   const rows = await getDb().query<Row>(
     `
-    SELECT DISTINCT ON (campaign_id)
+    SELECT DISTINCT ON (provider_account_id, campaign_id)
+      provider_account_id,
       campaign_id,
       hysteresis_state_json
     FROM engine_v3_campaign_context_daily
     WHERE business_id = $1 AND as_of_date < $2::date
+      AND provider_account_id IS NOT NULL
       AND as_of_date >= ($2::date - INTERVAL '7 days')
-    ORDER BY campaign_id, as_of_date DESC
+    ORDER BY provider_account_id, campaign_id, as_of_date DESC
     `,
     [businessId, asOf],
   );
   const map = new Map<string, HysteresisState>();
   for (const row of rows) {
+    const providerAccountId = toStringOrNull(row.provider_account_id);
     const campaignId = toStringOrNull(row.campaign_id);
-    if (!campaignId) continue;
-    map.set(campaignId, parseHysteresisState(row.hysteresis_state_json));
+    if (!providerAccountId || !campaignId) continue;
+    map.set(
+      contextScopeKey(providerAccountId, campaignId),
+      parseHysteresisState(row.hysteresis_state_json),
+    );
   }
   return map;
+}
+
+function contextScopeKey(providerAccountId: string, campaignId: string) {
+  return `${providerAccountId}\u0000${campaignId}`;
 }
 
 /**
@@ -318,18 +327,31 @@ export function parseHysteresisState(raw: unknown): HysteresisState {
 // exactly the seam that silently broke once.
 export const UPSERT_CONTEXT_QUERY = `
 INSERT INTO engine_v3_campaign_context_daily (
-  business_id, campaign_id, campaign_name, as_of_date,
+  business_id, provider_account_id, campaign_id, campaign_name, as_of_date,
   inferred_kind, confidence_score, confidence_class, kind_source, kind_basis,
   resolver_version, signal_scores_json, evidence_json, conflict_reasons_json,
   hysteresis_state_json, input_freshness_json, job_run_id, updated_at
 )
 VALUES (
-  $1, $2, $3, $4::date,
-  $5, $6, $7, 'system_inferred', $8,
-  $9, $10::jsonb, $11::jsonb, $12::jsonb,
-  $13::jsonb, $14::jsonb, $15::uuid, now()
+  $1, $2, $3, $4, $5::date,
+  $6, $7, $8, 'system_inferred', $9,
+  $10, $11::jsonb, $12::jsonb, $13::jsonb,
+  $14::jsonb, $15::jsonb, $16::uuid, now()
 )
-ON CONFLICT (business_id, campaign_id, as_of_date) DO UPDATE SET
+/*
+  PRE-DEPLOY AUDIT: the conflict target is the LEGACY three-column key, which
+  the migration now keeps rather than drops.
+
+  A partial index cannot be inferred from a bare conflict target, so targeting
+  the account-scoped partial index made this statement the only one that could
+  run — the previous production image, upserting on the three-column key,
+  failed with 42P10 after the migration. Both images now infer the same
+  constraint. provider_account_id is written on the UPDATE path as well, so a
+  legacy row for the same day is completed rather than left account-less.
+*/
+ON CONFLICT (business_id, campaign_id, as_of_date)
+DO UPDATE SET
+  provider_account_id = EXCLUDED.provider_account_id,
   campaign_name = EXCLUDED.campaign_name,
   inferred_kind = EXCLUDED.inferred_kind,
   confidence_score = EXCLUDED.confidence_score,
@@ -444,94 +466,115 @@ export async function runCampaignContextJob(
       await db.query("SAVEPOINT engine_v3_campaign_context_job_work");
       try {
         const rangeStart = addDaysUtc(input.asOf, -(SOURCE_WINDOW_DAYS - 1));
-        const [creativeDays, meta, previousStates] = [
-          await readCampaignContextCreativeDays(
+        const [creativeDays, previousStates] = await Promise.all([
+          readCampaignContextCreativeDays(
             input.businessId,
             rangeStart,
             input.asOf,
           ),
-          await readCampaignContextCampaignMeta(input.businessId, input.asOf),
-          await readPreviousHysteresis(input.businessId, input.asOf),
-        ];
-        const lineage = computeCampaignLineage(creativeDays);
-        const features = buildCampaignContextFeatures({
-          rows: creativeDays,
-          meta,
-          lineage,
-          asOf: input.asOf,
-        });
-
-        const resolutions = new Map<string, ContextResolution>();
-        for (const feature of features) {
-          resolutions.set(
-            feature.campaignId,
-            classifyCampaignContext(feature, DEFAULT_CONTEXT_CONFIG),
-          );
-        }
-        const inheritance = computeFamilyInheritance(
-          [...resolutions.values()].map((resolution) => ({
-            campaignId: resolution.campaignId,
-            familyKey: campaignFamilyKey(resolution.campaignName),
-            kind: resolution.kind,
-            confidenceClass: resolution.confidenceClass,
-          })),
-        );
-        const inheritedById = new Map(
-          inheritance.map((outcome) => [outcome.campaignId, outcome]),
-        );
+          readPreviousHysteresis(input.businessId, input.asOf),
+        ]);
+        const providerAccountIds = [
+          ...new Set(
+            creativeDays
+              .map((row) => row.providerAccountId?.trim() ?? "")
+              .filter(Boolean),
+          ),
+        ].sort();
 
         let rowsWritten = 0;
-        for (const feature of features) {
-          const resolution = resolutions.get(feature.campaignId)!;
-          const inherited = inheritedById.get(feature.campaignId) ?? null;
-          const effectiveKind = inherited
-            ? inherited.inheritedKind
-            : resolution.kind;
-          const effectiveClass: ContextConfidenceClass = inherited
-            ? "medium"
-            : resolution.confidenceClass;
-          const kindBasis = inherited ? "family_inheritance" : "behavioral";
-          const evidence = inherited
-            ? [
-                ...resolution.evidence,
-                `family_prefix_inheritance basis=${inherited.basisMembers} members`,
-              ]
-            : resolution.evidence;
+        for (const providerAccountId of providerAccountIds) {
+          const accountCreativeDays = creativeDays.filter(
+            (row) => row.providerAccountId === providerAccountId,
+          );
+          const meta = await readCampaignContextCampaignMeta(
+            input.businessId,
+            input.asOf,
+            providerAccountId,
+          );
+          const lineage = computeCampaignLineage(accountCreativeDays);
+          const features = buildCampaignContextFeatures({
+            rows: accountCreativeDays,
+            meta,
+            lineage,
+            asOf: input.asOf,
+          });
 
-          const hysteresis = applyDailyHysteresis(
-            previousStates.get(feature.campaignId) ?? null,
-            effectiveKind,
-            effectiveClass,
+          const resolutions = new Map<string, ContextResolution>();
+          for (const feature of features) {
+            resolutions.set(
+              feature.campaignId,
+              classifyCampaignContext(feature, DEFAULT_CONTEXT_CONFIG),
+            );
+          }
+          const inheritance = computeFamilyInheritance(
+            [...resolutions.values()].map((resolution) => ({
+              campaignId: resolution.campaignId,
+              familyKey: campaignFamilyKey(resolution.campaignName),
+              kind: resolution.kind,
+              confidenceClass: resolution.confidenceClass,
+            })),
+          );
+          const inheritedById = new Map(
+            inheritance.map((outcome) => [outcome.campaignId, outcome]),
           );
 
-          await db.query(UPSERT_CONTEXT_QUERY, [
-            input.businessId,
-            feature.campaignId,
-            feature.campaignName,
-            input.asOf,
-            hysteresis.publishedKind,
-            resolution.confidenceScore,
-            hysteresis.publishedClass,
-            kindBasis,
-            CAMPAIGN_CONTEXT_RESOLVER_VERSION,
-            JSON.stringify({
-              testScore: resolution.testScore,
-              mainScore: resolution.mainScore,
-              mixedScore: resolution.mixedScore,
-              agreeingFamilies: resolution.agreeingFamilies,
-            }),
-            JSON.stringify(evidence),
-            JSON.stringify(resolution.conflictReasons),
-            JSON.stringify(hysteresis.state),
-            JSON.stringify({
-              sourceWindowStart: rangeStart,
-              sourceWindowEnd: input.asOf,
-              creativeDayRows: creativeDays.length,
-              suppressedFlip: hysteresis.suppressedFlip,
-            }),
-            jobRunId,
-          ]);
-          rowsWritten += 1;
+          for (const feature of features) {
+            const resolution = resolutions.get(feature.campaignId)!;
+            const inherited = inheritedById.get(feature.campaignId) ?? null;
+            const effectiveKind = inherited
+              ? inherited.inheritedKind
+              : resolution.kind;
+            const effectiveClass: ContextConfidenceClass = inherited
+              ? "medium"
+              : resolution.confidenceClass;
+            const kindBasis = inherited ? "family_inheritance" : "behavioral";
+            const evidence = inherited
+              ? [
+                  ...resolution.evidence,
+                  `family_prefix_inheritance basis=${inherited.basisMembers} members`,
+                ]
+              : resolution.evidence;
+
+            const hysteresis = applyDailyHysteresis(
+              previousStates.get(
+                contextScopeKey(providerAccountId, feature.campaignId),
+              ) ?? null,
+              effectiveKind,
+              effectiveClass,
+            );
+
+            await db.query(UPSERT_CONTEXT_QUERY, [
+              input.businessId,
+              providerAccountId,
+              feature.campaignId,
+              feature.campaignName,
+              input.asOf,
+              hysteresis.publishedKind,
+              resolution.confidenceScore,
+              hysteresis.publishedClass,
+              kindBasis,
+              CAMPAIGN_CONTEXT_RESOLVER_VERSION,
+              JSON.stringify({
+                testScore: resolution.testScore,
+                mainScore: resolution.mainScore,
+                mixedScore: resolution.mixedScore,
+                agreeingFamilies: resolution.agreeingFamilies,
+              }),
+              JSON.stringify(evidence),
+              JSON.stringify(resolution.conflictReasons),
+              JSON.stringify(hysteresis.state),
+              JSON.stringify({
+                sourceWindowStart: rangeStart,
+                sourceWindowEnd: input.asOf,
+                providerAccountId,
+                creativeDayRows: accountCreativeDays.length,
+                suppressedFlip: hysteresis.suppressedFlip,
+              }),
+              jobRunId,
+            ]);
+            rowsWritten += 1;
+          }
         }
 
         const durationMs = Date.now() - startedAt;

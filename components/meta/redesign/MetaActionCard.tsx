@@ -468,10 +468,7 @@ export function MetaActionCard({
       : "Role pending";
     chips.push({
       key: "campaign-context",
-      text:
-        rec.campaignContext.source === "user_override"
-          ? `${kind} · override`
-          : `${kind} · auto ${rec.campaignContext.confidence}`,
+      text: `${kind} · auto ${rec.campaignContext.confidence}`,
       tone: rec.campaignContext.trustedForAction ? "info" : "warn",
     });
   }

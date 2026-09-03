@@ -1,3 +1,4 @@
+import type { MetaBudgetDryRunPanel } from "@/lib/meta/budget-dry-run-panel";
 import type { MetaAnomaly } from "@/lib/meta/anomalies";
 import type { BriefingStatusFilter } from "@/lib/meta/briefing-filter";
 import type { MetaCampaignKind } from "@/lib/meta/campaign-label-types";
@@ -5,6 +6,9 @@ import type { MetaRecommendation } from "@/lib/meta/recommendations";
 import type { MetaDecisionsWorkspaceReadModel } from "@/lib/meta/decisions-workspace-contract";
 import type { MetaOsDecisionsPresentation } from "@/lib/meta/decisions-os-contract";
 import type { MetaResponseEnvelope } from "@/lib/meta/read-state-contract";
+import type { MetaCommercialAnchorPanel } from "@/lib/meta/commercial-anchor-panel";
+import type { MetaBudgetDecisionEvidenceByDirection } from "@/lib/meta/budget-decision-evidence-panel";
+import type { MetaDecisionPipelineHealth } from "@/lib/meta/decision-pipeline-health";
 
 export type MetaWindowKey = "7d" | "14d" | "28d" | "90d" | "custom";
 
@@ -55,9 +59,9 @@ export interface MetaPulsePayload {
   seasonalRegime: string;
   engineLastRun: string | null;
   engineVersion: string;
-  campaignContextMode?: "legacy_labels" | "automatic" | "unknown";
+  campaignContextMode?: "automatic" | "unknown";
   snapshotHealth?: MetaSnapshotHealth | null;
-  labelCoverage?: MetaLabelCoverage | null;
+  campaignRoleCoverage?: MetaCampaignRoleCoverage | null;
   targetAnchor?: MetaTargetAnchor | null;
   trackingHealth: {
     status: "healthy" | "degraded" | "blocked" | "syncing" | "unknown";
@@ -77,10 +81,10 @@ export interface MetaPulsePayload {
   } | null;
 }
 
-export interface MetaLabelCoverage {
+export interface MetaCampaignRoleCoverage {
   activeCampaigns: number;
-  labeledCampaigns: number;
-  unlabeledCampaigns: number;
+  classifiedCampaigns: number;
+  unresolvedCampaigns: number;
   latestUpdatedAt: string | null;
 }
 
@@ -311,7 +315,35 @@ export interface MetaDecisionsDigest {
   };
 }
 
+/**
+ * D078 R4: one assigned Meta identity's coverage state, server-owned and
+ * display-only. Deselected identities are read-only historical evidence —
+ * they never become an actionable account in any write control.
+ */
+export interface MetaAssignedAccountStateSummary {
+  providerAccountId: string;
+  accountName: string | null;
+  selectionState: "selected" | "deselected_historical";
+  accountCurrency: string | null;
+  accountTimezone: string | null;
+  latestFactDate: string | null;
+  spend14d: number | null;
+  latestDecisionAsOf: string | null;
+  latestDecisionRows: number | null;
+  latestDecisionAuthorizedRows: number | null;
+  policy: string;
+}
+
 export interface MetaDecisionsWorkspacePayload {
+  /**
+   * D078 R4 (additive) — TRI-STATE by contract (correction 2):
+   * `undefined` = legacy payload written before this field existed (render
+   * nothing); `null` = the server read FAILED (render a visible
+   * coverage-unavailable warning — never assume one/no account); `[]` = a
+   * successful read proved zero assigned identities (render a distinct
+   * anomalous-empty state); populated = render the coverage panel.
+   */
+  assignedAccountStates?: MetaAssignedAccountStateSummary[] | null;
   /**
    * The §9 read state for this surface, decided by the server that served the
    * rows. The client forwards it and never computes one: everything that
@@ -351,6 +383,35 @@ export interface MetaDecisionsWorkspacePayload {
     currency: string | null;
     killSwitchEngaged: boolean;
     killSwitchReason: string | null;
+    governanceVerified?: boolean;
+    businessControlsConfigured?: boolean;
+    executionGovernanceState?:
+      | "ready_for_live_preflight"
+      | "kill_switched"
+      | "unavailable";
+    executionGovernanceReason?: string | null;
+    /**
+     * Server-owned operational evidence. Optional only for compatibility with
+     * payloads serialized before the health contract existed; absence is never
+     * interpreted as healthy or execution-ready.
+     */
+    pipelineHealth?: MetaDecisionPipelineHealth;
+    /**
+     * Server-owned commercial spend-unit anchor explanation. Optional only for
+     * compatibility with payloads serialized before this contract; absence is
+     * never interpreted as "an anchor is configured" and the client must not
+     * derive one.
+     */
+    commercialAnchor?: MetaCommercialAnchorPanel;
+    /**
+     * Server-owned budget-decision evidence. Optional only for compatibility
+     * with payloads serialized before this contract; absence is never
+     * interpreted as "no blockers" and never as executable, and the client must
+     * not evaluate a gate of its own to fill the gap.
+     */
+    budgetEvidence?: MetaBudgetDecisionEvidenceByDirection;
+    /** D085 — the server-owned budget dry run, rendered verbatim. */
+    budgetDryRun?: MetaBudgetDryRunPanel;
   };
   viewer: MetaDecisionsWorkspaceViewer | null;
   banners: MetaDecisionsWorkspaceBanner[];
@@ -371,7 +432,7 @@ export interface MetaDecisionsOsWorkspacePayload {
    *
    * A projection of the pulse the route already loaded — no extra query and no
    * new source. It is widened past `lastSyncAt` because the header's KPI strip
-   * reports today's spend, ROAS against target, label coverage and operating
+   * reports today's spend, ROAS against target, automatic role coverage and operating
    * mode, and a surface that cannot read them would have to either omit them or
    * invent them. Every field stays optional at the source, so "unknown" remains
    * expressible and is never rendered as a zero.
@@ -385,7 +446,7 @@ export interface MetaDecisionsOsWorkspacePayload {
     | "operatingMode"
     | "seasonalRegime"
     | "trackingHealth"
-    | "labelCoverage"
+    | "campaignRoleCoverage"
   >;
   system: MetaDecisionsWorkspacePayload["system"];
   viewer: MetaDecisionsWorkspaceViewer | null;
@@ -398,6 +459,8 @@ export interface MetaDecisionsOsWorkspacePayload {
 }
 
 export type MetaWatchingSegmentKey =
+  | "role_unresolved"
+  /** @deprecated pre-D074b alias; parse-only for older payloads. */
   | "unlabeled"
   | "missing_target"
   | "learning"

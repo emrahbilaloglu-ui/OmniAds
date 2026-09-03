@@ -1,0 +1,1503 @@
+{
+ "ledgerHash": "9609cca72153f005cc2881b24adba1cc68632ce58bfe70740a2f09de5a1e26df",
+ "hashAlgorithm": "sha256",
+ "hashBasis": "sha256 over UTF-8 bytes of JSON.stringify(artifact, null, 1) of the artifact WITHOUT its embedded hash fields (the artifact object before {<hashField>, hashAlgorithm, hashBasis} are prepended)",
+ "contract": "adsecute.d077.correction2-verification-ledger.v2",
+ "generatedAtUtc": "2026-09-03T19:54:23.032Z",
+ "runtimeVersions": {
+  "node": "v24.4.1",
+  "npm": "11.4.2",
+  "pnpm": "11.19.0 (present-tense probe; see pnpmProvenance — earlier-stage runtime UNKNOWN)",
+  "vitest": "vitest/4.1.5 darwin-arm64 node-v24.4.1",
+  "postgres": "postgres (PostgreSQL) 16.13 (Homebrew)",
+  "tsc": "Version 5.9.3",
+  "pnpmProvenance": {
+   "presentTenseProbes": [
+    {
+     "probeId": "claude-shell-pnpm",
+     "command": "command -v pnpm  (version NOT executed — resolution failed)",
+     "resolutionMechanism": "POSIX `command -v` on the generator shell PATH; on success the resolved binary is executed DIRECTLY (no alias, no Corepack shim activation, no installation)",
+     "resolutionKind": "path_lookup",
+     "resolutionStep": {
+      "executable": "bash",
+      "argv": [
+       "-lc",
+       "command -v pnpm"
+      ],
+      "commandForm": "bash -lc command -v pnpm",
+      "exitStatus": 1,
+      "signal": null,
+      "stdout": "",
+      "stderr": "",
+      "spawnErrorCode": null,
+      "spawnErrorMessage": null,
+      "observedAtUtc": "2026-09-03T19:54:22.019Z"
+     },
+     "resolution": "unresolved",
+     "resolvedPath": null,
+     "directExecutionStep": null,
+     "reportedVersion": null,
+     "resultClass": "not_found",
+     "observationKind": "present_tense",
+     "observedAtUtc": "2026-09-03T19:54:22.019Z",
+     "observationTimeCertainty": "exact",
+     "cacheSafeReadOnly": true
+    },
+    {
+     "probeId": "corepack-program-version",
+     "command": "command -v corepack  →  /usr/local/bin/corepack --version",
+     "resolutionMechanism": "POSIX `command -v corepack`, then direct spawn of the resolved binary; `--version` prints Corepack's OWN program version and performs no package-manager resolution (cache-safe)",
+     "resolutionKind": "path_lookup",
+     "resolutionStep": {
+      "executable": "bash",
+      "argv": [
+       "-lc",
+       "command -v corepack"
+      ],
+      "commandForm": "bash -lc command -v corepack",
+      "exitStatus": 0,
+      "signal": null,
+      "stdout": "/usr/local/bin/corepack\n",
+      "stderr": "",
+      "spawnErrorCode": null,
+      "spawnErrorMessage": null,
+      "observedAtUtc": "2026-09-03T19:54:22.026Z"
+     },
+     "resolution": "resolved",
+     "resolvedPath": "/usr/local/bin/corepack",
+     "directExecutionStep": {
+      "executable": "/usr/local/bin/corepack",
+      "argv": [
+       "--version"
+      ],
+      "commandForm": "/usr/local/bin/corepack --version",
+      "exitStatus": 0,
+      "signal": null,
+      "stdout": "0.34.2\n",
+      "stderr": "",
+      "spawnErrorCode": null,
+      "spawnErrorMessage": null,
+      "observedAtUtc": "2026-09-03T19:54:22.077Z"
+     },
+     "reportedVersion": "0.34.2",
+     "resultClass": "version_reported",
+     "observationKind": "present_tense",
+     "observedAtUtc": "2026-09-03T19:54:22.077Z",
+     "observationTimeCertainty": "exact",
+     "cacheSafeReadOnly": true
+    },
+    {
+     "probeId": "codex-fallback-pnpm",
+     "command": "/Users/harmelek/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/pnpm --version",
+     "resolutionMechanism": "explicit absolute path (the executable Codex's own PATH resolves): fs existence observation, then direct spawn — no shell, no package-manager resolution layer",
+     "resolutionKind": "explicit_path",
+     "existenceObservation": {
+      "path": "/Users/harmelek/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/pnpm",
+      "exists": true,
+      "observationErrorCode": null,
+      "observationErrorMessage": null,
+      "observedAtUtc": "2026-09-03T19:54:22.077Z"
+     },
+     "resolution": "resolved",
+     "resolvedPath": "/Users/harmelek/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/pnpm",
+     "directExecutionStep": {
+      "executable": "/Users/harmelek/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/pnpm",
+      "argv": [
+       "--version"
+      ],
+      "commandForm": "/Users/harmelek/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/pnpm --version",
+      "exitStatus": 0,
+      "signal": null,
+      "stdout": "11.19.0\n",
+      "stderr": "",
+      "spawnErrorCode": null,
+      "spawnErrorMessage": null,
+      "observedAtUtc": "2026-09-03T19:54:22.467Z"
+     },
+     "reportedVersion": "11.19.0",
+     "resultClass": "version_reported",
+     "observationKind": "present_tense",
+     "observedAtUtc": "2026-09-03T19:54:22.467Z",
+     "observationTimeCertainty": "exact",
+     "cacheSafeReadOnly": true
+    },
+    {
+     "probeId": "corepack-pnpm-retained-c4",
+     "resolutionKind": "retained",
+     "command": "corepack pnpm --version",
+     "resolutionMechanism": "RETAINED correction-4 observation; the resolved path was NOT measured by that record and is represented as unmeasured; NOT rerun in later corrections",
+     "resolution": "unmeasured",
+     "resolvedPath": null,
+     "reportedVersion": "11.24.0",
+     "stderr": "",
+     "exitStatus": null,
+     "signal": null,
+     "resultClass": "retained_observation",
+     "observationKind": "retained",
+     "observedAtUtc": null,
+     "observationTimeCertainty": "unknown",
+     "cacheSafeReadOnly": "not_rerun"
+    }
+   ],
+   "correction3CorepackMutation": {
+    "occurred": true,
+    "command": "corepack prepare pnpm@latest --activate",
+    "when": "correction 3, while LOCATING a pnpm executable, BEFORE the first pnpm measurement",
+    "restored": false,
+    "preMutationValue": "UNKNOWN"
+   },
+   "earlierRetainedStagesRuntime": "UNKNOWN",
+   "correction5ProhibitedMutationCommandExecuted": false,
+   "corepackTrackedStateChanged": "false",
+   "corepackScopedInspection": {
+    "inspectedPaths": [
+     {
+      "path": "/Users/harmelek/.cache/node/corepack/lastKnownGood.json",
+      "beforeMtime": "2026-08-30T14:56:33.394Z",
+      "afterMtime": "2026-08-30T14:56:33.394Z"
+     },
+     {
+      "path": "/Users/harmelek/.cache/node/corepack/v1",
+      "beforeMtime": "2026-08-30T14:56:33.389Z",
+      "afterMtime": "2026-08-30T14:56:33.389Z"
+     }
+    ],
+    "changed": "false",
+    "scopeNote": "SCOPED metadata check of the already-known Corepack tracked paths only, before and after this generation's probes; it proves exactly what it inspected and nothing global — the no-mutation statement remains an attestation (globalHostStateClaim), not universal proof"
+   },
+   "globalHostStateClaim": "attestation_only"
+  },
+  "pnpmLayoutNote": "supplemental context only: node_modules is a pnpm layout (.bin entries are #!/bin/sh shims) — the reason the seam entrypoint fix exists"
+ },
+ "stageSchema": "every entry in `stages`: {stage, command, startUtc, endUtc, durationSeconds, exitCode, counts (parsed vitest counts OR {notApplicable:true, reason}), timeout:{configuredSeconds, timedOut}, teardown (readback string or {notApplicable:true, reason}), tail}",
+ "equivalenceMapping": {
+  "verify:pre-push": "check:workflows → typecheck → eslint . → vitest run → scripts/verify-database-seams.sh. Correction 2 proves: canonical.check-workflows, canonical.typecheck, canonical.eslint-changed (full `eslint .` was green in correction 1), focused vitest stages on the changed surfaces, and the AUTHORITATIVE canonical.database-seams-whole-shell run (`bash scripts/verify-database-seams.sh` executed as ONE command — including the CUTOVER_REQUIRED/manifest/runbook release-boundary logic the correction-1 extraction missed). The full 13,683-test unit suite is preserved as historical correction-1 evidence (green, timestamped) and was deliberately not rerun to repair audit metadata.",
+  "authoritativeDatabaseSeamProof": "stages[canonical.database-seams-whole-shell]",
+  "notReproduced": "CI image publish lane, actionlint binary, authenticated deployed-UI reads — recorded as unproven, not claimed"
+ },
+ "stages": [
+  {
+   "stage": "production.evidence-collector-c2",
+   "command": "npx tsx scripts/audits/d077-production-recovery-readonly-preflight.ts",
+   "startUtc": "2026-08-30T14:30:30.604905+00:00",
+   "endUtc": "2026-08-30T14:31:46.127734+00:00",
+   "durationSeconds": 75.5,
+   "exitCode": 0,
+   "counts": {
+    "notApplicable": true,
+    "reason": "stage emits no vitest count line"
+   },
+   "timeout": {
+    "configuredSeconds": 540,
+    "timedOut": false
+   },
+   "teardown": {
+    "command": "pgrep -fl 'd077-production-recovery' | grep -v pgrep | head -2; lsof -nP -iTCP:15432 -sTCP:LISTEN | tail -1 | awk '{print \"tunnel intact pid \" $2}'; echo collector-process-gone",
+    "output": "tunnel intact pid 38894\ncollector-process-gone",
+    "exitCode": 0
+   },
+   "logFile": {
+    "path": "/private/tmp/claude-501/-Users-harmelek-Adsecute/b1c7adea-0b6c-4b08-90b1-d63cd1d97e6e/scratchpad/d077/c2/logs/production.evidence-collector-c2.log",
+    "sha256": "fa463a21023beaccdd8aade9ef6399b60a6815068bcbaf973c6f204a800a7b8d",
+    "bytes": 563
+   },
+   "tail": "{\n \"evidenceHash\": \"74c0078d3141020f8ba57f71bde20df621d0cf516f411e6fe00ecc51779e90e1\",\n \"outPath\": \"docs/audits/generated/d077-production-recovery-readonly-evidence-2026-08-30.json\",\n \"applicationName\": \"d077_recovery_preflight_c1_1788100231481\",\n \"hashRecomputed\": true\n}"
+  },
+  {
+   "stage": "canonical.database-seams-whole-shell",
+   "command": "bash scripts/verify-database-seams.sh",
+   "startUtc": "2026-09-03T12:56:51.233791+00:00",
+   "endUtc": "2026-09-03T13:05:02.869183+00:00",
+   "durationSeconds": 491.6,
+   "exitCode": 0,
+   "counts": {
+    "notApplicable": true,
+    "reason": "composite shell: the canonical acceptance unit is the exact 40-stage header sequence plus the final '[verify-db-seams] PASS — 40 stages' line (see wholeShellProof). The log contains MANY nested Vitest summaries; taking the first misrepresented the run and summing them would be an unsafe substitute for the shell's own acceptance unit."
+   },
+   "timeout": {
+    "configuredSeconds": 1800,
+    "timedOut": false
+   },
+   "teardown": {
+    "command": "pgrep -fl 'sleep 900' | grep -v grep | head -3; pgrep -x postgres | head -3; ls -d /var/folders/*/*/T/adsecute-* /var/folders/*/*/T/omniads-* 2>/dev/null | head -3; lsof -nP -iTCP:15432 -sTCP:LISTEN | tail -1 | awk '{print \"tunnel intact pid \" $2}'; echo teardown-scan-complete",
+    "output": "97690 sleep 900\n/var/folders/ft/2b5f1_qn05g0rjscjj17n8fc0000gn/T/adsecute-pit-replay-anchored-attack-jWzcHc\n/var/folders/ft/2b5f1_qn05g0rjscjj17n8fc0000gn/T/adsecute-runtime-pg-2Qd0HA\n/var/folders/ft/2b5f1_qn05g0rjscjj17n8fc0000gn/T/adsecute-runtime-pg-ENVN5n\ntunnel intact pid 38894\nteardown-scan-complete",
+    "exitCode": 0
+   },
+   "logFile": {
+    "path": "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-03.log",
+    "sha256": "6bc7f70e309ccd8b2cf5df06267bdf123179c38d6180fddf36c9ddab24bda653",
+    "bytes": 505131
+   },
+   "tail": "\n\n[release-owner-guard] self-test OK — S1 new active ref, S2 rewritten history, S3 unmarked legacy use, S4 marked use allowed, S5 meta prose free, S6 meta not contagious\n[release-owner-guard] scanning tracked and untracked files for 'erhanrdn'\n[release-owner-guard] PASS — 81 historical occurrence(s) frozen; every active-path reference is registered or marked; 2 meta file(s) covered by the self-test.\n\n[verify-db-seams] PASS — 40 stages",
+   "originalCapturePath": {
+    "path": "/private/tmp/claude-501/-Users-harmelek-Adsecute/dc3154b1-2eb4-4288-815d-b462160fe216/scratchpad/d077-c3/run/canonical.database-seams-whole-shell.log",
+    "note": "capture provenance ONLY — the ephemeral Claude-session location where the supervisor wrote the log during the one authoritative run; validated byte-identical to the repository copy before the copy was frozen; no generator/test read path opens it after the freeze"
+   },
+   "wholeShellProof": {
+    "stageHeaderCount": 40,
+    "headers": [
+     {
+      "number": 1,
+      "title": "Workflow semantics (undefined needs, cycles, malformed steps)"
+     },
+     {
+      "number": 2,
+      "title": "Migrations from zero (incl. null-vs-zero storage seams: link_clicks, funnel keys, frequency)"
+     },
+     {
+      "number": 3,
+      "title": "Disaster-recovery backup and restore seam"
+     },
+     {
+      "number": 4,
+      "title": "Staged idle worker seam (real worker, real PostgreSQL)"
+     },
+     {
+      "number": 5,
+      "title": "Native ad decision database seam"
+     },
+     {
+      "number": 6,
+      "title": "D088 budget proposal migration seam (schema contract + rollback compatibility)"
+     },
+     {
+      "number": 7,
+      "title": "Automation-OFF readback (pre-migration and post-migration, via psql)"
+     },
+     {
+      "number": 8,
+      "title": "Provider fixture seam"
+     },
+     {
+      "number": 9,
+      "title": "Sync retention, growth and release seam"
+     },
+     {
+      "number": 10,
+      "title": "Release-gate plan and coalescing seam"
+     },
+     {
+      "number": 11,
+      "title": "Legacy import replay seam"
+     },
+     {
+      "number": 12,
+      "title": "Google Ads date freshness seam (F1-F19)"
+     },
+     {
+      "number": 13,
+      "title": "Cutover wrapper package is current"
+     },
+     {
+      "number": 14,
+      "title": "Cutover wrapper build-context assertion (static, not a smoke test)"
+     },
+     {
+      "number": 15,
+      "title": "Cutover state-machine harness (real PostgreSQL)"
+     },
+     {
+      "number": 16,
+      "title": "Entrypoint admission refusal seam"
+     },
+     {
+      "number": 17,
+      "title": "Entrypoint admission real-database seam"
+     },
+     {
+      "number": 18,
+      "title": "Provider selection race seam"
+     },
+     {
+      "number": 19,
+      "title": "Automation execution claim, reconcile slot and settle fault injection"
+     },
+     {
+      "number": 20,
+      "title": "Launchpad handoff mint/consume/single-use seam (real PostgreSQL)"
+     },
+     {
+      "number": 21,
+      "title": "Meta breakdown dimension split and unmeasured reach"
+     },
+     {
+      "number": 22,
+      "title": "Meta History account-assignment isolation seam (real PostgreSQL)"
+     },
+     {
+      "number": 23,
+      "title": "Shopify install context seam"
+     },
+     {
+      "number": 24,
+      "title": "Shopify grant race seam"
+     },
+     {
+      "number": 25,
+      "title": "Shopify install-context read authority seam"
+     },
+     {
+      "number": 26,
+      "title": "Ordinary deploy refuses a cutover-required release"
+     },
+     {
+      "number": 27,
+      "title": "Deploy registry auth (ephemeral credential handling)"
+     },
+     {
+      "number": 28,
+      "title": "Cutover stuck-state reproduction (the deadlock is real)"
+     },
+     {
+      "number": 29,
+      "title": "Cutover resume recovery (refuses every state but one)"
+     },
+     {
+      "number": 30,
+      "title": "SSH multiplex isolation (forwarded calls get their own connection)"
+     },
+     {
+      "number": 31,
+      "title": "Cutover wrapper identity (one epoch, one wrapper)"
+     },
+     {
+      "number": 32,
+      "title": "Cutover runner package (isolated, digest-pinned, never overwrites the installed wrapper)"
+     },
+     {
+      "number": 33,
+      "title": "Cutover scratch cleanup (proven absent, or a real failure)"
+     },
+     {
+      "number": 34,
+      "title": "Cutover migration capacity sample (migrate refreshes its own evidence)"
+     },
+     {
+      "number": 35,
+      "title": "Cutover self-cleanup (reclaims only its own unreferenced artifact)"
+     },
+     {
+      "number": 36,
+      "title": "Cutover supersede guard (refuses by default, allows only a reversible chain)"
+     },
+     {
+      "number": 37,
+      "title": "Operator hardening (disconnect survival, ordered teardown, non-vacuous evidence)"
+     },
+     {
+      "number": 38,
+      "title": "Pre-change schema upgrade seam (branch point)"
+     },
+     {
+      "number": 39,
+      "title": "Pre-change schema upgrade seam (deployed production baseline)"
+     },
+     {
+      "number": 40,
+      "title": "Release owner references are current (LAST — the tree is final here)"
+     }
+    ],
+    "sequenceValid": true,
+    "headerDigestFromLog": "36ef3a743cd58b2fa7b3def7cb96093d91aa6c3109e14e9988a8f1b99717c3ac",
+    "headerDigestFromScript": "36ef3a743cd58b2fa7b3def7cb96093d91aa6c3109e14e9988a8f1b99717c3ac",
+    "sourceEquality": true,
+    "releaseOwnerLast": {
+     "number": 40,
+     "title": "Release owner references are current (LAST — the tree is final here)"
+    },
+    "finalPassLine": "[verify-db-seams] PASS — 40 stages",
+    "logSha256": "6bc7f70e309ccd8b2cf5df06267bdf123179c38d6180fddf36c9ddab24bda653",
+    "logBytes": 505131,
+    "releaseBoundary": {
+     "stageNumber": 26,
+     "stageTitle": "Ordinary deploy refuses a cutover-required release",
+     "markerManifestAgreementLine": "no cutover pending: deploy/CUTOVER_REQUIRED absent",
+     "deployGateOrderingPassPresent": true,
+     "excerpt": "[verify-db-seams] ── 26 Ordinary deploy refuses a cutover-required release\nno cutover pending: deploy/CUTOVER_REQUIRED absent\n\n> adsecute@0.1.0 test:deploy-gate-ordering\n> bash scripts/deploy-gate-ordering-check.sh\n\n[deploy-gate-ordering] PASS G1 a cutover-required release is refused before ANY docker command runs — the production worker is never stopped\n[deploy-gate-ordering] PASS G2 deploy/CUTOVER_REQUIRED also refuses before any docker command\n[deploy-gate-ordering] PASS G3 an in-flight cutover refuses before any docker command, so two migration paths cannot race\n[deploy-gate-ordering] PASS G4 prepare_runtime refuses during a cutover BEFORE the pull, so a delivery cannot rewrite a wrapper mid-run\n[deploy-gate-ordering] PASS G5 recreate_services refuses during a cutover before recreating anything\n[deploy-gate-ordering] PASS G6 standalone wrapper delivery refuses while a cutover is running, but is NOT gated on cutover_required — it is the phase you need precisely because the release requires a cutover\n[deploy-gate-ordering] PASS W1 the deploy workflow has an independent cutover gate that precedes every host-touching step, does not depend on run_migrations, and is followed only by success()-guarded steps (STEPS:16)\n[deploy-gate-ordering] PASS R1 no workflow dispatches a production deploy automatically; releasing is an explicit human act\n[deploy-gate-ordering] PASS R2 deploy-hetzner is workflow_dispatch only — no push, schedule or workflow_run can start a production deploy\n[deploy-gate-ordering] PASS R3 the deploy dispatch takes a verified lowercase 40-hex SHA and an enumerated current|legacy image namespace\n[deploy-gate-ordering] PASS R4 the database-seams job delegates to scripts/verify-database-seams.sh with no inline seam list to drift\n[deploy-gate-ordering] PASS R5 the release-owner guard is the final stage, so it sees the tree that will actually be committed\n[deploy-gate-ordering] PASS all checks\n\n"
+    }
+   }
+  },
+  {
+   "stage": "teardown.sleep900-watcher",
+   "command": "kill -TERM 90925",
+   "startUtc": "2026-08-30T14:41:11.135133+00:00",
+   "endUtc": "2026-08-30T14:41:11.135618+00:00",
+   "durationSeconds": 0,
+   "exitCode": 0,
+   "counts": {
+    "notApplicable": true,
+    "reason": "process termination, no tests"
+   },
+   "timeout": {
+    "configuredSeconds": 0,
+    "timedOut": false
+   },
+   "teardown": {
+    "command": "provenance then SIGTERM",
+    "output": "watcher pid 90925 (sleep 900): PGID 84464 = this run's whole-shell process group; PPID 1 (orphaned); cwd /Users/harmelek/Adsecute; fd1/fd2 open on THIS run's canonical.database-seams-whole-shell.log — provenance proven task-owned before SIGTERM. Terminated AFTER the shell exited 0; the log content hash was recorded before and re-verified unchanged after (a55e9f43...); no shell/test/DB result changed. Daily adsecute-runtime-pg-* temp dirs (mtimes 03:35 on Aug 28/29/30) are NOT task-owned and were left untouched. Tunnel pid 38894 untouched.",
+    "exitCode": 0
+   },
+   "tail": "TERMINATED"
+  },
+  {
+   "stage": "focused.route-authority",
+   "command": "npx vitest run app/api/route-authority.test.ts --maxWorkers=1",
+   "startUtc": "2026-08-30T14:41:39.094400+00:00",
+   "endUtc": "2026-08-30T14:41:40.300457+00:00",
+   "durationSeconds": 1.2,
+   "exitCode": 0,
+   "counts": {
+    "failed": 0,
+    "passed": 5,
+    "skipped": 0,
+    "todo": 0
+   },
+   "timeout": {
+    "configuredSeconds": 300,
+    "timedOut": false
+   },
+   "teardown": {
+    "command": "echo no-per-stage-residue",
+    "output": "no-per-stage-residue",
+    "exitCode": 0
+   },
+   "logFile": {
+    "path": "/private/tmp/claude-501/-Users-harmelek-Adsecute/b1c7adea-0b6c-4b08-90b1-d63cd1d97e6e/scratchpad/d077/c2/logs/focused.route-authority.log",
+    "sha256": "782aaa55807e2969c7e38f27d9f42d736bbe996326f0c483405be49efdea0e6f",
+    "bytes": 207
+   },
+   "tail": "\n\n Test Files  1 passed (1)\n      Tests  5 passed (5)\n   Start at  17:41:39\n   Duration  268ms (transform 22ms, setup 104ms, import 20ms, tests 65ms, environment 0ms)"
+  },
+  {
+   "stage": "focused.campaign-labels-tombstone",
+   "command": "npx vitest run app/api/meta/campaign-labels/route.test.ts --maxWorkers=1",
+   "startUtc": "2026-08-30T14:41:40.335497+00:00",
+   "endUtc": "2026-08-30T14:41:40.949276+00:00",
+   "durationSeconds": 0.6,
+   "exitCode": 0,
+   "counts": {
+    "failed": 0,
+    "passed": 2,
+    "skipped": 0,
+    "todo": 0
+   },
+   "timeout": {
+    "configuredSeconds": 300,
+    "timedOut": false
+   },
+   "teardown": {
+    "command": "echo no-per-stage-residue",
+    "output": "no-per-stage-residue",
+    "exitCode": 0
+   },
+   "logFile": {
+    "path": "/private/tmp/claude-501/-Users-harmelek-Adsecute/b1c7adea-0b6c-4b08-90b1-d63cd1d97e6e/scratchpad/d077/c2/logs/focused.campaign-labels-tombstone.log",
+    "sha256": "4e6e97925e47bd150a0616e6f9241259b19c2e8fbaed72692c88679dc13c80f4",
+    "bytes": 205
+   },
+   "tail": "\n\n Test Files  1 passed (1)\n      Tests  2 passed (2)\n   Start at  17:41:40\n   Duration  223ms (transform 17ms, setup 64ms, import 42ms, tests 4ms, environment 0ms)"
+  },
+  {
+   "stage": "focused.launchpad-contract",
+   "command": "npx vitest run lib/meta/launchpad-handoff-contract.test.ts --maxWorkers=1",
+   "startUtc": "2026-08-30T14:41:40.985965+00:00",
+   "endUtc": "2026-08-30T14:41:41.609408+00:00",
+   "durationSeconds": 0.6,
+   "exitCode": 0,
+   "counts": {
+    "failed": 0,
+    "passed": 43,
+    "skipped": 0,
+    "todo": 0
+   },
+   "timeout": {
+    "configuredSeconds": 300,
+    "timedOut": false
+   },
+   "teardown": {
+    "command": "echo no-per-stage-residue",
+    "output": "no-per-stage-residue",
+    "exitCode": 0
+   },
+   "logFile": {
+    "path": "/private/tmp/claude-501/-Users-harmelek-Adsecute/b1c7adea-0b6c-4b08-90b1-d63cd1d97e6e/scratchpad/d077/c2/logs/focused.launchpad-contract.log",
+    "sha256": "a4b33734748b264920a71fb880a8606d54188fed50cd835f2efd7a4ce71e126b",
+    "bytes": 207
+   },
+   "tail": "\n\n Test Files  1 passed (1)\n      Tests  43 passed (43)\n   Start at  17:41:41\n   Duration  203ms (transform 29ms, setup 61ms, import 27ms, tests 4ms, environment 0ms)"
+  },
+  {
+   "stage": "canonical.check-workflows",
+   "command": "npm run check:workflows",
+   "startUtc": "2026-08-30T14:41:50.604814+00:00",
+   "endUtc": "2026-08-30T14:41:50.786998+00:00",
+   "durationSeconds": 0.2,
+   "exitCode": 0,
+   "counts": {
+    "notApplicable": true,
+    "reason": "stage emits no vitest count line"
+   },
+   "timeout": {
+    "configuredSeconds": 240,
+    "timedOut": false
+   },
+   "teardown": {
+    "command": "echo no-per-stage-residue",
+    "output": "no-per-stage-residue",
+    "exitCode": 0
+   },
+   "logFile": {
+    "path": "/private/tmp/claude-501/-Users-harmelek-Adsecute/b1c7adea-0b6c-4b08-90b1-d63cd1d97e6e/scratchpad/d077/c2/logs/canonical.check-workflows.log",
+    "sha256": "56f0f1f6418c1edc77128d7e3d4a8bc4997c8f74336c4c33720448c3e3bc7366",
+    "bytes": 1594
+   },
+   "tail": "  zero-base-production-rollout.yml\n    jobs  : rollout\n    needs : (none)\n    needs \\ jobs : (empty)\n[workflow-semantics] actionlint not on PATH; ran built-in checks only (install it for full analysis — deliberately not downloaded automatically)\n[workflow-semantics] PASS — every needs reference resolves, no cycles, every step well-formed"
+  },
+  {
+   "stage": "canonical.typecheck",
+   "command": "npx tsc --noEmit",
+   "startUtc": "2026-08-30T14:41:50.820637+00:00",
+   "endUtc": "2026-08-30T14:41:55.869085+00:00",
+   "durationSeconds": 5,
+   "exitCode": 0,
+   "counts": {
+    "notApplicable": true,
+    "reason": "stage emits no vitest count line"
+   },
+   "timeout": {
+    "configuredSeconds": 480,
+    "timedOut": false
+   },
+   "teardown": {
+    "command": "echo no-per-stage-residue",
+    "output": "no-per-stage-residue",
+    "exitCode": 0
+   },
+   "logFile": {
+    "path": "/private/tmp/claude-501/-Users-harmelek-Adsecute/b1c7adea-0b6c-4b08-90b1-d63cd1d97e6e/scratchpad/d077/c2/logs/canonical.typecheck.log",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "bytes": 0
+   },
+   "tail": ""
+  },
+  {
+   "stage": "canonical.eslint-changed",
+   "command": "npx eslint scripts/audits/d077-production-recovery-readonly-preflight.ts scripts/audits/d077-correction1-artifact-generator.ts lib/meta/__tests__/d077-artifact-hash-contract.test.ts",
+   "startUtc": "2026-08-30T14:41:55.908776+00:00",
+   "endUtc": "2026-08-30T14:41:56.727507+00:00",
+   "durationSeconds": 0.8,
+   "exitCode": 0,
+   "counts": {
+    "notApplicable": true,
+    "reason": "stage emits no vitest count line"
+   },
+   "timeout": {
+    "configuredSeconds": 300,
+    "timedOut": false
+   },
+   "teardown": {
+    "command": "echo no-per-stage-residue",
+    "output": "no-per-stage-residue",
+    "exitCode": 0
+   },
+   "logFile": {
+    "path": "/private/tmp/claude-501/-Users-harmelek-Adsecute/b1c7adea-0b6c-4b08-90b1-d63cd1d97e6e/scratchpad/d077/c2/logs/canonical.eslint-changed.log",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "bytes": 0
+   },
+   "tail": ""
+  },
+  {
+   "stage": "canonical.git-diff-check",
+   "command": "git diff --check",
+   "startUtc": "2026-08-30T14:41:56.766417+00:00",
+   "endUtc": "2026-08-30T14:41:56.896164+00:00",
+   "durationSeconds": 0.1,
+   "exitCode": 0,
+   "counts": {
+    "notApplicable": true,
+    "reason": "stage emits no vitest count line"
+   },
+   "timeout": {
+    "configuredSeconds": 120,
+    "timedOut": false
+   },
+   "teardown": {
+    "command": "echo no-per-stage-residue",
+    "output": "no-per-stage-residue",
+    "exitCode": 0
+   },
+   "logFile": {
+    "path": "/private/tmp/claude-501/-Users-harmelek-Adsecute/b1c7adea-0b6c-4b08-90b1-d63cd1d97e6e/scratchpad/d077/c2/logs/canonical.git-diff-check.log",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "bytes": 0
+   },
+   "tail": ""
+  },
+  {
+   "stage": "canonical.side-effect-scan",
+   "command": "node --import tsx scripts/check-request-path-side-effects.ts --json > /dev/null",
+   "startUtc": "2026-08-30T14:41:56.928240+00:00",
+   "endUtc": "2026-08-30T14:41:59.683841+00:00",
+   "durationSeconds": 2.8,
+   "exitCode": 0,
+   "counts": {
+    "notApplicable": true,
+    "reason": "stage emits no vitest count line"
+   },
+   "timeout": {
+    "configuredSeconds": 300,
+    "timedOut": false
+   },
+   "teardown": {
+    "command": "echo no-per-stage-residue",
+    "output": "no-per-stage-residue",
+    "exitCode": 0
+   },
+   "logFile": {
+    "path": "/private/tmp/claude-501/-Users-harmelek-Adsecute/b1c7adea-0b6c-4b08-90b1-d63cd1d97e6e/scratchpad/d077/c2/logs/canonical.side-effect-scan.log",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "bytes": 0
+   },
+   "tail": ""
+  },
+  {
+   "stage": "guards.d078-closure",
+   "command": "npx vitest run lib/meta/__tests__/d078-acceptance-guards.test.ts lib/meta/__tests__/state-history-consumer-closure.test.ts lib/meta/__tests__/campaign-role-vocabulary-closure.test.ts lib/meta/__tests__/d078-matrix-contract.test.ts --maxWorkers=1",
+   "startUtc": "2026-08-30T14:41:59.718316+00:00",
+   "endUtc": "2026-08-30T14:42:01.323496+00:00",
+   "durationSeconds": 1.6,
+   "exitCode": 0,
+   "counts": {
+    "failed": 0,
+    "passed": 45,
+    "skipped": 0,
+    "todo": 0
+   },
+   "timeout": {
+    "configuredSeconds": 480,
+    "timedOut": false
+   },
+   "teardown": {
+    "command": "echo no-per-stage-residue",
+    "output": "no-per-stage-residue",
+    "exitCode": 0
+   },
+   "logFile": {
+    "path": "/private/tmp/claude-501/-Users-harmelek-Adsecute/b1c7adea-0b6c-4b08-90b1-d63cd1d97e6e/scratchpad/d077/c2/logs/guards.d078-closure.log",
+    "sha256": "e52be79393d1c195712872a8f77fbf40e11e2c3ec85346da2911b8df5fd1e626",
+    "bytes": 212
+   },
+   "tail": "\n\n Test Files  4 passed (4)\n      Tests  45 passed (45)\n   Start at  17:42:00\n   Duration  1.08s (transform 112ms, setup 235ms, import 184ms, tests 397ms, environment 0ms)"
+  }
+ ],
+ "historicalFailFirstEvidence": {
+  "note": "Raw fail-first outputs embedded verbatim and content-hashed. Their exact start/end/duration were NOT captured when they ran (correction-1 limitation); timing is UNKNOWN by fact, not omission. The route-authority red and the exact execution_not_ready refusal are inside the embedded content.",
+  "routeAuthorityRed": {
+   "sourcePath": "/private/tmp/claude-501/-Users-harmelek-Adsecute/b1c7adea-0b6c-4b08-90b1-d63cd1d97e6e/scratchpad/d077/c1/route-authority-failfirst.log",
+   "sha256": "c0a250c5f7973e451b5c5f59db8d008b998610e88b3e142e711cea1460edc431",
+   "bytes": 1216,
+   "content": "\n RUN  v4.1.5 /Users/harmelek/Adsecute\n\n ❯ app/api/route-authority.test.ts (5 tests | 1 failed) 64ms\n     × has no route relying on proxy.ts as its only gate 51ms\n\n⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯\n\n FAIL  app/api/route-authority.test.ts > every API route decides its own authority > has no route relying on proxy.ts as its only gate\nAssertionError: These routes perform no identity check, so a forged `omniads_session` cookie is their only gate. Add a real check, or declare them in INTENTIONALLY_PUBLIC / DELEGATES_AUTHORITY with the reason.: expected [ 'meta/campaign-labels' ] to deeply equal []\n\n- Expected\n+ Received\n\n- []\n+ [\n+   \"meta/campaign-labels\",\n+ ]\n\n ❯ app/api/route-authority.test.ts:230:7\n    228|         \"is their only gate. Add a real check, or declare them in INTE…\n    229|         \"/ DELEGATES_AUTHORITY with the reason.\",\n    230|     ).toEqual([]);\n       |       ^\n    231|   });\n    232|\n\n⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯\n\n\n Test Files  1 failed (1)\n      Tests  1 failed | 4 passed (5)\n   Start at  16:36:25\n   Duration  372ms (transform 24ms, setup 123ms, import 21ms, tests 64ms, environment 0ms)\n\nEXIT:1\n",
+   "timing": "UNKNOWN — not captured at run time",
+   "exitCode": 1
+  },
+  "launchpadSeamRed": {
+   "sourcePath": "/private/tmp/claude-501/-Users-harmelek-Adsecute/b1c7adea-0b6c-4b08-90b1-d63cd1d97e6e/scratchpad/d077/c1/seam-failfirst.log",
+   "sha256": "7d616d64acd80e6057b8f22cd0cacf1480bdede214084af44f1d354284783c7c",
+   "bytes": 3702,
+   "content": "\n> adsecute@0.1.0 test:launchpad-handoff-seam\n> node --import tsx scripts/ephemeral-postgres-launchpad-handoff-seam.ts\n\n[launchpad-handoff-seam] running the negative control (the file must SKIP without the harness)...\n[launchpad-handoff-seam] negative control OK: 53 tests skip without the harness.\n[launchpad-handoff-seam] pg binaries: /opt/homebrew/opt/postgresql@16/bin\n[launchpad-handoff-seam] port:        61776 (never 5432 / 15432)\n[launchpad-handoff-seam] running migrations from zero...\n[startup] migrations_started { reason: 'deploy', force: true, timeoutMs: 120000 }\n[startup] db_client_initialized {\n  runtime: 'web',\n  applicationName: 'omniads-web',\n  poolMax: 10,\n  queryTimeoutMs: 8000,\n  connectionTimeoutMs: 10000,\n  idleTimeoutMs: 30000,\n  maxLifetimeSeconds: null,\n  statementTimeoutMs: null,\n  idleInTransactionSessionTimeoutMs: null,\n  retryAttempts: 4,\n  retryBackoffMs: 400,\n  retryMaxBackoffMs: 4000\n}\n[startup] db_client_timeout_wrapper_initialized {\n  runtime: 'web',\n  applicationName: 'omniads-web',\n  timeoutMs: 120000,\n  poolMax: 10\n}\n[startup] migrations_preflight {\n  reason: 'deploy',\n  session: { lock_timeout: '15s', statement_timeout: '2min', idle_timeout: '0' },\n  capacity: {\n    database_bytes: '7797783',\n    database_pretty: '7615 kB',\n    wal_bytes: '16777216',\n    temp_file_limit: '-1',\n    meta_raw_snapshots_size: 'absent',\n    shopify_raw_snapshots_size: 'absent'\n  }\n}\n[startup] migration_capacity_checked {\n  step: 'sync_release_gates_provider_scope',\n  engaged: false,\n  detail: 'sync_release_gates is 24576B; below the 268435456B heavy threshold, so no capacity gate applies'\n}\n[startup] db_client_timeout_wrapper_initialized {\n  runtime: 'web',\n  applicationName: 'omniads-web',\n  timeoutMs: 60000,\n  poolMax: 10\n}\n[startup] migrations_schema_verified { reason: 'deploy', verifiedObjects: 71 }\n[startup] migrations_automation_claim_schema_verified { reason: 'deploy', verifiedObjects: 11 }\n[startup] migrations_completed { reason: 'deploy' }\n{\n  \"metaSyncPartitionsLeaseEpochExists\": true,\n  \"metaSyncCheckpointsLeaseEpochExists\": true,\n  \"metaSyncPartitionsLeaseEpochNullCount\": 0,\n  \"metaSyncCheckpointsLeaseEpochNullRowsPresent\": false,\n  \"syncIncidentsExists\": true\n}\n[launchpad-handoff-seam] migrations from zero exited clean.\n[launchpad-handoff-seam] running launchpad handoff persistence (real PostgreSQL)...\n\n RUN  v4.1.5 /Users/harmelek/Adsecute\n\n ❯ lib/meta/launchpad-handoff.db.test.ts (26 tests | 1 failed) 114ms\n     × preselects the campaign and ad set for a duplicate 3ms\n\n⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯\n\n FAIL  lib/meta/launchpad-handoff.db.test.ts > meta launchpad handoff persistence > preselects the campaign and ad set for a duplicate\nError: mint refused: {\"ok\":false,\"refusal\":\"execution_not_ready\"}\n ❯ lib/meta/launchpad-handoff.db.test.ts:264:13\n    262|     // regression) gets diagnosed from.\n    263|     if (!minted.ok) {\n    264|       throw new Error(\n       |             ^\n    265|         `mint refused: ${JSON.stringify(minted)}`,\n    266|       );\n\n⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯\n\n\n Test Files  1 failed (1)\n      Tests  1 failed | 25 passed (26)\n   Start at  16:37:43\n   Duration  312ms (transform 53ms, setup 62ms, import 17ms, tests 114ms, environment 0ms)\n\nError: launchpad handoff persistence (real PostgreSQL) exited with code 1.\n    at runChild (/Users/harmelek/Adsecute/scripts/ephemeral-postgres-launchpad-handoff-seam.ts:175:25)\n    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)\n    at async main (/Users/harmelek/Adsecute/scripts/ephemeral-postgres-launchpad-handoff-seam.ts:298:5)\nEXIT:1\n",
+   "timing": "UNKNOWN — not captured at run time",
+   "exitCode": 1,
+   "exactRefusal": "{\"ok\":false,\"refusal\":\"execution_not_ready\"}"
+  }
+ },
+ "supplementalCorrection1Records": {
+  "note": "HISTORICAL, SUPPLEMENTAL ONLY — the correction-1 records (unit-suite splits, 51 extracted seam commands, fast checks). The 51-command extraction is NOT the canonical database-seam equivalent: it omitted the executable CUTOVER_REQUIRED/wrapper-manifest/runbook shell logic (canonical script lines 184–216). The authoritative database-seam proof is wholeShellCanonicalRun below. These records carry no timeout/teardown fields because none were captured at run time (limitation recorded, not invented).",
+  "limitation": {
+   "timeout": null,
+   "timeoutReason": "no external timeout was configured for these historical runs",
+   "teardown": null,
+   "teardownReason": "no per-stage teardown capture existed in the correction-1 runner"
+  },
+  "records": [
+   {
+    "stage": "failfirst.route-authority",
+    "command": "npx vitest run app/api/route-authority.test.ts --maxWorkers=1",
+    "recordedFrom": "/private/tmp/claude-501/-Users-harmelek-Adsecute/b1c7adea-0b6c-4b08-90b1-d63cd1d97e6e/scratchpad/d077/c1/route-authority-failfirst.log",
+    "exitCode": 1,
+    "counts": {
+     "failed": 1,
+     "passed": 4,
+     "skipped": 0,
+     "todo": 0
+    },
+    "note": "pre-fix red preserved: meta/campaign-labels undeclared"
+   },
+   {
+    "stage": "failfirst.launchpad-seam",
+    "command": "npm run test:launchpad-handoff-seam",
+    "recordedFrom": "/private/tmp/claude-501/-Users-harmelek-Adsecute/b1c7adea-0b6c-4b08-90b1-d63cd1d97e6e/scratchpad/d077/c1/seam-failfirst.log",
+    "exitCode": 1,
+    "counts": {
+     "failed": 1,
+     "passed": 25,
+     "skipped": 0,
+     "todo": 0
+    },
+    "note": "canonical seam ran on pnpm after the entrypoint fix; exact refusal recorded: {\"ok\":false,\"refusal\":\"execution_not_ready\"}"
+   },
+   {
+    "stage": "production.evidence-collector",
+    "command": "npx tsx scripts/audits/d077-production-recovery-readonly-preflight.ts",
+    "exitCode": 0,
+    "note": "one RR RO transaction 2026-08-30 13:43:16.6596+00, app d077_recovery_preflight_c1_1788097395752, hash recomputed from written file"
+   },
+   {
+    "stage": "postfix.route-authority",
+    "command": "npx vitest run app/api/route-authority.test.ts --maxWorkers=1",
+    "startUtc": "2026-08-30T13:45:22.438442+00:00",
+    "endUtc": "2026-08-30T13:45:23.501596+00:00",
+    "durationSeconds": 1.1,
+    "exitCode": 0,
+    "counts": {
+     "failed": 0,
+     "passed": 5,
+     "skipped": 0,
+     "todo": 0
+    },
+    "tail": "   Duration  257ms (transform 23ms, setup 103ms, import 19ms, tests 62ms, environment 0ms)"
+   },
+   {
+    "stage": "postfix.launchpad-seam-canonical",
+    "command": "npm run test:launchpad-handoff-seam",
+    "startUtc": "2026-08-30T13:45:28.355503+00:00",
+    "endUtc": "2026-08-30T13:45:32.769498+00:00",
+    "durationSeconds": 4.4,
+    "exitCode": 0,
+    "counts": {
+     "failed": 0,
+     "passed": 26,
+     "skipped": 0,
+     "todo": 0
+    },
+    "tail": "[launchpad-handoff-seam] PASS: mint, consume, single use, account scoping, origin integrity, and the mint endpoint's refusals and response shape."
+   },
+   {
+    "stage": "postfix.launchpad-seam-canonical.detail",
+    "command": "(same run as postfix.launchpad-seam-canonical)",
+    "note": "negative control: 53 skipped without harness; store suite 26 passed; mint-endpoint suite 27 passed; wrapper PASS line printed; the runner regex records only the first vitest count line",
+    "counts": {
+     "storeSuitePassed": 26,
+     "routeSuitePassed": 27,
+     "negativeControlSkipped": 53
+    }
+   },
+   {
+    "stage": "canonical.check-workflows",
+    "command": "npm run check:workflows",
+    "startUtc": "2026-08-30T13:46:08.673417+00:00",
+    "endUtc": "2026-08-30T13:46:09.000461+00:00",
+    "durationSeconds": 0.3,
+    "exitCode": 0,
+    "counts": null,
+    "tail": "[workflow-semantics] PASS — every needs reference resolves, no cycles, every step well-formed"
+   },
+   {
+    "stage": "canonical.typecheck",
+    "command": "npx tsc --noEmit",
+    "startUtc": "2026-08-30T13:46:09.024879+00:00",
+    "endUtc": "2026-08-30T13:46:13.901263+00:00",
+    "durationSeconds": 4.9,
+    "exitCode": 0,
+    "counts": null,
+    "tail": ""
+   },
+   {
+    "stage": "canonical.eslint-full",
+    "command": "npx eslint .",
+    "startUtc": "2026-08-30T13:46:18.515268+00:00",
+    "endUtc": "2026-08-30T13:46:34.426445+00:00",
+    "durationSeconds": 15.9,
+    "exitCode": 0,
+    "counts": null,
+    "tail": ""
+   },
+   {
+    "stage": "unit.split1-lib",
+    "command": "npx vitest run lib --maxWorkers=1",
+    "startUtc": "2026-08-30T13:46:40.559934+00:00",
+    "endUtc": "2026-08-30T13:48:33.451688+00:00",
+    "durationSeconds": 112.9,
+    "exitCode": 0,
+    "counts": {
+     "failed": 0,
+     "passed": 7428,
+     "skipped": 117,
+     "todo": 63
+    },
+    "tail": "   Duration  112.23s (transform 7.23s, setup 30.87s, import 16.74s, tests 23.37s, environment 1.70s)"
+   },
+   {
+    "stage": "unit.split2-app-components",
+    "command": "npx vitest run app components --maxWorkers=1",
+    "startUtc": "2026-08-30T13:48:37.607280+00:00",
+    "endUtc": "2026-08-30T13:52:47.386588+00:00",
+    "durationSeconds": 249.8,
+    "exitCode": 0,
+    "counts": {
+     "failed": 0,
+     "passed": 5676,
+     "skipped": 36,
+     "todo": 0
+    },
+    "tail": "Not implemented: HTMLMediaElement's pause() method"
+   },
+   {
+    "stage": "unit.split3-remaining",
+    "command": "npx vitest run scripts deploy hooks src store proxy.test.ts --maxWorkers=1",
+    "startUtc": "2026-08-30T13:52:51.943483+00:00",
+    "endUtc": "2026-08-30T13:53:14.189985+00:00",
+    "durationSeconds": 22.2,
+    "exitCode": 0,
+    "counts": {
+     "failed": 0,
+     "passed": 579,
+     "skipped": 0,
+     "todo": 0
+    },
+    "tail": "   Duration  21.59s (transform 2.62s, setup 3.18s, import 4.91s, tests 8.72s, environment 682ms)"
+   },
+   {
+    "stage": "seams.01",
+    "command": "npm run check:workflows",
+    "startUtc": "2026-08-30T13:53:24.415595+00:00",
+    "endUtc": "2026-08-30T13:53:24.577067+00:00",
+    "durationSeconds": 0.2,
+    "exitCode": 0,
+    "counts": null,
+    "tail": "[workflow-semantics] PASS — every needs reference resolves, no cycles, every step well-formed"
+   },
+   {
+    "stage": "seams.02",
+    "command": "npm run test:migrations-from-zero",
+    "startUtc": "2026-08-30T13:53:24.602535+00:00",
+    "endUtc": "2026-08-30T13:53:49.387777+00:00",
+    "durationSeconds": 24.8,
+    "exitCode": 0,
+    "counts": null,
+    "tail": "[migrations-from-zero] temp dir removed: /var/folders/ft/2b5f1_qn05g0rjscjj17n8fc0000gn/T/adsecute-ephemeral-pg-azuoim"
+   },
+   {
+    "stage": "seams.03",
+    "command": "npm run test:dr-restore-seam",
+    "startUtc": "2026-08-30T13:53:49.422582+00:00",
+    "endUtc": "2026-08-30T13:53:57.524635+00:00",
+    "durationSeconds": 8.1,
+    "exitCode": 0,
+    "counts": null,
+    "tail": "[dr-restore-seam] PASS"
+   },
+   {
+    "stage": "seams.04",
+    "command": "npm run test:staged-worker",
+    "startUtc": "2026-08-30T13:53:57.557474+00:00",
+    "endUtc": "2026-08-30T13:55:02.236554+00:00",
+    "durationSeconds": 64.7,
+    "exitCode": 0,
+    "counts": null,
+    "tail": "[staged-worker-seam] PASS"
+   },
+   {
+    "stage": "seams.05",
+    "command": "node --import tsx scripts/ephemeral-postgres-native-ad-decision-seam.ts",
+    "startUtc": "2026-08-30T13:55:07.407225+00:00",
+    "endUtc": "2026-08-30T13:55:09.413073+00:00",
+    "durationSeconds": 2,
+    "exitCode": 0,
+    "counts": null,
+    "tail": "[native-ad-seam] PASS capture-axis and compaction-aware receipts, generation-bound 501-row hydration, second-event-batch rollback, tombstone, historical cutoff, first-write linkage, receipt prune, retry, account-identity reuse, D063 held Cut authority, three-valued legacy authority upgrade, FK, soft"
+   },
+   {
+    "stage": "seams.06",
+    "command": "npm run test:provider-fixture-seam",
+    "startUtc": "2026-08-30T13:55:09.438425+00:00",
+    "endUtc": "2026-08-30T13:55:15.514674+00:00",
+    "durationSeconds": 6.1,
+    "exitCode": 0,
+    "counts": null,
+    "tail": "}"
+   },
+   {
+    "stage": "seams.07",
+    "command": "npm run test:sync-retention-seam",
+    "startUtc": "2026-08-30T13:55:15.542082+00:00",
+    "endUtc": "2026-08-30T13:55:19.848933+00:00",
+    "durationSeconds": 4.3,
+    "exitCode": 0,
+    "counts": null,
+    "tail": "[sync-kill-switch] retention execution downgraded to dry run { reason: 'lane_switch_off' }"
+   },
+   {
+    "stage": "seams.08",
+    "command": "npm run test:release-gate-plan-seam",
+    "startUtc": "2026-08-30T13:55:19.874706+00:00",
+    "endUtc": "2026-08-30T13:55:48.537191+00:00",
+    "durationSeconds": 28.7,
+    "exitCode": 0,
+    "counts": null,
+    "tail": "[sync-kill-switch] retention execution downgraded to dry run { reason: 'lane_switch_unset' }"
+   },
+   {
+    "stage": "seams.09",
+    "command": "npm run test:legacy-replay-seam",
+    "startUtc": "2026-08-30T13:55:48.570484+00:00",
+    "endUtc": "2026-08-30T13:55:53.221769+00:00",
+    "durationSeconds": 4.7,
+    "exitCode": 0,
+    "counts": null,
+    "tail": "(Use `node --trace-deprecation ...` to show where the warning was created)"
+   },
+   {
+    "stage": "seams.10",
+    "command": "npm run test:google-ads-finality-seam",
+    "startUtc": "2026-08-30T13:55:53.247558+00:00",
+    "endUtc": "2026-08-30T13:55:55.449708+00:00",
+    "durationSeconds": 2.2,
+    "exitCode": 0,
+    "counts": null,
+    "tail": "[google-ads-finality-seam] PASS — F1-F19"
+   },
+   {
+    "stage": "seams.11",
+    "command": "bash -n scripts/hetzner-sync-cutover.sh",
+    "startUtc": "2026-08-30T13:55:55.474922+00:00",
+    "endUtc": "2026-08-30T13:55:55.487314+00:00",
+    "durationSeconds": 0,
+    "exitCode": 0,
+    "counts": null,
+    "tail": ""
+   },
+   {
+    "stage": "seams.12",
+    "command": "bash -n scripts/cutover-wrapper-package.sh",
+    "startUtc": "2026-08-30T13:55:55.511468+00:00",
+    "endUtc": "2026-08-30T13:55:55.518934+00:00",
+    "durationSeconds": 0,
+    "exitCode": 0,
+    "counts": null,
+    "tail": ""
+   },
+   {
+    "stage": "seams.13",
+    "command": "bash -n scripts/cutover-real-postgres-harness.sh",
+    "startUtc": "2026-08-30T13:56:00.620632+00:00",
+    "endUtc": "2026-08-30T13:56:00.632870+00:00",
+    "durationSeconds": 0,
+    "exitCode": 0,
+    "counts": null,
+    "tail": ""
+   },
+   {
+    "stage": "seams.14",
+    "command": "bash -n scripts/cutover-wrapper-build-context-check.sh",
+    "startUtc": "2026-08-30T13:56:00.660394+00:00",
+    "endUtc": "2026-08-30T13:56:00.668696+00:00",
+    "durationSeconds": 0,
+    "exitCode": 0,
+    "counts": null,
+    "tail": ""
+   },
+   {
+    "stage": "seams.15",
+    "command": "bash -n scripts/check-release-owner-references.sh",
+    "startUtc": "2026-08-30T13:56:00.695104+00:00",
+    "endUtc": "2026-08-30T13:56:00.702369+00:00",
+    "durationSeconds": 0,
+    "exitCode": 0,
+    "counts": null,
+    "tail": ""
+   },
+   {
+    "stage": "seams.16",
+    "command": "bash -n scripts/verify-database-seams.sh",
+    "startUtc": "2026-08-30T13:56:00.726980+00:00",
+    "endUtc": "2026-08-30T13:56:00.734570+00:00",
+    "durationSeconds": 0,
+    "exitCode": 0,
+    "counts": null,
+    "tail": ""
+   },
+   {
+    "stage": "seams.17",
+    "command": "npm run test:cutover-wrapper-package",
+    "startUtc": "2026-08-30T13:56:00.758867+00:00",
+    "endUtc": "2026-08-30T13:56:00.860482+00:00",
+    "durationSeconds": 0.1,
+    "exitCode": 0,
+    "counts": null,
+    "tail": "[cutover-package] PASS scripts/cutover-wrapper.manifest pins scripts/hetzner-sync-cutover.sh (sha256=e1c46e67fa6dff9cd3139bb13020017b14671668a62e35df1e66bd8f0b6c4182, bytes=182225, cutover_required=no)"
+   },
+   {
+    "stage": "seams.18",
+    "command": "npm run test:cutover-build-context",
+    "startUtc": "2026-08-30T13:56:00.885494+00:00",
+    "endUtc": "2026-08-30T13:56:04.073146+00:00",
+    "durationSeconds": 3.2,
+    "exitCode": 0,
+    "counts": null,
+    "tail": "[cutover-build-context] PASS build-context assertions hold. This says NOTHING about the built image or the runtime."
+   },
+   {
+    "stage": "seams.19",
+    "command": "npm run test:cutover-harness",
+    "startUtc": "2026-08-30T13:56:04.098109+00:00",
+    "endUtc": "2026-08-30T14:01:24.611822+00:00",
+    "durationSeconds": 320.5,
+    "exitCode": 0,
+    "counts": null,
+    "tail": "[cutover-real-harness] PASS all checks"
+   },
+   {
+    "stage": "seams.20",
+    "command": "npx vitest run lib/sync/entrypoint-admission.test.ts",
+    "startUtc": "2026-08-30T14:01:24.680447+00:00",
+    "endUtc": "2026-08-30T14:01:26.463995+00:00",
+    "durationSeconds": 1.8,
+    "exitCode": 0,
+    "counts": {
+     "failed": 0,
+     "passed": 53,
+     "skipped": 0,
+     "todo": 0
+    },
+    "tail": "   Duration  962ms (transform 623ms, setup 105ms, import 73ms, tests 708ms, environment 0ms)"
+   },
+   {
+    "stage": "seams.21",
+    "command": "npm run test:entrypoint-admission-seam",
+    "startUtc": "2026-08-30T14:01:26.489040+00:00",
+    "endUtc": "2026-08-30T14:01:29.618179+00:00",
+    "durationSeconds": 3.1,
+    "exitCode": 0,
+    "counts": null,
+    "tail": "}"
+   },
+   {
+    "stage": "seams.22",
+    "command": "npm run test:selection-race-seam",
+    "startUtc": "2026-08-30T14:01:29.642912+00:00",
+    "endUtc": "2026-08-30T14:01:33.142148+00:00",
+    "durationSeconds": 3.5,
+    "exitCode": 0,
+    "counts": null,
+    "tail": "[selection-race-seam] PASS"
+   },
+   {
+    "stage": "seams.23",
+    "command": "npm run test:automation-claim-race-seam",
+    "startUtc": "2026-08-30T14:01:33.169334+00:00",
+    "endUtc": "2026-08-30T14:01:42.799684+00:00",
+    "durationSeconds": 9.6,
+    "exitCode": 0,
+    "counts": {
+     "failed": 0,
+     "passed": 7,
+     "skipped": 0,
+     "todo": 0
+    },
+    "tail": "    at async <anonymous> (/Users/harmelek/Adsecute/lib/migrations.ts:15084:27)"
+   },
+   {
+    "stage": "seams.24",
+    "command": "npm run test:launchpad-handoff-seam",
+    "startUtc": "2026-08-30T14:01:42.826419+00:00",
+    "endUtc": "2026-08-30T14:01:46.535438+00:00",
+    "durationSeconds": 3.7,
+    "exitCode": 0,
+    "counts": {
+     "failed": 0,
+     "passed": 26,
+     "skipped": 0,
+     "todo": 0
+    },
+    "tail": "[launchpad-handoff-seam] PASS: mint, consume, single use, account scoping, origin integrity, and the mint endpoint's refusals and response shape."
+   },
+   {
+    "stage": "seams.25",
+    "command": "npm run test:breakdown-dimension-seam",
+    "startUtc": "2026-08-30T14:01:51.875079+00:00",
+    "endUtc": "2026-08-30T14:01:54.748321+00:00",
+    "durationSeconds": 2.9,
+    "exitCode": 0,
+    "counts": null,
+    "tail": "[breakdown-dimension-seam] cluster torn down."
+   },
+   {
+    "stage": "seams.26",
+    "command": "npm run test:meta-history-assignment-seam",
+    "startUtc": "2026-08-30T14:01:54.775719+00:00",
+    "endUtc": "2026-08-30T14:01:57.378309+00:00",
+    "durationSeconds": 2.6,
+    "exitCode": 0,
+    "counts": {
+     "failed": 0,
+     "passed": 6,
+     "skipped": 0,
+     "todo": 0
+    },
+    "tail": "[meta-history-assignment-seam] cluster torn down."
+   },
+   {
+    "stage": "seams.27",
+    "command": "npm run test:shopify-install-seam",
+    "startUtc": "2026-08-30T14:01:57.403527+00:00",
+    "endUtc": "2026-08-30T14:02:00.548467+00:00",
+    "durationSeconds": 3.1,
+    "exitCode": 0,
+    "counts": null,
+    "tail": "[shopify-install-seam] PASS"
+   },
+   {
+    "stage": "seams.28",
+    "command": "npm run test:shopify-grant-race-seam",
+    "startUtc": "2026-08-30T14:02:00.575000+00:00",
+    "endUtc": "2026-08-30T14:02:02.717989+00:00",
+    "durationSeconds": 2.1,
+    "exitCode": 0,
+    "counts": null,
+    "tail": "[shopify-grant-race-seam] PASS"
+   },
+   {
+    "stage": "seams.29",
+    "command": "npm run test:shopify-context-access-seam",
+    "startUtc": "2026-08-30T14:02:02.743431+00:00",
+    "endUtc": "2026-08-30T14:02:04.931524+00:00",
+    "durationSeconds": 2.2,
+    "exitCode": 0,
+    "counts": null,
+    "tail": "[shopify-context-access-seam] PASS"
+   },
+   {
+    "stage": "seams.30",
+    "command": "bash -n .github/scripts/hetzner-remote.sh",
+    "startUtc": "2026-08-30T14:02:04.956576+00:00",
+    "endUtc": "2026-08-30T14:02:04.967048+00:00",
+    "durationSeconds": 0,
+    "exitCode": 0,
+    "counts": null,
+    "tail": ""
+   },
+   {
+    "stage": "seams.31",
+    "command": "npm run test:deploy-gate-ordering",
+    "startUtc": "2026-08-30T14:02:04.990981+00:00",
+    "endUtc": "2026-08-30T14:02:05.800164+00:00",
+    "durationSeconds": 0.8,
+    "exitCode": 0,
+    "counts": null,
+    "tail": "[deploy-gate-ordering] PASS all checks"
+   },
+   {
+    "stage": "seams.32",
+    "command": "npm run test:deploy-registry-auth",
+    "startUtc": "2026-08-30T14:02:05.824872+00:00",
+    "endUtc": "2026-08-30T14:02:07.961530+00:00",
+    "durationSeconds": 2.1,
+    "exitCode": 0,
+    "counts": null,
+    "tail": "All cases passed."
+   },
+   {
+    "stage": "seams.33",
+    "command": "npm run test:cutover-stuck-repro",
+    "startUtc": "2026-08-30T14:02:07.987257+00:00",
+    "endUtc": "2026-08-30T14:02:08.994874+00:00",
+    "durationSeconds": 1,
+    "exitCode": 0,
+    "counts": null,
+    "tail": "[cutover-stuck-repro] PASS — the deadlock is real and both supported exits are unusable"
+   },
+   {
+    "stage": "seams.34",
+    "command": "npm run test:cutover-resume-recovery",
+    "startUtc": "2026-08-30T14:02:09.022045+00:00",
+    "endUtc": "2026-08-30T14:02:13.290642+00:00",
+    "durationSeconds": 4.3,
+    "exitCode": 0,
+    "counts": null,
+    "tail": "[cutover-resume-recovery] PASS all checks"
+   },
+   {
+    "stage": "seams.35",
+    "command": "npm run test:ssh-multiplex-isolation",
+    "startUtc": "2026-08-30T14:02:13.316360+00:00",
+    "endUtc": "2026-08-30T14:02:13.436191+00:00",
+    "durationSeconds": 0.1,
+    "exitCode": 0,
+    "counts": null,
+    "tail": "[ssh-multiplex-isolation] PASS — a forwarded invocation cannot ride an unforwarded master"
+   },
+   {
+    "stage": "seams.36",
+    "command": "npm run test:cutover-wrapper-identity",
+    "startUtc": "2026-08-30T14:02:13.461057+00:00",
+    "endUtc": "2026-08-30T14:02:14.315591+00:00",
+    "durationSeconds": 0.9,
+    "exitCode": 0,
+    "counts": null,
+    "tail": "[cutover-wrapper-identity] PASS — a cutover epoch is bound to exactly one wrapper, and preflight remains reachable"
+   },
+   {
+    "stage": "seams.37",
+    "command": "bash -n scripts/cutover-runner-package-check.sh",
+    "startUtc": "2026-08-30T14:02:14.342713+00:00",
+    "endUtc": "2026-08-30T14:02:14.351741+00:00",
+    "durationSeconds": 0,
+    "exitCode": 0,
+    "counts": null,
+    "tail": ""
+   },
+   {
+    "stage": "seams.38",
+    "command": "npm run test:cutover-runner-package",
+    "startUtc": "2026-08-30T14:02:14.377333+00:00",
+    "endUtc": "2026-08-30T14:02:16.877993+00:00",
+    "durationSeconds": 2.5,
+    "exitCode": 0,
+    "counts": null,
+    "tail": "[cutover-runner-package] PASS — the runner package is digest-pinned, isolated by realpath, and never writes the installed wrapper"
+   },
+   {
+    "stage": "seams.39",
+    "command": "bash -n scripts/cutover-scratch-cleanup-check.sh",
+    "startUtc": "2026-08-30T14:02:21.473291+00:00",
+    "endUtc": "2026-08-30T14:02:21.481450+00:00",
+    "durationSeconds": 0,
+    "exitCode": 0,
+    "counts": null,
+    "tail": ""
+   },
+   {
+    "stage": "seams.40",
+    "command": "npm run test:cutover-scratch-cleanup",
+    "startUtc": "2026-08-30T14:02:21.507904+00:00",
+    "endUtc": "2026-08-30T14:02:21.636413+00:00",
+    "durationSeconds": 0.1,
+    "exitCode": 0,
+    "counts": null,
+    "tail": "[cutover-scratch-cleanup] PASS — cleanup is proven, or it is a failure"
+   },
+   {
+    "stage": "seams.41",
+    "command": "bash -n scripts/cutover-migration-capacity-sample-check.sh",
+    "startUtc": "2026-08-30T14:02:21.661436+00:00",
+    "endUtc": "2026-08-30T14:02:21.668453+00:00",
+    "durationSeconds": 0,
+    "exitCode": 0,
+    "counts": null,
+    "tail": ""
+   },
+   {
+    "stage": "seams.42",
+    "command": "npm run test:cutover-migration-capacity-sample",
+    "startUtc": "2026-08-30T14:02:21.693060+00:00",
+    "endUtc": "2026-08-30T14:02:21.819419+00:00",
+    "durationSeconds": 0.1,
+    "exitCode": 0,
+    "counts": null,
+    "tail": "[cutover-migration-capacity-sample] PASS — migrate refreshes its own capacity evidence and gates on the evidence, not the sampler exit"
+   },
+   {
+    "stage": "seams.43",
+    "command": "bash -n scripts/cutover-self-cleanup-check.sh",
+    "startUtc": "2026-08-30T14:02:21.844694+00:00",
+    "endUtc": "2026-08-30T14:02:21.851953+00:00",
+    "durationSeconds": 0,
+    "exitCode": 0,
+    "counts": null,
+    "tail": ""
+   },
+   {
+    "stage": "seams.44",
+    "command": "npm run test:cutover-self-cleanup",
+    "startUtc": "2026-08-30T14:02:21.876006+00:00",
+    "endUtc": "2026-08-30T14:02:22.131503+00:00",
+    "durationSeconds": 0.3,
+    "exitCode": 0,
+    "counts": null,
+    "tail": "[cutover-self-cleanup] PASS — reclaims only its own unmanifested, unreferenced, unheld artifact"
+   },
+   {
+    "stage": "seams.45",
+    "command": "bash -n scripts/cutover-supersede-guard-check.sh",
+    "startUtc": "2026-08-30T14:02:22.156673+00:00",
+    "endUtc": "2026-08-30T14:02:22.163973+00:00",
+    "durationSeconds": 0,
+    "exitCode": 0,
+    "counts": null,
+    "tail": ""
+   },
+   {
+    "stage": "seams.46",
+    "command": "npm run test:cutover-supersede-guard",
+    "startUtc": "2026-08-30T14:02:22.188040+00:00",
+    "endUtc": "2026-08-30T14:02:22.323812+00:00",
+    "durationSeconds": 0.1,
+    "exitCode": 0,
+    "counts": null,
+    "tail": "[cutover-supersede-guard] PASS — supersede refuses by default, allows only a fully-reversible chain, and only with production proven restored"
+   },
+   {
+    "stage": "seams.47",
+    "command": "bash -n scripts/operator-hardening-check.sh",
+    "startUtc": "2026-08-30T14:02:22.348863+00:00",
+    "endUtc": "2026-08-30T14:02:22.356438+00:00",
+    "durationSeconds": 0,
+    "exitCode": 0,
+    "counts": null,
+    "tail": ""
+   },
+   {
+    "stage": "seams.48",
+    "command": "npm run test:operator-hardening",
+    "startUtc": "2026-08-30T14:02:22.380511+00:00",
+    "endUtc": "2026-08-30T14:03:54.248535+00:00",
+    "durationSeconds": 91.9,
+    "exitCode": 0,
+    "counts": null,
+    "tail": "scripts/operator-hardening-check.sh: line 315: 57661 Terminated: 15          ( OP_SUPERVISE_MOCK=1 OP_SUPERVISE_MOCK_CMD=\"${MOCK}\" bash \"${HERE}/supervise.sh\" start verify > \"${PARENT_OUT}\" 2>&1; sleep 300 )"
+   },
+   {
+    "stage": "seams.49",
+    "command": "npm run test:schema-upgrade-seam",
+    "startUtc": "2026-08-30T14:03:54.314992+00:00",
+    "endUtc": "2026-08-30T14:03:58.606927+00:00",
+    "durationSeconds": 4.3,
+    "exitCode": 0,
+    "counts": null,
+    "tail": "[schema-upgrade-seam] PASS"
+   },
+   {
+    "stage": "seams.50",
+    "command": "SCHEMA_UPGRADE_PRE_CHANGE_REF=\"28802cff0aa4ff78fecaecd47c9076613ed19374\" npm run test:schema-upgrade-seam",
+    "startUtc": "2026-08-30T14:03:58.632470+00:00",
+    "endUtc": "2026-08-30T14:04:02.547682+00:00",
+    "durationSeconds": 3.9,
+    "exitCode": 0,
+    "counts": null,
+    "tail": "[schema-upgrade-seam] PASS"
+   },
+   {
+    "stage": "seams.51",
+    "command": "npm run check:release-owner",
+    "startUtc": "2026-08-30T14:04:02.578399+00:00",
+    "endUtc": "2026-08-30T14:04:29.253930+00:00",
+    "durationSeconds": 26.7,
+    "exitCode": 0,
+    "counts": null,
+    "tail": "[release-owner-guard] PASS — 81 historical occurrence(s) frozen; every active-path reference is registered or marked; 2 meta file(s) covered by the self-test."
+   },
+   {
+    "stage": "canonical.side-effect-scan",
+    "command": "node --import tsx scripts/check-request-path-side-effects.ts --json > /dev/null",
+    "startUtc": "2026-08-30T14:04:36.266761+00:00",
+    "endUtc": "2026-08-30T14:04:39.156995+00:00",
+    "durationSeconds": 2.9,
+    "exitCode": 0,
+    "counts": null,
+    "tail": ""
+   },
+   {
+    "stage": "canonical.architecture-baseline",
+    "command": "npm run db:architecture:baseline",
+    "startUtc": "2026-08-30T14:04:39.180901+00:00",
+    "endUtc": "2026-08-30T14:04:49.066400+00:00",
+    "durationSeconds": 9.9,
+    "exitCode": 0,
+    "counts": {
+     "failed": 0,
+     "passed": 493,
+     "skipped": 0,
+     "todo": 0
+    },
+    "tail": "   Duration  3.70s (transform 3.55s, setup 3.56s, import 5.86s, tests 5.97s, environment 2ms)"
+   },
+   {
+    "stage": "canonical.git-diff-check",
+    "command": "git diff --check",
+    "startUtc": "2026-08-30T14:04:49.094747+00:00",
+    "endUtc": "2026-08-30T14:04:49.236036+00:00",
+    "durationSeconds": 0.1,
+    "exitCode": 0,
+    "counts": null,
+    "tail": ""
+   },
+   {
+    "stage": "guards.scope-residue-vocab-consumer",
+    "command": "npx vitest run lib/meta/__tests__/d078-acceptance-guards.test.ts lib/meta/__tests__/state-history-consumer-closure.test.ts lib/meta/__tests__/campaign-role-vocabulary-closure.test.ts lib/meta/__tests__/d078-matrix-contract.test.ts --maxWorkers=1",
+    "startUtc": "2026-08-30T14:04:49.259966+00:00",
+    "endUtc": "2026-08-30T14:04:50.894145+00:00",
+    "durationSeconds": 1.6,
+    "exitCode": 0,
+    "counts": {
+     "failed": 0,
+     "passed": 45,
+     "skipped": 0,
+     "todo": 0
+    },
+    "tail": "   Duration  1.26s (transform 108ms, setup 214ms, import 177ms, tests 570ms, environment 0ms)"
+   },
+   {
+    "stage": "final.guards-post-classification",
+    "command": "npx vitest run lib/meta/__tests__/d078-acceptance-guards.test.ts lib/meta/__tests__/state-history-consumer-closure.test.ts lib/meta/__tests__/campaign-role-vocabulary-closure.test.ts lib/meta/__tests__/d078-matrix-contract.test.ts --maxWorkers=1",
+    "startUtc": "2026-08-30T14:09:44.718355+00:00",
+    "endUtc": "2026-08-30T14:09:46.944878+00:00",
+    "durationSeconds": 2.2,
+    "exitCode": 0,
+    "counts": {
+     "failed": 0,
+     "passed": 45,
+     "skipped": 0,
+     "todo": 0
+    },
+    "tail": "   Duration  1.41s (transform 115ms, setup 243ms, import 183ms, tests 729ms, environment 0ms)"
+   },
+   {
+    "stage": "final.typecheck",
+    "command": "npx tsc --noEmit",
+    "startUtc": "2026-08-30T14:09:46.970822+00:00",
+    "endUtc": "2026-08-30T14:09:51.330154+00:00",
+    "durationSeconds": 4.4,
+    "exitCode": 0,
+    "counts": null,
+    "tail": ""
+   },
+   {
+    "stage": "final.eslint-changed",
+    "command": "npx eslint scripts/audits/d077-correction1-artifact-generator.ts scripts/audits/d077-production-recovery-readonly-preflight.ts scripts/ephemeral-postgres-launchpad-handoff-seam.ts app/api/route-authority.test.ts lib/meta/launchpad-handoff.db.test.ts lib/meta/__tests__/state-history-consumer-closure.test.ts",
+    "startUtc": "2026-08-30T14:09:51.357160+00:00",
+    "endUtc": "2026-08-30T14:09:52.049748+00:00",
+    "durationSeconds": 0.7,
+    "exitCode": 0,
+    "counts": null,
+    "tail": ""
+   },
+   {
+    "stage": "final.git-diff-check",
+    "command": "git diff --check",
+    "startUtc": "2026-08-30T14:09:52.074219+00:00",
+    "endUtc": "2026-08-30T14:09:52.161451+00:00",
+    "durationSeconds": 0.1,
+    "exitCode": 0,
+    "counts": null,
+    "tail": ""
+   }
+  ]
+ },
+ "teardownReadback": {
+  "taskOwnedProcesses": "none remain (verified after the final stage; exact commands in the final response)",
+  "ephemeralDatabaseListeners": "none remain (seam clusters tear down in their traps)",
+  "preExistingTunnel": "127.0.0.1:15432 SSH tunnel (pid 38894) found running before this task, never started/stopped/touched by it",
+  "claudeEvidenceScratchpad": "INTENTIONALLY RETAINED at the session scratchpad d077/ directory: it holds the raw fail-first logs (embedded above by content and hash), runner sources and planner logs. It is retained evidence, NOT ephemeral database/process residue; nothing in it is a secret."
+ }
+}

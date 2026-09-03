@@ -19,7 +19,7 @@ const getCreativeShareLedgerCapability = vi.hoisted(() =>
 );
 const fetchAssignedAccountIds = vi.hoisted(() => vi.fn(async () => ["act_1"]));
 const createCreativeShareSnapshot = vi.hoisted(() =>
-  vi.fn(async () => ({ token: "tok-new", expiresAt: "2026-09-01" })),
+  vi.fn(async () => ({ token: "tok-new", expiresAt: "2026-10-03" })),
 );
 const buildBuyerClientActions = vi.hoisted(() => vi.fn(async () => []));
 
@@ -63,13 +63,27 @@ function request(body: unknown) {
   return { json: async () => body } as never;
 }
 
+/*
+  PRE-DEPLOY AUDIT — the expiry is RELATIVE, because it silently expired.
+
+  This fixture carried a literal `expiresAt: "2026-09-01"`. `isValidPayload`
+  requires `expiresAt > Date.now()`, so from 2026-09-02 onward the route
+  refused this payload as `invalid_payload` BEFORE it ever reached the
+  acknowledgement check — and the two assertions below started failing for a
+  reason that had nothing to do with the acknowledgement contract they exist
+  to hold. A fixture whose validity is a function of the wall clock is a
+  fixture that fails on a date nobody chose.
+*/
+const FUTURE_EXPIRY = new Date(Date.now() + 30 * 24 * 3600 * 1000)
+  .toISOString().slice(0, 10);
+
 function payload(overrides: Record<string, unknown> = {}) {
   return {
     businessId: "biz-1",
     providerAccountId: "act_1",
     title: "Q3 creatives",
     dateRange: "2026-07-01..2026-07-31",
-    expiresAt: "2026-09-01",
+    expiresAt: FUTURE_EXPIRY,
     metrics: [],
     creatives: [
       {
@@ -153,5 +167,24 @@ describe("a buyer share without acknowledgement is refused by the real route", (
     );
     const body = await response.json().catch(() => ({}));
     expect(body.error).not.toBe("financial_acknowledgement_required");
+  });
+
+  it("a genuinely MALFORMED payload still refuses as invalid_payload", () => {
+    /*
+      The repair above must not turn every refusal into the acknowledgement
+      code. A payload that is actually malformed — here, an expiry in the past,
+      the exact condition that broke this file — keeps its own generic code.
+    */
+    return Promise.all([
+      { ...payload(), expiresAt: "2020-01-01" },
+      { ...payload(), title: "" },
+      { ...payload(), creatives: [] },
+      null,
+    ].map(async (body) => {
+      const response = await POST(request(body));
+      expect(response.status).toBe(400);
+      expect((await response.json()).error, JSON.stringify(body).slice(0, 60))
+        .toBe("invalid_payload");
+    }));
   });
 });

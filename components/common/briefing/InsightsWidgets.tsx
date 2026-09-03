@@ -1,10 +1,10 @@
 import type { ReactNode } from "react";
 import type { InsightWidget } from "@/components/common/briefing/InsightsPanel";
 
-export interface LabelsCoverageInput {
+export interface CampaignRoleCoverageInput {
   activeCampaigns: number;
-  labeledCampaigns: number;
-  unlabeledCampaigns: number;
+  classifiedCampaigns: number;
+  unresolvedCampaigns: number;
   mainCount?: number | null;
   testCount?: number | null;
   mixedCount?: number | null;
@@ -13,27 +13,27 @@ export interface LabelsCoverageInput {
   scopeNote?: string;
 }
 
-export function buildLabelsCoverageWidget(
-  input: LabelsCoverageInput | null | undefined,
+export function buildCampaignRoleCoverageWidget(
+  input: CampaignRoleCoverageInput | null | undefined,
 ): InsightWidget | null {
   if (!input || input.activeCampaigns <= 0) return null;
   const coveragePct = Math.round(
-    (input.labeledCampaigns / input.activeCampaigns) * 100,
+    (input.classifiedCampaigns / input.activeCampaigns) * 100,
   );
   const hasBreakdown =
     (input.mainCount ?? 0) + (input.testCount ?? 0) + (input.mixedCount ?? 0) > 0;
-  const main = hasBreakdown ? (input.mainCount ?? 0) : input.labeledCampaigns;
+  const main = hasBreakdown ? (input.mainCount ?? 0) : input.classifiedCampaigns;
   const test = hasBreakdown ? (input.testCount ?? 0) : 0;
   const mixed = hasBreakdown ? (input.mixedCount ?? 0) : 0;
-  const none = input.unlabeledCampaigns;
+  const none = input.unresolvedCampaigns;
   const total = main + test + mixed + none;
   const widthFor = (count: number) =>
     total > 0 ? `${Math.round((count / total) * 100)}%` : "0%";
-  const needsAttention = input.unlabeledCampaigns > 0;
+  const needsAttention = input.unresolvedCampaigns > 0;
 
   return {
-    key: "labels-coverage",
-    title: "Campaign labels",
+    key: "campaign-role-coverage",
+    title: "Campaign roles",
     trailingLabel: `${coveragePct}%`,
     needsAttention,
     content: (
@@ -82,16 +82,16 @@ export function buildLabelsCoverageWidget(
           ) : (
             <LegendDot
               color="bg-neutral-900"
-              label={`Labeled ${input.labeledCampaigns}`}
+              label={`Classified ${input.classifiedCampaigns}`}
             />
           )}
           <LegendDot
             color="bg-neutral-200 border border-neutral-300"
-            label={`None ${none}`}
+            label={`Unresolved ${none}`}
           />
         </div>
         <div className="mt-3 text-[12px] text-neutral-600">
-          {input.labeledCampaigns}/{input.activeCampaigns} active campaigns labeled
+          {input.classifiedCampaigns}/{input.activeCampaigns} active campaigns classified automatically
         </div>
         {input.scopeNote ? (
           <div className="mt-1 text-[11px] text-neutral-500">{input.scopeNote}</div>
@@ -104,14 +104,14 @@ export function buildLabelsCoverageWidget(
                 onClick={input.onFixGaps}
                 className="inline-flex items-center gap-1 rounded-md border border-[var(--adc-info-bd)] bg-[var(--adc-info-bg)] px-2.5 py-1.5 text-[12px] font-semibold text-[var(--adc-info-fg)] hover:bg-[var(--adc-info-bg)]"
               >
-                Fix {input.unlabeledCampaigns} unlabeled
+                Refresh {input.unresolvedCampaigns} unresolved
               </button>
             ) : (
               <a
-                href={input.fixHref ?? "#campaign-labels"}
+                href={input.fixHref ?? "#campaign-roles"}
                 className="inline-flex items-center gap-1 rounded-md border border-[var(--adc-info-bd)] bg-[var(--adc-info-bg)] px-2.5 py-1.5 text-[12px] font-semibold text-[var(--adc-info-fg)] hover:bg-[var(--adc-info-bg)]"
               >
-                Fix {input.unlabeledCampaigns} unlabeled
+                Refresh {input.unresolvedCampaigns} unresolved
               </a>
             )}
           </div>

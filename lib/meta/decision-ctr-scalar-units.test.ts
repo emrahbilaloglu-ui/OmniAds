@@ -16,7 +16,10 @@ vi.mock("@/lib/db", () => ({
 
 vi.mock("@/lib/creative-decision-engine/campaign-context/source", () => ({
   resolveCampaignContextMode: vi.fn(() => "automatic"),
-  isCampaignContextHardAuthorityEnabled: vi.fn(() => false),
+  CAMPAIGN_CONTEXT_MAX_AGE_DAYS: 2,
+  // D074 authority gate: unset in production, so the honest mock default is
+  // "not validated" — every inferred role caps at medium trust.
+  isCampaignContextResolverAuthorityValidated: vi.fn(() => false),
 }));
 
 /**
@@ -274,9 +277,9 @@ function context(): MetaDecisionCampaignContextSourceRow {
   return {
     campaignId: "cmp_1",
     kind: "main",
-    source: "persisted_label",
+    source: "system_inferred",
     confidenceClass: "high",
     sourceUpdatedAt: "2026-07-09T10:00:00.000Z",
-    resolverVersion: "user",
+    resolverVersion: "campaign-context-v2-account-scoped",
   };
 }

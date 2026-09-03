@@ -674,8 +674,61 @@ describe("buildCreativeEvidenceWindowExactViewModel audit surface", () => {
     });
     expect(value(model.authority, "source-authority")).toBe("Legacy review only");
     expect(value(model.authority, "action-eligibility")).toBe("no");
+    expect(
+      model.authority?.find((row) => row.id === "action-eligibility")?.label,
+    ).toBe("Decision-authorized");
     expect(value(model.authority, "review-only-reason")).toBe(
       "Native schema or generation read failed",
+    );
+  });
+
+  it("separates exact decision age from decision authorization and execution readiness", () => {
+    const model = buildCreativeEvidenceWindowExactViewModel({
+      decision: decisionFixture(),
+      canonical: canonicalFixture({
+        sourceDecision: {
+          reason: "Exact persisted decision.",
+          confidence: 91,
+          confidenceBand: "high",
+          engineVersion: "server-engine-v3",
+          snapshotAsOf: "2026-08-14",
+          computedAt: "2026-08-14T05:00:00.000Z",
+          truthSource: "server",
+          badges: [],
+        },
+        sourceAuthority: {
+          status: "native_exact",
+          actionEligible: true,
+          reviewOnlyReason: null,
+          snapshotId: "snapshot_1",
+          evaluationId: "eval_1",
+          inputHash: "a".repeat(64),
+          decisionHash: "b".repeat(64),
+          providerAccountRefId: "ref_1",
+          engineVersion: "server-engine-v3",
+          realAdId: "120210000000012345",
+          authorizedAction: "cut",
+          jobRunId: "job_1",
+          executionReadiness: "stale_decision",
+          decisionFreshness: {
+            status: "stale",
+            computedAt: "2026-08-14T05:00:00.000Z",
+            ageHours: 13.25,
+            maxAgeHours: 12,
+          },
+        },
+      }),
+    });
+
+    expect(value(model.authority, "action-eligibility")).toBe("yes");
+    expect(value(model.authority, "exact-decision-computed-at")).toBe(
+      "2026-08-14T05:00:00.000Z",
+    );
+    expect(value(model.authority, "exact-decision-freshness")).toBe(
+      "Stale · 13.25h old · max 12h",
+    );
+    expect(value(model.authority, "execution-readiness")).toBe(
+      "Stale decision",
     );
   });
 
@@ -700,6 +753,88 @@ describe("buildCreativeEvidenceWindowExactViewModel audit surface", () => {
     });
     expect(value(model.authority, "decision-state")).toBe("Blocked");
     expect(value(model.authority, "held-action")).toBe("refresh");
+  });
+
+  /**
+   * D074/D076: the resolver's own role explanation is printed verbatim on its
+   * own rows. The window never computes a kind — a served null kind renders as
+   * unresolved with the server's own reason, even while the display role above
+   * carries a provisional value.
+   */
+  it("prints the served role explanation verbatim for a resolved campaign", () => {
+    const model = buildCreativeEvidenceWindowExactViewModel({
+      decision: decisionFixture({
+        campaignRoleExplanation: {
+          kind: "main",
+          confidenceClass: "high",
+          confidenceScore: 0.87,
+          evidence: ["budget concentration 0.81", "purchase volume stable"],
+          conflictReasons: [],
+          unresolvedReason: null,
+          lastEvaluatedAt: "2026-08-13T04:00:00.000Z",
+          resolverVersion: "campaign-context-v2-account-scoped",
+        },
+      }),
+      canonical,
+    });
+    expect(value(model.authority, "served-role-inference")).toBe(
+      "main · confidence high · score 0.87",
+    );
+    expect(value(model.authority, "served-role-evidence")).toBe(
+      "budget concentration 0.81 · purchase volume stable",
+    );
+    expect(value(model.authority, "served-role-conflicts")).toBe("—");
+    expect(value(model.authority, "served-role-status")).toBe("—");
+    expect(value(model.authority, "served-role-evaluated")).toBe(
+      "2026-08-13T04:00:00.000Z · resolver campaign-context-v2-account-scoped",
+    );
+  });
+
+  it("keeps a served null kind unresolved rather than computing a fallback", () => {
+    const model = buildCreativeEvidenceWindowExactViewModel({
+      // The display role is provisionally "main"; the explanation's null kind
+      // must stay visible as unresolved beside it, not be overwritten by it.
+      decision: decisionFixture({
+        lifecycleRole: "main",
+        campaignRoleExplanation: {
+          kind: null,
+          confidenceClass: "conflict",
+          confidenceScore: null,
+          evidence: [],
+          conflictReasons: ["name says test, budget says main"],
+          unresolvedReason: "conflicting_signals",
+          lastEvaluatedAt: "2026-08-13T04:00:00.000Z",
+          resolverVersion: "campaign-context-v2-account-scoped",
+        },
+      }),
+      canonical,
+    });
+    expect(value(model.authority, "served-role-inference")).toBe(
+      "unresolved · confidence conflict",
+    );
+    expect(value(model.authority, "served-role-evidence")).toBe("—");
+    expect(value(model.authority, "served-role-conflicts")).toBe(
+      "name says test, budget says main",
+    );
+    expect(value(model.authority, "served-role-status")).toBe(
+      "Conflicting signals",
+    );
+  });
+
+  it("emits no role-explanation rows for a payload serialized before the field existed", () => {
+    const model = buildCreativeEvidenceWindowExactViewModel({
+      decision: decisionFixture(),
+      canonical,
+    });
+    for (const id of [
+      "served-role-inference",
+      "served-role-evidence",
+      "served-role-conflicts",
+      "served-role-status",
+      "served-role-evaluated",
+    ]) {
+      expect(model.authority?.some((row) => row.id === id)).toBe(false);
+    }
   });
 
   it("states operator responses and the provider-write outcome from the payload", () => {
@@ -1237,6 +1372,9 @@ describe("a row served with no canonical decision envelope", () => {
     for (const id of [
       "source-authority",
       "action-eligibility",
+      "exact-decision-computed-at",
+      "exact-decision-freshness",
+      "execution-readiness",
       "authorized-action",
       "decision-state",
       "identity-basis",

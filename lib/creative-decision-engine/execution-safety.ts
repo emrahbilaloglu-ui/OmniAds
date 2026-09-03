@@ -1,4 +1,5 @@
 import type { MetaAutomationReadiness } from "@/lib/meta/automation-readiness";
+import { resolveCampaignRoleStatus } from "@/lib/creative-decision-engine/campaign-label-guard";
 import {
   NATIVE_AD_ENGINE_VERSION,
   type DecisionLabel,
@@ -20,6 +21,8 @@ export type CreativeExecutionSafetyBlocker =
   | "ratio_to_target_drift"
   | "recent_hold_drift"
   | "campaign_kind_drift"
+  | "campaign_role_status_drift"
+  /** @deprecated pre-D074b alias kept so persisted receipts deserialize. */
   | "campaign_label_status_drift"
   | "decision_kind_source_drift"
   | "label_transform_drift"
@@ -78,6 +81,26 @@ export interface CreativeExecutionReadinessResult {
 export const DECISION_ORIGIN_AD_EXECUTION_CONTRACT_VERSION =
   "meta-decision-origin-ad-execution.v1" as const;
 
+/**
+ * The one decision-age ceiling shared by presentation authority and the
+ * mutation preflight. Keeping this exported prevents a screen from offering
+ * an action under a looser clock than the write boundary will accept.
+ */
+export const DECISION_ORIGIN_AD_MAX_AGE_HOURS = 12;
+
+export type DecisionOriginAdDecisionFreshnessStatus =
+  | "fresh"
+  | "stale"
+  | "future"
+  | "unavailable";
+
+export interface DecisionOriginAdDecisionFreshness {
+  status: DecisionOriginAdDecisionFreshnessStatus;
+  computedAt: string | null;
+  ageHours: number | null;
+  maxAgeHours: number;
+}
+
 export type DecisionOriginAdAction = "pause" | "resume";
 
 export type DecisionOriginAdExecutionBlocker =
@@ -97,6 +120,7 @@ export type DecisionOriginAdExecutionBlocker =
   | "unsupported_action"
   | "kill_switch_state_unavailable"
   | "kill_switch_engaged"
+  | "source_pipeline_unready"
   | "meta_account_unresolved"
   | "provider_account_mismatch"
   | "ad_not_found"
@@ -230,6 +254,10 @@ export interface DecisionOriginAdExecutionEvidence {
     verified: boolean;
     engaged: boolean;
   };
+  pipeline: {
+    verified: boolean;
+    executionReady: boolean;
+  };
   currentAccount: DecisionOriginCurrentAccountEvidence;
   currentAd: DecisionOriginCurrentAdEvidence;
   sourceDecision: DecisionOriginSourceDecisionEvidence;
@@ -299,6 +327,47 @@ function ageHours(generatedAt: string, now: Date): number | null {
   const generated = new Date(generatedAt);
   if (!Number.isFinite(generated.getTime())) return null;
   return (now.getTime() - generated.getTime()) / (60 * 60 * 1000);
+}
+
+/**
+ * Evaluate the deterministic decision-age subset of the exact-Ad execution
+ * preflight. Future timestamps beyond the existing one-minute skew tolerance
+ * and unreadable timestamps fail closed just like an old decision.
+ */
+export function evaluateDecisionOriginAdDecisionFreshness(input: {
+  computedAt: string | null | undefined;
+  now?: Date;
+  maxAgeHours?: number;
+}): DecisionOriginAdDecisionFreshness {
+  const computedAt = trimmed(input.computedAt) || null;
+  const now = input.now ?? new Date();
+  const configuredMaximum = input.maxAgeHours;
+  const maxAgeHours =
+    configuredMaximum === undefined
+      ? DECISION_ORIGIN_AD_MAX_AGE_HOURS
+      : typeof configuredMaximum === "number" &&
+          Number.isFinite(configuredMaximum) &&
+          configuredMaximum >= 0
+        ? configuredMaximum
+        : 0;
+  const age =
+    computedAt && Number.isFinite(now.getTime())
+      ? ageHours(computedAt, now)
+      : null;
+  const status: DecisionOriginAdDecisionFreshnessStatus =
+    age === null
+      ? "unavailable"
+      : age < -(1 / 60)
+        ? "future"
+        : age > maxAgeHours
+          ? "stale"
+          : "fresh";
+  return {
+    status,
+    computedAt,
+    ageHours: age,
+    maxAgeHours,
+  };
 }
 
 function ageMinutes(observedAt: string, now: Date): number | null {
@@ -540,7 +609,8 @@ export function evaluateDecisionOriginAdExecutionPreflight(input: {
 
   const blockers: DecisionOriginAdExecutionBlocker[] = [];
   const now = input.now ?? new Date();
-  const maxDecisionAgeHours = input.maxDecisionAgeHours ?? 12;
+  const maxDecisionAgeHours =
+    input.maxDecisionAgeHours ?? DECISION_ORIGIN_AD_MAX_AGE_HOURS;
   const maxCurrentAdStateAgeMinutes =
     input.maxCurrentAdStateAgeMinutes ?? 5;
   const requiredEngineVersion =
@@ -554,6 +624,13 @@ export function evaluateDecisionOriginAdExecutionPreflight(input: {
     blockers.push("kill_switch_state_unavailable");
   } else if (input.evidence.killSwitch.engaged) {
     blockers.push("kill_switch_engaged");
+  }
+
+  if (
+    !input.evidence.pipeline.verified ||
+    !input.evidence.pipeline.executionReady
+  ) {
+    blockers.push("source_pipeline_unready");
   }
 
   const account = input.evidence.currentAccount;
@@ -639,14 +716,13 @@ export function evaluateDecisionOriginAdExecutionPreflight(input: {
     }
   }
 
-  const decisionAgeHours = source.computedAt
-    ? ageHours(source.computedAt, now)
-    : null;
-  if (
-    decisionAgeHours === null ||
-    decisionAgeHours < -(1 / 60) ||
-    decisionAgeHours > maxDecisionAgeHours
-  ) {
+  const decisionFreshness = evaluateDecisionOriginAdDecisionFreshness({
+    computedAt: source.computedAt,
+    now,
+    maxAgeHours: maxDecisionAgeHours,
+  });
+  const decisionAgeHours = decisionFreshness.ageHours;
+  if (decisionFreshness.status !== "fresh") {
     blockers.push("decision_stale");
   }
 
@@ -1084,12 +1160,12 @@ export function evaluateCreativeMutationPreflight(input: {
   }
   if (
     !sameNullable(
-      input.currentDecision.campaignLabelStatus,
-      input.scheduledDecision.campaignLabelStatus,
+      resolveCampaignRoleStatus(input.currentDecision),
+      resolveCampaignRoleStatus(input.scheduledDecision),
     )
   ) {
-    blockers.push("campaign_label_status_drift");
-    drift.push("campaign_label_status");
+    blockers.push("campaign_role_status_drift");
+    drift.push("campaign_role_status");
   }
   if (
     !sameNullable(

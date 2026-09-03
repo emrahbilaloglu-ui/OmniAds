@@ -167,7 +167,7 @@ describe("Decision Center observability", () => {
       expect.objectContaining({
         eventName: "decision_center.fallback",
         buyerAction: "diagnose_data",
-        reason: "campaign_label_missing",
+        reason: "campaign_role_unresolved",
         count: 1,
       }),
     );
@@ -185,7 +185,7 @@ describe("Decision Center observability", () => {
         primaryDecision: "Scale",
         expectedBuyerAction: "scale",
         buyerAction: "diagnose_data",
-        reason: "campaign_label_missing",
+        reason: "campaign_role_unresolved",
         count: 1,
       }),
     );

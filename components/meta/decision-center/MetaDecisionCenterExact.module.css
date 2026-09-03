@@ -132,7 +132,7 @@
 
 .spendDelta,
 .roasTarget,
-.labelPercentage {
+.rolePercentage {
   font-size: 12px;
   font-weight: 600;
 }
@@ -152,12 +152,12 @@
   display: inline-block;
 }
 
-.labelPercentage {
+.rolePercentage {
   color: #b45309;
 }
 
 .kpiDetail,
-.manageLabels {
+.roleInference {
   margin: 6px 0 0;
   font-size: 12px;
 }
@@ -166,7 +166,7 @@
   color: #555d6d;
 }
 
-.manageLabels {
+.roleInference {
   color: #2a5fe2;
   cursor: pointer;
   font-weight: 600;
@@ -1706,10 +1706,64 @@
   overflow-wrap: anywhere;
 }
 
+/*
+ * The canonical anchor explanation, rendered verbatim as JSON.
+ *
+ * A bare `<pre>` does not wrap, so at 1440 the explanation ran straight out of
+ * its own grid column and across the neighbouring direction — the bounding
+ * boxes did not overlap, but the TEXT did. It wraps and scrolls inside its own
+ * column now, which is what keeps the two directions readable side by side.
+ */
+.budgetAnchorExplanation {
+  margin: 4px 0 0;
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
+  /*
+    PRE-DEPLOY AUDIT: 12px, the readable floor `lib/typography-floor.test.ts`
+    enforces. This paragraph carries the commercial-anchor explanation — the
+    sentence that says WHY an action is or is not eligible — so it is exactly
+    the kind of essential text the floor exists for, and 11px put it below it.
+  */
+  font-size: 12px;
+  line-height: 1.45;
+  color: #4b5568;
+}
+
+/*
+ * The two review-only budget directions.
+ *
+ * `auto-fit` with a 260px floor places them side by side wherever the column
+ * is wide enough and stacks them on a narrow viewport, using the same grid
+ * idiom and the same tokens as `.provenanceGrid` above. The component holds no
+ * breakpoint logic of its own.
+ */
+.budgetEvidenceDirections {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 0 18px;
+  margin: 0;
+}
+
+/* Grid items default to `min-width: auto`, which lets wide content push a
+   track past its share. Both directions must stay inside their own column. */
+.budgetEvidenceDirections > * {
+  min-width: 0;
+}
+
 @media (max-width: 720px) {
   .provenanceCapability {
     grid-template-columns: minmax(0, 1fr);
     gap: 2px;
+  }
+
+  /* One column below the surface's existing breakpoint, explicitly. */
+  .budgetEvidenceDirections {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px 0;
   }
 }
 

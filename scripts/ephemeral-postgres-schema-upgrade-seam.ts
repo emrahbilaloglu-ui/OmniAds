@@ -57,6 +57,15 @@ const REWOUND_IDENTIFIERS = [
   "meta_raw_snapshot_observations",
   "shopify_raw_snapshot_observations",
   "progress_json",
+  // D083: the budget-fact observation columns. Rewinding them is what makes
+  // the D083 ALTERs a real upgrade in this seam rather than no-ops.
+  "campaign_start_time",
+  "campaign_end_time",
+  "adset_start_time",
+  "adset_end_time",
+  "budget_currency_exponent",
+  "budget_currency_registry_version",
+  "provider_api_version",
 ] as const;
 const SHOP_ID = "upgrade-seam.myshopify.com";
 
@@ -165,6 +174,21 @@ async function rewindToPreChangeSchema(client: Client) {
   await client.query(
     `ALTER TABLE business_provider_accounts DROP COLUMN IF EXISTS is_selected`,
   );
+  // D083: rewind the budget-fact observation columns so the D083 ALTERs are a
+  // real upgrade here, not no-ops on a schema that already has them.
+  for (const column of [
+    "campaign_start_time",
+    "campaign_end_time",
+    "adset_start_time",
+    "adset_end_time",
+    "budget_currency_exponent",
+    "budget_currency_registry_version",
+    "provider_api_version",
+  ]) {
+    await client.query(
+      `ALTER TABLE meta_entity_state_history DROP COLUMN IF EXISTS ${column}`,
+    );
+  }
   await client.query(`ALTER TABLE provider_sync_jobs DROP COLUMN IF EXISTS progress_json`);
   // The legacy assignment table, as it exists on deployments that predate the
   // normalized binding table. Production no longer has it, but the migration

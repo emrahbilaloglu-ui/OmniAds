@@ -1,0 +1,108 @@
+{
+ "packetHash": "6984bae6e0ea1e3f536f00417bb99f2ca87f5599c88a4a5b45ca9dd02df6605d",
+ "hashAlgorithm": "sha256",
+ "hashBasis": "sha256 over UTF-8 bytes of JSON.stringify(artifact, null, 1) of the artifact WITHOUT its embedded hash fields (the artifact object before {<hashField>, hashAlgorithm, hashBasis} are prepended)",
+ "contract": "adsecute.d077.release-deploy-approval-packet.v2",
+ "status": "PREPARED_AWAITING_OPERATOR_APPROVAL — no commit, push, dispatch, or deploy performed; submitted for Codex independent acceptance — not self-accepted",
+ "generatedAtUtc": "2026-09-03T19:54:23.355Z",
+ "decision": "NO_GO",
+ "blockerLedger": {
+  "cleared": [
+   "battery red 1 CLEARED this correction: meta/campaign-labels tombstone now declared INTENTIONALLY_PUBLIC in the route-authority guard with its compatibility reason (fail-first 1 failed/4 passed preserved; post-fix 5/5)",
+   "battery red 2 CLEARED this correction: the duplicate-preselection fixture omitted executionReadiness 'live_preflight_required' after replacing the whole sourceAuthority object; exact refusal recorded fail-first ({ok:false, refusal:'execution_not_ready'}), fixture repaired, authorizeLaunchpadHandoff untouched (canonical seam 26+27 green)"
+  ],
+  "remaining": [
+   "RUNBOOK PREFLIGHT BLOCKER (now VERIFIED under one RR RO transaction, 2026-08-30 13:43:16Z): automated_missing serving surfaces on all three release canaries — IwaStore 3, TheSwaf 3 (overview_shopify_orders_aggregate_v6.recent_window, shopify_reconciliation_runs, shopify_serving_state), Grandmix 23 (incl. provider_reporting_snapshots.ecommerce_fallback); non-canaries Bilsem Zeka/IwaTR/ColorFullWorldsTR report 0 automated_missing. Pre-existing production serving state, candidate-independent, but the runbook classes automated_missing as a release blocker: operator triage or explicit written acceptance required before dispatch."
+  ],
+  "preconditionsNotReadBacks": [
+   "host .env.production CAMPAIGN_CONTEXT_MODE override state UNKNOWN — read on the host before dispatch (compose default flips legacy_labels→automatic)",
+   "host automation env flags UNKNOWN — deploy precondition/stop condition; control-plane rows (the DB truth) are effective fail-closed for all six businesses",
+   "stale hand-added nginx per-route blocks may mask new routes — verify after deploy"
+  ]
+ },
+ "sourceTree": {
+  "repository": "emrahbilaloglu-ui/OmniAds",
+  "branch": "codex/meta-disabled-readiness-20260829",
+  "baseHead": "babf158e150fd33057117b39b175da044ac62d2e",
+  "proposal": "Commit the ENTIRE final corrected worktree as ONE release candidate commit, then fast-forward merge to main. The D073–D078 packages interleave in shared files (contracts, read models, lib/migrations.ts) and were verified as one tree; partial release was evaluated and rejected.",
+  "commitStrategy": "single commit -> ff-merge to main; NO commit is made by this preflight",
+  "candidateShaPlaceholder": "<CANDIDATE_SHA: full 40-char lowercase SHA of the release commit once created>",
+  "manifestReference": {
+   "path": "docs/audits/generated/d077-release-candidate-manifest-2026-08-30.json",
+   "generationOrderContract": "the manifest is generated LAST by this same inspected generator (phase2), after this packet and every other pinned file is final; it excludes its own path and pins this packet's exact bytes. Its entry counts must equal expectedFinalTree below (asserted at generation).",
+   "expectedFinalTree": {
+    "pinnedNonSelfFileCount": 502,
+    "classCounts": {
+     "runtime": 169,
+     "tests_only": 179,
+     "runtime_deletion": 2,
+     "deploy_config": 1,
+     "docs": 39,
+     "migration": 2,
+     "script_ops_non_request_path": 31,
+     "generated_evidence": 55,
+     "audit_script_non_runtime": 24
+    },
+    "historicalContext": "pre-task freeze was 217 porcelain entries / 265 files — historical only, NOT the final tree"
+   }
+  }
+ },
+ "ciImagePrerequisites": {
+  "imageNamespace": "current = ghcr.io/emrahbilaloglu-ui/{omniads-web,omniads-worker}:<CANDIDATE_SHA>",
+  "publishLane": "CI on push to main publishes exact-SHA images; no deploy is dispatched by CI",
+  "pullability": "docker manifest inspect ghcr.io/emrahbilaloglu-ui/omniads-web:<CANDIDATE_SHA> must succeed before dispatch"
+ },
+ "workflowDispatch": {
+  "workflow": ".github/workflows/deploy-hetzner.yml (manual dispatch only)",
+  "inputs": {
+   "sha": "<CANDIDATE_SHA>",
+   "image_namespace": "current",
+   "require_current_main_head": "true",
+   "run_migrations": "true",
+   "break_glass": "false"
+  },
+  "postDeploy": "post-deploy-verify artifact post-deploy-release-authority.json MUST be inspected: summary.result=pass AND blockers=[] (workflow-green alone is insufficient)"
+ },
+ "beforeState": {
+  "deployed": "babf158e150fd33057117b39b175da044ac62d2e on web+worker (re-read via public /api/build-info by the evidence collector, 2026-08-30 ~13:44Z; deploy+release gates pass)",
+  "schema": "production LACKS meta_entity_observation_runs.{manifest_kind,base_run_id,delta_stats_json,last_captured_at} and meta_state_history_compaction_journal (verified 2026-08-30 13:43:16Z, RR RO)",
+  "ingestion": "Meta observation writes admission-refused since 2026-08-22 14:53:48Z (fence 5,368,750,080B vs 5,368,709,120B budget)"
+ },
+ "desiredAfterState": {
+  "deployed": "<CANDIDATE_SHA> live on web+worker; build-info matches; post-deploy artifact pass/empty blockers",
+  "schema": "D075 columns + D077 journal present (additive, IF NOT EXISTS)",
+  "behavior": "ingestion REMAINS admission-refused until the separate DB-recovery packet clears the fence — deploying does NOT restore ingestion by itself"
+ },
+ "migrationSafety": {
+  "locking": "ALTER TABLE ADD COLUMN (no volatile default → no rewrite; brief ACCESS EXCLUSIVE each) + CREATE TABLE/INDEX on a NEW empty journal table; all IF NOT EXISTS idempotent",
+  "timeouts": "deploy workflow migration timeout inputs available; defaults acceptable for additive DDL",
+  "partialFailure": "migrate failure aborts before web/worker recreate; old containers keep running; rerun after diagnosis"
+ },
+ "exposureAndCanary": {
+  "exposure": "seconds-level web/worker recreate; single host; no provider mutation; automation stays OFF (effective fail-closed control rows unchanged)",
+  "canaryOrder": "verify TheSwaf, Grandmix, IwaStore first (the runtime contract's releaseCanaryBusinesses), then the remaining three",
+  "readBack": [
+   "curl https://adsecute.com/api/build-info → buildId == <CANDIDATE_SHA> (and www)",
+   "inspect the post-deploy-verify artifact (pass + empty blockers)",
+   "verify-serving-direct-release --mode=post_deploy --expected-build-id=<CANDIDATE_SHA>",
+   "RR RO SQL: compaction journal + D075 columns present",
+   "authenticated spot-check: stale decisions serve review-only Refresh Decision (no enabled Cut); automation page renders D077 readiness"
+  ]
+ },
+ "rollback": {
+  "sha": "babf158e150fd33057117b39b175da044ac62d2e",
+  "imageNamespace": "current (currently deployed; images proven published)",
+  "procedure": "dispatch Deploy to Hetzner with sha=babf158e150fd33057117b39b175da044ac62d2e, image_namespace=current, require_current_main_head=false; re-run post-deploy verification",
+  "nonReversibleMigrationEffects": "additive D075 columns and the (empty) D077 journal REMAIN after app rollback; old code ignores them; no schema rollback machinery exists. If compaction executed before rollback (it must not — see the DB packet ordering), deleted duplicate rows are NOT restored by app rollback"
+ },
+ "stopConditions": [
+  "CI red or images not pullable for <CANDIDATE_SHA>",
+  "deploy/CUTOVER_REQUIRED present (currently absent)",
+  "migrate failure or timeout",
+  "/api/build-info mismatch after recreate",
+  "post-deploy artifact result != pass or blockers non-empty",
+  "canary business route non-2xx or stale-Cut withholding NOT observed",
+  "worker crash-loop or heartbeats stop (distinct from the PRE-EXISTING admission-refused ingestion, which persists by design until DB recovery)",
+  "any automation env flag found set on the host during the precondition read"
+ ]
+}

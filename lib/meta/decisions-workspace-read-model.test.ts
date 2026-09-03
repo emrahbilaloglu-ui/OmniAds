@@ -5,9 +5,12 @@ import * as db from "@/lib/db";
 import {
   buildNativeMetaCanonicalDecisionInventory,
   buildNativeMetaDecisionsWorkspaceReadModel,
+  applyMetaExecutionGovernanceToCanonicalDecisions,
+  applyMetaExecutionGovernanceToReadModel,
   buildMetaDecisionsWorkspaceReadModel,
   buildUnavailableMetaDecisionsWorkspaceReadModel,
   reconcileMetaDecisionIdentityRowsWithCurrentAds,
+  readMetaDecisionCampaignContextRows,
   readMetaDecisionsWorkspaceReadModel,
   readMetaNativeCanonicalDecisionInventory,
   readValidatedMetaNativeDecisionGenerationBundle,
@@ -24,6 +27,7 @@ import { projectMetaDecisionSemantics } from "@/lib/meta/decision-semantics";
 import { NATIVE_AD_ENGINE_VERSION } from "@/lib/creative-decision-engine/types";
 import { projectCanonicalNativeAdDecisionToBriefing } from "@/app/api/creatives/briefing/canonical-projection";
 import { buildMetaOsDecisionsPresentation } from "@/lib/meta/decisions-os-presentation";
+import { isCampaignContextResolverAuthorityValidated } from "@/lib/creative-decision-engine/campaign-context/source";
 
 vi.mock("@/lib/db", () => {
   const getDb = vi.fn();
@@ -35,11 +39,8 @@ vi.mock("@/lib/db", () => {
 
 vi.mock("@/lib/creative-decision-engine/campaign-context/source", () => ({
   resolveCampaignContextMode: vi.fn(() => "automatic"),
-  isCampaignContextHardAuthorityEnabled: vi.fn(
-    () =>
-      process.env.CAMPAIGN_CONTEXT_HARD_AUTHORITY_ENABLED === "1" ||
-      process.env.CAMPAIGN_CONTEXT_HARD_AUTHORITY_ENABLED === "true",
-  ),
+  isCampaignContextResolverAuthorityValidated: vi.fn(() => true),
+  CAMPAIGN_CONTEXT_MAX_AGE_DAYS: 2,
 }));
 
 describe("resolveProvisionalCampaignKind", () => {
@@ -89,6 +90,147 @@ describe("resolveProvisionalCampaignKind", () => {
         campaignName: "Unclassified current campaign",
       }),
     ).toBe("main");
+  });
+});
+
+/**
+ * D074/D076: the reader must EXPLAIN the resolver's own answer — score,
+ * evidence, conflicts, unresolved reason, last evaluation time — verbatim from
+ * the persisted row, and must say "not yet evaluated" for a campaign the
+ * resolver has never seen rather than diagnosing it.
+ */
+describe("readMetaDecisionCampaignContextRows explanation fields", () => {
+  const readContextRows = (dbRows: Record<string, unknown>[]) => {
+    const query = vi.fn(async (sql: string) => {
+      if (sql.includes("FROM engine_v3_campaign_context_daily")) return dbRows;
+      return [];
+    });
+    vi.mocked(db.getDb).mockReturnValue({ query } as never);
+    return readMetaDecisionCampaignContextRows({
+      businessId: "biz_1",
+      providerAccountId: "act_1",
+      campaignIds: dbRows.map((row) => String(row.campaign_id)),
+      snapshotAsOf: "2026-07-10",
+    });
+  };
+
+  it("carries the resolver's explanation verbatim for a resolved campaign", async () => {
+    const [row] = await readContextRows([
+      {
+        campaign_id: "cmp_1",
+        inferred_kind: "main",
+        confidence_class: "high",
+        confidence_score: "0.87",
+        signal_scores_json: { mainScore: 0.87 },
+        evidence_json: ["budget concentration 0.81", "purchase volume stable"],
+        conflict_reasons_json: [],
+        context_updated_at: "2026-07-09T10:00:00.000Z",
+        context_as_of_date: "2026-07-09",
+        resolver_version: "campaign-context-v2-account-scoped",
+      },
+    ]);
+    expect(row).toMatchObject({
+      campaignId: "cmp_1",
+      kind: "main",
+      confidenceClass: "high",
+      confidenceScore: 0.87,
+      evidence: ["budget concentration 0.81", "purchase volume stable"],
+      conflictReasons: [],
+      unresolvedReason: null,
+      lastEvaluatedAt: "2026-07-09T10:00:00.000Z",
+      resolverVersion: "campaign-context-v2-account-scoped",
+    });
+  });
+
+  it("derives the unresolved reason from the persisted confidence class", async () => {
+    const rows = await readContextRows([
+      {
+        campaign_id: "cmp_insufficient",
+        inferred_kind: null,
+        confidence_class: "unknown",
+        confidence_score: null,
+        signal_scores_json: null,
+        evidence_json: [],
+        conflict_reasons_json: [],
+        context_updated_at: "2026-07-09T10:00:00.000Z",
+        context_as_of_date: "2026-07-09",
+        resolver_version: "campaign-context-v2-account-scoped",
+      },
+      {
+        campaign_id: "cmp_conflict",
+        inferred_kind: null,
+        confidence_class: "conflict",
+        confidence_score: 0.4,
+        signal_scores_json: null,
+        evidence_json: [],
+        conflict_reasons_json: ["name says test, budget says main"],
+        context_updated_at: null,
+        context_as_of_date: "2026-07-09",
+        resolver_version: "campaign-context-v2-account-scoped",
+      },
+    ]);
+    expect(rows[0]).toMatchObject({
+      kind: null,
+      unresolvedReason: "insufficient_evidence",
+    });
+    expect(rows[1]).toMatchObject({
+      kind: null,
+      unresolvedReason: "conflicting_signals",
+      conflictReasons: ["name says test, budget says main"],
+      // updated_at is absent, so the row's own as_of_date stands in.
+      lastEvaluatedAt: "2026-07-09T00:00:00.000Z",
+    });
+  });
+
+  it("reads a campaign with no context row as not yet evaluated", async () => {
+    // The LEFT JOIN emits one all-null row per requested campaign id.
+    const [row] = await readContextRows([
+      {
+        campaign_id: "cmp_never_seen",
+        inferred_kind: null,
+        confidence_class: null,
+        confidence_score: null,
+        signal_scores_json: null,
+        evidence_json: null,
+        conflict_reasons_json: null,
+        context_updated_at: null,
+        context_as_of_date: null,
+        resolver_version: null,
+      },
+    ]);
+    expect(row).toMatchObject({
+      kind: null,
+      confidenceScore: null,
+      evidence: [],
+      conflictReasons: [],
+      unresolvedReason: "not_yet_evaluated",
+      lastEvaluatedAt: null,
+      resolverVersion: null,
+    });
+  });
+
+  it("reads malformed jsonb as empty arrays rather than throwing", async () => {
+    const [row] = await readContextRows([
+      {
+        campaign_id: "cmp_malformed",
+        inferred_kind: "test",
+        confidence_class: "medium",
+        confidence_score: "not-a-number",
+        signal_scores_json: null,
+        evidence_json: "{not json at all",
+        conflict_reasons_json: { object: "not an array" },
+        context_updated_at: "2026-07-09T10:00:00.000Z",
+        context_as_of_date: "2026-07-09",
+        resolver_version: "campaign-context-v2-account-scoped",
+      },
+    ]);
+    expect(row).toMatchObject({
+      kind: "test",
+      confidenceScore: null,
+      evidence: [],
+      conflictReasons: [],
+      unresolvedReason: null,
+    });
   });
 });
 
@@ -166,10 +308,10 @@ function context(
   return {
     campaignId: "cmp_1",
     kind: "main",
-    source: "persisted_label",
+    source: "system_inferred",
     confidenceClass: "high",
     sourceUpdatedAt: "2026-07-09T10:00:00.000Z",
-    resolverVersion: "user",
+    resolverVersion: "campaign-context-v2-account-scoped",
     ...overrides,
   };
 }
@@ -367,9 +509,12 @@ describe("Meta Decisions workspace canonical read model", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.unstubAllEnvs();
+    vi.mocked(isCampaignContextResolverAuthorityValidated).mockReturnValue(
+      true,
+    );
   });
 
-  it("holds inferred high campaign context below hard authority until its independent gate opens", () => {
+  it("trusts only high-confidence automatic campaign context for hard-role semantics", () => {
     const input = {
       businessId: "biz_1",
       providerAccountId: "act_1",
@@ -385,27 +530,45 @@ describe("Meta Decisions workspace canonical read model", () => {
       generatedAt: "2026-07-10T12:00:00.000Z",
     };
 
-    const held = buildMetaDecisionsWorkspaceReadModel(input);
+    const model = buildMetaDecisionsWorkspaceReadModel(input);
     expect(
-      held.queue.sections.creative_rotation.items[0]?.classification
-        .lifecycleRole,
-    ).toMatchObject({
-      value: "main",
-      confidence: "medium",
-      trustedForAction: false,
-      blockerCode: "campaign_context_low_confidence",
-    });
-
-    vi.stubEnv("CAMPAIGN_CONTEXT_HARD_AUTHORITY_ENABLED", "true");
-    const enabled = buildMetaDecisionsWorkspaceReadModel(input);
-    expect(
-      enabled.queue.sections.creative_rotation.items[0]?.classification
+      model.queue.sections.creative_rotation.items[0]?.classification
         .lifecycleRole,
     ).toMatchObject({
       value: "main",
       confidence: "high",
       trustedForAction: true,
       blockerCode: null,
+    });
+  });
+
+  it("keeps a high-confidence automatic role review-only until its resolver version is validated", () => {
+    vi.mocked(isCampaignContextResolverAuthorityValidated).mockReturnValueOnce(
+      false,
+    );
+    const model = buildMetaDecisionsWorkspaceReadModel({
+      businessId: "biz_1",
+      providerAccountId: "act_1",
+      snapshotRows: [snapshot("creative_1", { label: "scale" })],
+      identityRows: [identity("creative_1")],
+      campaignContextRows: [
+        context({
+          source: "system_inferred",
+          confidenceClass: "high",
+          resolverVersion: "campaign-context.unvalidated",
+        }),
+      ],
+      generatedAt: "2026-07-10T12:00:00.000Z",
+    });
+
+    expect(
+      model.queue.sections.creative_rotation.items[0]?.classification
+        .lifecycleRole,
+    ).toMatchObject({
+      value: "main",
+      confidence: "high",
+      trustedForAction: false,
+      blockerCode: "campaign_context_resolver_unvalidated",
     });
   });
 
@@ -475,7 +638,17 @@ describe("Meta Decisions workspace canonical read model", () => {
   });
 
   it("keeps action authority only when campaign, ad set, and ad are exactly ACTIVE", () => {
-    const model = nativeModel([nativeSnapshot("120000000000000006")]);
+    const model = applyMetaExecutionGovernanceToReadModel({
+      model: nativeModel([nativeSnapshot("120000000000000006")]),
+    governance: {
+      verified: true,
+      controlsConfigured: true,
+      writeBlocked: false,
+      blockReason: null,
+    },
+    pipeline: { verified: true, executionReady: true },
+    now: new Date("2026-07-12T12:00:00.000Z"),
+    });
     const decision = model.queue.adCandidates?.items[0];
 
     expect(decision?.deliveryScope).toMatchObject({
@@ -503,6 +676,87 @@ describe("Meta Decisions workspace canonical read model", () => {
         sourceDecisionAuthorizedAction: "cut",
       },
     });
+  });
+
+  it("keeps persisted decision authority distinct from serve-time execution readiness", () => {
+    const raw = nativeModel([nativeSnapshot("120000000000000016")]);
+    expect(raw.queue.adCandidates?.items[0]?.sourceAuthority).toMatchObject({
+      actionEligible: true,
+      authorizedAction: "cut",
+      executionReadiness: "governance_unavailable",
+      decisionFreshness: { status: "fresh", ageHours: 7, maxAgeHours: 12 },
+    });
+
+    const ready = applyMetaExecutionGovernanceToReadModel({
+      model: raw,
+      governance: {
+        verified: true,
+        controlsConfigured: true,
+        writeBlocked: false,
+        blockReason: null,
+      },
+      pipeline: { verified: true, executionReady: true },
+      now: new Date("2026-07-12T12:00:00.000Z"),
+    });
+    expect(
+      ready.queue.adCandidates?.items[0]?.sourceAuthority
+        ?.executionReadiness,
+    ).toBe("live_preflight_required");
+    expect(
+      raw.queue.adCandidates?.items[0]?.sourceAuthority?.executionReadiness,
+    ).toBe("governance_unavailable");
+
+    const killed = applyMetaExecutionGovernanceToReadModel({
+      model: raw,
+      governance: {
+        verified: true,
+        controlsConfigured: true,
+        writeBlocked: true,
+        blockReason: "business_kill_switch",
+      },
+      pipeline: { verified: true, executionReady: true },
+      now: new Date("2026-07-12T12:00:00.000Z"),
+    });
+    expect(
+      killed.queue.adCandidates?.items[0]?.sourceAuthority
+        ?.executionReadiness,
+    ).toBe("kill_switched");
+
+    const stale = applyMetaExecutionGovernanceToReadModel({
+      model: raw,
+      governance: {
+        verified: true,
+        controlsConfigured: true,
+        writeBlocked: false,
+        blockReason: null,
+      },
+      pipeline: { verified: true, executionReady: true },
+      now: new Date("2026-07-12T18:00:01.000Z"),
+    });
+    expect(stale.queue.adCandidates?.items[0]?.sourceAuthority).toMatchObject({
+      actionEligible: true,
+      executionReadiness: "stale_decision",
+      decisionFreshness: { status: "stale" },
+    });
+
+    const briefingInventory = applyMetaExecutionGovernanceToCanonicalDecisions({
+      decisions: [raw.queue.adCandidates!.items[0]!],
+      governance: {
+        verified: true,
+        controlsConfigured: true,
+        writeBlocked: false,
+        blockReason: null,
+      },
+      pipeline: { verified: true, executionReady: true },
+      now: new Date("2026-07-12T12:00:00.000Z"),
+    });
+    expect(briefingInventory[0]?.sourceAuthority?.executionReadiness).toBe(
+      "live_preflight_required",
+    );
+    expect(briefingInventory[0]).not.toBe(raw.queue.adCandidates!.items[0]);
+    expect(
+      raw.queue.adCandidates?.items[0]?.sourceAuthority?.executionReadiness,
+    ).toBe("governance_unavailable");
   });
 
   it("keeps a native Main Scale visible as monitor-only briefing evidence", () => {
@@ -1823,7 +2077,7 @@ describe("Meta Decisions workspace canonical read model", () => {
       },
     });
     expect(item.classification.lifecycleRole).toMatchObject({
-      value: "label_needed",
+      value: "role_unresolved",
       trustedForAction: false,
       blockerCode: "campaign_context_unresolved",
     });
@@ -1884,17 +2138,15 @@ describe("Meta Decisions workspace canonical read model", () => {
       if (sql.includes("COALESCE(creative_dim.provider_account_id")) {
         return [identity("creative_1")];
       }
-      if (sql.includes("FROM meta_campaign_labels")) {
+      if (sql.includes("FROM engine_v3_campaign_context_daily")) {
         return [
           {
             campaign_id: "cmp_1",
-            label_kind: "main",
-            label_source: "user",
-            label_updated_at: "2026-07-09T10:00:00.000Z",
-            inferred_kind: null,
-            confidence_class: null,
-            context_updated_at: null,
-            resolver_version: null,
+            inferred_kind: "main",
+            confidence_class: "high",
+            signal_scores_json: {},
+            context_updated_at: "2026-07-09T10:00:00.000Z",
+            resolver_version: "campaign-context-v2-account-scoped",
           },
         ];
       }
@@ -1917,7 +2169,7 @@ describe("Meta Decisions workspace canonical read model", () => {
       String(sql).includes("COALESCE(creative_dim.provider_account_id"),
     );
     const contextCall = query.mock.calls.find(([sql]) =>
-      String(sql).includes("FROM meta_campaign_labels"),
+      String(sql).includes("FROM engine_v3_campaign_context_daily"),
     );
     expect(String(snapshotCall?.[0])).toContain("provider_account_id = $2");
     expect(snapshotCall?.[1]).toEqual(["biz_1", "act_1", null]);
@@ -1934,6 +2186,7 @@ describe("Meta Decisions workspace canonical read model", () => {
       "act_1",
       ["cmp_1"],
       "2026-07-10",
+      2,
     ]);
   });
 
@@ -1957,7 +2210,6 @@ describe("Meta Decisions workspace canonical read model", () => {
           }),
         ];
       }
-      if (sql.includes("FROM meta_campaign_labels")) return [];
       return [];
     });
     vi.mocked(db.getDb).mockReturnValue({ query } as never);
@@ -2025,7 +2277,6 @@ describe("Meta Decisions workspace canonical read model", () => {
       if (sql.includes("COALESCE(creative_dim.provider_account_id")) {
         return [identity("creative_1")];
       }
-      if (sql.includes("FROM meta_campaign_labels")) return [];
       return [];
     });
     vi.mocked(db.getDb).mockReturnValue({ query } as never);
@@ -2336,7 +2587,6 @@ describe("Meta Decisions workspace canonical read model", () => {
       if (sql.includes("FROM engine_v3_ad_decision_snapshots_daily snapshot")) {
         return [row];
       }
-      if (sql.includes("FROM meta_campaign_labels")) return [];
       return [];
     });
     vi.mocked(db.getDb).mockReturnValue({ query } as never);
@@ -2364,15 +2614,16 @@ describe("Meta Decisions workspace canonical read model", () => {
     expect(String(nativeSnapshotCall?.[0])).toContain(
       "snapshot.authority_blocker",
     );
-    expect(String(nativeSnapshotCall?.[0])).toContain(
-      "WHEN campaign_state.presence IS NULL THEN NULL",
-    );
-    expect(String(nativeSnapshotCall?.[0])).toContain(
-      "WHEN adset_state.presence IS NULL THEN NULL",
-    );
-    expect(String(nativeSnapshotCall?.[0])).toContain(
-      "WHEN ad_state.presence IS NULL THEN NULL",
-    );
+    // D075 consumer sweep: an absent_unconfirmed winner serves NULL —
+    // never a fabricated 'DELETED' provider state, never a resurrected
+    // present status. The CASE arms fail closed for every non-present
+    // presence value.
+    for (const grain of ["campaign_state", "adset_state", "ad_state"]) {
+      expect(String(nativeSnapshotCall?.[0])).toContain(
+        `WHEN ${grain}.presence = 'present' THEN COALESCE(`,
+      );
+    }
+    expect(String(nativeSnapshotCall?.[0])).not.toContain("ELSE 'DELETED'");
     expect(
       String(nativeSnapshotCall?.[0]).match(
         /state\.provider_account_ref_id = snapshot\.provider_account_ref_id/g,
@@ -2793,5 +3044,127 @@ describe("the native snapshot read stays inside its query budget", () => {
     expect(source).toContain(
       "ON lifecycle.id = snapshot.creative_evidence_lifecycle_row_id",
     );
+  });
+});
+
+/**
+ * D081 C4 — the reader must carry the RAW persisted `kind_source`.
+ *
+ * These call the real `readMetaDecisionCampaignContextRows` through the mocked
+ * `getDb()` path and then feed its rows into the real
+ * `buildMetaDecisionsWorkspaceReadModel`, so nothing here reimplements the
+ * mapping. A previous suite defined a local `map`/`trust` pair using raw
+ * equality, which passed while the reader trimmed and fabricated.
+ */
+describe("D081 C4 — exact kind_source at the real reader boundary", () => {
+  const contextRow = (over: Record<string, unknown> = {}) => ({
+    campaign_id: "cmp_1",
+    inferred_kind: "main",
+    confidence_class: "high",
+    confidence_score: 0.82,
+    signal_scores_json: null,
+    evidence_json: null,
+    conflict_reasons_json: null,
+    context_updated_at: "2026-07-09T10:00:00.000Z",
+    context_as_of_date: "2026-07-09",
+    resolver_version: "campaign-context-v2-account-scoped",
+    kind_source: "system_inferred",
+    ...over,
+  });
+
+  const readWith = (kindSource: unknown, over: Record<string, unknown> = {}) => {
+    const rows = [contextRow({ kind_source: kindSource, ...over })];
+    const query = vi.fn(async (sql: string) => {
+      if (sql.includes("FROM engine_v3_campaign_context_daily")) return rows;
+      return [];
+    });
+    vi.mocked(db.getDb).mockReturnValue({ query } as never);
+    return readMetaDecisionCampaignContextRows({
+      businessId: "biz_1",
+      providerAccountId: "act_1",
+      campaignIds: ["cmp_1"],
+      snapshotAsOf: "2026-07-10",
+    });
+  };
+
+  const NON_EXACT: Array<[string, unknown]> = [
+    ["null", null],
+    ["missing", undefined],
+    ["empty", ""],
+    ["leading space", " system_inferred"],
+    ["trailing space", "system_inferred "],
+    ["upper case", "SYSTEM_INFERRED"],
+    ["unknown", "unknown"],
+    ["legacy_label", "legacy_label"],
+    ["user_override", "user_override"],
+    ["manual", "manual"],
+    ["operator", "operator"],
+    ["batch_import", "batch_import"],
+    ["bulk_apply_confirmed", "bulk_apply_confirmed"],
+  ];
+
+  it("serves the exact persisted source unchanged", async () => {
+    const [row] = await readWith("system_inferred");
+    expect(row?.source).toBe("system_inferred");
+    expect(row?.kind).toBe("main");
+  });
+
+  it.each(NON_EXACT)("serves %s as unknown, never system_inferred", async (_label, value) => {
+    const [row] = await readWith(value);
+    expect(row?.source).toBe("unknown");
+  });
+
+  it("does not fabricate automatic provenance on the unresolved arm", async () => {
+    // `inferred_kind` outside main/test/mixed takes the unresolved arm, which
+    // previously synthesized `system_inferred` from the mode plus a context
+    // timestamp.
+    for (const [, value] of NON_EXACT) {
+      const [row] = await readWith(value, { inferred_kind: null });
+      expect(row?.kind).toBeNull();
+      expect(row?.source, JSON.stringify(value)).toBe("unknown");
+    }
+    const [exact] = await readWith("system_inferred", { inferred_kind: null });
+    expect(exact?.kind).toBeNull();
+    expect(exact?.source).toBe("system_inferred");
+  });
+
+  it("only the exact persisted source can trust an action end to end", async () => {
+    vi.mocked(isCampaignContextResolverAuthorityValidated).mockReturnValue(true);
+    const trustFor = async (kindSource: unknown) => {
+      const campaignContextRows = await readWith(kindSource);
+      const model = buildMetaDecisionsWorkspaceReadModel({
+        businessId: "biz_1",
+        providerAccountId: "act_1",
+        snapshotRows: [snapshot("creative_1", { label: "scale" })],
+        identityRows: [identity("creative_1")],
+        campaignContextRows,
+        generatedAt: "2026-07-10T12:00:00.000Z",
+      });
+      return model.queue.sections.creative_rotation.items[0]?.classification
+        .lifecycleRole?.trustedForAction;
+    };
+
+    // Every other gate is valid: high confidence and a validated resolver
+    // version. Only the source differs.
+    expect(await trustFor("system_inferred")).toBe(true);
+    for (const [label, value] of NON_EXACT) {
+      expect(await trustFor(value), label).toBe(false);
+    }
+    vi.mocked(isCampaignContextResolverAuthorityValidated).mockReset();
+  });
+
+  it("compares the raw value with no normalisation anywhere on the path", () => {
+    const source = readFileSync("lib/meta/decisions-workspace-read-model.ts", "utf8");
+    const helper = source.slice(
+      source.indexOf("export function exactCampaignContextSource("),
+      source.indexOf("export function exactCampaignContextSource(") + 260,
+    );
+    expect(helper).toContain('value === "system_inferred"');
+    expect(helper).not.toMatch(/text\(|trim\(|toLowerCase|toUpperCase|normalize/);
+    // Both arms go through the helper; neither compares or synthesizes itself.
+    const uses = source.match(/source: exactCampaignContextSource\(row\.kind_source\)/g) ?? [];
+    expect(uses).toHaveLength(2);
+    expect(source).not.toMatch(/source:\s*\n?\s*mode === "automatic"/);
+    expect(source).not.toContain('text(row.kind_source) === "system_inferred"');
   });
 });

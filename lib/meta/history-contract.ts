@@ -240,6 +240,20 @@ export interface MetaHistoryAccount {
   timezone: string | null;
 }
 
+/**
+ * D078 R4: an assigned-but-deselected identity, served as a clearly-marked
+ * read-only historical evidence scope. Never part of the actionable
+ * (selected) picker group and never a write scope.
+ */
+export interface MetaHistoryHistoricalAccount extends MetaHistoryAccount {
+  selectionState: "deselected_historical";
+  latestFactDate: string | null;
+  spend14d: number | null;
+  latestDecisionAsOf: string | null;
+  latestDecisionRows: number | null;
+  policy: string;
+}
+
 export interface MetaHistoryMoneyFact {
   label: string;
   amount: number | null;
@@ -322,6 +336,12 @@ export interface MetaHistoryQuery {
 
 export interface MetaHistoryResponse {
   mode: "read_only";
+  /**
+   * D078 R4 (additive): whether the served scope is a selected account or an
+   * assigned-but-deselected read-only historical evidence scope. Absent on
+   * payloads written before this field existed.
+   */
+  accountScope?: "selected" | "deselected_historical";
   scope: {
     businessId: string;
     providerAccountId: string;

@@ -27,6 +27,7 @@ import type { MetaCanonicalDecision } from "@/lib/meta/decisions-workspace-contr
 import type {
   MetaOsAdDecision,
   MetaOsDecisionAction,
+  MetaOsLegacyDecisionAction,
 } from "@/lib/meta/decisions-os-contract";
 
 const state = vi.hoisted(() => ({
@@ -301,6 +302,10 @@ function canonicalDecision(over: Partial<MetaCanonicalDecision> = {}): any {
       engineVersion: "v3-test",
       realAdId: "120000000000000001",
       authorizedAction: "refresh",
+      // D072: server-owned execution readiness. The genuinely-routable
+      // fixture carries the only value that may open a control; every
+      // refusal leg below weakens a field and must close it.
+      executionReadiness: "live_preflight_required",
       jobRunId: "job_1",
     },
     deliveryScope: {
@@ -330,8 +335,8 @@ function canonicalDecision(over: Partial<MetaCanonicalDecision> = {}): any {
 }
 
 function structureAction(
-  over: Partial<MetaOsDecisionAction> = {},
-): MetaOsDecisionAction {
+  over: Partial<MetaOsLegacyDecisionAction> = {},
+): MetaOsLegacyDecisionAction {
   return {
     code: "route_launchpad_rebuild",
     label: "Rebuild in Launchpad",
@@ -2043,6 +2048,9 @@ describe("Decisions to Launchpad handoff", () => {
           engineVersion: "v3-test",
           realAdId: "120000000000000001",
           authorizedAction: "cut",
+          // Ready to execute — so the stated refusal is the missing
+          // Launchpad mode, not execution_not_ready.
+          executionReadiness: "live_preflight_required",
           jobRunId: "job_1",
         },
       },

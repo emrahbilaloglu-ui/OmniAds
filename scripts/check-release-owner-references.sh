@@ -85,6 +85,23 @@ REGISTRY=(
   "docs/v2-01-release-authority.md|2|Superseded document headed 'Historical reference only', plus the note explaining the transfer happened after this baseline."
   "docs/meta-sync-hardening/incident-evidence.md|6|Incident record: workflow run URLs."
   "docs/creative-decision-center/PATH_B_POST_DEPLOY_MONITORING_2026-07-05.md|2|Dated record of exactly which images were running."
+  # PRE-DEPLOY AUDIT 2026-09-03: the D077 verification ledger freezes the
+  # captured `tail` of THIS guard's own stage, and the guard announces the
+  # token it scans for ("scanning ... for 'erhanrdn'"). So the single
+  # occurrence is this script quoting itself inside frozen evidence — not an
+  # active build, deploy or runtime path. Registered rather than marked
+  # because the ledger is hash-pinned: editing its bytes to insert a marker
+  # would break `ledgerHash` and is exactly the "rewrite historical evidence
+  # to silence this" the refusal warns against.
+  "docs/audits/generated/d077-correction1-verification-ledger-2026-08-30.json|1|Frozen D077 evidence: the captured tail of this guard's own stage, which prints the token it scans for."
+  # Same self-reference, at the source. Each retained whole-shell capture
+  # contains this guard's own line, "scanning tracked and untracked files for
+  # '<token>'" — exactly one occurrence per log, and it is this script's
+  # output rather than a build, deploy or runtime path. The captures are in
+  # release scope because the D077 contract test opens the retained log by the
+  # path the ledger pins and refuses when it is absent.
+  "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-08-30.log|1|Retained whole-shell capture (38-stage run): this guard announcing the token it scans for."
+  "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-03.log|1|Retained whole-shell capture (40-stage run): this guard announcing the token it scans for."
 )
 
 HISTORICAL_COUNTS=(

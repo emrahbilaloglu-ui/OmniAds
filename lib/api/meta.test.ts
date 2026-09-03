@@ -405,6 +405,8 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
       completeness: "complete",
       observedAt: "2026-07-12T12:00:00.000Z",
       capturedAt: "2026-07-12T12:00:01.000Z",
+      manifestKind: null,
+      deltaStats: null,
     });
     vi.mocked(
       entityStateHistory.persistMetaExplicitEntityTombstone,

@@ -250,7 +250,7 @@ const MAPPING_TABLE: readonly BuyerActionMappingRule[] = [
 export const CREATIVE_DECISION_CENTER_ADAPTER_MAPPING_TABLE = MAPPING_TABLE;
 
 export const CREATIVE_DECISION_CENTER_ADAPTER_UNLABELED_SCALE_REASON =
-  "campaign_label_missing";
+  "campaign_role_unresolved";
 
 function matchesRule(
   engine: CreativeDecisionOsV21Output,
@@ -389,10 +389,10 @@ function buildAdapterStep(
 
   const { executionAction, fellBackToDiagnose } = resolveScaleExecution(context);
   if (fellBackToDiagnose) {
-    // D016 safety: a Scale verdict without a labeled campaign kind must not
-    // present an execution action. Downgrade to diagnose_data so the UI
-    // never offers `promote_to_main`/`scale_budget`/`controlled_scale` for
-    // an unlabeled campaign.
+    // D016 safety: a Scale verdict without a resolved automatic campaign
+    // role must not present an execution action. Downgrade to diagnose_data
+    // so the UI never offers `promote_to_main`/`scale_budget`/
+    // `controlled_scale` while the role is unresolved.
     return {
       buyerAction: "diagnose_data",
       buyerLabel: BUYER_LABELS.diagnose_data,
@@ -447,7 +447,7 @@ export function adaptCreativeDecisionToRow(
     ? [...reasons, CREATIVE_DECISION_CENTER_ADAPTER_UNLABELED_SCALE_REASON]
     : reasons;
   const adjustedOneLine = step.unlabeledScaleSafetyApplied
-    ? `${oneLineFromEngine(engine)} (campaign label missing; execution move blocked)`
+    ? `${oneLineFromEngine(engine)} (automatic campaign role unresolved; execution move blocked)`
     : oneLineFromEngine(engine);
 
   const row: CreativeDecisionCenterRowDecision = {

@@ -7,7 +7,7 @@ const getMetaCanonicalOverviewTrends = vi.hoisted(() => vi.fn());
 const getMetaBreakdownsForRange = vi.hoisted(() => vi.fn());
 const getMetaCampaignsForRange = vi.hoisted(() => vi.fn());
 const readMetaAnomaliesForBusiness = vi.hoisted(() => vi.fn());
-const readMetaCampaignLabels = vi.hoisted(() => vi.fn());
+const readCampaignContextMap = vi.hoisted(() => vi.fn());
 const readMetaDecisionsWorkspaceReadModel = vi.hoisted(() => vi.fn());
 const getMetaCreativesWarehousePayload = vi.hoisted(() => vi.fn());
 const readMetaCreativesWarehouseObservedAt = vi.hoisted(() => vi.fn());
@@ -22,7 +22,9 @@ vi.mock("@/lib/meta/canonical-overview", () => ({
 vi.mock("@/lib/meta/breakdowns-source", () => ({ getMetaBreakdownsForRange }));
 vi.mock("@/lib/meta/campaigns-source", () => ({ getMetaCampaignsForRange }));
 vi.mock("@/lib/meta/anomalies", () => ({ readMetaAnomaliesForBusiness }));
-vi.mock("@/lib/meta/campaign-labels", () => ({ readMetaCampaignLabels }));
+vi.mock("@/lib/creative-decision-engine/campaign-context/source", () => ({
+  readCampaignContextMap,
+}));
 vi.mock("@/lib/meta/decisions-workspace-read-model", () => ({
   readMetaDecisionsWorkspaceReadModel,
 }));
@@ -52,24 +54,28 @@ const WINDOW = { startDate: "2026-07-15", endDate: "2026-08-11" };
 /** The actor most cases use: an admin who may act on the control sections. */
 const ADMIN_ACTOR = { role: "admin" as const, reviewerReadOnly: false, demo: false };
 
-/**
- * Shaped like the labels authority actually serves them.
- *
- * `providerAccountId` is part of that shape and is not optional here: every
- * `meta_campaign_labels` row records the account the label was written against,
- * and this surface filters on it. A fixture without the field describes a row
- * that does not exist, and would let a scope test pass while the scope was
- * never applied.
- */
-const LABELS = [
-  {
-    campaignId: "c1",
-    campaignName: "Prospecting — broad",
-    kind: "main",
-    providerAccountId: "act_1",
-  },
-  { campaignId: "c2", campaignName: null, kind: "test", providerAccountId: "act_1" },
-];
+const AUTOMATIC_ROLES = new Map([
+  [
+    "c1",
+    {
+      kind: "main",
+      contextTrust: "high",
+      provenance: {
+        sourceUpdatedAt: "2026-08-11T04:00:00.000Z",
+      },
+    },
+  ],
+  [
+    "c2",
+    {
+      kind: "test",
+      contextTrust: "medium",
+      provenance: {
+        sourceUpdatedAt: "2026-08-11T04:00:00.000Z",
+      },
+    },
+  ],
+]);
 
 /** Shaped like the decisions workspace read model actually serves it. */
 function availableWorkspace() {
@@ -116,7 +122,12 @@ describe("account intelligence composition", () => {
     vi.clearAllMocks();
     getIntegrationStatusByBusiness.mockResolvedValue({ meta: true, google: true });
     getProviderAccountAssignments.mockResolvedValue({ account_ids: ["act_1"] });
-    getMetaCampaignsForRange.mockResolvedValue({ rows: [{}, {}] });
+    getMetaCampaignsForRange.mockResolvedValue({
+      rows: [
+        { id: "c1", name: "Prospecting — broad" },
+        { id: "c2", name: null },
+      ],
+    });
     getMetaCanonicalOverviewSummary.mockResolvedValue({
       readSource: "warehouse_published",
       isPartial: false,
@@ -124,7 +135,7 @@ describe("account intelligence composition", () => {
     getMetaCanonicalOverviewTrends.mockResolvedValue({ points: [{}, {}, {}], isPartial: false });
     getMetaBreakdownsForRange.mockResolvedValue({ status: "ready", isPartial: false });
     readMetaAnomaliesForBusiness.mockResolvedValue({ anomalies: [{}] });
-    readMetaCampaignLabels.mockResolvedValue(LABELS);
+    readCampaignContextMap.mockResolvedValue(AUTOMATIC_ROLES);
     // The three sections WP9 adds, each backed by a read model that already
     // existed rather than by its route handler.
     getMetaCreativesWarehousePayload.mockResolvedValue({
@@ -191,7 +202,7 @@ describe("account intelligence composition", () => {
       expect(spy.mock.calls[0][0]).toMatchObject(WINDOW);
     }
     expect(readMetaAnomaliesForBusiness).toHaveBeenCalledTimes(1);
-    expect(readMetaCampaignLabels).toHaveBeenCalledTimes(1);
+    expect(readCampaignContextMap).toHaveBeenCalledTimes(1);
     // ONE decision read, shared by Structure and Lane classify. Reading it
     // twice per page load doubled the most expensive query on this surface for
     // no new information.
@@ -259,13 +270,13 @@ describe("account intelligence composition", () => {
     ]);
   });
 
-  it("serves the labels themselves, not only how many there are", async () => {
-    const labels = (await read()).sections.find((s) => s.key === "labels")!;
-    expect(labels.facts).toEqual([
-      { label: "Labelled campaigns", value: "2" },
-      { label: "Prospecting — broad", value: "Main" },
-      // No stored name falls back to the campaign id rather than to a guess.
-      { label: "c2", value: "Test" },
+  it("serves automatically inferred roles with trust, not only a count", async () => {
+    const roles = (await read()).sections.find((s) => s.key === "labels")!;
+    expect(roles.label).toBe("Campaign roles");
+    expect(roles.facts).toEqual([
+      { label: "Automatically classified", value: "2" },
+      { label: "Prospecting — broad", value: "Main · high" },
+      { label: "c2", value: "Test · medium" },
     ]);
   });
 
@@ -276,37 +287,26 @@ describe("account intelligence composition", () => {
     expect(result.sections.find((s) => s.key === "trends")?.facts[0].value).toBe("Not reported");
   });
 
-  /**
-   * Labels are stored per business, but written per account.
-   *
-   * One live business holds 18 labels on one Meta account and 3 on another.
-   * Listing all 21 in a row beside account-scoped neighbours attributed one
-   * account's campaigns to the other. The shared authority keys only on the
-   * business, so the scope is applied at this composition — and the labels it
-   * drops are named, because a silently shorter list misleads as surely as a
-   * silently longer one.
-   */
-  it("counts only the selected account's labels, and says how many it withheld", async () => {
-    readMetaCampaignLabels.mockResolvedValue([
-      ...LABELS,
-      { campaignId: "c9", campaignName: "Other account", kind: "main", providerAccountId: "act_2" },
-      // No recorded account is not "this account": it cannot be attributed here.
-      { campaignId: "c8", campaignName: "Unattributed", kind: "main", providerAccountId: null },
-    ]);
-    const labels = (await read()).sections.find((s) => s.key === "labels")!;
-    expect(labels.facts).toEqual([
-      { label: "Labelled campaigns", value: "2" },
-      { label: "Prospecting — broad", value: "Main" },
-      { label: "c2", value: "Test" },
-    ]);
-    expect(labels.state).toBe("partial");
-    expect(labels.reason).toMatch(/2 labelled campaigns .* are not counted here/);
+  it("scopes automatic inference to the selected provider account", async () => {
+    await read();
+    expect(readCampaignContextMap).toHaveBeenCalledWith(
+      expect.objectContaining({
+        businessId: "biz-1",
+        providerAccountId: "act_1",
+        campaignIds: ["c1", "c2"],
+        asOf: WINDOW.endDate,
+      }),
+    );
   });
 
-  it("says a label count was not reported rather than showing zero", async () => {
-    readMetaCampaignLabels.mockResolvedValue(null);
-    const labels = (await read()).sections.find((s) => s.key === "labels")!;
-    expect(labels.facts).toEqual([{ label: "Labelled campaigns", value: "Not reported" }]);
+  it("reports unresolved automatic roles as partial instead of asking for labels", async () => {
+    readCampaignContextMap.mockResolvedValue(new Map());
+    const roles = (await read()).sections.find((s) => s.key === "labels")!;
+    expect(roles.facts).toEqual([
+      { label: "Automatically classified", value: "0" },
+    ]);
+    expect(roles.state).toBe("partial");
+    expect(roles.reason).toMatch(/2 campaigns could not be classified automatically/);
   });
 });
 
@@ -320,7 +320,7 @@ describe("one failing authority degrades one row, not the page", () => {
     getMetaCanonicalOverviewTrends.mockResolvedValue({ points: [], isPartial: false });
     getMetaBreakdownsForRange.mockResolvedValue({ status: "ready", isPartial: false });
     readMetaAnomaliesForBusiness.mockResolvedValue({ anomalies: [] });
-    readMetaCampaignLabels.mockResolvedValue([]);
+    readCampaignContextMap.mockResolvedValue(new Map());
     readMetaDecisionsWorkspaceReadModel.mockResolvedValue(availableWorkspace());
   });
 
@@ -416,7 +416,7 @@ describe("partial states keep the source's own words", () => {
     getMetaCanonicalOverviewTrends.mockResolvedValue({ points: [], isPartial: false });
     getMetaBreakdownsForRange.mockResolvedValue({ status: "ready", isPartial: false });
     readMetaAnomaliesForBusiness.mockResolvedValue({ anomalies: [] });
-    readMetaCampaignLabels.mockResolvedValue([]);
+    readCampaignContextMap.mockResolvedValue(new Map());
     readMetaDecisionsWorkspaceReadModel.mockResolvedValue(availableWorkspace());
   });
 
@@ -443,7 +443,7 @@ describe("the decisions authority's own health is not overwritten", () => {
     getMetaCanonicalOverviewTrends.mockResolvedValue({ points: [] });
     getMetaBreakdownsForRange.mockResolvedValue({ status: "ready" });
     readMetaAnomaliesForBusiness.mockResolvedValue({ anomalies: [] });
-    readMetaCampaignLabels.mockResolvedValue([]);
+    readCampaignContextMap.mockResolvedValue(new Map());
   });
 
   it("does not print Serving over a read model that reported itself unavailable", async () => {
@@ -498,7 +498,7 @@ describe("account scope", () => {
     getMetaCanonicalOverviewTrends.mockResolvedValue({ points: [] });
     getMetaBreakdownsForRange.mockResolvedValue({ status: "ready" });
     readMetaAnomaliesForBusiness.mockResolvedValue({ anomalies: [] });
-    readMetaCampaignLabels.mockResolvedValue([]);
+    readCampaignContextMap.mockResolvedValue(new Map());
     readMetaDecisionsWorkspaceReadModel.mockResolvedValue(availableWorkspace());
   });
 
@@ -540,7 +540,7 @@ describe("account scope", () => {
       getMetaCanonicalOverviewTrends,
       getMetaBreakdownsForRange,
       readMetaAnomaliesForBusiness,
-      readMetaCampaignLabels,
+      readCampaignContextMap,
       readMetaDecisionsWorkspaceReadModel,
     ]) {
       expect(spy).not.toHaveBeenCalled();
@@ -656,7 +656,7 @@ describe("each source reports its own observation time", () => {
       anomalies: [],
       snapshotDate: "2026-08-10",
     });
-    readMetaCampaignLabels.mockResolvedValue([]);
+    readCampaignContextMap.mockResolvedValue(new Map());
     readMetaDecisionsWorkspaceReadModel.mockResolvedValue({
       ...availableWorkspace(),
       generatedAt: "2026-08-11T12:00:00.000Z",
@@ -790,7 +790,7 @@ describe("the caller's resolved account is honoured", () => {
     getMetaCanonicalOverviewTrends.mockResolvedValue({ points: [] });
     getMetaBreakdownsForRange.mockResolvedValue({ status: "ready" });
     readMetaAnomaliesForBusiness.mockResolvedValue({ anomalies: [] });
-    readMetaCampaignLabels.mockResolvedValue([]);
+    readCampaignContextMap.mockResolvedValue(new Map());
     readMetaDecisionsWorkspaceReadModel.mockResolvedValue(availableWorkspace());
   });
 
@@ -852,7 +852,7 @@ describe("WP9 — the three sections that were never composed", () => {
     getMetaCanonicalOverviewTrends.mockResolvedValue({ points: [], isPartial: false });
     getMetaBreakdownsForRange.mockResolvedValue({ status: "ready", isPartial: false });
     readMetaAnomaliesForBusiness.mockResolvedValue({ anomalies: [] });
-    readMetaCampaignLabels.mockResolvedValue([]);
+    readCampaignContextMap.mockResolvedValue(new Map());
     getMetaCreativesWarehousePayload.mockResolvedValue({ status: "ok", rows: [] });
     readMetaCreativesWarehouseObservedAt.mockResolvedValue("2026-08-11T03:00:00.000Z");
     getMetaAccountDailyCoverage.mockResolvedValue({

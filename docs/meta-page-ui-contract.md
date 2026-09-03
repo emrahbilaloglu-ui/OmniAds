@@ -50,8 +50,10 @@ Supporting components under `components/meta/redesign/`:
 
 - `MetaLaunchpadOverlay.tsx` — confirm overlay for rebuild/duplicate/apply_bid,
   wraps the shared `LaunchpadOverlay`.
-- `MetaCampaignLabelsSection.tsx` is the label-modal body;
-  `MetaCreativeEvidenceDrawer.tsx` displays canonical creative evidence.
+- `MetaCreativeEvidenceDrawer.tsx` displays canonical creative evidence.
+  (`MetaCampaignLabelsSection.tsx` and its label modal were removed under
+  D074; campaign roles are inferred server-side and are not manageable from
+  the UI.)
 - `meta-card-utils.ts` — verbatim consumption of server presentation fields.
 - `types.ts` — shared client payload contracts (`MetaPulsePayload`,
   `MetaLanePayload`, `MetaWatchingSegment`, `MetaHealthyEntity`,
@@ -175,16 +177,16 @@ band is computed in the component.
    engine version and the real `lastSyncAt` rendered as `synced Xm/h/d ago`. A
    null sync age renders `synced —`; the server never fabricates "now"
    (`account-pulse/route.ts:380-392`).
-4. **Labels** — `labelCoverage.labeledCampaigns / activeCampaigns` with the
-   coverage percent and the "Manage labels →" trigger for the label modal.
+4. **Roles** — `campaignRoleCoverage.classifiedCampaigns / activeCampaigns`
+   with the coverage percent. Coverage is automatic account-scoped inference
+   (D074); there is no manage/override trigger, and unresolved campaigns stay
+   review-only rather than asking the operator for a label.
 5. **Mode** — `operatingMode` plus `seasonalRegime` and `trackingHealth.status`
    chips.
 
 Money is currency-aware: the adapter's `formatMoney` takes the scoped provider
 account currency first, then `system.currency`, and renders `—` rather than
-guessing a symbol. It never defaults to USD. The campaign-label table formats
-each campaign's spend with that row's server-returned `currency`; it does not
-drop the row currency or borrow a different selected-account symbol.
+guessing a symbol. It never defaults to USD.
 
 ### MetaWorkspacePostureBanners
 
@@ -225,9 +227,12 @@ client-filtered rows:
   cross-adset rollup cards (adset recs in the same campaign with mixed
   decision labels, `groupAdsetRollups`), then individual `MetaActionCard`s.
   Tab count = filtered recs + anomalies. Empty state
-  (`EmptyActionState`) surfaces label/target remediation CTAs.
+  (`EmptyActionState`) surfaces target remediation and role-inference
+  status; it never asks for a manual label.
 - **Watching** — `WatchingSegments` chip row (server-provided
-  `watchingSegments`, keys: `unlabeled`, `missing_target`, `learning`,
+  `watchingSegments`; the wire key `unlabeled` is retained for serialized
+  compatibility but presents as "Role unresolved"), keys: `unlabeled`,
+  `missing_target`, `learning`,
   `recently_changed`, `deferred`, `issues`, **`mid_confidence`**,
   `insufficient_signal`, `other` — `types.ts:153-162`), then cards.
 - **Healthy** — hierarchical campaign→adset grouping
@@ -250,8 +255,8 @@ Client-side narrowing **only** — the info chip literally says "These controls
 narrow server-provided lanes. They do not recompute recommendation lanes in
 the UI." Controls: level (Campaigns/Ad sets), campaign picker (max 12 options
 derived from lane rows), readiness (All / Auto-ready / Manual only, keyed off
-`automationReadiness.tier`), labels (All / Main / Test / Mixed, keyed off
-server `campaignKind`), plus Reset. It also carries a **sort** control
+`automationReadiness.tier`), roles (All / Main / Test / Mixed, keyed off the
+server's automatically inferred `campaignKind`), plus Reset. It also carries a **sort** control
 (`meta-row-sort`: Money at stake (default) / Priority / Age — `sortMetaRecs`,
 over structured server truth, missing-metric rows always sorted last) and a
 **free-text search** (`meta-row-search` — `metaRecSearchMatch` over entity
@@ -289,10 +294,13 @@ rank as zero) and "Send selected to Launchpad".
 - `apply_bid` → on confirm, executes the bid write (see write surfaces); the
   overlay shows `proposedBidCap` from `proposedBidDisplayValue`.
 
-### Campaign label modal
+### Campaign roles (manual label modal removed)
 
-`MetaCampaignLabelsSection` in a page-level modal (Escape/backdrop close).
-Main/Test/Mixed labels feed the server lanes and hard-action gating.
+The manual campaign-label modal (`MetaCampaignLabelsSection`) was removed
+under D074 and `/api/meta/campaign-labels` is a 410 tombstone. Main/Test/Mixed
+roles are inferred server-side per business + physical provider account +
+campaign + as-of date; unresolved or low-confidence roles keep hard actions
+review-only. There is no UI override path.
 
 ## Data contracts
 
@@ -319,8 +327,10 @@ warehouse read models). Key semantics:
   blocked/degraded.
 - `roas.target` resolution order: commercial-truth target pack →
   account-median calibration → none (`target_source`).
-- `labelCoverage`, `targetAnchor` — readiness inputs for the notice/empty
-  states.
+- `campaignRoleCoverage`, `targetAnchor` — readiness inputs for the
+  notice/empty states (`campaignRoleCoverage` replaced the retired
+  `labelCoverage` field; it reports automatic classification coverage, not
+  manual labels).
 - `dataReadiness` — `{status, isPartial, notReadyReason, evidenceSource}`
   passthrough from the campaigns source. Rendered in the workspace posture
   stack as `data-banner-id="data_readiness"` when status is not `ok` or the
@@ -367,8 +377,8 @@ Operator-response reconciliation, server-side:
   Graph API status read (v25.0, 5s timeout, failure-tolerant) detects
   externally reversed states so stale "Acted" chips do not stick
   (`lane-classify/route.ts:817-898`).
-- Campaign labels (`campaignKind`) are attached server-side to recs, healthy,
-  non-sales, and archive rows.
+- Campaign roles (`campaignKind`, automatic account-scoped inference) are
+  attached server-side to recs, healthy, non-sales, and archive rows.
 
 Every rec in `actionNow`, `watching`, and `nonSales` leaves the route through
 `annotateMetaRecPresentation` (`lane-classify/route.ts:1340-1369`) — see next

@@ -14,6 +14,18 @@ import {
   classifyMetaAovQuality,
   resolveSpendUnit,
 } from "./spend-unit-resolver";
+import {
+  resolveCommercialAnchorExplanation,
+  type CommercialAnchorExplanation,
+} from "./commercial-anchor";
+
+/**
+ * Names the resolver whose `hardActionEligibility` is the canonical commercial
+ * authority, so a consumer can cite WHICH authority its verdict came from
+ * rather than asserting one existed.
+ */
+export const ACCOUNT_DECISION_PROFILE_CONTRACT =
+  "adsecute.account-decision-profile.v1" as const;
 import { resolveEngineV3Flags, type EngineV3Flags } from "./feature-flags";
 import type {
   AccountCalibration,
@@ -302,6 +314,8 @@ function resolveSpendUnitProfile(input: {
     hardEligibleByDefault:
       resolution.hardEligibleByDefault &&
       !commercialThresholdLacksTrustedProvenance,
+    commercialThresholdProvenanceUnverified:
+      commercialThresholdLacksTrustedProvenance,
   };
 }
 
@@ -311,8 +325,16 @@ function resolveHardActionEligibility(input: {
   metaAovQuality: MetaAovQuality;
   calibrationReady: boolean;
   shadowOnly: boolean;
+  /** Reported in the anchor lineage; it scales the Meta-derived spend unit. */
+  attributionAovAdjustmentMultiplier?: number | null;
 }): HardActionEligibility {
   if (input.shadowOnly) {
+    const shadowAnchor = buildAnchorExplanation({
+      ...input,
+      thresholdEligible: false,
+      scaleAnchorEligible: false,
+      cutAnchorEligible: false,
+    });
     return {
       scale: false,
       cut: false,
@@ -323,6 +345,12 @@ function resolveHardActionEligibility(input: {
         cut: "shadow_only",
         refresh: "shadow_only",
       },
+      codes: {
+        scale: "shadow_only",
+        cut: "shadow_only",
+        refresh: "shadow_only",
+      },
+      anchor: shadowAnchor,
     };
   }
 
@@ -383,13 +411,77 @@ function resolveHardActionEligibility(input: {
   const hardEligible = scaleEligible && cutEligible && refreshEligible;
   const firstBlockedReason = scaleReason ?? cutReason ?? refreshReason;
 
+  // The explanation is derived from the SAME predicates decided above, so a
+  // machine code can never disagree with the boolean it explains.
+  const anchor = buildAnchorExplanation({
+    ...input,
+    attributionAovAdjustmentMultiplier: input.attributionAovAdjustmentMultiplier,
+    thresholdEligible: commercialThresholdEligible,
+    scaleAnchorEligible,
+    cutAnchorEligible,
+  });
+
   return {
     scale: scaleEligible,
     cut: cutEligible,
     refresh: refreshEligible,
     reason: hardEligible ? null : firstBlockedReason,
     reasons,
+    codes: {
+      scale: anchor.actions.scale.blockerCode,
+      cut: anchor.actions.cut.blockerCode,
+      refresh: anchor.actions.refresh.blockerCode,
+    },
+    anchor,
   };
+}
+
+/**
+ * Builds the operator-facing anchor explanation from resolved predicates.
+ * It reports; it never decides.
+ */
+function buildAnchorExplanation(input: {
+  spendUnitProfile: SpendUnitProfile;
+  targetPack: BusinessTargetPack | null;
+  metaAovQuality: MetaAovQuality;
+  calibrationReady: boolean;
+  shadowOnly: boolean;
+  currency?: string | null;
+  attributionAovAdjustmentMultiplier?: number | null;
+  thresholdEligible: boolean;
+  scaleAnchorEligible: boolean;
+  cutAnchorEligible: boolean;
+}): CommercialAnchorExplanation {
+  const evidence = input.spendUnitProfile.spendUnitEvidence;
+  return resolveCommercialAnchorExplanation({
+    shadowOnly: input.shadowOnly,
+    thresholdEligible: input.thresholdEligible,
+    provenanceUnverified:
+      input.spendUnitProfile.commercialThresholdProvenanceUnverified ?? false,
+    scaleAnchorEligible: input.scaleAnchorEligible,
+    cutAnchorEligible: input.cutAnchorEligible,
+    calibrationReady: input.calibrationReady,
+    spendUnit: input.spendUnitProfile.spendUnit,
+    spendUnitSource: input.spendUnitProfile.spendUnitSource,
+    spendUnitConfidence: input.spendUnitProfile.spendUnitConfidence,
+    metaAovQuality: input.metaAovQuality,
+    currency: input.currency ?? null,
+    targetPackFreshness: input.targetPack?.freshness ?? null,
+    targetPackUpdatedAt: input.targetPack?.updatedAt ?? null,
+    lineage: {
+      targetCpa: evidence.targetCpa ?? null,
+      operatorAovAssumption: evidence.operatorAovAssumption ?? null,
+      targetRoas: evidence.targetRoas ?? null,
+      breakEvenRoas: evidence.breakEvenRoas ?? null,
+      metaAttributedAovMean90d: evidence.metaAttributedAovMean90d ?? null,
+      metaAttributedAovPurchaseCount90d:
+        evidence.metaAttributedAovPurchaseCount90d ?? 0,
+      attributionAovAdjustmentMultiplier:
+        input.attributionAovAdjustmentMultiplier ?? null,
+      accountCpaP50: evidence.accountCpaP50 ?? null,
+      accountCpaSampleCount: evidence.accountCpaSampleCount ?? 0,
+    },
+  });
 }
 
 function hardActionEligibilityReason(
@@ -433,6 +525,15 @@ export function applyCutOnlyCommercialStopLossProfile(input: {
         ),
     refresh: hardActionEligibilityReason(canonicalEligibility, "refresh"),
   };
+  // Codes follow the same source-of-truth split as `reasons` above: Cut may be
+  // explained by the stop-loss overlay, Scale/Refresh never are.
+  const codes = {
+    scale: canonicalEligibility.codes?.scale ?? null,
+    cut: canonicalEligibility.cut
+      ? (canonicalEligibility.codes?.cut ?? null)
+      : (input.commercialStopLossEligibility.codes?.cut ?? null),
+    refresh: canonicalEligibility.codes?.refresh ?? null,
+  };
   return {
     ...input.baseProfile,
     commercialStopLossSpendUnit: input.commercialStopLossSpendUnit,
@@ -450,6 +551,10 @@ export function applyCutOnlyCommercialStopLossProfile(input: {
           ? null
           : (reasons.scale ?? reasons.cut ?? reasons.refresh),
       reasons,
+      codes,
+      // The anchor lineage describes the canonical commercial threshold, which
+      // the Cut-only stop-loss overlay never replaces.
+      anchor: canonicalEligibility.anchor ?? null,
     },
   };
 }
@@ -675,6 +780,7 @@ export async function resolveAccountDecisionProfile(input: {
       accountBaselines.matureCreativeCount >=
       MIN_ACCOUNT_SCALE_CALIBRATION_SAMPLE,
     shadowOnly: flags.shadowOnly,
+    attributionAovAdjustmentMultiplier,
   });
   const spendUnitByKind =
     resolvedAccountBaselinesByKind === undefined

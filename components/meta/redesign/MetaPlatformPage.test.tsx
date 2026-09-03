@@ -1422,12 +1422,12 @@ describe("MetaPlatformPage", () => {
     expect(source).not.toContain("<MetaDrillDrawer");
   });
 
-  it("keeps label coverage in the exact KPI without mounting legacy scope management", () => {
+  it("shows automatic campaign-role coverage without mounting legacy scope management", () => {
     state.pulsePayload = metaPulse({
-      labelCoverage: {
+      campaignRoleCoverage: {
         activeCampaigns: 2,
-        labeledCampaigns: 1,
-        unlabeledCampaigns: 1,
+        classifiedCampaigns: 1,
+        unresolvedCampaigns: 1,
         latestUpdatedAt: "2026-05-15T10:00:00.000Z",
       },
     });
@@ -1475,7 +1475,8 @@ describe("MetaPlatformPage", () => {
     expect(html).toContain('data-meta-exact-section="kpis"');
     expect(html).toContain(">1/2 ");
     expect(html).toContain(">50%</span>");
-    expect(html).toContain("Manage labels →");
+    expect(html).toContain("Campaign roles");
+    expect(html).toContain("Automatic inference");
     expect(html).not.toContain("Review exceptions");
     expect(html).not.toContain(
       'aria-label="Review campaign context exceptions"',

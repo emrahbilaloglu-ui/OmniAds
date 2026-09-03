@@ -1,5 +1,7 @@
 import { META_GATE_REFUSAL_REASONS } from "@/lib/meta/release-gate-copy";
 import type { ReactElement } from "react";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -60,6 +62,13 @@ vi.mock("@/lib/zero-base/provider-scope-server", () => ({
 vi.mock("@/lib/meta/automation-control-plane", () => ({
   getMetaAutomationControlPlane: vi.fn(),
 }));
+vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({}) as never) }));
+vi.mock("@/lib/meta/state-history-compaction-readiness", () => ({
+  readStateHistoryCompactionReadiness: vi.fn(),
+}));
+vi.mock("@/lib/meta/budget-readiness-read-model", () => ({
+  readBudgetReadiness: vi.fn(),
+}));
 vi.mock("@/app/api/launchpad/meta/demo-write-authority", () => ({
   readLaunchpadWriteAuthority: vi.fn(),
 }));
@@ -79,6 +88,22 @@ const authRouting = await import("@/lib/zero-base/auth-routing");
 const writeAuthority = await import(
   "@/app/api/launchpad/meta/demo-write-authority"
 );
+const compactionReadiness = await import(
+  "@/lib/meta/state-history-compaction-readiness"
+);
+const budgetReadinessModel = await import("@/lib/meta/budget-readiness-read-model");
+
+const READINESS_FIXTURE = {
+  contract: "d077.state-history-compaction-readiness.v3",
+  businessId: "biz_route",
+  fence: null,
+  approvalStatus: "NOT_EXECUTED",
+  journalRead: "ok",
+  latestJournal: [],
+  plannedReclaim: null,
+  d075WriterEvidence: { state: "unknown", detail: "test" },
+  blockers: ["fence_measurement_unavailable"],
+} as never;
 
 function session() {
   return {
@@ -132,11 +157,14 @@ const control: MetaAutomationControlPlane = {
       notificationPolicy: "every_auto_action",
       maxBudgetIncreasePct: 20,
       maxDailyBudgetChangeMinor: null,
-      requireCampaignLabel: true,
+      requireResolvedCampaignRole: true,
       requireCommercialAnchor: true,
       requireLivePreflight: true,
       requireRollbackPlan: true,
       dryRunOnly: true,
+      budgetMinHoursBetweenChanges: null,
+      budgetMaxChangesPer7d: null,
+      budgetMaxAccountConcentrationPct: null,
       minRoasFloor: null,
       quietHours: null,
     },
@@ -193,6 +221,12 @@ async function renderPage(input?: {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  /*
+    D086: a route-level default so every pre-existing case still renders. The
+    route awaits this read, and an unset mock returns `undefined`, whose
+    `.catch` does not exist.
+  */
+  vi.mocked(budgetReadinessModel.readBudgetReadiness).mockResolvedValue(null as never);
   vi.mocked(auth.getSessionFromCookies).mockResolvedValue(session() as never);
   vi.mocked(businessPageAccess.requireBusinessPageContext).mockResolvedValue(
     authorizedContext("biz_route") as never,
@@ -206,9 +240,54 @@ beforeEach(() => {
   vi.mocked(writeAuthority.readLaunchpadWriteAuthority).mockResolvedValue(
     "live",
   );
+  vi.mocked(
+    compactionReadiness.readStateHistoryCompactionReadiness,
+  ).mockResolvedValue(READINESS_FIXTURE);
 });
 
 describe("Automation canonical route authority", () => {
+  it("a readiness read failure reaches the body as null (rendered unavailable), never as ready", async () => {
+    vi.mocked(
+      compactionReadiness.readStateHistoryCompactionReadiness,
+    ).mockRejectedValueOnce(new Error("db down"));
+    await renderPage({ searchParams: { providerAccountId: "act_assigned" } });
+    expect(exactPage).toHaveBeenCalledWith(
+      expect.objectContaining({ stateHistoryReadiness: null }),
+    );
+  });
+
+  it("passes a journal-unavailable readiness state through verbatim — never null/empty/NOT_EXECUTED (correction 3)", async () => {
+    const unavailableFixture = {
+      ...(READINESS_FIXTURE as Record<string, unknown>),
+      journalRead: "unavailable",
+      approvalStatus: "UNKNOWN_JOURNAL_UNAVAILABLE",
+      latestJournal: [],
+      blockers: ["compaction_journal_read_unavailable"],
+    } as never;
+    vi.mocked(
+      compactionReadiness.readStateHistoryCompactionReadiness,
+    ).mockResolvedValueOnce(unavailableFixture);
+    await renderPage({ searchParams: { providerAccountId: "act_assigned" } });
+    expect(exactPage).toHaveBeenCalledWith(
+      expect.objectContaining({ stateHistoryReadiness: unavailableFixture }),
+    );
+    const passed = (
+      vi.mocked(exactPage).mock.calls.at(-1)?.[0] as unknown as Record<
+        string,
+        Record<string, unknown>
+      >
+    ).stateHistoryReadiness;
+    expect(passed.journalRead).toBe("unavailable");
+    expect(passed.approvalStatus).toBe("UNKNOWN_JOURNAL_UNAVAILABLE");
+  });
+
+  it("reads recovery readiness for exactly the route business", async () => {
+    await renderPage({ searchParams: { providerAccountId: "act_assigned" } });
+    expect(
+      compactionReadiness.readStateHistoryCompactionReadiness,
+    ).toHaveBeenCalledWith(expect.anything(), { businessId: "biz_route" });
+  });
+
   it("passes only the authorized route business and assigned account into the shared exact page", async () => {
     await renderPage({
       searchParams: { providerAccountId: "act_assigned" },
@@ -244,6 +323,17 @@ describe("Automation canonical route authority", () => {
        */
       stopEngageRefusalReason: META_GATE_REFUSAL_REASONS.automationStopUi,
       liveWritesRefusalReason: META_GATE_REFUSAL_REASONS.automationLiveWrites,
+      // D077: the server-read, display-only recovery readiness travels to
+      // the body verbatim.
+      stateHistoryReadiness: READINESS_FIXTURE,
+      // D086 Correction 1: the budget-readiness read travels the same way. r1
+      // never wired it, so the body always received the `null` default.
+      budgetReadiness: null,
+      // D088 C3: the budget WRITE readiness, which carries the account
+      // automatic execution is activated for. `null` here because this test's
+      // database mock has no control row to read it from — the body renders
+      // that as unavailable, never as activated.
+      budgetWriteReadiness: null,
     });
   });
 
@@ -414,5 +504,107 @@ describe("Automation canonical route authority", () => {
     expect(providerScope.resolveProviderAccountId).not.toHaveBeenCalled();
     expect(controlPlane.getMetaAutomationControlPlane).not.toHaveBeenCalled();
     expect(exactPage).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// D086 Correction 1 #1/#2 — the readiness read is WIRED, and account-scoped
+// ---------------------------------------------------------------------------
+
+const BUDGET_READINESS_FIXTURE = {
+  contract: "d086.budget-readiness-read-model.v2",
+  businessId: "biz_route",
+  providerAccountId: "act_assigned",
+  scopeBlocker: null,
+  compiledResolverVersion: "campaign-context-resolver.v2-account-scoped-name-neutral-2026-09-01",
+  dimensions: [],
+  blockers: [],
+} as const;
+
+describe("D086 C1 — the budget-readiness read reaches the body", () => {
+  it("is CALLED by the route, with the business and the resolved account", async () => {
+    /*
+      r1 wired nothing. `readBudgetReadiness` existed only at its own definition,
+      so the section always took its `null` default and always rendered
+      unavailable — a readiness surface that could never report readiness.
+    */
+    vi.mocked(budgetReadinessModel.readBudgetReadiness)
+      .mockResolvedValue(BUDGET_READINESS_FIXTURE as never);
+    await renderPage({ searchParams: { providerAccountId: "act_assigned" } });
+
+    expect(budgetReadinessModel.readBudgetReadiness).toHaveBeenCalledTimes(1);
+    const [, scope] = vi.mocked(budgetReadinessModel.readBudgetReadiness).mock.calls[0]!;
+    expect(scope.businessId).toBe("biz_route");
+    // EXACTLY the account the route resolved — not a client parameter echo.
+    expect(scope.providerAccountId).toBe("act_assigned");
+    expect(typeof scope.nowIso).toBe("string");
+  });
+
+  it("passes the model to the body VERBATIM", async () => {
+    vi.mocked(budgetReadinessModel.readBudgetReadiness)
+      .mockResolvedValue(BUDGET_READINESS_FIXTURE as never);
+    await renderPage({ searchParams: { providerAccountId: "act_assigned" } });
+    const props = vi.mocked(exactPage).mock.calls.at(-1)?.[0] as unknown as Record<string, unknown>;
+    expect(props.budgetReadiness).toBe(BUDGET_READINESS_FIXTURE);
+  });
+
+  it("a read FAILURE reaches the body as null, never as ready", async () => {
+    vi.mocked(budgetReadinessModel.readBudgetReadiness)
+      .mockRejectedValue(new Error("connection reset"));
+    await renderPage({ searchParams: { providerAccountId: "act_assigned" } });
+    const props = vi.mocked(exactPage).mock.calls.at(-1)?.[0] as unknown as Record<string, unknown>;
+    expect(props.budgetReadiness).toBeNull();
+  });
+
+  it("an UNRESOLVED account travels as null, so the model fails closed", async () => {
+    // The route must not substitute a default or pick one of several accounts.
+    vi.mocked(providerScope.resolveProviderAccountId).mockResolvedValue(null as never);
+    vi.mocked(budgetReadinessModel.readBudgetReadiness)
+      .mockResolvedValue({ ...BUDGET_READINESS_FIXTURE, providerAccountId: null } as never);
+    await renderPage();
+    const [, scope] = vi.mocked(budgetReadinessModel.readBudgetReadiness).mock.calls[0]!;
+    expect(scope.providerAccountId).toBeNull();
+  });
+
+  it("a FOREIGN requested account never becomes the readiness scope", async () => {
+    /*
+      The scope comes from the route's own resolution. Whatever the client asked
+      for, only what `resolveProviderAccountId` returned may travel.
+    */
+    vi.mocked(providerScope.resolveProviderAccountId).mockResolvedValue("act_assigned" as never);
+    vi.mocked(budgetReadinessModel.readBudgetReadiness)
+      .mockResolvedValue(BUDGET_READINESS_FIXTURE as never);
+    await renderPage({ searchParams: { providerAccountId: "act_FOREIGN" } });
+    const [, scope] = vi.mocked(budgetReadinessModel.readBudgetReadiness).mock.calls[0]!;
+    expect(scope.providerAccountId).toBe("act_assigned");
+    expect(scope.providerAccountId).not.toBe("act_FOREIGN");
+  });
+
+  it("#13 uses the CANONICAL approved-version resolver, not raw process.env", () => {
+    /*
+      r2 read `process.env.CAMPAIGN_CONTEXT_AUTHORITY_RESOLVER_VERSION` directly,
+      so a stale or arbitrary value would look like an approval on this surface
+      while the runtime refused it. `campaignContextAuthorityResolverVersion()`
+      returns the approved version only when it equals the compiled one.
+    */
+    const src = readFileSync(resolve("app/c/[businessId]/meta/automation/page.tsx"), "utf8");
+    const executable = src
+      .replace(/\/\*[\s\S]*?\*\//g, " ")
+      .replace(/\/\/[^\n]*/g, " ");
+    expect(executable).toContain("campaignContextAuthorityResolverVersion()");
+    expect(executable).not.toMatch(/process\.env\.CAMPAIGN_CONTEXT_AUTHORITY_RESOLVER_VERSION/);
+    expect(executable).not.toMatch(/process\.env\[/);
+  });
+
+  it("the legacy compatibility shim passes NO readiness, so it renders unavailable", () => {
+    /*
+      The shim must not become a softer path. It mounts the legacy body and
+      supplies no `budgetReadiness`, so the section takes its `null` default.
+    */
+    const shim = readFileSync(
+      resolve("app/(dashboard)/platforms/meta/automation/page.tsx"), "utf8",
+    );
+    expect(shim).not.toContain("budgetReadiness");
+    expect(shim).not.toContain("readBudgetReadiness");
   });
 });

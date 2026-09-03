@@ -73,6 +73,12 @@ const INTENTIONALLY_PUBLIC: Record<string, string> = {
   "build-info": "release provenance, returns no tenant data",
   "release-authority": "release provenance, returns no tenant data",
   "migrate": "retired: returns 410 unconditionally and touches nothing",
+  "meta/campaign-labels":
+    "D074 compatibility tombstone: returns a static 410 campaign_labels_retired " +
+    "unconditionally, reads and writes no tenant data and never touches the " +
+    "historical label tables. Kept for one migration window so old clients get " +
+    "an explicit non-retryable answer instead of a misleading 404; removed with " +
+    "the separately gated compatibility-deletion migration.",
   "oauth/sign-with-google/start": "pre-authentication leg of the sign-in flow",
   "oauth/sign-with-google/callback": "pre-authentication leg; validates OAuth state",
   "oauth/sign-with-facebook/start": "pre-authentication leg of the sign-in flow",

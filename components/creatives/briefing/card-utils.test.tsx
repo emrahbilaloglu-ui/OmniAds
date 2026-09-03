@@ -4,6 +4,8 @@ import { describe, expect, it } from "vitest";
 import {
   BadgeChip,
   buildEvidenceSections,
+  cardCampaignRoleStatus,
+  cardCurrentRowScaleAction,
 } from "@/components/creatives/briefing/card-utils";
 import type { BriefingCreativeCard } from "@/components/creatives/briefing/types";
 
@@ -251,5 +253,175 @@ describe("observed rate at confidence", () => {
       <>{buildEvidenceSections(card).map((section) => section.content)}</>,
     );
     expect(html).toContain("50% (n=8, thin)");
+  });
+});
+
+describe("cardCampaignRoleStatus (D074b acceptance correction)", () => {
+  it("renders a current automatic role only for uncontradicted canonical resolved status", () => {
+    expect(
+      cardCampaignRoleStatus({ campaignRoleStatus: "resolved", campaignLabelStatus: undefined }),
+    ).toBe("resolved");
+    expect(
+      cardCampaignRoleStatus({ campaignRoleStatus: "resolved", campaignLabelStatus: "labeled" }),
+    ).toBe("resolved");
+  });
+
+  it("fails closed on legacy-only labeled, missing, and contradictory statuses", () => {
+    // Pre-correction: legacy-only "labeled" returned "resolved" and missing
+    // returned null (letting chips fall through to campaignKind display).
+    expect(
+      cardCampaignRoleStatus({ campaignRoleStatus: undefined, campaignLabelStatus: "labeled" }),
+    ).toBe("unresolved");
+    expect(
+      cardCampaignRoleStatus({ campaignRoleStatus: undefined, campaignLabelStatus: undefined }),
+    ).toBe("unresolved");
+    expect(
+      cardCampaignRoleStatus({ campaignRoleStatus: "resolved", campaignLabelStatus: "unlabeled" }),
+    ).toBe("unresolved");
+    expect(
+      cardCampaignRoleStatus({ campaignRoleStatus: undefined, campaignLabelStatus: "no_campaign" }),
+    ).toBe("no_campaign");
+  });
+});
+
+describe("cardCurrentRowScaleAction (D074b acceptance corrections 2+3)", () => {
+  const staleRow = (executionAction: string, buyerAction = "scale") =>
+    ({ buyerAction, executionAction }) as never;
+  const base = {
+    campaignRoleStatus: "resolved" as const,
+    campaignLabelStatus: undefined,
+    blockedActionType: null,
+    authorityBlocker: null,
+  };
+
+  it("returns the row action only when the server current primary confirms it", () => {
+    expect(
+      cardCurrentRowScaleAction({
+        ...base,
+        decisionCenterRow: staleRow("promote_to_main"),
+        campaignKind: "test",
+        primary: { kind: "promote", label: "Promote to main" },
+      }),
+    ).toBe("promote_to_main");
+    expect(
+      cardCurrentRowScaleAction({
+        ...base,
+        decisionCenterRow: staleRow("scale_budget"),
+        campaignKind: "main",
+        primary: { kind: "scale_budget", label: "Scale budget" },
+      }),
+    ).toBe("scale_budget");
+    expect(
+      cardCurrentRowScaleAction({
+        ...base,
+        decisionCenterRow: staleRow("controlled_scale"),
+        campaignKind: "mixed",
+        primary: { kind: "controlled_scale", label: "Review structure & scale" },
+      }),
+    ).toBe("controlled_scale");
+  });
+
+  it("resolved role/kind is NOT sufficient: any non-agreeing current primary wins (D074b correction 3)", () => {
+    // Correction 2 returned "promote_to_main" for every one of these — the
+    // helper restored a hard CTA over the server's current review/cut/
+    // refresh/diagnose primary.
+    const primaries = [
+      { kind: "review", label: "Refresh evidence" },
+      { kind: "cut", label: "Cut" },
+      { kind: "fresh_test", label: "Launch fresh test" },
+      { kind: "review", label: "Open evidence" },
+      { kind: "scale_budget", label: "Scale budget" },
+      null,
+      undefined,
+    ];
+    for (const primary of primaries) {
+      expect(
+        cardCurrentRowScaleAction({
+          ...base,
+          decisionCenterRow: staleRow("promote_to_main"),
+          campaignKind: "test",
+          primary: primary as never,
+        }),
+        JSON.stringify(primary ?? null),
+      ).toBeNull();
+    }
+    // Held/blocked state fails closed even when the primary would agree.
+    expect(
+      cardCurrentRowScaleAction({
+        ...base,
+        blockedActionType: "scale",
+        decisionCenterRow: staleRow("promote_to_main"),
+        campaignKind: "test",
+        primary: { kind: "promote", label: "Promote to main" },
+      }),
+    ).toBeNull();
+    expect(
+      cardCurrentRowScaleAction({
+        ...base,
+        authorityBlocker: "source_freshness",
+        decisionCenterRow: staleRow("promote_to_main"),
+        campaignKind: "test",
+        primary: { kind: "promote", label: "Promote to main" },
+      }),
+    ).toBeNull();
+  });
+
+  it("fails closed on missing, legacy-only, contradictory status and kind mismatch", () => {
+    // Pre-correction-2 ActionNowCard read row.executionAction directly for
+    // every one of these shapes. An agreeing primary is supplied so these
+    // pins keep targeting the role/kind gates specifically.
+    const agreeing = { primary: { kind: "promote", label: "Promote to main" } };
+    expect(
+      cardCurrentRowScaleAction({
+        ...base,
+        ...agreeing,
+        decisionCenterRow: staleRow("promote_to_main"),
+        campaignKind: "test",
+        campaignRoleStatus: undefined,
+      }),
+    ).toBeNull();
+    expect(
+      cardCurrentRowScaleAction({
+        ...base,
+        ...agreeing,
+        decisionCenterRow: staleRow("promote_to_main"),
+        campaignKind: "test",
+        campaignRoleStatus: undefined,
+        campaignLabelStatus: "labeled",
+      }),
+    ).toBeNull();
+    expect(
+      cardCurrentRowScaleAction({
+        ...base,
+        ...agreeing,
+        decisionCenterRow: staleRow("promote_to_main"),
+        campaignKind: "test",
+        campaignLabelStatus: "unlabeled",
+      }),
+    ).toBeNull();
+    expect(
+      cardCurrentRowScaleAction({
+        ...base,
+        ...agreeing,
+        decisionCenterRow: staleRow("promote_to_main"),
+        campaignKind: "main",
+      }),
+    ).toBeNull();
+    expect(
+      cardCurrentRowScaleAction({
+        ...base,
+        ...agreeing,
+        decisionCenterRow: staleRow("promote_to_main", "cut"),
+        campaignKind: "test",
+      }),
+    ).toBeNull();
+    expect(
+      cardCurrentRowScaleAction({
+        ...base,
+        ...agreeing,
+        decisionCenterRow: null,
+        campaignKind: "test",
+      }),
+    ).toBeNull();
   });
 });

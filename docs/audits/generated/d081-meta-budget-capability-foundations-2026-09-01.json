@@ -1,0 +1,610 @@
+{
+ "contract": "adsecute.meta.d081-budget-capability-foundations.v1",
+ "truthLabels": [
+  "verified_fact",
+  "capability_overlay",
+  "inference",
+  "unknown"
+ ],
+ "pinnedInputs": {
+  "d080bArtifactPath": "docs/audits/generated/d080b-meta-budget-policy-simulation-2026-09-01.json",
+  "d080bArtifactSha256": "b46e6aa80c75aec0ebc724f2b8fcc288cda611353e9924a85504d3e498d155df",
+  "d080bSnapshotHash": "d9d73c69b9e034377bd37b374b5710adbb2e6614b5fb9cbe4c2fc02cae7ffa97",
+  "d080bAnalysisHash": "c7df163691dd23f7017901b6bf78d7f6df523e7fc4176a045a0f1dcb0bd10d10",
+  "d080bArtifactHash": "314a90cdb7ac589d271e2b8de82e02318ec81485da75e86ebee28ab15ab0552e",
+  "d080aArtifactSha256": "d4a1898aba14bcb2a37ae60a335f207eb668df13d37619bdffb44330da4d7a69"
+ },
+ "capabilities": {
+  "typedBudgetIntent": {
+   "module": "lib/meta/budget-intent-contract",
+   "contractVersion": "meta.budget-intent.v1",
+   "implemented": true,
+   "executable": false,
+   "canonicalIntegration": {
+    "contract": "lib/meta/decisions-os-contract",
+    "member": "MetaOsDecisionAction.budgetIntent (MetaOsBudgetIntentPayload)",
+    "adapter": "toCanonicalDecisionAction",
+    "runtimeConsumer": "app/api/meta/decisions-workspace/route.ts calls buildMetaOsDecisionsPresentation, which calls toCanonicalDecisionAction and serves the action in its budgetReview block",
+    "payloadLossless": true,
+    "discriminatedUnion": "MetaOsLegacyDecisionAction | MetaOsBudgetDecisionAction",
+    "servedIntent": "review",
+    "providerMutation": null,
+    "dispatchVerbAdded": false,
+    "proposalQueueWidened": false
+   },
+   "truth": "verified_fact"
+  },
+  "accountScopedRoleAuthority": {
+   "module": "lib/meta/campaign-role-authority",
+   "implemented": true,
+   "manualLabelInput": false,
+   "readsCampaignName": false,
+   "canonicalRule": {
+    "producer": "automatic_inference",
+    "requiredSource": "system_inferred",
+    "requiredConfidence": "high",
+    "requiresValidatedResolverVersion": true,
+    "requiresExactCompositeScope": [
+     "businessId",
+     "providerAccountId",
+     "campaignId",
+     "asOfDate"
+    ],
+    "manualLabelAccepted": false,
+    "campaignNameConsulted": false,
+    "reference": "lib/meta/decisions-workspace-read-model.ts trustedForAction"
+   },
+   "boundToCanonicalValidator": "isCampaignContextResolverAuthorityValidated",
+   "runtimeConsumer": "lib/meta/decisions-workspace-read-model.ts calls evaluateAccountScopedRoleAuthority to compute trustedForAction",
+   "truth": "verified_fact"
+  },
+  "currencyExponentAuthority": {
+   "module": "lib/currency/iso-4217-minor-units",
+   "registryVersion": "iso4217.minor-units.2026-09-01",
+   "implemented": true,
+   "truth": "verified_fact"
+  }
+ },
+ "replay": {
+  "denominators": {
+   "proposals": 247050,
+   "origins": 17,
+   "entities": 2430,
+   "accounts": 7,
+   "businesses": 6
+  },
+  "before": {
+   "account_not_selected": 6810,
+   "budget_field_ambiguous": 72640,
+   "budget_not_binding": 99680,
+   "budget_value_absent": 2540,
+   "commercial_target_absent": 133040,
+   "commercial_target_stale": 97050,
+   "conflicting_transition": 8640,
+   "conversion_evidence_floor": 118640,
+   "decision_vocabulary_absent": 247050,
+   "entity_cap": 220,
+   "lifetime_schedule_unretained": 2900,
+   "objective_identity_unknown": 6090,
+   "observation_stale": 28080,
+   "oscillation_risk": 60,
+   "owner_evidence_absent": 216340,
+   "owner_mode_ambiguous": 11720,
+   "parent_not_active": 164090,
+   "recent_change_cooldown": 930,
+   "role_authority_absent": 247050,
+   "spend_evidence_floor": 235820,
+   "status_evidence_absent": 216340,
+   "status_not_active": 25070,
+   "unit_exponent_unknown": 247050
+  },
+  "resolvable": {
+   "decision_vocabulary_absent": {
+    "closure": "implemented_and_integrated_canonical_capability",
+    "rows": 247050,
+    "basis": "canonical_vocabulary_membership",
+    "truth": "verified_fact",
+    "evidence": "A budget intent is a discriminated member of MetaOsDecisionAction via MetaOsBudgetIntentPayload, produced by toCanonicalDecisionAction. The blocker is closed application-wide because the canonical output vocabulary can now carry the intent, not because a standalone type exists. It remains non-dispatchable: providerMutation is null and no endpoint was added."
+   },
+   "unit_exponent_unknown": {
+    "closure": "implemented_and_integrated_canonical_capability",
+    "rows": 247050,
+    "basis": "per_account_currency_lookup_against_a_versioned_registry",
+    "truth": "capability_overlay",
+    "registryVersion": "iso4217.minor-units.2026-09-01",
+    "evidence": "Every account currency observed in the frozen snapshot resolves to a transcribed ISO exponent. This is a frozen-data resolution, not a claim that any change is permitted."
+   },
+   "role_authority_absent": {
+    "closure": "residual_data_gap",
+    "rows": 0,
+    "basis": "canonical_rule_system_inferred_plus_high_confidence_plus_validated_resolver_version",
+    "truth": "capability_overlay",
+    "evidence": "The capability is implemented and wired into the canonical decision-authority read path, but the frozen D080B snapshot retains NEITHER kind_source NOR resolver_version: its roleContext read selects campaign_id, as_of_date, inferred_kind, confidence_class and provider_account_id only. The canonical rule requires source === 'system_inferred' AND confidence 'high' AND a validated resolver version; two of those three provenances were never captured. Both absences fail closed rather than being assumed, so no row resolves. This is a data-retention gap, not a code gap.",
+    "missingProvenance": [
+     "kind_source",
+     "resolver_version"
+    ],
+    "firstGateObserved": "role_source_not_system_inferred",
+    "firstGateNote": "Both provenances are absent. The source gate is earlier in the ladder, so it is the blocker the census records; fixing only resolver_version would not resolve a single row."
+   }
+  },
+  "residual": {
+   "blockerCensus": {
+    "account_not_selected": 6810,
+    "budget_field_ambiguous": 72640,
+    "budget_not_binding": 99680,
+    "budget_value_absent": 2540,
+    "commercial_target_absent": 133040,
+    "commercial_target_stale": 97050,
+    "conflicting_transition": 8640,
+    "conversion_evidence_floor": 118640,
+    "entity_cap": 220,
+    "lifetime_schedule_unretained": 2900,
+    "objective_identity_unknown": 6090,
+    "observation_stale": 28080,
+    "oscillation_risk": 60,
+    "owner_evidence_absent": 216340,
+    "owner_mode_ambiguous": 11720,
+    "parent_not_active": 164090,
+    "recent_change_cooldown": 930,
+    "role_authority_absent": 247050,
+    "spend_evidence_floor": 235820,
+    "status_evidence_absent": 216340,
+    "status_not_active": 25070
+   },
+   "proposalsWithNoResidualBlocker": 0,
+   "state": "no_row_reaches_preview",
+   "note": "A row with no residual blocker would be preview-only and still non-executable: no provider write path exists, and D081 adds none.",
+   "truth": "capability_overlay"
+  },
+  "perBusiness": [
+   {
+    "business": "Bilsem Zeka",
+    "proposals": 58100,
+    "vocabulary_resolvable": 58100,
+    "unit_resolvable": 58100,
+    "role_resolvable": 0,
+    "no_residual_blocker": 0,
+    "truth": "capability_overlay"
+   },
+   {
+    "business": "ColorFullWorldsTR",
+    "proposals": 10510,
+    "vocabulary_resolvable": 10510,
+    "unit_resolvable": 10510,
+    "role_resolvable": 0,
+    "no_residual_blocker": 0,
+    "truth": "capability_overlay"
+   },
+   {
+    "business": "Grandmix",
+    "proposals": 124050,
+    "vocabulary_resolvable": 124050,
+    "unit_resolvable": 124050,
+    "role_resolvable": 0,
+    "no_residual_blocker": 0,
+    "truth": "capability_overlay"
+   },
+   {
+    "business": "IwaStore",
+    "proposals": 19820,
+    "vocabulary_resolvable": 19820,
+    "unit_resolvable": 19820,
+    "role_resolvable": 0,
+    "no_residual_blocker": 0,
+    "truth": "capability_overlay"
+   },
+   {
+    "business": "IwaTR",
+    "proposals": 2630,
+    "vocabulary_resolvable": 2630,
+    "unit_resolvable": 2630,
+    "role_resolvable": 0,
+    "no_residual_blocker": 0,
+    "truth": "capability_overlay"
+   },
+   {
+    "business": "TheSwaf",
+    "proposals": 31940,
+    "vocabulary_resolvable": 31940,
+    "unit_resolvable": 31940,
+    "role_resolvable": 0,
+    "no_residual_blocker": 0,
+    "truth": "capability_overlay"
+   }
+  ],
+  "perAccount": [
+   {
+    "provider_account_id": "act_1087566732415606",
+    "business": "IwaStore",
+    "is_selected": true,
+    "proposals": 19820,
+    "vocabulary_resolvable": 19820,
+    "unit_resolvable": 19820,
+    "role_resolvable": 0,
+    "no_residual_blocker": 0,
+    "truth": "capability_overlay"
+   },
+   {
+    "provider_account_id": "act_2335220976649516",
+    "business": "IwaTR",
+    "is_selected": true,
+    "proposals": 2630,
+    "vocabulary_resolvable": 2630,
+    "unit_resolvable": 2630,
+    "role_resolvable": 0,
+    "no_residual_blocker": 0,
+    "truth": "capability_overlay"
+   },
+   {
+    "provider_account_id": "act_3554615364751964",
+    "business": "ColorFullWorldsTR",
+    "is_selected": true,
+    "proposals": 10510,
+    "vocabulary_resolvable": 10510,
+    "unit_resolvable": 10510,
+    "role_resolvable": 0,
+    "no_residual_blocker": 0,
+    "truth": "capability_overlay"
+   },
+   {
+    "provider_account_id": "act_805150454596350",
+    "business": "Grandmix",
+    "is_selected": true,
+    "proposals": 124050,
+    "vocabulary_resolvable": 124050,
+    "unit_resolvable": 124050,
+    "role_resolvable": 0,
+    "no_residual_blocker": 0,
+    "truth": "capability_overlay"
+   },
+   {
+    "provider_account_id": "act_822913786458311",
+    "business": "TheSwaf",
+    "is_selected": true,
+    "proposals": 25130,
+    "vocabulary_resolvable": 25130,
+    "unit_resolvable": 25130,
+    "role_resolvable": 0,
+    "no_residual_blocker": 0,
+    "truth": "capability_overlay"
+   },
+   {
+    "provider_account_id": "act_840779107261785",
+    "business": "Bilsem Zeka",
+    "is_selected": true,
+    "proposals": 58100,
+    "vocabulary_resolvable": 58100,
+    "unit_resolvable": 58100,
+    "role_resolvable": 0,
+    "no_residual_blocker": 0,
+    "truth": "capability_overlay"
+   },
+   {
+    "provider_account_id": "act_921275999286619",
+    "business": "TheSwaf",
+    "is_selected": false,
+    "proposals": 6810,
+    "vocabulary_resolvable": 6810,
+    "unit_resolvable": 6810,
+    "role_resolvable": 0,
+    "no_residual_blocker": 0,
+    "truth": "capability_overlay"
+   }
+  ],
+  "perGrain": [
+   {
+    "grain": "adset",
+    "proposals": 167960,
+    "vocabulary_resolvable": 167960,
+    "unit_resolvable": 167960,
+    "role_resolvable": 0,
+    "no_residual_blocker": 0,
+    "truth": "capability_overlay"
+   },
+   {
+    "grain": "campaign",
+    "proposals": 79090,
+    "vocabulary_resolvable": 79090,
+    "unit_resolvable": 79090,
+    "role_resolvable": 0,
+    "no_residual_blocker": 0,
+    "truth": "capability_overlay"
+   }
+  ],
+  "perFold": [
+   {
+    "fold": "fold_1",
+    "proposals": 48630,
+    "vocabulary_resolvable": 48630,
+    "unit_resolvable": 48630,
+    "role_resolvable": 0,
+    "no_residual_blocker": 0,
+    "truth": "capability_overlay"
+   },
+   {
+    "fold": "fold_2",
+    "proposals": 68510,
+    "vocabulary_resolvable": 68510,
+    "unit_resolvable": 68510,
+    "role_resolvable": 0,
+    "no_residual_blocker": 0,
+    "truth": "capability_overlay"
+   },
+   {
+    "fold": "fold_3",
+    "proposals": 84910,
+    "vocabulary_resolvable": 84910,
+    "unit_resolvable": 84910,
+    "role_resolvable": 0,
+    "no_residual_blocker": 0,
+    "truth": "capability_overlay"
+   },
+   {
+    "fold": "fold_4",
+    "proposals": 45000,
+    "vocabulary_resolvable": 45000,
+    "unit_resolvable": 45000,
+    "role_resolvable": 0,
+    "no_residual_blocker": 0,
+    "truth": "capability_overlay"
+   }
+  ],
+  "reconciliation": {
+   "proposals": 247050,
+   "perBusinessTotal": 247050,
+   "perAccountTotal": 247050,
+   "perGrainTotal": 247050,
+   "perFoldTotal": 247050,
+   "vocabularyResolvableTotal": 247050,
+   "unitResolvableTotal": 247050,
+   "roleResolvableTotal": 0,
+   "reconciles": true,
+   "truth": "verified_fact"
+  },
+  "roleDiagnostics": {
+   "retainedRoleRows": 3058,
+   "retainedRoleRowsWithAccount": 0,
+   "observedIdentities": 462,
+   "distinctCampaignsWithIdentity": 119,
+   "outcomeCensus": {
+    "no_campaign_identity": 147760,
+    "role_evidence_absent": 81480,
+    "role_evidence_future": 4450,
+    "role_source_not_system_inferred": 13360
+   },
+   "truth": "verified_fact",
+   "note": "Account scope can only come from an observed campaign/account identity, because every retained role row has a null provider account."
+  },
+  "currencyDiagnostics": {
+   "observedCurrencies": {
+    "TRY": 1,
+    "USD": 6
+   },
+   "perAccount": [
+    {
+     "provider_account_id": "act_1087566732415606",
+     "currency": "USD",
+     "status": "resolved",
+     "exponent": 2,
+     "truth": "verified_fact"
+    },
+    {
+     "provider_account_id": "act_2335220976649516",
+     "currency": "USD",
+     "status": "resolved",
+     "exponent": 2,
+     "truth": "verified_fact"
+    },
+    {
+     "provider_account_id": "act_3554615364751964",
+     "currency": "USD",
+     "status": "resolved",
+     "exponent": 2,
+     "truth": "verified_fact"
+    },
+    {
+     "provider_account_id": "act_805150454596350",
+     "currency": "USD",
+     "status": "resolved",
+     "exponent": 2,
+     "truth": "verified_fact"
+    },
+    {
+     "provider_account_id": "act_822913786458311",
+     "currency": "USD",
+     "status": "resolved",
+     "exponent": 2,
+     "truth": "verified_fact"
+    },
+    {
+     "provider_account_id": "act_840779107261785",
+     "currency": "TRY",
+     "status": "resolved",
+     "exponent": 2,
+     "truth": "verified_fact"
+    },
+    {
+     "provider_account_id": "act_921275999286619",
+     "currency": "USD",
+     "status": "resolved",
+     "exponent": 2,
+     "truth": "verified_fact"
+    }
+   ]
+  },
+  "intentDiagnostics": {
+   "contractVersion": "meta.budget-intent.v1",
+   "executable": false,
+   "note": "The contract validates a shape. Validation is the ceiling; the highest execution state reachable is validated_only.",
+   "truth": "verified_fact"
+  },
+  "leakage": [
+   {
+    "check": "later_role_evidence_not_selected_at_earlier_origin",
+    "authority_at_origin": false,
+    "blocker_at_origin": "role_evidence_future",
+    "authority_after_origin_advances": true,
+    "negative_control_passes": true,
+    "truth": "verified_fact"
+   },
+   {
+    "check": "later_identity_join_cannot_scope_an_earlier_origin",
+    "authority_at_origin": false,
+    "blocker_at_origin": "role_identity_join_absent",
+    "negative_control_passes": true,
+    "truth": "verified_fact"
+   }
+  ],
+  "accountIsolation": [
+   {
+    "business": "IwaStore",
+    "provider_account_id": "act_1087566732415606",
+    "is_selected": true,
+    "proposals": 19820,
+    "scope_blocked": 0,
+    "truth": "verified_fact"
+   },
+   {
+    "business": "Grandmix",
+    "provider_account_id": "act_805150454596350",
+    "is_selected": true,
+    "proposals": 124050,
+    "scope_blocked": 0,
+    "truth": "verified_fact"
+   },
+   {
+    "business": "Bilsem Zeka",
+    "provider_account_id": "act_840779107261785",
+    "is_selected": true,
+    "proposals": 58100,
+    "scope_blocked": 0,
+    "truth": "verified_fact"
+   },
+   {
+    "business": "TheSwaf",
+    "provider_account_id": "act_822913786458311",
+    "is_selected": true,
+    "proposals": 25130,
+    "scope_blocked": 0,
+    "truth": "verified_fact"
+   },
+   {
+    "business": "TheSwaf",
+    "provider_account_id": "act_921275999286619",
+    "is_selected": false,
+    "proposals": 6810,
+    "scope_blocked": 6810,
+    "truth": "verified_fact"
+   },
+   {
+    "business": "IwaTR",
+    "provider_account_id": "act_2335220976649516",
+    "is_selected": true,
+    "proposals": 2630,
+    "scope_blocked": 0,
+    "truth": "verified_fact"
+   },
+   {
+    "business": "ColorFullWorldsTR",
+    "provider_account_id": "act_3554615364751964",
+    "is_selected": true,
+    "proposals": 10510,
+    "scope_blocked": 0,
+    "truth": "verified_fact"
+   }
+  ]
+ },
+ "workedIntentExample": {
+  "status": "valid",
+  "intent": {
+   "contractVersion": "meta.budget-intent.v1",
+   "intentKey": "meta.budget-intent.v1:e4633256b7b1a29d728a14fcec15395ea40f417ed5d2e6ed2969bb7e9eee3dfa",
+   "idempotencyKey": "meta.budget-intent.v1:e4633256b7b1a29d728a14fcec15395ea40f417ed5d2e6ed2969bb7e9eee3dfa",
+   "scope": {
+    "businessId": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+    "providerAccountId": "act_1087566732415606",
+    "entityGrain": "campaign",
+    "entityId": "worked-example-campaign",
+    "parentCampaignId": null
+   },
+   "ownerMode": "campaign_budget_optimization",
+   "budgetField": "daily_budget",
+   "direction": "decrease",
+   "percent": 10,
+   "currency": "USD",
+   "currencyExponent": 2,
+   "currencyRegistry": {
+    "version": "iso4217.minor-units.2026-09-01",
+    "source": "ISO 4217 published minor units, transcribed per currency. No exponent is inferred from another currency."
+   },
+   "currentMinorUnits": 300000,
+   "proposedMinorUnits": 270000,
+   "deltaMinorUnits": -30000,
+   "rounding": {
+    "applied": false,
+    "rule": "half_up_away_from_zero",
+    "exactUnrounded": "27000000/100"
+   },
+   "originDate": "2026-08-01",
+   "effectiveAsOf": "2026-08-01",
+   "knowledgeAsOf": "2026-08-01",
+   "authorityEvidenceAsOf": "2026-07-28",
+   "sourceFingerprints": {
+    "configStateHash": "dab41b0b4565c59a388ca22017a0807000fdd7d16bab1e2654ef8e6cc5fc97bf",
+    "ownerStateHash": "dd278730027e32bcfaaebcabb5e44ad7badd64b2271555cce20f9ae7337f3142",
+    "roleAuthorityHash": "ac56c3a8a9436826c33894dd3e0ff8df1a4914b78e5c427d00019c841b7e73db"
+   },
+   "evidenceWindow": {
+    "from": "2026-07-25",
+    "to": "2026-07-31"
+   },
+   "targetSource": {
+    "source": "business_target_pack_history",
+    "version": "2026-07-20"
+   },
+   "authorityStatus": "not_determinable",
+   "blockerCodes": [
+    "owner_evidence_absent"
+   ],
+   "executionState": "validated_only",
+   "rollback": {
+    "priorMinorUnits": 300000,
+    "field": "daily_budget",
+    "operation": "restore_prior_amount"
+   },
+   "readback": {
+    "field": "daily_budget",
+    "expectedMinorUnits": 270000,
+    "independentRead": true
+   },
+   "createdBy": {
+    "module": "lib/meta/budget-intent-contract",
+    "contractVersion": "meta.budget-intent.v1"
+   }
+  },
+  "rejections": [],
+  "truth": "verified_fact",
+  "note": "A validated SHAPE, not an authorised action: authorityStatus is not_determinable and executionState is validated_only."
+ },
+ "nameAuthority": {
+  "status": "closed_at_the_resolver_boundary",
+  "change": "the high-confidence gate now counts only non-naming agreeing families AND is evaluated on a naming-free score, for every kind",
+  "previously": "for Main and Mixed a human-authored campaign name could be one of the two agreeing families that yielded high confidence, and its weight could carry topScore/margin over the threshold",
+  "manualLabelsRestored": false,
+  "truth": "verified_fact"
+ },
+ "limits": {
+  "executable": false,
+  "causalClaims": {
+   "roasLift": null,
+   "revenueLift": null,
+   "purchaseLift": null,
+   "profitLift": null
+  },
+  "note": "Closing these three blockers does not make any proposal executable. Every evidence, delivery, commercial, cooldown, concentration, idempotency, read-back and kill-switch gate proven in D080B still applies, no provider write path exists, and D081 adds none.",
+  "historicalTransitions": "observational only; no causal lift is claimed anywhere",
+  "truth": "verified_fact"
+ },
+ "artifactHash": "bbbd5a4f0eb0bba04f62a62bc98c185f606f28bd5e282eccfa03fb2cdc9a383e"
+}

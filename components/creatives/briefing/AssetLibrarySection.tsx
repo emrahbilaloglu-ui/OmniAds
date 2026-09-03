@@ -48,9 +48,7 @@ type CreativeScoreKey = "hook" | "cta" | "offer" | "click" | "watch";
 type DecisionCenterRowForAssetLabel = NonNullable<
   BriefingCreativeCard["decisionCenterRow"]
 >;
-type DecisionCenterBuyerActionForAssetLabel =
-  DecisionCenterRowForAssetLabel["buyerAction"];
-type AssetLibraryLabelSource = "creative_team" | "decision_center" | "legacy";
+type AssetLibraryLabelSource = "creative_team" | "current" | "current_unavailable";
 
 type AssetMetricColumn = {
   id: string;
@@ -143,24 +141,6 @@ const DEFAULT_FILTERS: AssetLibraryFilters = {
   search: "",
   sort: "spend_desc",
 };
-
-const BUYER_ACTION_DISPLAY: Record<DecisionCenterBuyerActionForAssetLabel, string> = {
-  scale: "Scale",
-  cut: "Cut",
-  refresh: "Refresh",
-  protect: "Protect",
-  test_more: "Test more",
-  watch_launch: "Watch launch",
-  fix_delivery: "Fix delivery",
-  fix_policy: "Fix policy",
-  diagnose_data: "Diagnose data",
-};
-
-const _buyerActionDisplayCoverage: Record<
-  DecisionCenterBuyerActionForAssetLabel,
-  string
-> = BUYER_ACTION_DISPLAY;
-void _buyerActionDisplayCoverage;
 
 const PRESETS: ReadonlyArray<AssetLibraryPreset & { metrics: string[] }> = [
   {
@@ -1174,13 +1154,9 @@ export function AssetLibrarySection({
                         className={labelClass}
                         data-testid="asset-library-row-label"
                         data-row-id={row.id}
-                        data-decision-center-label={
-                          resolvedLabel.source === "decision_center"
-                            ? "true"
-                            : undefined
-                        }
+                        data-label-source={resolvedLabel.source}
                       >
-                        <span className="dot" />{safeText(label) || "Main"}
+                        <span className="dot" />{safeText(label) || "Review"}
                       </span>
                     </td>
                     {visibleMetricColumns.map((column) => (
@@ -1647,13 +1623,15 @@ function CreativeScoreCell({
   );
 }
 
-function buyerActionDisplay(value: unknown) {
-  if (typeof value !== "string") return null;
-  return Object.prototype.hasOwnProperty.call(BUYER_ACTION_DISPLAY, value)
-    ? BUYER_ACTION_DISPLAY[value as DecisionCenterBuyerActionForAssetLabel]
-    : null;
-}
-
+/**
+ * D074b acceptance correction 4: the compatibility row NEVER feeds the
+ * visible Label cell — only the server-supplied current decision projection
+ * does. When Decision Center UI is enabled but no trustworthy current
+ * server label exists, the cell fails closed to an explicit "Review"
+ * presentation; the raw row is never promoted to current authority. The
+ * row remains inspectable solely in the Evidence Drawer's explicit
+ * compatibility-provenance section.
+ */
 export function resolveAssetLibraryRowLabel(
   row: AssetLibraryRow,
   input: {
@@ -1664,47 +1642,32 @@ export function resolveAssetLibraryRowLabel(
   if (input.creativeTeamPreset) {
     return { label: creativeTeamLabel(row), source: "creative_team" };
   }
-  if (input.decisionCenterUiEnabled && row.decisionCenterRow) {
-    const buyerLabel = safeText(row.decisionCenterRow.buyerLabel).trim();
-    return {
-      label:
-        buyerLabel ||
-        buyerActionDisplay(row.decisionCenterRow.buyerAction) ||
-        "Decision Center",
-      source: "decision_center",
-    };
+  const current = rowEngineLabel(row);
+  if (current) {
+    return { label: current, source: "current" };
   }
-  return { label: rowEngineLabel(row), source: "legacy" };
+  if (input.decisionCenterUiEnabled && row.decisionCenterRow) {
+    return { label: "Review", source: "current_unavailable" };
+  }
+  return { label: null, source: "current_unavailable" };
 }
 
 function rowEngineLabel(row: AssetLibraryRow) {
   return row.engineLabel ?? row.decisionLabel ?? row.briefingLabel ?? null;
 }
 
-// DecisionLabel-space projection of the decision-center buyer action so the
-// label filter compares against the same decision the row displays.
-const BUYER_ACTION_TO_DECISION_LABEL: Record<
-  DecisionCenterBuyerActionForAssetLabel,
-  DecisionLabel
-> = {
-  scale: "scale",
-  cut: "cut",
-  refresh: "refresh",
-  protect: "keep",
-  test_more: "test_more",
-  watch_launch: "test_more",
-  fix_delivery: "diagnose",
-  fix_policy: "diagnose",
-  diagnose_data: "diagnose",
-};
-
+/**
+ * D074b acceptance correction 4: label-filter membership follows the
+ * server-supplied current decision projection only. A compatibility row —
+ * stale or not — never classifies a row; without a current label the row
+ * matches no label filter (fail-closed), matching what the Label cell
+ * shows. The `decisionCenterUiEnabled` parameter is retained for call-site
+ * compatibility but no longer switches the source of truth.
+ */
 export function rowEffectiveDecisionLabel(
   row: AssetLibraryRow,
-  decisionCenterUiEnabled: boolean,
+  _decisionCenterUiEnabled: boolean,
 ) {
-  if (decisionCenterUiEnabled && row.decisionCenterRow) {
-    return BUYER_ACTION_TO_DECISION_LABEL[row.decisionCenterRow.buyerAction] ?? null;
-  }
   return rowEngineLabel(row);
 }
 
@@ -1713,7 +1676,7 @@ function creativeTeamLabel(row: AssetLibraryRow) {
   if (label === "main") return "Main";
   if (label === "test") return "Test";
   if (label === "mixed") return "Mixed";
-  return "Unlabeled";
+  return "Unresolved";
 }
 
 function creativeLabelChipClass(label: string | null) {
@@ -1721,7 +1684,8 @@ function creativeLabelChipClass(label: string | null) {
   if (normalized === "test" || normalized === "test_more") return "chip chip--info";
   if (normalized === "mixed") return "chip chip--warn";
   if (normalized === "cut" || normalized === "below_breakeven") return "chip chip--action";
-  if (normalized === "unlabeled") return "chip chip--ghost";
+  if (normalized === "unresolved" || normalized === "unlabeled")
+    return "chip chip--ghost";
   return "chip";
 }
 

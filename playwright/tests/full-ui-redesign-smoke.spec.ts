@@ -481,30 +481,16 @@ async function seedMetaDecisionDemoData() {
       [DEMO_BUSINESS_ID, creativeId, snapshotDate],
     );
 
-    await client.query(
-      `INSERT INTO meta_campaign_labels (
-         business_id,
-         campaign_id,
-         provider_account_id,
-         campaign_name,
-         campaign_kind,
-         test_dimension,
-         source,
-         labeled_by,
-         labeled_at,
-         updated_at
-       ) VALUES ($1, $2, $3, $4, 'main', NULL, 'user', 'full-ui-smoke', now(), now())
-       ON CONFLICT (business_id, campaign_id)
-       DO UPDATE SET
-         provider_account_id = EXCLUDED.provider_account_id,
-         campaign_name = EXCLUDED.campaign_name,
-         campaign_kind = EXCLUDED.campaign_kind,
-         test_dimension = EXCLUDED.test_dimension,
-         source = EXCLUDED.source,
-         labeled_by = EXCLUDED.labeled_by,
-         updated_at = now()`,
-      [DEMO_BUSINESS_ID, campaignId, providerAccountId, "Backpack Video Ads"],
-    );
+    /*
+      PRE-DEPLOY AUDIT: the manual `meta_campaign_labels` seed is removed.
+
+      D074b closed the manual Test/Main label vocabulary and this release
+      removed the last live reader, so the row this smoke used to write was
+      dead data no served surface could observe — while still being a live
+      write to a table the isolation guard declares frozen. Campaign role now
+      comes from `engine_v3_campaign_context_daily`, which the decision-engine
+      fixtures seed.
+    */
 
     await client.query(
       `INSERT INTO meta_decision_snapshots_daily (

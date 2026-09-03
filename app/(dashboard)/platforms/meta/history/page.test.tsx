@@ -49,6 +49,32 @@ const unavailableEntry: MetaHistoryEntry = {
 };
 
 describe("Meta History route UI", () => {
+  /**
+   * D078 R5: the manual Test/Main campaign-label product is gone (D074/
+   * D074b); no buyer-facing Meta surface may advertise it. The persisted
+   * wire kind stays `label_flips` for history compatibility, but the
+   * rendered vocabulary is automatic-decision wording.
+   */
+  it("renders the label_flips wire kind as automatic-decision vocabulary, never 'Label flips'", () => {
+    const labelFlipEntry: MetaHistoryEntry = {
+      ...unavailableEntry,
+      id: "meta_history:flip_1",
+      kind: "label_flips",
+      title: "Decision changed | Summer ad",
+      summary: "Served decision changed between snapshots.",
+    };
+    const html = renderToStaticMarkup(
+      <MetaHistoryEntries
+        entries={[labelFlipEntry]}
+        onOpenReplay={vi.fn()}
+      />,
+    );
+    expect(html).toContain("Decision transitions");
+    expect(html).not.toContain("Label flips");
+    // No buyer-facing manual-label ask anywhere on the rendered surface.
+    expect(html).not.toMatch(/manage labels|label campaign|label is required/i);
+  });
+
   it("renders unmistakable read-only Historical Replay chrome", () => {
     const html = renderToStaticMarkup(
       <HistoricalReplayChrome date="2026-07-10" engineVersions={["v3-test"]} />,

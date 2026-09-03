@@ -15,6 +15,7 @@ import { runMetaSnapshotJobIfDue } from "@/lib/meta/scheduled";
 import { runMetaDecisionIgnoredMarkerIfDue } from "@/lib/meta/decision-responses";
 import { runMetaOutcomeAccrualIfDue } from "@/lib/meta/outcome-accrual";
 import { runMetaAutomationRuleEvaluationIfDue } from "@/lib/meta/automation-rules-evaluation";
+import { runMetaBudgetAutomationSweepIfDue } from "@/lib/meta/budget-automation-scheduled";
 import { syncGA4Reports } from "@/lib/sync/ga4-sync";
 import { syncSearchConsoleReports } from "@/lib/sync/search-console-sync";
 import { syncKlaviyoFlowMetrics } from "@/lib/klaviyo/sync";
@@ -628,6 +629,20 @@ export async function POST(request: NextRequest) {
   // "Fired · 28d" was a permanent, truthful zero. This reaches no provider: a
   // firing's strongest outcome is a queued proposal that still needs operator
   // approval, and the job re-checks the kill switch per business itself.
+  /*
+    D088 C1: the budget automation sweep, registered on the SAME cron the other
+    Meta jobs use. It is inert under current defaults — the first thing it does
+    is read the release gate and return — so registering it changes nothing
+    about today's behaviour and removes the last piece of wiring an activation
+    would otherwise need.
+  */
+  const metaBudgetAutomationJob = await runMetaBudgetAutomationSweepIfDue().catch(
+    (error: unknown) => ({
+      skipped: true as const,
+      reason: error instanceof Error ? error.name : "budget_sweep_failed",
+    }),
+  );
+
   const metaAutomationRuleJob = await runMetaAutomationRuleEvaluationIfDue().catch(
     (error) => {
       console.error("[sync-cron] meta_automation_rule_evaluation_failed", error);
@@ -865,6 +880,15 @@ export async function POST(request: NextRequest) {
     metaAutomationRuleJobSkipped: metaAutomationRuleJob.skipped,
     metaAutomationRuleJobReason:
       "reason" in metaAutomationRuleJob ? metaAutomationRuleJob.reason : null,
+    // D088 C1: reported so an operator can see the sweep ran and why it stopped.
+    /*
+      PRE-DEPLOY AUDIT: `skipped` travels with the reason, like every sibling
+      job. Without it a sweep that ran and did work and a result carrying no
+      reason field were both reported as `reason: null`.
+    */
+    metaBudgetAutomationJobSkipped: metaBudgetAutomationJob.skipped,
+    metaBudgetAutomationJobReason:
+      "reason" in metaBudgetAutomationJob ? metaBudgetAutomationJob.reason : null,
     decisionProducerJobSkipped: decisionProducerJob.skipped,
     decisionProducerJobReason:
       "reason" in decisionProducerJob ? decisionProducerJob.reason : null,
@@ -912,6 +936,7 @@ export async function POST(request: NextRequest) {
       metaIgnoredMarkerJob,
       metaOutcomeAccrualJob,
       metaAutomationRuleJob,
+      metaBudgetAutomationJob,
       decisionProducerJob,
       nativeAdShadowJob,
       decisionOutcomesJob,

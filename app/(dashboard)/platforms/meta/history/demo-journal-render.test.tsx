@@ -26,6 +26,7 @@ import { META_FAILURES } from "@/lib/meta/read-state-contract";
 
 const clientMock = vi.hoisted(() => ({
   fetchMetaHistoryAccounts: vi.fn(),
+  fetchMetaHistoryAccountScopes: vi.fn(),
   fetchMetaHistoryPage: vi.fn(),
 }));
 const storeMock = vi.hoisted(() => ({
@@ -35,6 +36,7 @@ const storeMock = vi.hoisted(() => ({
 
 vi.mock("@/lib/meta/history-client", () => ({
   fetchMetaHistoryAccounts: clientMock.fetchMetaHistoryAccounts,
+  fetchMetaHistoryAccountScopes: clientMock.fetchMetaHistoryAccountScopes,
   fetchMetaHistoryPage: clientMock.fetchMetaHistoryPage,
 }));
 vi.mock("@/store/app-store", () => ({
@@ -103,6 +105,10 @@ function response(
 beforeEach(() => {
   vi.clearAllMocks();
   clientMock.fetchMetaHistoryAccounts.mockResolvedValue([DEMO_ACCOUNT]);
+  clientMock.fetchMetaHistoryAccountScopes.mockResolvedValue({
+    accounts: [DEMO_ACCOUNT],
+    historicalAccounts: [],
+  });
 });
 afterEach(cleanup);
 

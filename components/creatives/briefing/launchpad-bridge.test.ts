@@ -3,6 +3,7 @@ import {
   buildLaunchpadBridgeHref,
   buildLaunchpadOverlayItem,
   canOpenBriefingCardInLaunchpad,
+  canOpenBriefingCardsInLaunchpad,
   getLaunchpadBridgeCreativeIds,
   mapBriefingPrimaryToLaunchpadMode,
 } from "@/components/creatives/briefing/launchpad-bridge";
@@ -117,32 +118,23 @@ function canonicalRefreshCard(): BriefingCreativeCard {
 }
 
 describe("launchpad briefing bridge", () => {
-  it("builds the Launchpad prefill URL for supported single-card modes", () => {
-    expect(buildLaunchpadBridgeHref(card(), "promote")).toBe(
-      "/platforms/meta/launchpad?creativeIds=creative_1&mode=promote&fromBriefing=true",
-    );
-    expect(buildLaunchpadBridgeHref(card({ creativeId: "creative_2" }), "demote")).toBe(
-      "/platforms/meta/launchpad?creativeIds=creative_2&mode=demote&fromBriefing=true",
-    );
-    expect(buildLaunchpadBridgeHref(card({ creativeId: "creative_3" }), "fresh_test")).toBe(
-      "/platforms/meta/launchpad?creativeIds=creative_3&mode=fresh_test&fromBriefing=true",
-    );
-    expect(buildLaunchpadBridgeHref(card({ creativeId: "creative_4" }), "add_existing")).toBe(
-      "/platforms/meta/launchpad?creativeIds=creative_4&mode=add_existing&fromBriefing=true",
-    );
-  });
-
-  it("builds multi-card Launchpad prefill URLs", () => {
+  it("refuses every Launchpad open until the canonical launch-authority contract exists (D074b correction)", () => {
+    // Pre-correction, a legacy/manual card with no blockedActionType was
+    // authorized and these built provider-capable prefill URLs. That let a
+    // card WITHOUT automatic-role provenance route toward Launchpad's
+    // provider-write wizard. Every one of these must now refuse.
+    for (const mode of ["promote", "demote", "fresh_test", "add_existing"] as const) {
+      expect(canOpenBriefingCardInLaunchpad(card(), mode)).toBe(false);
+      expect(() => buildLaunchpadBridgeHref(card(), mode)).toThrow(
+        "canonical_launch_authority_contract_required",
+      );
+    }
     expect(
-      buildLaunchpadBridgeHref(
-        [
-          card({ creativeId: "creative_1" }),
-          card({ id: "row_2", creativeId: "creative_2" }),
-          card({ id: "row_3", creativeId: "creative_1" }),
-        ],
+      canOpenBriefingCardsInLaunchpad(
+        [card({ creativeId: "creative_1" }), card({ id: "row_2", creativeId: "creative_2" })],
         "demote",
       ),
-    ).toBe("/platforms/meta/launchpad?creativeIds=creative_1,creative_2&mode=demote&fromBriefing=true");
+    ).toBe(false);
   });
 
   it("uses every placement creative id for non-mixed rollups", () => {
@@ -158,8 +150,8 @@ describe("launchpad briefing bridge", () => {
     });
 
     expect(getLaunchpadBridgeCreativeIds(rollup)).toEqual(["creative_a", "creative_b"]);
-    expect(buildLaunchpadBridgeHref(rollup, "promote")).toBe(
-      "/platforms/meta/launchpad?creativeIds=creative_a,creative_b&mode=promote&fromBriefing=true",
+    expect(() => buildLaunchpadBridgeHref(rollup, "promote")).toThrow(
+      "canonical_launch_authority_contract_required",
     );
   });
 
@@ -175,27 +167,39 @@ describe("launchpad briefing bridge", () => {
     });
 
     expect(getLaunchpadBridgeCreativeIds(rollup)).toEqual(["creative_primary"]);
-    expect(buildLaunchpadBridgeHref(rollup, "promote")).toBe(
-      "/platforms/meta/launchpad?creativeIds=creative_primary&mode=promote&fromBriefing=true",
+    expect(() => buildLaunchpadBridgeHref(rollup, "promote")).toThrow(
+      "canonical_launch_authority_contract_required",
     );
   });
 
-  it("maps primary action kinds and conservative label fallbacks", () => {
-    expect(mapBriefingPrimaryToLaunchpadMode(card({ primary: { kind: "promote", label: "Promote" } }))).toBe("promote");
-    expect(mapBriefingPrimaryToLaunchpadMode(card({ primary: { kind: "demote", label: "Demote" } }))).toBe("demote");
-    expect(mapBriefingPrimaryToLaunchpadMode(card({ primary: { kind: "fresh_test", label: "Add to fresh test" } }))).toBe("fresh_test");
+  it("never derives a Launchpad mode from label text, campaignKind, or primary kind (D074b correction)", () => {
+    // Each of these was a pre-correction authority derivation. The exact
+    // rejected case first: a legacy card with label "scale" and a bare
+    // campaignKind "test" used to open the promote flow with zero
+    // automatic-role provenance.
     expect(
       mapBriefingPrimaryToLaunchpadMode(card({ primary: null, label: "scale", campaignKind: "test" })),
-    ).toBe("promote");
-    expect(
-      mapBriefingPrimaryToLaunchpadMode(card({ primary: null, label: "scale", campaignKind: "main" })),
     ).toBeNull();
+    expect(mapBriefingPrimaryToLaunchpadMode(card({ primary: { kind: "promote", label: "Promote" } }))).toBeNull();
+    expect(mapBriefingPrimaryToLaunchpadMode(card({ primary: { kind: "demote", label: "Demote" } }))).toBeNull();
+    expect(mapBriefingPrimaryToLaunchpadMode(card({ primary: { kind: "fresh_test", label: "Add to fresh test" } }))).toBeNull();
+    expect(mapBriefingPrimaryToLaunchpadMode(card({ primary: null, label: "test_more" }))).toBeNull();
+    expect(mapBriefingPrimaryToLaunchpadMode(card({ primary: null, label: "rebuild" }))).toBeNull();
+    // Text parsing of the primary label must also be dead.
     expect(
-      mapBriefingPrimaryToLaunchpadMode(card({ primary: { kind: "scale_budget", label: "Scale budget" }, label: "scale" })),
+      mapBriefingPrimaryToLaunchpadMode(card({ primary: { kind: "open", label: "Promote to main" } })),
     ).toBeNull();
-    expect(mapBriefingPrimaryToLaunchpadMode(card({ primary: null, label: "test_more" }))).toBe("fresh_test");
+    // A server-supplied execution CTA remains DISPLAY-only until the
+    // authority contract exists.
+    expect(
+      mapBriefingPrimaryToLaunchpadMode(
+        card({
+          primary: null,
+          decisionCenterRow: { executionAction: "promote_to_main" } as never,
+        }),
+      ),
+    ).toBeNull();
     expect(mapBriefingPrimaryToLaunchpadMode(card({ primary: null, label: "cut" }))).toBeNull();
-    expect(mapBriefingPrimaryToLaunchpadMode(card({ primary: { kind: "review", label: "Review" }, label: "out_of_scope" }))).toBeNull();
   });
 
   it("never turns held or review-only Cut decisions into fresh tests", () => {
@@ -255,11 +259,14 @@ describe("launchpad briefing bridge", () => {
       ),
     ).toBeNull();
 
+    // Pre-correction this was the sanctioned fallback: label text alone
+    // derived a fresh_test open. It is authority derivation all the same and
+    // must stay dead.
     expect(
       mapBriefingPrimaryToLaunchpadMode(
         card({ primary: null, label: "test_more", blockedActionType: null }),
       ),
-    ).toBe("fresh_test");
+    ).toBeNull();
   });
 
   it("keeps canonical actions out of the manual Launchpad write wizard", () => {

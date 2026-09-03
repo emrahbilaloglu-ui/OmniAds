@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useTierZeroFreshness } from "@/components/states/useTierZeroFreshness";
 import type {
@@ -41,8 +41,25 @@ import {
 } from "./automation-rules-exact-adapter";
 import {
   AUTOMATION_VIEWER_NOT_ESTABLISHED,
+  BUDGET_MASTER_SWITCH_MOBILE_REFUSAL,
+  buildBudgetMasterSwitchAuthorization,
   type AutomationViewerEnvelope,
+  type BudgetMasterSwitchAuthorization,
 } from "./viewer-envelope";
+import type { StateHistoryCompactionReadiness } from "@/lib/meta/state-history-compaction-readiness";
+import type { BudgetWriteReadinessModel } from "@/lib/meta/budget-write-readiness";
+import { BUDGET_ACTIVATION_CONFIRMATION_PHRASE } from "@/lib/meta/budget-activation";
+import {
+  parseBudgetAutomationConfig,
+  type BudgetAutomationConfigInput,
+} from "@/lib/meta/budget-automation-config-contract";
+import {
+  BUDGET_PREPARATION_FIELDS,
+  unpreparedFields,
+  type BudgetPreparationView,
+  type PreparationField,
+} from "@/lib/meta/budget-preparation-contract";
+import type { BudgetReadinessReadModel } from "@/lib/meta/budget-readiness-read-model";
 import styles from "./automation.module.css";
 
 type AutomationPayload = MetaAutomationControlPlane;
@@ -80,6 +97,17 @@ export interface MetaAutomationPageProps {
    * rather than re-derived here.
    */
   liveWritesRefusalReason?: string | null;
+  /**
+   * D077 read-only recovery readiness, read on the SERVER through
+   * lib/meta/state-history-compaction-readiness. Display-only: this view
+   * renders the facts verbatim and never computes readiness, invokes the
+   * planner or executor, or offers a compaction control. `null` means the
+   * server did not read it — rendered as unavailable, never as ready.
+   */
+  stateHistoryReadiness?: StateHistoryCompactionReadiness | null;
+  /** D086 server-owned budget-readiness facts; display-only, `null` = unread. */
+  budgetReadiness?: BudgetReadinessReadModel | null;
+  budgetWriteReadiness?: BudgetWriteReadinessModel | null;
 }
 
 interface StatusPresentation {
@@ -327,9 +355,21 @@ function statusForBusinessKillSwitch(
   if (!hasServedBusinessControl(payload)) {
     return { label: UNKNOWN, tone: "unknown" };
   }
-  return payload!.businessControl.killSwitchEngaged
-    ? { label: "STOPPED", tone: "stopped" }
-    : { label: "ENABLED", tone: "enabled" };
+  // An engaged stop reads STOPPED regardless of provenance — a stop is a
+  // stop, and softening it because the row is a default would weaken the
+  // fail-closed direction.
+  if (payload!.businessControl.killSwitchEngaged) {
+    return { label: "STOPPED", tone: "stopped" };
+  }
+  // A successful read of a MISSING control row degrades to defaults, and the
+  // write boundary refuses every Meta write for that business with
+  // `business_control_not_configured` (D072 fail-closed governance). Printing
+  // a green ENABLED here claimed a write-enablement the server does not
+  // grant; the pill states the effective posture instead.
+  if (payload!.businessControl.source !== "persisted") {
+    return { label: "BLOCKED · NOT CONFIGURED", tone: "stopped" };
+  }
+  return { label: "ENABLED", tone: "enabled" };
 }
 
 function readinessFor(payload: AutomationPayload | null) {
@@ -906,6 +946,10 @@ export function MetaAutomationView({
   viewer = AUTOMATION_VIEWER_NOT_ESTABLISHED,
   stopEngageRefusalReason = null,
   liveWritesRefusalReason = null,
+  stateHistoryReadiness = null,
+  budgetReadiness = null,
+  budgetWriteReadiness = null,
+  onBudgetActivationChanged,
 }: {
   payload: AutomationPayload | null;
   providerAccountId?: string | null;
@@ -962,6 +1006,12 @@ export function MetaAutomationView({
   stopEngageRefusalReason?: string | null;
   /** Why an approved proposal cannot reach Meta. Server fact, not inferred. */
   liveWritesRefusalReason?: string | null;
+  /** D077 server-owned recovery readiness; display-only, `null` = unread. */
+  stateHistoryReadiness?: StateHistoryCompactionReadiness | null;
+  /** D086 server-owned budget readiness; display-only, `null` = unread. */
+  budgetReadiness?: BudgetReadinessReadModel | null;
+  budgetWriteReadiness?: BudgetWriteReadinessModel | null;
+  onBudgetActivationChanged?: () => void;
 }) {
   // Modify has no operator-editable field on the proposal itself (a status
   // write declares none), so the only thing it can carry is what the operator
@@ -2403,6 +2453,16 @@ export function MetaAutomationView({
             </table>
           </div>
         </article>
+
+        <StateHistoryRecoverySection readiness={stateHistoryReadiness} />
+        <BudgetReadinessSection readiness={budgetReadiness} />
+        <BudgetWriteReadinessSection
+          readiness={budgetWriteReadiness}
+          authorization={buildBudgetMasterSwitchAuthorization({
+            viewer, surface: "desktop",
+          })}
+          onActivationChanged={onBudgetActivationChanged}
+        />
       </section>
 
       <section
@@ -2439,6 +2499,15 @@ export function MetaAutomationView({
             <dd>{providerAccountId || UNKNOWN}</dd>
           </div>
         </dl>
+        <StateHistoryRecoverySection readiness={stateHistoryReadiness} />
+        <BudgetReadinessSection readiness={budgetReadiness} />
+        {/* The mobile pane declares itself read-only; it carries no form. */}
+        <BudgetWriteReadinessSection
+          readiness={budgetWriteReadiness}
+          authorization={buildBudgetMasterSwitchAuthorization({
+            viewer, surface: "mobile_read_only",
+          })}
+        />
       </section>
     </div>
   );
@@ -2585,6 +2654,348 @@ class AutomationReadError extends Error {
   }
 }
 
+function formatFenceBytes(value: number | null | undefined): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) {
+    return "unavailable";
+  }
+  return `${value.toLocaleString("en-US")} B`;
+}
+
+/**
+ * D086 — server-owned budget-readiness facts for the three retention blockers
+ * D085 r16 left open, rendered verbatim on both surfaces.
+ *
+ * Display-only in the same sense as the D077 section beside it: this component
+ * renders `status`, `evidence`, `source`, `asOf`, `coverage` and `blocker`
+ * exactly as the server produced them. It computes no readiness, no buyerAction,
+ * no role, no eligibility and no confidence; it derives nothing from a campaign
+ * name; and it offers no affordance that could start a capture, a migration or a
+ * provider call. A missing read model renders as unavailable, never as ready.
+ */
+export function BudgetReadinessSection({
+  readiness,
+}: {
+  readiness: BudgetReadinessReadModel | null;
+}) {
+  return (
+    <article
+      data-testid="budget-readiness"
+      data-display-only="true"
+      style={{
+        border: "1px solid var(--border, #e5e7eb)",
+        borderRadius: 12,
+        padding: "12px 14px",
+        display: "grid",
+        gap: 6,
+      }}
+    >
+      <h2 style={{ fontSize: 14, margin: 0 }}>Decision-input retention readiness</h2>
+      {readiness === null ? (
+        <p data-testid="budget-readiness-unavailable" style={{ margin: 0 }}>
+          Readiness read unavailable — no server fact to display.
+        </p>
+      ) : (
+        <div style={{ display: "grid", gap: 8, fontSize: 12 }}>
+          {readiness.dimensions.map((dimension) => (
+            <dl
+              key={dimension.key}
+              data-testid={`budget-readiness-${dimension.key}`}
+              data-status={dimension.status}
+              data-blocker={dimension.blocker ?? ""}
+              data-truncated={dimension.coverage === null ? "unknown" : String(dimension.coverage.truncated)}
+              data-complete-run-attested={
+                dimension.coverage?.universe
+                  ? String(dimension.coverage.universe.completeRunAttested)
+                  : "not-applicable"
+              }
+              data-conflicts={dimension.coverage === null ? "unknown" : String(dimension.coverage.conflicts)}
+              style={{ margin: 0, display: "grid", gap: 2 }}
+            >
+              <div>
+                <dt style={{ fontWeight: 600, display: "inline" }}>Status: </dt>
+                <dd data-field="status" style={{ display: "inline", margin: 0 }}>
+                  {dimension.status}
+                </dd>
+              </div>
+              <div>
+                <dt style={{ fontWeight: 600, display: "inline" }}>Evidence: </dt>
+                <dd data-field="evidence" style={{ display: "inline", margin: 0 }}>
+                  {dimension.evidence}
+                </dd>
+              </div>
+              <div>
+                <dt style={{ fontWeight: 600, display: "inline" }}>Source: </dt>
+                <dd data-field="source" style={{ display: "inline", margin: 0 }}>
+                  {dimension.source}
+                </dd>
+              </div>
+              <div>
+                <dt style={{ fontWeight: 600, display: "inline" }}>As of: </dt>
+                <dd data-field="as-of" style={{ display: "inline", margin: 0 }}>
+                  {dimension.asOf ?? "unknown"}
+                </dd>
+              </div>
+              {/*
+                STRUCTURED, not prose. The r3 component rendered only
+                "qualifying of examined" while the population, the truncation
+                state and the conflict count lived in an English sentence — so a
+                truncated or conflicted measurement looked like a plain count.
+              */}
+              <div>
+                <dt style={{ fontWeight: 600, display: "inline" }}>Qualifying: </dt>
+                <dd data-field="qualifying" style={{ display: "inline", margin: 0 }}>
+                  {dimension.coverage === null ? "unknown" : dimension.coverage.qualifying}
+                </dd>
+              </div>
+              <div>
+                <dt style={{ fontWeight: 600, display: "inline" }}>Examined: </dt>
+                <dd data-field="examined" style={{ display: "inline", margin: 0 }}>
+                  {dimension.coverage === null ? "unknown" : dimension.coverage.examined}
+                </dd>
+              </div>
+              <div>
+                <dt style={{ fontWeight: 600, display: "inline" }}>Population: </dt>
+                <dd data-field="population" style={{ display: "inline", margin: 0 }}>
+                  {dimension.coverage === null || dimension.coverage.population === null
+                    ? "unknown"
+                    : dimension.coverage.population}
+                </dd>
+              </div>
+              <div>
+                <dt style={{ fontWeight: 600, display: "inline" }}>Truncated: </dt>
+                <dd data-field="truncated" style={{ display: "inline", margin: 0 }}>
+                  {dimension.coverage === null ? "unknown" : String(dimension.coverage.truncated)}
+                </dd>
+              </div>
+              <div>
+                <dt style={{ fontWeight: 600, display: "inline" }}>Conflicts: </dt>
+                <dd data-field="conflicts" style={{ display: "inline", margin: 0 }}>
+                  {dimension.coverage === null ? "unknown" : dimension.coverage.conflicts}
+                </dd>
+              </div>
+              {/*
+                THE OWNER UNIVERSE, as structured fields.
+
+                r4 added these counts to the model and then rendered none of them:
+                they survived only inside an English evidence sentence, so an
+                uncovered owner or an uncaptured owner mode was invisible to a
+                reader scanning the numbers.
+              */}
+              {dimension.coverage?.universe ? (
+                <>
+                  <div>
+                    <dt style={{ fontWeight: 600, display: "inline" }}>Retained rows: </dt>
+                    <dd data-field="retained-rows" style={{ display: "inline", margin: 0 }}>
+                      {dimension.coverage.universe.retainedRows}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt style={{ fontWeight: 600, display: "inline" }}>Applicable owners: </dt>
+                    <dd data-field="applicable" style={{ display: "inline", margin: 0 }}>
+                      {dimension.coverage.universe.applicable}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt style={{ fontWeight: 600, display: "inline" }}>Proven non-owner: </dt>
+                    <dd data-field="proven-non-applicable" style={{ display: "inline", margin: 0 }}>
+                      {dimension.coverage.universe.provenNonApplicable}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt style={{ fontWeight: 600, display: "inline" }}>Owner uncaptured: </dt>
+                    <dd data-field="owner-unknown" style={{ display: "inline", margin: 0 }}>
+                      {dimension.coverage.universe.ownerUnknown}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt style={{ fontWeight: 600, display: "inline" }}>
+                      Applicable owner missing from evidence:{" "}
+                    </dt>
+                    <dd data-field="uncovered-applicable" style={{ display: "inline", margin: 0 }}>
+                      {dimension.coverage.universe.uncoveredApplicable}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt style={{ fontWeight: 600, display: "inline" }}>
+                      Hierarchy contradictions:{" "}
+                    </dt>
+                    <dd data-field="hierarchy-contradictions" style={{ display: "inline", margin: 0 }}>
+                      {dimension.coverage.universe.hierarchyContradictions}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt style={{ fontWeight: 600, display: "inline" }}>Complete run attested: </dt>
+                    <dd data-field="complete-run-attested" style={{ display: "inline", margin: 0 }}>
+                      {String(dimension.coverage.universe.completeRunAttested)}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt style={{ fontWeight: 600, display: "inline" }}>Campaigns expected/observed: </dt>
+                    <dd data-field="campaigns-expected-observed" style={{ display: "inline", margin: 0 }}>
+                      {`${dimension.coverage.universe.expectedCampaigns ?? "unknown"} / ${
+                        dimension.coverage.universe.observedCampaigns}`}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt style={{ fontWeight: 600, display: "inline" }}>Sync cohort: </dt>
+                    <dd data-field="cohort-id" style={{ display: "inline", margin: 0 }}>
+                      {dimension.coverage.universe.cohortId ?? "unbound"}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt style={{ fontWeight: 600, display: "inline" }}>Manifest members (campaign/ad set): </dt>
+                    <dd data-field="manifest-members" style={{ display: "inline", margin: 0 }}>
+                      {`${dimension.coverage.universe.manifestCampaignMembers ?? "unknown"} / ${
+                        dimension.coverage.universe.manifestAdsetMembers ?? "unknown"}`}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt style={{ fontWeight: 600, display: "inline" }}>Ad sets expected/observed: </dt>
+                    <dd data-field="adsets-expected-observed" style={{ display: "inline", margin: 0 }}>
+                      {`${dimension.coverage.universe.expectedAdsets ?? "unknown"} / ${
+                        dimension.coverage.universe.observedAdsets}`}
+                    </dd>
+                  </div>
+                </>
+              ) : null}
+              <div>
+                <dt style={{ fontWeight: 600, display: "inline" }}>Blocker: </dt>
+                <dd data-field="blocker" style={{ display: "inline", margin: 0 }}>
+                  {dimension.blocker ?? "none"}
+                </dd>
+              </div>
+              {dimension.preconditions.length > 0 ? (
+                <div>
+                  <dt style={{ fontWeight: 600, display: "inline" }}>
+                    Needed, in order:{" "}
+                  </dt>
+                  <dd data-field="preconditions" style={{ display: "inline", margin: 0 }}>
+                    {dimension.preconditions.join("; ")}
+                  </dd>
+                </div>
+              ) : null}
+            </dl>
+          ))}
+        </div>
+      )}
+    </article>
+  );
+}
+
+/**
+ * D077 — server-owned recovery-readiness facts, rendered verbatim on both
+ * the desktop and mobile surfaces. No readiness computation, no zeros or
+ * green states manufactured for missing data, no compaction / extension /
+ * shrink / automation affordance, and no approval token: the operator CLI
+ * is the only path that can progress this state.
+ */
+export function StateHistoryRecoverySection({
+  readiness,
+}: {
+  readiness: StateHistoryCompactionReadiness | null;
+}) {
+  return (
+    <article
+      data-testid="state-history-recovery-readiness"
+      data-display-only="true"
+      style={{
+        border: "1px solid var(--border, #e5e7eb)",
+        borderRadius: 12,
+        padding: "12px 14px",
+        display: "grid",
+        gap: 6,
+      }}
+    >
+      <h2 style={{ fontSize: 14, margin: 0 }}>
+        State-history recovery readiness
+      </h2>
+      {readiness === null ? (
+        <p data-testid="recovery-readiness-unavailable" style={{ margin: 0 }}>
+          Readiness read unavailable — no server fact to display.
+        </p>
+      ) : (
+        <dl style={{ margin: 0, display: "grid", gap: 4, fontSize: 12 }}>
+          <div>
+            <dt style={{ fontWeight: 600, display: "inline" }}>
+              Governing fence metric:{" "}
+            </dt>
+            <dd
+              style={{ display: "inline", margin: 0 }}
+              data-testid="recovery-fence"
+            >
+              {readiness.fence === null
+                ? "unavailable"
+                : `${readiness.fence.metric} — raw ${formatFenceBytes(readiness.fence.rawBytes)}, effective ${formatFenceBytes(readiness.fence.effectiveBytes)}, budget ${formatFenceBytes(readiness.fence.budgetBytes)}, ${
+                    readiness.fence.breachedEffective === true
+                      ? "BREACHED"
+                      : readiness.fence.breachedEffective === false
+                        ? "not breached"
+                        : "breach state unknown"
+                  }`}
+            </dd>
+          </div>
+          <div>
+            <dt style={{ fontWeight: 600, display: "inline" }}>
+              Approval / journal (this business):{" "}
+            </dt>
+            <dd
+              style={{ display: "inline", margin: 0 }}
+              data-testid="recovery-journal"
+            >
+              {readiness.journalRead === "unavailable"
+                ? "journal state unavailable — the business-scoped journal read failed; execution state is unknown"
+                : `${readiness.approvalStatus}${
+                    readiness.latestJournal.length === 0
+                      ? " — no journal entries for this business"
+                      : ` — ${readiness.latestJournal
+                          .map(
+                            (entry) =>
+                              `${entry.event}@${entry.createdAt ?? "?"}`,
+                          )
+                          .join("; ")}`
+                  }`}
+            </dd>
+          </div>
+          <div>
+            <dt style={{ fontWeight: 600, display: "inline" }}>
+              Planned reclaim:{" "}
+            </dt>
+            <dd
+              style={{ display: "inline", margin: 0 }}
+              data-testid="recovery-reclaim"
+            >
+              unknown — no operator dry-run plan artifact is available to this
+              surface
+            </dd>
+          </div>
+          <div>
+            <dt style={{ fontWeight: 600, display: "inline" }}>
+              D075 writer evidence:{" "}
+            </dt>
+            <dd
+              style={{ display: "inline", margin: 0 }}
+              data-testid="recovery-d075"
+            >
+              {readiness.d075WriterEvidence.state}
+            </dd>
+          </div>
+          <div>
+            <dt style={{ fontWeight: 600, display: "inline" }}>Blockers: </dt>
+            <dd
+              style={{ display: "inline", margin: 0 }}
+              data-testid="recovery-blockers"
+            >
+              {readiness.blockers.length === 0
+                ? "none reported"
+                : readiness.blockers.join(" | ")}
+            </dd>
+          </div>
+        </dl>
+      )}
+    </article>
+  );
+}
+
 export default function MetaAutomationPage({
   businessId: authorizedBusinessId,
   providerAccountId: authorizedProviderAccountId,
@@ -2592,6 +3003,9 @@ export default function MetaAutomationPage({
   viewer = AUTOMATION_VIEWER_NOT_ESTABLISHED,
   stopEngageRefusalReason = null,
   liveWritesRefusalReason = null,
+  stateHistoryReadiness = null,
+  budgetReadiness = null,
+  budgetWriteReadiness = null,
 }: MetaAutomationPageProps = {}) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -3043,6 +3457,893 @@ export default function MetaAutomationPage({
       viewer={viewer}
       stopEngageRefusalReason={stopEngageRefusalReason}
       liveWritesRefusalReason={liveWritesRefusalReason}
+      stateHistoryReadiness={stateHistoryReadiness}
+      budgetReadiness={budgetReadiness}
+      budgetWriteReadiness={budgetWriteReadiness}
+      onBudgetActivationChanged={() => router.refresh()}
     />
+  );
+}
+
+/**
+ * D087/D088 — the budget write capability and activation ceremony.
+ *
+ * Every value here is a string the server put in the model. The component
+ * decides nothing: not whether execution is possible, not the magnitude, not
+ * the owner, not the direction. Its only controls alter persisted activation;
+ * they never choose or dispatch a budget mutation. The server supplies the
+ * fresh blockers that enable or disable the ceremony.
+ */
+export function BudgetWriteReadinessSection({
+  readiness,
+  authorization,
+  onActivationChanged,
+}: {
+  readiness: BudgetWriteReadinessModel | null;
+  /*
+    PRE-DEPLOY AUDIT: who is looking, decided on the SERVER.
+
+    This section had no viewer envelope at all, so the read-only mobile pane
+    and a collaborator both got a live Enable button for the strongest control
+    in the product — a control whose route answers 403. Absent means the
+    read-only surface: a section rendered without an explicit authorization
+    must not offer a write.
+  */
+  authorization?: BudgetMasterSwitchAuthorization;
+  /** Lets the page re-read the server model after a successful change. */
+  onActivationChanged?: () => void;
+}) {
+  const auth: BudgetMasterSwitchAuthorization = authorization ?? {
+    canConfigure: false,
+    canDisable: false,
+    reason: BUDGET_MASTER_SWITCH_MOBILE_REFUSAL,
+    reasonCode: "read_only_surface",
+    surface: "mobile_read_only",
+  };
+  const [activationPhrase, setActivationPhrase] = useState("");
+  const [activationBusy, setActivationBusy] = useState(false);
+  const [activationMessage, setActivationMessage] = useState<string | null>(null);
+
+  const submitActivation = async (enabled: boolean) => {
+    if (!readiness) return;
+    setActivationBusy(true);
+    setActivationMessage(null);
+    try {
+      const query = new URLSearchParams({
+        businessId: readiness.businessId,
+        providerAccountId: readiness.providerAccountId,
+      });
+      const response = await fetch(`/api/meta/automation?${query.toString()}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          action: "set_budget_auto_execution",
+          enabled,
+          // The phrase is the only thing the operator supplies. The verdict is
+          // computed on the server and is never sent from here.
+          confirmationPhrase: enabled ? activationPhrase : null,
+        }),
+      });
+      const payload = (await response.json().catch(() => null)) as {
+        ok?: boolean; error?: { code?: string; message?: string };
+        blockers?: string[];
+      } | null;
+      if (payload?.ok) {
+        setActivationMessage(
+          enabled
+            ? "Automatic execution enabled for this account. Budget is the only "
+              + "decision type with an automatic executor, and it also needs Tier 3."
+            : "Automatic execution disabled for this business.",
+        );
+        setActivationPhrase("");
+        onActivationChanged?.();
+      } else {
+        setActivationMessage(
+          `${payload?.error?.code ?? "refused"}`
+          + `${payload?.blockers?.length ? `: ${payload.blockers.join("; ")}` : ""}`,
+        );
+      }
+    } catch {
+      setActivationMessage("The activation request could not be sent.");
+    } finally {
+      setActivationBusy(false);
+    }
+  };
+
+  if (!readiness) {
+    return (
+      <article
+        data-testid="budget-write-readiness-unavailable"
+        data-display-only="true"
+        style={{
+          border: "1px solid var(--border, #e5e7eb)",
+          borderRadius: 12,
+          padding: "12px 14px",
+          fontSize: 13,
+        }}
+      >
+        <h3 style={{ margin: 0, fontSize: 14 }}>
+          Automatic execution — master switch (budget writes)
+        </h3>
+        <p style={{ margin: "6px 0 0" }}>
+          Automatic-execution state unavailable. Unavailable is not
+          &ldquo;off&rdquo;: the server could not prove the current posture, so
+          nothing here should be read as a state.
+        </p>
+      </article>
+    );
+  }
+
+  const { proposal, execution } = readiness;
+  /*
+    The dry-run guardrail is not carried on this model, so it is reported as
+    UNKNOWN rather than guessed. Unknown is not "off".
+  */
+  const dryRunBlockerPresent =
+    execution.activationReadyBlockers.includes("dry_run_guardrail_engaged");
+  const dryRunFactValue = dryRunBlockerPresent ? "engaged" : "not_reported";
+  const dryRunFactLabel = dryRunBlockerPresent
+    ? "Engaged — every write stays inside the building"
+    : "Not reported as a blocker by the server readiness read";
+  /*
+    The AND of every input above. It is deliberately not a new authority: the
+    runtime re-checks all of it, and this row only says what the operator
+    should expect.
+  */
+  const effectiveWriteAbility =
+    execution.capabilityPrepared
+    && execution.executionEnabled
+    && !dryRunBlockerPresent
+    && execution.activationReadyBlockers.length === 0
+    && execution.activatedProviderAccountId === readiness.providerAccountId;
+  return (
+    <article
+      data-testid="budget-write-readiness"
+      data-display-only="true"
+      data-execution-enabled={String(execution.executionEnabled)}
+      data-capability-prepared={String(execution.capabilityPrepared)}
+      style={{
+        border: "1px solid var(--border, #e5e7eb)",
+        borderRadius: 12,
+        padding: "12px 14px",
+        fontSize: 13,
+      }}
+    >
+      <h3 style={{ margin: 0, fontSize: 14 }}>
+        Automatic execution — master switch (budget writes)
+      </h3>
+      {/*
+        PRE-DEPLOY AUDIT: say what this control actually flips.
+
+        The switch below writes `meta_automation_business_controls
+        .auto_execution_enabled`, which is the business-wide MASTER
+        automatic-execution flag — not a budget-only setting. Budget is simply
+        the only decision type that has an automatic executor today, and it
+        additionally requires its own standing mode to be Tier 3. Labelling the
+        master as if it were budget-scoped told an admin they were enabling one
+        family when they were enabling the business-wide gate every future
+        family would read.
+      */}
+      <p style={{ margin: "6px 0 0" }} data-field="master-switch-scope">
+        This is the business-wide master switch for automatic Meta execution.
+        Two keys are required and both are server-checked on every run: this
+        master switch, and the decision type&rsquo;s own standing mode set to
+        Tier 3 · Auto-execute. Budget is the only decision type with an
+        automatic executor today; turning this on never makes pause, bid, or
+        creative write by themselves, and every operator-approved write keeps
+        its own approval.
+      </p>
+      {/*
+        PRE-DEPLOY AUDIT — SIX separate facts, not one word.
+
+        "Prepared and disabled" collapsed the environment's capability, the
+        business's master switch, the dry-run guardrail, the readiness verdict,
+        the account binding and the effective write ability into a single
+        phrase. An operator could not tell which of them was the reason, and a
+        missing control row read the same as a configured-and-off one.
+
+        Every row below is a server fact rendered verbatim. `effective-write`
+        is the AND of all of them, stated last so it cannot be mistaken for any
+        single input.
+      */}
+      <dl
+        data-field="master-switch-facts"
+        style={{
+          display: "grid", gridTemplateColumns: "auto 1fr",
+          gap: "2px 12px", margin: "8px 0 0",
+        }}
+      >
+        <dt>Environment capability</dt>
+        <dd data-field="environment-capability" data-value={String(execution.capabilityPrepared)}>
+          {execution.capabilityPrepared
+            ? "Transport prepared in this build"
+            : "Transport not prepared in this build"}
+        </dd>
+
+        <dt>Business master switch</dt>
+        <dd data-field="business-master-switch" data-value={String(execution.executionEnabled)}>
+          {/*
+            A control row that could not be read, or that does not exist, is
+            OFF here. It is never rendered as enabled and never inferred.
+          */}
+          {execution.executionEnabled ? "ON" : "OFF"}
+        </dd>
+
+        <dt>Dry-run guardrail</dt>
+        <dd data-field="dry-run-guardrail" data-value={dryRunFactValue}>
+          {dryRunFactLabel}
+        </dd>
+
+        <dt>Activation readiness</dt>
+        <dd data-field="activation-readiness" data-value={
+          execution.activationReadyBlockers.length === 0 ? "ready" : "blocked"
+        }>
+          {execution.activationReadyBlockers.length === 0
+            ? "No blockers reported"
+            : `${execution.activationReadyBlockers.length} blocker(s)`}
+        </dd>
+
+        <dt>Activated account</dt>
+        <dd data-field="activated-account-fact">
+          {execution.activatedProviderAccountId ?? "none"}
+        </dd>
+
+        <dt>Effective write ability</dt>
+        <dd data-field="effective-write" data-value={String(effectiveWriteAbility)}>
+          {effectiveWriteAbility
+            ? "This account can execute automatic budget writes"
+            : "No automatic budget write can execute for this account"}
+        </dd>
+      </dl>
+      {/*
+        D088 C3: WHICH account automatic execution is enabled for.
+
+        The control row is business-wide. Rendering only "on" would tell an
+        operator on a second account that their budgets will move, when the
+        activation was performed — and its readiness proven — for another
+        account entirely.
+      */}
+      <p
+        style={{ margin: "4px 0 0" }}
+        data-field="activated-account"
+        data-activated-account={execution.activatedProviderAccountId ?? "none"}
+        data-activated-here={String(
+          execution.activatedProviderAccountId !== null
+          && execution.activatedProviderAccountId === readiness.providerAccountId,
+        )}
+      >
+        {execution.activatedProviderAccountId === null
+          ? "Automatic execution is not enabled for any account."
+          : execution.activatedProviderAccountId === readiness.providerAccountId
+            ? `Automatic execution is enabled for this account (${execution.activatedProviderAccountId}).`
+            : `Automatic execution is enabled for ${execution.activatedProviderAccountId}, not this account.`}
+      </p>
+
+      {proposal ? (
+        <dl
+          style={{
+            display: "grid",
+            gridTemplateColumns: "auto auto",
+            gap: "2px 12px",
+            margin: "8px 0 0",
+          }}
+        >
+          <dt>Owner</dt>
+          <dd data-field="owner-grain">{proposal.ownerGrain}</dd>
+          <dt>Entity</dt>
+          <dd data-field="entity-id">{proposal.entityId}</dd>
+          <dt>Field</dt>
+          <dd data-field="budget-field">{proposal.budgetField}</dd>
+          <dt>Before</dt>
+          <dd data-field="before-amount-minor">{proposal.beforeAmountMinor}</dd>
+          <dt>Proposed</dt>
+          <dd data-field="intended-amount-minor">{proposal.intendedAmountMinor}</dd>
+          <dt>Currency</dt>
+          <dd data-field="currency">
+            {proposal.currency} (exponent {proposal.currencyExponent})
+          </dd>
+          <dt>Change</dt>
+          <dd data-field="change-percent">
+            {proposal.changePercent === null ? "unknown" : `${proposal.changePercent}%`}
+          </dd>
+          <dt>Evidence as of</dt>
+          <dd data-field="evidence-as-of">{proposal.evidenceAsOf}</dd>
+          <dt>Evidence age</dt>
+          <dd data-field="evidence-age-hours">
+            {proposal.evidenceAgeHours === null
+              ? "unknown"
+              : `${proposal.evidenceAgeHours}h`}
+          </dd>
+          <dt>Read-back</dt>
+          <dd data-field="readback-state">{execution.readbackState}</dd>
+          <dt>Rollback</dt>
+          <dd data-field="rollback-eligible">
+            {execution.rollbackEligible ? "eligible" : "not eligible"}
+          </dd>
+          <dt>Proposal</dt>
+          <dd data-field="proposal-state">{execution.proposalState ?? "none"}</dd>
+          <dt>Claim</dt>
+          <dd data-field="claim-state">{execution.claimState ?? "none"}</dd>
+          <dt>Reconcile</dt>
+          <dd data-field="reconcile-state">{execution.reconcileState ?? "none"}</dd>
+        </dl>
+      ) : (
+        <p style={{ margin: "8px 0 0" }} data-field="unavailable-reason">
+          {readiness.unavailableReason ?? "No budget proposal is available."}
+        </p>
+      )}
+
+      <p style={{ margin: "8px 0 0" }} data-field="preflight-blockers">
+        {execution.preflightBlockers.length === 0
+          ? "none"
+          : execution.preflightBlockers.join("; ")}
+      </p>
+      {/*
+        PRE-DEPLOY AUDIT — the controls exist only for a viewer who may use them.
+
+        An unauthorized viewer gets the same status above plus the CONCRETE
+        refusal the route would answer with, and no button at all. The
+        read-only mobile pane never reaches this branch.
+
+        D088 C2 (kept): the form itself is the REAL ceremony. C1 rendered a
+        button with no handler, which looked like a control and was scenery.
+        This types the phrase, posts to the existing Automation route, renders
+        whatever the server answers and refreshes. The server remains the only
+        readiness authority: this component sends an intent and a phrase, and
+        never a verdict.
+      */}
+      {auth.canConfigure || auth.canDisable ? (
+        <form
+          data-testid="budget-activation-form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void submitActivation(true);
+          }}
+          style={{ margin: "10px 0 0", display: "flex", gap: 8, flexWrap: "wrap" }}
+        >
+          <input
+            type="text"
+            name="confirmationPhrase"
+            data-testid="budget-activation-phrase"
+            value={activationPhrase}
+            onChange={(event) => setActivationPhrase(event.target.value)}
+            placeholder={BUDGET_ACTIVATION_CONFIRMATION_PHRASE}
+            aria-label="Confirmation phrase"
+            disabled={activationBusy || execution.executionEnabled
+              || execution.activationReadyBlockers.length > 0}
+            style={{
+              padding: "6px 10px", borderRadius: 8,
+              border: "1px solid var(--border, #e5e7eb)", minWidth: 280,
+            }}
+          />
+          <button
+            type="submit"
+            data-testid="budget-activation-enable"
+            data-enabled={String(
+              execution.activationReadyBlockers.length === 0
+              && !execution.executionEnabled && !activationBusy,
+            )}
+            disabled={activationBusy || execution.executionEnabled
+              || execution.activationReadyBlockers.length > 0}
+            aria-disabled={activationBusy || execution.executionEnabled
+              || execution.activationReadyBlockers.length > 0}
+            style={{
+              padding: "6px 12px", borderRadius: 8,
+              border: "1px solid var(--border, #e5e7eb)", background: "transparent",
+              cursor: execution.executionEnabled
+                || execution.activationReadyBlockers.length > 0 ? "not-allowed" : "pointer",
+              opacity: execution.executionEnabled
+                || execution.activationReadyBlockers.length > 0 ? 0.55 : 1,
+            }}
+          >
+            Enable automatic execution (budget)
+          </button>
+          {/* STOP is never gated. A stop that could be refused is not a stop. */}
+          <button
+            type="button"
+            data-testid="budget-activation-disable"
+            disabled={activationBusy}
+            onClick={() => { void submitActivation(false); }}
+            style={{
+              padding: "6px 12px", borderRadius: 8,
+              border: "1px solid var(--border, #e5e7eb)", background: "transparent",
+              cursor: "pointer",
+            }}
+          >
+            Disable automatic execution
+          </button>
+        </form>
+      ) : (
+        <p
+          style={{ margin: "10px 0 0" }}
+          data-field="master-switch-refusal"
+          data-reason-code={auth.reasonCode ?? "none"}
+          data-surface={auth.surface}
+        >
+          {auth.reason ?? "Automatic execution cannot be changed from here."}
+        </p>
+      )}
+      {/*
+        PRE-DEPLOY AUDIT — the SAFE preparation path, finally mounted.
+
+        `save_budget_automation_config` has existed on the Automation route
+        since D088 C3 and had ZERO callers anywhere in the product. Activation
+        readiness requires a persisted control row with a lifted dry-run
+        guardrail and three real budget numbers; five of the six target
+        businesses have no control row at all, and nothing on any screen could
+        write one. So the documented ceremony ended at a button that can only
+        ever answer "not ready", and the only way forward was a hand-run SQL
+        statement — the exact thing an activation ceremony exists to replace.
+
+        This form is that path. It is a different VERB from the switch above:
+        the route pins `auto_execution_enabled` to FALSE and clears the bound
+        account on every path through the save, so preparing can never enable.
+        The warning below says so before the operator commits, because a
+        control that silently changes another control's state is how an
+        operator loses track of what is on.
+      */}
+      {auth.canConfigure ? (
+        <BudgetPreparationForm
+          /*
+            PRE-DEPLOY AUDIT — a scope-keyed remount, not an effect that tries
+            to reconcile state after the fact. Switching account or business
+            hands React a NEW key, which discards every hook's state and
+            re-runs every `useState` initializer against the CURRENT props —
+            there is no window in which a stale local value from the previous
+            scope can be read, submitted, or displayed. An ordinary re-render
+            for the SAME scope (a readiness refetch after Save, a background
+            poll) keeps the key unchanged, so it does not touch what the
+            operator is mid-typing.
+          */
+          key={`${readiness.businessId}::${readiness.providerAccountId}`}
+          businessId={readiness.businessId}
+          providerAccountId={readiness.providerAccountId}
+          preparation={readiness.preparation ?? null}
+          onSaved={onActivationChanged}
+        />
+      ) : null}
+      {activationMessage ? (
+        <p style={{ margin: "6px 0 0" }} data-field="activation-response">
+          {activationMessage}
+        </p>
+      ) : null}
+      <p style={{ margin: "8px 0 0" }} data-field="activation-ready-blockers">
+        {execution.activationReadyBlockers.length === 0
+          ? "none"
+          : execution.activationReadyBlockers.join("; ")}
+      </p>
+      <ul style={{ margin: "6px 0 0", paddingLeft: 18 }} data-field="activation-blockers">
+        {execution.activationBlockers.map((blocker) => (
+          <li key={blocker.code} data-blocker={blocker.code}>
+            {blocker.why}
+          </li>
+        ))}
+      </ul>
+    </article>
+  );
+}
+
+/**
+ * PRE-DEPLOY AUDIT — the admin-only budget automation preparation form.
+ *
+ * WHAT IT IS FOR. Activation readiness demands a persisted control row whose
+ * dry-run guardrail is lifted and whose budget policy keys carry real numbers.
+ * This writes them, through the route action that already exists, and it is
+ * the only way to satisfy those prerequisites without a hand-run statement.
+ *
+ * WHAT IT REFUSES TO DO.
+ *
+ *  - It never invents a value. Every input starts EMPTY unless the server
+ *    said a value is persisted, and each field states its own provenance
+ *    beside it: persisted, not set, or could not be read. A form pre-filled
+ *    with plausible numbers invites an admin to press Save and believe they
+ *    reviewed a configuration when they persisted the form's defaults.
+ *  - It never validates differently from the server. `parseBudgetAutomationConfig`
+ *    is the SAME parser the route runs, imported from a module with no
+ *    database in it, so a value this form accepts is a value the route
+ *    accepts, and the rejection code shown is the one the route would return.
+ *  - It never computes a buyerAction, a readiness verdict or a blocker. It
+ *    sends an intent; the server re-derives readiness, and the section above
+ *    re-reads it afterwards.
+ *  - It never enables anything. The save pins the master switch OFF and clears
+ *    the bound account, and the warning states that before the button.
+ */
+function PreparationFact({
+  label, field, render,
+}: {
+  label: string;
+  field: PreparationField<unknown> | undefined;
+  render: (value: unknown) => string;
+}) {
+  const state = field?.state ?? "unknown";
+  return (
+    <span
+      data-field="preparation-state"
+      data-key={label}
+      data-state={state}
+      style={{ fontSize: 12, opacity: 0.85 }}
+    >
+      {state === "persisted"
+        ? `saved: ${render(field!.value)}`
+        : state === "unset"
+          ? "not set"
+          : "could not be read"}
+    </span>
+  );
+}
+
+/** "" | "true" | "false" — an unmade choice is its OWN state, never a default. */
+type DryRunTriState = "" | "true" | "false";
+
+/**
+ * Text state, not numbers. An empty string is "the admin has typed nothing",
+ * which is distinct from 0 — and 0 is a value the validator rejects for every
+ * one of these keys. Coercing "" to 0 would submit a rejected value as if it
+ * had been chosen. Module-level and pure so both the initial `useState` calls
+ * and the post-mount resync effect read the SAME logic.
+ */
+function preparedFieldText(
+  preparation: BudgetPreparationView | null,
+  key: keyof BudgetAutomationConfigInput,
+): string {
+  const field = preparation?.[key] as PreparationField<unknown> | undefined;
+  if (!field || field.state !== "persisted" || field.value === null) return "";
+  return String(field.value);
+}
+
+/**
+ * PRE-DEPLOY AUDIT — no fabricated default. `dryRunOnly` used to initialize
+ * to `true` whenever the stored value was not `persisted`, which means an
+ * UNKNOWN and an UNSET row rendered as an already-made, safe-looking choice.
+ * It is nothing of the kind: the operator never chose it, and the shared
+ * parser must refuse to accept a value nobody picked. The empty string is
+ * that refusal, surfaced as "Choose…" in the `<select>` below.
+ */
+function preparedDryRunOnly(preparation: BudgetPreparationView | null): DryRunTriState {
+  if (preparation?.dryRunOnly.state !== "persisted") return "";
+  return preparation.dryRunOnly.value ? "true" : "false";
+}
+
+function BudgetPreparationForm({
+  businessId, providerAccountId, preparation, onSaved,
+}: {
+  businessId: string;
+  providerAccountId: string;
+  preparation: BudgetPreparationView | null;
+  onSaved?: () => void;
+}) {
+  /*
+    PRE-DEPLOY AUDIT — fail CLOSED, not fail open.
+
+    `preparation === null` (the caller supplied nothing) and
+    `preparation.rowRead === false` (a real read was attempted and failed)
+    are both states where this form has NOT SEEN the stored configuration.
+    Every control below — the dry-run selector, every numeric input, and
+    Save — is disabled in both states: a value typed over a row nobody
+    could read is a value that silently overwrites something unseen.
+    `rowRead === true && rowExists === false` is the one state that stays
+    editable — the row genuinely does not exist yet, so there is nothing it
+    could overwrite, and that IS the first-setup path this form exists for.
+  */
+  const fieldsLocked = !preparation || preparation.rowRead === false;
+
+  const [dryRunOnly, setDryRunOnly] = useState<DryRunTriState>(preparedDryRunOnly(preparation));
+  const [minHours, setMinHours] = useState(
+    preparedFieldText(preparation, "budgetMinHoursBetweenChanges"));
+  const [maxChanges, setMaxChanges] = useState(
+    preparedFieldText(preparation, "budgetMaxChangesPer7d"));
+  const [maxConcentration, setMaxConcentration] = useState(
+    preparedFieldText(preparation, "budgetMaxAccountConcentrationPct"),
+  );
+  const [maxIncrease, setMaxIncrease] = useState(
+    preparedFieldText(preparation, "maxBudgetIncreasePct"));
+  const [ceilingMinor, setCeilingMinor] = useState(
+    preparedFieldText(preparation, "perActionSpendCeilingMinor"));
+  const [ceilingCurrency, setCeilingCurrency] = useState(
+    preparedFieldText(preparation, "perActionSpendCeilingCurrency"),
+  );
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+
+  /*
+    PRE-DEPLOY AUDIT — resync ONCE, exactly when a real read first lands.
+
+    Scope changes (business or provider account) are handled entirely by the
+    caller: `key={businessId::providerAccountId}` on this component's JSX
+    below gives React a fresh mount on scope change, so every hook above
+    starts over from the CURRENT props — a value from a different scope can
+    never be read here. This effect covers the one thing a remount does not:
+    the SAME scope, where `preparation` starts unread (still loading, or a
+    failed first attempt) and a real row arrives moments later. The
+    `useState` calls above already captured "" for every field on that first,
+    unread render (fail closed, per the rule above) — this effect is what
+    upgrades them to the real stored values the first time the read
+    succeeds, and `syncedRef` stops it from ever firing again for this
+    mount, so a LATER preparation update for the same, already-read scope
+    (a background poll, the refetch this form's own `onSaved` triggers)
+    never overwrites what the operator may be typing.
+  */
+  const syncedRef = useRef(!fieldsLocked);
+  useEffect(() => {
+    if (fieldsLocked || syncedRef.current) return;
+    syncedRef.current = true;
+    setDryRunOnly(preparedDryRunOnly(preparation));
+    setMinHours(preparedFieldText(preparation, "budgetMinHoursBetweenChanges"));
+    setMaxChanges(preparedFieldText(preparation, "budgetMaxChangesPer7d"));
+    setMaxConcentration(preparedFieldText(preparation, "budgetMaxAccountConcentrationPct"));
+    setMaxIncrease(preparedFieldText(preparation, "maxBudgetIncreasePct"));
+    setCeilingMinor(preparedFieldText(preparation, "perActionSpendCeilingMinor"));
+    setCeilingCurrency(preparedFieldText(preparation, "perActionSpendCeilingCurrency"));
+  }, [fieldsLocked, preparation]);
+
+  /*
+    An empty numeric field submits `null`, which the shared parser rejects by
+    NAME. That is deliberate: a blank required guardrail must produce the
+    server's own rejection code rather than a bespoke UI message, so the
+    operator sees the same words in the form and in the route's response.
+    An unmade dry-run CHOICE submits `undefined`, which the same parser
+    rejects as `dry_run_only_not_boolean` — there is no third, silently
+    accepted spelling of "the operator has not decided".
+  */
+  const numeric = (raw: string): number | null => {
+    const trimmed = raw.trim();
+    if (!trimmed) return null;
+    const value = Number(trimmed);
+    return Number.isFinite(value) ? value : null;
+  };
+  const candidate = {
+    dryRunOnly: dryRunOnly === "" ? undefined : dryRunOnly === "true",
+    budgetMinHoursBetweenChanges: numeric(minHours),
+    budgetMaxChangesPer7d: numeric(maxChanges),
+    budgetMaxAccountConcentrationPct: numeric(maxConcentration),
+    maxBudgetIncreasePct: numeric(maxIncrease),
+    // A blank ceiling is a real, valid choice: it CLEARS the ceiling.
+    perActionSpendCeilingMinor: numeric(ceilingMinor),
+    perActionSpendCeilingCurrency: ceilingCurrency.trim()
+      ? ceilingCurrency.trim().toUpperCase()
+      : null,
+  };
+  const parsed = parseBudgetAutomationConfig(candidate);
+  const missing = preparation ? unpreparedFields(preparation) : [];
+  const saveEnabled = parsed.ok && !busy && !fieldsLocked;
+
+  const submit = async () => {
+    // Defense in depth: the button already carries `disabled`, but a
+    // programmatic form submit (e.g. Enter inside a still-enabled sibling
+    // control) must not reach the network on the button's styling alone.
+    if (!saveEnabled) return;
+    setBusy(true);
+    setMessage(null);
+    try {
+      const query = new URLSearchParams({ businessId, providerAccountId });
+      const response = await fetch(`/api/meta/automation?${query.toString()}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          action: "save_budget_automation_config",
+          ...parsed.config,
+        }),
+      });
+      const payload = (await response.json().catch(() => null)) as {
+        ok?: boolean; saved?: boolean; autoExecutionEnabled?: boolean;
+        error?: { code?: string; message?: string };
+      } | null;
+      if (payload?.ok) {
+        setMessage(
+          "Preparation saved. Automatic execution is OFF and any bound account was cleared.",
+        );
+        // Re-read the server model so readiness reflects the new row rather
+        // than this component's optimism.
+        onSaved?.();
+      } else {
+        setMessage(`${payload?.error?.code ?? "refused"}: ${payload?.error?.message ?? ""}`.trim());
+      }
+    } catch {
+      setMessage("The preparation request could not be sent.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const inputStyle = {
+    padding: "6px 10px",
+    borderRadius: 8,
+    border: "1px solid var(--border, #e5e7eb)",
+    // Mobile: the grid below is one column under 520px, and an input that
+    // cannot shrink is what makes a narrow pane scroll sideways.
+    width: "100%",
+    minWidth: 0,
+    boxSizing: "border-box" as const,
+  };
+
+  return (
+    <form
+      data-testid="budget-preparation-form"
+      data-row-read={String(preparation?.rowRead ?? false)}
+      data-row-exists={String(preparation?.rowExists ?? false)}
+      data-fields-locked={String(fieldsLocked)}
+      onSubmit={(event) => { event.preventDefault(); void submit(); }}
+      style={{
+        margin: "12px 0 0",
+        paddingTop: 10,
+        borderTop: "1px solid var(--border, #e5e7eb)",
+      }}
+    >
+      <h4 style={{ margin: 0, fontSize: 13 }}>
+        Prepare budget automation (does not enable it)
+      </h4>
+      {/*
+        The warning comes BEFORE the fields, not beside the button. An operator
+        who reads only the heading and the first sentence must still have been
+        told what the save does to the master switch.
+      */}
+      <p
+        data-field="preparation-warning"
+        style={{ margin: "6px 0 0", fontSize: 12 }}
+      >
+        Saving this configuration <strong>forces automatic execution OFF</strong> for
+        this business and <strong>clears any activated account binding</strong>.
+        It is the preparation step: after saving, activation readiness is
+        recomputed and the enable ceremony above must be performed again.
+      </p>
+      {/*
+        PRE-DEPLOY AUDIT — fail-closed banner, for BOTH ways this form can
+        fail to have seen the real row: `preparation === null` (the caller
+        supplied nothing — this component predates the read, or the parent's
+        own read of readiness is itself in an unavailable state) and
+        `rowRead === false` (a read was attempted and failed). Both disable
+        every control below; this is where that is EXPLAINED rather than
+        merely enforced.
+      */}
+      {fieldsLocked ? (
+        <p data-field="preparation-unreadable" style={{ margin: "6px 0 0", fontSize: 12 }}>
+          The stored configuration could not be read
+          {!preparation ? " — no preparation state is available for this account yet"
+            : ""}. Every field below is locked rather than shown editable-but-empty:
+          unknown is not &ldquo;unset&rdquo;, and saving over it would overwrite
+          values nobody has seen.
+        </p>
+      ) : null}
+      {missing.length > 0 ? (
+        <p
+          data-field="preparation-missing"
+          data-missing={missing.join(",")}
+          style={{ margin: "6px 0 0", fontSize: 12 }}
+        >
+          Not yet prepared: {missing.join(", ")}. Activation readiness cannot be
+          satisfied until each carries a value.
+        </p>
+      ) : null}
+
+      <div
+        style={{
+          display: "grid",
+          // Mobile-first: one column, becoming two only where there is room.
+          gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+          gap: 10,
+          margin: "10px 0 0",
+        }}
+      >
+        <label style={{ display: "grid", gap: 4, fontSize: 12 }}>
+          Dry-run only
+          <PreparationFact
+            label="dryRunOnly"
+            field={preparation?.dryRunOnly}
+            render={(value) => String(value)}
+          />
+          <select
+            data-testid="preparation-dry-run-only"
+            value={dryRunOnly}
+            onChange={(event) => setDryRunOnly(event.target.value as DryRunTriState)}
+            disabled={busy || fieldsLocked}
+            style={inputStyle}
+          >
+            {/*
+              PRE-DEPLOY AUDIT: the empty option is the DEFAULT and stays
+              selectable — an operator who has not decided must see an
+              unmade choice, not a value that already reads as "true".
+            */}
+            <option value="">Choose…</option>
+            <option value="true">true — every write stays inside the building</option>
+            <option value="false">false — required before activation readiness</option>
+          </select>
+        </label>
+
+        {([
+          ["budgetMinHoursBetweenChanges", "Min hours between changes", minHours, setMinHours,
+            "preparation-min-hours"],
+          ["budgetMaxChangesPer7d", "Max changes per 7 days", maxChanges, setMaxChanges,
+            "preparation-max-changes"],
+          ["budgetMaxAccountConcentrationPct", "Max account concentration (%)",
+            maxConcentration, setMaxConcentration, "preparation-max-concentration"],
+          ["maxBudgetIncreasePct", "Max single increase (%)", maxIncrease, setMaxIncrease,
+            "preparation-max-increase"],
+          ["perActionSpendCeilingMinor", "Per-action spend ceiling (minor units, blank clears)",
+            ceilingMinor, setCeilingMinor, "preparation-ceiling-minor"],
+        ] as const).map(([key, label, value, setValue, testId]) => (
+          <label key={key} style={{ display: "grid", gap: 4, fontSize: 12 }}>
+            {label}
+            <PreparationFact
+              label={key}
+              field={preparation?.[key]}
+              render={(stored) => String(stored)}
+            />
+            <input
+              type="text"
+              inputMode="numeric"
+              data-testid={testId}
+              value={value}
+              onChange={(event) => setValue(event.target.value)}
+              disabled={busy || fieldsLocked}
+              aria-label={label}
+              style={inputStyle}
+            />
+          </label>
+        ))}
+
+        <label style={{ display: "grid", gap: 4, fontSize: 12 }}>
+          Ceiling currency (ISO-4217, blank clears)
+          <PreparationFact
+            label="perActionSpendCeilingCurrency"
+            field={preparation?.perActionSpendCeilingCurrency}
+            render={(stored) => String(stored)}
+          />
+          <input
+            type="text"
+            data-testid="preparation-ceiling-currency"
+            value={ceilingCurrency}
+            onChange={(event) => setCeilingCurrency(event.target.value)}
+            disabled={busy || fieldsLocked}
+            aria-label="Ceiling currency"
+            style={inputStyle}
+          />
+        </label>
+      </div>
+
+      {/*
+        The server's own rejection code, shown before the operator submits.
+        Computed by the route's parser, so it cannot disagree with the answer.
+        Suppressed while `fieldsLocked`: an unread row's fields are all "",
+        which the parser also rejects, and showing that rejection here would
+        read as "you filled this in wrong" rather than "this cannot be edited
+        yet" — the banner above already says the real reason.
+      */}
+      {!parsed.ok && !fieldsLocked ? (
+        <p
+          data-field="preparation-rejection"
+          data-rejection={parsed.rejection}
+          style={{ margin: "8px 0 0", fontSize: 12 }}
+        >
+          {parsed.rejection}: {parsed.message}
+        </p>
+      ) : null}
+
+      <button
+        type="submit"
+        data-testid="preparation-save"
+        data-enabled={String(saveEnabled)}
+        disabled={!saveEnabled}
+        aria-disabled={!saveEnabled}
+        style={{
+          margin: "10px 0 0",
+          padding: "8px 12px",
+          borderRadius: 8,
+          border: "1px solid var(--border, #e5e7eb)",
+          background: "transparent",
+          cursor: saveEnabled ? "pointer" : "not-allowed",
+          opacity: saveEnabled ? 1 : 0.55,
+          // Full width on a narrow pane, natural width once there is room.
+          width: "100%",
+          maxWidth: 360,
+        }}
+      >
+        Save preparation (keeps automation OFF)
+      </button>
+      {message ? (
+        <p data-field="preparation-response" style={{ margin: "6px 0 0", fontSize: 12 }}>
+          {message}
+        </p>
+      ) : null}
+    </form>
   );
 }

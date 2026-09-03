@@ -609,7 +609,9 @@ WHERE job_run_id = ANY($1::uuid[])
 ORDER BY job_run_id, provider_account_ref_id, provider_account_id, ad_id, id
 `;
 
-const SOURCE_RUNS_SQL = `
+// Exported so the real-Postgres consumer-sweep seam can prove the
+// manifest-kind-aware membership count against actual delta runs.
+export const SOURCE_RUNS_SQL = `
 SELECT
   run.id::text AS id,
   run.business_ref_id::text AS business_ref_id,
@@ -623,18 +625,55 @@ SELECT
   run.run_hash,
   run.payload_hash,
   run.row_count AS expected_row_count,
-  COUNT(state.id)::integer AS persisted_row_count
+  -- D075 consumer sweep: manifest membership is kind-aware, mirroring the
+  -- hydration receipt (lib/creative-decision-engine/data-source.ts
+  -- member_states). Legacy/full runs stay run-bound; a delta run's members
+  -- are the reconstructed complete lane (latest complete-lane row per
+  -- entity at or before the run's payload capture clock, endpoint-scoped,
+  -- present winners only). Counting a delta run by its run-bound rows made
+  -- this verifier flag every delta manifest as under-persisted.
+  CASE
+    WHEN run.manifest_kind = 'delta' THEN recon.member_count
+    ELSE bound.member_count
+  END AS persisted_row_count
 FROM meta_entity_observation_runs run
-LEFT JOIN meta_entity_state_history state
-  ON state.run_id = run.id
- AND state.business_ref_id = run.business_ref_id
- AND state.business_id = run.business_id
- AND state.provider_account_ref_id = run.provider_account_ref_id
- AND state.provider_account_id = run.provider_account_id
- AND state.entity_type = run.entity_type
- AND state.presence = 'present'
+LEFT JOIN LATERAL (
+  SELECT COUNT(state.id)::integer AS member_count
+  FROM meta_entity_state_history state
+  WHERE run.manifest_kind IS DISTINCT FROM 'delta'
+    AND state.run_id = run.id
+    AND state.business_ref_id = run.business_ref_id
+    AND state.business_id = run.business_id
+    AND state.provider_account_ref_id = run.provider_account_ref_id
+    AND state.provider_account_id = run.provider_account_id
+    AND state.entity_type = run.entity_type
+    AND state.presence = 'present'
+) bound ON TRUE
+LEFT JOIN LATERAL (
+  SELECT COUNT(*)::integer AS member_count
+  FROM (
+    SELECT DISTINCT ON (state.entity_id) state.presence
+    FROM meta_entity_state_history state
+    WHERE run.manifest_kind = 'delta'
+      AND state.business_ref_id = run.business_ref_id
+      AND state.business_id = run.business_id
+      AND state.provider_account_ref_id = run.provider_account_ref_id
+      AND state.provider_account_id = run.provider_account_id
+      AND state.entity_type = run.entity_type
+      AND state.run_completeness = 'complete'
+      AND EXISTS (
+        SELECT 1
+        FROM meta_entity_observation_runs scope_run
+        WHERE scope_run.id = state.run_id
+          AND scope_run.endpoint = run.endpoint
+      )
+      AND state.captured_at <= run.captured_at
+    ORDER BY state.entity_id, state.captured_at DESC, state.created_at DESC,
+      state.id DESC
+  ) latest
+  WHERE latest.presence = 'present'
+) recon ON TRUE
 WHERE run.id = ANY($1::uuid[])
-GROUP BY run.id
 ORDER BY run.id
 `;
 

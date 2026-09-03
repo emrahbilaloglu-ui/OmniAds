@@ -41,7 +41,6 @@ import {
   resolveDateWindowFromParams,
 } from "@/lib/dashboard/date-window-url";
 import { cn } from "@/lib/utils";
-import { MetaCampaignLabelsSection } from "@/components/meta/redesign/MetaCampaignLabelsSection";
 import { MetaLaunchpadOverlay } from "@/components/meta/redesign/MetaLaunchpadOverlay";
 import {
   authorizeMetaNativeAdPause,
@@ -61,6 +60,8 @@ import {
   type MetaDecisionCenterExactRowWorkflowChip,
   type MetaDecisionCenterExactWorkflow,
 } from "@/components/meta/decision-center/MetaDecisionCenterExact";
+import { BudgetDecisionEvidencePanel } from "@/components/meta/decision-center/BudgetDecisionEvidencePanel";
+import { BudgetDryRunPanel } from "@/components/meta/decision-center/BudgetDryRunPanel";
 import {
   buildMetaDecisionCenterExactViewModel,
   buildMetaStructureInventoryViewModel,
@@ -2036,6 +2037,29 @@ function MetaMobileDecisionsScreen({
           <MetaMobilePosturePanel posture={posture} />
 
           {/*
+            The budget-decision evidence, projected onto the phone.
+
+            Below 720px the stylesheet hides every sibling of this stage, so
+            the desktop-mounted `BudgetDecisionEvidencePanel` — a descendant of
+            one of those siblings — was simply absent on a phone: both
+            direction panels measured 0x0 on the authenticated route. This
+            renders the SAME component from the SAME server-owned
+            `viewModel.budgetEvidence` object the desktop reads. It re-derives
+            nothing, adds no threshold, maps no direction to an action of its
+            own, and creates no write authority: the panel's own CTAs stay
+            disabled and mobile remains read-only.
+          */}
+          <BudgetDecisionEvidencePanel
+            evidence={viewModel.budgetEvidence ?? null}
+          />
+
+          {/*
+            D085 on the phone. Same server object, same component, same
+            read-only law as the desktop mount.
+          */}
+          <BudgetDryRunPanel panel={viewModel.budgetDryRun ?? null} />
+
+          {/*
             Same banners, same order as the desktop chrome
             (`workspaceBannerPriority`): a blocking kill switch must not sit
             below a tracking warning on one surface and above it on the other.
@@ -3469,7 +3493,6 @@ export function MetaPlatformPage({
   const [activeLane, setActiveLane] = useState<MetaLaneView>(initialLane);
   const [activeScope, setActiveScope] =
     useState<MetaDecisionCenterExactScope>(initialScope);
-  const [labelModalOpen, setLabelModalOpen] = useState(false);
   const [rowSort, setRowSort] = useState<MetaRowSort>("money");
   const [adCandidateLimit, setAdCandidateLimit] = useState(
     META_DECISIONS_AD_CANDIDATE_LIMIT,
@@ -3550,15 +3573,6 @@ export function MetaPlatformPage({
     setActiveLane(parseMetaWorkspaceLane(searchParams));
     setActiveScope(parseMetaScope(searchParams));
   }, [searchParams]);
-
-  useEffect(() => {
-    if (!labelModalOpen) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setLabelModalOpen(false);
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [labelModalOpen]);
 
   useEffect(() => {
     if (!nativeAdPauseAuthorization || nativeAdPausePending) return;
@@ -5630,11 +5644,6 @@ export function MetaPlatformPage({
                   }
                 : undefined
             }
-            onManageLabels={
-              providerAccountId && !isViewerReadOnly
-                ? () => setLabelModalOpen(true)
-                : undefined
-            }
             adsManagerHref={metaAdsManagerHref(providerAccountId)}
             onCloseInspector={() => {
               setInspectorDismissed(true);
@@ -5856,56 +5865,6 @@ export function MetaPlatformPage({
           void confirmNativeAdPause();
         }}
       />
-
-      {labelModalOpen ? (
-        <div
-          className="modal-backdrop meta-label-modal-backdrop"
-          data-meta-label-management-modal
-          onMouseDown={() => setLabelModalOpen(false)}
-        >
-          <div
-            className="meta-label-modal"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="meta-label-modal-title"
-            onMouseDown={(event) => event.stopPropagation()}
-          >
-            <div className="meta-label-modal-head">
-              <div>
-                <h2 id="meta-label-modal-title">Campaign context exceptions</h2>
-                <p>
-                  Automatic context is the default. Use an override only when
-                  the inferred role is wrong.
-                </p>
-              </div>
-              <button
-                type="button"
-                className="btn btn--ghost"
-                aria-label="Close campaign context exceptions"
-                onClick={() => setLabelModalOpen(false)}
-              >
-                ×
-              </button>
-            </div>
-            <div className="meta-label-modal-body">
-              {/*
-                Scoped to the account this surface resolved. The section's two
-                reads were business-wide, so a multi-account business saw every
-                account's campaigns here and the cache could not tell them
-                apart. `canWriteLabels` is deliberately not passed: §18 removes
-                the label WRITER from Decisions, because a label chooses the
-                calibration baseline the decisions on this screen were graded
-                against. The coverage read stays — campaign_label_missing is a
-                real blocker the operator has to be able to see.
-              */}
-              <MetaCampaignLabelsSection
-                businessId={businessId}
-                providerAccountId={providerAccountId}
-              />
-            </div>
-          </div>
-        </div>
-      ) : null}
 
       <MetaLaunchpadOverlay
         open={overlay.open}

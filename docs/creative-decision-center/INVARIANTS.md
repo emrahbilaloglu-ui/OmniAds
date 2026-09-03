@@ -542,6 +542,28 @@ scope, engine epoch)`. Nullable `creative_id` is grouping evidence only and
 - Provider create/duplicate POSTs must not retry without provider idempotency
   bound to durable per-attempt receipts. GET-only verification may use bounded
   retry.
+- Persisted exact-Ad decision authorization and serve-time execution readiness
+  are different facts. `sourceAuthority.actionEligible` records only the former.
+  A provider/Launchpad control may be offered only when server-owned
+  `executionReadiness` is exactly `live_preflight_required`; an absent value is
+  review-only. That value still requires the existing live provider preflight on
+  submit and must never be labelled executable now.
+- Exact native decision freshness uses the same 12-hour ceiling in presentation
+  and mutation preflight. Missing, unparsable, future beyond one minute, or old
+  timestamps fail closed. Recommendation snapshot age, warehouse sync age,
+  exact-decision age, and provider observation age may not substitute for one
+  another in UI copy or authority checks.
+- Missing or unreadable persisted business automation controls block every Meta
+  write but do not hide decision evidence. Global and business kill switches
+  must be reflected in server-owned execution readiness and independently
+  repeated at the write boundary.
+- Exact-decision freshness, successful durable sync activity, finalized
+  warehouse cutoff, live DB admission, and generation-manifest integrity are
+  separate facts. A provider or Launchpad control requires all of them through
+  the server-owned pipeline-health contract. Missing legacy health is
+  unavailable, not healthy; a scheduler invocation or worker heartbeat may not
+  stand in for durable success. The decision-origin write boundary must re-read
+  this evidence and reject `source_pipeline_unready` before provider mutation.
 - A live manual duplicate persists exact preparation and start authority before
   its one create POST. Only a structured, non-transient and non-retryable 4xx
   Meta rejection with literal JSON `is_transient: false` is a definite
@@ -601,6 +623,74 @@ scope, engine epoch)`. Nullable `creative_id` is grouping evidence only and
 - `rebuild_creative` is review-only until every provider image, creative, and
   Ad step has an immutable attempt/result receipt and an ambiguity-safe recovery
   contract.
+- Runtime campaign role has exactly one source: automatic account-scoped
+  inference from `engine_v3_campaign_context_daily` (D074). No live route,
+  decision producer, read model, or UI component may read or write
+  `meta_campaign_labels` / `meta_campaign_label_history`; the historical tables
+  are frozen evaluation/migration evidence and the static isolation guard
+  (`lib/meta/__tests__/campaign-labels-isolation.test.ts`) enforces the
+  boundary. There is no manual assignment or override path; resolver
+  disagreement is evidence for a future versioned resolver, never a label.
+- Campaign-role identity is `business + physical provider account + campaign +
+  as-of date`. A context read that cannot prove provider-account scope returns
+  no roles and every context-dependent hard action stays review-only. Rows
+  with a null provider account can never be updated into runtime authority.
+- High-trust campaign-role semantics require BOTH `confidenceClass = high` AND
+  the exact resolver-version authority gate
+  (`CAMPAIGN_CONTEXT_AUTHORITY_RESOLVER_VERSION` equal to the compiled
+  resolver version). The gate defaults unset; an engine or env rollback may
+  only narrow authority (`unknown` mode), never re-arm manual labels.
+- Resolver challengers are versioned modules gated by a predeclared,
+  frozen-before-validation promotion gate (D076). A challenger that fails
+  its gate must NOT become the compiled default, must not bump the runtime
+  version constant, and stays exercised only by its offline evaluation
+  package and deterministic tests. The v3 lifecycle challenger is in this
+  state: gate verdict REJECT (2026-08-29), v2 remains compiled. Missing
+  challenger evidence (e.g. lifecycle features on scopes without status
+  history) must renormalize away — it may lower confidence, never raise it.
+- A complete observation where only K of N entities changed must persist a
+  number of state rows bounded by K plus new plus scope-exited entities, never
+  N (D075). `row_count` remains the logical full-scope count on every
+  manifest kind; delta runs additionally persist their write statistics.
+- Scope exit is explicit evidence: an entity leaving a complete scope
+  persists a `presence: 'absent_unconfirmed'` row. Any as-of or
+  reconstruction reader whose winning row for an entity is absent must
+  exclude that entity — as absence, not as usable state and not as a
+  confirmed deletion; an older `present` row must never be resurrected past
+  a newer absent row. Serving corollaries (2026-08-30 consumer sweep): an
+  absent winner serves a NULL status (never a fabricated `DELETED`, which
+  is reserved for explicit tombstones), status-transition feeds compare
+  present rows only, and status-recovery callers skip non-present winners.
+- Window-end truth for an unchanged entity is certified by its
+  re-confirmation clock (`confirmed_until`): the row's own run heartbeat
+  and later same-endpoint delta manifests while the row is still the
+  complete-lane winner, with every input capped at the reader's cutoff. A
+  state row's `captured_at` alone cannot certify a later instant, and a
+  superseded row's confirmation never extends past its own evidence.
+  Supersession follows the EXACT deterministic winner order
+  `(captured_at DESC, created_at DESC, id DESC)` — an equal-captured
+  tuple-loser never receives confirmation — and its authority is the
+  row's own ENDPOINT scope: a sibling endpoint's rows neither supersede
+  this endpoint's winner nor borrow its confirmation. The heartbeat
+  clocks themselves are monotonic: an accepted older exact replay can
+  never move `last_seen_at`/`last_captured_at` backward, so an
+  established confirmation cannot be erased by replay.
+- Operational verification of manifest membership is manifest-kind-aware:
+  a delta run's membership is its reconstruction, never its run-bound
+  physical rows.
+- Manifest reconstruction for a delta run admits only complete-lane rows at
+  or before the run's payload capture clock, restricted to runs of the
+  source run's own endpoint — the writer's diff baseline uses the identical
+  scope, so the two can never disagree on membership. Partial, failed, and
+  point-lookup rows never reshape a complete manifest; legacy and `full`
+  runs keep exact `run_id`-bound membership byte-for-byte.
+- The heartbeat contract is manifest-kind-agnostic: a byte-identical complete
+  payload coalesces into the latest complete run whether that run is legacy,
+  `full`, or `delta`, and a replayed `run_hash` remains idempotent.
+- The hydration completeness bar is preserved per kind: a delta run is
+  `sourceComplete` only when its reconstructed present-member count equals
+  its logical `row_count`; any mismatch stays fail-closed and
+  non-authoritative, feeding the existing same-day rerun.
 
 ## Metamorphic Tests
 
@@ -627,3 +717,171 @@ scope, engine epoch)`. Nullable `creative_id` is grouping evidence only and
 ## Test Placement
 
 TODO: Convert these into executable tests before resolver changes. Keep tests close to adapter/resolver contracts, not UI components.
+
+## D077 state-history compaction
+
+- The only deletable unit is a WHOLE complete run whose manifest signature
+  is byte-identical to the immediately preceding complete run of the same
+  (business, account, entity type, endpoint) scope, that is not the scope
+  head, contains no FK-pinned row (one pinned row protects the entire run),
+  and has no partial/point-lookup observation interleaved between it and
+  its retained predecessor. Multi-endpoint scopes are excluded fail-closed.
+- Every execution needs: a planner artifact whose canonical payload hash
+  the executor RECOMPUTES, the approval token derived from that hash, and
+  the on-the-record physical-shrink acknowledgement — which can never turn
+  an `insufficient_evidence` plan into an executable one. An invalid
+  attempt writes nothing, journal included.
+- The fence's governing number for `meta_entity_state_history` is the
+  effective size (raw minus PROVEN currently-reusable heap free space);
+  every uncertainty — extension missing, malformed or inconsistent
+  measurement — falls back to the raw size, and an invalid raw measurement
+  is an explicit unavailable state that denies. Index bytes are always
+  fully counted. No DELETE plan may ever be described as clearing the
+  raw-size fence; physical byte return is a separate operator step.
+- The executor is unreachable from app runtime and never scheduled (static
+  guard); one executor owns the operation via an expiring journal lease;
+  every batch fully revalidates scope/rows/signature/predecessor/pins/
+  interleave in-transaction and rolls back on any mismatch; a completed
+  plan never executes twice.
+- Hardening (2026-08-30): the plan is built in ONE `REPEATABLE READ READ
+  ONLY` transaction and the planner itself refuses weaker isolation — a
+  multi-statement plan may never mix snapshots. The approval token is an
+  operator acknowledgement of one exact planner artifact, never
+  authenticity: before lease or any journal write, the executor re-derives
+  the authoritative plan from the database and requires exact
+  canonical-payload equality (scope, removable sets, all protection
+  counts, timelines, fingerprint, fence, projection, insufficiency,
+  status); any mismatch, re-derivation failure, weaker isolation, or
+  non-ready authoritative status is a typed zero-write refusal. The
+  equality gate binds first admission; resumes of an admitted plan keep
+  the lease/fingerprint/per-batch proofs. Plans expose hash-bound
+  `protectionsByReason` (head-duplicate, live-lineage, archived-lineage,
+  response-event, interleave, and the exact measured multi-endpoint
+  exclusion — wholesale, disjoint, never a boolean) whose pin families may
+  overlap and are never additive — the union stays
+  `pinnedRuns`/`pinnedRunRows`; internal inconsistency fail-closes the
+  planner at BOTH run and ROW level (disjoint candidate reconciliation and
+  pinned-union family bounds for runs and rows, per scope and totals, via
+  the exported perturbation-tested validator), and removable rows are
+  never derived by row-level pin subtraction. On the readiness surface,
+  journal-read provenance is explicit: an unreadable journal is
+  UNKNOWN_JOURNAL_UNAVAILABLE with its own blocker — never an empty array
+  presented as NOT_EXECUTED; NOT_EXECUTED is asserted only from a
+  successful empty business-scoped read. The readiness read model is
+  business-scoped, measures D075 writer evidence from `manifest_kind`
+  presence (observed/not_observed/unknown — never an asserted deployment
+  claim, never converted to ready), and its UI consumers render
+  server-owned facts display-only with no token or mutation affordance.
+
+- D074b (acceptance-corrected 2026-08-30): the manual Test/Main label
+  vocabulary is closed. Active writers emit only the canonical
+  automatic-role names; the legacy names are deprecated type members and
+  parse-time recognition at the documented compatibility boundary,
+  normalized FAIL-CLOSED and never authority-bearing: only an
+  uncontradicted canonical `campaignRoleStatus: "resolved"` grants role
+  authority — legacy-only `labeled`, missing status, and canonical/legacy
+  contradictions all resolve to unresolved, kind display and
+  kind-conditional CTAs require resolved status at every serving layer,
+  the `requireCampaignLabel` guardrail alias may only tighten, and no
+  card can open Launchpad until a validated launch-authority contract
+  exists. No buyer-facing surface may request a label OR describe saving/
+  correcting one; unresolved automatic role is described as unresolved
+  inference plus the evidence/refresh needed. The closure guard test
+  enforces this statically with a per-file per-token exact-count ledger
+  across app/components/lib/scripts (categorized frozen/parse-boundary
+  entries only) plus emission, copy, and authority-matrix pins. The
+  Decision Center compatibility row is provenance, never authority: its
+  scale execution action may shape a card's current primary or filters
+  only by exactly CONFIRMING the current unblocked Scale decision — the
+  current label must be an eligible Scale (no held action, no authority
+  blocker), the canonical role resolved with an agreeing kind, and the
+  server-derived current primary must map to the same CTA. A resolved
+  role never proves the row is current; a non-current scale row neither
+  classifies a card nor suppresses its held/blocked state. The row feeds
+  NO operator-visible current surface beyond that confirm-only primary:
+  the Asset Library label cell, label filter, and CSV are
+  current-projection-only (fail-closed to an explicit "Review" when no
+  current server label exists), and the row's sole display site is the
+  Evidence Drawer's explicitly non-authoritative compatibility-snapshot
+  section (no composed buyerLabel/nextStep guidance; queue/apply shown
+  as stored values conveying no current eligibility). Enforced at
+  serialization and through the single gated client helper, and pinned
+  leg-by-leg by the guard's precedence section plus the raw-row field
+  census.
+
+## D079 commercial spend-unit anchor
+
+- A commercial anchor grants THRESHOLD eligibility only. Freshness, campaign
+  context, calibration, governance, pipeline health, and the automation and
+  provider-write gates stay independent; clearing an anchor restores the prior
+  behaviour exactly.
+- Only an explicit Target CPA, or an operator AOV assumption together with a
+  Target ROAS, is a high-confidence anchor. A sufficiently sampled
+  Meta-attributed AOV is medium and eligible only at `ready`. Account history
+  and the break-even fallback are never hard-action eligible. This ladder must
+  not be weakened to make hard actions appear.
+- Every anchor input is fail-closed: null, blank, zero, negative, malformed,
+  and partial (an AOV with no Target ROAS) never establish a spend unit, and a
+  target whose update timestamp cannot be verified is demoted, not trusted.
+- A hard-action withholding must carry a stable machine code, and the codes
+  are derived from the same predicates as the eligibility booleans — a code may
+  never disagree with the boolean it explains. Absence of a code is unknown,
+  never eligible.
+- The UI renders the server-owned anchor panel and never derives a spend unit,
+  eligibility, threshold, `buyerAction`, or campaign role from it. A missing
+  panel renders nothing; it never implies a configured anchor.
+- Anchor money is shown in the business currency. A missing currency must not
+  silently become USD.
+- Saving commercial truth is a product-settings write. It must not open or
+  imply automation or provider-write authority, and it must not overwrite
+  engine-owned calibration columns it does not read.
+- The anchor is economics, never a role: no campaign-kind writer, manual label,
+  or role selector may be reintroduced through this path.
+
+## D079 correction 1 — canonical authority, capture truth, replay honesty
+
+- The canonical `AccountDecisionProfile.hardActionEligibility` (its `anchor`
+  and `codes`) is the SOLE authority for the commercial-anchor explanation. No
+  surface may re-derive source, confidence, spend unit, eligibility or an
+  action blocker from target fields. A projection may attach only the known
+  business/account currency and aggregate persisted blocker counts.
+- A profile that cannot be resolved serves an explicit `unavailable` panel. It
+  is never rendered as "no anchor configured", and never as eligible.
+- Anchor status keys off the resolver's own chosen rung, never off a separately
+  supplied quality label that can disagree with it.
+- The capture UI states the canonical choice, the unit, the spend-unit formula,
+  and which action each anchor unlocks. It must not promise that saving an
+  anchor enables automation or execution.
+- An unknown business currency stays visibly unknown. No surface may format an
+  amount as USD for a business that never configured a currency.
+- Offline replay is PER ACTION. Clearing the commercial threshold never counts
+  as clearing Cut (which needs a break-even ROAS) or Scale (which needs a
+  Target ROAS and a calibration sample).
+- Offline replay resolves a target pack bitemporally as of each row's origin —
+  `effectiveAt` AND `recordedAt` at or before the cutoff — or uses explicitly
+  declared all-window hypotheticals that are part of the candidate hash. A
+  later revision is never applied to an earlier row.
+- An outcome that depends on evidence the frozen package does not carry is
+  emitted as `not_determinable_from_frozen_evidence`, by action and business. A
+  persisted `profile_hard_action_ineligible` is never restated as a specific
+  anchor sub-cause.
+
+## D079 correction 2
+
+- `profile_hard_action_ineligible` is a persisted first-blocker FAMILY. No
+  surface, projection, artifact or document may restate it as a
+  commercial-threshold gate or any other specific sub-cause. Only a canonical
+  per-action code produced by the engine may name a cause.
+- A per-action blocker code and its operator sentence must derive from the SAME
+  effective code, after any overlay. The code is never downgraded to match
+  stale copy, and an eligible action carries neither.
+- No surface may render retired commercial vocabulary. `CPA ceiling` and
+  `AOV floor` must not appear anywhere in served output.
+- Account-history CPA p50 and its sample count are shown as source-backed
+  lineage, labelled as history and never as an operator target.
+- Every replay action row and total partitions completely, with mutually
+  exclusive buckets chosen by the persisted first blocker. `blockedAfterTotal`
+  is the only field that may be read as the blocked population; a narrower
+  bucket must never be presented as the total.
+- Independent campaign-context and recovery rows stay independent-gate
+  transitions in every scenario and are never recast as anchor transitions.

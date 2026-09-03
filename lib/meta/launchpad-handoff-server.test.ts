@@ -73,6 +73,7 @@ function decision(
       realAdId: "ad_1",
       authorizedAction: "refresh",
       jobRunId: "job_1",
+      executionReadiness: "live_preflight_required",
     },
     sourceDecision: {
       snapshotAsOf: "2026-08-17",
@@ -365,6 +366,7 @@ describe("landLaunchpadHandoff", () => {
               realAdId: null,
               jobRunId: null,
               reviewOnlyReason: null,
+              executionReadiness: "live_preflight_required",
             },
             classification: {
               ...(decision().classification as object),

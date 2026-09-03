@@ -33,7 +33,14 @@
  */
 import type { DecisionBoundGrain } from "@/lib/zero-base/meta/decision-bound-target";
 
-export type MutationAction = "pause" | "resume" | "bid" | "duplicate";
+/**
+ * D088 adds `budget`. It is a canonical PROPOSAL action, not a ceremony action:
+ * `MUTATION_ENDPOINTS` below deliberately names no path for it, so
+ * `buildDispatchDescriptor` cannot produce a browser-postable budget
+ * descriptor. A budget proposal is executed server-side through the D087
+ * executor, where the UI chooses no entity, field or magnitude.
+ */
+export type MutationAction = "pause" | "resume" | "bid" | "duplicate" | "budget";
 
 /**
  * Every endpoint the ceremony may call, keyed by grain and action.

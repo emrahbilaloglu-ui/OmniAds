@@ -39,11 +39,25 @@ export interface MetaAutomationGuardrails {
   notificationPolicy: "every_auto_action" | "none";
   maxBudgetIncreasePct: number;
   maxDailyBudgetChangeMinor: number | null;
-  requireCampaignLabel: boolean;
+  /** D074b: automation requires a RESOLVED automatic campaign role (there is
+   * no label to require). Parses the pre-D074b `requireCampaignLabel` key
+   * from persisted guardrail rows as a compatibility alias. */
+  requireResolvedCampaignRole: boolean;
   requireCommercialAnchor: boolean;
   requireLivePreflight: boolean;
   requireRollbackPlan: boolean;
   dryRunOnly: boolean;
+  /*
+    D088 C3 — the budget-write policy keys, ADDITIVE and NULLABLE.
+
+    They have no permissive default: a business that has never configured them
+    reads `null`, the D087 policy cannot be built, and activation blocks until
+    an operator persists real numbers. Inventing a value here would be
+    inventing permission.
+  */
+  budgetMinHoursBetweenChanges: number | null;
+  budgetMaxChangesPer7d: number | null;
+  budgetMaxAccountConcentrationPct: number | null;
   /**
    * The ROAS below which automation may propose a pause, as persisted for this
    * business. `null` when no operator has committed one — the screen then
@@ -338,6 +352,21 @@ export interface MetaWriteBlockState {
   guardRule?: { id: string; name: string } | null;
 }
 
+export interface MetaEffectiveWriteGovernance {
+  verified: boolean;
+  controlsConfigured: boolean;
+  writeBlocked: boolean;
+  blockReason:
+    | "META_ADS_WRITE_KILL_SWITCH"
+    | "business_kill_switch"
+    | "business_control_not_configured"
+    | "control_state_unavailable"
+    | "demo_business_read_only"
+    | null;
+  killSwitchEngaged: boolean;
+  killSwitchReason: string | null;
+}
+
 type ControlDbRow = {
   business_id: string | null;
   is_demo_business?: boolean | null;
@@ -408,11 +437,15 @@ export const DEFAULT_META_AUTOMATION_GUARDRAILS: MetaAutomationGuardrails = {
   notificationPolicy: "every_auto_action",
   maxBudgetIncreasePct: 15,
   maxDailyBudgetChangeMinor: null,
-  requireCampaignLabel: true,
+  requireResolvedCampaignRole: true,
   requireCommercialAnchor: true,
   requireLivePreflight: true,
   requireRollbackPlan: true,
   dryRunOnly: true,
+  // No permissive default: unconfigured is unknown, and unknown blocks.
+  budgetMinHoursBetweenChanges: null,
+  budgetMaxChangesPer7d: null,
+  budgetMaxAccountConcentrationPct: null,
   // No seeded guardrail. An unset ROAS floor or quiet-hours window is a fact
   // about this business, and inventing one under the design's caption would be
   // worse than the em dash it replaces.
@@ -522,6 +555,21 @@ function trimmedOrNull(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
+/**
+ * D074b correction: the legacy alias may only TIGHTEN this guardrail. A
+ * pre-D074b persisted `false` under the legacy key must not disable the
+ * resolved-role requirement; only the canonical key can relax it.
+ */
+export function resolveRequireResolvedCampaignRole(
+  record: Record<string, unknown>,
+): boolean {
+  return toBool(
+    record.requireResolvedCampaignRole ??
+      (record.requireCampaignLabel === true ? true : undefined),
+    DEFAULT_META_AUTOMATION_GUARDRAILS.requireResolvedCampaignRole,
+  );
+}
+
 function normalizeGuardrails(
   value: unknown,
   policy: ControlDbRow,
@@ -530,6 +578,16 @@ function normalizeGuardrails(
   return {
     minRoasFloor: toFiniteNumberOrNull(policy.min_roas_floor),
     quietHours: toQuietHours(policy),
+    /*
+      D088 C3: parsed with NO fallback. An absent or unusable value stays null,
+      which is what makes activation block rather than proceed on a default
+      nobody chose.
+    */
+    budgetMinHoursBetweenChanges:
+      toPositiveNumberOrNull(record.budgetMinHoursBetweenChanges),
+    budgetMaxChangesPer7d: toPositiveNumberOrNull(record.budgetMaxChangesPer7d),
+    budgetMaxAccountConcentrationPct:
+      toPositiveNumberOrNull(record.budgetMaxAccountConcentrationPct),
     dailyAutoActionCap:
       toPositiveNumberOrNull(record.dailyAutoActionCap) ??
       DEFAULT_META_AUTOMATION_GUARDRAILS.dailyAutoActionCap,
@@ -546,10 +604,7 @@ function normalizeGuardrails(
     maxDailyBudgetChangeMinor:
       toPositiveNumberOrNull(record.maxDailyBudgetChangeMinor) ??
       DEFAULT_META_AUTOMATION_GUARDRAILS.maxDailyBudgetChangeMinor,
-    requireCampaignLabel: toBool(
-      record.requireCampaignLabel,
-      DEFAULT_META_AUTOMATION_GUARDRAILS.requireCampaignLabel,
-    ),
+    requireResolvedCampaignRole: resolveRequireResolvedCampaignRole(record),
     requireCommercialAnchor: toBool(
       record.requireCommercialAnchor,
       DEFAULT_META_AUTOMATION_GUARDRAILS.requireCommercialAnchor,
@@ -856,12 +911,110 @@ async function readBusinessControlState(businessId: string) {
       businessId,
     ),
     businessFound: rows.length > 0,
+    controlPersisted: Boolean(rows[0]?.business_id),
     isDemoBusiness: rows[0]?.is_demo_business === true,
   };
 }
 
 async function readBusinessControl(businessId: string) {
   return (await readBusinessControlState(businessId)).control;
+}
+
+/**
+ * Read the governance facts a screen may state without calling Meta. This is
+ * deliberately narrower than the live mutation preflight: it combines the
+ * global and per-business kill switches and proves whether a persisted
+ * business control exists. Missing/unreadable controls block writes but never
+ * suppress decision reading.
+ */
+export async function readEffectiveMetaWriteGovernance(input: {
+  businessId: string;
+  env?: NodeJS.ProcessEnv;
+}): Promise<MetaEffectiveWriteGovernance> {
+  const businessId = input.businessId.trim();
+  const env = input.env ?? process.env;
+  if (businessId === DEMO_BUSINESS_ID) {
+    return {
+      verified: true,
+      controlsConfigured: false,
+      writeBlocked: true,
+      blockReason: "demo_business_read_only",
+      killSwitchEngaged: false,
+      killSwitchReason: null,
+    };
+  }
+  if (isGlobalMetaAdsWriteKillSwitchEngaged(env)) {
+    return {
+      verified: true,
+      controlsConfigured: false,
+      writeBlocked: true,
+      blockReason: "META_ADS_WRITE_KILL_SWITCH",
+      killSwitchEngaged: true,
+      killSwitchReason: "META_ADS_WRITE_KILL_SWITCH",
+    };
+  }
+  let state: Awaited<ReturnType<typeof readBusinessControlState>>;
+  try {
+    state = await readBusinessControlState(businessId);
+  } catch {
+    return {
+      verified: false,
+      controlsConfigured: false,
+      writeBlocked: true,
+      blockReason: "control_state_unavailable",
+      killSwitchEngaged: false,
+      killSwitchReason: null,
+    };
+  }
+  if (!state.businessFound) {
+    return {
+      verified: false,
+      controlsConfigured: false,
+      writeBlocked: true,
+      blockReason: "control_state_unavailable",
+      killSwitchEngaged: false,
+      killSwitchReason: null,
+    };
+  }
+  if (state.isDemoBusiness) {
+    return {
+      verified: true,
+      controlsConfigured: state.controlPersisted,
+      writeBlocked: true,
+      blockReason: "demo_business_read_only",
+      killSwitchEngaged: false,
+      killSwitchReason: null,
+    };
+  }
+  if (!state.controlPersisted) {
+    return {
+      verified: true,
+      controlsConfigured: false,
+      writeBlocked: true,
+      blockReason: "business_control_not_configured",
+      killSwitchEngaged: false,
+      killSwitchReason: null,
+    };
+  }
+  if (state.control.killSwitchEngaged) {
+    return {
+      verified: true,
+      controlsConfigured: true,
+      writeBlocked: true,
+      blockReason: "business_kill_switch",
+      killSwitchEngaged: true,
+      killSwitchReason:
+        state.control.killSwitchReason || "Business kill switch engaged.",
+    };
+  }
+  return {
+    verified: true,
+    controlsConfigured: true,
+    writeBlocked: false,
+    blockReason: null,
+    killSwitchEngaged: false,
+    killSwitchReason: null,
+  };
 }
 
 async function readPromotionRecords(businessId: string) {
@@ -1222,7 +1375,15 @@ export async function writeActivityLedgerRow(input: {
   severity: MetaAutomationActivityItem["severity"];
   message: string;
   payload: Record<string, unknown>;
-  userId: string;
+  /**
+   * The operator who acted, or `null` for a system actor.
+   *
+   * D088 C2: `created_by` has always been a nullable FK and `actorKind` has
+   * always admitted `"system"`, but the parameter demanded a user id — so a
+   * scheduled job could not write a ledger row at all without misattributing it
+   * to a person. Null is the honest value for work nobody requested.
+   */
+  userId: string | null;
   actorKind?: MetaAutomationActorKind;
   entityType: string;
   entityId: string | null;
@@ -1734,6 +1895,13 @@ export async function getMetaAutomationControlPlane(input: {
   ]);
   const blockedReasons = [
     globalKillSwitchEngaged ? "META_ADS_WRITE_KILL_SWITCH" : null,
+    businessControlRead.completeness !== "complete"
+      ? "control_state_unavailable"
+      : null,
+    businessControlRead.completeness === "complete" &&
+    businessControl.source !== "persisted"
+      ? "business_control_not_configured"
+      : null,
     businessControl.killSwitchEngaged ? "business_kill_switch" : null,
     !businessControl.autoExecutionEnabled ? "auto_execution_not_enabled" : null,
     businessControl.guardrails.dryRunOnly ? "dry_run_only_guardrail" : null,
@@ -1763,12 +1931,17 @@ export async function getMetaAutomationControlPlane(input: {
     execution: {
       autoExecutionAllowed:
         !globalKillSwitchEngaged &&
+        businessControlRead.completeness === "complete" &&
+        businessControl.source === "persisted" &&
         !businessControl.killSwitchEngaged &&
         businessControl.autoExecutionEnabled &&
         businessControl.readinessTier === "auto_execute" &&
         !businessControl.guardrails.dryRunOnly,
       writeEndpointsBlocked:
-        globalKillSwitchEngaged || businessControl.killSwitchEngaged,
+        globalKillSwitchEngaged ||
+        businessControlRead.completeness !== "complete" ||
+        businessControl.source !== "persisted" ||
+        businessControl.killSwitchEngaged,
       blockedReasons,
     },
     promotionRecords: promotionRead.value,
@@ -1841,7 +2014,22 @@ export async function getMetaWriteBlockState(input: {
     };
   }
 
-  const isVitest = env.VITEST === "true" || env.NODE_ENV === "test";
+  /*
+    PRE-DEPLOY AUDIT — the test bypass is narrowed, because this guard is now
+    the last line in front of an UNATTENDED Meta budget mutation.
+
+    It used to open on `NODE_ENV === "test"` as well as on `VITEST`, so a
+    deployed process that was started with `NODE_ENV=test` — a configuration
+    mistake, not an attack — would skip the business kill switch, the
+    control-state-unavailable refusal, the guard rules and quiet hours, and
+    report every write as unblocked. The global kill switch and the demo
+    refusal already ran above; everything else was being waived.
+
+    It now requires an actual vitest process AND a non-production NODE_ENV, so
+    the bypass is unreachable in a deployed environment by construction. Under
+    vitest `VITEST === "true"`, so no existing test changes behaviour.
+  */
+  const isVitest = env.VITEST === "true" && env.NODE_ENV !== "production";
   if (isVitest && env.META_AUTOMATION_WRITE_GUARD_TEST_READS !== "1") {
     return { blocked: false, reason: null, message: null };
   }
@@ -1870,6 +2058,14 @@ export async function getMetaWriteBlockState(input: {
       blocked: true,
       reason: "demo_business_read_only",
       message: "Meta writes are disabled for synthetic demo businesses.",
+    };
+  }
+  if (!controlState.controlPersisted) {
+    return {
+      blocked: true,
+      reason: "control_state_unavailable",
+      message:
+        "Meta writes are blocked because this business has no persisted automation control state.",
     };
   }
   const control = controlState.control;

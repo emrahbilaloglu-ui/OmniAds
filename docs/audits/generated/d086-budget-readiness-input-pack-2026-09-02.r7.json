@@ -1,0 +1,715 @@
+{
+ "contract": "d086.budget-readiness-input-pack.v7",
+ "rejectedRevisions": [
+  {
+   "revision": 6,
+   "path": "docs/audits/generated/d086-budget-readiness-input-pack-2026-09-02.r6.json",
+   "fileSha256": "9cd35ee3316a680e0e1a77838c86edb688132cb12657cf1a67b9e7dacbb2a03a",
+   "why": "Correction 6: the attestation was still weak. D086_COMPLETE_RUN_SQL filtered only entity type, completeness and time — never the exact endpoint, never membership, never a shared cohort — so manifests carrying an unrelated endpoint, manifests 29 days apart, and manifest snapshots differing from the retained config snapshots all returned READY; \"identity reconciliation\" compared two integers, so equal cardinality with entirely different entity IDs returned READY; DISTINCT ON ordered only by captured_at, leaving equal-clock manifests with no deterministic winner or conflict rule and ignoring heartbeat-effective clocks; universeBlocker omitted ownerUnknown, uncoveredApplicable and retained-row conflicts and fell back to the unrelated currency_exponent_not_captured blocker; a limitation still denied owning a census the C5 architecture had introduced; and the PostgreSQL claims were hard-coded prose rather than bound to a generated seam report."
+  },
+  {
+   "revision": 5,
+   "path": "docs/audits/generated/d086-budget-readiness-input-pack-2026-09-02.r5.json",
+   "fileSha256": "6aa7f005009f64c4ff7df72f6c50868222c179fcea2fdc910db49280165b1430",
+   "why": "Correction 5: the owner universe was still a presence heuristic, so a mutual ownership contradiction produced a concrete FALSE READY — a campaign deferring to its ad-sets and an ad-set deferring back to that campaign were counted as TWO proven non-owners, leaving one unrelated row as the whole applicable population; the \"same snapshot\" claim was false in code, since latest-per-entity merged rows from arbitrary source runs and checked only ID presence; Math.max(0, total - provenNonApplicable) clamped away the proof that the measured total was smaller than the rows actually retained, yielding a substantive unavailable instead of measurement unknown; there was no authoritative complete-run manifest or entity census at all, so full-account READY was being inferred from retained-row self-reference; and the artifact still carried two false sentences — that the readiness layer never calls the currency registry, and that the prepared migrations had never been executed against any database — the second contradicting the local PostgreSQL evidence printed beside it."
+  },
+  {
+   "revision": 4,
+   "path": "docs/audits/generated/d086-budget-readiness-input-pack-2026-09-02.r4.json",
+   "fileSha256": "4c572c9ec9357da307bdc319aa2a2d8cfa936a6c759134029541d5a70b6dea4c",
+   "why": "Correction 4: the capture validator still admitted provenance the retained reader rejects (providerApiVersion \"banana\", sourceKind \"anything\", sourceRunId \"x\" all stamped a canonical v4 fact); the owner universe produced a concrete FALSE READY when a campaign declaring adset_budget had no retained ad-set owner, so the uncaptured applicable owner vanished from the denominator; population validation ran AFTER the owner/conflict branches, so an unmeasurable total reported partial instead of unknown, and a non-empty proven-non-owner-only sample reported forward_only; READY was published alongside \"1 of 2\" coverage and owner_mode_disagrees_with_grain refusal text; the UI rendered none of the universe counts; the budget truth tuple omitted parent_campaign_id so two ad-set rows differing only by parent coalesced as one truth; the PostgreSQL seam proved distinct_truths but never ran the read model over real rows in both insertion orders; the legacy role branch published a 500-row LIMIT as the whole population with truncated:false; the prepared indexes omitted the second rank clock on every seam; and the artifact still claimed no SQL had ever been executed and that the queries used DISTINCT ON."
+  },
+  {
+   "revision": 3,
+   "path": "docs/audits/generated/d086-budget-readiness-input-pack-2026-09-02.r3.json",
+   "fileSha256": "cb7dded3085ecc38f127fa3eff421d3aa396091b0a680f2f6e9b3238fe731d5b",
+   "why": "Correction 3: retained currency provenance was only form-checked, so a USD row claiming exponent 4 and a row citing registry \"made-up\" version \"v999\" both read usable — and the positive fixture itself used a truncated copy of the registry source string; weak provenance (providerApiVersion \"banana\", sourceKind \"anything\", sourceRunId \"x\") bought usability; capture retained a zero amount that the action-bearing helper then called action-bearing; profile capture admitted an impossible 2026-02-30 and a next-day as-of; the prepared profile DDL never created profile_contract, so D086_PROFILE_LATEST_SQL failed SQLSTATE 42703 against a real PostgreSQL 16 cluster while capability reported only table existence; DISTINCT ON with an incomplete ORDER BY made latest-per-identity insertion-order dependent on all three seams; population totals \"garbage\", -1 and 0 all produced READY; sample and total were separate statements and so separate snapshots; rows that existed but failed validation were labelled forward_only_after_deploy; the UI dropped the population field; and the budget denominator was not proven against CBO/ABO ownership."
+  },
+  {
+   "revision": 2,
+   "path": "docs/audits/generated/d086-budget-readiness-input-pack-2026-09-02.r2.json",
+   "fileSha256": "1915eb3841a81f9546fed71a2b29f475a521e0dc4e54095a605a6cff99e27517",
+   "why": "Correction 2: the serve-time profile classifier returned usable for an arbitrary engine version and arbitrary digests whenever the caller held no external expectation; the role qualifier accepted a row with no retained contract, an unknown inferred kind and one-character evidence/input hashes; budget readiness reported ready for rows that persisted no exponent, registry or registry version and for a zero amount; the budget query emitted a bare ORDER BY/LIMIT inside a UNION ALL operand, which PostgreSQL cannot parse, so it could never have measured anything; an impossible calendar date was retained after Date.parse rolled it over; the read layer re-resolved the currency through today's registry instead of reading the stored provenance; every historical row was judged rather than the latest per identity; a bounded sample could justify whole-account ready; the retention contract still said v1 after its semantics changed; the role age window was hard-coded at 3 days against a canonical 2; and the route passed raw process.env rather than the canonical resolver."
+  },
+  {
+   "revision": 1,
+   "path": "docs/audits/generated/d086-budget-readiness-input-pack-2026-09-02.json",
+   "fileSha256": "d6216d89ceade39d1a16a393bfda4f677c537931190fbfdde0f913e51a23a522",
+   "why": "Correction 1: the readiness read was never wired into any route, so the section always rendered unavailable; the read model took a business id only and could blend TheSwaf's two accounts; the role-authority table's capability was computed and then ignored; READY was count(*) over a few non-null columns rather than canonical validation; the role qualifier checked account presence, not agreement with an expected scope; the serve-time profile classifier ignored the source fingerprint and could throw; the prepared schema could not persist budgetField or currencyRegistry and its profile identity collapsed distinct engine versions; the PIT contract said at-or-after while the code rejected only after; and the live-read timestamp was mis-stated as 13:31 rather than the pinned 13:43."
+  }
+ ],
+ "retentionContract": "d086.budget-readiness-retention.v7",
+ "compiledResolverVersion": "campaign-context-resolver.v2-account-scoped-name-neutral-2026-09-01",
+ "provenance": {
+  "liveRead": {
+   "database": "adsecute_prod",
+   "serverVersion": "PostgreSQL 16.15 (Ubuntu 16.15-0ubuntu0.24.04.1)",
+   "dbUser": "adsecute_app",
+   "transactionReadOnly": "on",
+   "transactionIsolation": "repeatable read",
+   "inRecovery": false,
+   "readAtUtc": "2026-09-02T13:43:00.055588+00:00",
+   "statementTimeout": "240s",
+   "mode": "SELECT-only, single BEGIN TRANSACTION READ ONLY ISOLATION LEVEL REPEATABLE READ",
+   "writesIssued": 0,
+   "ddlIssued": 0,
+   "extensionsInstalled": 0,
+   "providerCalls": 0
+  },
+  "d085Accepted": "d085.budget-proposal-dry-run.v16",
+  "horizonsChosenFrom": "observed monthly observation density and the D076 lifecycle boundary",
+  "densityByMonth": [
+   {
+    "month": "2026-04",
+    "campaignConfigRows": 2052
+   },
+   {
+    "month": "2026-05",
+    "campaignConfigRows": 992
+   },
+   {
+    "month": "2026-06",
+    "campaignConfigRows": 74
+   },
+   {
+    "month": "2026-07",
+    "campaignConfigRows": 127
+   },
+   {
+    "month": "2026-08",
+    "campaignConfigRows": 301931
+   }
+  ]
+ },
+ "sourceManifest": [
+  {
+   "key": "d086_r1_rejected",
+   "path": "docs/audits/generated/d086-budget-readiness-input-pack-2026-09-02.json",
+   "expectedSha256": "d6216d89ceade39d1a16a393bfda4f677c537931190fbfdde0f913e51a23a522",
+   "observedSha256": "d6216d89ceade39d1a16a393bfda4f677c537931190fbfdde0f913e51a23a522",
+   "matches": true
+  },
+  {
+   "key": "d086_r2_rejected",
+   "path": "docs/audits/generated/d086-budget-readiness-input-pack-2026-09-02.r2.json",
+   "expectedSha256": "1915eb3841a81f9546fed71a2b29f475a521e0dc4e54095a605a6cff99e27517",
+   "observedSha256": "1915eb3841a81f9546fed71a2b29f475a521e0dc4e54095a605a6cff99e27517",
+   "matches": true
+  },
+  {
+   "key": "d086_r3_rejected",
+   "path": "docs/audits/generated/d086-budget-readiness-input-pack-2026-09-02.r3.json",
+   "expectedSha256": "cb7dded3085ecc38f127fa3eff421d3aa396091b0a680f2f6e9b3238fe731d5b",
+   "observedSha256": "cb7dded3085ecc38f127fa3eff421d3aa396091b0a680f2f6e9b3238fe731d5b",
+   "matches": true
+  },
+  {
+   "key": "d086_r4_rejected",
+   "path": "docs/audits/generated/d086-budget-readiness-input-pack-2026-09-02.r4.json",
+   "expectedSha256": "4c572c9ec9357da307bdc319aa2a2d8cfa936a6c759134029541d5a70b6dea4c",
+   "observedSha256": "4c572c9ec9357da307bdc319aa2a2d8cfa936a6c759134029541d5a70b6dea4c",
+   "matches": true
+  },
+  {
+   "key": "d086_r6_rejected",
+   "path": "docs/audits/generated/d086-budget-readiness-input-pack-2026-09-02.r6.json",
+   "expectedSha256": "9cd35ee3316a680e0e1a77838c86edb688132cb12657cf1a67b9e7dacbb2a03a",
+   "observedSha256": "9cd35ee3316a680e0e1a77838c86edb688132cb12657cf1a67b9e7dacbb2a03a",
+   "matches": true
+  },
+  {
+   "key": "d086_r5_rejected",
+   "path": "docs/audits/generated/d086-budget-readiness-input-pack-2026-09-02.r5.json",
+   "expectedSha256": "6aa7f005009f64c4ff7df72f6c50868222c179fcea2fdc910db49280165b1430",
+   "observedSha256": "6aa7f005009f64c4ff7df72f6c50868222c179fcea2fdc910db49280165b1430",
+   "matches": true
+  },
+  {
+   "key": "d086_live_census",
+   "path": "docs/audits/generated/d086-live-census-2026-09-02.json",
+   "expectedSha256": "4f3519bc8badb311aeae7ff7f37730a8527e5fa1065856c0d247ea0f60abd8cb",
+   "observedSha256": "4f3519bc8badb311aeae7ff7f37730a8527e5fa1065856c0d247ea0f60abd8cb",
+   "matches": true
+  },
+  {
+   "key": "d086_local_postgres_evidence",
+   "path": "docs/audits/generated/d086-local-postgres-evidence-2026-09-02.json",
+   "expectedSha256": "6340a0d72620facf7b11ce80e1ed3f8269cc3075286bbfd42616cd9a96616477",
+   "observedSha256": "6340a0d72620facf7b11ce80e1ed3f8269cc3075286bbfd42616cd9a96616477",
+   "matches": true
+  },
+  {
+   "key": "d085_r16_accepted",
+   "path": "docs/audits/generated/d085-budget-proposal-dry-run-2026-09-01.r16.json",
+   "expectedSha256": "df645050d20ca2e3d2304790279b76ee006886f4c18e8b8eff0d1ee437717211",
+   "observedSha256": "df645050d20ca2e3d2304790279b76ee006886f4c18e8b8eff0d1ee437717211",
+   "matches": true
+  }
+ ],
+ "readiness": {
+  "perBusiness": [
+   {
+    "business": "Bilsem Zeka",
+    "businessId": "6c690fa4-6395-40b5-9755-e99b34d69bc3",
+    "providerAccounts": 1,
+    "budgetFactRetention": {
+     "configRowsExamined": 201078,
+     "rowsCarryingAUnit": 0,
+     "latestObservation": "2026-08-22T14:19:19.589+00:00",
+     "status": "forward_only_after_deploy"
+    },
+    "profileOutputRetention": {
+     "retainedVerdicts": 0,
+     "status": "forward_only_after_deploy"
+    },
+    "roleAuthorityRetention": {
+     "rowsExamined": 405,
+     "highConfidenceRows": 48,
+     "systemInferredRows": 405,
+     "accountScopedRows": 0,
+     "compiledResolverVersionRows": 0,
+     "qualifyingRows": 0,
+     "bestCaseRowBlockers": [
+      "role_as_of_stale",
+      "role_contract_absent",
+      "role_evidence_hash_missing",
+      "role_input_hash_missing",
+      "role_provenance_unrecognised",
+      "role_provider_account_scope_missing",
+      "role_resolver_version_not_compiled"
+     ],
+     "status": "forward_only_after_deploy"
+    }
+   },
+   {
+    "business": "ColorFullWorldsTR",
+    "businessId": "bc0c6178-7853-4f6f-b026-ef0222a4b9e7",
+    "providerAccounts": 1,
+    "budgetFactRetention": {
+     "configRowsExamined": 37582,
+     "rowsCarryingAUnit": 0,
+     "latestObservation": "2026-08-22T12:20:41.082+00:00",
+     "status": "forward_only_after_deploy"
+    },
+    "profileOutputRetention": {
+     "retainedVerdicts": 0,
+     "status": "forward_only_after_deploy"
+    },
+    "roleAuthorityRetention": {
+     "rowsExamined": 103,
+     "highConfidenceRows": 35,
+     "systemInferredRows": 103,
+     "accountScopedRows": 0,
+     "compiledResolverVersionRows": 0,
+     "qualifyingRows": 0,
+     "bestCaseRowBlockers": [
+      "role_as_of_stale",
+      "role_contract_absent",
+      "role_evidence_hash_missing",
+      "role_input_hash_missing",
+      "role_provenance_unrecognised",
+      "role_provider_account_scope_missing",
+      "role_resolver_version_not_compiled"
+     ],
+     "status": "forward_only_after_deploy"
+    }
+   },
+   {
+    "business": "Grandmix",
+    "businessId": "5dbc7147-f051-4681-a4d6-20617170074f",
+    "providerAccounts": 1,
+    "budgetFactRetention": {
+     "configRowsExamined": 431378,
+     "rowsCarryingAUnit": 0,
+     "latestObservation": "2026-08-22T14:13:24.616+00:00",
+     "status": "forward_only_after_deploy"
+    },
+    "profileOutputRetention": {
+     "retainedVerdicts": 0,
+     "status": "forward_only_after_deploy"
+    },
+    "roleAuthorityRetention": {
+     "rowsExamined": 379,
+     "highConfidenceRows": 187,
+     "systemInferredRows": 379,
+     "accountScopedRows": 0,
+     "compiledResolverVersionRows": 0,
+     "qualifyingRows": 0,
+     "bestCaseRowBlockers": [
+      "role_as_of_stale",
+      "role_contract_absent",
+      "role_evidence_hash_missing",
+      "role_input_hash_missing",
+      "role_provenance_unrecognised",
+      "role_provider_account_scope_missing",
+      "role_resolver_version_not_compiled"
+     ],
+     "status": "forward_only_after_deploy"
+    }
+   },
+   {
+    "business": "IwaStore",
+    "businessId": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+    "providerAccounts": 1,
+    "budgetFactRetention": {
+     "configRowsExamined": 86193,
+     "rowsCarryingAUnit": 0,
+     "latestObservation": "2026-08-22T14:24:01.177+00:00",
+     "status": "forward_only_after_deploy"
+    },
+    "profileOutputRetention": {
+     "retainedVerdicts": 0,
+     "status": "forward_only_after_deploy"
+    },
+    "roleAuthorityRetention": {
+     "rowsExamined": 556,
+     "highConfidenceRows": 112,
+     "systemInferredRows": 556,
+     "accountScopedRows": 0,
+     "compiledResolverVersionRows": 0,
+     "qualifyingRows": 0,
+     "bestCaseRowBlockers": [
+      "role_as_of_stale",
+      "role_contract_absent",
+      "role_evidence_hash_missing",
+      "role_input_hash_missing",
+      "role_provenance_unrecognised",
+      "role_provider_account_scope_missing",
+      "role_resolver_version_not_compiled"
+     ],
+     "status": "forward_only_after_deploy"
+    }
+   },
+   {
+    "business": "IwaTR",
+    "businessId": "b79683b4-6f87-48c0-a3ca-44d4356fef51",
+    "providerAccounts": 1,
+    "budgetFactRetention": {
+     "configRowsExamined": 13115,
+     "rowsCarryingAUnit": 0,
+     "latestObservation": "2026-08-22T14:30:56.638+00:00",
+     "status": "forward_only_after_deploy"
+    },
+    "profileOutputRetention": {
+     "retainedVerdicts": 0,
+     "status": "forward_only_after_deploy"
+    },
+    "roleAuthorityRetention": {
+     "rowsExamined": 149,
+     "highConfidenceRows": 19,
+     "systemInferredRows": 149,
+     "accountScopedRows": 0,
+     "compiledResolverVersionRows": 0,
+     "qualifyingRows": 0,
+     "bestCaseRowBlockers": [
+      "role_as_of_stale",
+      "role_contract_absent",
+      "role_evidence_hash_missing",
+      "role_input_hash_missing",
+      "role_provenance_unrecognised",
+      "role_provider_account_scope_missing",
+      "role_resolver_version_not_compiled"
+     ],
+     "status": "forward_only_after_deploy"
+    }
+   },
+   {
+    "business": "TheSwaf",
+    "businessId": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+    "providerAccounts": 2,
+    "budgetFactRetention": {
+     "configRowsExamined": 79560,
+     "rowsCarryingAUnit": 0,
+     "latestObservation": "2026-08-22T14:22:56.086+00:00",
+     "status": "forward_only_after_deploy"
+    },
+    "profileOutputRetention": {
+     "retainedVerdicts": 0,
+     "status": "forward_only_after_deploy"
+    },
+    "roleAuthorityRetention": {
+     "rowsExamined": 758,
+     "highConfidenceRows": 83,
+     "systemInferredRows": 758,
+     "accountScopedRows": 0,
+     "compiledResolverVersionRows": 0,
+     "qualifyingRows": 0,
+     "bestCaseRowBlockers": [
+      "role_as_of_stale",
+      "role_contract_absent",
+      "role_evidence_hash_missing",
+      "role_input_hash_missing",
+      "role_provenance_unrecognised",
+      "role_provider_account_scope_missing",
+      "role_resolver_version_not_compiled"
+     ],
+     "status": "forward_only_after_deploy"
+    }
+   }
+  ],
+  "totals": {
+   "businesses": 6,
+   "providerAccounts": 7,
+   "configRowsExamined": 848906,
+   "configRowsCarryingAUnit": 0,
+   "roleRowsExamined": 2350,
+   "roleRowsQualifying": 0,
+   "retainedProfileVerdicts": 0
+  }
+ },
+ "closures": [
+  {
+   "dimension": "budget_fact_retention",
+   "closesBlocker": "currency_exponent_not_captured",
+   "closureClass": "forward_only_after_deploy",
+   "why": "No column in the public schema carries a currency exponent, and no config-history column carries a currency at all — measured, not assumed. The unit of every retained budget value is therefore unobserved. It cannot be recomputed: restating a historical value with today's registry would invent provenance the observation never had.",
+   "preconditions": [
+    "deploy the prepared additive columns",
+    "clear the ingestion fence (still 40,960 bytes over the 5 GiB ceiling)",
+    "one admitted sync accrues a unit-bearing observation"
+   ]
+  },
+  {
+   "dimension": "profile_output_retention",
+   "closesBlocker": "canonical_profile_output_not_retained",
+   "closureClass": "forward_only_after_deploy",
+   "why": "No table retains the resolver's hard-action verdict; the only profile-shaped table is a multiplier config holding zero rows. The verdict depends on calibration and target state as they were at decision time, so a verdict computed today is not the verdict that was reached then — it is a new decision wearing an old date.",
+   "preconditions": [
+    "deploy the prepared engine_v3_account_profile_output table",
+    "one engine pass projects the existing profile result into it"
+   ]
+  },
+  {
+   "dimension": "role_authority_retention",
+   "closesBlocker": "automatic_role_authority_absent",
+   "closureClass": "forward_only_after_deploy",
+   "why": "All 2,350 retained rows fail on TWO independent counts: every one carries a NULL provider account, and every one carries the retired shadow resolver version. 484 are high-confidence and not one qualifies. Neither is repairable after the fact — the account scope was never captured, and the compiled resolver never ran against this data.",
+   "preconditions": [
+    "deploy the compiled name-neutral resolver so version and provider-account scope are written",
+    "clear the ingestion fence so the resolver can accrue rows",
+    "arm the process-local authority gate for that exact compiled version"
+   ]
+  }
+ ],
+ "simulation": [
+  {
+   "horizon": "2026-04-30",
+   "cutoffIso": "2026-04-30T23:59:59Z",
+   "cellsClearedAtReplayGrain": 0,
+   "evaluationsClearedAtReplayGrain": 0,
+   "replayGrainNote": "All 12 cells surviving the write-scope gate are eliminated at `no_concrete_entity_selected`, which precedes every gate these closures address. A fleet replay selects no concrete entity; the per-entity dry run is the surface path. So at this grain the closures clear nothing, and saying otherwise would be inflation.",
+   "codesRemovedConditional": [
+    "budget_fact_unavailable",
+    "commercial_profile_unavailable",
+    "currency_exponent_unknown",
+    "current_value_unknown",
+    "role_context_unresolved",
+    "unit_confidence_not_exact"
+   ],
+   "codesRemovedOnlyForActionBearing": [
+    "owner_mode_unknown"
+   ],
+   "codesRemainingConditional": [
+    "account_not_write_scope",
+    "admission_unverified",
+    "cap_unverified",
+    "change_safety_not_clear",
+    "conflict_unverified",
+    "cooldown_unverified",
+    "decision_absent",
+    "decision_identity_incomplete",
+    "evidence_floor_unmet",
+    "intent_not_validated",
+    "kill_switch_unverified",
+    "no_concrete_entity_selected",
+    "no_provider_write_path_exists",
+    "provider_preflight_not_readable",
+    "write_safety_step_missing"
+   ],
+   "retentionAdmitsEvidence": false,
+   "retentionRefusalReason": "budget_fact_source_run_malformed"
+  },
+  {
+   "horizon": "2026-06-30",
+   "cutoffIso": "2026-06-30T23:59:59Z",
+   "cellsClearedAtReplayGrain": 0,
+   "evaluationsClearedAtReplayGrain": 0,
+   "replayGrainNote": "All 12 cells surviving the write-scope gate are eliminated at `no_concrete_entity_selected`, which precedes every gate these closures address. A fleet replay selects no concrete entity; the per-entity dry run is the surface path. So at this grain the closures clear nothing, and saying otherwise would be inflation.",
+   "codesRemovedConditional": [
+    "budget_fact_unavailable",
+    "commercial_profile_unavailable",
+    "currency_exponent_unknown",
+    "current_value_unknown",
+    "role_context_unresolved",
+    "unit_confidence_not_exact"
+   ],
+   "codesRemovedOnlyForActionBearing": [
+    "owner_mode_unknown"
+   ],
+   "codesRemainingConditional": [
+    "account_not_write_scope",
+    "admission_unverified",
+    "cap_unverified",
+    "change_safety_not_clear",
+    "conflict_unverified",
+    "cooldown_unverified",
+    "decision_absent",
+    "decision_identity_incomplete",
+    "evidence_floor_unmet",
+    "intent_not_validated",
+    "kill_switch_unverified",
+    "no_concrete_entity_selected",
+    "no_provider_write_path_exists",
+    "provider_preflight_not_readable",
+    "write_safety_step_missing"
+   ],
+   "retentionAdmitsEvidence": false,
+   "retentionRefusalReason": "budget_fact_source_run_malformed"
+  },
+  {
+   "horizon": "2026-07-13",
+   "cutoffIso": "2026-07-13T00:00:00Z",
+   "cellsClearedAtReplayGrain": 0,
+   "evaluationsClearedAtReplayGrain": 0,
+   "replayGrainNote": "All 12 cells surviving the write-scope gate are eliminated at `no_concrete_entity_selected`, which precedes every gate these closures address. A fleet replay selects no concrete entity; the per-entity dry run is the surface path. So at this grain the closures clear nothing, and saying otherwise would be inflation.",
+   "codesRemovedConditional": [
+    "budget_fact_unavailable",
+    "commercial_profile_unavailable",
+    "currency_exponent_unknown",
+    "current_value_unknown",
+    "role_context_unresolved",
+    "unit_confidence_not_exact"
+   ],
+   "codesRemovedOnlyForActionBearing": [
+    "owner_mode_unknown"
+   ],
+   "codesRemainingConditional": [
+    "account_not_write_scope",
+    "admission_unverified",
+    "cap_unverified",
+    "change_safety_not_clear",
+    "conflict_unverified",
+    "cooldown_unverified",
+    "decision_absent",
+    "decision_identity_incomplete",
+    "evidence_floor_unmet",
+    "intent_not_validated",
+    "kill_switch_unverified",
+    "no_concrete_entity_selected",
+    "no_provider_write_path_exists",
+    "provider_preflight_not_readable",
+    "write_safety_step_missing"
+   ],
+   "retentionAdmitsEvidence": false,
+   "retentionRefusalReason": "budget_fact_source_run_malformed"
+  },
+  {
+   "horizon": "2026-08-01",
+   "cutoffIso": "2026-08-01T00:00:00Z",
+   "cellsClearedAtReplayGrain": 0,
+   "evaluationsClearedAtReplayGrain": 0,
+   "replayGrainNote": "All 12 cells surviving the write-scope gate are eliminated at `no_concrete_entity_selected`, which precedes every gate these closures address. A fleet replay selects no concrete entity; the per-entity dry run is the surface path. So at this grain the closures clear nothing, and saying otherwise would be inflation.",
+   "codesRemovedConditional": [
+    "budget_fact_unavailable",
+    "commercial_profile_unavailable",
+    "currency_exponent_unknown",
+    "current_value_unknown",
+    "role_context_unresolved",
+    "unit_confidence_not_exact"
+   ],
+   "codesRemovedOnlyForActionBearing": [
+    "owner_mode_unknown"
+   ],
+   "codesRemainingConditional": [
+    "account_not_write_scope",
+    "admission_unverified",
+    "cap_unverified",
+    "change_safety_not_clear",
+    "conflict_unverified",
+    "cooldown_unverified",
+    "decision_absent",
+    "decision_identity_incomplete",
+    "evidence_floor_unmet",
+    "intent_not_validated",
+    "kill_switch_unverified",
+    "no_concrete_entity_selected",
+    "no_provider_write_path_exists",
+    "provider_preflight_not_readable",
+    "write_safety_step_missing"
+   ],
+   "retentionAdmitsEvidence": false,
+   "retentionRefusalReason": "budget_fact_source_run_malformed"
+  },
+  {
+   "horizon": "2026-08-22",
+   "cutoffIso": "2026-08-22T14:53:48Z",
+   "cellsClearedAtReplayGrain": 0,
+   "evaluationsClearedAtReplayGrain": 0,
+   "replayGrainNote": "All 12 cells surviving the write-scope gate are eliminated at `no_concrete_entity_selected`, which precedes every gate these closures address. A fleet replay selects no concrete entity; the per-entity dry run is the surface path. So at this grain the closures clear nothing, and saying otherwise would be inflation.",
+   "codesRemovedConditional": [
+    "budget_fact_unavailable",
+    "commercial_profile_unavailable",
+    "currency_exponent_unknown",
+    "current_value_unknown",
+    "role_context_unresolved",
+    "unit_confidence_not_exact"
+   ],
+   "codesRemovedOnlyForActionBearing": [
+    "owner_mode_unknown"
+   ],
+   "codesRemainingConditional": [
+    "account_not_write_scope",
+    "admission_unverified",
+    "cap_unverified",
+    "change_safety_not_clear",
+    "conflict_unverified",
+    "cooldown_unverified",
+    "decision_absent",
+    "decision_identity_incomplete",
+    "evidence_floor_unmet",
+    "intent_not_validated",
+    "kill_switch_unverified",
+    "no_concrete_entity_selected",
+    "no_provider_write_path_exists",
+    "provider_preflight_not_readable",
+    "write_safety_step_missing"
+   ],
+   "retentionAdmitsEvidence": false,
+   "retentionRefusalReason": "budget_fact_source_run_malformed"
+  },
+  {
+   "horizon": "2026-09-02",
+   "cutoffIso": "2026-09-02T13:43:00Z",
+   "cellsClearedAtReplayGrain": 0,
+   "evaluationsClearedAtReplayGrain": 0,
+   "replayGrainNote": "All 12 cells surviving the write-scope gate are eliminated at `no_concrete_entity_selected`, which precedes every gate these closures address. A fleet replay selects no concrete entity; the per-entity dry run is the surface path. So at this grain the closures clear nothing, and saying otherwise would be inflation.",
+   "codesRemovedConditional": [
+    "budget_fact_unavailable",
+    "commercial_profile_unavailable",
+    "currency_exponent_unknown",
+    "current_value_unknown",
+    "role_context_unresolved",
+    "unit_confidence_not_exact"
+   ],
+   "codesRemovedOnlyForActionBearing": [
+    "owner_mode_unknown"
+   ],
+   "codesRemainingConditional": [
+    "account_not_write_scope",
+    "admission_unverified",
+    "cap_unverified",
+    "change_safety_not_clear",
+    "conflict_unverified",
+    "cooldown_unverified",
+    "decision_absent",
+    "decision_identity_incomplete",
+    "evidence_floor_unmet",
+    "intent_not_validated",
+    "kill_switch_unverified",
+    "no_concrete_entity_selected",
+    "no_provider_write_path_exists",
+    "provider_preflight_not_readable",
+    "write_safety_step_missing"
+   ],
+   "retentionAdmitsEvidence": false,
+   "retentionRefusalReason": "budget_fact_source_run_malformed"
+  }
+ ],
+ "localPostgresVerification": {
+  "evidencePath": "docs/audits/generated/d086-local-postgres-evidence-2026-09-02.json",
+  "evidenceSha256": "6340a0d72620facf7b11ce80e1ed3f8269cc3075286bbfd42616cd9a96616477",
+  "scope": "ephemeral local cluster only; never production, never a provider",
+  "serverVersion": "PostgreSQL 16.13 (Homebrew) on aarch64-apple-darwin25.2.0",
+  "clusterLifecycle": "created by the seam under mkdtemp and destroyed in its finally block",
+  "preparedStatementsApplied": 10,
+  "queriesExecuted": [
+   "D086_BUDGET_LATEST_SQL",
+   "D086_PROFILE_LATEST_SQL",
+   "D086_ROLE_LATEST_SQL",
+   "D086_LEGACY_ROLE_SQL",
+   "D086_COMPLETE_RUN_SQL",
+   "D086_CAPABILITY_PROBE_SQL"
+  ],
+  "readModelDrivenOverRealRows": true,
+  "indexRankPathsVerifiedFromCatalog": true,
+  "productionStatementsExecuted": 0,
+  "casesExercised": 19,
+  "casesReady": 3,
+  "seamOk": true,
+  "requiredIndexes": 5
+ },
+ "preparedMigrations": {
+  "statements": 10,
+  "applied": false,
+  "sqlDigest": "1195f2c5e03aee4fe0fd98e5552d77a516125768fee196d3bc446c29c7b4dc79",
+  "note": "Prepared and deliberately unwired: not registered in lib/migrations.ts, so no deploy applies them either, and no production catalog has ever held them. They ARE applied in the ephemeral local cluster recorded under localPostgresVerification, which is how their DDL and the queries that read them are known to parse. Wiring is the first step of the separately reconciled deploy slice."
+ },
+ "sideEffectLedger": {
+  "scope": "artifact assembly and production only; the ephemeral local verification seam is reported separately in limitations",
+  "databaseWritesIssued": 0,
+  "ddlStatementsExecuted": 0,
+  "migrationsApplied": 0,
+  "extensionsInstalled": 0,
+  "providerApiCalls": 0,
+  "providerWritesAttempted": 0,
+  "browserOrLocalhostProbes": 0,
+  "automationFlagsSet": 0,
+  "filesWritten": [
+   "docs/audits/generated/d086-budget-readiness-input-pack-2026-09-02.r7.json"
+  ],
+  "readOnlyTransactions": 1
+ },
+ "limitations": [
+  "Every claim about the live database comes from ONE SELECT-only repeatable-read transaction taken at 2026-09-02T13:43Z. It is a point-in-time read, not a monitor.",
+  "Ingestion has been admission-refused since 2026-08-22 and the fence overage is unchanged at 40,960 bytes. No retention blocker here can close by waiting; each needs a deploy AND an operator clearing the fence.",
+  "The simulation reports what closures would clear. It is not evidence that they did clear, and no closure below is retained authority.",
+  "At the D085 fleet-replay grain all three closures clear zero cells, because `no_concrete_entity_selected` eliminates every surviving cell at an earlier stage. The conditional lane answers a different question and is labelled as such throughout.",
+  "`owner_mode_unknown` is reported separately as action-bearing-only. r1 counted it among the codes retention removes, which was wrong: a fact whose observed owner mode is unknown or mixed is retained as honest evidence and cannot clear a blocker about not knowing the owner.",
+  "The readiness surface holds no external profile fingerprint expectation, so every retained verdict classifies as `profile_identity_agreement_unavailable`: form-valid evidence, never READY. Correction 2 rejected the earlier behaviour of reading a missing expectation as agreement.",
+  "Retained unit provenance is READ, then VERIFIED against the frozen registry version the row itself cites. The readiness layer never consults a mutable current registry and never manufactures missing provenance: an unrecognised source or version fails before any mapping question is asked, so a row that captured no exponent, registry or version is unusable rather than repaired with today's values.",
+  "Whole-account readiness is claimed only when the sampled latest-per-identity rows ARE the whole latest-per-identity population, every APPLICABLE budget owner qualifies, and no owner is uncaptured, uncovered or in conflict. A truncated sample is `partial` with its population, because unexamined members are unknown, not passing.",
+  "The budget owner universe is proven from the canonical observation manifest: the exact campaign_configs and adset_configs endpoints, a complete successful run per grain, both runs naming ONE explicit sync cohort, and the exact reconstructed entity identities from meta_entity_state_history reconciled against the manifest's own persisted count. Ownership is then proven pairwise. Correction 6 replaced the retained-snapshot self-reference this line previously described.",
+  "The cohort binding is forward-only: legacy observation runs carry no sync_cohort_id, so no retained row can attest today. It closes only after the additive column is deployed AND an admitted observation records it.",
+  "Budget facts are read from run-bound config history; meta_entity_state_history supplies the authoritative membership and ownership universe. The current config-history writer is transition-only and does not yet stamp source_run_id, which is part of the same forward-only accrual.",
+  "The legacy role branch is BUSINESS-level migration evidence, not account authority, and publishes its real population and truncation state.",
+  "SQL EXECUTION, scoped precisely. Artifact assembly and production executed ZERO statements of any kind: this generator opens no database handle. Independent LOCAL verification is different and did run — an ephemeral PostgreSQL 16.13 cluster, created and destroyed by the seam, applied all prepared DDL, executed every readiness query, read pg_indexes, and exercised reversed-insertion conflicts through the real read model. Neither the census nor this artifact depends on that cluster.",
+  "The prepared migrations remain unwired and unapplied IN PRODUCTION: nothing registers them, so no deploy runs them and no production catalog has ever held these columns or indexes. They have been applied in the ephemeral local seam, which is how their DDL and the queries that read them are known to parse.",
+  "No causal claim is made about ROAS, revenue or profit. Nothing here has a counterfactual.",
+  "Campaign names and manual Test/Main/Mixed labels are excluded by construction, not by policy: they are not members of any admitted schema in this slice."
+ ],
+ "residualBlockers": [
+  {
+   "blocker": "no_provider_write_path_exists",
+   "state": "CLOSED, UNCHANGED",
+   "evidence": "D086 adds no budget endpoint, no dispatch verb and no write ceremony; MUTATION_ENDPOINTS is untouched",
+   "consequence": "no budget proposal can be dispatched from this codebase, exactly as before"
+  },
+  {
+   "blocker": "currency_exponent_not_captured",
+   "state": "forward_only_after_deploy",
+   "evidence": "0 exponent-bearing columns in the public schema; 0 currency columns on either config-history table",
+   "consequence": "no authoritative raw provider-unit value may be published for any binding"
+  },
+  {
+   "blocker": "canonical_profile_output_not_retained",
+   "state": "forward_only_after_deploy",
+   "evidence": "no retention table exists; business_decision_calibration_profiles is a multiplier config holding 0 rows",
+   "consequence": "no commercial eligibility may be stated in either direction"
+  },
+  {
+   "blocker": "automatic_role_authority_absent",
+   "state": "forward_only_after_deploy",
+   "evidence": "2,350 retained rows, 484 high-confidence, 0 account-scoped, 0 on the compiled resolver version",
+   "consequence": "role context stays unresolved and no role-scoped proposal may be raised"
+  },
+  {
+   "blocker": "ingestion_admission_refused",
+   "state": "OPEN, OPERATOR-OWNED",
+   "evidence": "meta_entity_state_history is 40,960 bytes over its 5 GiB ceiling, unchanged since 2026-08-30",
+   "consequence": "nothing accrues, so no forward capture path can begin closing until an operator clears it"
+  }
+ ],
+ "snapshotHash": "a3ff829f438d17f444b1894ef6e4fdab0ddfe4d4feefccaf31184f1121fc37fd",
+ "analysisHash": "ef24617a604bd59b8b2dbf6662b085aec757e43356e6891af0f8f8c1903168f2",
+ "artifactHash": "7026a50dab3873e44d864ee351b9aaf26fbe5a75c989e91ad3f1dbd6bdf8bfdf"
+}

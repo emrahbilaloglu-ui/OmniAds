@@ -490,9 +490,6 @@ export const ZERO_BASE_COPY = {
     observed: "Observed",
     actor: "Actor",
     evidenceBasis: "Evidence basis",
-    campaignLabels: "Campaign labels",
-    campaignLabelsSemanticOnly:
-      "Labels are semantic only. They carry no menus and grant no write authority.",
 
     /* ------------------------------- WP-26 step 7: the last inline strings */
     /*
@@ -626,8 +623,6 @@ export const ZERO_BASE_COPY = {
     review: "Review",
     resume: "Resume",
     note: "Note",
-    labels: "Labels",
-    manageLabelsArrow: "Manage labels →",
     inspecting: "Inspecting",
     ctrWindowed: "CTR · 28d",
     showingOfServedRows: "Showing {shown} of {served} served rows",
@@ -1086,9 +1081,6 @@ export const ZERO_BASE_COPY = {
     observed: "Gözlemlendi",
     actor: "İşlemi yapan",
     evidenceBasis: "Kanıt dayanağı",
-    campaignLabels: "Kampanya etiketleri",
-    campaignLabelsSemanticOnly:
-      "Etiketler yalnızca anlam taşır. Menü içermez ve yazma yetkisi vermez.",
 
     /* ------------------------------- WP-26 step 7: the last inline strings */
     /*
@@ -1219,8 +1211,6 @@ export const ZERO_BASE_COPY = {
     review: "İncele",
     resume: "Sürdür",
     note: "Not",
-    labels: "Etiketler",
-    manageLabelsArrow: "Etiketleri yönet →",
     inspecting: "İnceleniyor",
     ctrWindowed: "CTR · 28g",
     showingOfServedRows: "Sunulan {served} satırın {shown} tanesi gösteriliyor",

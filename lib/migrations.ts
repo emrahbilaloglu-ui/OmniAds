@@ -12,6 +12,7 @@ import {
   requireIntegrationSecretKey,
 } from "@/lib/integration-secrets";
 import { verifyMigrationSchemaContract } from "@/lib/migration-verification";
+import { assertD088BudgetSchema } from "@/lib/meta/budget-schema-verification";
 import { assertMetaAutomationClaimSchema } from "@/lib/meta/automation-claim-schema-verification";
 import {
   ALTER_NATIVE_AD_DECISION_PROVENANCE_SQL,
@@ -4617,7 +4618,7 @@ export async function runMigrations(options?: {
             "notificationPolicy": "every_auto_action",
             "maxBudgetIncreasePct": 15,
             "maxDailyBudgetChangeMinor": null,
-            "requireCampaignLabel": true,
+            "requireResolvedCampaignRole": true,
             "requireCommercialAnchor": true,
             "requireLivePreflight": true,
             "requireRollbackPlan": true,
@@ -4952,6 +4953,102 @@ export async function runMigrations(options?: {
                   'pending', 'claimed', 'approved', 'failed',
                   'modified', 'dismissed', 'expired', 'reconcile'
                 ));
+            END IF;
+          END $$;`.catch(() => {}),
+          /*
+            D088: widen the ACTION vocabulary to include `budget`, and add the
+            server-built execution envelope it needs.
+
+            The same pattern as the status widening above, and for the same
+            reason: the original constraint was written inline in CREATE TABLE
+            and carries a generated name, so it is found by its definition. Old
+            proposals are untouched and still read — this only stops the
+            database refusing a row the code can now produce.
+          */
+          () =>
+            sql`ALTER TABLE meta_automation_proposals
+          ADD COLUMN IF NOT EXISTS budget_envelope_json JSONB`.catch(() => {}),
+        /*
+          D088 C3: activation is per PROVIDER ACCOUNT.
+
+          One account's typed confirmation must not enable every account in the
+          business. The enabling account is recorded on the EXISTING control row
+          — no parallel flag — and the scheduler and runtime compare against it.
+          Nullable, so a pre-migration row simply enables nothing.
+        */
+        () =>
+          sql`ALTER TABLE meta_automation_business_controls
+          ADD COLUMN IF NOT EXISTS auto_execution_provider_account_id TEXT`.catch(() => {}),
+          () =>
+            sql`DO $$
+          DECLARE
+            legacy_action_constraint TEXT;
+          BEGIN
+            SELECT c.conname
+            INTO legacy_action_constraint
+            FROM pg_constraint c
+            JOIN pg_class t ON t.oid = c.conrelid
+            JOIN pg_namespace n ON n.oid = t.relnamespace
+            WHERE n.nspname = current_schema()
+              AND t.relname = 'meta_automation_proposals'
+              AND c.contype = 'c'
+              AND pg_get_constraintdef(c.oid) LIKE '%duplicate%'
+              AND pg_get_constraintdef(c.oid) NOT LIKE '%budget%'
+            LIMIT 1;
+
+            IF legacy_action_constraint IS NOT NULL THEN
+              EXECUTE format(
+                'ALTER TABLE meta_automation_proposals DROP CONSTRAINT %I',
+                legacy_action_constraint
+              );
+            END IF;
+
+            /*
+              PRE-DEPLOY AUDIT — guard by NAME, not by a substring.
+
+              This existence check used to match ANY check constraint whose
+              definition contained 'budget'. The very next migration step adds
+              meta_automation_proposals_budget_envelope_check, whose
+              definition contains 'budget' too, and both steps swallow their
+              errors. So a single lock race on this widening left the envelope
+              constraint to satisfy this guard forever after: either the narrow
+              legacy check stood and every budget proposal INSERT was rejected
+              by the database, or the legacy DROP had already succeeded and the
+              action column was left with NO constraint at all. Both outcomes
+              were silent. The guard now names the exact constraint it adds.
+            */
+            IF NOT EXISTS (
+              SELECT 1
+              FROM pg_constraint c
+              JOIN pg_class t ON t.oid = c.conrelid
+              JOIN pg_namespace n ON n.oid = t.relnamespace
+              WHERE n.nspname = current_schema()
+                AND t.relname = 'meta_automation_proposals'
+                AND c.contype = 'c'
+                AND c.conname = 'meta_automation_proposals_action_budget_check'
+            ) THEN
+              ALTER TABLE meta_automation_proposals
+                ADD CONSTRAINT meta_automation_proposals_action_budget_check
+                CHECK (proposed_action IN (
+                  'pause', 'resume', 'bid', 'duplicate', 'budget'
+                ));
+            END IF;
+          END $$;`.catch(() => {}),
+          /*
+            A budget row without its server-built envelope is a budget row
+            nothing can execute, so the database refuses to hold one.
+          */
+          () =>
+            sql`DO $$
+          BEGIN
+            IF NOT EXISTS (
+              SELECT 1 FROM pg_constraint
+               WHERE conname = 'meta_automation_proposals_budget_envelope_check'
+            ) THEN
+              ALTER TABLE meta_automation_proposals
+                ADD CONSTRAINT meta_automation_proposals_budget_envelope_check
+                CHECK (proposed_action <> 'budget' OR budget_envelope_json IS NOT NULL)
+                NOT VALID;
             END IF;
           END $$;`.catch(() => {}),
           // The claim token is the receipt key. Unique, so a ledger row or a
@@ -7733,9 +7830,150 @@ export async function runMigrations(options?: {
         sql`ALTER TABLE meta_entity_observation_runs
           ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ`,
         sql`ALTER TABLE meta_entity_observation_runs
+          ADD COLUMN IF NOT EXISTS last_captured_at TIMESTAMPTZ`,
+        sql`ALTER TABLE meta_entity_observation_runs
           ADD COLUMN IF NOT EXISTS repeat_count INTEGER NOT NULL DEFAULT 1`,
         sql`ALTER TABLE meta_entity_observation_runs
           ADD COLUMN IF NOT EXISTS last_checkpoint_at TIMESTAMPTZ`,
+        // D075: delta-bounded complete manifests. NULL manifest_kind means a
+        // legacy full manifest (exact run-bound membership); 'delta' runs
+        // persist only changed/new/exited entities and reconstruct
+        // latest-per-entity over the complete lane. row_count keeps its
+        // logical full-scope meaning on every kind.
+        sql`ALTER TABLE meta_entity_observation_runs
+          ADD COLUMN IF NOT EXISTS manifest_kind TEXT
+          CHECK (manifest_kind IS NULL OR manifest_kind IN ('full', 'delta'))`,
+        sql`ALTER TABLE meta_entity_observation_runs
+          ADD COLUMN IF NOT EXISTS base_run_id UUID`,
+        sql`ALTER TABLE meta_entity_observation_runs
+          ADD COLUMN IF NOT EXISTS delta_stats_json JSONB`,
+        //
+        // D086: the APPEND-ONLY capture receipt.
+        //
+        // A run is coalesced content: `persistMetaEntityObservation` recognises
+        // identical semantic truth and advances a heartbeat on an existing run
+        // instead of appending one. So a run is NOT a capture occurrence, and a
+        // cohort column ON the run is provably wrong — one run can be the
+        // content of many captures, each belonging to a different sync.
+        //
+        // The receipt is the occurrence. One row per (partition, entity type,
+        // endpoint, capture clock), written by the real core-sync flow whether
+        // the run was appended or reused, carrying the raw snapshot it was
+        // mapped from and the outcome of the attempt — including failures,
+        // which the run table does not retain at all when nothing is written.
+        //
+        // `partition_id` is the core sync's own partition UUID. It is the
+        // cohort: campaign and adset captures belong to one sync because they
+        // carry the same partition, never because their clocks are close.
+        sql`CREATE TABLE IF NOT EXISTS meta_entity_observation_receipts (
+          id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          receipt_contract     TEXT NOT NULL
+                               DEFAULT 'd086.observation-capture-receipt.v1'
+                               CHECK (length(btrim(receipt_contract)) > 0),
+          run_id               UUID NOT NULL
+                               REFERENCES meta_entity_observation_runs(id) ON DELETE RESTRICT,
+          business_id          TEXT NOT NULL CHECK (length(btrim(business_id)) > 0),
+          provider_account_id  TEXT NOT NULL CHECK (length(btrim(provider_account_id)) > 0),
+          entity_type          TEXT NOT NULL
+                               CHECK (entity_type IN ('campaign', 'adset', 'ad', 'creative')),
+          endpoint             TEXT NOT NULL CHECK (length(btrim(endpoint)) > 0),
+          partition_id         UUID NOT NULL,
+          source_snapshot_id   TEXT,
+          capture_status       TEXT NOT NULL
+                               CHECK (capture_status IN
+                                 ('complete', 'partial', 'point_lookup', 'failed')),
+          provider_row_count   INTEGER NOT NULL CHECK (provider_row_count >= 0),
+          page_count           INTEGER NOT NULL CHECK (page_count >= 0),
+          run_reused           BOOLEAN NOT NULL,
+          observed_at          TIMESTAMPTZ NOT NULL,
+          captured_at          TIMESTAMPTZ NOT NULL,
+          error_json           JSONB
+                               CHECK (error_json IS NULL OR jsonb_typeof(error_json) = 'object'),
+          created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+          CONSTRAINT meta_entity_observation_receipts_time_check
+            CHECK (observed_at <= captured_at)
+        )`,
+        // One receipt per capture occurrence. Re-running the same partition's
+        // same endpoint at the same instant is the same occurrence; a later
+        // attempt has a later clock and appends.
+        sql`CREATE UNIQUE INDEX IF NOT EXISTS meta_entity_observation_receipts_occurrence
+          ON meta_entity_observation_receipts
+          (partition_id, entity_type, endpoint, captured_at)`,
+        // The cohort read: every receipt of one sync.
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_entity_observation_receipts_cohort
+          ON meta_entity_observation_receipts
+          (business_id, provider_account_id, partition_id, entity_type, endpoint,
+           captured_at DESC, id DESC)`,
+        // The FRESHNESS read: the newest attempt for an endpoint whatever its
+        // outcome, so a newer failure cannot be stepped over by an older
+        // success. Status is deliberately NOT in the leading key.
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_entity_observation_receipts_freshness
+          ON meta_entity_observation_receipts
+          (business_id, provider_account_id, entity_type, endpoint,
+           captured_at DESC, id DESC)`,
+        // The attestation ranks on HEARTBEAT-EFFECTIVE clocks, not on the
+        // plain captured_at. An index on the plain column cannot serve that
+        // order, so these are expression indexes over the exact expressions
+        // the query writes. The catalog gate checks these definitions.
+        // D086 correction 8: the rank path on IMMUTABLE clocks. The
+        // heartbeat-effective expression index went with the predicate it
+        // served — a heartbeat advanced after a historical cutoff must not
+        // make the earlier occurrence unreadable, so the cutoff uses the
+        // payload clocks, which cannot move.
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_entity_observation_runs_d086_payload
+          ON meta_entity_observation_runs
+          (business_id, provider_account_id, entity_type, endpoint,
+           captured_at DESC, observed_at DESC, id DESC)`,
+        // The cohort's linkage, enforced by the database. NOT VALID so the
+        // statement is safe on a table that may already hold malformed rows;
+        // those fail closed on the read side with their own causal blocker.
+        sql`ALTER TABLE meta_entity_observation_receipts
+          ADD COLUMN IF NOT EXISTS source_snapshot_ref_id UUID`,
+        sql`DO $$
+          BEGIN
+            IF NOT EXISTS (
+              SELECT 1 FROM pg_constraint
+               WHERE conname = 'meta_entity_observation_receipts_partition_fk'
+            ) THEN
+              ALTER TABLE meta_entity_observation_receipts
+                ADD CONSTRAINT meta_entity_observation_receipts_partition_fk
+                FOREIGN KEY (partition_id) REFERENCES meta_sync_partitions(id)
+                ON DELETE RESTRICT NOT VALID;
+            END IF;
+          END $$`,
+        sql`DO $$
+          BEGIN
+            IF NOT EXISTS (
+              SELECT 1 FROM pg_constraint
+               WHERE conname = 'meta_entity_observation_receipts_snapshot_fk'
+            ) THEN
+              ALTER TABLE meta_entity_observation_receipts
+                ADD CONSTRAINT meta_entity_observation_receipts_snapshot_fk
+                FOREIGN KEY (source_snapshot_ref_id) REFERENCES meta_raw_snapshots(id)
+                ON DELETE RESTRICT NOT VALID;
+            END IF;
+          END $$`,
+        // D077: recovery/rollback record for approved state-history
+        // compaction runs. Append-only; deliberately NO foreign key into the
+        // state table — the journal must outlive the rows it accounts for.
+        sql`CREATE TABLE IF NOT EXISTS meta_state_history_compaction_journal (
+          id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          plan_hash     CHAR(64) NOT NULL CHECK (plan_hash ~ '^[0-9a-f]{64}$'),
+          plan_contract TEXT NOT NULL,
+          business_ids  TEXT[] NOT NULL CHECK (array_length(business_ids, 1) >= 1),
+          event         TEXT NOT NULL CHECK (event IN (
+            'planned', 'lease_acquired', 'lease_renewed', 'lease_released',
+            'batch_deleted', 'completed', 'completed_with_skips',
+            'refused', 'equivalence_failed', 'kill_switch'
+          )),
+          batch_index   INTEGER,
+          runs_deleted  INTEGER,
+          rows_deleted  BIGINT,
+          detail_json   JSONB,
+          created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+        )`,
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_state_history_compaction_journal_plan
+          ON meta_state_history_compaction_journal (plan_hash, created_at)`,
         sql.query(
           buildInvalidIndexRepairQuery({
             indexName: "idx_meta_entity_observation_runs_semantic_latest",
@@ -7762,6 +8000,31 @@ export async function runMigrations(options?: {
               "provider_account_id",
               "entity_type",
               "endpoint",
+              "observed_at DESC",
+              "id DESC",
+            ],
+          }),
+        ),
+        // The coalescing writer's heartbeat lookup is now completeness-lane
+        // scoped (same-completeness dedupe). Without the lane in the key, the
+        // LIMIT 1 ... FOR UPDATE walks the shared key's history backwards
+        // until it happens to hit the requested lane — under a row lock, on
+        // the busiest observation table. The lane-aware index makes that
+        // lookup a direct descent.
+        sql`CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_meta_entity_observation_runs_lane_latest
+          ON meta_entity_observation_runs
+          (business_id, provider_account_id, entity_type, endpoint, completeness, observed_at DESC, id DESC)`.catch(
+          () => {},
+        ),
+        sql.query(
+          buildIndexContractQuery({
+            indexName: "idx_meta_entity_observation_runs_lane_latest",
+            definitionMustContain: [
+              "business_id",
+              "provider_account_id",
+              "entity_type",
+              "endpoint",
+              "completeness",
               "observed_at DESC",
               "id DESC",
             ],
@@ -7866,6 +8129,42 @@ export async function runMigrations(options?: {
           CONSTRAINT meta_entity_state_history_time_check CHECK (captured_at >= observed_at),
           CONSTRAINT meta_entity_state_history_run_entity_unique UNIQUE (run_id, entity_id)
         )`,
+        // D083 — budget-fact observation. Additive and nullable, so every
+        // existing row and every existing reader is unaffected. These are
+        // deliberately NOT `.catch`ed: `ADD COLUMN IF NOT EXISTS` is already
+        // idempotent, so the only thing a swallow could hide is a real upgrade
+        // failure reported as success.
+        // Schedule is
+        // required whenever a lifetime budget is binding, and the exponent pair
+        // records which currency registry was in force when the amount was
+        // captured, so a later registry revision cannot silently restate
+        // history. The binding field itself is deliberately NOT stored: it is
+        // derived from the raw amounts by lib/meta/budget-fact, and a second
+        // stored copy could drift from the amounts it claims to describe.
+        sql`ALTER TABLE meta_entity_state_history
+          ADD COLUMN IF NOT EXISTS campaign_start_time TIMESTAMPTZ`,
+        sql`ALTER TABLE meta_entity_state_history
+          ADD COLUMN IF NOT EXISTS campaign_end_time TIMESTAMPTZ`,
+        sql`ALTER TABLE meta_entity_state_history
+          ADD COLUMN IF NOT EXISTS adset_start_time TIMESTAMPTZ`,
+        sql`ALTER TABLE meta_entity_state_history
+          ADD COLUMN IF NOT EXISTS adset_end_time TIMESTAMPTZ`,
+        sql`ALTER TABLE meta_entity_state_history
+          ADD COLUMN IF NOT EXISTS budget_currency_exponent SMALLINT`,
+        sql`ALTER TABLE meta_entity_state_history
+          ADD COLUMN IF NOT EXISTS budget_currency_registry_version TEXT`,
+        // D086: the budget SHAPE, observed rather than assumed. D083 refuses a
+        // fact whose shape support is unknown, and nothing captured it, so
+        // every retained fact failed that gate by omission.
+        sql`ALTER TABLE meta_entity_state_history
+          ADD COLUMN IF NOT EXISTS budget_shape_support TEXT
+          CHECK (budget_shape_support IS NULL OR budget_shape_support IN
+            ('supported', 'unsupported_shape', 'shape_not_observed'))`,
+        // D083 C2 — the Graph version a row was fetched under is client-known
+        // provenance, not a response field. Persisted so a historical amount
+        // can be read back with the contract that produced it.
+        sql`ALTER TABLE meta_entity_state_history
+          ADD COLUMN IF NOT EXISTS provider_api_version TEXT`,
         sql`CREATE INDEX IF NOT EXISTS idx_meta_entity_state_history_asof
           ON meta_entity_state_history
           (business_id, provider_account_id, entity_type, entity_id, observed_at DESC, captured_at DESC)`,
@@ -8094,6 +8393,75 @@ export async function runMigrations(options?: {
         sql`CREATE INDEX IF NOT EXISTS idx_meta_entity_tombstones_asof
           ON meta_entity_tombstones
           (business_id, provider_account_id, entity_type, entity_id, observed_at DESC, captured_at DESC)`,
+        //
+        // D087: the budget write journal.
+        //
+        // Additive and IF NOT EXISTS. It records what was intended, what the
+        // account held before, and what a fresh read-back proved afterwards —
+        // the three facts a rollback needs and the only three that make a
+        // "success" checkable. It stores NO token, header or credential: the
+        // request travels as a sha256 fingerprint of its sanitized decision
+        // fields, so a later reader can prove two attempts were the same
+        // request without the journal ever holding one.
+        sql`CREATE TABLE IF NOT EXISTS meta_budget_write_journal (
+          id                     UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          contract               TEXT NOT NULL
+                                 CHECK (length(btrim(contract)) > 0),
+          proposal_id            UUID NOT NULL,
+          idempotency_key        TEXT NOT NULL CHECK (length(btrim(idempotency_key)) > 0),
+          request_fingerprint    CHAR(64) NOT NULL
+                                 CHECK (request_fingerprint ~ '^[0-9a-f]{64}$'),
+          business_id            TEXT NOT NULL CHECK (length(btrim(business_id)) > 0),
+          provider_account_id    TEXT NOT NULL
+                                 CHECK (length(btrim(provider_account_id)) > 0),
+          owner_grain            TEXT NOT NULL CHECK (owner_grain IN ('campaign', 'adset')),
+          entity_id              TEXT NOT NULL CHECK (length(btrim(entity_id)) > 0),
+          parent_campaign_id     TEXT,
+          budget_field           TEXT NOT NULL
+                                 CHECK (budget_field IN ('daily_budget', 'lifetime_budget')),
+          currency               TEXT NOT NULL CHECK (currency ~ '^[A-Z]{3}$'),
+          currency_exponent      SMALLINT NOT NULL
+                                 CHECK (currency_exponent >= 0 AND currency_exponent <= 4),
+          actor_user_id          UUID NOT NULL,
+          before_amount_minor    BIGINT CHECK (before_amount_minor IS NULL OR before_amount_minor > 0),
+          intended_amount_minor  BIGINT NOT NULL CHECK (intended_amount_minor > 0),
+          readback_amount_minor  BIGINT CHECK (readback_amount_minor IS NULL OR readback_amount_minor > 0),
+          provider_attempted     BOOLEAN NOT NULL DEFAULT FALSE,
+          provider_http_status   INTEGER,
+          result_class           TEXT NOT NULL,
+          blockers_json          JSONB NOT NULL DEFAULT '[]'::jsonb
+                                 CHECK (jsonb_typeof(blockers_json) = 'array'),
+          rollback_eligible      BOOLEAN NOT NULL DEFAULT FALSE,
+          rolled_back_at         TIMESTAMPTZ,
+          requested_at           TIMESTAMPTZ NOT NULL,
+          completed_at           TIMESTAMPTZ,
+          created_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
+          -- A verified execution must know what it replaced, or nothing can
+          -- restore it; anything else must not claim it can be rolled back.
+          CONSTRAINT meta_budget_write_journal_rollback_check
+            CHECK (rollback_eligible = FALSE
+                   OR (result_class = 'verified' AND before_amount_minor IS NOT NULL))
+        )`,
+        // ONE attempt per idempotency key per account. This is the constraint
+        // the orchestrator relies on to lose a concurrent race safely.
+        sql`CREATE UNIQUE INDEX IF NOT EXISTS meta_budget_write_journal_occurrence
+          ON meta_budget_write_journal
+          (business_id, provider_account_id, idempotency_key)`,
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_budget_write_journal_entity
+          ON meta_budget_write_journal
+          (business_id, provider_account_id, owner_grain, entity_id,
+           requested_at DESC, id DESC)`,
+        // D086 correction 8: the state latest path, which reads the most
+        // rows of any readiness statement and had no index at all.
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_entity_state_history_d086_latest
+          ON meta_entity_state_history
+          (business_id, provider_account_id, entity_type, entity_id,
+           captured_at DESC, created_at DESC, id DESC)`,
+        // D086: the membership-exclusion path.
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_entity_tombstones_d086_latest
+          ON meta_entity_tombstones
+          (business_id, provider_account_id, entity_type, entity_id,
+           captured_at DESC, id DESC)`,
         sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_meta_ads_action_log_id_business
           ON meta_ads_action_log (id, business_id)`,
         sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_meta_ads_action_log_verified_lineage
@@ -12027,10 +12395,47 @@ export async function runMigrations(options?: {
           updated_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
           UNIQUE (business_id, campaign_id, as_of_date)
         )`,
+        /*
+          Campaign role is an account-scoped fact. The original D033 key and
+          producer omitted provider_account_id, so multi-account businesses
+          could mix account-normalized behavior. Historical NULL rows are
+          deliberately not backfilled: they were computed with business-wide
+          normalization and therefore remain migration evidence, never action
+          authority.
+
+          PRE-DEPLOY AUDIT — THE LEGACY UNIQUE IS KEPT, ON PURPOSE.
+
+          An earlier revision DROPPED `UNIQUE (business_id, campaign_id,
+          as_of_date)` and replaced it with the partial account-scoped index
+          below. That made the migration one-way: the campaign-context job in
+          the CURRENT production image upserts `ON CONFLICT (business_id,
+          campaign_id, as_of_date)`, and PostgreSQL cannot infer a PARTIAL
+          index from a bare conflict target — so rolling the application image
+          back after migrating failed every run with 42P10 ("no unique or
+          exclusion constraint matching the ON CONFLICT specification").
+
+          Keeping it costs nothing real. A Meta campaign belongs to exactly one
+          ad account, so the account-scoped index is the strictly weaker
+          constraint of the two; the legacy key forbids only a same-day pair of
+          rows for one campaign under two accounts, which the platform cannot
+          produce. The account-scoped index is retained beside it as the
+          integrity statement a future release can promote once the legacy
+          key is genuinely removable.
+
+          Both conflict targets are proven against a real cluster by
+          `scripts/d088-budget-proposal-migration-seam.ts`.
+        */
+        sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_engine_v3_campaign_context_account_day
+          ON engine_v3_campaign_context_daily
+          (business_id, provider_account_id, campaign_id, as_of_date)
+          WHERE provider_account_id IS NOT NULL`,
         sql`CREATE INDEX IF NOT EXISTS idx_engine_v3_campaign_context_business_date
           ON engine_v3_campaign_context_daily (business_id, as_of_date DESC)`,
         sql`CREATE INDEX IF NOT EXISTS idx_engine_v3_campaign_context_campaign
           ON engine_v3_campaign_context_daily (business_id, campaign_id, as_of_date DESC)`,
+        sql`CREATE INDEX IF NOT EXISTS idx_engine_v3_campaign_context_account_campaign
+          ON engine_v3_campaign_context_daily
+          (business_id, provider_account_id, campaign_id, as_of_date DESC)`,
       ]);
 
       // ── Engine v3 rollout feature flags (NULL = inherit env default) ─────
@@ -14993,6 +15398,25 @@ export async function runMigrations(options?: {
       logStartupEvent("migrations_automation_claim_schema_verified", {
         reason,
         verifiedObjects: claimSchema.length,
+      });
+
+      /*
+        PRE-DEPLOY AUDIT — the D088 budget schema, on the same terms.
+
+        Every statement that builds it swallows its own error, and each object
+        it builds is load-bearing for a provider budget WRITE: the action
+        constraint (without it the database rejects every budget proposal), the
+        envelope column and its presence check, the write journal and its
+        unique occurrence index (without it idempotency stops being enforced
+        below the application), the nullable activation column, and the legacy
+        campaign-context unique that keeps this migration survivable by the
+        PREVIOUS application image. This throws, so a migration that could not
+        build them is not announced as migrated.
+      */
+      const budgetSchema = await assertD088BudgetSchema(sql);
+      logStartupEvent("migrations_budget_schema_verified", {
+        reason,
+        verifiedObjects: budgetSchema.verified.length,
       });
 
       migrationsCompleted = true;

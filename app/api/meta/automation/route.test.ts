@@ -98,11 +98,14 @@ describe("GET /api/meta/automation", () => {
           notificationPolicy: "every_auto_action",
           maxBudgetIncreasePct: 15,
           maxDailyBudgetChangeMinor: null,
-          requireCampaignLabel: true,
+          requireResolvedCampaignRole: true,
           requireCommercialAnchor: true,
           requireLivePreflight: true,
           requireRollbackPlan: true,
           dryRunOnly: true,
+          budgetMinHoursBetweenChanges: null,
+          budgetMaxChangesPer7d: null,
+          budgetMaxAccountConcentrationPct: null,
           minRoasFloor: null,
           quietHours: null,
         },
@@ -138,11 +141,14 @@ describe("GET /api/meta/automation", () => {
         notificationPolicy: "every_auto_action",
         maxBudgetIncreasePct: 15,
         maxDailyBudgetChangeMinor: null,
-        requireCampaignLabel: true,
+        requireResolvedCampaignRole: true,
         requireCommercialAnchor: true,
         requireLivePreflight: true,
         requireRollbackPlan: true,
         dryRunOnly: true,
+        budgetMinHoursBetweenChanges: null,
+        budgetMaxChangesPer7d: null,
+        budgetMaxAccountConcentrationPct: null,
         minRoasFloor: null,
         quietHours: null,
       },
@@ -163,11 +169,14 @@ describe("GET /api/meta/automation", () => {
         notificationPolicy: "every_auto_action",
         maxBudgetIncreasePct: 15,
         maxDailyBudgetChangeMinor: null,
-        requireCampaignLabel: true,
+        requireResolvedCampaignRole: true,
         requireCommercialAnchor: true,
         requireLivePreflight: true,
         requireRollbackPlan: true,
         dryRunOnly: true,
+        budgetMinHoursBetweenChanges: null,
+        budgetMaxChangesPer7d: null,
+        budgetMaxAccountConcentrationPct: null,
         minRoasFloor: null,
         quietHours: null,
       },
@@ -371,6 +380,47 @@ describe("GET /api/meta/automation", () => {
     expect(payload.error.code).toBe("reviewer_read_only");
     expect(payload.error.action).toBe("automation_kill_switch_release");
     expect(controlPlane.releaseMetaAutomationKillSwitch).not.toHaveBeenCalled();
+  });
+
+  it("ARMING a decision type (Tier 3) takes the admin floor, not collaborator", async () => {
+    /*
+      PRE-DEPLOY AUDIT: automatic execution needs two keys — the business-wide
+      master switch and the decision type's own Tier 3 mode. Only the first was
+      admin-gated, so a collaborator could re-arm the one decision type with a
+      live automatic executor after an admin had demoted it.
+    */
+    vi.mocked(controlPlane.setMetaAutomationDecisionTypeMode).mockResolvedValue([]);
+
+    await POST(
+      postRequest({
+        action: "set_decision_type_mode",
+        decisionType: "budget",
+        mode: "auto",
+      }),
+    );
+
+    expect(access.requireBusinessAccess).toHaveBeenCalledWith(
+      expect.objectContaining({ businessId: BUSINESS_ID, minRole: "admin" }),
+    );
+  });
+
+  it("STANDING DOWN from Tier 3 stays a collaborator preference", async () => {
+    // A stop must never be harder than a start, at every rung.
+    vi.mocked(controlPlane.setMetaAutomationDecisionTypeMode).mockResolvedValue([]);
+
+    for (const mode of ["manual", "semi_auto"] as const) {
+      vi.mocked(access.requireBusinessAccess).mockClear();
+      await POST(
+        postRequest({
+          action: "set_decision_type_mode",
+          decisionType: "budget",
+          mode,
+        }),
+      );
+      expect(access.requireBusinessAccess, mode).toHaveBeenCalledWith(
+        expect.objectContaining({ businessId: BUSINESS_ID, minRole: "collaborator" }),
+      );
+    }
   });
 
   it("persists a per-decision-type standing mode", async () => {

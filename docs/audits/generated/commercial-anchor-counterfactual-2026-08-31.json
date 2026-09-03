@@ -1,0 +1,2784 @@
+{
+ "contract": "adsecute.meta.commercial-anchor-counterfactual.v2",
+ "evidencePath": "docs/audits/generated/generalized-pit-replay-evidence-2026-08-30.json",
+ "evidenceSha256": "56f4472ba94363987a0c9854d3a20dbcd23a89dc9e9037f773e822e2be4ddfe1",
+ "candidateInputsSha256": "b088a70aa15c22ca4b6f93205e70fec444dfc9801da8c2b77162a24e7de010c8",
+ "honesty": [
+  "Every candidate anchor is a declared INPUT, never a recommendation and never an approved business target. Nothing here is persisted.",
+  "Outcomes are recomputed PER ACTION through the real production explanation. There is no single 'rows unblocked' number, because clearing the commercial threshold does not clear Cut's break-even requirement or Scale's calibration requirement.",
+  "Target and break-even ROAS are resolved bitemporally as of each row's origin unless a scenario declares all-window hypotheticals, which are then part of the candidate hash. No later target revision is ever applied to an earlier row.",
+  "An outcome that depends on account calibration state is emitted as not_determinable_from_frozen_evidence, by action and business, because the frozen package does not carry it.",
+  "Rows blocked first by campaign context or recovery-unverifiability are reported separately and never counted as anchor transitions.",
+  "No revenue, ROAS, profit or lift is derived from a structural eligibility change.",
+  "Whether an owner-supplied anchor is economically CORRECT is an irreducible unknown that no replay can settle.",
+  "No wall-clock time is included, so repeated identical runs are byte-identical."
+ ],
+ "scenarios": [
+  {
+   "scenarioId": "no_anchor_baseline",
+   "kind": "baseline",
+   "inputClass": "observed_frozen_fact",
+   "timeSemantics": "as_of_origin",
+   "candidates": [],
+   "totals": {
+    "selectedHistoricalRows": 15508,
+    "heldHardSignals": 1993,
+    "profileHardActionIneligible": 1872,
+    "campaignContext": 95,
+    "recentRecoveryUnverifiable": 26,
+    "enabledHardActions": 0
+   },
+   "byBusiness": [
+    {
+     "businessId": "6c690fa4-6395-40b5-9755-e99b34d69bc3",
+     "businessName": "Bilsem Zeka",
+     "currency": "TRY",
+     "candidateSupplied": false,
+     "resolvedTargetRevisions": [],
+     "originsWithNoKnowableTargetPack": 0,
+     "byAction": [
+      {
+       "action": "scale",
+       "heldBefore": 5,
+       "eligibleBefore": 0,
+       "eligibleAfter": 0,
+       "blockedAfterTotal": 5,
+       "blockedByEffectiveProfileCode": {},
+       "blockedByEffectiveProfileCodeTotal": 0,
+       "blockedNoCandidate": 0,
+       "blockedNotDeterminable": 0,
+       "notDeterminableReasons": {},
+       "blockedByCampaignContext": 5,
+       "blockedByRecentRecoveryUnverifiable": 0,
+       "blockedByOtherIndependentGate": 0,
+       "codeTransitions": {
+        "campaign_context->campaign_context": 5
+       },
+       "partitionComplete": true
+      },
+      {
+       "action": "cut",
+       "heldBefore": 583,
+       "eligibleBefore": 0,
+       "eligibleAfter": 0,
+       "blockedAfterTotal": 583,
+       "blockedByEffectiveProfileCode": {},
+       "blockedByEffectiveProfileCodeTotal": 0,
+       "blockedNoCandidate": 576,
+       "blockedNotDeterminable": 0,
+       "notDeterminableReasons": {},
+       "blockedByCampaignContext": 7,
+       "blockedByRecentRecoveryUnverifiable": 0,
+       "blockedByOtherIndependentGate": 0,
+       "codeTransitions": {
+        "profile_hard_action_ineligible->no_candidate_supplied": 576,
+        "campaign_context->campaign_context": 7
+       },
+       "partitionComplete": true
+      },
+      {
+       "action": "refresh",
+       "heldBefore": 27,
+       "eligibleBefore": 0,
+       "eligibleAfter": 0,
+       "blockedAfterTotal": 27,
+       "blockedByEffectiveProfileCode": {},
+       "blockedByEffectiveProfileCodeTotal": 0,
+       "blockedNoCandidate": 27,
+       "blockedNotDeterminable": 0,
+       "notDeterminableReasons": {},
+       "blockedByCampaignContext": 0,
+       "blockedByRecentRecoveryUnverifiable": 0,
+       "blockedByOtherIndependentGate": 0,
+       "codeTransitions": {
+        "profile_hard_action_ineligible->no_candidate_supplied": 27
+       },
+       "partitionComplete": true
+      }
+     ],
+     "blockedByIndependentGate": {
+      "campaignContext": 12,
+      "recentRecoveryUnverifiable": 0
+     }
+    },
+    {
+     "businessId": "bc0c6178-7853-4f6f-b026-ef0222a4b9e7",
+     "businessName": "ColorFullWorldsTR",
+     "currency": "USD",
+     "candidateSupplied": false,
+     "resolvedTargetRevisions": [],
+     "originsWithNoKnowableTargetPack": 0,
+     "byAction": [
+      {
+       "action": "scale",
+       "heldBefore": 0,
+       "eligibleBefore": 0,
+       "eligibleAfter": 0,
+       "blockedAfterTotal": 0,
+       "blockedByEffectiveProfileCode": {},
+       "blockedByEffectiveProfileCodeTotal": 0,
+       "blockedNoCandidate": 0,
+       "blockedNotDeterminable": 0,
+       "notDeterminableReasons": {},
+       "blockedByCampaignContext": 0,
+       "blockedByRecentRecoveryUnverifiable": 0,
+       "blockedByOtherIndependentGate": 0,
+       "codeTransitions": {},
+       "partitionComplete": true
+      },
+      {
+       "action": "cut",
+       "heldBefore": 174,
+       "eligibleBefore": 0,
+       "eligibleAfter": 0,
+       "blockedAfterTotal": 174,
+       "blockedByEffectiveProfileCode": {},
+       "blockedByEffectiveProfileCodeTotal": 0,
+       "blockedNoCandidate": 170,
+       "blockedNotDeterminable": 0,
+       "notDeterminableReasons": {},
+       "blockedByCampaignContext": 4,
+       "blockedByRecentRecoveryUnverifiable": 0,
+       "blockedByOtherIndependentGate": 0,
+       "codeTransitions": {
+        "profile_hard_action_ineligible->no_candidate_supplied": 170,
+        "campaign_context->campaign_context": 4
+       },
+       "partitionComplete": true
+      },
+      {
+       "action": "refresh",
+       "heldBefore": 3,
+       "eligibleBefore": 0,
+       "eligibleAfter": 0,
+       "blockedAfterTotal": 3,
+       "blockedByEffectiveProfileCode": {},
+       "blockedByEffectiveProfileCodeTotal": 0,
+       "blockedNoCandidate": 3,
+       "blockedNotDeterminable": 0,
+       "notDeterminableReasons": {},
+       "blockedByCampaignContext": 0,
+       "blockedByRecentRecoveryUnverifiable": 0,
+       "blockedByOtherIndependentGate": 0,
+       "codeTransitions": {
+        "profile_hard_action_ineligible->no_candidate_supplied": 3
+       },
+       "partitionComplete": true
+      }
+     ],
+     "blockedByIndependentGate": {
+      "campaignContext": 4,
+      "recentRecoveryUnverifiable": 0
+     }
+    },
+    {
+     "businessId": "5dbc7147-f051-4681-a4d6-20617170074f",
+     "businessName": "Grandmix",
+     "currency": "USD",
+     "candidateSupplied": false,
+     "resolvedTargetRevisions": [],
+     "originsWithNoKnowableTargetPack": 0,
+     "byAction": [
+      {
+       "action": "scale",
+       "heldBefore": 1,
+       "eligibleBefore": 0,
+       "eligibleAfter": 0,
+       "blockedAfterTotal": 1,
+       "blockedByEffectiveProfileCode": {},
+       "blockedByEffectiveProfileCodeTotal": 0,
+       "blockedNoCandidate": 0,
+       "blockedNotDeterminable": 0,
+       "notDeterminableReasons": {},
+       "blockedByCampaignContext": 1,
+       "blockedByRecentRecoveryUnverifiable": 0,
+       "blockedByOtherIndependentGate": 0,
+       "codeTransitions": {
+        "campaign_context->campaign_context": 1
+       },
+       "partitionComplete": true
+      },
+      {
+       "action": "cut",
+       "heldBefore": 164,
+       "eligibleBefore": 0,
+       "eligibleAfter": 0,
+       "blockedAfterTotal": 164,
+       "blockedByEffectiveProfileCode": {},
+       "blockedByEffectiveProfileCodeTotal": 0,
+       "blockedNoCandidate": 149,
+       "blockedNotDeterminable": 0,
+       "notDeterminableReasons": {},
+       "blockedByCampaignContext": 12,
+       "blockedByRecentRecoveryUnverifiable": 3,
+       "blockedByOtherIndependentGate": 0,
+       "codeTransitions": {
+        "profile_hard_action_ineligible->no_candidate_supplied": 149,
+        "campaign_context->campaign_context": 12,
+        "recent_recovery_unverifiable->recent_recovery_unverifiable": 3
+       },
+       "partitionComplete": true
+      },
+      {
+       "action": "refresh",
+       "heldBefore": 4,
+       "eligibleBefore": 0,
+       "eligibleAfter": 0,
+       "blockedAfterTotal": 4,
+       "blockedByEffectiveProfileCode": {},
+       "blockedByEffectiveProfileCodeTotal": 0,
+       "blockedNoCandidate": 3,
+       "blockedNotDeterminable": 0,
+       "notDeterminableReasons": {},
+       "blockedByCampaignContext": 1,
+       "blockedByRecentRecoveryUnverifiable": 0,
+       "blockedByOtherIndependentGate": 0,
+       "codeTransitions": {
+        "profile_hard_action_ineligible->no_candidate_supplied": 3,
+        "campaign_context->campaign_context": 1
+       },
+       "partitionComplete": true
+      }
+     ],
+     "blockedByIndependentGate": {
+      "campaignContext": 14,
+      "recentRecoveryUnverifiable": 3
+     }
+    },
+    {
+     "businessId": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+     "businessName": "IwaStore",
+     "currency": "USD",
+     "candidateSupplied": false,
+     "resolvedTargetRevisions": [],
+     "originsWithNoKnowableTargetPack": 0,
+     "byAction": [
+      {
+       "action": "scale",
+       "heldBefore": 0,
+       "eligibleBefore": 0,
+       "eligibleAfter": 0,
+       "blockedAfterTotal": 0,
+       "blockedByEffectiveProfileCode": {},
+       "blockedByEffectiveProfileCodeTotal": 0,
+       "blockedNoCandidate": 0,
+       "blockedNotDeterminable": 0,
+       "notDeterminableReasons": {},
+       "blockedByCampaignContext": 0,
+       "blockedByRecentRecoveryUnverifiable": 0,
+       "blockedByOtherIndependentGate": 0,
+       "codeTransitions": {},
+       "partitionComplete": true
+      },
+      {
+       "action": "cut",
+       "heldBefore": 520,
+       "eligibleBefore": 0,
+       "eligibleAfter": 0,
+       "blockedAfterTotal": 520,
+       "blockedByEffectiveProfileCode": {},
+       "blockedByEffectiveProfileCodeTotal": 0,
+       "blockedNoCandidate": 497,
+       "blockedNotDeterminable": 0,
+       "notDeterminableReasons": {},
+       "blockedByCampaignContext": 16,
+       "blockedByRecentRecoveryUnverifiable": 7,
+       "blockedByOtherIndependentGate": 0,
+       "codeTransitions": {
+        "profile_hard_action_ineligible->no_candidate_supplied": 497,
+        "campaign_context->campaign_context": 16,
+        "recent_recovery_unverifiable->recent_recovery_unverifiable": 7
+       },
+       "partitionComplete": true
+      },
+      {
+       "action": "refresh",
+       "heldBefore": 14,
+       "eligibleBefore": 0,
+       "eligibleAfter": 0,
+       "blockedAfterTotal": 14,
+       "blockedByEffectiveProfileCode": {},
+       "blockedByEffectiveProfileCodeTotal": 0,
+       "blockedNoCandidate": 14,
+       "blockedNotDeterminable": 0,
+       "notDeterminableReasons": {},
+       "blockedByCampaignContext": 0,
+       "blockedByRecentRecoveryUnverifiable": 0,
+       "blockedByOtherIndependentGate": 0,
+       "codeTransitions": {
+        "profile_hard_action_ineligible->no_candidate_supplied": 14
+       },
+       "partitionComplete": true
+      }
+     ],
+     "blockedByIndependentGate": {
+      "campaignContext": 16,
+      "recentRecoveryUnverifiable": 7
+     }
+    },
+    {
+     "businessId": "b79683b4-6f87-48c0-a3ca-44d4356fef51",
+     "businessName": "IwaTR",
+     "currency": "USD",
+     "candidateSupplied": false,
+     "resolvedTargetRevisions": [],
+     "originsWithNoKnowableTargetPack": 0,
+     "byAction": [
+      {
+       "action": "scale",
+       "heldBefore": 0,
+       "eligibleBefore": 0,
+       "eligibleAfter": 0,
+       "blockedAfterTotal": 0,
+       "blockedByEffectiveProfileCode": {},
+       "blockedByEffectiveProfileCodeTotal": 0,
+       "blockedNoCandidate": 0,
+       "blockedNotDeterminable": 0,
+       "notDeterminableReasons": {},
+       "blockedByCampaignContext": 0,
+       "blockedByRecentRecoveryUnverifiable": 0,
+       "blockedByOtherIndependentGate": 0,
+       "codeTransitions": {},
+       "partitionComplete": true
+      },
+      {
+       "action": "cut",
+       "heldBefore": 282,
+       "eligibleBefore": 0,
+       "eligibleAfter": 0,
+       "blockedAfterTotal": 282,
+       "blockedByEffectiveProfileCode": {},
+       "blockedByEffectiveProfileCodeTotal": 0,
+       "blockedNoCandidate": 282,
+       "blockedNotDeterminable": 0,
+       "notDeterminableReasons": {},
+       "blockedByCampaignContext": 0,
+       "blockedByRecentRecoveryUnverifiable": 0,
+       "blockedByOtherIndependentGate": 0,
+       "codeTransitions": {
+        "profile_hard_action_ineligible->no_candidate_supplied": 282
+       },
+       "partitionComplete": true
+      },
+      {
+       "action": "refresh",
+       "heldBefore": 9,
+       "eligibleBefore": 0,
+       "eligibleAfter": 0,
+       "blockedAfterTotal": 9,
+       "blockedByEffectiveProfileCode": {},
+       "blockedByEffectiveProfileCodeTotal": 0,
+       "blockedNoCandidate": 9,
+       "blockedNotDeterminable": 0,
+       "notDeterminableReasons": {},
+       "blockedByCampaignContext": 0,
+       "blockedByRecentRecoveryUnverifiable": 0,
+       "blockedByOtherIndependentGate": 0,
+       "codeTransitions": {
+        "profile_hard_action_ineligible->no_candidate_supplied": 9
+       },
+       "partitionComplete": true
+      }
+     ],
+     "blockedByIndependentGate": {
+      "campaignContext": 0,
+      "recentRecoveryUnverifiable": 0
+     }
+    },
+    {
+     "businessId": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+     "businessName": "TheSwaf",
+     "currency": "USD",
+     "candidateSupplied": false,
+     "resolvedTargetRevisions": [],
+     "originsWithNoKnowableTargetPack": 0,
+     "byAction": [
+      {
+       "action": "scale",
+       "heldBefore": 2,
+       "eligibleBefore": 0,
+       "eligibleAfter": 0,
+       "blockedAfterTotal": 2,
+       "blockedByEffectiveProfileCode": {},
+       "blockedByEffectiveProfileCodeTotal": 0,
+       "blockedNoCandidate": 0,
+       "blockedNotDeterminable": 0,
+       "notDeterminableReasons": {},
+       "blockedByCampaignContext": 2,
+       "blockedByRecentRecoveryUnverifiable": 0,
+       "blockedByOtherIndependentGate": 0,
+       "codeTransitions": {
+        "campaign_context->campaign_context": 2
+       },
+       "partitionComplete": true
+      },
+      {
+       "action": "cut",
+       "heldBefore": 202,
+       "eligibleBefore": 0,
+       "eligibleAfter": 0,
+       "blockedAfterTotal": 202,
+       "blockedByEffectiveProfileCode": {},
+       "blockedByEffectiveProfileCodeTotal": 0,
+       "blockedNoCandidate": 139,
+       "blockedNotDeterminable": 0,
+       "notDeterminableReasons": {},
+       "blockedByCampaignContext": 47,
+       "blockedByRecentRecoveryUnverifiable": 16,
+       "blockedByOtherIndependentGate": 0,
+       "codeTransitions": {
+        "profile_hard_action_ineligible->no_candidate_supplied": 139,
+        "campaign_context->campaign_context": 47,
+        "recent_recovery_unverifiable->recent_recovery_unverifiable": 16
+       },
+       "partitionComplete": true
+      },
+      {
+       "action": "refresh",
+       "heldBefore": 3,
+       "eligibleBefore": 0,
+       "eligibleAfter": 0,
+       "blockedAfterTotal": 3,
+       "blockedByEffectiveProfileCode": {},
+       "blockedByEffectiveProfileCodeTotal": 0,
+       "blockedNoCandidate": 3,
+       "blockedNotDeterminable": 0,
+       "notDeterminableReasons": {},
+       "blockedByCampaignContext": 0,
+       "blockedByRecentRecoveryUnverifiable": 0,
+       "blockedByOtherIndependentGate": 0,
+       "codeTransitions": {
+        "profile_hard_action_ineligible->no_candidate_supplied": 3
+       },
+       "partitionComplete": true
+      }
+     ],
+     "blockedByIndependentGate": {
+      "campaignContext": 49,
+      "recentRecoveryUnverifiable": 16
+     }
+    }
+   ],
+   "totalsByAction": [
+    {
+     "action": "scale",
+     "heldBefore": 8,
+     "eligibleBefore": 0,
+     "eligibleAfter": 0,
+     "blockedAfterTotal": 8,
+     "blockedByEffectiveProfileCode": {},
+     "blockedByEffectiveProfileCodeTotal": 0,
+     "blockedNoCandidate": 0,
+     "blockedNotDeterminable": 0,
+     "notDeterminableReasons": {},
+     "blockedByCampaignContext": 8,
+     "blockedByRecentRecoveryUnverifiable": 0,
+     "blockedByOtherIndependentGate": 0,
+     "codeTransitions": {
+      "campaign_context->campaign_context": 8
+     },
+     "partitionComplete": true
+    },
+    {
+     "action": "cut",
+     "heldBefore": 1925,
+     "eligibleBefore": 0,
+     "eligibleAfter": 0,
+     "blockedAfterTotal": 1925,
+     "blockedByEffectiveProfileCode": {},
+     "blockedByEffectiveProfileCodeTotal": 0,
+     "blockedNoCandidate": 1813,
+     "blockedNotDeterminable": 0,
+     "notDeterminableReasons": {},
+     "blockedByCampaignContext": 86,
+     "blockedByRecentRecoveryUnverifiable": 26,
+     "blockedByOtherIndependentGate": 0,
+     "codeTransitions": {
+      "profile_hard_action_ineligible->no_candidate_supplied": 1813,
+      "campaign_context->campaign_context": 86,
+      "recent_recovery_unverifiable->recent_recovery_unverifiable": 26
+     },
+     "partitionComplete": true
+    },
+    {
+     "action": "refresh",
+     "heldBefore": 60,
+     "eligibleBefore": 0,
+     "eligibleAfter": 0,
+     "blockedAfterTotal": 60,
+     "blockedByEffectiveProfileCode": {},
+     "blockedByEffectiveProfileCodeTotal": 0,
+     "blockedNoCandidate": 59,
+     "blockedNotDeterminable": 0,
+     "notDeterminableReasons": {},
+     "blockedByCampaignContext": 1,
+     "blockedByRecentRecoveryUnverifiable": 0,
+     "blockedByOtherIndependentGate": 0,
+     "codeTransitions": {
+      "profile_hard_action_ineligible->no_candidate_supplied": 59,
+      "campaign_context->campaign_context": 1
+     },
+     "partitionComplete": true
+    }
+   ],
+   "eligibleAfterTotal": 0,
+   "blockedAfterTotal": 1993,
+   "partitionComplete": true,
+   "notes": [
+    "Every held row is recomputed for ITS OWN action. Clearing the common commercial threshold does not make a held Cut eligible; Cut additionally needs a break-even ROAS and Scale a Target ROAS plus a calibration sample.",
+    "Target and break-even ROAS are resolved bitemporally as of each row's origin (effectiveAt AND recordedAt at or before the origin's 03:00Z cutoff). No later revision is applied to an earlier row.",
+    "Rows whose first persisted blocker was campaign context or recovery-unverifiability are reported separately and are never counted as anchor transitions: the frozen package does not record what the threshold gate would have said for them.",
+    "A row's persisted blocker is `profile_hard_action_ineligible`, a first-blocker FAMILY that also covers scale calibration. This tool never restates it as a specific anchor sub-cause; only the AFTER state carries a canonical code.",
+    "Every action row partitions completely: heldBefore = eligibleAfter + blockedByEffectiveProfileCodeTotal + blockedNoCandidate + blockedNotDeterminable + blockedByCampaignContext + blockedByRecentRecoveryUnverifiable + blockedByOtherIndependentGate. `blockedAfterTotal` is heldBefore - eligibleAfter; no narrower bucket may be read as the blocked population."
+   ]
+  },
+  {
+   "scenarioId": "declared_candidate_anchors__as_of_origin",
+   "kind": "candidate",
+   "inputClass": "declared_candidate",
+   "timeSemantics": "as_of_origin",
+   "candidates": [
+    {
+     "businessId": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+     "currency": "USD",
+     "sourceLabel": "ILLUSTRATIVE_NOT_AN_APPROVED_TARGET",
+     "targetCpa": 25
+    },
+    {
+     "businessId": "5dbc7147-f051-4681-a4d6-20617170074f",
+     "currency": "USD",
+     "sourceLabel": "ILLUSTRATIVE_NOT_AN_APPROVED_TARGET",
+     "operatorAovAssumption": 90
+    },
+    {
+     "businessId": "6c690fa4-6395-40b5-9755-e99b34d69bc3",
+     "currency": "TRY",
+     "sourceLabel": "ILLUSTRATIVE_NOT_AN_APPROVED_TARGET",
+     "targetCpa": 400
+    },
+    {
+     "businessId": "b79683b4-6f87-48c0-a3ca-44d4356fef51",
+     "currency": "USD",
+     "sourceLabel": "ILLUSTRATIVE_NOT_AN_APPROVED_TARGET",
+     "targetCpa": 30
+    }
+   ],
+   "totals": {
+    "selectedHistoricalRows": 15508,
+    "heldHardSignals": 1993,
+    "profileHardActionIneligible": 1872,
+    "campaignContext": 95,
+    "recentRecoveryUnverifiable": 26,
+    "enabledHardActions": 0
+   },
+   "byBusiness": [
+    {
+     "businessId": "6c690fa4-6395-40b5-9755-e99b34d69bc3",
+     "businessName": "Bilsem Zeka",
+     "currency": "TRY",
+     "candidateSupplied": true,
+     "resolvedTargetRevisions": [],
+     "originsWithNoKnowableTargetPack": 603,
+     "byAction": [
+      {
+       "action": "scale",
+       "heldBefore": 5,
+       "eligibleBefore": 0,
+       "eligibleAfter": 0,
+       "blockedAfterTotal": 5,
+       "blockedByEffectiveProfileCode": {},
+       "blockedByEffectiveProfileCodeTotal": 0,
+       "blockedNoCandidate": 0,
+       "blockedNotDeterminable": 0,
+       "notDeterminableReasons": {},
+       "blockedByCampaignContext": 5,
+       "blockedByRecentRecoveryUnverifiable": 0,
+       "blockedByOtherIndependentGate": 0,
+       "codeTransitions": {
+        "campaign_context->campaign_context": 5
+       },
+       "partitionComplete": true
+      },
+      {
+       "action": "cut",
+       "heldBefore": 583,
+       "eligibleBefore": 0,
+       "eligibleAfter": 0,
+       "blockedAfterTotal": 583,
+       "blockedByEffectiveProfileCode": {
+        "break_even_roas_missing": 576
+       },
+       "blockedByEffectiveProfileCodeTotal": 576,
+       "blockedNoCandidate": 0,
+       "blockedNotDeterminable": 0,
+       "notDeterminableReasons": {},
+       "blockedByCampaignContext": 7,
+       "blockedByRecentRecoveryUnverifiable": 0,
+       "blockedByOtherIndependentGate": 0,
+       "codeTransitions": {
+        "profile_hard_action_ineligible->break_even_roas_missing": 576,
+        "campaign_context->campaign_context": 7
+       },
+       "partitionComplete": true
+      },
+      {
+       "action": "refresh",
+       "heldBefore": 27,
+       "eligibleBefore": 0,
+       "eligibleAfter": 27,
+       "blockedAfterTotal": 0,
+       "blockedByEffectiveProfileCode": {},
+       "blockedByEffectiveProfileCodeTotal": 0,
+       "blockedNoCandidate": 0,
+       "blockedNotDeterminable": 0,
+       "notDeterminableReasons": {},
+       "blockedByCampaignContext": 0,
+       "blockedByRecentRecoveryUnverifiable": 0,
+       "blockedByOtherIndependentGate": 0,
+       "codeTransitions": {
+        "profile_hard_action_ineligible->eligible": 27
+       },
+       "partitionComplete": true
+      }
+     ],
+     "blockedByIndependentGate": {
+      "campaignContext": 12,
+      "recentRecoveryUnverifiable": 0
+     }
+    },
+    {
+     "businessId": "bc0c6178-7853-4f6f-b026-ef0222a4b9e7",
+     "businessName": "ColorFullWorldsTR",
+     "currency": "USD",
+     "candidateSupplied": false,
+     "resolvedTargetRevisions": [],
+     "originsWithNoKnowableTargetPack": 0,
+     "byAction": [
+      {
+       "action": "scale",
+       "heldBefore": 0,
+       "eligibleBefore": 0,
+       "eligibleAfter": 0,
+       "blockedAfterTotal": 0,
+       "blockedByEffectiveProfileCode": {},
+       "blockedByEffectiveProfileCodeTotal": 0,
+       "blockedNoCandidate": 0,
+       "blockedNotDeterminable": 0,
+       "notDeterminableReasons": {},
+       "blockedByCampaignContext": 0,
+       "blockedByRecentRecoveryUnverifiable": 0,
+       "blockedByOtherIndependentGate": 0,
+       "codeTransitions": {},
+       "partitionComplete": true
+      },
+      {
+       "action": "cut",
+       "heldBefore": 174,
+       "eligibleBefore": 0,
+       "eligibleAfter": 0,
+       "blockedAfterTotal": 174,
+       "blockedByEffectiveProfileCode": {},
+       "blockedByEffectiveProfileCodeTotal": 0,
+       "blockedNoCandidate": 170,
+       "blockedNotDeterminable": 0,
+       "notDeterminableReasons": {},
+       "blockedByCampaignContext": 4,
+       "blockedByRecentRecoveryUnverifiable": 0,
+       "blockedByOtherIndependentGate": 0,
+       "codeTransitions": {
+        "profile_hard_action_ineligible->no_candidate_supplied": 170,
+        "campaign_context->campaign_context": 4
+       },
+       "partitionComplete": true
+      },
+      {
+       "action": "refresh",
+       "heldBefore": 3,
+       "eligibleBefore": 0,
+       "eligibleAfter": 0,
+       "blockedAfterTotal": 3,
+       "blockedByEffectiveProfileCode": {},
+       "blockedByEffectiveProfileCodeTotal": 0,
+       "blockedNoCandidate": 3,
+       "blockedNotDeterminable": 0,
+       "notDeterminableReasons": {},
+       "blockedByCampaignContext": 0,
+       "blockedByRecentRecoveryUnverifiable": 0,
+       "blockedByOtherIndependentGate": 0,
+       "codeTransitions": {
+        "profile_hard_action_ineligible->no_candidate_supplied": 3
+       },
+       "partitionComplete": true
+      }
+     ],
+     "blockedByIndependentGate": {
+      "campaignContext": 4,
+      "recentRecoveryUnverifiable": 0
+     }
+    },
+    {
+     "businessId": "5dbc7147-f051-4681-a4d6-20617170074f",
+     "businessName": "Grandmix",
+     "currency": "USD",
+     "candidateSupplied": true,
+     "resolvedTargetRevisions": [],
+     "originsWithNoKnowableTargetPack": 152,
+     "byAction": [
+      {
+       "action": "scale",
+       "heldBefore": 1,
+       "eligibleBefore": 0,
+       "eligibleAfter": 0,
+       "blockedAfterTotal": 1,
+       "blockedByEffectiveProfileCode": {},
+       "blockedByEffectiveProfileCodeTotal": 0,
+       "blockedNoCandidate": 0,
+       "blockedNotDeterminable": 0,
+       "notDeterminableReasons": {},
+       "blockedByCampaignContext": 1,
+       "blockedByRecentRecoveryUnverifiable": 0,
+       "blockedByOtherIndependentGate": 0,
+       "codeTransitions": {
+        "campaign_context->campaign_context": 1
+       },
+       "partitionComplete": true
+      },
+      {
+       "action": "cut",
+       "heldBefore": 164,
+       "eligibleBefore": 0,
+       "eligibleAfter": 0,
+       "blockedAfterTotal": 164,
+       "blockedByEffectiveProfileCode": {
+        "commercial_anchor_missing": 149
+       },
+       "blockedByEffectiveProfileCodeTotal": 149,
+       "blockedNoCandidate": 0,
+       "blockedNotDeterminable": 0,
+       "notDeterminableReasons": {},
+       "blockedByCampaignContext": 12,
+       "blockedByRecentRecoveryUnverifiable": 3,
+       "blockedByOtherIndependentGate": 0,
+       "codeTransitions": {
+        "profile_hard_action_ineligible->commercial_anchor_missing": 149,
+        "campaign_context->campaign_context": 12,
+        "recent_recovery_unverifiable->recent_recovery_unverifiable": 3
+       },
+       "partitionComplete": true
+      },
+      {
+       "action": "refresh",
+       "heldBefore": 4,
+       "eligibleBefore": 0,
+       "eligibleAfter": 0,
+       "blockedAfterTotal": 4,
+       "blockedByEffectiveProfileCode": {
+        "commercial_anchor_missing": 3
+       },
+       "blockedByEffectiveProfileCodeTotal": 3,
+       "blockedNoCandidate": 0,
+       "blockedNotDeterminable": 0,
+       "notDeterminableReasons": {},
+       "blockedByCampaignContext": 1,
+       "blockedByRecentRecoveryUnverifiable": 0,
+       "blockedByOtherIndependentGate": 0,
+       "codeTransitions": {
+        "profile_hard_action_ineligible->commercial_anchor_missing": 3,
+        "campaign_context->campaign_context": 1
+       },
+       "partitionComplete": true
+      }
+     ],
+     "blockedByIndependentGate": {
+      "campaignContext": 14,
+      "recentRecoveryUnverifiable": 3
+     }
+    },
+    {
+     "businessId": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+     "businessName": "IwaStore",
+     "currency": "USD",
+     "candidateSupplied": true,
+     "resolvedTargetRevisions": [],
+     "originsWithNoKnowableTargetPack": 511,
+     "byAction": [
+      {
+       "action": "scale",
+       "heldBefore": 0,
+       "eligibleBefore": 0,
+       "eligibleAfter": 0,
+       "blockedAfterTotal": 0,
+       "blockedByEffectiveProfileCode": {},
+       "blockedByEffectiveProfileCodeTotal": 0,
+       "blockedNoCandidate": 0,
+       "blockedNotDeterminable": 0,
+       "notDeterminableReasons": {},
+       "blockedByCampaignContext": 0,
+       "blockedByRecentRecoveryUnverifiable": 0,
+       "blockedByOtherIndependentGate": 0,
+       "codeTransitions": {},
+       "partitionComplete": true
+      },
+      {
+       "action": "cut",
+       "heldBefore": 520,
+       "eligibleBefore": 0,
+       "eligibleAfter": 0,
+       "blockedAfterTotal": 520,
+       "blockedByEffectiveProfileCode": {
+        "break_even_roas_missing": 497
+       },
+       "blockedByEffectiveProfileCodeTotal": 497,
+       "blockedNoCandidate": 0,
+       "blockedNotDeterminable": 0,
+       "notDeterminableReasons": {},
+       "blockedByCampaignContext": 16,
+       "blockedByRecentRecoveryUnverifiable": 7,
+       "blockedByOtherIndependentGate": 0,
+       "codeTransitions": {
+        "profile_hard_action_ineligible->break_even_roas_missing": 497,
+        "campaign_context->campaign_context": 16,
+        "recent_recovery_unverifiable->recent_recovery_unverifiable": 7
+       },
+       "partitionComplete": true
+      },
+      {
+       "action": "refresh",
+       "heldBefore": 14,
+       "eligibleBefore": 0,
+       "eligibleAfter": 14,
+       "blockedAfterTotal": 0,
+       "blockedByEffectiveProfileCode": {},
+       "blockedByEffectiveProfileCodeTotal": 0,
+       "blockedNoCandidate": 0,
+       "blockedNotDeterminable": 0,
+       "notDeterminableReasons": {},
+       "blockedByCampaignContext": 0,
+       "blockedByRecentRecoveryUnverifiable": 0,
+       "blockedByOtherIndependentGate": 0,
+       "codeTransitions": {
+        "profile_hard_action_ineligible->eligible": 14
+       },
+       "partitionComplete": true
+      }
+     ],
+     "blockedByIndependentGate": {
+      "campaignContext": 16,
+      "recentRecoveryUnverifiable": 7
+     }
+    },
+    {
+     "businessId": "b79683b4-6f87-48c0-a3ca-44d4356fef51",
+     "businessName": "IwaTR",
+     "currency": "USD",
+     "candidateSupplied": true,
+     "resolvedTargetRevisions": [],
+     "originsWithNoKnowableTargetPack": 291,
+     "byAction": [
+      {
+       "action": "scale",
+       "heldBefore": 0,
+       "eligibleBefore": 0,
+       "eligibleAfter": 0,
+       "blockedAfterTotal": 0,
+       "blockedByEffectiveProfileCode": {},
+       "blockedByEffectiveProfileCodeTotal": 0,
+       "blockedNoCandidate": 0,
+       "blockedNotDeterminable": 0,
+       "notDeterminableReasons": {},
+       "blockedByCampaignContext": 0,
+       "blockedByRecentRecoveryUnverifiable": 0,
+       "blockedByOtherIndependentGate": 0,
+       "codeTransitions": {},
+       "partitionComplete": true
+      },
+      {
+       "action": "cut",
+       "heldBefore": 282,
+       "eligibleBefore": 0,
+       "eligibleAfter": 0,
+       "blockedAfterTotal": 282,
+       "blockedByEffectiveProfileCode": {
+        "break_even_roas_missing": 282
+       },
+       "blockedByEffectiveProfileCodeTotal": 282,
+       "blockedNoCandidate": 0,
+       "blockedNotDeterminable": 0,
+       "notDeterminableReasons": {},
+       "blockedByCampaignContext": 0,
+       "blockedByRecentRecoveryUnverifiable": 0,
+       "blockedByOtherIndependentGate": 0,
+       "codeTransitions": {
+        "profile_hard_action_ineligible->break_even_roas_missing": 282
+       },
+       "partitionComplete": true
+      },
+      {
+       "action": "refresh",
+       "heldBefore": 9,
+       "eligibleBefore": 0,
+       "eligibleAfter": 9,
+       "blockedAfterTotal": 0,
+       "blockedByEffectiveProfileCode": {},
+       "blockedByEffectiveProfileCodeTotal": 0,
+       "blockedNoCandidate": 0,
+       "blockedNotDeterminable": 0,
+       "notDeterminableReasons": {},
+       "blockedByCampaignContext": 0,
+       "blockedByRecentRecoveryUnverifiable": 0,
+       "blockedByOtherIndependentGate": 0,
+       "codeTransitions": {
+        "profile_hard_action_ineligible->eligible": 9
+       },
+       "partitionComplete": true
+      }
+     ],
+     "blockedByIndependentGate": {
+      "campaignContext": 0,
+      "recentRecoveryUnverifiable": 0
+     }
+    },
+    {
+     "businessId": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+     "businessName": "TheSwaf",
+     "currency": "USD",
+     "candidateSupplied": false,
+     "resolvedTargetRevisions": [],
+     "originsWithNoKnowableTargetPack": 0,
+     "byAction": [
+      {
+       "action": "scale",
+       "heldBefore": 2,
+       "eligibleBefore": 0,
+       "eligibleAfter": 0,
+       "blockedAfterTotal": 2,
+       "blockedByEffectiveProfileCode": {},
+       "blockedByEffectiveProfileCodeTotal": 0,
+       "blockedNoCandidate": 0,
+       "blockedNotDeterminable": 0,
+       "notDeterminableReasons": {},
+       "blockedByCampaignContext": 2,
+       "blockedByRecentRecoveryUnverifiable": 0,
+       "blockedByOtherIndependentGate": 0,
+       "codeTransitions": {
+        "campaign_context->campaign_context": 2
+       },
+       "partitionComplete": true
+      },
+      {
+       "action": "cut",
+       "heldBefore": 202,
+       "eligibleBefore": 0,
+       "eligibleAfter": 0,
+       "blockedAfterTotal": 202,
+       "blockedByEffectiveProfileCode": {},
+       "blockedByEffectiveProfileCodeTotal": 0,
+       "blockedNoCandidate": 139,
+       "blockedNotDeterminable": 0,
+       "notDeterminableReasons": {},
+       "blockedByCampaignContext": 47,
+       "blockedByRecentRecoveryUnverifiable": 16,
+       "blockedByOtherIndependentGate": 0,
+       "codeTransitions": {
+        "profile_hard_action_ineligible->no_candidate_supplied": 139,
+        "campaign_context->campaign_context": 47,
+        "recent_recovery_unverifiable->recent_recovery_unverifiable": 16
+       },
+       "partitionComplete": true
+      },
+      {
+       "action": "refresh",
+       "heldBefore": 3,
+       "eligibleBefore": 0,
+       "eligibleAfter": 0,
+       "blockedAfterTotal": 3,
+       "blockedByEffectiveProfileCode": {},
+       "blockedByEffectiveProfileCodeTotal": 0,
+       "blockedNoCandidate": 3,
+       "blockedNotDeterminable": 0,
+       "notDeterminableReasons": {},
+       "blockedByCampaignContext": 0,
+       "blockedByRecentRecoveryUnverifiable": 0,
+       "blockedByOtherIndependentGate": 0,
+       "codeTransitions": {
+        "profile_hard_action_ineligible->no_candidate_supplied": 3
+       },
+       "partitionComplete": true
+      }
+     ],
+     "blockedByIndependentGate": {
+      "campaignContext": 49,
+      "recentRecoveryUnverifiable": 16
+     }
+    }
+   ],
+   "totalsByAction": [
+    {
+     "action": "scale",
+     "heldBefore": 8,
+     "eligibleBefore": 0,
+     "eligibleAfter": 0,
+     "blockedAfterTotal": 8,
+     "blockedByEffectiveProfileCode": {},
+     "blockedByEffectiveProfileCodeTotal": 0,
+     "blockedNoCandidate": 0,
+     "blockedNotDeterminable": 0,
+     "notDeterminableReasons": {},
+     "blockedByCampaignContext": 8,
+     "blockedByRecentRecoveryUnverifiable": 0,
+     "blockedByOtherIndependentGate": 0,
+     "codeTransitions": {
+      "campaign_context->campaign_context": 8
+     },
+     "partitionComplete": true
+    },
+    {
+     "action": "cut",
+     "heldBefore": 1925,
+     "eligibleBefore": 0,
+     "eligibleAfter": 0,
+     "blockedAfterTotal": 1925,
+     "blockedByEffectiveProfileCode": {
+      "break_even_roas_missing": 1355,
+      "commercial_anchor_missing": 149
+     },
+     "blockedByEffectiveProfileCodeTotal": 1504,
+     "blockedNoCandidate": 309,
+     "blockedNotDeterminable": 0,
+     "notDeterminableReasons": {},
+     "blockedByCampaignContext": 86,
+     "blockedByRecentRecoveryUnverifiable": 26,
+     "blockedByOtherIndependentGate": 0,
+     "codeTransitions": {
+      "profile_hard_action_ineligible->break_even_roas_missing": 1355,
+      "campaign_context->campaign_context": 86,
+      "profile_hard_action_ineligible->no_candidate_supplied": 309,
+      "profile_hard_action_ineligible->commercial_anchor_missing": 149,
+      "recent_recovery_unverifiable->recent_recovery_unverifiable": 26
+     },
+     "partitionComplete": true
+    },
+    {
+     "action": "refresh",
+     "heldBefore": 60,
+     "eligibleBefore": 0,
+     "eligibleAfter": 50,
+     "blockedAfterTotal": 10,
+     "blockedByEffectiveProfileCode": {
+      "commercial_anchor_missing": 3
+     },
+     "blockedByEffectiveProfileCodeTotal": 3,
+     "blockedNoCandidate": 6,
+     "blockedNotDeterminable": 0,
+     "notDeterminableReasons": {},
+     "blockedByCampaignContext": 1,
+     "blockedByRecentRecoveryUnverifiable": 0,
+     "blockedByOtherIndependentGate": 0,
+     "codeTransitions": {
+      "profile_hard_action_ineligible->eligible": 50,
+      "profile_hard_action_ineligible->no_candidate_supplied": 6,
+      "profile_hard_action_ineligible->commercial_anchor_missing": 3,
+      "campaign_context->campaign_context": 1
+     },
+     "partitionComplete": true
+    }
+   ],
+   "eligibleAfterTotal": 50,
+   "blockedAfterTotal": 1943,
+   "partitionComplete": true,
+   "notes": [
+    "Every held row is recomputed for ITS OWN action. Clearing the common commercial threshold does not make a held Cut eligible; Cut additionally needs a break-even ROAS and Scale a Target ROAS plus a calibration sample.",
+    "Target and break-even ROAS are resolved bitemporally as of each row's origin (effectiveAt AND recordedAt at or before the origin's 03:00Z cutoff). No later revision is applied to an earlier row.",
+    "Rows whose first persisted blocker was campaign context or recovery-unverifiability are reported separately and are never counted as anchor transitions: the frozen package does not record what the threshold gate would have said for them.",
+    "A row's persisted blocker is `profile_hard_action_ineligible`, a first-blocker FAMILY that also covers scale calibration. This tool never restates it as a specific anchor sub-cause; only the AFTER state carries a canonical code.",
+    "Every action row partitions completely: heldBefore = eligibleAfter + blockedByEffectiveProfileCodeTotal + blockedNoCandidate + blockedNotDeterminable + blockedByCampaignContext + blockedByRecentRecoveryUnverifiable + blockedByOtherIndependentGate. `blockedAfterTotal` is heldBefore - eligibleAfter; no narrower bucket may be read as the blocked population."
+   ]
+  },
+  {
+   "scenarioId": "sensitivity_x0.5__as_of_origin",
+   "kind": "sensitivity",
+   "inputClass": "illustrative_sensitivity_input",
+   "timeSemantics": "as_of_origin",
+   "candidates": [
+    {
+     "businessId": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+     "currency": "USD",
+     "sourceLabel": "ILLUSTRATIVE_NOT_AN_APPROVED_TARGET__illustrative_x0.5",
+     "targetCpa": 12.5
+    },
+    {
+     "businessId": "5dbc7147-f051-4681-a4d6-20617170074f",
+     "currency": "USD",
+     "sourceLabel": "ILLUSTRATIVE_NOT_AN_APPROVED_TARGET__illustrative_x0.5",
+     "operatorAovAssumption": 45
+    },
+    {
+     "businessId": "6c690fa4-6395-40b5-9755-e99b34d69bc3",
+     "currency": "TRY",
+     "sourceLabel": "ILLUSTRATIVE_NOT_AN_APPROVED_TARGET__illustrative_x0.5",
+     "targetCpa": 200
+    },
+    {
+     "businessId": "b79683b4-6f87-48c0-a3ca-44d4356fef51",
+     "currency": "USD",
+     "sourceLabel": "ILLUSTRATIVE_NOT_AN_APPROVED_TARGET__illustrative_x0.5",
+     "targetCpa": 15
+    }
+   ],
+   "totals": {
+    "selectedHistoricalRows": 15508,
+    "heldHardSignals": 1993,
+    "profileHardActionIneligible": 1872,
+    "campaignContext": 95,
+    "recentRecoveryUnverifiable": 26,
+    "enabledHardActions": 0
+   },
+   "byBusiness": [
+    {
+     "businessId": "6c690fa4-6395-40b5-9755-e99b34d69bc3",
+     "businessName": "Bilsem Zeka",
+     "currency": "TRY",
+     "candidateSupplied": true,
+     "resolvedTargetRevisions": [],
+     "originsWithNoKnowableTargetPack": 603,
+     "byAction": [
+      {
+       "action": "scale",
+       "heldBefore": 5,
+       "eligibleBefore": 0,
+       "eligibleAfter": 0,
+       "blockedAfterTotal": 5,
+       "blockedByEffectiveProfileCode": {},
+       "blockedByEffectiveProfileCodeTotal": 0,
+       "blockedNoCandidate": 0,
+       "blockedNotDeterminable": 0,
+       "notDeterminableReasons": {},
+       "blockedByCampaignContext": 5,
+       "blockedByRecentRecoveryUnverifiable": 0,
+       "blockedByOtherIndependentGate": 0,
+       "codeTransitions": {
+        "campaign_context->campaign_context": 5
+       },
+       "partitionComplete": true
+      },
+      {
+       "action": "cut",
+       "heldBefore": 583,
+       "eligibleBefore": 0,
+       "eligibleAfter": 0,
+       "blockedAfterTotal": 583,
+       "blockedByEffectiveProfileCode": {
+        "break_even_roas_missing": 576
+       },
+       "blockedByEffectiveProfileCodeTotal": 576,
+       "blockedNoCandidate": 0,
+       "blockedNotDeterminable": 0,
+       "notDeterminableReasons": {},
+       "blockedByCampaignContext": 7,
+       "blockedByRecentRecoveryUnverifiable": 0,
+       "blockedByOtherIndependentGate": 0,
+       "codeTransitions": {
+        "profile_hard_action_ineligible->break_even_roas_missing": 576,
+        "campaign_context->campaign_context": 7
+       },
+       "partitionComplete": true
+      },
+      {
+       "action": "refresh",
+       "heldBefore": 27,
+       "eligibleBefore": 0,
+       "eligibleAfter": 27,
+       "blockedAfterTotal": 0,
+       "blockedByEffectiveProfileCode": {},
+       "blockedByEffectiveProfileCodeTotal": 0,
+       "blockedNoCandidate": 0,
+       "blockedNotDeterminable": 0,
+       "notDeterminableReasons": {},
+       "blockedByCampaignContext": 0,
+       "blockedByRecentRecoveryUnverifiable": 0,
+       "blockedByOtherIndependentGate": 0,
+       "codeTransitions": {
+        "profile_hard_action_ineligible->eligible": 27
+       },
+       "partitionComplete": true
+      }
+     ],
+     "blockedByIndependentGate": {
+      "campaignContext": 12,
+      "recentRecoveryUnverifiable": 0
+     }
+    },
+    {
+     "businessId": "bc0c6178-7853-4f6f-b026-ef0222a4b9e7",
+     "businessName": "ColorFullWorldsTR",
+     "currency": "USD",
+     "candidateSupplied": false,
+     "resolvedTargetRevisions": [],
+     "originsWithNoKnowableTargetPack": 0,
+     "byAction": [
+      {
+       "action": "scale",
+       "heldBefore": 0,
+       "eligibleBefore": 0,
+       "eligibleAfter": 0,
+       "blockedAfterTotal": 0,
+       "blockedByEffectiveProfileCode": {},
+       "blockedByEffectiveProfileCodeTotal": 0,
+       "blockedNoCandidate": 0,
+       "blockedNotDeterminable": 0,
+       "notDeterminableReasons": {},
+       "blockedByCampaignContext": 0,
+       "blockedByRecentRecoveryUnverifiable": 0,
+       "blockedByOtherIndependentGate": 0,
+       "codeTransitions": {},
+       "partitionComplete": true
+      },
+      {
+       "action": "cut",
+       "heldBefore": 174,
+       "eligibleBefore": 0,
+       "eligibleAfter": 0,
+       "blockedAfterTotal": 174,
+       "blockedByEffectiveProfileCode": {},
+       "blockedByEffectiveProfileCodeTotal": 0,
+       "blockedNoCandidate": 170,
+       "blockedNotDeterminable": 0,
+       "notDeterminableReasons": {},
+       "blockedByCampaignContext": 4,
+       "blockedByRecentRecoveryUnverifiable": 0,
+       "blockedByOtherIndependentGate": 0,
+       "codeTransitions": {
+        "profile_hard_action_ineligible->no_candidate_supplied": 170,
+        "campaign_context->campaign_context": 4
+       },
+       "partitionComplete": true
+      },
+      {
+       "action": "refresh",
+       "heldBefore": 3,
+       "eligibleBefore": 0,
+       "eligibleAfter": 0,
+       "blockedAfterTotal": 3,
+       "blockedByEffectiveProfileCode": {},
+       "blockedByEffectiveProfileCodeTotal": 0,
+       "blockedNoCandidate": 3,
+       "blockedNotDeterminable": 0,
+       "notDeterminableReasons": {},
+       "blockedByCampaignContext": 0,
+       "blockedByRecentRecoveryUnverifiable": 0,
+       "blockedByOtherIndependentGate": 0,
+       "codeTransitions": {
+        "profile_hard_action_ineligible->no_candidate_supplied": 3
+       },
+       "partitionComplete": true
+      }
+     ],
+     "blockedByIndependentGate": {
+      "campaignContext": 4,
+      "recentRecoveryUnverifiable": 0
+     }
+    },
+    {
+     "businessId": "5dbc7147-f051-4681-a4d6-20617170074f",
+     "businessName": "Grandmix",
+     "currency": "USD",
+     "candidateSupplied": true,
+     "resolvedTargetRevisions": [],
+     "originsWithNoKnowableTargetPack": 152,
+     "byAction": [
+      {
+       "action": "scale",
+       "heldBefore": 1,
+       "eligibleBefore": 0,
+       "eligibleAfter": 0,
+       "blockedAfterTotal": 1,
+       "blockedByEffectiveProfileCode": {},
+       "blockedByEffectiveProfileCodeTotal": 0,
+       "blockedNoCandidate": 0,
+       "blockedNotDeterminable": 0,
+       "notDeterminableReasons": {},
+       "blockedByCampaignContext": 1,
+       "blockedByRecentRecoveryUnverifiable": 0,
+       "blockedByOtherIndependentGate": 0,
+       "codeTransitions": {
+        "campaign_context->campaign_context": 1
+       },
+       "partitionComplete": true
+      },
+      {
+       "action": "cut",
+       "heldBefore": 164,
+       "eligibleBefore": 0,
+       "eligibleAfter": 0,
+       "blockedAfterTotal": 164,
+       "blockedByEffectiveProfileCode": {
+        "commercial_anchor_missing": 149
+       },
+       "blockedByEffectiveProfileCodeTotal": 149,
+       "blockedNoCandidate": 0,
+       "blockedNotDeterminable": 0,
+       "notDeterminableReasons": {},
+       "blockedByCampaignContext": 12,
+       "blockedByRecentRecoveryUnverifiable": 3,
+       "blockedByOtherIndependentGate": 0,
+       "codeTransitions": {
+        "profile_hard_action_ineligible->commercial_anchor_missing": 149,
+        "campaign_context->campaign_context": 12,
+        "recent_recovery_unverifiable->recent_recovery_unverifiable": 3
+       },
+       "partitionComplete": true
+      },
+      {
+       "action": "refresh",
+       "heldBefore": 4,
+       "eligibleBefore": 0,
+       "eligibleAfter": 0,
+       "blockedAfterTotal": 4,
+       "blockedByEffectiveProfileCode": {
+        "commercial_anchor_missing": 3
+       },
+       "blockedByEffectiveProfileCodeTotal": 3,
+       "blockedNoCandidate": 0,
+       "blockedNotDeterminable": 0,
+       "notDeterminableReasons": {},
+       "blockedByCampaignContext": 1,
+       "blockedByRecentRecoveryUnverifiable": 0,
+       "blockedByOtherIndependentGate": 0,
+       "codeTransitions": {
+        "profile_hard_action_ineligible->commercial_anchor_missing": 3,
+        "campaign_context->campaign_context": 1
+       },
+       "partitionComplete": true
+      }
+     ],
+     "blockedByIndependentGate": {
+      "campaignContext": 14,
+      "recentRecoveryUnverifiable": 3
+     }
+    },
+    {
+     "businessId": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+     "businessName": "IwaStore",
+     "currency": "USD",
+     "candidateSupplied": true,
+     "resolvedTargetRevisions": [],
+     "originsWithNoKnowableTargetPack": 511,
+     "byAction": [
+      {
+       "action": "scale",
+       "heldBefore": 0,
+       "eligibleBefore": 0,
+       "eligibleAfter": 0,
+       "blockedAfterTotal": 0,
+       "blockedByEffectiveProfileCode": {},
+       "blockedByEffectiveProfileCodeTotal": 0,
+       "blockedNoCandidate": 0,
+       "blockedNotDeterminable": 0,
+       "notDeterminableReasons": {},
+       "blockedByCampaignContext": 0,
+       "blockedByRecentRecoveryUnverifiable": 0,
+       "blockedByOtherIndependentGate": 0,
+       "codeTransitions": {},
+       "partitionComplete": true
+      },
+      {
+       "action": "cut",
+       "heldBefore": 520,
+       "eligibleBefore": 0,
+       "eligibleAfter": 0,
+       "blockedAfterTotal": 520,
+       "blockedByEffectiveProfileCode": {
+        "break_even_roas_missing": 497
+       },
+       "blockedByEffectiveProfileCodeTotal": 497,
+       "blockedNoCandidate": 0,
+       "blockedNotDeterminable": 0,
+       "notDeterminableReasons": {},
+       "blockedByCampaignContext": 16,
+       "blockedByRecentRecoveryUnverifiable": 7,
+       "blockedByOtherIndependentGate": 0,
+       "codeTransitions": {
+        "profile_hard_action_ineligible->break_even_roas_missing": 497,
+        "campaign_context->campaign_context": 16,
+        "recent_recovery_unverifiable->recent_recovery_unverifiable": 7
+       },
+       "partitionComplete": true
+      },
+      {
+       "action": "refresh",
+       "heldBefore": 14,
+       "eligibleBefore": 0,
+       "eligibleAfter": 14,
+       "blockedAfterTotal": 0,
+       "blockedByEffectiveProfileCode": {},
+       "blockedByEffectiveProfileCodeTotal": 0,
+       "blockedNoCandidate": 0,
+       "blockedNotDeterminable": 0,
+       "notDeterminableReasons": {},
+       "blockedByCampaignContext": 0,
+       "blockedByRecentRecoveryUnverifiable": 0,
+       "blockedByOtherIndependentGate": 0,
+       "codeTransitions": {
+        "profile_hard_action_ineligible->eligible": 14
+       },
+       "partitionComplete": true
+      }
+     ],
+     "blockedByIndependentGate": {
+      "campaignContext": 16,
+      "recentRecoveryUnverifiable": 7
+     }
+    },
+    {
+     "businessId": "b79683b4-6f87-48c0-a3ca-44d4356fef51",
+     "businessName": "IwaTR",
+     "currency": "USD",
+     "candidateSupplied": true,
+     "resolvedTargetRevisions": [],
+     "originsWithNoKnowableTargetPack": 291,
+     "byAction": [
+      {
+       "action": "scale",
+       "heldBefore": 0,
+       "eligibleBefore": 0,
+       "eligibleAfter": 0,
+       "blockedAfterTotal": 0,
+       "blockedByEffectiveProfileCode": {},
+       "blockedByEffectiveProfileCodeTotal": 0,
+       "blockedNoCandidate": 0,
+       "blockedNotDeterminable": 0,
+       "notDeterminableReasons": {},
+       "blockedByCampaignContext": 0,
+       "blockedByRecentRecoveryUnverifiable": 0,
+       "blockedByOtherIndependentGate": 0,
+       "codeTransitions": {},
+       "partitionComplete": true
+      },
+      {
+       "action": "cut",
+       "heldBefore": 282,
+       "eligibleBefore": 0,
+       "eligibleAfter": 0,
+       "blockedAfterTotal": 282,
+       "blockedByEffectiveProfileCode": {
+        "break_even_roas_missing": 282
+       },
+       "blockedByEffectiveProfileCodeTotal": 282,
+       "blockedNoCandidate": 0,
+       "blockedNotDeterminable": 0,
+       "notDeterminableReasons": {},
+       "blockedByCampaignContext": 0,
+       "blockedByRecentRecoveryUnverifiable": 0,
+       "blockedByOtherIndependentGate": 0,
+       "codeTransitions": {
+        "profile_hard_action_ineligible->break_even_roas_missing": 282
+       },
+       "partitionComplete": true
+      },
+      {
+       "action": "refresh",
+       "heldBefore": 9,
+       "eligibleBefore": 0,
+       "eligibleAfter": 9,
+       "blockedAfterTotal": 0,
+       "blockedByEffectiveProfileCode": {},
+       "blockedByEffectiveProfileCodeTotal": 0,
+       "blockedNoCandidate": 0,
+       "blockedNotDeterminable": 0,
+       "notDeterminableReasons": {},
+       "blockedByCampaignContext": 0,
+       "blockedByRecentRecoveryUnverifiable": 0,
+       "blockedByOtherIndependentGate": 0,
+       "codeTransitions": {
+        "profile_hard_action_ineligible->eligible": 9
+       },
+       "partitionComplete": true
+      }
+     ],
+     "blockedByIndependentGate": {
+      "campaignContext": 0,
+      "recentRecoveryUnverifiable": 0
+     }
+    },
+    {
+     "businessId": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+     "businessName": "TheSwaf",
+     "currency": "USD",
+     "candidateSupplied": false,
+     "resolvedTargetRevisions": [],
+     "originsWithNoKnowableTargetPack": 0,
+     "byAction": [
+      {
+       "action": "scale",
+       "heldBefore": 2,
+       "eligibleBefore": 0,
+       "eligibleAfter": 0,
+       "blockedAfterTotal": 2,
+       "blockedByEffectiveProfileCode": {},
+       "blockedByEffectiveProfileCodeTotal": 0,
+       "blockedNoCandidate": 0,
+       "blockedNotDeterminable": 0,
+       "notDeterminableReasons": {},
+       "blockedByCampaignContext": 2,
+       "blockedByRecentRecoveryUnverifiable": 0,
+       "blockedByOtherIndependentGate": 0,
+       "codeTransitions": {
+        "campaign_context->campaign_context": 2
+       },
+       "partitionComplete": true
+      },
+      {
+       "action": "cut",
+       "heldBefore": 202,
+       "eligibleBefore": 0,
+       "eligibleAfter": 0,
+       "blockedAfterTotal": 202,
+       "blockedByEffectiveProfileCode": {},
+       "blockedByEffectiveProfileCodeTotal": 0,
+       "blockedNoCandidate": 139,
+       "blockedNotDeterminable": 0,
+       "notDeterminableReasons": {},
+       "blockedByCampaignContext": 47,
+       "blockedByRecentRecoveryUnverifiable": 16,
+       "blockedByOtherIndependentGate": 0,
+       "codeTransitions": {
+        "profile_hard_action_ineligible->no_candidate_supplied": 139,
+        "campaign_context->campaign_context": 47,
+        "recent_recovery_unverifiable->recent_recovery_unverifiable": 16
+       },
+       "partitionComplete": true
+      },
+      {
+       "action": "refresh",
+       "heldBefore": 3,
+       "eligibleBefore": 0,
+       "eligibleAfter": 0,
+       "blockedAfterTotal": 3,
+       "blockedByEffectiveProfileCode": {},
+       "blockedByEffectiveProfileCodeTotal": 0,
+       "blockedNoCandidate": 3,
+       "blockedNotDeterminable": 0,
+       "notDeterminableReasons": {},
+       "blockedByCampaignContext": 0,
+       "blockedByRecentRecoveryUnverifiable": 0,
+       "blockedByOtherIndependentGate": 0,
+       "codeTransitions": {
+        "profile_hard_action_ineligible->no_candidate_supplied": 3
+       },
+       "partitionComplete": true
+      }
+     ],
+     "blockedByIndependentGate": {
+      "campaignContext": 49,
+      "recentRecoveryUnverifiable": 16
+     }
+    }
+   ],
+   "totalsByAction": [
+    {
+     "action": "scale",
+     "heldBefore": 8,
+     "eligibleBefore": 0,
+     "eligibleAfter": 0,
+     "blockedAfterTotal": 8,
+     "blockedByEffectiveProfileCode": {},
+     "blockedByEffectiveProfileCodeTotal": 0,
+     "blockedNoCandidate": 0,
+     "blockedNotDeterminable": 0,
+     "notDeterminableReasons": {},
+     "blockedByCampaignContext": 8,
+     "blockedByRecentRecoveryUnverifiable": 0,
+     "blockedByOtherIndependentGate": 0,
+     "codeTransitions": {
+      "campaign_context->campaign_context": 8
+     },
+     "partitionComplete": true
+    },
+    {
+     "action": "cut",
+     "heldBefore": 1925,
+     "eligibleBefore": 0,
+     "eligibleAfter": 0,
+     "blockedAfterTotal": 1925,
+     "blockedByEffectiveProfileCode": {
+      "break_even_roas_missing": 1355,
+      "commercial_anchor_missing": 149
+     },
+     "blockedByEffectiveProfileCodeTotal": 1504,
+     "blockedNoCandidate": 309,
+     "blockedNotDeterminable": 0,
+     "notDeterminableReasons": {},
+     "blockedByCampaignContext": 86,
+     "blockedByRecentRecoveryUnverifiable": 26,
+     "blockedByOtherIndependentGate": 0,
+     "codeTransitions": {
+      "profile_hard_action_ineligible->break_even_roas_missing": 1355,
+      "campaign_context->campaign_context": 86,
+      "profile_hard_action_ineligible->no_candidate_supplied": 309,
+      "profile_hard_action_ineligible->commercial_anchor_missing": 149,
+      "recent_recovery_unverifiable->recent_recovery_unverifiable": 26
+     },
+     "partitionComplete": true
+    },
+    {
+     "action": "refresh",
+     "heldBefore": 60,
+     "eligibleBefore": 0,
+     "eligibleAfter": 50,
+     "blockedAfterTotal": 10,
+     "blockedByEffectiveProfileCode": {
+      "commercial_anchor_missing": 3
+     },
+     "blockedByEffectiveProfileCodeTotal": 3,
+     "blockedNoCandidate": 6,
+     "blockedNotDeterminable": 0,
+     "notDeterminableReasons": {},
+     "blockedByCampaignContext": 1,
+     "blockedByRecentRecoveryUnverifiable": 0,
+     "blockedByOtherIndependentGate": 0,
+     "codeTransitions": {
+      "profile_hard_action_ineligible->eligible": 50,
+      "profile_hard_action_ineligible->no_candidate_supplied": 6,
+      "profile_hard_action_ineligible->commercial_anchor_missing": 3,
+      "campaign_context->campaign_context": 1
+     },
+     "partitionComplete": true
+    }
+   ],
+   "eligibleAfterTotal": 50,
+   "blockedAfterTotal": 1943,
+   "partitionComplete": true,
+   "notes": [
+    "Every held row is recomputed for ITS OWN action. Clearing the common commercial threshold does not make a held Cut eligible; Cut additionally needs a break-even ROAS and Scale a Target ROAS plus a calibration sample.",
+    "Target and break-even ROAS are resolved bitemporally as of each row's origin (effectiveAt AND recordedAt at or before the origin's 03:00Z cutoff). No later revision is applied to an earlier row.",
+    "Rows whose first persisted blocker was campaign context or recovery-unverifiability are reported separately and are never counted as anchor transitions: the frozen package does not record what the threshold gate would have said for them.",
+    "A row's persisted blocker is `profile_hard_action_ineligible`, a first-blocker FAMILY that also covers scale calibration. This tool never restates it as a specific anchor sub-cause; only the AFTER state carries a canonical code.",
+    "Every action row partitions completely: heldBefore = eligibleAfter + blockedByEffectiveProfileCodeTotal + blockedNoCandidate + blockedNotDeterminable + blockedByCampaignContext + blockedByRecentRecoveryUnverifiable + blockedByOtherIndependentGate. `blockedAfterTotal` is heldBefore - eligibleAfter; no narrower bucket may be read as the blocked population."
+   ]
+  },
+  {
+   "scenarioId": "sensitivity_x1__as_of_origin",
+   "kind": "sensitivity",
+   "inputClass": "illustrative_sensitivity_input",
+   "timeSemantics": "as_of_origin",
+   "candidates": [
+    {
+     "businessId": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+     "currency": "USD",
+     "sourceLabel": "ILLUSTRATIVE_NOT_AN_APPROVED_TARGET__illustrative_x1",
+     "targetCpa": 25
+    },
+    {
+     "businessId": "5dbc7147-f051-4681-a4d6-20617170074f",
+     "currency": "USD",
+     "sourceLabel": "ILLUSTRATIVE_NOT_AN_APPROVED_TARGET__illustrative_x1",
+     "operatorAovAssumption": 90
+    },
+    {
+     "businessId": "6c690fa4-6395-40b5-9755-e99b34d69bc3",
+     "currency": "TRY",
+     "sourceLabel": "ILLUSTRATIVE_NOT_AN_APPROVED_TARGET__illustrative_x1",
+     "targetCpa": 400
+    },
+    {
+     "businessId": "b79683b4-6f87-48c0-a3ca-44d4356fef51",
+     "currency": "USD",
+     "sourceLabel": "ILLUSTRATIVE_NOT_AN_APPROVED_TARGET__illustrative_x1",
+     "targetCpa": 30
+    }
+   ],
+   "totals": {
+    "selectedHistoricalRows": 15508,
+    "heldHardSignals": 1993,
+    "profileHardActionIneligible": 1872,
+    "campaignContext": 95,
+    "recentRecoveryUnverifiable": 26,
+    "enabledHardActions": 0
+   },
+   "byBusiness": [
+    {
+     "businessId": "6c690fa4-6395-40b5-9755-e99b34d69bc3",
+     "businessName": "Bilsem Zeka",
+     "currency": "TRY",
+     "candidateSupplied": true,
+     "resolvedTargetRevisions": [],
+     "originsWithNoKnowableTargetPack": 603,
+     "byAction": [
+      {
+       "action": "scale",
+       "heldBefore": 5,
+       "eligibleBefore": 0,
+       "eligibleAfter": 0,
+       "blockedAfterTotal": 5,
+       "blockedByEffectiveProfileCode": {},
+       "blockedByEffectiveProfileCodeTotal": 0,
+       "blockedNoCandidate": 0,
+       "blockedNotDeterminable": 0,
+       "notDeterminableReasons": {},
+       "blockedByCampaignContext": 5,
+       "blockedByRecentRecoveryUnverifiable": 0,
+       "blockedByOtherIndependentGate": 0,
+       "codeTransitions": {
+        "campaign_context->campaign_context": 5
+       },
+       "partitionComplete": true
+      },
+      {
+       "action": "cut",
+       "heldBefore": 583,
+       "eligibleBefore": 0,
+       "eligibleAfter": 0,
+       "blockedAfterTotal": 583,
+       "blockedByEffectiveProfileCode": {
+        "break_even_roas_missing": 576
+       },
+       "blockedByEffectiveProfileCodeTotal": 576,
+       "blockedNoCandidate": 0,
+       "blockedNotDeterminable": 0,
+       "notDeterminableReasons": {},
+       "blockedByCampaignContext": 7,
+       "blockedByRecentRecoveryUnverifiable": 0,
+       "blockedByOtherIndependentGate": 0,
+       "codeTransitions": {
+        "profile_hard_action_ineligible->break_even_roas_missing": 576,
+        "campaign_context->campaign_context": 7
+       },
+       "partitionComplete": true
+      },
+      {
+       "action": "refresh",
+       "heldBefore": 27,
+       "eligibleBefore": 0,
+       "eligibleAfter": 27,
+       "blockedAfterTotal": 0,
+       "blockedByEffectiveProfileCode": {},
+       "blockedByEffectiveProfileCodeTotal": 0,
+       "blockedNoCandidate": 0,
+       "blockedNotDeterminable": 0,
+       "notDeterminableReasons": {},
+       "blockedByCampaignContext": 0,
+       "blockedByRecentRecoveryUnverifiable": 0,
+       "blockedByOtherIndependentGate": 0,
+       "codeTransitions": {
+        "profile_hard_action_ineligible->eligible": 27
+       },
+       "partitionComplete": true
+      }
+     ],
+     "blockedByIndependentGate": {
+      "campaignContext": 12,
+      "recentRecoveryUnverifiable": 0
+     }
+    },
+    {
+     "businessId": "bc0c6178-7853-4f6f-b026-ef0222a4b9e7",
+     "businessName": "ColorFullWorldsTR",
+     "currency": "USD",
+     "candidateSupplied": false,
+     "resolvedTargetRevisions": [],
+     "originsWithNoKnowableTargetPack": 0,
+     "byAction": [
+      {
+       "action": "scale",
+       "heldBefore": 0,
+       "eligibleBefore": 0,
+       "eligibleAfter": 0,
+       "blockedAfterTotal": 0,
+       "blockedByEffectiveProfileCode": {},
+       "blockedByEffectiveProfileCodeTotal": 0,
+       "blockedNoCandidate": 0,
+       "blockedNotDeterminable": 0,
+       "notDeterminableReasons": {},
+       "blockedByCampaignContext": 0,
+       "blockedByRecentRecoveryUnverifiable": 0,
+       "blockedByOtherIndependentGate": 0,
+       "codeTransitions": {},
+       "partitionComplete": true
+      },
+      {
+       "action": "cut",
+       "heldBefore": 174,
+       "eligibleBefore": 0,
+       "eligibleAfter": 0,
+       "blockedAfterTotal": 174,
+       "blockedByEffectiveProfileCode": {},
+       "blockedByEffectiveProfileCodeTotal": 0,
+       "blockedNoCandidate": 170,
+       "blockedNotDeterminable": 0,
+       "notDeterminableReasons": {},
+       "blockedByCampaignContext": 4,
+       "blockedByRecentRecoveryUnverifiable": 0,
+       "blockedByOtherIndependentGate": 0,
+       "codeTransitions": {
+        "profile_hard_action_ineligible->no_candidate_supplied": 170,
+        "campaign_context->campaign_context": 4
+       },
+       "partitionComplete": true
+      },
+      {
+       "action": "refresh",
+       "heldBefore": 3,
+       "eligibleBefore": 0,
+       "eligibleAfter": 0,
+       "blockedAfterTotal": 3,
+       "blockedByEffectiveProfileCode": {},
+       "blockedByEffectiveProfileCodeTotal": 0,
+       "blockedNoCandidate": 3,
+       "blockedNotDeterminable": 0,
+       "notDeterminableReasons": {},
+       "blockedByCampaignContext": 0,
+       "blockedByRecentRecoveryUnverifiable": 0,
+       "blockedByOtherIndependentGate": 0,
+       "codeTransitions": {
+        "profile_hard_action_ineligible->no_candidate_supplied": 3
+       },
+       "partitionComplete": true
+      }
+     ],
+     "blockedByIndependentGate": {
+      "campaignContext": 4,
+      "recentRecoveryUnverifiable": 0
+     }
+    },
+    {
+     "businessId": "5dbc7147-f051-4681-a4d6-20617170074f",
+     "businessName": "Grandmix",
+     "currency": "USD",
+     "candidateSupplied": true,
+     "resolvedTargetRevisions": [],
+     "originsWithNoKnowableTargetPack": 152,
+     "byAction": [
+      {
+       "action": "scale",
+       "heldBefore": 1,
+       "eligibleBefore": 0,
+       "eligibleAfter": 0,
+       "blockedAfterTotal": 1,
+       "blockedByEffectiveProfileCode": {},
+       "blockedByEffectiveProfileCodeTotal": 0,
+       "blockedNoCandidate": 0,
+       "blockedNotDeterminable": 0,
+       "notDeterminableReasons": {},
+       "blockedByCampaignContext": 1,
+       "blockedByRecentRecoveryUnverifiable": 0,
+       "blockedByOtherIndependentGate": 0,
+       "codeTransitions": {
+        "campaign_context->campaign_context": 1
+       },
+       "partitionComplete": true
+      },
+      {
+       "action": "cut",
+       "heldBefore": 164,
+       "eligibleBefore": 0,
+       "eligibleAfter": 0,
+       "blockedAfterTotal": 164,
+       "blockedByEffectiveProfileCode": {
+        "commercial_anchor_missing": 149
+       },
+       "blockedByEffectiveProfileCodeTotal": 149,
+       "blockedNoCandidate": 0,
+       "blockedNotDeterminable": 0,
+       "notDeterminableReasons": {},
+       "blockedByCampaignContext": 12,
+       "blockedByRecentRecoveryUnverifiable": 3,
+       "blockedByOtherIndependentGate": 0,
+       "codeTransitions": {
+        "profile_hard_action_ineligible->commercial_anchor_missing": 149,
+        "campaign_context->campaign_context": 12,
+        "recent_recovery_unverifiable->recent_recovery_unverifiable": 3
+       },
+       "partitionComplete": true
+      },
+      {
+       "action": "refresh",
+       "heldBefore": 4,
+       "eligibleBefore": 0,
+       "eligibleAfter": 0,
+       "blockedAfterTotal": 4,
+       "blockedByEffectiveProfileCode": {
+        "commercial_anchor_missing": 3
+       },
+       "blockedByEffectiveProfileCodeTotal": 3,
+       "blockedNoCandidate": 0,
+       "blockedNotDeterminable": 0,
+       "notDeterminableReasons": {},
+       "blockedByCampaignContext": 1,
+       "blockedByRecentRecoveryUnverifiable": 0,
+       "blockedByOtherIndependentGate": 0,
+       "codeTransitions": {
+        "profile_hard_action_ineligible->commercial_anchor_missing": 3,
+        "campaign_context->campaign_context": 1
+       },
+       "partitionComplete": true
+      }
+     ],
+     "blockedByIndependentGate": {
+      "campaignContext": 14,
+      "recentRecoveryUnverifiable": 3
+     }
+    },
+    {
+     "businessId": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+     "businessName": "IwaStore",
+     "currency": "USD",
+     "candidateSupplied": true,
+     "resolvedTargetRevisions": [],
+     "originsWithNoKnowableTargetPack": 511,
+     "byAction": [
+      {
+       "action": "scale",
+       "heldBefore": 0,
+       "eligibleBefore": 0,
+       "eligibleAfter": 0,
+       "blockedAfterTotal": 0,
+       "blockedByEffectiveProfileCode": {},
+       "blockedByEffectiveProfileCodeTotal": 0,
+       "blockedNoCandidate": 0,
+       "blockedNotDeterminable": 0,
+       "notDeterminableReasons": {},
+       "blockedByCampaignContext": 0,
+       "blockedByRecentRecoveryUnverifiable": 0,
+       "blockedByOtherIndependentGate": 0,
+       "codeTransitions": {},
+       "partitionComplete": true
+      },
+      {
+       "action": "cut",
+       "heldBefore": 520,
+       "eligibleBefore": 0,
+       "eligibleAfter": 0,
+       "blockedAfterTotal": 520,
+       "blockedByEffectiveProfileCode": {
+        "break_even_roas_missing": 497
+       },
+       "blockedByEffectiveProfileCodeTotal": 497,
+       "blockedNoCandidate": 0,
+       "blockedNotDeterminable": 0,
+       "notDeterminableReasons": {},
+       "blockedByCampaignContext": 16,
+       "blockedByRecentRecoveryUnverifiable": 7,
+       "blockedByOtherIndependentGate": 0,
+       "codeTransitions": {
+        "profile_hard_action_ineligible->break_even_roas_missing": 497,
+        "campaign_context->campaign_context": 16,
+        "recent_recovery_unverifiable->recent_recovery_unverifiable": 7
+       },
+       "partitionComplete": true
+      },
+      {
+       "action": "refresh",
+       "heldBefore": 14,
+       "eligibleBefore": 0,
+       "eligibleAfter": 14,
+       "blockedAfterTotal": 0,
+       "blockedByEffectiveProfileCode": {},
+       "blockedByEffectiveProfileCodeTotal": 0,
+       "blockedNoCandidate": 0,
+       "blockedNotDeterminable": 0,
+       "notDeterminableReasons": {},
+       "blockedByCampaignContext": 0,
+       "blockedByRecentRecoveryUnverifiable": 0,
+       "blockedByOtherIndependentGate": 0,
+       "codeTransitions": {
+        "profile_hard_action_ineligible->eligible": 14
+       },
+       "partitionComplete": true
+      }
+     ],
+     "blockedByIndependentGate": {
+      "campaignContext": 16,
+      "recentRecoveryUnverifiable": 7
+     }
+    },
+    {
+     "businessId": "b79683b4-6f87-48c0-a3ca-44d4356fef51",
+     "businessName": "IwaTR",
+     "currency": "USD",
+     "candidateSupplied": true,
+     "resolvedTargetRevisions": [],
+     "originsWithNoKnowableTargetPack": 291,
+     "byAction": [
+      {
+       "action": "scale",
+       "heldBefore": 0,
+       "eligibleBefore": 0,
+       "eligibleAfter": 0,
+       "blockedAfterTotal": 0,
+       "blockedByEffectiveProfileCode": {},
+       "blockedByEffectiveProfileCodeTotal": 0,
+       "blockedNoCandidate": 0,
+       "blockedNotDeterminable": 0,
+       "notDeterminableReasons": {},
+       "blockedByCampaignContext": 0,
+       "blockedByRecentRecoveryUnverifiable": 0,
+       "blockedByOtherIndependentGate": 0,
+       "codeTransitions": {},
+       "partitionComplete": true
+      },
+      {
+       "action": "cut",
+       "heldBefore": 282,
+       "eligibleBefore": 0,
+       "eligibleAfter": 0,
+       "blockedAfterTotal": 282,
+       "blockedByEffectiveProfileCode": {
+        "break_even_roas_missing": 282
+       },
+       "blockedByEffectiveProfileCodeTotal": 282,
+       "blockedNoCandidate": 0,
+       "blockedNotDeterminable": 0,
+       "notDeterminableReasons": {},
+       "blockedByCampaignContext": 0,
+       "blockedByRecentRecoveryUnverifiable": 0,
+       "blockedByOtherIndependentGate": 0,
+       "codeTransitions": {
+        "profile_hard_action_ineligible->break_even_roas_missing": 282
+       },
+       "partitionComplete": true
+      },
+      {
+       "action": "refresh",
+       "heldBefore": 9,
+       "eligibleBefore": 0,
+       "eligibleAfter": 9,
+       "blockedAfterTotal": 0,
+       "blockedByEffectiveProfileCode": {},
+       "blockedByEffectiveProfileCodeTotal": 0,
+       "blockedNoCandidate": 0,
+       "blockedNotDeterminable": 0,
+       "notDeterminableReasons": {},
+       "blockedByCampaignContext": 0,
+       "blockedByRecentRecoveryUnverifiable": 0,
+       "blockedByOtherIndependentGate": 0,
+       "codeTransitions": {
+        "profile_hard_action_ineligible->eligible": 9
+       },
+       "partitionComplete": true
+      }
+     ],
+     "blockedByIndependentGate": {
+      "campaignContext": 0,
+      "recentRecoveryUnverifiable": 0
+     }
+    },
+    {
+     "businessId": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+     "businessName": "TheSwaf",
+     "currency": "USD",
+     "candidateSupplied": false,
+     "resolvedTargetRevisions": [],
+     "originsWithNoKnowableTargetPack": 0,
+     "byAction": [
+      {
+       "action": "scale",
+       "heldBefore": 2,
+       "eligibleBefore": 0,
+       "eligibleAfter": 0,
+       "blockedAfterTotal": 2,
+       "blockedByEffectiveProfileCode": {},
+       "blockedByEffectiveProfileCodeTotal": 0,
+       "blockedNoCandidate": 0,
+       "blockedNotDeterminable": 0,
+       "notDeterminableReasons": {},
+       "blockedByCampaignContext": 2,
+       "blockedByRecentRecoveryUnverifiable": 0,
+       "blockedByOtherIndependentGate": 0,
+       "codeTransitions": {
+        "campaign_context->campaign_context": 2
+       },
+       "partitionComplete": true
+      },
+      {
+       "action": "cut",
+       "heldBefore": 202,
+       "eligibleBefore": 0,
+       "eligibleAfter": 0,
+       "blockedAfterTotal": 202,
+       "blockedByEffectiveProfileCode": {},
+       "blockedByEffectiveProfileCodeTotal": 0,
+       "blockedNoCandidate": 139,
+       "blockedNotDeterminable": 0,
+       "notDeterminableReasons": {},
+       "blockedByCampaignContext": 47,
+       "blockedByRecentRecoveryUnverifiable": 16,
+       "blockedByOtherIndependentGate": 0,
+       "codeTransitions": {
+        "profile_hard_action_ineligible->no_candidate_supplied": 139,
+        "campaign_context->campaign_context": 47,
+        "recent_recovery_unverifiable->recent_recovery_unverifiable": 16
+       },
+       "partitionComplete": true
+      },
+      {
+       "action": "refresh",
+       "heldBefore": 3,
+       "eligibleBefore": 0,
+       "eligibleAfter": 0,
+       "blockedAfterTotal": 3,
+       "blockedByEffectiveProfileCode": {},
+       "blockedByEffectiveProfileCodeTotal": 0,
+       "blockedNoCandidate": 3,
+       "blockedNotDeterminable": 0,
+       "notDeterminableReasons": {},
+       "blockedByCampaignContext": 0,
+       "blockedByRecentRecoveryUnverifiable": 0,
+       "blockedByOtherIndependentGate": 0,
+       "codeTransitions": {
+        "profile_hard_action_ineligible->no_candidate_supplied": 3
+       },
+       "partitionComplete": true
+      }
+     ],
+     "blockedByIndependentGate": {
+      "campaignContext": 49,
+      "recentRecoveryUnverifiable": 16
+     }
+    }
+   ],
+   "totalsByAction": [
+    {
+     "action": "scale",
+     "heldBefore": 8,
+     "eligibleBefore": 0,
+     "eligibleAfter": 0,
+     "blockedAfterTotal": 8,
+     "blockedByEffectiveProfileCode": {},
+     "blockedByEffectiveProfileCodeTotal": 0,
+     "blockedNoCandidate": 0,
+     "blockedNotDeterminable": 0,
+     "notDeterminableReasons": {},
+     "blockedByCampaignContext": 8,
+     "blockedByRecentRecoveryUnverifiable": 0,
+     "blockedByOtherIndependentGate": 0,
+     "codeTransitions": {
+      "campaign_context->campaign_context": 8
+     },
+     "partitionComplete": true
+    },
+    {
+     "action": "cut",
+     "heldBefore": 1925,
+     "eligibleBefore": 0,
+     "eligibleAfter": 0,
+     "blockedAfterTotal": 1925,
+     "blockedByEffectiveProfileCode": {
+      "break_even_roas_missing": 1355,
+      "commercial_anchor_missing": 149
+     },
+     "blockedByEffectiveProfileCodeTotal": 1504,
+     "blockedNoCandidate": 309,
+     "blockedNotDeterminable": 0,
+     "notDeterminableReasons": {},
+     "blockedByCampaignContext": 86,
+     "blockedByRecentRecoveryUnverifiable": 26,
+     "blockedByOtherIndependentGate": 0,
+     "codeTransitions": {
+      "profile_hard_action_ineligible->break_even_roas_missing": 1355,
+      "campaign_context->campaign_context": 86,
+      "profile_hard_action_ineligible->no_candidate_supplied": 309,
+      "profile_hard_action_ineligible->commercial_anchor_missing": 149,
+      "recent_recovery_unverifiable->recent_recovery_unverifiable": 26
+     },
+     "partitionComplete": true
+    },
+    {
+     "action": "refresh",
+     "heldBefore": 60,
+     "eligibleBefore": 0,
+     "eligibleAfter": 50,
+     "blockedAfterTotal": 10,
+     "blockedByEffectiveProfileCode": {
+      "commercial_anchor_missing": 3
+     },
+     "blockedByEffectiveProfileCodeTotal": 3,
+     "blockedNoCandidate": 6,
+     "blockedNotDeterminable": 0,
+     "notDeterminableReasons": {},
+     "blockedByCampaignContext": 1,
+     "blockedByRecentRecoveryUnverifiable": 0,
+     "blockedByOtherIndependentGate": 0,
+     "codeTransitions": {
+      "profile_hard_action_ineligible->eligible": 50,
+      "profile_hard_action_ineligible->no_candidate_supplied": 6,
+      "profile_hard_action_ineligible->commercial_anchor_missing": 3,
+      "campaign_context->campaign_context": 1
+     },
+     "partitionComplete": true
+    }
+   ],
+   "eligibleAfterTotal": 50,
+   "blockedAfterTotal": 1943,
+   "partitionComplete": true,
+   "notes": [
+    "Every held row is recomputed for ITS OWN action. Clearing the common commercial threshold does not make a held Cut eligible; Cut additionally needs a break-even ROAS and Scale a Target ROAS plus a calibration sample.",
+    "Target and break-even ROAS are resolved bitemporally as of each row's origin (effectiveAt AND recordedAt at or before the origin's 03:00Z cutoff). No later revision is applied to an earlier row.",
+    "Rows whose first persisted blocker was campaign context or recovery-unverifiability are reported separately and are never counted as anchor transitions: the frozen package does not record what the threshold gate would have said for them.",
+    "A row's persisted blocker is `profile_hard_action_ineligible`, a first-blocker FAMILY that also covers scale calibration. This tool never restates it as a specific anchor sub-cause; only the AFTER state carries a canonical code.",
+    "Every action row partitions completely: heldBefore = eligibleAfter + blockedByEffectiveProfileCodeTotal + blockedNoCandidate + blockedNotDeterminable + blockedByCampaignContext + blockedByRecentRecoveryUnverifiable + blockedByOtherIndependentGate. `blockedAfterTotal` is heldBefore - eligibleAfter; no narrower bucket may be read as the blocked population."
+   ]
+  },
+  {
+   "scenarioId": "sensitivity_x2__as_of_origin",
+   "kind": "sensitivity",
+   "inputClass": "illustrative_sensitivity_input",
+   "timeSemantics": "as_of_origin",
+   "candidates": [
+    {
+     "businessId": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+     "currency": "USD",
+     "sourceLabel": "ILLUSTRATIVE_NOT_AN_APPROVED_TARGET__illustrative_x2",
+     "targetCpa": 50
+    },
+    {
+     "businessId": "5dbc7147-f051-4681-a4d6-20617170074f",
+     "currency": "USD",
+     "sourceLabel": "ILLUSTRATIVE_NOT_AN_APPROVED_TARGET__illustrative_x2",
+     "operatorAovAssumption": 180
+    },
+    {
+     "businessId": "6c690fa4-6395-40b5-9755-e99b34d69bc3",
+     "currency": "TRY",
+     "sourceLabel": "ILLUSTRATIVE_NOT_AN_APPROVED_TARGET__illustrative_x2",
+     "targetCpa": 800
+    },
+    {
+     "businessId": "b79683b4-6f87-48c0-a3ca-44d4356fef51",
+     "currency": "USD",
+     "sourceLabel": "ILLUSTRATIVE_NOT_AN_APPROVED_TARGET__illustrative_x2",
+     "targetCpa": 60
+    }
+   ],
+   "totals": {
+    "selectedHistoricalRows": 15508,
+    "heldHardSignals": 1993,
+    "profileHardActionIneligible": 1872,
+    "campaignContext": 95,
+    "recentRecoveryUnverifiable": 26,
+    "enabledHardActions": 0
+   },
+   "byBusiness": [
+    {
+     "businessId": "6c690fa4-6395-40b5-9755-e99b34d69bc3",
+     "businessName": "Bilsem Zeka",
+     "currency": "TRY",
+     "candidateSupplied": true,
+     "resolvedTargetRevisions": [],
+     "originsWithNoKnowableTargetPack": 603,
+     "byAction": [
+      {
+       "action": "scale",
+       "heldBefore": 5,
+       "eligibleBefore": 0,
+       "eligibleAfter": 0,
+       "blockedAfterTotal": 5,
+       "blockedByEffectiveProfileCode": {},
+       "blockedByEffectiveProfileCodeTotal": 0,
+       "blockedNoCandidate": 0,
+       "blockedNotDeterminable": 0,
+       "notDeterminableReasons": {},
+       "blockedByCampaignContext": 5,
+       "blockedByRecentRecoveryUnverifiable": 0,
+       "blockedByOtherIndependentGate": 0,
+       "codeTransitions": {
+        "campaign_context->campaign_context": 5
+       },
+       "partitionComplete": true
+      },
+      {
+       "action": "cut",
+       "heldBefore": 583,
+       "eligibleBefore": 0,
+       "eligibleAfter": 0,
+       "blockedAfterTotal": 583,
+       "blockedByEffectiveProfileCode": {
+        "break_even_roas_missing": 576
+       },
+       "blockedByEffectiveProfileCodeTotal": 576,
+       "blockedNoCandidate": 0,
+       "blockedNotDeterminable": 0,
+       "notDeterminableReasons": {},
+       "blockedByCampaignContext": 7,
+       "blockedByRecentRecoveryUnverifiable": 0,
+       "blockedByOtherIndependentGate": 0,
+       "codeTransitions": {
+        "profile_hard_action_ineligible->break_even_roas_missing": 576,
+        "campaign_context->campaign_context": 7
+       },
+       "partitionComplete": true
+      },
+      {
+       "action": "refresh",
+       "heldBefore": 27,
+       "eligibleBefore": 0,
+       "eligibleAfter": 27,
+       "blockedAfterTotal": 0,
+       "blockedByEffectiveProfileCode": {},
+       "blockedByEffectiveProfileCodeTotal": 0,
+       "blockedNoCandidate": 0,
+       "blockedNotDeterminable": 0,
+       "notDeterminableReasons": {},
+       "blockedByCampaignContext": 0,
+       "blockedByRecentRecoveryUnverifiable": 0,
+       "blockedByOtherIndependentGate": 0,
+       "codeTransitions": {
+        "profile_hard_action_ineligible->eligible": 27
+       },
+       "partitionComplete": true
+      }
+     ],
+     "blockedByIndependentGate": {
+      "campaignContext": 12,
+      "recentRecoveryUnverifiable": 0
+     }
+    },
+    {
+     "businessId": "bc0c6178-7853-4f6f-b026-ef0222a4b9e7",
+     "businessName": "ColorFullWorldsTR",
+     "currency": "USD",
+     "candidateSupplied": false,
+     "resolvedTargetRevisions": [],
+     "originsWithNoKnowableTargetPack": 0,
+     "byAction": [
+      {
+       "action": "scale",
+       "heldBefore": 0,
+       "eligibleBefore": 0,
+       "eligibleAfter": 0,
+       "blockedAfterTotal": 0,
+       "blockedByEffectiveProfileCode": {},
+       "blockedByEffectiveProfileCodeTotal": 0,
+       "blockedNoCandidate": 0,
+       "blockedNotDeterminable": 0,
+       "notDeterminableReasons": {},
+       "blockedByCampaignContext": 0,
+       "blockedByRecentRecoveryUnverifiable": 0,
+       "blockedByOtherIndependentGate": 0,
+       "codeTransitions": {},
+       "partitionComplete": true
+      },
+      {
+       "action": "cut",
+       "heldBefore": 174,
+       "eligibleBefore": 0,
+       "eligibleAfter": 0,
+       "blockedAfterTotal": 174,
+       "blockedByEffectiveProfileCode": {},
+       "blockedByEffectiveProfileCodeTotal": 0,
+       "blockedNoCandidate": 170,
+       "blockedNotDeterminable": 0,
+       "notDeterminableReasons": {},
+       "blockedByCampaignContext": 4,
+       "blockedByRecentRecoveryUnverifiable": 0,
+       "blockedByOtherIndependentGate": 0,
+       "codeTransitions": {
+        "profile_hard_action_ineligible->no_candidate_supplied": 170,
+        "campaign_context->campaign_context": 4
+       },
+       "partitionComplete": true
+      },
+      {
+       "action": "refresh",
+       "heldBefore": 3,
+       "eligibleBefore": 0,
+       "eligibleAfter": 0,
+       "blockedAfterTotal": 3,
+       "blockedByEffectiveProfileCode": {},
+       "blockedByEffectiveProfileCodeTotal": 0,
+       "blockedNoCandidate": 3,
+       "blockedNotDeterminable": 0,
+       "notDeterminableReasons": {},
+       "blockedByCampaignContext": 0,
+       "blockedByRecentRecoveryUnverifiable": 0,
+       "blockedByOtherIndependentGate": 0,
+       "codeTransitions": {
+        "profile_hard_action_ineligible->no_candidate_supplied": 3
+       },
+       "partitionComplete": true
+      }
+     ],
+     "blockedByIndependentGate": {
+      "campaignContext": 4,
+      "recentRecoveryUnverifiable": 0
+     }
+    },
+    {
+     "businessId": "5dbc7147-f051-4681-a4d6-20617170074f",
+     "businessName": "Grandmix",
+     "currency": "USD",
+     "candidateSupplied": true,
+     "resolvedTargetRevisions": [],
+     "originsWithNoKnowableTargetPack": 152,
+     "byAction": [
+      {
+       "action": "scale",
+       "heldBefore": 1,
+       "eligibleBefore": 0,
+       "eligibleAfter": 0,
+       "blockedAfterTotal": 1,
+       "blockedByEffectiveProfileCode": {},
+       "blockedByEffectiveProfileCodeTotal": 0,
+       "blockedNoCandidate": 0,
+       "blockedNotDeterminable": 0,
+       "notDeterminableReasons": {},
+       "blockedByCampaignContext": 1,
+       "blockedByRecentRecoveryUnverifiable": 0,
+       "blockedByOtherIndependentGate": 0,
+       "codeTransitions": {
+        "campaign_context->campaign_context": 1
+       },
+       "partitionComplete": true
+      },
+      {
+       "action": "cut",
+       "heldBefore": 164,
+       "eligibleBefore": 0,
+       "eligibleAfter": 0,
+       "blockedAfterTotal": 164,
+       "blockedByEffectiveProfileCode": {
+        "commercial_anchor_missing": 149
+       },
+       "blockedByEffectiveProfileCodeTotal": 149,
+       "blockedNoCandidate": 0,
+       "blockedNotDeterminable": 0,
+       "notDeterminableReasons": {},
+       "blockedByCampaignContext": 12,
+       "blockedByRecentRecoveryUnverifiable": 3,
+       "blockedByOtherIndependentGate": 0,
+       "codeTransitions": {
+        "profile_hard_action_ineligible->commercial_anchor_missing": 149,
+        "campaign_context->campaign_context": 12,
+        "recent_recovery_unverifiable->recent_recovery_unverifiable": 3
+       },
+       "partitionComplete": true
+      },
+      {
+       "action": "refresh",
+       "heldBefore": 4,
+       "eligibleBefore": 0,
+       "eligibleAfter": 0,
+       "blockedAfterTotal": 4,
+       "blockedByEffectiveProfileCode": {
+        "commercial_anchor_missing": 3
+       },
+       "blockedByEffectiveProfileCodeTotal": 3,
+       "blockedNoCandidate": 0,
+       "blockedNotDeterminable": 0,
+       "notDeterminableReasons": {},
+       "blockedByCampaignContext": 1,
+       "blockedByRecentRecoveryUnverifiable": 0,
+       "blockedByOtherIndependentGate": 0,
+       "codeTransitions": {
+        "profile_hard_action_ineligible->commercial_anchor_missing": 3,
+        "campaign_context->campaign_context": 1
+       },
+       "partitionComplete": true
+      }
+     ],
+     "blockedByIndependentGate": {
+      "campaignContext": 14,
+      "recentRecoveryUnverifiable": 3
+     }
+    },
+    {
+     "businessId": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+     "businessName": "IwaStore",
+     "currency": "USD",
+     "candidateSupplied": true,
+     "resolvedTargetRevisions": [],
+     "originsWithNoKnowableTargetPack": 511,
+     "byAction": [
+      {
+       "action": "scale",
+       "heldBefore": 0,
+       "eligibleBefore": 0,
+       "eligibleAfter": 0,
+       "blockedAfterTotal": 0,
+       "blockedByEffectiveProfileCode": {},
+       "blockedByEffectiveProfileCodeTotal": 0,
+       "blockedNoCandidate": 0,
+       "blockedNotDeterminable": 0,
+       "notDeterminableReasons": {},
+       "blockedByCampaignContext": 0,
+       "blockedByRecentRecoveryUnverifiable": 0,
+       "blockedByOtherIndependentGate": 0,
+       "codeTransitions": {},
+       "partitionComplete": true
+      },
+      {
+       "action": "cut",
+       "heldBefore": 520,
+       "eligibleBefore": 0,
+       "eligibleAfter": 0,
+       "blockedAfterTotal": 520,
+       "blockedByEffectiveProfileCode": {
+        "break_even_roas_missing": 497
+       },
+       "blockedByEffectiveProfileCodeTotal": 497,
+       "blockedNoCandidate": 0,
+       "blockedNotDeterminable": 0,
+       "notDeterminableReasons": {},
+       "blockedByCampaignContext": 16,
+       "blockedByRecentRecoveryUnverifiable": 7,
+       "blockedByOtherIndependentGate": 0,
+       "codeTransitions": {
+        "profile_hard_action_ineligible->break_even_roas_missing": 497,
+        "campaign_context->campaign_context": 16,
+        "recent_recovery_unverifiable->recent_recovery_unverifiable": 7
+       },
+       "partitionComplete": true
+      },
+      {
+       "action": "refresh",
+       "heldBefore": 14,
+       "eligibleBefore": 0,
+       "eligibleAfter": 14,
+       "blockedAfterTotal": 0,
+       "blockedByEffectiveProfileCode": {},
+       "blockedByEffectiveProfileCodeTotal": 0,
+       "blockedNoCandidate": 0,
+       "blockedNotDeterminable": 0,
+       "notDeterminableReasons": {},
+       "blockedByCampaignContext": 0,
+       "blockedByRecentRecoveryUnverifiable": 0,
+       "blockedByOtherIndependentGate": 0,
+       "codeTransitions": {
+        "profile_hard_action_ineligible->eligible": 14
+       },
+       "partitionComplete": true
+      }
+     ],
+     "blockedByIndependentGate": {
+      "campaignContext": 16,
+      "recentRecoveryUnverifiable": 7
+     }
+    },
+    {
+     "businessId": "b79683b4-6f87-48c0-a3ca-44d4356fef51",
+     "businessName": "IwaTR",
+     "currency": "USD",
+     "candidateSupplied": true,
+     "resolvedTargetRevisions": [],
+     "originsWithNoKnowableTargetPack": 291,
+     "byAction": [
+      {
+       "action": "scale",
+       "heldBefore": 0,
+       "eligibleBefore": 0,
+       "eligibleAfter": 0,
+       "blockedAfterTotal": 0,
+       "blockedByEffectiveProfileCode": {},
+       "blockedByEffectiveProfileCodeTotal": 0,
+       "blockedNoCandidate": 0,
+       "blockedNotDeterminable": 0,
+       "notDeterminableReasons": {},
+       "blockedByCampaignContext": 0,
+       "blockedByRecentRecoveryUnverifiable": 0,
+       "blockedByOtherIndependentGate": 0,
+       "codeTransitions": {},
+       "partitionComplete": true
+      },
+      {
+       "action": "cut",
+       "heldBefore": 282,
+       "eligibleBefore": 0,
+       "eligibleAfter": 0,
+       "blockedAfterTotal": 282,
+       "blockedByEffectiveProfileCode": {
+        "break_even_roas_missing": 282
+       },
+       "blockedByEffectiveProfileCodeTotal": 282,
+       "blockedNoCandidate": 0,
+       "blockedNotDeterminable": 0,
+       "notDeterminableReasons": {},
+       "blockedByCampaignContext": 0,
+       "blockedByRecentRecoveryUnverifiable": 0,
+       "blockedByOtherIndependentGate": 0,
+       "codeTransitions": {
+        "profile_hard_action_ineligible->break_even_roas_missing": 282
+       },
+       "partitionComplete": true
+      },
+      {
+       "action": "refresh",
+       "heldBefore": 9,
+       "eligibleBefore": 0,
+       "eligibleAfter": 9,
+       "blockedAfterTotal": 0,
+       "blockedByEffectiveProfileCode": {},
+       "blockedByEffectiveProfileCodeTotal": 0,
+       "blockedNoCandidate": 0,
+       "blockedNotDeterminable": 0,
+       "notDeterminableReasons": {},
+       "blockedByCampaignContext": 0,
+       "blockedByRecentRecoveryUnverifiable": 0,
+       "blockedByOtherIndependentGate": 0,
+       "codeTransitions": {
+        "profile_hard_action_ineligible->eligible": 9
+       },
+       "partitionComplete": true
+      }
+     ],
+     "blockedByIndependentGate": {
+      "campaignContext": 0,
+      "recentRecoveryUnverifiable": 0
+     }
+    },
+    {
+     "businessId": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+     "businessName": "TheSwaf",
+     "currency": "USD",
+     "candidateSupplied": false,
+     "resolvedTargetRevisions": [],
+     "originsWithNoKnowableTargetPack": 0,
+     "byAction": [
+      {
+       "action": "scale",
+       "heldBefore": 2,
+       "eligibleBefore": 0,
+       "eligibleAfter": 0,
+       "blockedAfterTotal": 2,
+       "blockedByEffectiveProfileCode": {},
+       "blockedByEffectiveProfileCodeTotal": 0,
+       "blockedNoCandidate": 0,
+       "blockedNotDeterminable": 0,
+       "notDeterminableReasons": {},
+       "blockedByCampaignContext": 2,
+       "blockedByRecentRecoveryUnverifiable": 0,
+       "blockedByOtherIndependentGate": 0,
+       "codeTransitions": {
+        "campaign_context->campaign_context": 2
+       },
+       "partitionComplete": true
+      },
+      {
+       "action": "cut",
+       "heldBefore": 202,
+       "eligibleBefore": 0,
+       "eligibleAfter": 0,
+       "blockedAfterTotal": 202,
+       "blockedByEffectiveProfileCode": {},
+       "blockedByEffectiveProfileCodeTotal": 0,
+       "blockedNoCandidate": 139,
+       "blockedNotDeterminable": 0,
+       "notDeterminableReasons": {},
+       "blockedByCampaignContext": 47,
+       "blockedByRecentRecoveryUnverifiable": 16,
+       "blockedByOtherIndependentGate": 0,
+       "codeTransitions": {
+        "profile_hard_action_ineligible->no_candidate_supplied": 139,
+        "campaign_context->campaign_context": 47,
+        "recent_recovery_unverifiable->recent_recovery_unverifiable": 16
+       },
+       "partitionComplete": true
+      },
+      {
+       "action": "refresh",
+       "heldBefore": 3,
+       "eligibleBefore": 0,
+       "eligibleAfter": 0,
+       "blockedAfterTotal": 3,
+       "blockedByEffectiveProfileCode": {},
+       "blockedByEffectiveProfileCodeTotal": 0,
+       "blockedNoCandidate": 3,
+       "blockedNotDeterminable": 0,
+       "notDeterminableReasons": {},
+       "blockedByCampaignContext": 0,
+       "blockedByRecentRecoveryUnverifiable": 0,
+       "blockedByOtherIndependentGate": 0,
+       "codeTransitions": {
+        "profile_hard_action_ineligible->no_candidate_supplied": 3
+       },
+       "partitionComplete": true
+      }
+     ],
+     "blockedByIndependentGate": {
+      "campaignContext": 49,
+      "recentRecoveryUnverifiable": 16
+     }
+    }
+   ],
+   "totalsByAction": [
+    {
+     "action": "scale",
+     "heldBefore": 8,
+     "eligibleBefore": 0,
+     "eligibleAfter": 0,
+     "blockedAfterTotal": 8,
+     "blockedByEffectiveProfileCode": {},
+     "blockedByEffectiveProfileCodeTotal": 0,
+     "blockedNoCandidate": 0,
+     "blockedNotDeterminable": 0,
+     "notDeterminableReasons": {},
+     "blockedByCampaignContext": 8,
+     "blockedByRecentRecoveryUnverifiable": 0,
+     "blockedByOtherIndependentGate": 0,
+     "codeTransitions": {
+      "campaign_context->campaign_context": 8
+     },
+     "partitionComplete": true
+    },
+    {
+     "action": "cut",
+     "heldBefore": 1925,
+     "eligibleBefore": 0,
+     "eligibleAfter": 0,
+     "blockedAfterTotal": 1925,
+     "blockedByEffectiveProfileCode": {
+      "break_even_roas_missing": 1355,
+      "commercial_anchor_missing": 149
+     },
+     "blockedByEffectiveProfileCodeTotal": 1504,
+     "blockedNoCandidate": 309,
+     "blockedNotDeterminable": 0,
+     "notDeterminableReasons": {},
+     "blockedByCampaignContext": 86,
+     "blockedByRecentRecoveryUnverifiable": 26,
+     "blockedByOtherIndependentGate": 0,
+     "codeTransitions": {
+      "profile_hard_action_ineligible->break_even_roas_missing": 1355,
+      "campaign_context->campaign_context": 86,
+      "profile_hard_action_ineligible->no_candidate_supplied": 309,
+      "profile_hard_action_ineligible->commercial_anchor_missing": 149,
+      "recent_recovery_unverifiable->recent_recovery_unverifiable": 26
+     },
+     "partitionComplete": true
+    },
+    {
+     "action": "refresh",
+     "heldBefore": 60,
+     "eligibleBefore": 0,
+     "eligibleAfter": 50,
+     "blockedAfterTotal": 10,
+     "blockedByEffectiveProfileCode": {
+      "commercial_anchor_missing": 3
+     },
+     "blockedByEffectiveProfileCodeTotal": 3,
+     "blockedNoCandidate": 6,
+     "blockedNotDeterminable": 0,
+     "notDeterminableReasons": {},
+     "blockedByCampaignContext": 1,
+     "blockedByRecentRecoveryUnverifiable": 0,
+     "blockedByOtherIndependentGate": 0,
+     "codeTransitions": {
+      "profile_hard_action_ineligible->eligible": 50,
+      "profile_hard_action_ineligible->no_candidate_supplied": 6,
+      "profile_hard_action_ineligible->commercial_anchor_missing": 3,
+      "campaign_context->campaign_context": 1
+     },
+     "partitionComplete": true
+    }
+   ],
+   "eligibleAfterTotal": 50,
+   "blockedAfterTotal": 1943,
+   "partitionComplete": true,
+   "notes": [
+    "Every held row is recomputed for ITS OWN action. Clearing the common commercial threshold does not make a held Cut eligible; Cut additionally needs a break-even ROAS and Scale a Target ROAS plus a calibration sample.",
+    "Target and break-even ROAS are resolved bitemporally as of each row's origin (effectiveAt AND recordedAt at or before the origin's 03:00Z cutoff). No later revision is applied to an earlier row.",
+    "Rows whose first persisted blocker was campaign context or recovery-unverifiability are reported separately and are never counted as anchor transitions: the frozen package does not record what the threshold gate would have said for them.",
+    "A row's persisted blocker is `profile_hard_action_ineligible`, a first-blocker FAMILY that also covers scale calibration. This tool never restates it as a specific anchor sub-cause; only the AFTER state carries a canonical code.",
+    "Every action row partitions completely: heldBefore = eligibleAfter + blockedByEffectiveProfileCodeTotal + blockedNoCandidate + blockedNotDeterminable + blockedByCampaignContext + blockedByRecentRecoveryUnverifiable + blockedByOtherIndependentGate. `blockedAfterTotal` is heldBefore - eligibleAfter; no narrower bucket may be read as the blocked population."
+   ]
+  }
+ ]
+}

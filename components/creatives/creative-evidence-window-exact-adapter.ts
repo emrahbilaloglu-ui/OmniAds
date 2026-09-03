@@ -360,6 +360,22 @@ function isoDate(value: string | null | undefined): string | null {
   return parsed.toISOString().slice(0, 10);
 }
 
+function formatDecisionFreshness(
+  freshness:
+    | NonNullable<
+        MetaCanonicalDecision["sourceAuthority"]
+      >["decisionFreshness"]
+    | undefined,
+): string | null {
+  if (!freshness) return null;
+  const age =
+    typeof freshness.ageHours === "number" &&
+    Number.isFinite(freshness.ageHours)
+      ? `${freshness.ageHours.toFixed(2)}h old`
+      : "age unavailable";
+  return `${humanizeCode(freshness.status)} · ${age} · max ${freshness.maxAgeHours}h`;
+}
+
 /**
  * The design's funnel bars are a log scale, not a literal share, and the scale
  * is recoverable from the design's own three funnels. Solving each authored
@@ -1035,6 +1051,69 @@ function authorityRows(input: {
         .join(" · ") || EM_DASH,
       decision.campaignRoleTrustedForAction ? "neutral" : "warning",
     );
+    /*
+     * D074/D076: the resolver's own explanation of the campaign's
+     * automatically inferred role, printed verbatim. The 'Served campaign
+     * role' line above may carry a provisional display role; these rows state
+     * what the resolver itself published — including that it has published
+     * nothing yet — so the two can never be read as one claim. Nothing here is
+     * computed: a null kind prints as unresolved with the server's own reason
+     * beside it, never as a fallback kind.
+     */
+    const roleExplanation = decision.campaignRoleExplanation;
+    if (roleExplanation) {
+      const roleScore = finite(roleExplanation.confidenceScore);
+      push(
+        "served-role-inference",
+        "Automatically inferred role",
+        [
+          nonBlank(roleExplanation.kind) ?? "unresolved",
+          `confidence ${roleExplanation.confidenceClass}`,
+          // A measured zero prints as score 0.00; a null score prints nothing.
+          roleScore === null ? null : `score ${roleScore.toFixed(2)}`,
+        ]
+          .filter((part): part is string => Boolean(part))
+          .join(" · "),
+        roleExplanation.kind ? "neutral" : "warning",
+      );
+      push(
+        "served-role-evidence",
+        "Why",
+        roleExplanation.evidence
+          .map((entry) => nonBlank(entry))
+          .filter((entry): entry is string => Boolean(entry))
+          .join(" · ") || EM_DASH,
+      );
+      push(
+        "served-role-conflicts",
+        "Conflicting signals",
+        roleExplanation.conflictReasons
+          .map((entry) => nonBlank(entry))
+          .filter((entry): entry is string => Boolean(entry))
+          .join(" · ") || EM_DASH,
+        roleExplanation.conflictReasons.length > 0 ? "warning" : "neutral",
+      );
+      push(
+        "served-role-status",
+        "Unresolved",
+        roleExplanation.unresolvedReason
+          ? humanizeCode(roleExplanation.unresolvedReason)
+          : EM_DASH,
+        roleExplanation.unresolvedReason ? "warning" : "neutral",
+      );
+      push(
+        "served-role-evaluated",
+        "Last evaluated",
+        [
+          nonBlank(roleExplanation.lastEvaluatedAt) ?? EM_DASH,
+          nonBlank(roleExplanation.resolverVersion)
+            ? `resolver ${roleExplanation.resolverVersion}`
+            : null,
+        ]
+          .filter((part): part is string => Boolean(part))
+          .join(" · "),
+      );
+    }
     push(
       "served-resolution",
       "Served resolution",
@@ -1126,9 +1205,31 @@ function authorityRows(input: {
    */
   pushCanonicalOnly(
     "action-eligibility",
-    "Action eligible",
+    "Decision-authorized",
     authority ? (authority.actionEligible ? "yes" : "no") : null,
     authority?.actionEligible ? "positive" : "warning",
+  );
+  pushCanonicalOnly(
+    "exact-decision-computed-at",
+    "Exact decision computed at",
+    canonical?.sourceDecision.computedAt ?? null,
+    "neutral",
+  );
+  pushCanonicalOnly(
+    "exact-decision-freshness",
+    "Exact decision freshness",
+    formatDecisionFreshness(authority?.decisionFreshness),
+    authority?.decisionFreshness?.status === "fresh" ? "positive" : "warning",
+  );
+  pushCanonicalOnly(
+    "execution-readiness",
+    "Execution readiness",
+    authority?.executionReadiness
+      ? humanizeCode(authority.executionReadiness)
+      : null,
+    authority?.executionReadiness === "live_preflight_required"
+      ? "positive"
+      : "warning",
   );
   if (authority?.reviewOnlyReason) {
     push(

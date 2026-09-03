@@ -2,6 +2,7 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import {
+  resolveAssetLibraryRowLabel,
   ASSET_PRESETS,
   ASSET_LIBRARY_VIEW_STORAGE_KEY,
   AssetLibrarySection,
@@ -247,7 +248,9 @@ describe("AssetLibrarySection", () => {
     expect(labelCell).not.toContain("data-decision-center-label");
   });
 
-  it("uses server buyerLabel over legacy engineLabel when Decision Center UI is enabled", () => {
+  it("the visible Label cell always follows the current server projection, never the compatibility row (D074b correction 4)", () => {
+    // Correction-3 code displayed the row's buyerLabel here ("Refresh
+    // (server)"); the current server projection must win.
     const html = renderToStaticMarkup(
       <AssetLibrarySection
         rows={[
@@ -258,8 +261,8 @@ describe("AssetLibrarySection", () => {
             decisionCenterRow: decisionCenterRow({
               rowId: "row_server",
               creativeId: "cr_server",
-              buyerAction: "scale",
-              buyerLabel: "Scale (server)",
+              buyerAction: "refresh",
+              buyerLabel: "Refresh (server)",
             }),
           }),
         ]}
@@ -275,9 +278,49 @@ describe("AssetLibrarySection", () => {
     );
 
     const labelCell = extractRowLabelCell(html, "row_server");
-    expect(labelCell).toContain("Scale (server)");
-    expect(labelCell).not.toContain(">Cut<");
-    expect(labelCell).toContain('data-decision-center-label="true"');
+    expect(labelCell).not.toContain("Refresh (server)");
+    expect(labelCell).toContain("Cut");
+    expect(labelCell).toContain('data-label-source="current"');
+  });
+
+  it("a stale Scale/Promote row cannot change the visible current decision (D074b correction 4, exact bypass-C fixture)", () => {
+    // The acceptance probe: current server label "cut" + stale row
+    // {scale, "Scale - Promote to main", promote_to_main}. Correction-3
+    // code displayed "Scale" and filtered/exported the row as scale.
+    const html = renderToStaticMarkup(
+      <AssetLibrarySection
+        rows={[
+          row({
+            id: "row_scale",
+            creativeId: "cr_scale",
+            engineLabel: "cut",
+            decisionLabel: "cut",
+            briefingLabel: "cut",
+            decisionCenterRow: decisionCenterRow({
+              rowId: "row_scale",
+              creativeId: "cr_scale",
+              buyerAction: "scale",
+              buyerLabel: "Scale - Promote to main",
+              executionAction: "promote_to_main",
+            }),
+          }),
+        ]}
+        decisionCenterUiEnabled
+        defaultCurrency="USD"
+        selectedMetricIds={["spend", "roas"]}
+        onSelectedMetricIdsChange={() => undefined}
+        selectedRowIds={[]}
+        onToggleRow={() => undefined}
+        onToggleAll={() => undefined}
+        onOpenRow={() => undefined}
+      />,
+    );
+
+    const labelCell = extractRowLabelCell(html, "row_scale");
+    expect(labelCell).not.toContain("Promote to main");
+    expect(labelCell).not.toContain("Scale");
+    expect(labelCell).toContain("cut");
+    expect(labelCell).toContain('data-label-source="current"');
   });
 
   it("never renders a blank buyer-facing label when Decision Center UI is enabled", () => {
@@ -318,12 +361,17 @@ describe("AssetLibrarySection", () => {
       />,
     );
 
+    // D074b correction 4: without a current server label the cell fails
+    // closed to an explicit "Review" presentation — the compatibility row
+    // never fills the gap with its own action.
     const staticFallbackCell = extractRowLabelCell(html, "row_blank");
-    expect(staticFallbackCell).toContain("Diagnose data");
+    expect(staticFallbackCell).toContain("Review");
+    expect(staticFallbackCell).not.toContain("Diagnose data");
     expect(staticFallbackCell).not.toMatch(/<span class="dot"><\/span><\/span>/);
 
     const unknownFallbackCell = extractRowLabelCell(html, "row_unknown");
-    expect(unknownFallbackCell).toContain("Decision Center");
+    expect(unknownFallbackCell).toContain("Review");
+    expect(unknownFallbackCell).not.toContain("Decision Center");
     expect(unknownFallbackCell).not.toContain("unknown_action");
   });
 
@@ -615,14 +663,16 @@ describe("decision-center label unification (filter/CSV vs display)", () => {
     missingData: [],
   });
 
-  it("filters on the displayed decision-center action when enabled, not the stale legacy label", () => {
+  it("the label filter follows the current server projection, never the stale row (D074b correction 4, exact bypass-C fixture)", () => {
+    // Correction-3 code grouped this row under "scale" because the stale
+    // row said so; the current server decision is cut.
     const stale = row({
       id: "stale",
       name: "Stale Legacy",
       engineLabel: "cut",
       decisionCenterRow: dcRow("scale") as never,
     });
-    const filters = {
+    const scaleFilter = {
       status: "all",
       formats: [],
       labels: ["scale"],
@@ -631,32 +681,50 @@ describe("decision-center label unification (filter/CSV vs display)", () => {
       search: "",
       sort: "spend_desc",
     } as const;
+    const cutFilter = { ...scaleFilter, labels: ["cut"] } as const;
     expect(
-      filterAssetLibraryRows([stale], filters as never, { decisionCenterUiEnabled: true }).map(
+      filterAssetLibraryRows([stale], scaleFilter as never, { decisionCenterUiEnabled: true }),
+    ).toEqual([]);
+    expect(
+      filterAssetLibraryRows([stale], cutFilter as never, { decisionCenterUiEnabled: true }).map(
         (item) => item.id,
       ),
     ).toEqual(["stale"]);
-    // Disabled flag keeps legacy behavior: the row shows the legacy label, so
-    // the filter must use it too.
+    // The flag no longer switches the source of truth.
     expect(
-      filterAssetLibraryRows([stale], filters as never, { decisionCenterUiEnabled: false }),
-    ).toEqual([]);
+      filterAssetLibraryRows([stale], cutFilter as never, { decisionCenterUiEnabled: false }).map(
+        (item) => item.id,
+      ),
+    ).toEqual(["stale"]);
   });
 
-  it("projects buyer actions into DecisionLabel space for filtering", () => {
-    const base = row({ id: "p", engineLabel: "cut" });
+  it("rowEffectiveDecisionLabel and the shared cell projection ignore the row for every current label (D074b correction 4)", () => {
+    // The shared current-label projection also feeds the CSV export (the
+    // CSV builder calls resolveAssetLibraryRowLabel with the same inputs
+    // as the rendered cell), so these pins cover table, filter, and CSV.
+    for (const current of ["cut", "keep", "diagnose", "refresh", "test_more"]) {
+      const base = row({ id: `p_${current}`, engineLabel: current });
+      expect(
+        rowEffectiveDecisionLabel({ ...base, decisionCenterRow: dcRow("scale") as never }, true),
+      ).toBe(current);
+      expect(
+        resolveAssetLibraryRowLabel(
+          { ...base, decisionCenterRow: dcRow("scale") as never },
+          { creativeTeamPreset: false, decisionCenterUiEnabled: true },
+        ),
+      ).toEqual({ label: current, source: "current" });
+    }
+    // Fail-closed: no current server decision + stale hard-action row can
+    // never become a current Scale/Promote label.
+    const orphan = row({ id: "orphan", engineLabel: null });
     expect(
-      rowEffectiveDecisionLabel({ ...base, decisionCenterRow: dcRow("protect") as never }, true),
-    ).toBe("keep");
+      rowEffectiveDecisionLabel({ ...orphan, decisionCenterRow: dcRow("scale") as never }, true),
+    ).toBeNull();
     expect(
-      rowEffectiveDecisionLabel({ ...base, decisionCenterRow: dcRow("watch_launch") as never }, true),
-    ).toBe("test_more");
-    expect(
-      rowEffectiveDecisionLabel({ ...base, decisionCenterRow: dcRow("fix_delivery") as never }, true),
-    ).toBe("diagnose");
-    expect(rowEffectiveDecisionLabel(base, true)).toBe("cut");
-    expect(
-      rowEffectiveDecisionLabel({ ...base, decisionCenterRow: dcRow("scale") as never }, false),
-    ).toBe("cut");
+      resolveAssetLibraryRowLabel(
+        { ...orphan, decisionCenterRow: dcRow("scale") as never },
+        { creativeTeamPreset: false, decisionCenterUiEnabled: true },
+      ),
+    ).toEqual({ label: "Review", source: "current_unavailable" });
   });
 });

@@ -1,0 +1,154 @@
+{
+  "contract": "d086.capture-to-readiness-evidence.v1",
+  "generatedFor": "D086 correction 7",
+  "postgresVersion": "PostgreSQL 16.13 (Homebrew) on aarch64-apple-darwin25.2.0, compiled by Apple clang version 17.0.0 (clang-1700.6.3.2), 64-bit",
+  "ok": true,
+  "steps": [
+    {
+      "step": "migrations",
+      "detail": "the registered migration set applied to a fresh cluster"
+    },
+    {
+      "step": "receipt_table",
+      "detail": "17 columns created by the registry"
+    },
+    {
+      "step": "binding",
+      "detail": "one business, one provider account, one binding"
+    },
+    {
+      "step": "first_sync",
+      "detail": "campaign run b9e04c4d-ef98-4e7e-85b6-0b88b62ee061, adset run 5195401a-a9d5-4962-93b9-9c3f5c7ff0d6"
+    },
+    {
+      "step": "second_sync_heartbeat",
+      "detail": "run reused=true, same run id=true"
+    },
+    {
+      "step": "cohort_proof",
+      "detail": "1 campaign run(s) carry 2 distinct capture cohorts across 4 receipts"
+    },
+    {
+      "step": "canonical_facts",
+      "detail": "tz=Europe/Istanbul rows=4 adset:a_10=campaign_owned/- | adset:a_20=adset_owned/- | campaign:c_100=campaign_owned/- | campaign:c_200=unresolved/budget_field_none,budget_shape_not_observed"
+    },
+    {
+      "step": "readiness_evidence",
+      "detail": "2 of 2 APPLICABLE budget owners carry a complete, valid, action-bearing retained fact (retained population 4); universe: applicable 2, proven non-owner 2, owner uncaptured 0, applicable owner missing 0, hierarchy contradictions 0, conflicts 0; complete-run attestation present."
+    },
+    {
+      "step": "readiness_universe",
+      "detail": "{\"retainedRows\":4,\"applicable\":2,\"provenNonApplicable\":2,\"ownerUnknown\":0,\"uncoveredApplicable\":0,\"hierarchyContradictions\":0,\"completeRunAttested\":true,\"expectedCampaigns\":2,\"expectedAdsets\":2,\"observedCampaigns\":2,\"observedAdsets\":2,\"cohortId\":\"44444444-4444-4444-8444-444444444444\",\"manifestCampaignMembers\":2,\"manifestAdsetMembers\":2}"
+    },
+    {
+      "step": "readiness",
+      "detail": "status=ready blocker=none attested=true cohort=44444444-4444-4444-8444-444444444444"
+    },
+    {
+      "step": "capability_probe",
+      "detail": "{\"campaign_columns\":\"0\",\"adset_columns\":\"0\",\"profile_columns\":\"0\",\"role_columns\":\"0\",\"run_columns\":\"15\",\"receipt_columns\":\"17\",\"state_columns\":\"21\",\"tombstone_columns\":\"9\"}"
+    },
+    {
+      "step": "index_catalog",
+      "detail": "{\"checked\":[\"idx_meta_entity_observation_runs_d086_effective\",\"meta_entity_observation_receipts_occurrence\",\"idx_meta_entity_observation_receipts_cohort\",\"idx_meta_entity_observation_receipts_freshness\",\"idx_meta_entity_tombstones_d086_latest\"],\"found\":[\"idx_meta_entity_observation_receipts_cohort\",\"idx_meta_entity_observation_receipts_freshness\",\"idx_meta_entity_observation_runs_d086_effective\",\"idx_meta_entity_tombstones_d086_latest\",\"meta_entity_observation_receipts_occurrence\"],\"satisfied\":true}"
+    }
+  ],
+  "cases": [
+    {
+      "name": "real_capture_path_ready",
+      "mechanics": "two syncs of identical mapped campaign/ad-set responses through mapCampaignObservationState + mapAdSetObservationState + persistMetaEntityObservation; second sync coalesced onto the same run and appended a second receipt under a different partition; no D086 fixture rows",
+      "status": "ready",
+      "blocker": null,
+      "attested": true
+    },
+    {
+      "name": "newer_failed_blocks_older_complete",
+      "mechanics": "one complete capture at 09:06, then a FAILED capture at 11:06 on the same endpoint; the older complete run is still present and readable",
+      "status": "partial",
+      "blocker": "budget_universe_campaign_capture_failed",
+      "attested": false
+    },
+    {
+      "name": "newer_partial_blocks_older_complete",
+      "mechanics": "one complete capture at 09:06, then a PARTIAL capture at 11:06",
+      "status": "partial",
+      "blocker": "budget_universe_campaign_capture_partial",
+      "attested": false
+    },
+    {
+      "name": "wrong_endpoint_named",
+      "mechanics": "the campaign capture recorded endpoint ad_configs; the receipt and the run both carry it, so nothing is filtered away and the cause is visible",
+      "status": "partial",
+      "blocker": "budget_universe_campaign_endpoint_mismatch",
+      "attested": false
+    },
+    {
+      "name": "cohort_mismatch_across_syncs",
+      "mechanics": "campaign and ad-set receipts carry different partition ids at the same clock",
+      "status": "partial",
+      "blocker": "budget_universe_cohort_mismatch",
+      "attested": false
+    },
+    {
+      "name": "explicit_tombstone_supersedes_manifest",
+      "mechanics": "persistMetaExplicitEntityTombstone wrote 1 row into meta_entity_tombstones after the manifest's own capture clock",
+      "status": "partial",
+      "blocker": "budget_universe_campaign_membership_tombstoned",
+      "attested": false
+    },
+    {
+      "name": "delta_manifest_reconstructed",
+      "mechanics": "the campaign run is manifest_kind='delta'; membership is rebuilt from the latest complete-lane present rows at or before its payload clock",
+      "status": "ready",
+      "blocker": null,
+      "attested": true
+    },
+    {
+      "name": "tied_receipts_forward_insertion",
+      "mechanics": "two campaign receipts inserted in forward physical order, partitions 99999999-9999-4999-8999-999999999910 then 99999999-9999-4999-8999-999999999911",
+      "status": "partial",
+      "blocker": "budget_universe_cohort_mismatch",
+      "attested": false
+    },
+    {
+      "name": "tied_receipts_reversed_insertion",
+      "mechanics": "two campaign receipts inserted in reversed physical order, partitions 99999999-9999-4999-8999-999999999911 then 99999999-9999-4999-8999-999999999910",
+      "status": "partial",
+      "blocker": "budget_universe_cohort_mismatch",
+      "attested": false
+    }
+  ],
+  "capabilityProbe": {
+    "campaign_columns": "0",
+    "adset_columns": "0",
+    "profile_columns": "0",
+    "role_columns": "0",
+    "run_columns": "15",
+    "receipt_columns": "17",
+    "state_columns": "21",
+    "tombstone_columns": "9"
+  },
+  "indexCatalog": [
+    {
+      "indexname": "idx_meta_entity_observation_receipts_freshness",
+      "indexdef": "CREATE INDEX idx_meta_entity_observation_receipts_freshness ON public.meta_entity_observation_receipts USING btree (business_id, provider_account_id, entity_type, endpoint, captured_at DESC, id DESC)"
+    },
+    {
+      "indexname": "meta_entity_observation_receipts_occurrence",
+      "indexdef": "CREATE UNIQUE INDEX meta_entity_observation_receipts_occurrence ON public.meta_entity_observation_receipts USING btree (partition_id, entity_type, endpoint, captured_at)"
+    },
+    {
+      "indexname": "idx_meta_entity_observation_receipts_cohort",
+      "indexdef": "CREATE INDEX idx_meta_entity_observation_receipts_cohort ON public.meta_entity_observation_receipts USING btree (business_id, provider_account_id, partition_id, entity_type, endpoint, captured_at DESC, id DESC)"
+    },
+    {
+      "indexname": "idx_meta_entity_observation_runs_d086_effective",
+      "indexdef": "CREATE INDEX idx_meta_entity_observation_runs_d086_effective ON public.meta_entity_observation_runs USING btree (business_id, provider_account_id, entity_type, endpoint, COALESCE(last_captured_at, captured_at) DESC, LEAST(COALESCE(last_seen_at, observed_at), COALESCE(last_captured_at, captured_at)) DESC, created_at DESC, id DESC)"
+    },
+    {
+      "indexname": "idx_meta_entity_tombstones_d086_latest",
+      "indexdef": "CREATE INDEX idx_meta_entity_tombstones_d086_latest ON public.meta_entity_tombstones USING btree (business_id, provider_account_id, entity_type, entity_id, captured_at DESC, id DESC)"
+    }
+  ],
+  "failures": []
+}

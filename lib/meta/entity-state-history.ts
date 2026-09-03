@@ -49,6 +49,19 @@ export interface MetaEntityStateHashInput {
   adsetLifetimeBudgetRaw?: string | null;
   budgetCurrency?: string | null;
   budgetOrigin: MetaBudgetOrigin;
+  /**
+   * D083 — schedule, required whenever a lifetime budget is the binding field,
+   * and the currency exponent in force when the amount was captured.
+   */
+  campaignStartTime?: string | null;
+  campaignEndTime?: string | null;
+  adsetStartTime?: string | null;
+  adsetEndTime?: string | null;
+  budgetCurrencyExponent?: number | null;
+  budgetCurrencyRegistryVersion?: string | null;
+  /** D086: whether the provider's budget SHAPE was observed for this row. */
+  budgetShapeSupport?: "supported" | "unsupported_shape" | "shape_not_observed" | null;
+  providerApiVersion?: string | null;
   reviewStatus?: string | null;
   policyStatus?: string | null;
   policyReasons?: unknown[] | null;
@@ -98,6 +111,40 @@ export interface PersistMetaEntityObservationInput {
   payloadHash?: string | null;
   error?: Record<string, unknown> | null;
   adCreativeRelationships?: MetaObservedAdCreativeRelationship[] | null;
+  /**
+   * D086: bind this capture OCCURRENCE to the sync that performed it.
+   *
+   * The run is coalesced content — identical truth advances a heartbeat on an
+   * existing run rather than appending one — so the run cannot carry the
+   * cohort. Supplying this writes an append-only receipt naming the core sync
+   * partition, the raw snapshot the rows were mapped from, and whether the run
+   * was reused. Omitting it writes no receipt and leaves the capture
+   * unattestable, which is the fail-closed direction.
+   */
+  captureReceipt?: {
+    partitionId: string;
+    sourceSnapshotId?: string | null;
+    /** The raw snapshot row this capture was mapped from, as a real reference. */
+    sourceSnapshotRefId?: string | null;
+  } | null;
+}
+
+/**
+ * D075 write-amplification telemetry, persisted on the run as
+ * `delta_stats_json` and returned to the caller. `logicalEntityCount` is the
+ * full incoming scope (`row_count` keeps that meaning too);
+ * `physicalStateRows` is what was actually appended.
+ */
+export interface MetaObservationDeltaStats {
+  logicalEntityCount: number;
+  changedEntityCount: number;
+  newEntityCount: number;
+  exitedEntityCount: number;
+  /** Unchanged rows re-persisted only so creative-lineage FKs stay run-bound. */
+  lineageCarriedEntityCount: number;
+  physicalStateRows: number;
+  /** physicalStateRows / max(1, logicalEntityCount). */
+  amplification: number;
 }
 
 export interface PersistMetaEntityObservationResult {
@@ -110,10 +157,24 @@ export interface PersistMetaEntityObservationResult {
   capturedAt: string;
   /** The clock-free truth this observation carried. */
   semanticHash: string;
-  /** True when identical truth advanced the heartbeat and wrote no payload. */
+  /**
+   * True when identical truth advanced the heartbeat instead of appending a
+   * run. Usually writes nothing; the one exception is a lineage carry
+   * (D075): a relationship-named ad missing from the kept delta run gets its
+   * byte-identical row carried in, reported via `stateCount`.
+   */
   coalesced: boolean;
   /** How many observations this run now represents. */
   repeatCount: number;
+  /**
+   * D075: how this run's manifest is stored. `null` on non-complete lanes
+   * (legacy full-manifest behavior) and on coalesced results, `'full'` on a
+   * first complete observation of a scope, `'delta'` when only
+   * changed/new/exited entities were appended.
+   */
+  manifestKind: "full" | "delta" | null;
+  /** Present exactly when `manifestKind` is non-null. */
+  deltaStats: MetaObservationDeltaStats | null;
 }
 
 export interface PersistMetaExplicitEntityTombstoneInput {
@@ -153,6 +214,14 @@ export interface MetaEntityStateHistoryRow {
   adsetLifetimeBudgetRaw: string | null;
   budgetCurrency: string | null;
   budgetOrigin: MetaBudgetOrigin;
+  campaignStartTime: string | null;
+  campaignEndTime: string | null;
+  adsetStartTime: string | null;
+  adsetEndTime: string | null;
+  budgetCurrencyExponent: number | null;
+  budgetCurrencyRegistryVersion: string | null;
+  budgetShapeSupport: string | null;
+  providerApiVersion: string | null;
   reviewStatus: string | null;
   policyStatus: string | null;
   policyReasons: unknown[] | null;
@@ -244,6 +313,14 @@ interface MetaEntityStateDbRow {
   adset_lifetime_budget_raw: string | null;
   budget_currency: string | null;
   budget_origin: MetaBudgetOrigin;
+  campaign_start_time: string | null;
+  campaign_end_time: string | null;
+  adset_start_time: string | null;
+  adset_end_time: string | null;
+  budget_currency_exponent: number | null;
+  budget_currency_registry_version: string | null;
+  budget_shape_support: string | null;
+  provider_api_version: string | null;
   review_status: string | null;
   policy_status: string | null;
   policy_reasons_json: unknown[] | null;
@@ -474,9 +551,28 @@ function normalizeLimit(value: number | null | undefined) {
   return Math.min(value, 2_000);
 }
 
+/**
+ * D083 Correction 2 — the provider API version joins the schedule and
+ * currency-exponent fields in this hash, and the contract identity moves to
+ * `meta-entity-state.v3`. The version a row was fetched under changes what the
+ * row means, so a change in it is a change in observed truth.
+ *
+ * D083 Correction 1 — the schedule and currency-exponent fields ARE part of
+ * this hash, and the contract identity is bumped to `meta-entity-state.v2` to
+ * say so.
+ *
+ * The alternative — excluding them — would mean the D075 delta writer never
+ * persists a first capture or a later schedule change for an otherwise
+ * unchanged entity, so the columns would exist and stay empty. Including them
+ * costs one bounded, one-time restatement: on the first complete run after
+ * deploy every entity's hash differs from its retained predecessor, so the
+ * writer persists at most one additional row per entity per scope, once. The
+ * previous revision of this file claimed these fields were excluded while the
+ * code included them; that disagreement is what this note replaces.
+ */
 export function buildMetaEntityStateHash(input: MetaEntityStateHashInput) {
   return sha256({
-    contractVersion: "meta-entity-state.v1",
+    contractVersion: "meta-entity-state.v3",
     businessId: requireNonEmpty(input.businessId, "businessId"),
     providerAccountId: requireNonEmpty(
       input.providerAccountId,
@@ -499,6 +595,14 @@ export function buildMetaEntityStateHash(input: MetaEntityStateHashInput) {
     adsetLifetimeBudgetRaw: input.adsetLifetimeBudgetRaw ?? null,
     budgetCurrency: input.budgetCurrency ?? null,
     budgetOrigin: input.budgetOrigin,
+    campaignStartTime: input.campaignStartTime ?? null,
+    campaignEndTime: input.campaignEndTime ?? null,
+    adsetStartTime: input.adsetStartTime ?? null,
+    adsetEndTime: input.adsetEndTime ?? null,
+    budgetCurrencyExponent: input.budgetCurrencyExponent ?? null,
+    budgetCurrencyRegistryVersion: input.budgetCurrencyRegistryVersion ?? null,
+    budgetShapeSupport: input.budgetShapeSupport ?? null,
+    providerApiVersion: input.providerApiVersion ?? null,
     reviewStatus: input.reviewStatus ?? null,
     policyStatus: input.policyStatus ?? null,
     policyReasons: input.policyReasons ?? null,
@@ -792,6 +896,78 @@ function buildMetaTombstoneHash(input: {
  * payload still coalesces. Both `ON CONFLICT ... DO NOTHING` arbiters make a
  * repeat a no-op, so calling this on every observation is idempotent.
  */
+/**
+ * D075: every ad this observation's lineage evidence names — the provider's
+ * ad-creative relationships plus verified duplicate action pairs. These ads
+ * must have a durable state row in whichever run a lineage edge attaches to,
+ * because the edge FK-references (run_id, entity_type, ad_id, creative_id).
+ */
+async function lineageRelevantAdIds(
+  sql: ReturnType<typeof getDb>,
+  input: {
+    businessRefId: string;
+    observedAt: string;
+    adCreativeRelationships?: MetaObservedAdCreativeRelationship[] | null;
+  },
+): Promise<Set<string>> {
+  const adIds = new Set<string>(
+    (input.adCreativeRelationships ?? []).map((rel) => rel.adId),
+  );
+  const verifiedPairs = await sql<{
+    ad_id: string;
+    resulting_ad_id: string;
+  }>`
+    SELECT ad_id, resulting_ad_id
+    FROM meta_ads_action_log
+    WHERE business_id = ${input.businessRefId}::uuid
+      AND action = 'duplicate'
+      AND status = 'success'
+      AND verified_at IS NOT NULL
+      AND verified_at <= ${input.observedAt}::timestamptz
+      AND resulting_ad_id IS NOT NULL
+  `;
+  for (const pair of verifiedPairs) {
+    adIds.add(pair.ad_id);
+    adIds.add(pair.resulting_ad_id);
+  }
+  return adIds;
+}
+
+/**
+ * D075: resolve which of the named ads already have durable state rows in a
+ * specific run, so lineage receives only rows the edge FK can reference.
+ */
+async function lineageStatesForRun(
+  sql: ReturnType<typeof getDb>,
+  input: {
+    runId: string;
+    entityType: MetaEntityType;
+    adIds: ReadonlyArray<string>;
+  },
+): Promise<
+  ReadonlyArray<{ entityId: string; adId: string | null; creativeId: string | null }>
+> {
+  if (input.entityType !== "ad") return [];
+  const adIds = Array.from(new Set(input.adIds));
+  if (adIds.length === 0) return [];
+  const rows = await sql<{
+    entity_id: string;
+    ad_id: string | null;
+    creative_id: string | null;
+  }>`
+    SELECT entity_id, ad_id, creative_id
+    FROM meta_entity_state_history
+    WHERE run_id = ${input.runId}
+      AND entity_type = 'ad'
+      AND ad_id = ANY(${adIds}::text[])
+  `;
+  return rows.map((row) => ({
+    entityId: row.entity_id,
+    adId: row.ad_id,
+    creativeId: row.creative_id,
+  }));
+}
+
 async function persistMetaObservationLineage(
   sql: ReturnType<typeof getDb>,
   options: {
@@ -1004,6 +1180,162 @@ async function persistMetaObservationLineage(
   return lineageCount;
 }
 
+export const META_OBSERVATION_RECEIPT_CONTRACT =
+  "d086.observation-capture-receipt.v1" as const;
+
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Append the capture receipt for ONE occurrence.
+ *
+ * Written inside the observation transaction, so a receipt exists exactly when
+ * the observation it describes was committed. `runReused` records that the
+ * writer coalesced onto an existing run: that row is the evidence that one run
+ * carried several captures, which is why the cohort cannot live on the run.
+ */
+async function appendObservationCaptureReceipt(
+  sql: ReturnType<typeof getDb>,
+  input: {
+    runId: string;
+    businessId: string;
+    providerAccountId: string;
+    entityType: MetaEntityType;
+    endpoint: string;
+    partitionId: string;
+    sourceSnapshotId: string | null;
+    sourceSnapshotRefId: string | null;
+    captureStatus: MetaObservationCompleteness;
+    providerRowCount: number;
+    pageCount: number;
+    runReused: boolean;
+    observedAt: string;
+    capturedAt: string;
+    error: Record<string, unknown> | null;
+  },
+): Promise<void> {
+  if (!UUID_PATTERN.test(input.partitionId)) {
+    throw new Error("captureReceipt.partitionId must be a UUID.");
+  }
+  if (input.sourceSnapshotRefId !== null && !UUID_PATTERN.test(input.sourceSnapshotRefId)) {
+    throw new Error("captureReceipt.sourceSnapshotRefId must be a UUID.");
+  }
+  const errorJson = input.error ? JSON.stringify(input.error) : null;
+  const inserted = await sql<{ id: string }>`
+    INSERT INTO meta_entity_observation_receipts (
+      receipt_contract, run_id, business_id, provider_account_id, entity_type,
+      endpoint, partition_id, source_snapshot_id, source_snapshot_ref_id,
+      capture_status, provider_row_count, page_count, run_reused, observed_at,
+      captured_at, error_json
+    ) VALUES (
+      ${META_OBSERVATION_RECEIPT_CONTRACT}, ${input.runId}::uuid,
+      ${input.businessId}, ${input.providerAccountId}, ${input.entityType},
+      ${input.endpoint}, ${input.partitionId}::uuid, ${input.sourceSnapshotId},
+      ${input.sourceSnapshotRefId}::uuid,
+      ${input.captureStatus}, ${input.providerRowCount}, ${input.pageCount},
+      ${input.runReused}, ${input.observedAt}::timestamptz,
+      ${input.capturedAt}::timestamptz,
+      ${errorJson}::jsonb
+    )
+    ON CONFLICT (partition_id, entity_type, endpoint, captured_at)
+    DO NOTHING
+    RETURNING id::text AS id
+  `;
+  if (inserted[0]) return;
+
+  /*
+    D086 correction 8: an occurrence collision must be COMPARED, not swallowed.
+
+    `DO NOTHING` accepted a retry that named a different run, a different
+    outcome, a different row or page count, or a different snapshot, and left
+    the first row standing as if the two had agreed. An exact retry is a no-op;
+    anything else is two contradictory statements about one capture occurrence
+    and there is no rule that picks a winner, so it refuses.
+  */
+  const existing = await sql<{
+    run_id: string;
+    source_snapshot_id: string | null;
+    source_snapshot_ref_id: string | null;
+    capture_status: string;
+    provider_row_count: number | string;
+    page_count: number | string;
+    run_reused: boolean;
+    observed_at: string;
+    error_json: unknown;
+  }>`
+    SELECT run_id::text AS run_id, source_snapshot_id,
+           source_snapshot_ref_id::text AS source_snapshot_ref_id,
+           capture_status, provider_row_count, page_count, run_reused,
+           observed_at::text AS observed_at, error_json
+      FROM meta_entity_observation_receipts
+     WHERE partition_id = ${input.partitionId}::uuid
+       AND entity_type = ${input.entityType}
+       AND endpoint = ${input.endpoint}
+       AND captured_at = ${input.capturedAt}::timestamptz
+  `;
+  const row = existing[0];
+  if (!row) {
+    throw new Error("Observation receipt conflicted with a row that then vanished.");
+  }
+  const differences: string[] = [];
+  const compare = (field: string, left: unknown, right: unknown) => {
+    if (left !== right) differences.push(`${field} ${String(left)} != ${String(right)}`);
+  };
+  compare("run_id", row.run_id, input.runId);
+  compare("capture_status", row.capture_status, input.captureStatus);
+  compare("provider_row_count", Number(row.provider_row_count), input.providerRowCount);
+  compare("page_count", Number(row.page_count), input.pageCount);
+  /*
+    `run_reused` is deliberately NOT compared. It describes the WRITE — whether
+    this attempt found the run already present — not the capture occurrence. An
+    exact retry of one occurrence legitimately coalesces where the first attempt
+    appended, and refusing that would make ordinary retries fatal.
+  */
+  compare("source_snapshot_id", row.source_snapshot_id ?? null, input.sourceSnapshotId);
+  compare(
+    "source_snapshot_ref_id",
+    row.source_snapshot_ref_id ?? null,
+    input.sourceSnapshotRefId,
+  );
+  /*
+    PRE-DEPLOY AUDIT — `observed_at` is deliberately NOT compared, for exactly
+    the reason `run_reused` above is not.
+
+    The database defines an occurrence as
+    `(partition_id, entity_type, endpoint, captured_at)` — that is the UNIQUE
+    index `meta_entity_observation_receipts_occurrence`, and it is the key this
+    very lookup uses. `observed_at` is not in it. It is the clock of the WRITE
+    ATTEMPT — when WE looked — while `captured_at` is the provider capture time
+    that identifies the occurrence.
+
+    So two attempts at ONE occurrence that stamp `observed_at` a millisecond
+    apart are, by the schema's own definition, the same occurrence written
+    twice. Comparing it made the guard refuse them with "collision with a
+    DIFFERENT occurrence", which is not true: nothing about the occurrence
+    differed. That is the ordinary shape of a retry storm, and it was fatal —
+    the canonical seam's four concurrent identical runs failed on a 1 ms gap
+    (`observed_at 2026-09-03T12:26:01.434Z != …433Z`).
+
+    Everything that identifies the occurrence is still compared, and so is
+    every fact the receipt asserts about it: the run, the capture status, the
+    row and page counts, both snapshot pointers and the error receipt. A
+    genuine second occurrence differs in one of those, or it has a different
+    `captured_at` and never reaches this guard at all.
+  */
+  compare(
+    "error_json",
+    row.error_json === null || row.error_json === undefined
+      ? null : JSON.stringify(row.error_json),
+    errorJson,
+  );
+  if (differences.length > 0) {
+    throw new Error(
+      "Observation receipt collision with a DIFFERENT occurrence: "
+      + differences.join("; "),
+    );
+  }
+}
+
 export async function persistMetaEntityObservation(
   input: PersistMetaEntityObservationInput,
 ): Promise<PersistMetaEntityObservationResult> {
@@ -1140,6 +1472,13 @@ export async function persistMetaEntityObservation(
         AND provider_account_id = ${providerAccountId}
         AND entity_type = ${entityType}
         AND endpoint = ${endpoint}
+        -- Health transitions do not mutate entity truth. A failed or partial
+        -- receipt between two identical complete receipts used to break the
+        -- heartbeat chain and rewrite the complete payload in full. Compare
+        -- only within the same completeness lane so complete A -> failed ->
+        -- complete A reuses A, while complete A -> complete B -> complete A
+        -- still records both real state transitions.
+        AND completeness = ${input.completeness}
       ORDER BY observed_at DESC, id DESC
       LIMIT 1
       FOR UPDATE
@@ -1157,9 +1496,22 @@ export async function persistMetaEntityObservation(
         ? new Date(observedAt).getTime() - anchorMs
         : Number.POSITIVE_INFINITY;
       if (elapsedMs < metaObservationCheckpointIntervalMs(input.completeness)) {
+        // D075 acceptance correction 1: the heartbeat clocks are MONOTONIC.
+        // An accepted older exact replay (H2) must not move them backward —
+        // a regression here erases already-established confirmed_until
+        // evidence and demotes a proven no_response back to unknown. This
+        // mirrors the GREATEST guard the ON CONFLICT (run_hash) branch has
+        // always had.
         const heartbeat = await sql<{ repeat_count: number | string }>`
           UPDATE meta_entity_observation_runs
-          SET last_seen_at = ${observedAt}::timestamptz,
+          SET last_seen_at = GREATEST(
+                COALESCE(last_seen_at, observed_at),
+                ${observedAt}::timestamptz
+              ),
+              last_captured_at = GREATEST(
+                COALESCE(last_captured_at, captured_at),
+                ${capturedAt}::timestamptz
+              ),
               repeat_count = repeat_count + 1,
               source_snapshot_id = COALESCE(${input.sourceSnapshotId ?? null}, source_snapshot_id)
           WHERE id = ${currentRun.id}
@@ -1178,6 +1530,127 @@ export async function persistMetaEntityObservation(
         // The edge is keyed to the run whose state rows are already durable, and
         // both lineage arbiters are DO NOTHING, so this is idempotent on a true
         // repeat and records exactly the new edges on a relationship-only change.
+        // D075: `states` handed to lineage must describe rows that are
+        // durable in the target run. Under delta manifests the kept run may
+        // not contain every incoming entity, so resolve the
+        // relationship-relevant rows the run actually holds — and CARRY the
+        // missing ones in. A relationship first seen while the states
+        // coalesce would otherwise be silently deferred until the next
+        // appending observation (H8 all over again, one manifest kind down).
+        // The carried row is byte-identical to the lane winner — the
+        // observation coalesced, so every entity's state_hash matches the
+        // kept run's payload — and it takes the KEPT run's clocks because
+        // the composite run FK pins state rows to them.
+        const lineageAdIds =
+          entityType === "ad"
+            ? await lineageRelevantAdIds(sql, {
+                businessRefId: binding.business_ref_id,
+                observedAt,
+                adCreativeRelationships: input.adCreativeRelationships,
+              })
+            : new Set<string>();
+        const durableLineageStates = await lineageStatesForRun(sql, {
+          runId: currentRun.id,
+          entityType,
+          adIds: Array.from(lineageAdIds),
+        });
+        const durableLineageIds = new Set(
+          durableLineageStates.map((state) => state.entityId),
+        );
+        const carriedLineageStates: Array<{
+          entityId: string;
+          adId: string | null;
+          creativeId: string | null;
+        }> = [];
+        for (const adId of Array.from(lineageAdIds).sort()) {
+          if (durableLineageIds.has(adId)) continue;
+          const state = statesByEntity.get(adId);
+          if (!state) continue;
+          const carried = await sql<{ id: string }>`
+            INSERT INTO meta_entity_state_history (
+              run_id, business_ref_id, business_id, provider_account_ref_id,
+              provider_account_id, entity_type, entity_id, campaign_id, adset_id,
+              ad_id, creative_id, entity_name, configured_status, effective_status,
+              learning_status, learning_source, campaign_daily_budget_raw,
+              campaign_lifetime_budget_raw, adset_daily_budget_raw,
+              adset_lifetime_budget_raw, budget_currency, budget_origin,
+              campaign_start_time, campaign_end_time, adset_start_time, adset_end_time,
+              budget_currency_exponent, budget_currency_registry_version,
+              budget_shape_support,
+              provider_api_version, review_status,
+              policy_status, policy_reasons_json, provider_updated_at, presence,
+              field_coverage_json, observed_at, captured_at, run_completeness, state_hash
+            ) VALUES (
+              ${currentRun.id}, ${binding.business_ref_id}, ${businessId},
+              ${binding.provider_account_ref_id}, ${providerAccountId}, ${entityType},
+              ${state.entityId}, ${state.campaignId ?? null}, ${state.adsetId ?? null},
+              ${state.adId ?? null}, ${state.creativeId ?? null},
+              ${state.entityName ?? null}, ${state.configuredStatus ?? null},
+              ${state.effectiveStatus ?? null}, ${state.learningStatus ?? null},
+              ${state.learningSource}, ${state.campaignDailyBudgetRaw ?? null},
+              ${state.campaignLifetimeBudgetRaw ?? null},
+              ${state.adsetDailyBudgetRaw ?? null},
+              ${state.adsetLifetimeBudgetRaw ?? null}, ${state.budgetCurrency ?? null},
+              ${state.budgetOrigin},
+              ${state.campaignStartTime ?? null}::timestamptz,
+              ${state.campaignEndTime ?? null}::timestamptz,
+              ${state.adsetStartTime ?? null}::timestamptz,
+              ${state.adsetEndTime ?? null}::timestamptz,
+              ${state.budgetCurrencyExponent ?? null},
+              ${state.budgetCurrencyRegistryVersion ?? null},
+              ${state.budgetShapeSupport ?? null},
+              ${state.providerApiVersion ?? null},
+              ${state.reviewStatus ?? null},
+              ${state.policyStatus ?? null},
+              ${state.policyReasons == null ? null : JSON.stringify(state.policyReasons)}::jsonb,
+              ${state.providerUpdatedAt ?? null}::timestamptz, ${state.presence},
+              ${JSON.stringify(state.fieldCoverage)}::jsonb,
+              ${currentRun.observed_at}::timestamptz, ${currentRun.captured_at}::timestamptz,
+              ${input.completeness}, ${state.stateHash}
+            )
+            ON CONFLICT (run_id, entity_id) DO UPDATE SET
+              state_hash = meta_entity_state_history.state_hash
+            WHERE meta_entity_state_history.state_hash = EXCLUDED.state_hash
+            RETURNING id
+          `;
+          if (!carried[0]) {
+            throw new Error(
+              `Lineage carry conflicted with different state for ${state.entityId}.`,
+            );
+          }
+          carriedLineageStates.push({
+            entityId: state.entityId,
+            adId: state.adId ?? null,
+            creativeId: state.creativeId ?? null,
+          });
+        }
+        if (carriedLineageStates.length > 0) {
+          // Keep the run's write telemetry truthful about the extra rows.
+          await sql`
+            UPDATE meta_entity_observation_runs
+            SET delta_stats_json = jsonb_set(
+              jsonb_set(
+                delta_stats_json,
+                '{physicalStateRows}',
+                to_jsonb(
+                  COALESCE((delta_stats_json->>'physicalStateRows')::int, 0)
+                  + ${carriedLineageStates.length}
+                )
+              ),
+              '{lineageCarriedEntityCount}',
+              to_jsonb(
+                COALESCE((delta_stats_json->>'lineageCarriedEntityCount')::int, 0)
+                + ${carriedLineageStates.length}
+              )
+            )
+            WHERE id = ${currentRun.id}
+              AND delta_stats_json IS NOT NULL
+          `;
+        }
+        const lineageStates = [
+          ...durableLineageStates,
+          ...carriedLineageStates,
+        ];
         const lineageCount = await persistMetaObservationLineage(sql, {
           runId: currentRun.id,
           binding,
@@ -1197,20 +1670,180 @@ export async function persistMetaEntityObservation(
           // did not exist until t2.
           relationshipObservedAt: observedAt,
           relationshipCapturedAt: capturedAt,
-          states,
+          states: lineageStates,
           adCreativeRelationships: input.adCreativeRelationships,
         });
+        if (input.captureReceipt) {
+          await appendObservationCaptureReceipt(sql, {
+            runId: currentRun.id,
+            businessId,
+            providerAccountId,
+            entityType,
+            endpoint,
+            partitionId: input.captureReceipt.partitionId,
+            sourceSnapshotId: input.captureReceipt.sourceSnapshotId ?? null,
+            sourceSnapshotRefId: input.captureReceipt.sourceSnapshotRefId ?? null,
+            captureStatus: input.completeness,
+            providerRowCount,
+            pageCount,
+            // The run was NOT appended. This is the row that proves a single
+            // run can represent more than one capture cohort.
+            runReused: true,
+            // THIS occurrence's clocks, not the kept run's. The run's clocks
+            // are the content's first sighting; the receipt is when we looked.
+            observedAt,
+            capturedAt,
+            error: input.error ?? null,
+          });
+        }
         return {
           runId: currentRun.id,
           runHash,
           semanticHash,
           coalesced: true,
           repeatCount: Number(heartbeat[0]?.repeat_count ?? 0),
-          stateCount: 0,
+          stateCount: carriedLineageStates.length,
           lineageCount,
           completeness: input.completeness,
           observedAt: currentRun.observed_at,
           capturedAt: currentRun.captured_at,
+          manifestKind: null,
+          deltaStats: null,
+        };
+      }
+    }
+
+    // D075: delta-bounded complete manifests. A complete observation with a
+    // reconstructable baseline persists only changed, new, and scope-exited
+    // entities; unchanged entities write nothing. The first complete
+    // observation of a scope, and every non-complete lane, keep the full
+    // write exactly as before.
+    let manifestKind: "full" | "delta" | null = null;
+    let baseRunId: string | null = null;
+    let statesToPersist = states;
+    let deltaStats: MetaObservationDeltaStats | null = null;
+    if (input.completeness === "complete") {
+      if (currentRun) {
+        const baseline = await sql<{
+          entity_id: string;
+          state_hash: string;
+          presence: MetaEntityPresence;
+          campaign_id: string | null;
+          adset_id: string | null;
+          ad_id: string | null;
+          creative_id: string | null;
+        }>`
+          SELECT DISTINCT ON (state.entity_id)
+            state.entity_id, state.state_hash, state.presence,
+            state.campaign_id, state.adset_id, state.ad_id, state.creative_id
+          FROM meta_entity_state_history state
+          JOIN meta_entity_observation_runs scope_run
+            ON scope_run.id = state.run_id
+          WHERE state.business_id = ${businessId}
+            AND state.provider_account_id = ${providerAccountId}
+            AND state.entity_type = ${entityType}
+            AND state.run_completeness = 'complete'
+            -- The scope unit of a complete manifest is the ENDPOINT, exactly
+            -- like the base-run lookup above. A baseline spanning endpoints
+            -- would fabricate scope exits for entities another endpoint
+            -- legitimately observes.
+            AND scope_run.endpoint = ${endpoint}
+          ORDER BY state.entity_id, state.captured_at DESC,
+            state.created_at DESC, state.id DESC
+        `;
+        const baselinePresent = new Map(
+          baseline
+            .filter((row) => row.presence === "present")
+            .map((row) => [row.entity_id, row] as const),
+        );
+        let changedEntityCount = 0;
+        let newEntityCount = 0;
+        const deltaRows: typeof states = [];
+        for (const state of states) {
+          const prior = baselinePresent.get(state.entityId);
+          if (!prior) {
+            newEntityCount += 1;
+            deltaRows.push(state);
+          } else if (prior.state_hash !== state.stateHash) {
+            changedEntityCount += 1;
+            deltaRows.push(state);
+          }
+        }
+        // Scope exit is explicit evidence: an entity that was present in the
+        // reconstructed baseline but is absent from this complete payload
+        // persists one `absent_unconfirmed` row, so no reader can ever
+        // resurrect the stale present row past this observation.
+        const exitedRows: typeof states = [];
+        for (const [entityId, prior] of baselinePresent) {
+          if (statesByEntity.has(entityId)) continue;
+          const absentState = {
+            businessId,
+            providerAccountId,
+            entityType,
+            entityId,
+            campaignId: prior.campaign_id,
+            adsetId: prior.adset_id,
+            adId: prior.ad_id,
+            creativeId: prior.creative_id,
+            learningSource: "not_observed" as const,
+            budgetOrigin: "not_observed" as const,
+            presence: "absent_unconfirmed" as const,
+            fieldCoverage: {},
+            observedAt,
+          };
+          exitedRows.push({
+            ...absentState,
+            stateHash: buildMetaEntityStateHash(absentState),
+          });
+        }
+        // Creative-lineage edges FK-reference state rows BY RUN, so any ad
+        // this observation's lineage evidence names must have a durable row
+        // in this run even when its state did not change. These small
+        // carried rows are counted separately in the stats.
+        let lineageCarriedEntityCount = 0;
+        if (entityType === "ad") {
+          const lineageAdIds = await lineageRelevantAdIds(sql, {
+            businessRefId: binding.business_ref_id,
+            observedAt,
+            adCreativeRelationships: input.adCreativeRelationships,
+          });
+          if (lineageAdIds.size > 0) {
+            const included = new Set(deltaRows.map((row) => row.entityId));
+            for (const adId of lineageAdIds) {
+              const state = statesByEntity.get(adId);
+              if (state && !included.has(adId)) {
+                deltaRows.push(state);
+                included.add(adId);
+                lineageCarriedEntityCount += 1;
+              }
+            }
+          }
+        }
+        statesToPersist = [...deltaRows, ...exitedRows].sort((a, b) =>
+          a.entityId.localeCompare(b.entityId),
+        );
+        manifestKind = "delta";
+        baseRunId = currentRun.id;
+        deltaStats = {
+          logicalEntityCount: states.length,
+          changedEntityCount,
+          newEntityCount,
+          exitedEntityCount: exitedRows.length,
+          lineageCarriedEntityCount,
+          physicalStateRows: statesToPersist.length,
+          amplification:
+            statesToPersist.length / Math.max(1, states.length),
+        };
+      } else {
+        manifestKind = "full";
+        deltaStats = {
+          logicalEntityCount: states.length,
+          changedEntityCount: 0,
+          newEntityCount: states.length,
+          exitedEntityCount: 0,
+          lineageCarriedEntityCount: 0,
+          physicalStateRows: states.length,
+          amplification: 1,
         };
       }
     }
@@ -1220,18 +1853,34 @@ export async function persistMetaEntityObservation(
         business_ref_id, business_id, provider_account_ref_id, provider_account_id,
         entity_type, endpoint, observed_at, captured_at, completeness, page_count,
         row_count, source_snapshot_id, payload_hash, run_hash, error_json,
-        semantic_hash, last_seen_at, repeat_count, last_checkpoint_at
+        semantic_hash, last_seen_at, last_captured_at, repeat_count,
+        last_checkpoint_at, manifest_kind, base_run_id, delta_stats_json
       ) VALUES (
         ${binding.business_ref_id}, ${businessId}, ${binding.provider_account_ref_id},
         ${providerAccountId}, ${entityType}, ${endpoint}, ${observedAt}::timestamptz,
         ${capturedAt}::timestamptz, ${input.completeness}, ${pageCount},
         ${providerRowCount}, ${input.sourceSnapshotId ?? null}, ${payloadHash},
         ${runHash}, ${input.error == null ? null : JSON.stringify(input.error)}::jsonb,
-        ${semanticHash}, ${observedAt}::timestamptz, 1, ${observedAt}::timestamptz
+        ${semanticHash}, ${observedAt}::timestamptz,
+        ${capturedAt}::timestamptz, 1, ${observedAt}::timestamptz,
+        ${manifestKind}, ${baseRunId}::uuid,
+        ${deltaStats == null ? null : JSON.stringify(deltaStats)}::jsonb
       )
       ON CONFLICT (run_hash) DO UPDATE SET
         semantic_hash = EXCLUDED.semantic_hash,
-        last_seen_at = EXCLUDED.last_seen_at
+        -- run_hash includes the original clocks, so a conflict is an exact
+        -- replay of an OLD receipt. The heartbeat clocks must never move
+        -- backwards when the row has already been advanced past the replay.
+        last_seen_at = GREATEST(
+          COALESCE(meta_entity_observation_runs.last_seen_at,
+            EXCLUDED.last_seen_at),
+          EXCLUDED.last_seen_at
+        ),
+        last_captured_at = GREATEST(
+          COALESCE(meta_entity_observation_runs.last_captured_at,
+            EXCLUDED.last_captured_at),
+          EXCLUDED.last_captured_at
+        )
       RETURNING id, business_ref_id::text AS business_ref_id,
         provider_account_ref_id::text AS provider_account_ref_id,
         observed_at::text AS observed_at, captured_at::text AS captured_at,
@@ -1241,7 +1890,7 @@ export async function persistMetaEntityObservation(
     if (!run) throw new Error("Observation run insert returned no row.");
 
     let stateCount = 0;
-    for (const state of states) {
+    for (const state of statesToPersist) {
       const persisted = await sql<MetaPersistedStateDbRow>`
         INSERT INTO meta_entity_state_history (
           run_id, business_ref_id, business_id, provider_account_ref_id,
@@ -1249,7 +1898,11 @@ export async function persistMetaEntityObservation(
           ad_id, creative_id, entity_name, configured_status, effective_status,
           learning_status, learning_source, campaign_daily_budget_raw,
           campaign_lifetime_budget_raw, adset_daily_budget_raw,
-          adset_lifetime_budget_raw, budget_currency, budget_origin, review_status,
+          adset_lifetime_budget_raw, budget_currency, budget_origin,
+          campaign_start_time, campaign_end_time, adset_start_time, adset_end_time,
+          budget_currency_exponent, budget_currency_registry_version,
+          budget_shape_support,
+          provider_api_version, review_status,
           policy_status, policy_reasons_json, provider_updated_at, presence,
           field_coverage_json, observed_at, captured_at, run_completeness, state_hash
         ) VALUES (
@@ -1263,7 +1916,16 @@ export async function persistMetaEntityObservation(
           ${state.campaignLifetimeBudgetRaw ?? null},
           ${state.adsetDailyBudgetRaw ?? null},
           ${state.adsetLifetimeBudgetRaw ?? null}, ${state.budgetCurrency ?? null},
-          ${state.budgetOrigin}, ${state.reviewStatus ?? null},
+          ${state.budgetOrigin},
+          ${state.campaignStartTime ?? null}::timestamptz,
+          ${state.campaignEndTime ?? null}::timestamptz,
+          ${state.adsetStartTime ?? null}::timestamptz,
+          ${state.adsetEndTime ?? null}::timestamptz,
+          ${state.budgetCurrencyExponent ?? null},
+          ${state.budgetCurrencyRegistryVersion ?? null},
+          ${state.budgetShapeSupport ?? null},
+          ${state.providerApiVersion ?? null},
+          ${state.reviewStatus ?? null},
           ${state.policyStatus ?? null},
           ${state.policyReasons == null ? null : JSON.stringify(state.policyReasons)}::jsonb,
           ${state.providerUpdatedAt ?? null}::timestamptz, ${state.presence},
@@ -1293,10 +1955,32 @@ export async function persistMetaEntityObservation(
       completeness: input.completeness,
       observedAt,
       capturedAt,
-      states,
+      // D075: only rows durable in THIS run — lineage edges FK-reference
+      // (run_id, entity_type, ad_id, creative_id), and a delta run does not
+      // contain unchanged entities.
+      states: statesToPersist,
       adCreativeRelationships: input.adCreativeRelationships,
     });
 
+    if (input.captureReceipt) {
+      await appendObservationCaptureReceipt(sql, {
+        runId: run.id,
+        businessId,
+        providerAccountId,
+        entityType,
+        endpoint,
+        partitionId: input.captureReceipt.partitionId,
+        sourceSnapshotId: input.captureReceipt.sourceSnapshotId ?? null,
+        sourceSnapshotRefId: input.captureReceipt.sourceSnapshotRefId ?? null,
+        captureStatus: input.completeness,
+        providerRowCount,
+        pageCount,
+        runReused: false,
+        observedAt,
+        capturedAt,
+        error: input.error ?? null,
+      });
+    }
     return {
       runId: run.id,
       runHash,
@@ -1305,6 +1989,8 @@ export async function persistMetaEntityObservation(
       repeatCount: 1,
       stateCount,
       lineageCount,
+      manifestKind,
+      deltaStats,
       completeness: input.completeness,
       observedAt,
       capturedAt,
@@ -1434,6 +2120,14 @@ function mapState(row: MetaEntityStateDbRow): MetaEntityStateHistoryRow {
     adsetLifetimeBudgetRaw: row.adset_lifetime_budget_raw,
     budgetCurrency: row.budget_currency,
     budgetOrigin: row.budget_origin,
+    campaignStartTime: row.campaign_start_time,
+    campaignEndTime: row.campaign_end_time,
+    adsetStartTime: row.adset_start_time,
+    adsetEndTime: row.adset_end_time,
+    budgetCurrencyExponent: row.budget_currency_exponent,
+    budgetCurrencyRegistryVersion: row.budget_currency_registry_version,
+    budgetShapeSupport: row.budget_shape_support,
+    providerApiVersion: row.provider_api_version,
     reviewStatus: row.review_status,
     policyStatus: row.policy_status,
     policyReasons: row.policy_reasons_json,
@@ -1465,6 +2159,11 @@ function stateSelect(
           creative_id, entity_name, configured_status, effective_status, learning_status,
           learning_source, campaign_daily_budget_raw, campaign_lifetime_budget_raw,
           adset_daily_budget_raw, adset_lifetime_budget_raw, budget_currency, budget_origin,
+          campaign_start_time::text AS campaign_start_time,
+          campaign_end_time::text AS campaign_end_time,
+          adset_start_time::text AS adset_start_time,
+          adset_end_time::text AS adset_end_time,
+          budget_currency_exponent, budget_currency_registry_version, provider_api_version,
           review_status, policy_status, policy_reasons_json, provider_updated_at, presence,
           field_coverage_json, observed_at::text AS observed_at,
           captured_at::text AS captured_at, run_completeness, state_hash
@@ -1485,6 +2184,11 @@ function stateSelect(
           creative_id, entity_name, configured_status, effective_status, learning_status,
           learning_source, campaign_daily_budget_raw, campaign_lifetime_budget_raw,
           adset_daily_budget_raw, adset_lifetime_budget_raw, budget_currency, budget_origin,
+          campaign_start_time::text AS campaign_start_time,
+          campaign_end_time::text AS campaign_end_time,
+          adset_start_time::text AS adset_start_time,
+          adset_end_time::text AS adset_end_time,
+          budget_currency_exponent, budget_currency_registry_version, provider_api_version,
           review_status, policy_status, policy_reasons_json, provider_updated_at, presence,
           field_coverage_json, observed_at::text AS observed_at,
           captured_at::text AS captured_at, run_completeness, state_hash

@@ -47,7 +47,7 @@ function makeV3Decision(
       roas: 1.8,
       recent7dRoas: 1.7,
     },
-    campaignLabelStatus: "labeled",
+    campaignRoleStatus: "resolved",
     campaignKind: "main",
     campaignTestDimension: null,
     blockedActionType: null,
@@ -145,7 +145,7 @@ describe("Creative Decision Center V3 bridge", () => {
         decision: makeV3Decision({
           label: "scale",
           campaignKind: "main",
-          campaignLabelStatus: "no_campaign",
+          campaignRoleStatus: "no_campaign",
           confidence: 90,
           reason: "Would scale if campaign kind were labeled.",
         }),
@@ -157,12 +157,43 @@ describe("Creative Decision Center V3 bridge", () => {
     expect(result.engine.primaryDecision).toBe("Diagnose");
     expect(result.engine.problemClass).toBe("campaign_context");
     expect(result.engine.actionability).toBe("diagnose");
-    expect(result.engine.reasonTags).toContain("campaign_label_missing");
-    expect(result.engine.blockerReasons).toContain("campaign_label_missing");
+    expect(result.engine.reasonTags).toContain("campaign_role_unresolved");
+    expect(result.engine.blockerReasons).toContain("campaign_role_unresolved");
     expect(row.buyerAction).toBe("diagnose_data");
     expect(row.executionAction).toBeNull();
     expect(trace.unlabeledScaleSafetyApplied).toBe(false);
     expect(validateCreativeDecisionCenterRowDecision(row).ok).toBe(true);
+  });
+
+  it("fails closed on missing, legacy-only, and contradictory role status (D074b correction)", () => {
+    // Pre-correction, each of these mapped as a trusted Scale row. A decision
+    // that skipped the guard (missing status), carries only manual-era
+    // provenance (legacy-only "labeled"), or contradicts itself must
+    // downgrade to a campaign-context Diagnose.
+    const shapes: Array<Partial<DecisionOutput>> = [
+      { campaignRoleStatus: undefined, campaignLabelStatus: undefined },
+      { campaignRoleStatus: undefined, campaignLabelStatus: "labeled" },
+      { campaignRoleStatus: "resolved", campaignLabelStatus: "unlabeled" },
+    ];
+    for (const shape of shapes) {
+      const result = requireMapped(
+        bridgeV3DecisionToV21({
+          decision: makeV3Decision({
+            label: "scale",
+            confidence: 90,
+            reason: "Would scale if the automatic role were trusted.",
+            ...shape,
+          }),
+          context: { campaignKind: "main" },
+        }),
+      );
+      expect(result.engine.primaryDecision).toBe("Diagnose");
+      expect(result.engine.problemClass).toBe("campaign_context");
+      expect(result.engine.reasonTags).toContain("campaign_role_unresolved");
+      const { row } = adaptCreativeDecisionToRow(result.adapterInput);
+      expect(row.buyerAction).toBe("diagnose_data");
+      expect(row.executionAction).toBeNull();
+    }
   });
 
   it("maps review-worthy keep decisions without inventing a keep primary decision", () => {
@@ -170,7 +201,7 @@ describe("Creative Decision Center V3 bridge", () => {
       bridgeV3DecisionToV21({
         decision: makeV3Decision({
           label: "keep",
-          campaignLabelStatus: "unlabeled",
+          campaignRoleStatus: "unresolved",
           badges: [badge("unlabeled_campaign_context", "warning")],
         }),
       }),
@@ -178,7 +209,7 @@ describe("Creative Decision Center V3 bridge", () => {
     expect(campaignGap.engine.primaryDecision).toBe("Diagnose");
     expect(campaignGap.engine.actionability).toBe("diagnose");
     expect(campaignGap.engine.problemClass).toBe("campaign_context");
-    expect(campaignGap.engine.reasonTags).toContain("campaign_label_missing");
+    expect(campaignGap.engine.reasonTags).toContain("campaign_role_unresolved");
     validateMappedBridge(campaignGap);
 
     const nearScale = requireMapped(

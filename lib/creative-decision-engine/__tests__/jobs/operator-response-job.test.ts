@@ -11,6 +11,7 @@ import { ENGINE_VERSION } from "../../types";
 const AS_OF = "2026-05-05";
 const RECOMMENDED_AT = "2026-04-25";
 const THESWAF_BUSINESS_ID = "172d0ab8-495b-4679-a4c6-ffa404c389d3";
+const SYNTHETIC_PROVIDER_ACCOUNT_ID = "operator-response-test-provider";
 const SYNTHETIC_IGNORED_CREATIVE_ID = "operator-response-synthetic-ignored";
 const SYNTHETIC_SCALED_CREATIVE_ID = "operator-response-synthetic-scaled";
 const SYNTHETIC_UNLABELED_CREATIVE_ID =
@@ -46,7 +47,7 @@ async function cleanupSyntheticRows() {
   const db = getDb();
   await db.query(
     `
-    DELETE FROM meta_campaign_labels
+    DELETE FROM engine_v3_campaign_context_daily
     WHERE business_id = $1
       AND campaign_id = ANY($2::text[])
     `,
@@ -145,39 +146,53 @@ async function insertSuccessfulDecisionsRun() {
 async function insertSyntheticFixture(input: {
   creativeId: string;
   withBudgetIncrease?: boolean;
-  withCampaignLabel?: boolean;
+  withCampaignRole?: boolean;
 }) {
   const adsetId = `${input.creativeId}-adset`;
   const campaignId = `${input.creativeId}-campaign`;
   const adId = `${input.creativeId}-ad`;
-  if (input.withCampaignLabel !== false) {
+  if (input.withCampaignRole !== false) {
     await getDb().query(
       `
-      INSERT INTO meta_campaign_labels (
+      INSERT INTO engine_v3_campaign_context_daily (
         business_id,
+        provider_account_id,
         campaign_id,
-        campaign_kind,
-        source,
-        labeled_by,
-        labeled_at,
-        updated_at
+        as_of_date,
+        inferred_kind,
+        confidence_score,
+        confidence_class,
+        kind_source,
+        kind_basis,
+        resolver_version
       )
       VALUES (
         $1,
         $2,
+        $3,
+        $4::date,
         'main',
-        'user',
-        'vitest',
-        now(),
-        now()
+        0.95,
+        'high',
+        'system_inferred',
+        'behavioral',
+        'campaign-context-resolver.v2-account-scoped-name-neutral-2026-09-01'
       )
-      ON CONFLICT (business_id, campaign_id) DO UPDATE SET
-        campaign_kind = EXCLUDED.campaign_kind,
-        source = EXCLUDED.source,
-        labeled_by = EXCLUDED.labeled_by,
+      ON CONFLICT (business_id, provider_account_id, campaign_id, as_of_date)
+        WHERE provider_account_id IS NOT NULL
+      DO UPDATE SET
+        inferred_kind = EXCLUDED.inferred_kind,
+        confidence_score = EXCLUDED.confidence_score,
+        confidence_class = EXCLUDED.confidence_class,
+        resolver_version = EXCLUDED.resolver_version,
         updated_at = now()
       `,
-      [THESWAF_BUSINESS_ID, campaignId],
+      [
+        THESWAF_BUSINESS_ID,
+        SYNTHETIC_PROVIDER_ACCOUNT_ID,
+        campaignId,
+        RECOMMENDED_AT,
+      ],
     );
   }
   await getDb().query(
@@ -185,6 +200,7 @@ async function insertSyntheticFixture(input: {
     INSERT INTO engine_v3_creative_lifecycle_daily (
       business_ref_id,
       business_id,
+      provider_account_id,
       campaign_id,
       adset_id,
       ad_id,
@@ -209,8 +225,9 @@ async function insertSyntheticFixture(input: {
       $3,
       $4,
       $5,
-      $6::date,
-      $7,
+      $6,
+      $7::date,
+      $8,
       1000,
       10,
       3.0,
@@ -232,6 +249,7 @@ async function insertSyntheticFixture(input: {
     `,
     [
       THESWAF_BUSINESS_ID,
+      SYNTHETIC_PROVIDER_ACCOUNT_ID,
       campaignId,
       adsetId,
       adId,
@@ -522,11 +540,11 @@ describe.skipIf(!process.env.DATABASE_URL)("operator response job", () => {
     expect(await countOperatorEvents(SYNTHETIC_SCALED_CREATIVE_ID)).toBe(1);
   });
 
-  it("ignores historical hard snapshots when the campaign is still unlabeled", async () => {
+  it("ignores historical hard snapshots when automatic campaign role is unresolved", async () => {
     await insertSuccessfulDecisionsRun();
     await insertSyntheticFixture({
       creativeId: SYNTHETIC_UNLABELED_CREATIVE_ID,
-      withCampaignLabel: false,
+      withCampaignRole: false,
     });
 
     const result = await runOperatorResponseJob({

@@ -66,6 +66,7 @@ import {
 import { HealthyRow } from "@/components/creatives/briefing/HealthyRow";
 import { WatchingCard } from "@/components/creatives/briefing/WatchingCard";
 import {
+  cardCurrentRowScaleAction,
   cardAdset,
   cardId,
   cardName,
@@ -900,7 +901,16 @@ export function cardMatchesActionFilter(
   actionFilter: CreativeActionFilter,
 ): boolean {
   if (actionFilter === "all") return true;
-  const row = card.decisionCenterRow;
+  // D074b correction 3: a scale row that fails the current-row gate is
+  // provenance only — it must not suppress the card's blockedActionType nor
+  // classify the card, so it is treated as absent and the filter falls
+  // through to canonical/held/server-card truth.
+  const rawRow = card.decisionCenterRow;
+  const rawRowBuyerAction = rawRow?.buyerAction;
+  const row =
+    rawRow && rawRowBuyerAction === "scale" && !cardCurrentRowScaleAction(card)
+      ? null
+      : rawRow;
   const heldAction =
     card.canonicalDecision?.classification.heldAction ??
     (row ? null : card.blockedActionType);
@@ -913,7 +923,10 @@ export function cardMatchesActionFilter(
   // equivalent, so it always uses the legacy card-kind match below.
   if (row && actionFilter !== "add_existing") {
     if (actionFilter === "promote") {
-      return row.executionAction === "promote_to_main";
+      // D074b corrections 2+3: the Promote filter groups a card only when
+      // the row's scale action is backed by a resolved agreeing role AND
+      // the server current primary confirms the same CTA.
+      return cardCurrentRowScaleAction(card) === "promote_to_main";
     }
     switch (row.buyerAction) {
       case "scale":
@@ -1050,7 +1063,9 @@ function briefingCardFromAssetRow(row: MetaCreativeRow): BriefingCreativeCard {
     fatigue: Array.isArray(row.tags) ? row.tags.some((tag) => String(tag).toLowerCase().includes("fatigue")) : false,
     primary: { kind: "promote", label: "Send to Launchpad" },
     status: row.effectiveStatus,
-    campaignLabelStatus: "labeled",
+    // Client-synthesized wrapper card: the server issued no role here, so
+    // none is asserted (D074b: UI renders server truth only).
+    campaignRoleStatus: null,
     mediaPreviewUrl: row.cardPreviewUrl ?? row.imageUrl ?? row.previewUrl ?? row.thumbnailUrl ?? null,
     thumbnailUrl: row.thumbnailUrl ?? null,
     tableThumbnailUrl: row.tableThumbnailUrl ?? row.thumbnailUrl ?? null,
@@ -1224,8 +1239,8 @@ function LaneSummaryHeader({
           <span className="text-neutral-300">·</span>
           <span>
             Near action {watching.nearAction}, test maturing{" "}
-            {watching.testMaturing}, diagnostic {watching.diagnostic}, labels{" "}
-            {watching.waitingOnLabels}
+            {watching.testMaturing}, diagnostic {watching.diagnostic}, roles{" "}
+            unresolved {watching.waitingOnLabels}
           </span>
         </>
       ) : null}
@@ -1270,7 +1285,8 @@ function watchingBucketLabel(value: BriefingCreativeCard["watchingSubBucket"]) {
   if (value === "near_action") return "Near action";
   if (value === "test_maturing") return "Test maturing";
   if (value === "diagnostic") return "Diagnostic";
-  if (value === "waiting_on_labels") return "Waiting on labels";
+  if (value === "waiting_on_role_resolution" || value === "waiting_on_labels")
+    return "Waiting on role resolution";
   return "Other watching";
 }
 
@@ -2284,6 +2300,7 @@ export function CreativesBriefingPage() {
         "near_action",
         "test_maturing",
         "diagnostic",
+        "waiting_on_role_resolution",
         "waiting_on_labels",
         null,
       ];
@@ -2433,7 +2450,7 @@ export function CreativesBriefingPage() {
                 </button>
               ))}
             </div>
-            <div className="group" role="group" aria-label="Campaign label filter">
+            <div className="group" role="group" aria-label="Campaign role filter">
               {([
                 ["all", "All campaigns"],
                 ["main", "Main"],

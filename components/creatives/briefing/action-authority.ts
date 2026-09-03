@@ -105,6 +105,7 @@ export function getBriefingCanonicalNativeActionAuthority(
     decision.identityResolution.adActionEligible !== true ||
     authority.status !== "native_exact" ||
     authority.actionEligible !== true ||
+    authority.executionReadiness !== "live_preflight_required" ||
     authority.reviewOnlyReason !== null ||
     classification.decisionState !== "act" ||
     classification.heldAction !== null ||

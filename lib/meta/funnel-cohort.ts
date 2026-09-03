@@ -102,3 +102,12 @@ export function resolveMetaFunnelCohort(input: {
 export function isPurchaseCohort(cohort: MetaFunnelCohort): boolean {
   return cohort === "purchase";
 }
+
+/**
+ * The optimization goals this repository already recognises.
+ *
+ * Derived from {@link OPTIMIZATION_GOAL_COHORTS} so a goal can never be known
+ * to the funnel mapping and unknown to a validator, or vice versa.
+ */
+export const META_OPTIMIZATION_GOALS: readonly string[] =
+  Object.keys(OPTIMIZATION_GOAL_COHORTS);

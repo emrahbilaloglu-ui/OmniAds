@@ -247,7 +247,6 @@ const getMetaCanonicalOverviewTrends = vi.hoisted(() => vi.fn());
 const getMetaBreakdownsForRange = vi.hoisted(() => vi.fn());
 const getMetaCampaignsForRange = vi.hoisted(() => vi.fn());
 const readMetaAnomaliesForBusiness = vi.hoisted(() => vi.fn());
-const readMetaCampaignLabels = vi.hoisted(() => vi.fn());
 const readMetaDecisionsWorkspaceReadModel = vi.hoisted(() => vi.fn());
 
 vi.mock("@/lib/integration-status", () => ({ getIntegrationStatusByBusiness }));
@@ -259,7 +258,6 @@ vi.mock("@/lib/meta/canonical-overview", () => ({
 vi.mock("@/lib/meta/breakdowns-source", () => ({ getMetaBreakdownsForRange }));
 vi.mock("@/lib/meta/campaigns-source", () => ({ getMetaCampaignsForRange }));
 vi.mock("@/lib/meta/anomalies", () => ({ readMetaAnomaliesForBusiness }));
-vi.mock("@/lib/meta/campaign-labels", () => ({ readMetaCampaignLabels }));
 vi.mock("@/lib/meta/decisions-workspace-read-model", () => ({
   readMetaDecisionsWorkspaceReadModel,
 }));
@@ -432,7 +430,6 @@ beforeEach(() => {
   getMetaCanonicalOverviewTrends.mockResolvedValue({ points: [{}], isPartial: false });
   getMetaBreakdownsForRange.mockResolvedValue({ status: "ready", isPartial: false });
   readMetaAnomaliesForBusiness.mockResolvedValue({ anomalies: [], snapshotDate: null });
-  readMetaCampaignLabels.mockResolvedValue([]);
   readMetaDecisionsWorkspaceReadModel.mockResolvedValue({
     status: "available",
     unavailable: null,
@@ -525,7 +522,6 @@ describe("the shell's date picker drives Account Intelligence", () => {
     getMetaCanonicalOverviewTrends.mockResolvedValue({ points: [] });
     getMetaBreakdownsForRange.mockResolvedValue({ status: "ready" });
     readMetaAnomaliesForBusiness.mockResolvedValue({ anomalies: [], snapshotDate: null });
-    readMetaCampaignLabels.mockResolvedValue([]);
     readMetaDecisionsWorkspaceReadModel.mockResolvedValue({
       status: "available",
       unavailable: null,
@@ -610,7 +606,6 @@ describe("the shell's date picker drives Account Intelligence", () => {
       getMetaCanonicalOverviewTrends,
       getMetaBreakdownsForRange,
       readMetaAnomaliesForBusiness,
-      readMetaCampaignLabels,
       readMetaDecisionsWorkspaceReadModel,
     ]) {
       expect(spy).not.toHaveBeenCalled();

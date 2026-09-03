@@ -339,7 +339,7 @@ async function cleanupEngineRows() {
   const db = getDb();
   await db.query(
     `
-    DELETE FROM meta_campaign_labels
+    DELETE FROM engine_v3_campaign_context_daily
     WHERE business_id = ANY($1::text[])
     `,
     [TEST_BUSINESS_IDS],
@@ -489,6 +489,7 @@ function scalingCreativeInput(input: {
     creativeId: "persisted-guard-scale-creative",
     creativeName: "Persisted Guard Scale Creative",
     businessId: input.businessId,
+    providerAccountId: "decisions-job-test-provider",
     campaignId: input.campaignId,
     objective: "OUTCOME_SALES",
     effectiveCohort: "purchase",
@@ -684,34 +685,47 @@ function mockWarehouseForNoCreatives(businessId: string) {
   ).mockResolvedValue([]);
 }
 
-async function insertCampaignLabel(input: {
+async function insertAutomaticCampaignRole(input: {
   businessId: string;
   campaignId: string;
   campaignKind: "main" | "test" | "mixed";
 }) {
   await getDb().query(
     `
-    INSERT INTO meta_campaign_labels (
+    INSERT INTO engine_v3_campaign_context_daily (
       business_id,
+      provider_account_id,
       campaign_id,
-      campaign_kind,
-      source,
-      labeled_by
+      as_of_date,
+      inferred_kind,
+      confidence_score,
+      confidence_class,
+      kind_source,
+      kind_basis,
+      resolver_version
     )
     VALUES (
       $1,
+      'decisions-job-test-provider',
       $2,
+      $4::date,
       $3,
-      'user',
-      'decisions-job-test'
+      0.95,
+      'high',
+      'system_inferred',
+      'behavioral',
+      'campaign-context-resolver.v2-account-scoped-name-neutral-2026-09-01'
     )
-    ON CONFLICT (business_id, campaign_id) DO UPDATE SET
-      campaign_kind = EXCLUDED.campaign_kind,
-      source = EXCLUDED.source,
-      labeled_by = EXCLUDED.labeled_by,
+    ON CONFLICT (business_id, provider_account_id, campaign_id, as_of_date)
+      WHERE provider_account_id IS NOT NULL
+    DO UPDATE SET
+      inferred_kind = EXCLUDED.inferred_kind,
+      confidence_score = EXCLUDED.confidence_score,
+      confidence_class = EXCLUDED.confidence_class,
+      resolver_version = EXCLUDED.resolver_version,
       updated_at = now()
     `,
-    [input.businessId, input.campaignId, input.campaignKind],
+    [input.businessId, input.campaignId, input.campaignKind, AS_OF],
   );
 }
 
@@ -1397,7 +1411,7 @@ describe.skipIf(!process.env.DATABASE_URL)("decisions job", () => {
     expect(snapshot?.blocked_action_type).toBe("scale");
     expect(toNumber(snapshot?.confidence)).toBeLessThanOrEqual(50);
     expect(snapshot?.reason).toContain(
-      "[Unlabeled campaign - label to enable action]",
+      "[Campaign role unresolved - automatic inference required]",
     );
     expect(snapshot?.badges).toEqual(
       expect.arrayContaining([
@@ -1412,7 +1426,7 @@ describe.skipIf(!process.env.DATABASE_URL)("decisions job", () => {
     const campaignId = "persisted-label-transform-test-campaign";
     const creativeInput = refreshCreativeInput({ businessId, campaignId });
     mockWarehouseForSingleCreative(creativeInput);
-    await insertCampaignLabel({
+    await insertAutomaticCampaignRole({
       businessId,
       campaignId,
       campaignKind: "test",

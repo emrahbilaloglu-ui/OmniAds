@@ -4,6 +4,38 @@ Purpose: define the exact repo-supported direct production release, rollback, an
 
 Status: active repo-supported direct release, rollback, and verification procedure
 
+## Current serving-freshness status — 2026-09-03 (NO_GO, unresolved)
+
+`scripts/audits/serving-freshness-current-preflight.ts` re-measures the same
+six businesses this runbook's preflight blocker (below) checks — one bounded
+`REPEATABLE READ READ ONLY` transaction, `readServingFreshnessStatus` per
+business, `automated_missing` classified — and writes a freshly dated
+evidence file, never overwriting the frozen historical one:
+
+| evidence | generated | verdict | total `automated_missing` |
+| --- | --- | --- | --- |
+| `docs/audits/generated/serving-freshness-current-preflight-2026-09-03.json` | 2026-09-03T16:04:03.184Z | **NO_GO** | 29 |
+| `docs/audits/D077_PRODUCTION_RECOVERY_PREFLIGHT_2026-08-30.md` (historical) | 2026-08-30 | NO_GO | 29 |
+
+Unchanged from the 2026-08-30 measurement, by business:
+
+| business | `automated_missing` | surfaces |
+| --- | ---: | --- |
+| IwaStore | 3 | `overview_shopify_orders_aggregate_v6.recent_window`, `shopify_reconciliation_runs`, `shopify_serving_state` — all Shopify-sync-owned |
+| Grandmix | 23 | 6× `ga4_*` snapshot windows (7d+30d), `ecommerce_fallback` (7d+30d), `seo_results_cache.findings`/`overview` (7d+30d), 3× Shopify-owned (same set as IwaStore/TheSwaf) |
+| TheSwaf | 3 | same three Shopify-owned surfaces as IwaStore |
+| Bilsem Zeka, IwaTR, ColorFullWorldsTR | 0 | none |
+
+**This is still a real release blocker, not a stale artifact being carried
+forward.** Remediation, per "Preflight blockers" below: each surface's
+`operatorFallbackCommand` can serve it manually as an interim measure, but
+the release-blocking condition only clears when the corresponding automated
+owner module (Shopify sync for IwaStore/TheSwaf/Grandmix's Shopify surfaces;
+GA4 sync and Search Console sync for Grandmix's remaining surfaces) actually
+runs and succeeds for that business. This status was NOT silently flipped to
+GO, and no release acceptance was produced from this measurement — an
+operator decision is still required.
+
 ## Deploy Assets Used
 
 This runbook uses only deploy machinery already present in the repo:

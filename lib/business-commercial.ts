@@ -271,6 +271,25 @@ type CalibrationProfileRow = {
   notes: string | null;
 } & MetaRow;
 
+/**
+ * Composite identity of a decision calibration profile, matching the table's
+ * `UNIQUE (business_id, channel, objective_family, bid_regime, archetype)`.
+ * Business scope is supplied by the caller's WHERE clause.
+ */
+function calibrationProfileIdentityKey(input: {
+  channel: string;
+  objectiveFamily: string;
+  bidRegime: string;
+  archetype: string;
+}): string {
+  return [
+    input.channel,
+    input.objectiveFamily,
+    input.bidRegime,
+    input.archetype,
+  ].join("\u001f");
+}
+
 function normalizeString(value: unknown) {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
@@ -1219,7 +1238,14 @@ export function sanitizeBusinessCommercialTruthInput(
           targetPackInput.contributionMarginAssumption,
           "targetPack.contributionMarginAssumption",
         ),
-        aovAssumption: normalizeCommercialInputNumber(
+        // The operator AOV assumption is a hard-action ANCHOR (with a Target
+        // ROAS it resolves the spend unit at high confidence), so it is
+        // validated like the other anchors rather than as a loose secondary
+        // number. A zero or negative AOV can never establish a spend unit —
+        // the engine's `positiveFinite` guard drops it — and persisting one
+        // silently told the operator they had configured an anchor when they
+        // had not. Explicit null still clears it.
+        aovAssumption: normalizePositiveTargetAnchor(
           targetPackInput.aovAssumption,
           "targetPack.aovAssumption",
         ),
@@ -2425,10 +2451,55 @@ export async function upsertBusinessCommercialTruthSnapshot(input: {
     `;
     }
 
-    await sql`
-    DELETE FROM business_decision_calibration_profiles
+    // `business_decision_calibration_profiles` is shared: the commercial-truth
+    // snapshot owns the four target multipliers, confidence cap, action
+    // ceiling, notes and source label, while the decision engine separately
+    // owns `engine_preset_label`, the eight threshold multipliers and
+    // `attribution_aov_adjustment_multiplier` (read by
+    // READ_DECISION_CALIBRATION_PROFILE_QUERY). The snapshot neither reads nor
+    // writes the engine-owned columns, so deleting every row and re-inserting
+    // the settings-owned subset silently reset them on EVERY save — including
+    // the attribution AOV multiplier that scales the Meta-derived spend unit.
+    // Delete only the profiles the operator actually removed; the ones that
+    // survive go through INSERT ... ON CONFLICT DO UPDATE below, which only
+    // ever assigns the settings-owned columns.
+    const retainedCalibrationProfileKeys = new Set(
+      (sanitized.calibrationProfiles ?? []).map((profile) =>
+        calibrationProfileIdentityKey({
+          channel: profile.channel,
+          objectiveFamily: profile.objectiveFamily,
+          bidRegime: profile.bidRegime,
+          archetype: profile.archetype,
+        }),
+      ),
+    );
+    const existingCalibrationProfiles = (await sql`
+    SELECT channel, objective_family, bid_regime, archetype
+    FROM business_decision_calibration_profiles
     WHERE business_id = ${sanitized.businessId}
-  `;
+  `) as Array<{
+      channel: string;
+      objective_family: string;
+      bid_regime: string;
+      archetype: string;
+    }>;
+    for (const existing of existingCalibrationProfiles) {
+      const identity = calibrationProfileIdentityKey({
+        channel: existing.channel,
+        objectiveFamily: existing.objective_family,
+        bidRegime: existing.bid_regime,
+        archetype: existing.archetype,
+      });
+      if (retainedCalibrationProfileKeys.has(identity)) continue;
+      await sql`
+      DELETE FROM business_decision_calibration_profiles
+      WHERE business_id = ${sanitized.businessId}
+        AND channel = ${existing.channel}
+        AND objective_family = ${existing.objective_family}
+        AND bid_regime = ${existing.bid_regime}
+        AND archetype = ${existing.archetype}
+    `;
+    }
     for (const profile of sanitized.calibrationProfiles ?? []) {
       await sql`
       INSERT INTO business_decision_calibration_profiles (

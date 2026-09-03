@@ -85,10 +85,10 @@ describe("buildCommercialTruthExactModel", () => {
       "Target ROAS",
       "Breakeven ROAS",
       "Gross margin",
-      "AOV floor",
+      "AOV assumption (USD)",
       "Shipping cost",
       "Payment fees",
-      "CPA ceiling",
+      "Target CPA (USD)",
       "Fixed costs / mo",
     ]);
     // Pack override wins over the live cost model for every shared number.
@@ -270,5 +270,86 @@ describe("buildCommercialTruthExactModel", () => {
       input({ business: { name: "Grandmix", currency: "TRY", timezone: "Europe/Istanbul" } }),
     );
     expect(lira.spendRows[0].spend).toContain(lira.currencySymbol);
+  });
+});
+
+describe("commercial anchor capture semantics (D079 correction)", () => {
+  function fieldsFor(currency: string | null, pack: Record<string, unknown>) {
+    const base = input();
+    const model = buildCommercialTruthExactModel({
+      ...base,
+      business: { name: "W", currency, timezone: "UTC" },
+      targetPack: {
+        ...base.targetPack,
+        targetRoas: null,
+        breakEvenRoas: null,
+        targetCpa: null,
+        aovAssumption: null,
+        ...pack,
+      } as never,
+    });
+    return new Map(model.fields.map((field) => [field.id, field]));
+  }
+
+  it("names the two canonical anchors and their unit in the business currency", () => {
+    const usd = fieldsFor("USD", { targetCpa: 25, aovAssumption: 90 });
+    expect(usd.get("cpaCeiling")?.label).toBe("Target CPA (USD)");
+    expect(usd.get("aovFloor")?.label).toBe("AOV assumption (USD)");
+
+    const tryFields = fieldsFor("TRY", { targetCpa: 400 });
+    expect(tryFields.get("cpaCeiling")?.label).toBe("Target CPA (TRY)");
+    // Whatever notation the runtime prints for TRY, the value must be in it
+    // and must not be dollars.
+    expect(String(tryFields.get("cpaCeiling")?.value)).toContain("TRY");
+    expect(String(tryFields.get("cpaCeiling")?.value)).not.toContain("$");
+  });
+
+  it("shows an unknown currency as unset instead of fabricating USD", () => {
+    const unknown = fieldsFor(null, { targetCpa: 400 });
+    expect(unknown.get("cpaCeiling")?.label).toBe("Target CPA (currency not set)");
+    // The amount is real and still shown, but never with a dollar sign.
+    expect(String(unknown.get("cpaCeiling")?.value)).not.toContain("$");
+    expect(String(unknown.get("cpaCeiling")?.value)).toContain("400");
+  });
+
+  it("explains the spend-unit formula and which action each anchor unlocks", () => {
+    const fields = fieldsFor("USD", { targetCpa: 25, aovAssumption: 90 });
+    expect(fields.get("aovFloor")?.hint).toContain("AOV ÷ Target ROAS");
+    expect(fields.get("cpaCeiling")?.hint).toContain("spend unit");
+    expect(fields.get("targetRoas")?.hint).toContain("Scale");
+    expect(fields.get("breakevenRoas")?.hint).toContain("Cut");
+  });
+
+  it("never promises that saving an anchor enables automation or execution", () => {
+    const fields = fieldsFor("USD", { targetCpa: 25 });
+    const copy = [...fields.values()]
+      .map((field) => `${field.label} ${field.hint}`)
+      .join(" ")
+      .toLowerCase();
+    for (const promise of [
+      "automation",
+      "auto-execute",
+      "enables execution",
+      "will pause",
+      "will scale",
+    ]) {
+      expect(copy.includes(promise), `must not promise "${promise}"`).toBe(false);
+    }
+    // And it must say the other gates remain.
+    expect(fields.get("cpaCeiling")?.hint).toContain("threshold only");
+  });
+
+  it("a partial AOV without a Target ROAS is shown as it is, and never as an anchor", () => {
+    const fields = fieldsFor("USD", { aovAssumption: 90, targetRoas: null });
+    expect(String(fields.get("aovFloor")?.value)).toContain("90");
+    expect(fields.get("targetRoas")?.value).toBe("—");
+    // The AOV hint is what tells the operator the pair is required.
+    expect(fields.get("aovFloor")?.hint).toContain("Target ROAS");
+  });
+
+  it("a cleared anchor renders as unset, not as zero", () => {
+    const fields = fieldsFor("USD", { targetCpa: null, aovAssumption: null });
+    expect(fields.get("cpaCeiling")?.value).toBe("—");
+    expect(fields.get("aovFloor")?.value).toBe("—");
   });
 });

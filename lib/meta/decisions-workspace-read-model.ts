@@ -13,12 +13,17 @@ import {
 } from "@/lib/creative-decision-engine/types";
 import { hashAdDecisionIdentityManifest } from "@/lib/creative-decision-engine/data-source";
 import { ENGINE_V3_JOB_TRANSACTION_TIMEOUT_MS } from "@/lib/creative-decision-engine/jobs/job-runtime";
+import {
+  evaluateDecisionOriginAdDecisionFreshness,
+} from "@/lib/creative-decision-engine/execution-safety";
 import { getDb, getDbWithTimeout } from "@/lib/db";
 import {
-  isCampaignContextHardAuthorityEnabled,
+  CAMPAIGN_CONTEXT_MAX_AGE_DAYS,
+  isCampaignContextResolverAuthorityValidated,
   resolveCampaignContextMode,
 } from "@/lib/creative-decision-engine/campaign-context/source";
 import { DEFAULT_CONTEXT_CONFIG } from "@/lib/creative-decision-engine/campaign-context/resolver";
+import { evaluateAccountScopedRoleAuthority } from "@/lib/meta/campaign-role-authority";
 import type { MetaCreativeAssessmentPresentation } from "@/lib/meta/creative-assessment";
 import { projectCanonicalMetaDecisionPresentation } from "@/lib/meta/canonical-decision-presentation";
 import {
@@ -105,7 +110,11 @@ function persistedAuthorityBlocker(
 const BLOCKER_LABELS: Record<string, string> = {
   campaign_context_unresolved: "Campaign context is unresolved",
   campaign_context_low_confidence: "Campaign context confidence is too low",
+  campaign_context_resolver_unvalidated:
+    "Automatic campaign-role resolver has not passed its authority gate",
   campaign_context_conflict: "Campaign context sources conflict",
+  campaign_role_unresolved: "Campaign context is missing",
+  // Pre-D074b alias key: only older persisted payloads carry it.
   campaign_label_missing: "Campaign context is missing",
   data_health: "Data health is degraded",
   delivery_proof: "Delivery proof is missing",
@@ -281,10 +290,35 @@ export interface MetaDecisionCampaignContextSourceRow {
   campaignId: string;
   kind: "main" | "test" | "mixed" | null;
   suggestedKind?: "main" | "test" | "mixed" | null;
-  source: "persisted_label" | "system_inferred" | "unknown";
+  source: "system_inferred" | "unknown";
   confidenceClass: "high" | "medium" | "low" | "unknown" | "conflict";
   sourceUpdatedAt: string | null;
   resolverVersion: string | null;
+  /**
+   * D074/D076 explanation fields, additive and served verbatim.
+   *
+   * Optional only so previously built rows and fixtures stay valid; the reader
+   * always populates them. `confidenceScore` is the resolver's own number for
+   * its published kind, null when it persisted none.
+   */
+  confidenceScore?: number | null;
+  /** The resolver's persisted evidence strings; malformed jsonb reads as []. */
+  evidence?: string[];
+  /** The resolver's persisted conflict reasons; malformed jsonb reads as []. */
+  conflictReasons?: string[];
+  /**
+   * Why no kind is published, derived at read time from the persisted row:
+   * confidence_class `unknown` → `insufficient_evidence`, `conflict` →
+   * `conflicting_signals`, anything else (including no row at all) →
+   * `not_yet_evaluated`. Null whenever a kind IS published.
+   */
+  unresolvedReason?:
+    | "insufficient_evidence"
+    | "conflicting_signals"
+    | "not_yet_evaluated"
+    | null;
+  /** When the resolver last evaluated this campaign: updated_at, else as_of_date. */
+  lastEvaluatedAt?: string | null;
 }
 
 export interface MetaDecisionEventSourceRow {
@@ -315,14 +349,17 @@ export interface MetaDecisionOutcomeSourceRow {
 
 interface MetaDecisionCampaignContextDbRow {
   campaign_id: string;
-  label_kind: string | null;
-  label_source: string | null;
-  label_updated_at: string | null;
   inferred_kind: string | null;
   confidence_class: string | null;
+  confidence_score: unknown;
   signal_scores_json: unknown;
+  evidence_json: unknown;
+  conflict_reasons_json: unknown;
   context_updated_at: string | null;
+  context_as_of_date: string | null;
   resolver_version: string | null;
+  /** The persisted origin. Only an exact `system_inferred` carries authority. */
+  kind_source: string | null;
 }
 
 export interface BuildMetaDecisionsWorkspaceReadModelInput {
@@ -356,10 +393,78 @@ function text(value: unknown): string | null {
   return normalized || null;
 }
 
+/**
+ * D081 C4 — the ONE exact-source mapping for a persisted campaign-context row.
+ *
+ * Raw equality against the retained value, with no `text()`, no `trim()`, no
+ * case folding and no inference from mode, table presence or timestamps. An
+ * earlier form compared `text(row.kind_source)`, which trims first, so
+ * `" system_inferred"` and `"system_inferred "` were accepted as the automatic
+ * origin; and a second arm synthesized the value from `mode === "automatic"`
+ * entirely.
+ *
+ * Anything that is not byte-for-byte `system_inferred` is `unknown`, which
+ * fails closed at the shared authority helper.
+ */
+export function exactCampaignContextSource(
+  value: unknown,
+): "system_inferred" | "unknown" {
+  return value === "system_inferred" ? "system_inferred" : "unknown";
+}
+
 function finiteNumber(value: unknown): number | null {
   if (value === null || value === undefined || value === "") return null;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+/**
+ * A jsonb string array read defensively: the driver may hand back a parsed
+ * array or raw JSON text, and the column may hold null or malformed content.
+ * Anything that is not an array of strings reads as an empty array — never a
+ * throw, and never a fabricated entry.
+ */
+function jsonStringArray(value: unknown): string[] {
+  let parsed = value;
+  if (typeof parsed === "string") {
+    try {
+      parsed = JSON.parse(parsed) as unknown;
+    } catch {
+      return [];
+    }
+  }
+  if (!Array.isArray(parsed)) return [];
+  return parsed
+    .filter((entry): entry is string => typeof entry === "string")
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
+/**
+ * A timestamp column as an ISO string. Postgres `::text` timestamps parse in
+ * Node; an unparseable non-empty value travels verbatim rather than being
+ * replaced with a fabricated time, and an empty column stays null.
+ */
+function isoTimestamp(value: unknown): string | null {
+  const raw = text(value);
+  if (!raw) return null;
+  const parsed = new Date(raw);
+  return Number.isFinite(parsed.getTime()) ? parsed.toISOString() : raw;
+}
+
+/**
+ * D074/D076: why the resolver publishes no kind for a campaign, said from the
+ * persisted row's own confidence_class. `unknown` means the resolver ran and
+ * found too little; `conflict` means it ran and found signals disagreeing;
+ * anything else — including a campaign with no context row at all — has not
+ * been evaluated yet.
+ */
+function campaignContextUnresolvedReason(
+  confidenceClass: string | null,
+): "insufficient_evidence" | "conflicting_signals" | "not_yet_evaluated" {
+  if (confidenceClass === "unknown") return "insufficient_evidence";
+  if (confidenceClass === "conflict") return "conflicting_signals";
+  return "not_yet_evaluated";
 }
 
 export function resolveProvisionalCampaignKind(input: {
@@ -812,43 +917,53 @@ function campaignRole(input: {
 }): MetaDecisionLifecycleRoleOverlay {
   const { context } = input;
   const contextKind = context?.kind ?? null;
-  const inferredHighHeld = Boolean(
-    context?.source === "system_inferred" &&
-    context.confidenceClass === "high" &&
-    !isCampaignContextHardAuthorityEnabled(),
+  const confidence = context?.confidenceClass ?? "unknown";
+  // The canonical validator is called EXACTLY once per row. Calling it twice —
+  // once here and once inside the shared helper — silently changed behaviour
+  // for any caller that stubs it per-call.
+  const resolverVersionValidated = isCampaignContextResolverAuthorityValidated(
+    context?.resolverVersion,
   );
-  const confidence = inferredHighHeld
-    ? ("medium" as const)
-    : (context?.confidenceClass ?? "unknown");
-  const trustedForAction = Boolean(
-    contextKind &&
-    (context?.source === "persisted_label" ||
-      (context?.source === "system_inferred" &&
-        context?.confidenceClass === "high" &&
-        isCampaignContextHardAuthorityEnabled())),
-  );
+  const resolverAuthorityValidated =
+    context?.source === "system_inferred" && resolverVersionValidated;
+  /**
+   * D081 C2 — the account-scoped point-in-time authority is computed by the
+   * shared helper, not by a second copy of the rule here. The two must agree:
+   * a divergence would mean this surface and the audit were enforcing
+   * different things, so the disagreement is asserted rather than tolerated.
+   */
+  const scopedAuthority = evaluateAccountScopedRoleAuthority({
+    kind: contextKind,
+    source: context?.source ?? null,
+    confidenceClass: context?.confidenceClass ?? null,
+    resolverVersion: context?.resolverVersion ?? null,
+    // The single call above is reused; the helper never calls out again.
+    isResolverVersionValidated: () => resolverVersionValidated,
+  });
+  const trustedForAction = scopedAuthority.satisfiesRoleAuthority;
   let blockerCode: string | null = null;
   if (context?.confidenceClass === "conflict")
     blockerCode = "campaign_context_conflict";
+  else if (
+    contextKind &&
+    context?.confidenceClass === "high" &&
+    !resolverAuthorityValidated
+  )
+    blockerCode = "campaign_context_resolver_unvalidated";
   else if (contextKind && !trustedForAction)
     blockerCode = "campaign_context_low_confidence";
   else if (!contextKind) blockerCode = "campaign_context_unresolved";
   return {
-    value: contextKind ?? "label_needed",
+    value: contextKind ?? "role_unresolved",
     confidence,
     trustedForAction,
     blockerCode,
     provenance: provenance({
       source:
-        context?.source === "persisted_label"
-          ? "meta_campaign_labels"
-          : context?.source === "system_inferred"
-            ? "engine_v3_campaign_context_daily"
-            : "meta_decisions_classification_overlay",
-      field:
-        context?.source === "persisted_label"
-          ? "campaign_kind"
-          : "inferred_kind",
+        context?.source === "system_inferred"
+          ? "engine_v3_campaign_context_daily"
+          : "meta_decisions_classification_overlay",
+      field: "inferred_kind",
       recordId: input.identity.campaign_id,
       asOf: context?.sourceUpdatedAt ?? null,
       version: context?.resolverVersion ?? null,
@@ -1151,7 +1266,9 @@ function toDecisionOutput(input: {
     input.snapshot.pre_authority_label,
   );
   const trustedKind =
-    input.role.trustedForAction && input.role.value !== "label_needed"
+    input.role.trustedForAction &&
+    input.role.value !== "label_needed" &&
+    input.role.value !== "role_unresolved"
       ? input.role.value
       : null;
   return {
@@ -1171,10 +1288,10 @@ function toDecisionOutput(input: {
       roas: finiteNumber(input.snapshot.roas),
       recent7dRoas: finiteNumber(input.snapshot.recent7d_roas),
     },
-    campaignLabelStatus: input.identity.campaign_id
+    campaignRoleStatus: input.identity.campaign_id
       ? trustedKind
-        ? "labeled"
-        : "unlabeled"
+        ? "resolved"
+        : "unresolved"
       : "no_campaign",
     campaignKind: trustedKind,
     // The adapter does not consume authority provenance. Historical rows still
@@ -1992,6 +2109,8 @@ export interface ReadValidatedMetaNativeDecisionGenerationBundleInput {
   businessId: string;
   providerAccountId: string;
   asOfDate?: string;
+  /** Explicit evaluation instant for deterministic serving/tests. */
+  generatedAt?: string;
   currentAds?: readonly MetaCurrentAdStatusSourceRow[];
   currentAdSourceComplete?: boolean;
   /** Optional serving projection. Full generation authority is still proven. */
@@ -2293,6 +2412,7 @@ function applyNativeCanonicalDecisionAuthority(input: {
   row: MetaNativeDecisionSnapshotSourceRow;
   responseRows: readonly MetaNativeDecisionResponseSourceRow[];
   responseSourceAvailable: boolean;
+  now: Date;
 }): MetaCanonicalDecision {
   const { decision, row } = input;
   const response = nativeResponseHistory({
@@ -2347,6 +2467,17 @@ function applyNativeCanonicalDecisionAuthority(input: {
     decision.classification.decisionState === "act" &&
     authorizedAction !== null &&
     decision.classification.buyerAction === authorizedAction;
+  const decisionFreshness = evaluateDecisionOriginAdDecisionFreshness({
+    computedAt: row.computed_at,
+    now: input.now,
+  });
+  const executionReadiness = !actionEligible
+    ? ("decision_not_authorized" as const)
+    : row.engine_version !== NATIVE_AD_ENGINE_VERSION
+      ? ("engine_version_drift" as const)
+      : decisionFreshness.status !== "fresh"
+        ? ("stale_decision" as const)
+        : ("governance_unavailable" as const);
   decision.sourceAuthority = {
     status: "native_exact",
     actionEligible,
@@ -2371,6 +2502,8 @@ function applyNativeCanonicalDecisionAuthority(input: {
     realAdId: row.ad_id,
     authorizedAction: actionEligible ? authorizedAction : null,
     jobRunId: row.job_run_id,
+    executionReadiness,
+    decisionFreshness,
   };
   decision.sourceDecision.provenance = provenance({
     source: "engine_v3_ad_decision_snapshots_daily",
@@ -2406,6 +2539,7 @@ export interface BuildNativeMetaCanonicalDecisionInventoryInput {
   eventSourceAvailable?: boolean;
   outcomeSourceAvailable?: boolean;
   responseSourceAvailable?: boolean;
+  generatedAt?: string;
 }
 
 export function buildNativeMetaCanonicalDecisionInventory(
@@ -2446,6 +2580,7 @@ export function buildNativeMetaCanonicalDecisionInventory(
   }
 
   const items: MetaCanonicalDecision[] = [];
+  const generatedAt = new Date(input.generatedAt ?? Date.now());
   for (const row of [...validatedBundle.snapshotRows].sort((left, right) =>
     left.ad_id.localeCompare(right.ad_id),
   )) {
@@ -2478,6 +2613,7 @@ export function buildNativeMetaCanonicalDecisionInventory(
         row,
         responseRows: input.responseRows ?? [],
         responseSourceAvailable: input.responseSourceAvailable === true,
+        now: generatedAt,
       }),
     );
   }
@@ -2569,6 +2705,7 @@ export function buildNativeMetaDecisionsWorkspaceReadModel(
   const nativeBySnapshot = new Map(
     input.snapshotRows.map((row) => [row.snapshot_id, row]),
   );
+  const generatedAt = new Date(input.generatedAt ?? Date.now());
   const allDecisions = new Map<string, MetaCanonicalDecision>();
   for (const section of Object.values(model.queue.sections)) {
     for (const decision of section.items)
@@ -2588,6 +2725,7 @@ export function buildNativeMetaDecisionsWorkspaceReadModel(
       row,
       responseRows: input.responseRows ?? [],
       responseSourceAvailable: input.responseSourceAvailable === true,
+      now: generatedAt,
     });
   }
   model.source = {
@@ -2626,6 +2764,117 @@ export function buildNativeMetaDecisionsWorkspaceReadModel(
   )
     ? { status: "available", reason: "native_immutable_action_receipt" }
     : { status: "unavailable", reason: "native_action_receipt_not_observed" };
+  return model;
+}
+
+export interface MetaDecisionExecutionGovernanceFacts {
+  verified: boolean;
+  controlsConfigured: boolean;
+  writeBlocked: boolean;
+  blockReason: string | null;
+}
+
+function hydrateMetaCanonicalDecisionExecutionGovernance(input: {
+  decision: MetaCanonicalDecision;
+  governance: MetaDecisionExecutionGovernanceFacts;
+  pipeline: {
+    verified: boolean;
+    executionReady: boolean;
+  };
+  now: Date;
+}) {
+  const authority = input.decision.sourceAuthority;
+  if (authority?.status !== "native_exact") return;
+  const decisionFreshness = evaluateDecisionOriginAdDecisionFreshness({
+    computedAt: input.decision.sourceDecision.computedAt,
+    now: input.now,
+  });
+  authority.decisionFreshness = decisionFreshness;
+  authority.executionReadiness = !authority.actionEligible
+    ? "decision_not_authorized"
+    : authority.engineVersion !== NATIVE_AD_ENGINE_VERSION ||
+        input.decision.sourceDecision.engineVersion !== NATIVE_AD_ENGINE_VERSION
+      ? "engine_version_drift"
+      : decisionFreshness.status !== "fresh"
+        ? "stale_decision"
+        : input.governance.blockReason === "META_ADS_WRITE_KILL_SWITCH" ||
+            input.governance.blockReason === "business_kill_switch"
+          ? "kill_switched"
+          : !input.governance.verified ||
+              !input.governance.controlsConfigured ||
+              input.governance.writeBlocked
+            ? "governance_unavailable"
+            : !input.pipeline.verified || !input.pipeline.executionReady
+              ? "source_pipeline_unready"
+              : "live_preflight_required";
+}
+
+/**
+ * Apply the same request-time governance contract to canonical inventories
+ * served outside the Decisions workspace, such as Creative Briefing. The
+ * source inventory is cloned so cache/shared-reader results stay immutable.
+ */
+export function applyMetaExecutionGovernanceToCanonicalDecisions(input: {
+  decisions: readonly MetaCanonicalDecision[];
+  governance: MetaDecisionExecutionGovernanceFacts;
+  pipeline: {
+    verified: boolean;
+    executionReady: boolean;
+  };
+  now?: Date;
+}): MetaCanonicalDecision[] {
+  const decisions = structuredClone([...input.decisions]);
+  const now = input.now ?? new Date();
+  for (const decision of decisions) {
+    hydrateMetaCanonicalDecisionExecutionGovernance({
+      decision,
+      governance: input.governance,
+      pipeline: input.pipeline,
+      now,
+    });
+  }
+  return decisions;
+}
+
+/**
+ * Hydrate the deterministic, server-owned execution posture onto every exact
+ * native-Ad projection. This is intentionally separate from the live provider
+ * preflight: rendering may prove that a row is eligible to attempt that
+ * preflight, but only the submit boundary may prove current provider state.
+ *
+ * The freshness calculation is repeated at serve time so a cached decision
+ * inventory cannot keep an enabled control after crossing the age ceiling.
+ */
+export function applyMetaExecutionGovernanceToReadModel(input: {
+  model: MetaDecisionsWorkspaceReadModel;
+  governance: MetaDecisionExecutionGovernanceFacts;
+  pipeline: {
+    verified: boolean;
+    executionReady: boolean;
+  };
+  now?: Date;
+}): MetaDecisionsWorkspaceReadModel {
+  // The inventory may come from the short-lived server cache. Never mutate the
+  // cached object with request-specific governance or clock state.
+  const model = structuredClone(input.model);
+  const now = input.now ?? new Date();
+  const decisions = new Set<MetaCanonicalDecision>();
+  for (const section of Object.values(model.queue.sections ?? {})) {
+    for (const decision of section.items) decisions.add(decision);
+  }
+  for (const decision of model.queue.adCandidates?.items ?? [])
+    decisions.add(decision);
+  for (const decision of model.queue.inactiveAssets?.items ?? [])
+    decisions.add(decision);
+
+  for (const decision of decisions) {
+    hydrateMetaCanonicalDecisionExecutionGovernance({
+      decision,
+      governance: input.governance,
+      pipeline: input.pipeline,
+      now,
+    });
+  }
   return model;
 }
 
@@ -2883,29 +3132,32 @@ async function readNativeSnapshotRows(input: {
       COALESCE(adset_dim.adset_name_current, adset_dim.adset_name_historical)
         AS adset_name,
       COALESCE(ad_dim.ad_name_current, ad_dim.ad_name_historical) AS ad_name,
+      -- D075 consumer sweep: an absent_unconfirmed winner is absence
+      -- EVIDENCE, never a provider state. It must not fabricate 'DELETED'
+      -- (which downstream archive/exclude filters treat as a real provider
+      -- status) and must not resurrect any stale present status — the honest
+      -- served value is NULL (status unknown), which delivery gating maps to
+      -- 'unknown', not 'inactive'.
       CASE
-        WHEN campaign_state.presence IS NULL THEN NULL
         WHEN campaign_state.presence = 'present' THEN COALESCE(
           campaign_state.effective_status,
           campaign_state.configured_status
         )
-        ELSE 'DELETED'
+        ELSE NULL
       END AS campaign_status,
       CASE
-        WHEN adset_state.presence IS NULL THEN NULL
         WHEN adset_state.presence = 'present' THEN COALESCE(
           adset_state.effective_status,
           adset_state.configured_status
         )
-        ELSE 'DELETED'
+        ELSE NULL
       END AS adset_status,
       CASE
-        WHEN ad_state.presence IS NULL THEN NULL
         WHEN ad_state.presence = 'present' THEN COALESCE(
           ad_state.effective_status,
           ad_state.configured_status
         )
-        ELSE 'DELETED'
+        ELSE NULL
       END AS ad_status,
       ad_daily.account_currency AS currency,
       COALESCE(
@@ -3613,6 +3865,7 @@ export async function readMetaNativeCanonicalDecisionInventory(
         generation: subsetRead.bundle.generation,
         snapshotRows: subsetRead.bundle.snapshotRows,
         ...ancillary,
+        generatedAt: input.generatedAt,
       });
       return subset.status === "available"
         ? { ...subset, generation: subsetRead.fullGeneration }
@@ -3647,6 +3900,7 @@ export async function readMetaNativeCanonicalDecisionInventory(
       generation: bundle.generation,
       snapshotRows: bundle.snapshotRows,
       ...ancillary,
+      generatedAt: input.generatedAt,
     });
   } catch {
     return {
@@ -3784,6 +4038,9 @@ async function readIdentityRows(input: {
       COALESCE(adset_dim.adset_name_current, adset_dim.adset_name_historical) AS adset_name,
       ad_dim.ad_id AS ad_id,
       COALESCE(ad_dim.ad_name_current, ad_dim.ad_name_historical) AS ad_name,
+      -- D075 consumer sweep: absence evidence serves NULL — never a
+      -- fabricated 'DELETED', and never the stale dimension status (that
+      -- would resurrect a pre-exit state past the newer absent row).
       CASE
         WHEN campaign_state.presence IS NULL THEN campaign_dim.campaign_status
         WHEN campaign_state.presence = 'present' THEN COALESCE(
@@ -3791,7 +4048,7 @@ async function readIdentityRows(input: {
           campaign_state.configured_status,
           campaign_dim.campaign_status
         )
-        ELSE 'DELETED'
+        ELSE NULL
       END AS campaign_status,
       CASE
         WHEN adset_state.presence IS NULL THEN adset_dim.adset_status
@@ -3800,7 +4057,7 @@ async function readIdentityRows(input: {
           adset_state.configured_status,
           adset_dim.adset_status
         )
-        ELSE 'DELETED'
+        ELSE NULL
       END AS adset_status,
       CASE
         WHEN ad_state.presence IS NULL THEN ad_dim.ad_status
@@ -3809,7 +4066,7 @@ async function readIdentityRows(input: {
           ad_state.configured_status,
           ad_dim.ad_status
         )
-        ELSE 'DELETED'
+        ELSE NULL
       END AS ad_status,
       COALESCE(ad_identity.candidate_ad_count, 0) AS candidate_ad_count,
       creative_daily.account_currency AS currency,
@@ -4140,6 +4397,13 @@ export async function readMetaDecisionCampaignContextRows(input: {
       confidenceClass: "unknown",
       sourceUpdatedAt: null,
       resolverVersion: null,
+      confidenceScore: null,
+      evidence: [],
+      conflictReasons: [],
+      // The daily resolver source was never read here, so this is absence of
+      // an evaluation, not a low-confidence one.
+      unresolvedReason: "not_yet_evaluated",
+      lastEvaluatedAt: null,
     }));
   }
   const rows = await getDb().query<MetaDecisionCampaignContextDbRow>(
@@ -4149,32 +4413,26 @@ export async function readMetaDecisionCampaignContextRows(input: {
     )
     SELECT
       requested.campaign_id,
-      label.campaign_kind AS label_kind,
-      label.source AS label_source,
-      label.updated_at::text AS label_updated_at,
       inferred.inferred_kind,
       inferred.confidence_class,
+      inferred.confidence_score,
       inferred.signal_scores_json,
+      inferred.evidence_json,
+      inferred.conflict_reasons_json,
       inferred.updated_at::text AS context_updated_at,
-      inferred.resolver_version
+      inferred.as_of_date::text AS context_as_of_date,
+      inferred.resolver_version,
+      inferred.kind_source
     FROM requested
-    LEFT JOIN LATERAL (
-      SELECT *
-      FROM meta_campaign_labels
-      WHERE business_id = $1
-        AND campaign_id = requested.campaign_id
-        AND (provider_account_id = $2 OR provider_account_id IS NULL)
-      ORDER BY (provider_account_id = $2) DESC, updated_at DESC
-      LIMIT 1
-    ) label ON TRUE
     LEFT JOIN LATERAL (
       SELECT *
       FROM engine_v3_campaign_context_daily
       WHERE business_id = $1
         AND campaign_id = requested.campaign_id
-        AND (provider_account_id = $2 OR provider_account_id IS NULL)
+        AND provider_account_id = $2
         AND as_of_date <= $4::date
-      ORDER BY (provider_account_id = $2) DESC, as_of_date DESC, updated_at DESC
+        AND as_of_date >= ($4::date - ($5 * INTERVAL '1 day'))
+      ORDER BY as_of_date DESC, updated_at DESC
       LIMIT 1
     ) inferred ON TRUE
     ORDER BY requested.campaign_id
@@ -4184,22 +4442,24 @@ export async function readMetaDecisionCampaignContextRows(input: {
       input.providerAccountId,
       input.campaignIds,
       input.snapshotAsOf,
+      CAMPAIGN_CONTEXT_MAX_AGE_DAYS,
     ],
   );
   return rows.map((row) => {
-    const labelKind = text(row.label_kind);
     const inferredKind = text(row.inferred_kind);
-    if (labelKind === "main" || labelKind === "test" || labelKind === "mixed") {
-      return {
-        campaignId: row.campaign_id,
-        kind: labelKind,
-        suggestedKind: labelKind,
-        source: "persisted_label" as const,
-        confidenceClass: "high" as const,
-        sourceUpdatedAt: row.label_updated_at,
-        resolverVersion: row.label_source,
-      };
-    }
+    /**
+     * D074/D076 explanation fields, identical in both arms: they restate the
+     * persisted resolver row verbatim (score, evidence, conflicts, last
+     * evaluation time) and never depend on how the kind is presented.
+     */
+    const explanation = {
+      confidenceScore: finiteNumber(row.confidence_score),
+      evidence: jsonStringArray(row.evidence_json),
+      conflictReasons: jsonStringArray(row.conflict_reasons_json),
+      lastEvaluatedAt:
+        isoTimestamp(row.context_updated_at) ??
+        isoTimestamp(row.context_as_of_date),
+    };
     if (
       mode === "automatic" &&
       (inferredKind === "main" ||
@@ -4211,7 +4471,13 @@ export async function readMetaDecisionCampaignContextRows(input: {
         campaignId: row.campaign_id,
         kind: inferredKind,
         suggestedKind: inferredKind,
-        source: "system_inferred" as const,
+        // D081 C3 — the RETAINED source, never a synthesized one. This
+        // previously wrote the literal `system_inferred` whenever the mode was
+        // automatic and the kind parsed, which meant the authority helper's
+        // exact-source rule was checking a value the reader had invented.
+        // Only an exact match maps through; everything else stays unknown and
+        // fails closed downstream.
+        source: exactCampaignContextSource(row.kind_source),
         confidenceClass:
           confidence === "high" ||
           confidence === "medium" ||
@@ -4221,6 +4487,8 @@ export async function readMetaDecisionCampaignContextRows(input: {
             : "unknown",
         sourceUpdatedAt: row.context_updated_at,
         resolverVersion: row.resolver_version,
+        ...explanation,
+        unresolvedReason: null,
       };
     }
     const hasAutomaticContext = Boolean(row.context_updated_at);
@@ -4234,16 +4502,23 @@ export async function readMetaDecisionCampaignContextRows(input: {
               signalScores: row.signal_scores_json,
             })
           : null,
-      source:
-        mode === "automatic" && hasAutomaticContext
-          ? ("system_inferred" as const)
-          : ("unknown" as const),
+      // The retained origin, exactly as stored. This arm previously synthesized
+      // `system_inferred` from the mode and the presence of a context row, so
+      // an unresolved row still served fabricated automatic provenance.
+      source: exactCampaignContextSource(row.kind_source),
       confidenceClass:
         row.confidence_class === "conflict"
           ? ("conflict" as const)
           : ("unknown" as const),
-      sourceUpdatedAt: row.context_updated_at ?? row.label_updated_at,
+      sourceUpdatedAt: row.context_updated_at,
       resolverVersion: row.resolver_version,
+      ...explanation,
+      // Derived from the PERSISTED confidence_class, not the presented one: a
+      // campaign with no context row at all has a null class and reads as
+      // not-yet-evaluated rather than as insufficient evidence.
+      unresolvedReason: campaignContextUnresolvedReason(
+        text(row.confidence_class),
+      ),
     };
   });
 }

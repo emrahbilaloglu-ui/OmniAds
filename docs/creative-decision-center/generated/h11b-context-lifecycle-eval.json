@@ -1,0 +1,1755 @@
+{
+ "contract": "adsecute.meta.h11b-context-lifecycle-eval.v1",
+ "bundleHash": "58de78a12a15681ee51de1049f6463971d12231090dad33cd5c72586c5651b91",
+ "trainAnchors": [
+  "2026-06-15",
+  "2026-06-22",
+  "2026-06-29",
+  "2026-07-06",
+  "2026-07-13",
+  "2026-07-20",
+  "2026-07-27"
+ ],
+ "validationAnchors": [
+  "2026-08-03",
+  "2026-08-10",
+  "2026-08-17"
+ ],
+ "truthWindowDays": 45,
+ "candidates": {
+  "current_v2": "campaign-context-resolver.v2-account-scoped-2026-08-29",
+  "challenger_v3": "campaign-context-resolver.v3-lifecycle-2026-08-29"
+ },
+ "folds": {
+  "train": {
+   "current_v2": {
+    "summary": {
+     "observationCount": 92,
+     "labeledObservations": 45,
+     "uniqueLabeledCampaigns": 45,
+     "classifiedObservations": 28,
+     "uniqueClassifiedCampaigns": 28,
+     "highConfidenceObservations": 5,
+     "uniqueHighConfidenceCampaigns": 5,
+     "exactMatches": 15,
+     "exactAccuracy": 0.5357142857142857,
+     "exactAccuracyWilson95": {
+      "successes": 15,
+      "total": 28,
+      "estimate": 0.5357142857142857,
+      "lower": 0.3581268922156487,
+      "upper": 0.7046843002888581,
+      "confidenceLevel": 0.95,
+      "zScore": 1.959963986120195
+     },
+     "allLabelAccuracy": 0.3333333333333333,
+     "labelCoverage": 0.6222222222222222,
+     "highConfidenceMatches": 4,
+     "highConfidenceAccuracy": 0.8,
+     "highConfidenceWilson95": {
+      "successes": 4,
+      "total": 5,
+      "estimate": 0.8,
+      "lower": 0.3755346294832369,
+      "upper": 0.9637758914091483,
+      "confidenceLevel": 0.95,
+      "zScore": 1.959963986120195
+     },
+     "falseTestAny": 2,
+     "falseTestHigh": 0,
+     "missedTest": 3,
+     "predictedTest": 2,
+     "manualTest": 3,
+     "truePositiveTest": 0,
+     "testRecall": 0,
+     "testRecallWilson95": {
+      "successes": 0,
+      "total": 3,
+      "estimate": 0,
+      "lower": 0,
+      "upper": 0.561497032152052,
+      "confidenceLevel": 0.95,
+      "zScore": 1.959963986120195
+     },
+     "unresolved": 43,
+     "conflict": 1
+    },
+    "confusion": {
+     "main": {
+      "main": 15,
+      "test": 1,
+      "mixed": 0,
+      "unresolved": 14,
+      "conflict": 0
+     },
+     "test": {
+      "main": 0,
+      "test": 0,
+      "mixed": 0,
+      "unresolved": 2,
+      "conflict": 1
+     },
+     "mixed": {
+      "main": 11,
+      "test": 1,
+      "mixed": 0,
+      "unresolved": 0,
+      "conflict": 0
+     }
+    },
+    "calibration": {
+     "medium": {
+      "n": 7,
+      "correct": 5
+     },
+     "low": {
+      "n": 16,
+      "correct": 6
+     },
+     "high": {
+      "n": 5,
+      "correct": 4
+     }
+    },
+    "perBusiness": {
+     "Bilsem Zeka/act_840779107261785": {
+      "observationCount": 14,
+      "labeledObservations": 7,
+      "uniqueLabeledCampaigns": 7,
+      "classifiedObservations": 7,
+      "uniqueClassifiedCampaigns": 7,
+      "highConfidenceObservations": 0,
+      "uniqueHighConfidenceCampaigns": 0,
+      "exactMatches": 3,
+      "exactAccuracy": 0.42857142857142855,
+      "exactAccuracyWilson95": {
+       "successes": 3,
+       "total": 7,
+       "estimate": 0.42857142857142855,
+       "lower": 0.15821985512278647,
+       "upper": 0.7495416356537244,
+       "confidenceLevel": 0.95,
+       "zScore": 1.959963986120195
+      },
+      "allLabelAccuracy": 0.42857142857142855,
+      "labelCoverage": 1,
+      "highConfidenceMatches": 0,
+      "highConfidenceAccuracy": null,
+      "highConfidenceWilson95": null,
+      "falseTestAny": 1,
+      "falseTestHigh": 0,
+      "missedTest": 0,
+      "predictedTest": 1,
+      "manualTest": 0,
+      "truePositiveTest": 0,
+      "testRecall": null,
+      "testRecallWilson95": null,
+      "unresolved": 4,
+      "conflict": 0
+     },
+     "ColorFullWorldsTR/act_3554615364751964": {
+      "observationCount": 4,
+      "labeledObservations": 2,
+      "uniqueLabeledCampaigns": 2,
+      "classifiedObservations": 1,
+      "uniqueClassifiedCampaigns": 1,
+      "highConfidenceObservations": 1,
+      "uniqueHighConfidenceCampaigns": 1,
+      "exactMatches": 1,
+      "exactAccuracy": 1,
+      "exactAccuracyWilson95": {
+       "successes": 1,
+       "total": 1,
+       "estimate": 1,
+       "lower": 0.2065493141129836,
+       "upper": 0.9999999999999999,
+       "confidenceLevel": 0.95,
+       "zScore": 1.959963986120195
+      },
+      "allLabelAccuracy": 0.5,
+      "labelCoverage": 0.5,
+      "highConfidenceMatches": 1,
+      "highConfidenceAccuracy": 1,
+      "highConfidenceWilson95": {
+       "successes": 1,
+       "total": 1,
+       "estimate": 1,
+       "lower": 0.2065493141129836,
+       "upper": 0.9999999999999999,
+       "confidenceLevel": 0.95,
+       "zScore": 1.959963986120195
+      },
+      "falseTestAny": 0,
+      "falseTestHigh": 0,
+      "missedTest": 0,
+      "predictedTest": 0,
+      "manualTest": 0,
+      "truePositiveTest": 0,
+      "testRecall": null,
+      "testRecallWilson95": null,
+      "unresolved": 2,
+      "conflict": 0
+     },
+     "Grandmix/act_805150454596350": {
+      "observationCount": 13,
+      "labeledObservations": 8,
+      "uniqueLabeledCampaigns": 8,
+      "classifiedObservations": 7,
+      "uniqueClassifiedCampaigns": 7,
+      "highConfidenceObservations": 2,
+      "uniqueHighConfidenceCampaigns": 2,
+      "exactMatches": 6,
+      "exactAccuracy": 0.8571428571428571,
+      "exactAccuracyWilson95": {
+       "successes": 6,
+       "total": 7,
+       "estimate": 0.8571428571428571,
+       "lower": 0.4868721704328627,
+       "upper": 0.974320375684582,
+       "confidenceLevel": 0.95,
+       "zScore": 1.959963986120195
+      },
+      "allLabelAccuracy": 0.75,
+      "labelCoverage": 0.875,
+      "highConfidenceMatches": 2,
+      "highConfidenceAccuracy": 1,
+      "highConfidenceWilson95": {
+       "successes": 2,
+       "total": 2,
+       "estimate": 1,
+       "lower": 0.34238022714360744,
+       "upper": 1,
+       "confidenceLevel": 0.95,
+       "zScore": 1.959963986120195
+      },
+      "falseTestAny": 1,
+      "falseTestHigh": 0,
+      "missedTest": 0,
+      "predictedTest": 1,
+      "manualTest": 0,
+      "truePositiveTest": 0,
+      "testRecall": null,
+      "testRecallWilson95": null,
+      "unresolved": 5,
+      "conflict": 0
+     },
+     "IwaStore/act_1087566732415606": {
+      "observationCount": 14,
+      "labeledObservations": 8,
+      "uniqueLabeledCampaigns": 8,
+      "classifiedObservations": 5,
+      "uniqueClassifiedCampaigns": 5,
+      "highConfidenceObservations": 1,
+      "uniqueHighConfidenceCampaigns": 1,
+      "exactMatches": 5,
+      "exactAccuracy": 1,
+      "exactAccuracyWilson95": {
+       "successes": 5,
+       "total": 5,
+       "estimate": 1,
+       "lower": 0.565517534820642,
+       "upper": 1,
+       "confidenceLevel": 0.95,
+       "zScore": 1.959963986120195
+      },
+      "allLabelAccuracy": 0.625,
+      "labelCoverage": 0.625,
+      "highConfidenceMatches": 1,
+      "highConfidenceAccuracy": 1,
+      "highConfidenceWilson95": {
+       "successes": 1,
+       "total": 1,
+       "estimate": 1,
+       "lower": 0.2065493141129836,
+       "upper": 0.9999999999999999,
+       "confidenceLevel": 0.95,
+       "zScore": 1.959963986120195
+      },
+      "falseTestAny": 0,
+      "falseTestHigh": 0,
+      "missedTest": 1,
+      "predictedTest": 0,
+      "manualTest": 1,
+      "truePositiveTest": 0,
+      "testRecall": 0,
+      "testRecallWilson95": {
+       "successes": 0,
+       "total": 1,
+       "estimate": 0,
+       "lower": 5.551115123125783e-17,
+       "upper": 0.7934506858870163,
+       "confidenceLevel": 0.95,
+       "zScore": 1.959963986120195
+      },
+      "unresolved": 4,
+      "conflict": 1
+     },
+     "TheSwaf/act_822913786458311": {
+      "observationCount": 41,
+      "labeledObservations": 18,
+      "uniqueLabeledCampaigns": 18,
+      "classifiedObservations": 6,
+      "uniqueClassifiedCampaigns": 6,
+      "highConfidenceObservations": 0,
+      "uniqueHighConfidenceCampaigns": 0,
+      "exactMatches": 0,
+      "exactAccuracy": 0,
+      "exactAccuracyWilson95": {
+       "successes": 0,
+       "total": 6,
+       "estimate": 0,
+       "lower": 0,
+       "upper": 0.3903342882858781,
+       "confidenceLevel": 0.95,
+       "zScore": 1.959963986120195
+      },
+      "allLabelAccuracy": 0,
+      "labelCoverage": 0.3333333333333333,
+      "highConfidenceMatches": 0,
+      "highConfidenceAccuracy": null,
+      "highConfidenceWilson95": null,
+      "falseTestAny": 0,
+      "falseTestHigh": 0,
+      "missedTest": 2,
+      "predictedTest": 0,
+      "manualTest": 2,
+      "truePositiveTest": 0,
+      "testRecall": 0,
+      "testRecallWilson95": {
+       "successes": 0,
+       "total": 2,
+       "estimate": 0,
+       "lower": 0,
+       "upper": 0.6576197728563925,
+       "confidenceLevel": 0.95,
+       "zScore": 1.959963986120195
+      },
+      "unresolved": 28,
+      "conflict": 0
+     },
+     "TheSwaf/act_921275999286619": {
+      "observationCount": 2,
+      "labeledObservations": 2,
+      "uniqueLabeledCampaigns": 2,
+      "classifiedObservations": 2,
+      "uniqueClassifiedCampaigns": 2,
+      "highConfidenceObservations": 1,
+      "uniqueHighConfidenceCampaigns": 1,
+      "exactMatches": 0,
+      "exactAccuracy": 0,
+      "exactAccuracyWilson95": {
+       "successes": 0,
+       "total": 2,
+       "estimate": 0,
+       "lower": 0,
+       "upper": 0.6576197728563925,
+       "confidenceLevel": 0.95,
+       "zScore": 1.959963986120195
+      },
+      "allLabelAccuracy": 0,
+      "labelCoverage": 1,
+      "highConfidenceMatches": 0,
+      "highConfidenceAccuracy": 0,
+      "highConfidenceWilson95": {
+       "successes": 0,
+       "total": 1,
+       "estimate": 0,
+       "lower": 5.551115123125783e-17,
+       "upper": 0.7934506858870163,
+       "confidenceLevel": 0.95,
+       "zScore": 1.959963986120195
+      },
+      "falseTestAny": 0,
+      "falseTestHigh": 0,
+      "missedTest": 0,
+      "predictedTest": 0,
+      "manualTest": 0,
+      "truePositiveTest": 0,
+      "testRecall": null,
+      "testRecallWilson95": null,
+      "unresolved": 0,
+      "conflict": 0
+     }
+    }
+   },
+   "challenger_v3": {
+    "summary": {
+     "observationCount": 92,
+     "labeledObservations": 45,
+     "uniqueLabeledCampaigns": 45,
+     "classifiedObservations": 26,
+     "uniqueClassifiedCampaigns": 26,
+     "highConfidenceObservations": 7,
+     "uniqueHighConfidenceCampaigns": 7,
+     "exactMatches": 14,
+     "exactAccuracy": 0.5384615384615384,
+     "exactAccuracyWilson95": {
+      "successes": 14,
+      "total": 26,
+      "estimate": 0.5384615384615384,
+      "lower": 0.3545793873358501,
+      "upper": 0.7124414648149144,
+      "confidenceLevel": 0.95,
+      "zScore": 1.959963986120195
+     },
+     "allLabelAccuracy": 0.3111111111111111,
+     "labelCoverage": 0.5777777777777777,
+     "highConfidenceMatches": 6,
+     "highConfidenceAccuracy": 0.8571428571428571,
+     "highConfidenceWilson95": {
+      "successes": 6,
+      "total": 7,
+      "estimate": 0.8571428571428571,
+      "lower": 0.4868721704328627,
+      "upper": 0.974320375684582,
+      "confidenceLevel": 0.95,
+      "zScore": 1.959963986120195
+     },
+     "falseTestAny": 7,
+     "falseTestHigh": 0,
+     "missedTest": 3,
+     "predictedTest": 7,
+     "manualTest": 3,
+     "truePositiveTest": 0,
+     "testRecall": 0,
+     "testRecallWilson95": {
+      "successes": 0,
+      "total": 3,
+      "estimate": 0,
+      "lower": 0,
+      "upper": 0.561497032152052,
+      "confidenceLevel": 0.95,
+      "zScore": 1.959963986120195
+     },
+     "unresolved": 43,
+     "conflict": 3
+    },
+    "confusion": {
+     "main": {
+      "main": 13,
+      "test": 3,
+      "mixed": 0,
+      "unresolved": 14,
+      "conflict": 0
+     },
+     "test": {
+      "main": 0,
+      "test": 0,
+      "mixed": 0,
+      "unresolved": 2,
+      "conflict": 1
+     },
+     "mixed": {
+      "main": 5,
+      "test": 4,
+      "mixed": 1,
+      "unresolved": 0,
+      "conflict": 2
+     }
+    },
+    "calibration": {
+     "high": {
+      "n": 7,
+      "correct": 6
+     },
+     "medium": {
+      "n": 7,
+      "correct": 4
+     },
+     "low": {
+      "n": 12,
+      "correct": 4
+     }
+    },
+    "perBusiness": {
+     "Bilsem Zeka/act_840779107261785": {
+      "observationCount": 14,
+      "labeledObservations": 7,
+      "uniqueLabeledCampaigns": 7,
+      "classifiedObservations": 7,
+      "uniqueClassifiedCampaigns": 7,
+      "highConfidenceObservations": 2,
+      "uniqueHighConfidenceCampaigns": 2,
+      "exactMatches": 4,
+      "exactAccuracy": 0.5714285714285714,
+      "exactAccuracyWilson95": {
+       "successes": 4,
+       "total": 7,
+       "estimate": 0.5714285714285714,
+       "lower": 0.2504583643462755,
+       "upper": 0.8417801448772135,
+       "confidenceLevel": 0.95,
+       "zScore": 1.959963986120195
+      },
+      "allLabelAccuracy": 0.5714285714285714,
+      "labelCoverage": 1,
+      "highConfidenceMatches": 2,
+      "highConfidenceAccuracy": 1,
+      "highConfidenceWilson95": {
+       "successes": 2,
+       "total": 2,
+       "estimate": 1,
+       "lower": 0.34238022714360744,
+       "upper": 1,
+       "confidenceLevel": 0.95,
+       "zScore": 1.959963986120195
+      },
+      "falseTestAny": 2,
+      "falseTestHigh": 0,
+      "missedTest": 0,
+      "predictedTest": 2,
+      "manualTest": 0,
+      "truePositiveTest": 0,
+      "testRecall": null,
+      "testRecallWilson95": null,
+      "unresolved": 4,
+      "conflict": 0
+     },
+     "ColorFullWorldsTR/act_3554615364751964": {
+      "observationCount": 4,
+      "labeledObservations": 2,
+      "uniqueLabeledCampaigns": 2,
+      "classifiedObservations": 1,
+      "uniqueClassifiedCampaigns": 1,
+      "highConfidenceObservations": 1,
+      "uniqueHighConfidenceCampaigns": 1,
+      "exactMatches": 1,
+      "exactAccuracy": 1,
+      "exactAccuracyWilson95": {
+       "successes": 1,
+       "total": 1,
+       "estimate": 1,
+       "lower": 0.2065493141129836,
+       "upper": 0.9999999999999999,
+       "confidenceLevel": 0.95,
+       "zScore": 1.959963986120195
+      },
+      "allLabelAccuracy": 0.5,
+      "labelCoverage": 0.5,
+      "highConfidenceMatches": 1,
+      "highConfidenceAccuracy": 1,
+      "highConfidenceWilson95": {
+       "successes": 1,
+       "total": 1,
+       "estimate": 1,
+       "lower": 0.2065493141129836,
+       "upper": 0.9999999999999999,
+       "confidenceLevel": 0.95,
+       "zScore": 1.959963986120195
+      },
+      "falseTestAny": 0,
+      "falseTestHigh": 0,
+      "missedTest": 0,
+      "predictedTest": 0,
+      "manualTest": 0,
+      "truePositiveTest": 0,
+      "testRecall": null,
+      "testRecallWilson95": null,
+      "unresolved": 2,
+      "conflict": 0
+     },
+     "Grandmix/act_805150454596350": {
+      "observationCount": 13,
+      "labeledObservations": 8,
+      "uniqueLabeledCampaigns": 8,
+      "classifiedObservations": 7,
+      "uniqueClassifiedCampaigns": 7,
+      "highConfidenceObservations": 2,
+      "uniqueHighConfidenceCampaigns": 2,
+      "exactMatches": 6,
+      "exactAccuracy": 0.8571428571428571,
+      "exactAccuracyWilson95": {
+       "successes": 6,
+       "total": 7,
+       "estimate": 0.8571428571428571,
+       "lower": 0.4868721704328627,
+       "upper": 0.974320375684582,
+       "confidenceLevel": 0.95,
+       "zScore": 1.959963986120195
+      },
+      "allLabelAccuracy": 0.75,
+      "labelCoverage": 0.875,
+      "highConfidenceMatches": 2,
+      "highConfidenceAccuracy": 1,
+      "highConfidenceWilson95": {
+       "successes": 2,
+       "total": 2,
+       "estimate": 1,
+       "lower": 0.34238022714360744,
+       "upper": 1,
+       "confidenceLevel": 0.95,
+       "zScore": 1.959963986120195
+      },
+      "falseTestAny": 1,
+      "falseTestHigh": 0,
+      "missedTest": 0,
+      "predictedTest": 1,
+      "manualTest": 0,
+      "truePositiveTest": 0,
+      "testRecall": null,
+      "testRecallWilson95": null,
+      "unresolved": 5,
+      "conflict": 0
+     },
+     "IwaStore/act_1087566732415606": {
+      "observationCount": 14,
+      "labeledObservations": 8,
+      "uniqueLabeledCampaigns": 8,
+      "classifiedObservations": 5,
+      "uniqueClassifiedCampaigns": 5,
+      "highConfidenceObservations": 1,
+      "uniqueHighConfidenceCampaigns": 1,
+      "exactMatches": 3,
+      "exactAccuracy": 0.6,
+      "exactAccuracyWilson95": {
+       "successes": 3,
+       "total": 5,
+       "estimate": 0.6,
+       "lower": 0.2307242810852,
+       "upper": 0.8823792258789283,
+       "confidenceLevel": 0.95,
+       "zScore": 1.959963986120195
+      },
+      "allLabelAccuracy": 0.375,
+      "labelCoverage": 0.625,
+      "highConfidenceMatches": 1,
+      "highConfidenceAccuracy": 1,
+      "highConfidenceWilson95": {
+       "successes": 1,
+       "total": 1,
+       "estimate": 1,
+       "lower": 0.2065493141129836,
+       "upper": 0.9999999999999999,
+       "confidenceLevel": 0.95,
+       "zScore": 1.959963986120195
+      },
+      "falseTestAny": 2,
+      "falseTestHigh": 0,
+      "missedTest": 1,
+      "predictedTest": 2,
+      "manualTest": 1,
+      "truePositiveTest": 0,
+      "testRecall": 0,
+      "testRecallWilson95": {
+       "successes": 0,
+       "total": 1,
+       "estimate": 0,
+       "lower": 5.551115123125783e-17,
+       "upper": 0.7934506858870163,
+       "confidenceLevel": 0.95,
+       "zScore": 1.959963986120195
+      },
+      "unresolved": 4,
+      "conflict": 1
+     },
+     "TheSwaf/act_822913786458311": {
+      "observationCount": 41,
+      "labeledObservations": 18,
+      "uniqueLabeledCampaigns": 18,
+      "classifiedObservations": 4,
+      "uniqueClassifiedCampaigns": 4,
+      "highConfidenceObservations": 0,
+      "uniqueHighConfidenceCampaigns": 0,
+      "exactMatches": 0,
+      "exactAccuracy": 0,
+      "exactAccuracyWilson95": {
+       "successes": 0,
+       "total": 4,
+       "estimate": 0,
+       "lower": 0,
+       "upper": 0.4898908368575371,
+       "confidenceLevel": 0.95,
+       "zScore": 1.959963986120195
+      },
+      "allLabelAccuracy": 0,
+      "labelCoverage": 0.2222222222222222,
+      "highConfidenceMatches": 0,
+      "highConfidenceAccuracy": null,
+      "highConfidenceWilson95": null,
+      "falseTestAny": 2,
+      "falseTestHigh": 0,
+      "missedTest": 2,
+      "predictedTest": 2,
+      "manualTest": 2,
+      "truePositiveTest": 0,
+      "testRecall": 0,
+      "testRecallWilson95": {
+       "successes": 0,
+       "total": 2,
+       "estimate": 0,
+       "lower": 0,
+       "upper": 0.6576197728563925,
+       "confidenceLevel": 0.95,
+       "zScore": 1.959963986120195
+      },
+      "unresolved": 28,
+      "conflict": 2
+     },
+     "TheSwaf/act_921275999286619": {
+      "observationCount": 2,
+      "labeledObservations": 2,
+      "uniqueLabeledCampaigns": 2,
+      "classifiedObservations": 2,
+      "uniqueClassifiedCampaigns": 2,
+      "highConfidenceObservations": 1,
+      "uniqueHighConfidenceCampaigns": 1,
+      "exactMatches": 0,
+      "exactAccuracy": 0,
+      "exactAccuracyWilson95": {
+       "successes": 0,
+       "total": 2,
+       "estimate": 0,
+       "lower": 0,
+       "upper": 0.6576197728563925,
+       "confidenceLevel": 0.95,
+       "zScore": 1.959963986120195
+      },
+      "allLabelAccuracy": 0,
+      "labelCoverage": 1,
+      "highConfidenceMatches": 0,
+      "highConfidenceAccuracy": 0,
+      "highConfidenceWilson95": {
+       "successes": 0,
+       "total": 1,
+       "estimate": 0,
+       "lower": 5.551115123125783e-17,
+       "upper": 0.7934506858870163,
+       "confidenceLevel": 0.95,
+       "zScore": 1.959963986120195
+      },
+      "falseTestAny": 0,
+      "falseTestHigh": 0,
+      "missedTest": 0,
+      "predictedTest": 0,
+      "manualTest": 0,
+      "truePositiveTest": 0,
+      "testRecall": null,
+      "testRecallWilson95": null,
+      "unresolved": 0,
+      "conflict": 0
+     }
+    }
+   }
+  },
+  "validation": {
+   "current_v2": {
+    "summary": {
+     "observationCount": 60,
+     "labeledObservations": 21,
+     "uniqueLabeledCampaigns": 21,
+     "classifiedObservations": 20,
+     "uniqueClassifiedCampaigns": 20,
+     "highConfidenceObservations": 5,
+     "uniqueHighConfidenceCampaigns": 5,
+     "exactMatches": 12,
+     "exactAccuracy": 0.6,
+     "exactAccuracyWilson95": {
+      "successes": 12,
+      "total": 20,
+      "estimate": 0.6,
+      "lower": 0.3865815006061295,
+      "upper": 0.7811934677397185,
+      "confidenceLevel": 0.95,
+      "zScore": 1.959963986120195
+     },
+     "allLabelAccuracy": 0.5714285714285714,
+     "labelCoverage": 0.9523809523809523,
+     "highConfidenceMatches": 1,
+     "highConfidenceAccuracy": 0.2,
+     "highConfidenceWilson95": {
+      "successes": 1,
+      "total": 5,
+      "estimate": 0.2,
+      "lower": 0.03622410859085168,
+      "upper": 0.6244653705167631,
+      "confidenceLevel": 0.95,
+      "zScore": 1.959963986120195
+     },
+     "falseTestAny": 0,
+     "falseTestHigh": 0,
+     "missedTest": 1,
+     "predictedTest": 1,
+     "manualTest": 2,
+     "truePositiveTest": 1,
+     "testRecall": 0.5,
+     "testRecallWilson95": {
+      "successes": 1,
+      "total": 2,
+      "estimate": 0.5,
+      "lower": 0.0945312056223091,
+      "upper": 0.9054687943776909,
+      "confidenceLevel": 0.95,
+      "zScore": 1.959963986120195
+     },
+     "unresolved": 26,
+     "conflict": 0
+    },
+    "confusion": {
+     "main": {
+      "main": 11,
+      "test": 0,
+      "mixed": 1,
+      "unresolved": 1,
+      "conflict": 0
+     },
+     "test": {
+      "main": 0,
+      "test": 1,
+      "mixed": 1,
+      "unresolved": 0,
+      "conflict": 0
+     },
+     "mixed": {
+      "main": 6,
+      "test": 0,
+      "mixed": 0,
+      "unresolved": 0,
+      "conflict": 0
+     }
+    },
+    "calibration": {
+     "low": {
+      "n": 11,
+      "correct": 9
+     },
+     "medium": {
+      "n": 4,
+      "correct": 2
+     },
+     "high": {
+      "n": 5,
+      "correct": 1
+     }
+    },
+    "perBusiness": {
+     "Bilsem Zeka/act_840779107261785": {
+      "observationCount": 11,
+      "labeledObservations": 7,
+      "uniqueLabeledCampaigns": 7,
+      "classifiedObservations": 7,
+      "uniqueClassifiedCampaigns": 7,
+      "highConfidenceObservations": 0,
+      "uniqueHighConfidenceCampaigns": 0,
+      "exactMatches": 3,
+      "exactAccuracy": 0.42857142857142855,
+      "exactAccuracyWilson95": {
+       "successes": 3,
+       "total": 7,
+       "estimate": 0.42857142857142855,
+       "lower": 0.15821985512278647,
+       "upper": 0.7495416356537244,
+       "confidenceLevel": 0.95,
+       "zScore": 1.959963986120195
+      },
+      "allLabelAccuracy": 0.42857142857142855,
+      "labelCoverage": 1,
+      "highConfidenceMatches": 0,
+      "highConfidenceAccuracy": null,
+      "highConfidenceWilson95": null,
+      "falseTestAny": 0,
+      "falseTestHigh": 0,
+      "missedTest": 0,
+      "predictedTest": 0,
+      "manualTest": 0,
+      "truePositiveTest": 0,
+      "testRecall": null,
+      "testRecallWilson95": null,
+      "unresolved": 2,
+      "conflict": 0
+     },
+     "Grandmix/act_805150454596350": {
+      "observationCount": 9,
+      "labeledObservations": 3,
+      "uniqueLabeledCampaigns": 3,
+      "classifiedObservations": 2,
+      "uniqueClassifiedCampaigns": 2,
+      "highConfidenceObservations": 1,
+      "uniqueHighConfidenceCampaigns": 1,
+      "exactMatches": 2,
+      "exactAccuracy": 1,
+      "exactAccuracyWilson95": {
+       "successes": 2,
+       "total": 2,
+       "estimate": 1,
+       "lower": 0.34238022714360744,
+       "upper": 1,
+       "confidenceLevel": 0.95,
+       "zScore": 1.959963986120195
+      },
+      "allLabelAccuracy": 0.6666666666666666,
+      "labelCoverage": 0.6666666666666666,
+      "highConfidenceMatches": 1,
+      "highConfidenceAccuracy": 1,
+      "highConfidenceWilson95": {
+       "successes": 1,
+       "total": 1,
+       "estimate": 1,
+       "lower": 0.2065493141129836,
+       "upper": 0.9999999999999999,
+       "confidenceLevel": 0.95,
+       "zScore": 1.959963986120195
+      },
+      "falseTestAny": 0,
+      "falseTestHigh": 0,
+      "missedTest": 0,
+      "predictedTest": 0,
+      "manualTest": 0,
+      "truePositiveTest": 0,
+      "testRecall": null,
+      "testRecallWilson95": null,
+      "unresolved": 3,
+      "conflict": 0
+     },
+     "IwaStore/act_1087566732415606": {
+      "observationCount": 15,
+      "labeledObservations": 5,
+      "uniqueLabeledCampaigns": 5,
+      "classifiedObservations": 5,
+      "uniqueClassifiedCampaigns": 5,
+      "highConfidenceObservations": 2,
+      "uniqueHighConfidenceCampaigns": 2,
+      "exactMatches": 3,
+      "exactAccuracy": 0.6,
+      "exactAccuracyWilson95": {
+       "successes": 3,
+       "total": 5,
+       "estimate": 0.6,
+       "lower": 0.2307242810852,
+       "upper": 0.8823792258789283,
+       "confidenceLevel": 0.95,
+       "zScore": 1.959963986120195
+      },
+      "allLabelAccuracy": 0.6,
+      "labelCoverage": 1,
+      "highConfidenceMatches": 0,
+      "highConfidenceAccuracy": 0,
+      "highConfidenceWilson95": {
+       "successes": 0,
+       "total": 2,
+       "estimate": 0,
+       "lower": 0,
+       "upper": 0.6576197728563925,
+       "confidenceLevel": 0.95,
+       "zScore": 1.959963986120195
+      },
+      "falseTestAny": 0,
+      "falseTestHigh": 0,
+      "missedTest": 1,
+      "predictedTest": 0,
+      "manualTest": 1,
+      "truePositiveTest": 0,
+      "testRecall": 0,
+      "testRecallWilson95": {
+       "successes": 0,
+       "total": 1,
+       "estimate": 0,
+       "lower": 5.551115123125783e-17,
+       "upper": 0.7934506858870163,
+       "confidenceLevel": 0.95,
+       "zScore": 1.959963986120195
+      },
+      "unresolved": 8,
+      "conflict": 0
+     },
+     "TheSwaf/act_822913786458311": {
+      "observationCount": 17,
+      "labeledObservations": 4,
+      "uniqueLabeledCampaigns": 4,
+      "classifiedObservations": 4,
+      "uniqueClassifiedCampaigns": 4,
+      "highConfidenceObservations": 0,
+      "uniqueHighConfidenceCampaigns": 0,
+      "exactMatches": 4,
+      "exactAccuracy": 1,
+      "exactAccuracyWilson95": {
+       "successes": 4,
+       "total": 4,
+       "estimate": 1,
+       "lower": 0.5101091631424628,
+       "upper": 1,
+       "confidenceLevel": 0.95,
+       "zScore": 1.959963986120195
+      },
+      "allLabelAccuracy": 1,
+      "labelCoverage": 1,
+      "highConfidenceMatches": 0,
+      "highConfidenceAccuracy": null,
+      "highConfidenceWilson95": null,
+      "falseTestAny": 0,
+      "falseTestHigh": 0,
+      "missedTest": 0,
+      "predictedTest": 1,
+      "manualTest": 1,
+      "truePositiveTest": 1,
+      "testRecall": 1,
+      "testRecallWilson95": {
+       "successes": 1,
+       "total": 1,
+       "estimate": 1,
+       "lower": 0.2065493141129836,
+       "upper": 0.9999999999999999,
+       "confidenceLevel": 0.95,
+       "zScore": 1.959963986120195
+      },
+      "unresolved": 10,
+      "conflict": 0
+     },
+     "TheSwaf/act_921275999286619": {
+      "observationCount": 2,
+      "labeledObservations": 2,
+      "uniqueLabeledCampaigns": 2,
+      "classifiedObservations": 2,
+      "uniqueClassifiedCampaigns": 2,
+      "highConfidenceObservations": 2,
+      "uniqueHighConfidenceCampaigns": 2,
+      "exactMatches": 0,
+      "exactAccuracy": 0,
+      "exactAccuracyWilson95": {
+       "successes": 0,
+       "total": 2,
+       "estimate": 0,
+       "lower": 0,
+       "upper": 0.6576197728563925,
+       "confidenceLevel": 0.95,
+       "zScore": 1.959963986120195
+      },
+      "allLabelAccuracy": 0,
+      "labelCoverage": 1,
+      "highConfidenceMatches": 0,
+      "highConfidenceAccuracy": 0,
+      "highConfidenceWilson95": {
+       "successes": 0,
+       "total": 2,
+       "estimate": 0,
+       "lower": 0,
+       "upper": 0.6576197728563925,
+       "confidenceLevel": 0.95,
+       "zScore": 1.959963986120195
+      },
+      "falseTestAny": 0,
+      "falseTestHigh": 0,
+      "missedTest": 0,
+      "predictedTest": 0,
+      "manualTest": 0,
+      "truePositiveTest": 0,
+      "testRecall": null,
+      "testRecallWilson95": null,
+      "unresolved": 0,
+      "conflict": 0
+     }
+    }
+   },
+   "challenger_v3": {
+    "summary": {
+     "observationCount": 60,
+     "labeledObservations": 21,
+     "uniqueLabeledCampaigns": 21,
+     "classifiedObservations": 20,
+     "uniqueClassifiedCampaigns": 20,
+     "highConfidenceObservations": 4,
+     "uniqueHighConfidenceCampaigns": 4,
+     "exactMatches": 11,
+     "exactAccuracy": 0.55,
+     "exactAccuracyWilson95": {
+      "successes": 11,
+      "total": 20,
+      "estimate": 0.55,
+      "lower": 0.34208534230405974,
+      "upper": 0.7418021418688643,
+      "confidenceLevel": 0.95,
+      "zScore": 1.959963986120195
+     },
+     "allLabelAccuracy": 0.5238095238095238,
+     "labelCoverage": 0.9523809523809523,
+     "highConfidenceMatches": 2,
+     "highConfidenceAccuracy": 0.5,
+     "highConfidenceWilson95": {
+      "successes": 2,
+      "total": 4,
+      "estimate": 0.5,
+      "lower": 0.15003898900822643,
+      "upper": 0.8499610109917736,
+      "confidenceLevel": 0.95,
+      "zScore": 1.959963986120195
+     },
+     "falseTestAny": 1,
+     "falseTestHigh": 0,
+     "missedTest": 2,
+     "predictedTest": 1,
+     "manualTest": 2,
+     "truePositiveTest": 0,
+     "testRecall": 0,
+     "testRecallWilson95": {
+      "successes": 0,
+      "total": 2,
+      "estimate": 0,
+      "lower": 0,
+      "upper": 0.6576197728563925,
+      "confidenceLevel": 0.95,
+      "zScore": 1.959963986120195
+     },
+     "unresolved": 26,
+     "conflict": 0
+    },
+    "confusion": {
+     "main": {
+      "main": 11,
+      "test": 1,
+      "mixed": 0,
+      "unresolved": 1,
+      "conflict": 0
+     },
+     "test": {
+      "main": 2,
+      "test": 0,
+      "mixed": 0,
+      "unresolved": 0,
+      "conflict": 0
+     },
+     "mixed": {
+      "main": 6,
+      "test": 0,
+      "mixed": 0,
+      "unresolved": 0,
+      "conflict": 0
+     }
+    },
+    "calibration": {
+     "medium": {
+      "n": 6,
+      "correct": 4
+     },
+     "low": {
+      "n": 10,
+      "correct": 5
+     },
+     "high": {
+      "n": 4,
+      "correct": 2
+     }
+    },
+    "perBusiness": {
+     "Bilsem Zeka/act_840779107261785": {
+      "observationCount": 11,
+      "labeledObservations": 7,
+      "uniqueLabeledCampaigns": 7,
+      "classifiedObservations": 7,
+      "uniqueClassifiedCampaigns": 7,
+      "highConfidenceObservations": 0,
+      "uniqueHighConfidenceCampaigns": 0,
+      "exactMatches": 3,
+      "exactAccuracy": 0.42857142857142855,
+      "exactAccuracyWilson95": {
+       "successes": 3,
+       "total": 7,
+       "estimate": 0.42857142857142855,
+       "lower": 0.15821985512278647,
+       "upper": 0.7495416356537244,
+       "confidenceLevel": 0.95,
+       "zScore": 1.959963986120195
+      },
+      "allLabelAccuracy": 0.42857142857142855,
+      "labelCoverage": 1,
+      "highConfidenceMatches": 0,
+      "highConfidenceAccuracy": null,
+      "highConfidenceWilson95": null,
+      "falseTestAny": 0,
+      "falseTestHigh": 0,
+      "missedTest": 0,
+      "predictedTest": 0,
+      "manualTest": 0,
+      "truePositiveTest": 0,
+      "testRecall": null,
+      "testRecallWilson95": null,
+      "unresolved": 2,
+      "conflict": 0
+     },
+     "Grandmix/act_805150454596350": {
+      "observationCount": 9,
+      "labeledObservations": 3,
+      "uniqueLabeledCampaigns": 3,
+      "classifiedObservations": 2,
+      "uniqueClassifiedCampaigns": 2,
+      "highConfidenceObservations": 1,
+      "uniqueHighConfidenceCampaigns": 1,
+      "exactMatches": 2,
+      "exactAccuracy": 1,
+      "exactAccuracyWilson95": {
+       "successes": 2,
+       "total": 2,
+       "estimate": 1,
+       "lower": 0.34238022714360744,
+       "upper": 1,
+       "confidenceLevel": 0.95,
+       "zScore": 1.959963986120195
+      },
+      "allLabelAccuracy": 0.6666666666666666,
+      "labelCoverage": 0.6666666666666666,
+      "highConfidenceMatches": 1,
+      "highConfidenceAccuracy": 1,
+      "highConfidenceWilson95": {
+       "successes": 1,
+       "total": 1,
+       "estimate": 1,
+       "lower": 0.2065493141129836,
+       "upper": 0.9999999999999999,
+       "confidenceLevel": 0.95,
+       "zScore": 1.959963986120195
+      },
+      "falseTestAny": 0,
+      "falseTestHigh": 0,
+      "missedTest": 0,
+      "predictedTest": 0,
+      "manualTest": 0,
+      "truePositiveTest": 0,
+      "testRecall": null,
+      "testRecallWilson95": null,
+      "unresolved": 3,
+      "conflict": 0
+     },
+     "IwaStore/act_1087566732415606": {
+      "observationCount": 15,
+      "labeledObservations": 5,
+      "uniqueLabeledCampaigns": 5,
+      "classifiedObservations": 5,
+      "uniqueClassifiedCampaigns": 5,
+      "highConfidenceObservations": 1,
+      "uniqueHighConfidenceCampaigns": 1,
+      "exactMatches": 4,
+      "exactAccuracy": 0.8,
+      "exactAccuracyWilson95": {
+       "successes": 4,
+       "total": 5,
+       "estimate": 0.8,
+       "lower": 0.3755346294832369,
+       "upper": 0.9637758914091483,
+       "confidenceLevel": 0.95,
+       "zScore": 1.959963986120195
+      },
+      "allLabelAccuracy": 0.8,
+      "labelCoverage": 1,
+      "highConfidenceMatches": 1,
+      "highConfidenceAccuracy": 1,
+      "highConfidenceWilson95": {
+       "successes": 1,
+       "total": 1,
+       "estimate": 1,
+       "lower": 0.2065493141129836,
+       "upper": 0.9999999999999999,
+       "confidenceLevel": 0.95,
+       "zScore": 1.959963986120195
+      },
+      "falseTestAny": 0,
+      "falseTestHigh": 0,
+      "missedTest": 1,
+      "predictedTest": 0,
+      "manualTest": 1,
+      "truePositiveTest": 0,
+      "testRecall": 0,
+      "testRecallWilson95": {
+       "successes": 0,
+       "total": 1,
+       "estimate": 0,
+       "lower": 5.551115123125783e-17,
+       "upper": 0.7934506858870163,
+       "confidenceLevel": 0.95,
+       "zScore": 1.959963986120195
+      },
+      "unresolved": 8,
+      "conflict": 0
+     },
+     "TheSwaf/act_822913786458311": {
+      "observationCount": 17,
+      "labeledObservations": 4,
+      "uniqueLabeledCampaigns": 4,
+      "classifiedObservations": 4,
+      "uniqueClassifiedCampaigns": 4,
+      "highConfidenceObservations": 0,
+      "uniqueHighConfidenceCampaigns": 0,
+      "exactMatches": 2,
+      "exactAccuracy": 0.5,
+      "exactAccuracyWilson95": {
+       "successes": 2,
+       "total": 4,
+       "estimate": 0.5,
+       "lower": 0.15003898900822643,
+       "upper": 0.8499610109917736,
+       "confidenceLevel": 0.95,
+       "zScore": 1.959963986120195
+      },
+      "allLabelAccuracy": 0.5,
+      "labelCoverage": 1,
+      "highConfidenceMatches": 0,
+      "highConfidenceAccuracy": null,
+      "highConfidenceWilson95": null,
+      "falseTestAny": 1,
+      "falseTestHigh": 0,
+      "missedTest": 1,
+      "predictedTest": 1,
+      "manualTest": 1,
+      "truePositiveTest": 0,
+      "testRecall": 0,
+      "testRecallWilson95": {
+       "successes": 0,
+       "total": 1,
+       "estimate": 0,
+       "lower": 5.551115123125783e-17,
+       "upper": 0.7934506858870163,
+       "confidenceLevel": 0.95,
+       "zScore": 1.959963986120195
+      },
+      "unresolved": 10,
+      "conflict": 0
+     },
+     "TheSwaf/act_921275999286619": {
+      "observationCount": 2,
+      "labeledObservations": 2,
+      "uniqueLabeledCampaigns": 2,
+      "classifiedObservations": 2,
+      "uniqueClassifiedCampaigns": 2,
+      "highConfidenceObservations": 2,
+      "uniqueHighConfidenceCampaigns": 2,
+      "exactMatches": 0,
+      "exactAccuracy": 0,
+      "exactAccuracyWilson95": {
+       "successes": 0,
+       "total": 2,
+       "estimate": 0,
+       "lower": 0,
+       "upper": 0.6576197728563925,
+       "confidenceLevel": 0.95,
+       "zScore": 1.959963986120195
+      },
+      "allLabelAccuracy": 0,
+      "labelCoverage": 1,
+      "highConfidenceMatches": 0,
+      "highConfidenceAccuracy": 0,
+      "highConfidenceWilson95": {
+       "successes": 0,
+       "total": 2,
+       "estimate": 0,
+       "lower": 0,
+       "upper": 0.6576197728563925,
+       "confidenceLevel": 0.95,
+       "zScore": 1.959963986120195
+      },
+      "falseTestAny": 0,
+      "falseTestHigh": 0,
+      "missedTest": 0,
+      "predictedTest": 0,
+      "manualTest": 0,
+      "truePositiveTest": 0,
+      "testRecall": null,
+      "testRecallWilson95": null,
+      "unresolved": 0,
+      "conflict": 0
+     }
+    }
+   }
+  }
+ },
+ "gate": {
+  "checks": [
+   {
+    "id": "G1_high_confidence_accuracy",
+    "pass": false,
+    "detail": "v3 high n=4 acc=0.5000 vs v2 acc=0.2000 (need n>=5, acc>=0.8, >=v2)"
+   },
+   {
+    "id": "G2_false_test_high",
+    "pass": true,
+    "detail": "v3 falseTestHigh=0"
+   },
+   {
+    "id": "G3_false_test_any_non_inferior",
+    "pass": false,
+    "detail": "v3 falseTestAny=1 vs v2=0"
+   },
+   {
+    "id": "G4_coverage",
+    "pass": true,
+    "detail": "v3 coverage=0.9524 vs v2=0.9524 (allow -0.05)"
+   },
+   {
+    "id": "G5_high_mixed_on_main",
+    "pass": true,
+    "detail": "v3 high-confidence mixed on main-labeled=0"
+   },
+   {
+    "id": "G6_lobo_stability",
+    "pass": false,
+    "detail": "flipped by excluding: Bilsem Zeka, ColorFullWorldsTR, Grandmix, IwaStore, IwaTR"
+   },
+   {
+    "id": "G7_unlabeled_high_test_share",
+    "pass": true,
+    "detail": "all accounts <=5% high-confidence Test share on unlabeled inventory"
+   }
+  ],
+  "verdict": "REJECT"
+ },
+ "lobo": [
+  {
+   "excludedBusiness": "Bilsem Zeka",
+   "v3": {
+    "observationCount": 49,
+    "labeledObservations": 14,
+    "uniqueLabeledCampaigns": 14,
+    "classifiedObservations": 13,
+    "uniqueClassifiedCampaigns": 13,
+    "highConfidenceObservations": 4,
+    "uniqueHighConfidenceCampaigns": 4,
+    "exactMatches": 8,
+    "exactAccuracy": 0.6153846153846154,
+    "exactAccuracyWilson95": {
+     "successes": 8,
+     "total": 13,
+     "estimate": 0.6153846153846154,
+     "lower": 0.35522891494653575,
+     "upper": 0.8229029221369812,
+     "confidenceLevel": 0.95,
+     "zScore": 1.959963986120195
+    },
+    "allLabelAccuracy": 0.5714285714285714,
+    "labelCoverage": 0.9285714285714286,
+    "highConfidenceMatches": 2,
+    "highConfidenceAccuracy": 0.5,
+    "highConfidenceWilson95": {
+     "successes": 2,
+     "total": 4,
+     "estimate": 0.5,
+     "lower": 0.15003898900822643,
+     "upper": 0.8499610109917736,
+     "confidenceLevel": 0.95,
+     "zScore": 1.959963986120195
+    },
+    "falseTestAny": 1,
+    "falseTestHigh": 0,
+    "missedTest": 2,
+    "predictedTest": 1,
+    "manualTest": 2,
+    "truePositiveTest": 0,
+    "testRecall": 0,
+    "testRecallWilson95": {
+     "successes": 0,
+     "total": 2,
+     "estimate": 0,
+     "lower": 0,
+     "upper": 0.6576197728563925,
+     "confidenceLevel": 0.95,
+     "zScore": 1.959963986120195
+    },
+    "unresolved": 24,
+    "conflict": 0
+   }
+  },
+  {
+   "excludedBusiness": "ColorFullWorldsTR",
+   "v3": {
+    "observationCount": 58,
+    "labeledObservations": 21,
+    "uniqueLabeledCampaigns": 21,
+    "classifiedObservations": 20,
+    "uniqueClassifiedCampaigns": 20,
+    "highConfidenceObservations": 4,
+    "uniqueHighConfidenceCampaigns": 4,
+    "exactMatches": 11,
+    "exactAccuracy": 0.55,
+    "exactAccuracyWilson95": {
+     "successes": 11,
+     "total": 20,
+     "estimate": 0.55,
+     "lower": 0.34208534230405974,
+     "upper": 0.7418021418688643,
+     "confidenceLevel": 0.95,
+     "zScore": 1.959963986120195
+    },
+    "allLabelAccuracy": 0.5238095238095238,
+    "labelCoverage": 0.9523809523809523,
+    "highConfidenceMatches": 2,
+    "highConfidenceAccuracy": 0.5,
+    "highConfidenceWilson95": {
+     "successes": 2,
+     "total": 4,
+     "estimate": 0.5,
+     "lower": 0.15003898900822643,
+     "upper": 0.8499610109917736,
+     "confidenceLevel": 0.95,
+     "zScore": 1.959963986120195
+    },
+    "falseTestAny": 1,
+    "falseTestHigh": 0,
+    "missedTest": 2,
+    "predictedTest": 1,
+    "manualTest": 2,
+    "truePositiveTest": 0,
+    "testRecall": 0,
+    "testRecallWilson95": {
+     "successes": 0,
+     "total": 2,
+     "estimate": 0,
+     "lower": 0,
+     "upper": 0.6576197728563925,
+     "confidenceLevel": 0.95,
+     "zScore": 1.959963986120195
+    },
+    "unresolved": 26,
+    "conflict": 0
+   }
+  },
+  {
+   "excludedBusiness": "Grandmix",
+   "v3": {
+    "observationCount": 51,
+    "labeledObservations": 18,
+    "uniqueLabeledCampaigns": 18,
+    "classifiedObservations": 18,
+    "uniqueClassifiedCampaigns": 18,
+    "highConfidenceObservations": 3,
+    "uniqueHighConfidenceCampaigns": 3,
+    "exactMatches": 9,
+    "exactAccuracy": 0.5,
+    "exactAccuracyWilson95": {
+     "successes": 9,
+     "total": 18,
+     "estimate": 0.5,
+     "lower": 0.29031021491237896,
+     "upper": 0.709689785087621,
+     "confidenceLevel": 0.95,
+     "zScore": 1.959963986120195
+    },
+    "allLabelAccuracy": 0.5,
+    "labelCoverage": 1,
+    "highConfidenceMatches": 1,
+    "highConfidenceAccuracy": 0.3333333333333333,
+    "highConfidenceWilson95": {
+     "successes": 1,
+     "total": 3,
+     "estimate": 0.3333333333333333,
+     "lower": 0.061491944648904784,
+     "upper": 0.7923403994017792,
+     "confidenceLevel": 0.95,
+     "zScore": 1.959963986120195
+    },
+    "falseTestAny": 1,
+    "falseTestHigh": 0,
+    "missedTest": 2,
+    "predictedTest": 1,
+    "manualTest": 2,
+    "truePositiveTest": 0,
+    "testRecall": 0,
+    "testRecallWilson95": {
+     "successes": 0,
+     "total": 2,
+     "estimate": 0,
+     "lower": 0,
+     "upper": 0.6576197728563925,
+     "confidenceLevel": 0.95,
+     "zScore": 1.959963986120195
+    },
+    "unresolved": 23,
+    "conflict": 0
+   }
+  },
+  {
+   "excludedBusiness": "IwaStore",
+   "v3": {
+    "observationCount": 45,
+    "labeledObservations": 16,
+    "uniqueLabeledCampaigns": 16,
+    "classifiedObservations": 15,
+    "uniqueClassifiedCampaigns": 15,
+    "highConfidenceObservations": 3,
+    "uniqueHighConfidenceCampaigns": 3,
+    "exactMatches": 7,
+    "exactAccuracy": 0.4666666666666667,
+    "exactAccuracyWilson95": {
+     "successes": 7,
+     "total": 15,
+     "estimate": 0.4666666666666667,
+     "lower": 0.24809535352131726,
+     "upper": 0.6988301998985206,
+     "confidenceLevel": 0.95,
+     "zScore": 1.959963986120195
+    },
+    "allLabelAccuracy": 0.4375,
+    "labelCoverage": 0.9375,
+    "highConfidenceMatches": 1,
+    "highConfidenceAccuracy": 0.3333333333333333,
+    "highConfidenceWilson95": {
+     "successes": 1,
+     "total": 3,
+     "estimate": 0.3333333333333333,
+     "lower": 0.061491944648904784,
+     "upper": 0.7923403994017792,
+     "confidenceLevel": 0.95,
+     "zScore": 1.959963986120195
+    },
+    "falseTestAny": 1,
+    "falseTestHigh": 0,
+    "missedTest": 1,
+    "predictedTest": 1,
+    "manualTest": 1,
+    "truePositiveTest": 0,
+    "testRecall": 0,
+    "testRecallWilson95": {
+     "successes": 0,
+     "total": 1,
+     "estimate": 0,
+     "lower": 5.551115123125783e-17,
+     "upper": 0.7934506858870163,
+     "confidenceLevel": 0.95,
+     "zScore": 1.959963986120195
+    },
+    "unresolved": 18,
+    "conflict": 0
+   }
+  },
+  {
+   "excludedBusiness": "IwaTR",
+   "v3": {
+    "observationCount": 56,
+    "labeledObservations": 21,
+    "uniqueLabeledCampaigns": 21,
+    "classifiedObservations": 20,
+    "uniqueClassifiedCampaigns": 20,
+    "highConfidenceObservations": 4,
+    "uniqueHighConfidenceCampaigns": 4,
+    "exactMatches": 11,
+    "exactAccuracy": 0.55,
+    "exactAccuracyWilson95": {
+     "successes": 11,
+     "total": 20,
+     "estimate": 0.55,
+     "lower": 0.34208534230405974,
+     "upper": 0.7418021418688643,
+     "confidenceLevel": 0.95,
+     "zScore": 1.959963986120195
+    },
+    "allLabelAccuracy": 0.5238095238095238,
+    "labelCoverage": 0.9523809523809523,
+    "highConfidenceMatches": 2,
+    "highConfidenceAccuracy": 0.5,
+    "highConfidenceWilson95": {
+     "successes": 2,
+     "total": 4,
+     "estimate": 0.5,
+     "lower": 0.15003898900822643,
+     "upper": 0.8499610109917736,
+     "confidenceLevel": 0.95,
+     "zScore": 1.959963986120195
+    },
+    "falseTestAny": 1,
+    "falseTestHigh": 0,
+    "missedTest": 2,
+    "predictedTest": 1,
+    "manualTest": 2,
+    "truePositiveTest": 0,
+    "testRecall": 0,
+    "testRecallWilson95": {
+     "successes": 0,
+     "total": 2,
+     "estimate": 0,
+     "lower": 0,
+     "upper": 0.6576197728563925,
+     "confidenceLevel": 0.95,
+     "zScore": 1.959963986120195
+    },
+    "unresolved": 23,
+    "conflict": 0
+   }
+  },
+  {
+   "excludedBusiness": "TheSwaf",
+   "v3": {
+    "observationCount": 41,
+    "labeledObservations": 15,
+    "uniqueLabeledCampaigns": 15,
+    "classifiedObservations": 14,
+    "uniqueClassifiedCampaigns": 14,
+    "highConfidenceObservations": 2,
+    "uniqueHighConfidenceCampaigns": 2,
+    "exactMatches": 9,
+    "exactAccuracy": 0.6428571428571429,
+    "exactAccuracyWilson95": {
+     "successes": 9,
+     "total": 14,
+     "estimate": 0.6428571428571429,
+     "lower": 0.38764423085549504,
+     "upper": 0.836552682570203,
+     "confidenceLevel": 0.95,
+     "zScore": 1.959963986120195
+    },
+    "allLabelAccuracy": 0.6,
+    "labelCoverage": 0.9333333333333333,
+    "highConfidenceMatches": 2,
+    "highConfidenceAccuracy": 1,
+    "highConfidenceWilson95": {
+     "successes": 2,
+     "total": 2,
+     "estimate": 1,
+     "lower": 0.34238022714360744,
+     "upper": 1,
+     "confidenceLevel": 0.95,
+     "zScore": 1.959963986120195
+    },
+    "falseTestAny": 0,
+    "falseTestHigh": 0,
+    "missedTest": 1,
+    "predictedTest": 0,
+    "manualTest": 1,
+    "truePositiveTest": 0,
+    "testRecall": 0,
+    "testRecallWilson95": {
+     "successes": 0,
+     "total": 1,
+     "estimate": 0,
+     "lower": 5.551115123125783e-17,
+     "upper": 0.7934506858870163,
+     "confidenceLevel": 0.95,
+     "zScore": 1.959963986120195
+    },
+    "unresolved": 16,
+    "conflict": 0
+   }
+  }
+ ],
+ "unlabeledHighTestShareByAccount": [
+  {
+   "accountId": "Bilsem Zeka/act_840779107261785",
+   "share": null,
+   "highClassified": 0
+  },
+  {
+   "accountId": "ColorFullWorldsTR/act_3554615364751964",
+   "share": 0,
+   "highClassified": 2
+  },
+  {
+   "accountId": "Grandmix/act_805150454596350",
+   "share": 0,
+   "highClassified": 3
+  },
+  {
+   "accountId": "IwaStore/act_1087566732415606",
+   "share": null,
+   "highClassified": 0
+  },
+  {
+   "accountId": "IwaTR/act_2335220976649516",
+   "share": 0,
+   "highClassified": 1
+  },
+  {
+   "accountId": "TheSwaf/act_822913786458311",
+   "share": null,
+   "highClassified": 0
+  },
+  {
+   "accountId": "TheSwaf/act_921275999286619",
+   "share": null,
+   "highClassified": 0
+  }
+ ],
+ "scriptHash": "d3d38f220342403c6b5eab91808a024abe1511393e8cfd365ef57d651a790a5d"
+}

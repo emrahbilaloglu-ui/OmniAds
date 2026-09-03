@@ -132,6 +132,9 @@ const TYPED_PHRASE: Record<MutationAction, string> = {
   resume: "RESUME",
   bid: "CHANGE BID",
   duplicate: "DUPLICATE",
+  // D088: unreachable from this panel — the descriptor builder refuses a
+  // budget action — but the map stays total so a future edit cannot omit it.
+  budget: "CHANGE BUDGET",
 };
 
 export function MutationCeremonyPanel({

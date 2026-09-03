@@ -12,6 +12,12 @@ import type {
 } from "@/lib/meta/campaign-label-types";
 import type { EngineV3Flags } from "./feature-flags";
 import type { OperatorResponseResult } from "./operator-response-detection";
+// `import type` is fully erased, so this pairing with ./commercial-anchor
+// (which imports type-only from here) creates no runtime cycle.
+import type {
+  CommercialAnchorBlockerCode,
+  CommercialAnchorExplanation,
+} from "./commercial-anchor";
 
 export const ENGINE_VERSION =
   "v3-2026-07-18-decision-presentation-hardening";
@@ -102,6 +108,13 @@ export interface SpendUnitProfile {
   spendUnitConfidence: SpendUnitConfidence;
   spendUnitEvidence: SpendUnitEvidence;
   hardEligibleByDefault: boolean;
+  /**
+   * True when a target pack supplied the commercial threshold but its update
+   * timestamp could not be trusted, so the confidence was demoted to `low`.
+   * Distinguishes "re-save the existing target" from "no anchor was ever
+   * supplied"; optional so pre-contract profiles deserialize unchanged.
+   */
+  commercialThresholdProvenanceUnverified?: boolean;
 }
 
 export interface EngineMultiplierSet {
@@ -136,6 +149,21 @@ export interface HardActionEligibility {
   refresh: boolean;
   reason: string | null;
   reasons?: Partial<Record<"scale" | "cut" | "refresh", string | null>>;
+  /**
+   * Stable machine codes for exactly the same withholding the prose `reasons`
+   * describe. Additive and optional: profiles serialized before this contract
+   * omit it. Absence means "code unknown" and must never be read as eligible —
+   * the booleans remain the only authority.
+   */
+  codes?: Partial<
+    Record<"scale" | "cut" | "refresh", CommercialAnchorBlockerCode | null>
+  >;
+  /**
+   * Full commercial-anchor explanation: resolved spend unit, its source,
+   * confidence, input lineage, and the exact inputs that would unblock it.
+   * Additive and optional for the same compatibility reason.
+   */
+  anchor?: CommercialAnchorExplanation | null;
 }
 
 export type LifecyclePosition =
@@ -252,8 +280,9 @@ export interface CreativeInput {
   optimizationGoal?: string | null;
   customEventType?: string | null;
   /**
-   * Server-resolved Main/Test/Mixed campaign label. Routes/jobs populate this
-   * before calling decideCreative; UI must not derive it.
+   * Server-resolved Main/Test/Mixed campaign role. Routes/jobs populate this
+   * from account-scoped automatic inference before calling decideCreative; UI
+   * must not derive or override it.
    */
   campaignKind?: MetaCampaignKind | null;
 
@@ -776,7 +805,7 @@ export const DECISION_BADGE_DISPLAY: Record<
     severity: "warning",
   },
   unlabeled_campaign_context: {
-    label: "Campaign label missing",
+    label: "Campaign role unresolved",
     severity: "warning",
   },
   stop_loss_review: {
@@ -785,8 +814,18 @@ export const DECISION_BADGE_DISPLAY: Record<
   },
 };
 
+/**
+ * @deprecated Legacy wire alias (D074b). Parse-only: older persisted
+ * snapshots/evaluations carry it; active writers emit
+ * `CreativeCampaignRoleStatus` instead. Normalize through
+ * `resolveCampaignRoleStatus` in campaign-label-guard.ts.
+ */
 export type CreativeCampaignLabelStatus =
   "labeled" | "unlabeled" | "no_campaign";
+
+/** Canonical automatic campaign-role resolution status (D074b). */
+export type CreativeCampaignRoleStatus =
+  "resolved" | "unresolved" | "no_campaign";
 
 export type DecisionKindSource =
   "kind_main" | "kind_test" | "kind_mixed" | "all_fallback";
@@ -832,6 +871,10 @@ export interface DecisionOutput {
     roas: number | null;
     recent7dRoas: number | null;
   };
+  /** Canonical automatic role-resolution status (D074b); active writers
+   * emit this. */
+  campaignRoleStatus?: CreativeCampaignRoleStatus;
+  /** @deprecated parse-only legacy alias — never emitted by active writers. */
   campaignLabelStatus?: CreativeCampaignLabelStatus;
   campaignKind?: MetaCampaignKind | null;
   campaignTestDimension?: MetaCampaignTestDimension | null;

@@ -122,6 +122,7 @@ const PERFORMANCE_BADGES = new Set<V3BadgeType>([
 
 const REVIEW_WORTHY_KEEP_BADGES = new Set<V3BadgeType>([
   "pending_transition",
+  "campaign_context_unresolved",
   "unlabeled_campaign_context",
   "scale_readiness_blocked",
   "scale_calibration_thin",
@@ -159,11 +160,36 @@ function sourceDecisionFor(decision: DecisionOutput): string {
   return decision.labelTransform ?? `v3:${decision.label}`;
 }
 
+/**
+ * Local fail-closed role-status fold (D074b acceptance correction). The
+ * module-isolation contract forbids value imports from the active engine, so
+ * this mirrors lib/creative-decision-engine/campaign-label-guard's
+ * resolveCampaignRoleStatus exactly; the vocabulary-closure test pins both.
+ * Only an uncontradicted canonical "resolved" avoids the campaign-context
+ * gap: legacy-only "labeled", missing status, and contradictions all gap.
+ */
+function bridgeCampaignRoleStatus(
+  decision: DecisionOutput,
+): "resolved" | "unresolved" | "no_campaign" {
+  const canonical = decision.campaignRoleStatus ?? null;
+  const legacy = decision.campaignLabelStatus ?? null;
+  if (canonical !== null && legacy !== null) {
+    const sameClaim =
+      (canonical === "resolved" && legacy === "labeled") ||
+      (canonical === "unresolved" && legacy === "unlabeled") ||
+      (canonical === "no_campaign" && legacy === "no_campaign");
+    return sameClaim ? canonical : "unresolved";
+  }
+  if (canonical !== null) return canonical;
+  if (legacy === "no_campaign") return "no_campaign";
+  return "unresolved";
+}
+
 function hasCampaignLabelGap(decision: DecisionOutput): boolean {
   return (
+    hasBadge(decision, "campaign_context_unresolved") ||
     hasBadge(decision, "unlabeled_campaign_context") ||
-    decision.campaignLabelStatus === "unlabeled" ||
-    decision.campaignLabelStatus === "no_campaign"
+    bridgeCampaignRoleStatus(decision) !== "resolved"
   );
 }
 
@@ -277,7 +303,7 @@ function mapKeep(
       primaryDecision: "Diagnose",
       problemClass: "campaign_context",
       actionability: "diagnose",
-      reasonTags: ["campaign_label_missing"],
+      reasonTags: ["campaign_role_unresolved"],
     };
   }
 
@@ -338,7 +364,7 @@ function mapDecision(
       primaryDecision: "Diagnose",
       problemClass: deriveProblemClass(decision, decision.label),
       actionability: "diagnose",
-      reasonTags: ["campaign_label_missing"],
+      reasonTags: ["campaign_role_unresolved"],
     };
   }
 
@@ -459,8 +485,8 @@ function buildBlockerReasons(
   missingData: readonly string[],
 ): string[] {
   const blockers = [...missingData];
-  if (mapping.reasonTags.includes("campaign_label_missing")) {
-    blockers.push("campaign_label_missing");
+  if (mapping.reasonTags.includes("campaign_role_unresolved")) {
+    blockers.push("campaign_role_unresolved");
   }
   return uniqueStable(blockers);
 }

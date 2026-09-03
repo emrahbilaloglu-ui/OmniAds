@@ -1,5 +1,9 @@
 import { getDb, runDbTransaction } from "@/lib/db";
 import {
+  CAMPAIGN_CONTEXT_MAX_AGE_DAYS,
+  campaignContextAuthorityResolverVersion,
+} from "../campaign-context/source";
+import {
   detectOperatorResponse,
   type OperatorResponseInput,
   type OperatorResponseResult,
@@ -138,13 +142,13 @@ guarded AS (
     snapshots.creative_id,
     CASE
       WHEN lifecycle.campaign_id IS NOT NULL
-        AND labels.campaign_id IS NULL
+        AND campaign_context.trusted IS DISTINCT FROM true
       THEN 'diagnose'
       ELSE snapshots.label
     END AS effective_label
   FROM snapshots
   LEFT JOIN LATERAL (
-    SELECT lifecycle.campaign_id
+    SELECT lifecycle.campaign_id, lifecycle.provider_account_id
     FROM engine_v3_creative_lifecycle_daily lifecycle
     WHERE lifecycle.business_ref_id = snapshots.business_ref_id
       AND lifecycle.creative_id = snapshots.creative_id
@@ -153,9 +157,25 @@ guarded AS (
     ORDER BY lifecycle.as_of_date DESC, lifecycle.computed_at DESC
     LIMIT 1
   ) lifecycle ON true
-  LEFT JOIN meta_campaign_labels labels
-    ON labels.business_id = COALESCE(snapshots.business_id, snapshots.business_ref_id::text)
-   AND labels.campaign_id = lifecycle.campaign_id
+  LEFT JOIN LATERAL (
+    SELECT true AS trusted
+    FROM engine_v3_campaign_context_daily context
+    WHERE context.business_id = COALESCE(
+        snapshots.business_id,
+        snapshots.business_ref_id::text
+      )
+      AND context.provider_account_id = lifecycle.provider_account_id
+      AND context.campaign_id = lifecycle.campaign_id
+      AND context.as_of_date <= snapshots.as_of_date
+      AND context.as_of_date >= (
+        snapshots.as_of_date - (${CAMPAIGN_CONTEXT_MAX_AGE_DAYS} * INTERVAL '1 day')
+      )
+      AND context.inferred_kind IS NOT NULL
+      AND context.confidence_class = 'high'
+      AND context.resolver_version = $4::text
+    ORDER BY context.as_of_date DESC, context.updated_at DESC, context.id DESC
+    LIMIT 1
+  ) campaign_context ON true
 )
 SELECT DISTINCT creative_id
 FROM guarded
@@ -178,21 +198,21 @@ guarded AS (
     CASE
       WHEN snapshots.label IN ('scale', 'refresh', 'cut')
         AND lifecycle.campaign_id IS NOT NULL
-        AND labels.campaign_id IS NULL
+        AND campaign_context.trusted IS DISTINCT FROM true
       THEN 'diagnose'
       ELSE snapshots.label
     END AS label,
     CASE
       WHEN snapshots.label IN ('scale', 'refresh', 'cut')
         AND lifecycle.campaign_id IS NOT NULL
-        AND labels.campaign_id IS NULL
+        AND campaign_context.trusted IS DISTINCT FROM true
       THEN LEAST(snapshots.confidence, 50)
       ELSE snapshots.confidence
     END AS confidence,
     snapshots.computed_at
   FROM snapshots
   LEFT JOIN LATERAL (
-    SELECT lifecycle.campaign_id
+    SELECT lifecycle.campaign_id, lifecycle.provider_account_id
     FROM engine_v3_creative_lifecycle_daily lifecycle
     WHERE lifecycle.business_ref_id = snapshots.business_ref_id
       AND lifecycle.creative_id = snapshots.creative_id
@@ -201,9 +221,25 @@ guarded AS (
     ORDER BY lifecycle.as_of_date DESC, lifecycle.computed_at DESC
     LIMIT 1
   ) lifecycle ON true
-  LEFT JOIN meta_campaign_labels labels
-    ON labels.business_id = COALESCE(snapshots.business_id, snapshots.business_ref_id::text)
-   AND labels.campaign_id = lifecycle.campaign_id
+  LEFT JOIN LATERAL (
+    SELECT true AS trusted
+    FROM engine_v3_campaign_context_daily context
+    WHERE context.business_id = COALESCE(
+        snapshots.business_id,
+        snapshots.business_ref_id::text
+      )
+      AND context.provider_account_id = lifecycle.provider_account_id
+      AND context.campaign_id = lifecycle.campaign_id
+      AND context.as_of_date <= snapshots.as_of_date
+      AND context.as_of_date >= (
+        snapshots.as_of_date - (${CAMPAIGN_CONTEXT_MAX_AGE_DAYS} * INTERVAL '1 day')
+      )
+      AND context.inferred_kind IS NOT NULL
+      AND context.confidence_class = 'high'
+      AND context.resolver_version = $5::text
+    ORDER BY context.as_of_date DESC, context.updated_at DESC, context.id DESC
+    LIMIT 1
+  ) campaign_context ON true
 )
 SELECT id, as_of_date, label, confidence
 FROM guarded
@@ -572,7 +608,12 @@ export async function runOperatorResponseJob(
 async function findRecommendedCreativeIds(input: OperatorResponseJobInput) {
   const rows = await getDb().query<CreativeIdRow>(
     FIND_RECOMMENDED_CREATIVES_QUERY,
-    [input.businessId, input.asOf, RESPONSE_WINDOW_DAYS],
+    [
+      input.businessId,
+      input.asOf,
+      RESPONSE_WINDOW_DAYS,
+      campaignContextAuthorityResolverVersion(),
+    ],
   );
   return rows.flatMap((row) => {
     const creativeId = toStringOrNull(row.creative_id);
@@ -677,6 +718,7 @@ async function findRecommendations(input: {
     input.creativeId,
     input.asOf,
     RESPONSE_WINDOW_DAYS,
+    campaignContextAuthorityResolverVersion(),
   ]);
 }
 

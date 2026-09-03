@@ -45,7 +45,7 @@ services:
       - .env.production
     environment:
       APP_BUILD_ID: ${APP_BUILD_ID:-dev-build}
-      CAMPAIGN_CONTEXT_MODE: ${CAMPAIGN_CONTEXT_MODE:-legacy_labels}
+      CAMPAIGN_CONTEXT_MODE: ${CAMPAIGN_CONTEXT_MODE:-automatic}
       NODE_ENV: production
       PORT: 3000
       HOSTNAME: 0.0.0.0
@@ -82,7 +82,7 @@ services:
       - .env.production
     environment:
       APP_BUILD_ID: ${APP_BUILD_ID:-dev-build}
-      CAMPAIGN_CONTEXT_MODE: ${CAMPAIGN_CONTEXT_MODE:-legacy_labels}
+      CAMPAIGN_CONTEXT_MODE: ${CAMPAIGN_CONTEXT_MODE:-automatic}
       NODE_ENV: production
       SYNC_WORKER_MODE: "1"
       # Empty by default, so an ordinary deploy is unchanged. The cutover sets

@@ -126,6 +126,7 @@ function decision(overrides: Record<string, unknown> = {}): MetaCanonicalDecisio
       realAdId: "ad_route_1",
       authorizedAction: "refresh",
       jobRunId: "job_route_1",
+      executionReadiness: "live_preflight_required",
     },
     sourceDecision: { snapshotAsOf: "2026-08-17" },
     parentChain: {

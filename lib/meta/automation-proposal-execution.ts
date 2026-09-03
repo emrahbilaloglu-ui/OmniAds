@@ -44,6 +44,7 @@ import type {
   MetaAutomationProposalReceipt,
 } from "@/lib/meta/automation-proposals";
 import { buildDispatchDescriptor } from "@/lib/zero-base/meta/dispatch-contract";
+import type { BudgetProposalExecutionResult } from "@/lib/meta/budget-proposal-runtime";
 
 const PARAM_NAME: Record<MetaAutomationProposal["scopeType"], string> = {
   campaign: "campaignId",
@@ -100,11 +101,64 @@ export async function executeMetaAutomationProposal(input: {
    * supplies it.
    */
   receiptKey?: string | null;
+  /**
+   * D088: the budget runtime, injected.
+   *
+   * Absent for every current caller, which is why a budget proposal cannot
+   * reach a provider today even if one were somehow raised.
+   */
+  budgetRuntime?: (input: {
+    proposal: MetaAutomationProposal;
+    dryRunOnly: boolean;
+    claimToken: string | null;
+  }) => Promise<BudgetProposalExecutionResult>;
   now?: Date;
 }): Promise<ExecuteProposalResult> {
   const dispatchedAt = (input.now ?? new Date()).toISOString();
   const receiptKey = input.receiptKey ?? null;
   const { proposal } = input;
+
+  /*
+    D088: a budget proposal executes through the SAME entry point, and through
+    the SAME D087 executor the scheduled sweep uses. It is routed here rather
+    than through `buildDispatchDescriptor` because a budget change is not an
+    operator ceremony — the browser posts nothing, and `MUTATION_ENDPOINTS`
+    deliberately names no path for it.
+
+    The runtime is INJECTED. A caller that has not supplied one has no way to
+    reach a provider, which is the state every current caller is in.
+  */
+  if (proposal.proposedAction === "budget") {
+    if (!input.budgetRuntime) {
+      return {
+        ok: false,
+        receipt: {
+          httpStatus: 422,
+          response: null,
+          dryRun: input.dryRunOnly,
+          dispatchedAt,
+          endpoint: null,
+          withheld: "budget_runtime_unavailable",
+          receiptKey,
+        },
+      };
+    }
+    const result = await input.budgetRuntime({
+      proposal, dryRunOnly: input.dryRunOnly, claimToken: receiptKey,
+    });
+    return {
+      ok: result.ok,
+      receipt: {
+        httpStatus: result.receipt.httpStatus,
+        response: result.receipt.response,
+        dryRun: result.receipt.dryRun,
+        dispatchedAt: result.receipt.dispatchedAt,
+        endpoint: result.receipt.endpoint,
+        withheld: result.receipt.withheld,
+        receiptKey,
+      },
+    };
+  }
 
   if (!isExecutable(proposal.proposedAction)) {
     return {

@@ -34,7 +34,10 @@ describe("WatchingCard", () => {
     expect(html).toContain("opacity-90");
     expect(html).toContain("Defer 24h");
     expect(html).toContain("What does Defer 24h do?");
-    expect(html).toContain("Fresh test");
+    // D074b correction: the fresh-test primary was derived from the
+    // test_more label text via the bridge; label text can no longer open
+    // Launchpad, so the tile stays review-only (Defer + Evidence).
+    expect(html).not.toContain("Fresh test");
     expect(html).toContain('checked=""');
   });
 
@@ -98,8 +101,11 @@ describe("WatchingCard", () => {
       />,
     );
 
-    expect(html).toContain(">Unlabeled<");
-    expect(html).toContain("campaign label");
+    // D074: the manual-label vocabulary is retired; the served chip and
+    // tooltip speak in automatic campaign-role terms and still create no
+    // structural action.
+    expect(html).toContain(">Role unresolved<");
+    expect(html).toContain("Automatic campaign role is unresolved");
     expect(html).not.toContain('data-kind="scale"');
   });
 });

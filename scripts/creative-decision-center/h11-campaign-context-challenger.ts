@@ -56,9 +56,9 @@ const SOURCE_START_DATE = addDaysUtc(
   -(LINEAGE_SOURCE_WINDOW_DAYS - 1),
 );
 const JSON_OUT =
-  "docs/creative-decision-center/generated/h11-campaign-context-challenger-2025-12-01-to-2026-07-05.json";
+  "docs/creative-decision-center/generated/h11-campaign-context-v2-posthoc-regression-2025-12-01-to-2026-07-05.json";
 const MD_OUT =
-  "docs/creative-decision-center/H11_CAMPAIGN_CONTEXT_CHALLENGER_2025-12-01_TO_2026-07-05.md";
+  "docs/creative-decision-center/H11_CAMPAIGN_CONTEXT_V2_POSTHOC_REGRESSION_2025-12-01_TO_2026-07-05.md";
 const BOOTSTRAP_ITERATIONS = 10_000;
 const PLACEBO_ITERATIONS = 999;
 const MAX_FLIP_RATE_INCREASE_PER_100_DAYS = 0.1;
@@ -1335,11 +1335,12 @@ function pointInTimeLeakageCheck(data: H11InputData) {
 
 function renderMarkdown(report: Record<string, any>): string {
   const lines: string[] = [];
-  lines.push("# H11 Campaign Context Challenger Closure");
+  lines.push(`# ${report.title}`);
   lines.push("");
   lines.push(
-    "Deterministic, SELECT-only historical simulation of the fixed 4x2 campaign-context matrix. This is restated-history evidence, not authorization to change production resolver behavior or enable automatic execution.",
+    "Deterministic, SELECT-only historical regression of the fixed 4x2 campaign-context matrix. The V2 signature was designed after the original H11 holdout summary had been inspected, so this reused set is post-hoc regression evidence, not an independent holdout and not authorization to enable automatic execution.",
   );
+  lines.push(`- validation status: ${report.validationStatus}`);
   lines.push("");
   lines.push("## Verdict");
   lines.push("");
@@ -1650,7 +1651,9 @@ async function buildReport() {
   ).length;
 
   const report = {
-    title: "H11 Campaign Context Challenger Closure",
+    title: "H11 Campaign Context V2 Post-Hoc Regression",
+    validationStatus:
+      "post_hoc_reused_holdout_not_independent_production_approval",
     contractVersion: H11_CAMPAIGN_CONTEXT_CONTRACT_VERSION,
     resolverVersion: CAMPAIGN_CONTEXT_RESOLVER_VERSION,
     deterministic: true,

@@ -328,6 +328,8 @@ export interface MetaRecommendation {
   operatorResponseSubtype?: string | null;
   operatorResponseAt?: string | null;
   watchSegment?:
+    | "role_unresolved"
+    /** @deprecated pre-D074b alias; parse-only for older payloads. */
     | "unlabeled"
     | "missing_target"
     | "learning"

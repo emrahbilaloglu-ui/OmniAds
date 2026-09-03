@@ -178,7 +178,7 @@ describe("CommercialTruthExact", () => {
       expect(html).toContain(band);
     }
     expect(html).toContain("Watch / Trim");
-    expect(html).toContain("reads: Target ROAS · Breakeven");
+    expect(html).toContain("reads: Target ROAS · break-even ROAS");
   });
 
   it("omits the header when mounted inside another page's shell", () => {
@@ -203,5 +203,35 @@ describe("CommercialTruthExact", () => {
     expect(source).not.toContain("sticky");
     expect(source).not.toContain("bestIdx");
     expect(source).not.toContain("Section ");
+  });
+});
+
+describe("C2.1 — no stale commercial vocabulary anywhere on the visible surface", () => {
+  it("renders neither 'CPA ceiling' nor 'AOV floor'", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(CommercialTruthExact, {
+        model,
+        onFieldChange: () => {},
+        onSave: () => {},
+        onDiscard: () => {},
+      } as never),
+    );
+    // These named the wrong thing: the anchors are an explicit Target CPA and
+    // an operator AOV assumption, not a "ceiling" and a "floor".
+    expect(html).not.toContain("CPA ceiling");
+    expect(html).not.toContain("AOV floor");
+  });
+
+  it("names the anchors truthfully in the consumer strip", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(CommercialTruthExact, {
+        model,
+        onFieldChange: () => {},
+        onSave: () => {},
+        onDiscard: () => {},
+      } as never),
+    );
+    expect(html).toContain("Target CPA");
+    expect(html).toContain("AOV assumption");
   });
 });

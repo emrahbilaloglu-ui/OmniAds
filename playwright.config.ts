@@ -100,6 +100,13 @@ export default defineConfig({
       use: { ...devices["Desktop Chrome"] },
     },
     {
+      // D084 responsive layout, measured by a real CSS engine against a
+      // generated harness. No server, no database and no auth fixture.
+      name: "d084-budget-evidence-chromium",
+      testMatch: /d084-budget-evidence-responsive\.spec\.ts/,
+      use: { ...devices["Desktop Chrome"] },
+    },
+    {
       name: "zero-base-frames-chromium",
       testMatch: /zero-base-frames\.spec\.ts/,
       use: { ...devices["Desktop Chrome"] },

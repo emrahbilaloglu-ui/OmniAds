@@ -89,6 +89,7 @@ export function authorizeMetaNativeAdPause(input: {
     canonical.identityResolution.adActionEligible !== true ||
     authority?.status !== "native_exact" ||
     authority.actionEligible !== true ||
+    authority.executionReadiness !== "live_preflight_required" ||
     authority.reviewOnlyReason !== null ||
     authority.authorizedAction !== "cut" ||
     nonBlank(canonical.sourceDecision.label)?.toLowerCase() !== "cut" ||

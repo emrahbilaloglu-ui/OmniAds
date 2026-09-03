@@ -180,6 +180,43 @@ function makeProfile() {
     accountBaselines: {
       matureCreativeCount: 35,
     },
+    // The readiness response serves the canonical anchor explanation and the
+    // per-action codes, so the fixture carries a realistic eligibility block.
+    hardActionEligibility: {
+      scale: true,
+      cut: true,
+      refresh: true,
+      reason: null,
+      reasons: { scale: null, cut: null, refresh: null },
+      codes: { scale: null, cut: null, refresh: null },
+      anchor: {
+        contractVersion: "creative-decision-engine.commercial-anchor.v1",
+        status: "eligible_meta_derived_aov",
+        thresholdEligible: true,
+        spendUnit: 25,
+        spendUnitSource: "meta_derived_aov",
+        spendUnitConfidence: "medium",
+        currency: null,
+        targetPackFreshness: "fresh",
+        targetPackUpdatedAt: "2026-05-04T02:00:00.000Z",
+        metaAovQuality: "ready",
+        lineage: {
+          targetCpa: null,
+          operatorAovAssumption: null,
+          targetRoas: 2.2,
+          breakEvenRoas: 1.7,
+          metaAttributedAovMean90d: 55,
+          metaAttributedAovPurchaseCount90d: 40,
+          attributionAovAdjustmentMultiplier: 1,
+        },
+        missingInputs: [],
+        actions: {
+          scale: { eligible: true, blockerCode: null, operatorCopy: null },
+          cut: { eligible: true, blockerCode: null, operatorCopy: null },
+          refresh: { eligible: true, blockerCode: null, operatorCopy: null },
+        },
+      },
+    },
     quality: {
       commercialTruthReady: true,
       calibrationReady: true,
@@ -313,6 +350,76 @@ describe("GET /api/admin/engine-v3/readiness", () => {
 
   afterEach(() => {
     restoreEnv();
+  });
+
+  it("serves a business-scoped, display-only compaction readiness section (D077 hardening)", async () => {
+    const response = await GET(readinessRequest());
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    const section = payload.stateHistoryCompaction;
+    expect(section.contract).toBe(
+      "d077.state-history-compaction-readiness.v3",
+    );
+    // Journal provenance is explicit; a mocked-empty read is honestly ok.
+    expect(["ok", "unavailable"]).toContain(section.journalRead);
+    expect(section.businessId).toBe(BUSINESS_ID);
+    // The journal read is parameterized to this business — never global.
+    const journalCall = dbMocks.query.mock.calls.find(([text]) =>
+      String(text).includes("meta_state_history_compaction_journal"),
+    );
+    expect(journalCall).toBeDefined();
+    expect(String(journalCall![0])).toContain("$1 = ANY(business_ids)");
+    expect(journalCall![1]).toEqual([BUSINESS_ID]);
+    // Measured D075 evidence; the withdrawn hard-coded assertion is gone.
+    expect(["observed", "not_observed", "unknown"]).toContain(
+      section.d075WriterEvidence.state,
+    );
+    expect(JSON.stringify(section)).not.toContain(
+      "d075_delta_manifests_not_deployed",
+    );
+    // Display-only: no token, no executable plan.
+    expect(JSON.stringify(section)).not.toContain(
+      "approve-state-history-compaction",
+    );
+    expect(section.plannedReclaim).toBeNull();
+  });
+
+  it("a journal-ONLY read failure serves an explicit unavailable state, never NOT_EXECUTED (correction 3)", async () => {
+    // Fence and D075 measurements succeed; only the business-scoped
+    // journal query throws.
+    dbMocks.query.mockImplementation(async (queryText: string, values?: unknown[]) => {
+      if (String(queryText).includes("meta_state_history_compaction_journal")) {
+        throw new Error("journal down");
+      }
+      if (String(queryText).includes("manifest_kind")) {
+        return [{ observed: true }];
+      }
+      return handleQuery(String(queryText), values);
+    });
+
+    const response = await GET(readinessRequest());
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    const section = payload.stateHistoryCompaction;
+    expect(section.contract).toBe(
+      "d077.state-history-compaction-readiness.v3",
+    );
+    expect(section.journalRead).toBe("unavailable");
+    expect(section.approvalStatus).toBe("UNKNOWN_JOURNAL_UNAVAILABLE");
+    expect(section.blockers).toContain("compaction_journal_read_unavailable");
+    // The empty array is unavailable evidence, not proven emptiness — and
+    // no factual NOT_EXECUTED claim appears anywhere in the section.
+    expect(section.latestJournal).toEqual([]);
+    expect(JSON.stringify(section)).not.toContain("NOT_EXECUTED");
+    expect(section.d075WriterEvidence.state).toBe("observed");
+    // The scoping predicate was still issued with the requested business.
+    const journalCall = dbMocks.query.mock.calls.find(([text]) =>
+      String(text).includes("meta_state_history_compaction_journal"),
+    );
+    expect(String(journalCall![0])).toContain("$1 = ANY(business_ids)");
+    expect(journalCall![1]).toEqual([BUSINESS_ID]);
   });
 
   it("returns 401 when no auth session exists", async () => {
@@ -521,4 +628,44 @@ describe("GET /api/admin/engine-v3/readiness", () => {
     expect(payload.gating.canEvaluate).toBe(false);
     expect(payload.gating.reasons).toContain("engine_v3_disabled");
   });
+
+  it("serves the canonical anchor explanation and per-action codes (D079 correction)", async () => {
+    const response = await GET(readinessRequest());
+    expect(response.status).toBe(200);
+    const payload = await response.json();
+    const profile = payload.accountProfile;
+    // The explanation is the profile's own object, not a re-derivation.
+    expect(profile.commercialAnchor.spendUnitSource).toBe("meta_derived_aov");
+    expect(profile.commercialAnchor.spendUnitConfidence).toBe("medium");
+    expect(profile.commercialAnchor.status).toBe("eligible_meta_derived_aov");
+    expect(
+      profile.commercialAnchor.lineage.metaAttributedAovPurchaseCount90d,
+    ).toBe(40);
+    expect(profile.hardActionEligibility).toMatchObject({
+      scale: true,
+      cut: true,
+      refresh: true,
+      codes: { scale: null, cut: null, refresh: null },
+    });
+  });
+
+  it("degrades to unknown rather than 500 when a profile carries no eligibility", async () => {
+    vi.mocked(
+      accountDecisionProfile.resolveAccountDecisionProfile,
+    ).mockResolvedValueOnce({
+      ...makeProfile(),
+      hardActionEligibility: undefined,
+    } as never);
+    const response = await GET(readinessRequest());
+    expect(response.status).toBe(200);
+    const payload = await response.json();
+    // Absence is reported as ineligible with no code — never as eligible.
+    expect(payload.accountProfile.commercialAnchor).toBeNull();
+    expect(payload.accountProfile.hardActionEligibility).toMatchObject({
+      scale: false,
+      cut: false,
+      refresh: false,
+    });
+  });
+
 });

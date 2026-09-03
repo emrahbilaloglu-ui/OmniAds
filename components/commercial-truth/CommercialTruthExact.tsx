@@ -90,10 +90,16 @@ export function CommercialTruthExact({
   );
 
   const money = useMemo(() => {
+    const code = model.currencyCode;
+    // No configured currency: print the amount plainly rather than implying
+    // dollars the operator never chose.
+    if (code === null) {
+      return (value: number) => Math.round(value).toLocaleString("en-US");
+    }
     try {
       const formatter = new Intl.NumberFormat("en-US", {
         style: "currency",
-        currency: model.currencyCode,
+        currency: code,
         minimumFractionDigits: 0,
         maximumFractionDigits: 0,
       });
@@ -652,8 +658,8 @@ export function CommercialTruthExact({
           </table>
         </div>
         <p className={styles.cardFoot}>
-          Preview only — verdicts stamp on the next snapshot after the pack is saved. Unlabeled spend
-          ({model.unlabeledSpend}) is excluded until it gets a label in Decisions.
+          Preview only — verdicts stamp on the next snapshot after the pack is saved. Spend without a
+          computable ROAS ({model.unlabeledSpend}) is excluded until Decisions can price it.
         </p>
       </article>
     </section>

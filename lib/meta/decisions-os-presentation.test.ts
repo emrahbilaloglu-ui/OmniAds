@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
   MetaCanonicalDecision,
   MetaDecisionBuyerAction,
@@ -10,6 +10,12 @@ import {
   revalidateMetaStructureLanesForCurrentTargets,
 } from "@/lib/meta/decisions-os-presentation";
 import { metaLanePayload } from "@/components/meta/redesign/test-fixtures";
+import { CAMPAIGN_CONTEXT_RESOLVER_VERSION } from "@/lib/creative-decision-engine/campaign-context/resolver";
+import { CAMPAIGN_CONTEXT_AUTHORITY_RESOLVER_VERSION_ENV } from "@/lib/creative-decision-engine/campaign-context/source";
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
 
 function recommendation(
   input: Partial<MetaRecommendation> & Pick<MetaRecommendation, "id" | "level">,
@@ -598,6 +604,11 @@ describe("buildMetaOsDecisionsPresentation", () => {
           resolverVersion: "campaign-context-resolver.v1",
         },
       ],
+      pipelineHealth: {
+        overall: "healthy",
+        executionReady: true,
+        blockers: [],
+      },
       currency: "EUR",
     });
 
@@ -619,7 +630,11 @@ describe("buildMetaOsDecisionsPresentation", () => {
     ).toBe(1);
   });
 
-  it("preserves a saved campaign-role override in Structure provenance", () => {
+  it("trusts automatic Structure provenance only for the validated resolver version", () => {
+    vi.stubEnv(
+      CAMPAIGN_CONTEXT_AUTHORITY_RESOLVER_VERSION_ENV,
+      CAMPAIGN_CONTEXT_RESOLVER_VERSION,
+    );
     const result = buildMetaOsDecisionsPresentation({
       actionNow: [
         recommendation({
@@ -638,10 +653,10 @@ describe("buildMetaOsDecisionsPresentation", () => {
           campaignId: "cmp_override",
           kind: "main",
           suggestedKind: "main",
-          source: "persisted_label",
+          source: "system_inferred",
           confidenceClass: "high",
           sourceUpdatedAt: "2026-07-13T04:00:00.000Z",
-          resolverVersion: "campaign-context-resolver.v1",
+          resolverVersion: CAMPAIGN_CONTEXT_RESOLVER_VERSION,
         },
       ],
       currency: "EUR",
@@ -649,9 +664,144 @@ describe("buildMetaOsDecisionsPresentation", () => {
 
     expect(result.structure.groups[0]!.campaign).toMatchObject({
       lifecycleRole: "main",
-      campaignRoleSource: "user_override",
+      campaignRoleSource: "automatic",
       campaignRoleConfidence: "high",
       campaignRoleTrustedForAction: true,
+    });
+  });
+
+  /**
+   * D074/D076: every campaign context row the presentation consumes is
+   * EXPLAINED — the resolver's own kind, confidence class and score, evidence,
+   * conflicts, unresolved reason, last evaluation time and resolver version
+   * travel verbatim, and no kind is ever computed into the explanation.
+   */
+  it("serves the resolver's role explanation verbatim on structure and Ad rows", () => {
+    const result = buildMetaOsDecisionsPresentation({
+      actionNow: [
+        recommendation({
+          id: "campaign-explained",
+          level: "campaign",
+          campaignId: "cmp_1",
+          campaignName: "Main campaign",
+        }),
+      ],
+      watching: [],
+      nonSales: [],
+      decisionReadModel: readModel([
+        canonicalDecision({
+          id: "explained-ad",
+          adId: "120000000000000031",
+          buyerAction: "cut",
+        }),
+      ]),
+      currentAdCampaignContexts: [
+        {
+          campaignId: "cmp_1",
+          kind: "main",
+          suggestedKind: "main",
+          source: "system_inferred",
+          confidenceClass: "high",
+          sourceUpdatedAt: "2026-07-10T04:00:00.000Z",
+          resolverVersion: "campaign-context-v2-account-scoped",
+          confidenceScore: 0.87,
+          evidence: ["budget concentration 0.81"],
+          conflictReasons: [],
+          unresolvedReason: null,
+          lastEvaluatedAt: "2026-07-10T04:00:00.000Z",
+        },
+      ],
+      currency: "EUR",
+    });
+
+    const expected = {
+      kind: "main",
+      confidenceClass: "high",
+      confidenceScore: 0.87,
+      evidence: ["budget concentration 0.81"],
+      conflictReasons: [],
+      unresolvedReason: null,
+      lastEvaluatedAt: "2026-07-10T04:00:00.000Z",
+      resolverVersion: "campaign-context-v2-account-scoped",
+    };
+    expect(result.structure.groups[0]!.campaign.campaignRoleExplanation).toEqual(
+      expected,
+    );
+    expect(result.ads.items[0]!.campaignRoleExplanation).toEqual(expected);
+  });
+
+  it("keeps the resolver's null kind visible beside the provisional display role", () => {
+    const result = buildMetaOsDecisionsPresentation({
+      actionNow: [
+        recommendation({
+          id: "campaign-unresolved",
+          level: "campaign",
+          campaignId: "cmp_unresolved",
+          campaignName: "Unclassified current campaign",
+        }),
+      ],
+      watching: [],
+      nonSales: [],
+      decisionReadModel: readModel([]),
+      currentAdCampaignContexts: [
+        {
+          campaignId: "cmp_unresolved",
+          kind: null,
+          suggestedKind: "main",
+          source: "system_inferred",
+          confidenceClass: "unknown",
+          sourceUpdatedAt: "2026-07-10T04:00:00.000Z",
+          resolverVersion: "campaign-context-v2-account-scoped",
+          confidenceScore: 0.21,
+          evidence: ["signal volume below threshold"],
+          conflictReasons: [],
+          unresolvedReason: "insufficient_evidence",
+          lastEvaluatedAt: "2026-07-10T04:00:00.000Z",
+        },
+      ],
+      currency: "EUR",
+    });
+
+    const campaign = result.structure.groups[0]!.campaign;
+    // The display role may be provisional; the explanation is the resolver's
+    // own answer and stays null-kinded with the server's reason.
+    expect(campaign.lifecycleRole).toBe("main");
+    expect(campaign.campaignRoleExplanation).toMatchObject({
+      kind: null,
+      confidenceScore: 0.21,
+      evidence: ["signal volume below threshold"],
+      unresolvedReason: "insufficient_evidence",
+    });
+  });
+
+  it("explains a campaign with no context row as not yet evaluated", () => {
+    const result = buildMetaOsDecisionsPresentation({
+      actionNow: [
+        recommendation({
+          id: "campaign-never-evaluated",
+          level: "campaign",
+          campaignId: "cmp_never",
+          campaignName: "Fresh campaign",
+        }),
+      ],
+      watching: [],
+      nonSales: [],
+      decisionReadModel: readModel([]),
+      currentAdCampaignContexts: [],
+      currency: "EUR",
+    });
+
+    expect(
+      result.structure.groups[0]!.campaign.campaignRoleExplanation,
+    ).toEqual({
+      kind: null,
+      confidenceClass: "unknown",
+      confidenceScore: null,
+      evidence: [],
+      conflictReasons: [],
+      unresolvedReason: "not_yet_evaluated",
+      lastEvaluatedAt: null,
+      resolverVersion: null,
     });
   });
 
@@ -1068,6 +1218,13 @@ describe("buildMetaOsDecisionsPresentation", () => {
       realAdId: "120000000000000099",
       authorizedAction: "cut",
       jobRunId: "20000000-0000-4000-8000-000000000001",
+      executionReadiness: "live_preflight_required",
+      decisionFreshness: {
+        status: "fresh",
+        computedAt: exact.sourceDecision.computedAt,
+        ageHours: 1,
+        maxAgeHours: 12,
+      },
     };
     const model = readModel([exact]);
     model.source.authority = "native_ad";
@@ -1079,6 +1236,22 @@ describe("buildMetaOsDecisionsPresentation", () => {
       watching: [],
       nonSales: [],
       decisionReadModel: model,
+      currentAdCampaignContexts: [
+        {
+          campaignId: "cmp_1",
+          kind: "main",
+          suggestedKind: "main",
+          source: "system_inferred",
+          confidenceClass: "high",
+          sourceUpdatedAt: "2026-07-10T04:00:00.000Z",
+          resolverVersion: "campaign-context-v2-account-scoped",
+        },
+      ],
+      pipelineHealth: {
+        overall: "healthy",
+        executionReady: true,
+        blockers: [],
+      },
       currency: "EUR",
     });
 
@@ -1089,7 +1262,7 @@ describe("buildMetaOsDecisionsPresentation", () => {
         label: "Cut",
         intent: "execute",
         providerMutation: "pause",
-        scopeNote: "Pauses this exact ad only",
+        scopeNote: "Runs a live preflight, then pauses this exact ad only",
       },
     });
     expect(result.source.adsSource).toBe("native_ad_decision");
@@ -1098,6 +1271,30 @@ describe("buildMetaOsDecisionsPresentation", () => {
       fallbackReason: null,
     });
     expect(result.limitations).toEqual([]);
+
+    exact.sourceAuthority!.executionReadiness = "stale_decision";
+    exact.sourceAuthority!.decisionFreshness = {
+      status: "stale",
+      computedAt: exact.sourceDecision.computedAt,
+      ageHours: 13,
+      maxAgeHours: 12,
+    };
+    const stale = buildMetaOsDecisionsPresentation({
+      actionNow: [],
+      watching: [],
+      nonSales: [],
+      decisionReadModel: model,
+      currency: "EUR",
+    });
+    expect(stale.ads.items[0]).toMatchObject({
+      lane: "blocked",
+      action: {
+        code: "refresh_decision_data",
+        label: "Refresh Decision",
+        intent: "review",
+        providerMutation: null,
+      },
+    });
   });
 
   it("exposes legacy fallback as degraded with the exact read-model reason", () => {

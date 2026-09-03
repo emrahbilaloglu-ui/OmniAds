@@ -10,7 +10,10 @@ export const NATIVE_AD_DELIVERY_OBSERVATION_CONTRACT_VERSION =
 export const NATIVE_AD_OPERATOR_RESPONSE_CONTRACT_VERSION =
   "engine-v3-native-ad-operator-response.v3" as const;
 export const NATIVE_AD_OPERATOR_SOURCE_PROOF_CONTRACT_VERSION =
-  "engine-v3-native-ad-operator-source-proof.v2" as const;
+  // v3 (D075 consumer sweep): state evidence entries carry confirmedUntil —
+  // the re-confirmation clock that certifies window-end truth for unchanged
+  // entities under heartbeat/delta manifests.
+  "engine-v3-native-ad-operator-source-proof.v3" as const;
 export const AD_OPERATOR_RESPONSE_WINDOW_DAYS = RESPONSE_WINDOW_DAYS;
 
 export type AdOperatorResponseType =
@@ -144,6 +147,13 @@ export interface AdEntityStateObservation {
   fieldCoverage: Record<string, unknown>;
   observedAt: string;
   capturedAt: string;
+  /**
+   * D075 consumer sweep: the as-of-cutoff re-confirmation clock — the run
+   * heartbeat and later same-scope delta manifests keep confirming an
+   * unchanged winner while its own captured_at freezes at first capture.
+   * Optional for legacy fixtures; absent means capturedAt.
+   */
+  confirmedUntil?: string;
   stateHash: string;
   delivery: AdDeliveryObservation | null;
 }
@@ -800,6 +810,19 @@ function truthCapturedAt(truth: EntityTruth) {
   return timestamp(truth.value.capturedAt, "capturedAt");
 }
 
+// D075 consumer sweep: window-end truth is certified by the re-confirmation
+// clock, not the frozen first-capture clock — see confirmedUntil on
+// AdEntityStateObservation. Tombstones carry no heartbeat.
+function truthConfirmedUntil(truth: EntityTruth) {
+  if (truth.kind === "state" && truth.value.confirmedUntil) {
+    return Math.max(
+      timestamp(truth.value.confirmedUntil, "confirmedUntil"),
+      truthCapturedAt(truth),
+    );
+  }
+  return truthCapturedAt(truth);
+}
+
 function truthId(truth: EntityTruth) {
   return truth.kind === "state"
     ? truth.value.stateHistoryId
@@ -915,7 +938,7 @@ function terminalTruth(
     .filter(
       (truth) =>
         truthObservedAt(truth) <= windowEndTime &&
-        truthCapturedAt(truth) >= windowEndTime &&
+        truthConfirmedUntil(truth) >= windowEndTime &&
         truthCapturedAt(truth) <= cutoffTime,
     )
     .sort(
@@ -1264,6 +1287,7 @@ function buildSourceProof(input: {
         stateHash: state.stateHash,
         observedAt: state.observedAt,
         capturedAt: state.capturedAt,
+        confirmedUntil: state.confirmedUntil ?? state.capturedAt,
       }))
       .sort((left, right) =>
         left.stateHistoryId.localeCompare(right.stateHistoryId),

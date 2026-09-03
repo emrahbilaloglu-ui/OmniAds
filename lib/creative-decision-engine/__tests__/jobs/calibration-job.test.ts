@@ -105,7 +105,7 @@ async function cleanupCampaignScopeFixture(fixture: CampaignScopeFixture) {
   const db = getDb();
   await db.query(
     `
-    DELETE FROM meta_campaign_labels
+    DELETE FROM engine_v3_campaign_context_daily
     WHERE business_id = $1
     `,
     [fixture.businessId],
@@ -142,7 +142,11 @@ async function cleanupCampaignScopeFixture(fixture: CampaignScopeFixture) {
   );
 }
 
-async function insertCampaignLabels(
+function campaignScopeProviderAccountId(fixture: CampaignScopeFixture) {
+  return `campaign-scope-${fixture.businessId.slice(-12)}`;
+}
+
+async function insertAutomaticCampaignRoles(
   fixture: CampaignScopeFixture,
   labels: Record<string, "main" | "test" | "mixed">,
 ) {
@@ -152,25 +156,48 @@ async function insertCampaignLabels(
   }));
   await getDb().query(
     `
-    INSERT INTO meta_campaign_labels (
+    INSERT INTO engine_v3_campaign_context_daily (
       business_id,
+      provider_account_id,
       campaign_id,
-      campaign_kind,
-      source,
-      labeled_by
+      as_of_date,
+      inferred_kind,
+      confidence_score,
+      confidence_class,
+      kind_source,
+      kind_basis,
+      resolver_version
     )
     SELECT
       $1,
+      $2,
       row.campaign_id,
+      $3::date,
       row.campaign_kind,
-      'user',
-      'calibration-job-test'
-    FROM jsonb_to_recordset($2::jsonb) AS row(
+      0.95,
+      'high',
+      'system_inferred',
+      'behavioral',
+      'campaign-context-resolver.v2-account-scoped-name-neutral-2026-09-01'
+    FROM jsonb_to_recordset($4::jsonb) AS row(
       campaign_id text,
       campaign_kind text
     )
+    ON CONFLICT (business_id, provider_account_id, campaign_id, as_of_date)
+      WHERE provider_account_id IS NOT NULL
+    DO UPDATE SET
+      inferred_kind = EXCLUDED.inferred_kind,
+      confidence_score = EXCLUDED.confidence_score,
+      confidence_class = EXCLUDED.confidence_class,
+      resolver_version = EXCLUDED.resolver_version,
+      updated_at = now()
     `,
-    [fixture.businessId, JSON.stringify(rows)],
+    [
+      fixture.businessId,
+      campaignScopeProviderAccountId(fixture),
+      AS_OF,
+      JSON.stringify(rows),
+    ],
   );
 }
 
@@ -300,7 +327,7 @@ async function setupCampaignScopeFixture(
     `,
     [
       fixture.businessId,
-      `campaign-scope-${fixture.businessId.slice(-12)}`,
+      campaignScopeProviderAccountId(fixture),
       asOf,
       JSON.stringify(rows),
     ],
@@ -513,7 +540,7 @@ describe.skipIf(!process.env.DATABASE_URL)("calibration job", () => {
       campaign_test: 12,
       campaign_unlabeled: 8,
     });
-    await insertCampaignLabels(fixture, {
+    await insertAutomaticCampaignRoles(fixture, {
       campaign_main: "main",
       campaign_test: "test",
     });

@@ -4,6 +4,7 @@ import {
   MetaHistoryQueryError,
   parseMetaHistoryQuery,
 } from "@/lib/meta/history-contract";
+import { readMetaAssignedAccountStates } from "@/lib/meta/assigned-account-states";
 import {
   readMetaHistoryAccounts,
   readMetaHistoryAssignedAccountIds,
@@ -136,16 +137,50 @@ export async function GET(request: NextRequest) {
     // failure falls through to the unavailable branch below rather than being
     // read as "nothing is assigned", which would answer a broken read with a
     // confident refusal.
-    const [accounts, assignedAccountIds] = await Promise.all([
+    const [accounts, assignedAccountIds, accountStates] = await Promise.all([
       readMetaHistoryAccounts(query.businessId),
       readMetaHistoryAssignedAccountIds(query.businessId),
+      readMetaAssignedAccountStates(query.businessId).catch(() => null),
     ]);
     const currentlyAssigned = new Set(assignedAccountIds);
-    const account =
+    const selectedAccount =
       accounts.find(
         (item) =>
           item.id === query.providerAccountId && currentlyAssigned.has(item.id),
       ) ?? null;
+    // D078 R4: an assigned-but-DESELECTED account is a legitimate read-only
+    // historical evidence scope for this journal — it may hold spend and
+    // produced decisions no other surface can show. It remains forbidden as
+    // any write/mutation scope (this endpoint performs none), and an id that
+    // was never assigned to this business still 404s indistinguishably.
+    // C2.3: when the requested scope is not a selected account AND the
+    // account-state authority read FAILED, absence is UNPROVEN — answer
+    // fail-closed unavailable instead of a confident "not assigned" 404.
+    if (selectedAccount === null && accountStates === null) {
+      return jsonError(
+        503,
+        "meta_history_account_scope_unavailable",
+        "The assigned-account authority read failed; whether this account is bound to the business is unknown right now.",
+      );
+    }
+    const historicalState =
+      selectedAccount === null
+        ? ((accountStates ?? []).find(
+            (state) =>
+              state.providerAccountId === query.providerAccountId &&
+              state.selectionState === "deselected_historical",
+          ) ?? null)
+        : null;
+    const account =
+      selectedAccount ??
+      (historicalState
+        ? {
+            id: historicalState.providerAccountId,
+            name: historicalState.accountName,
+            currency: historicalState.accountCurrency,
+            timezone: historicalState.accountTimezone,
+          }
+        : null);
     if (!account) {
       return jsonError(
         404,
@@ -155,9 +190,15 @@ export async function GET(request: NextRequest) {
     }
 
     const payload = await readMetaHistoryJournal({ query, account });
-    return NextResponse.json(payload, {
-      headers: { "Cache-Control": "private, no-store" },
-    });
+    return NextResponse.json(
+      {
+        ...payload,
+        accountScope: selectedAccount ? "selected" : "deselected_historical",
+      },
+      {
+        headers: { "Cache-Control": "private, no-store" },
+      },
+    );
   } catch (error) {
     console.error("[meta-history] read failed", {
       businessId: query.businessId,

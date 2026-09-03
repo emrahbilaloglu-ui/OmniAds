@@ -27,8 +27,7 @@ import {
 import { getMetaBreakdownsForRange } from "@/lib/meta/breakdowns-source";
 import { getMetaCampaignsForRange } from "@/lib/meta/campaigns-source";
 import { readMetaAnomaliesForBusiness } from "@/lib/meta/anomalies";
-import { readMetaCampaignLabels } from "@/lib/meta/campaign-labels";
-import { labelKindDisplay } from "@/lib/meta/campaign-label-types";
+import { readCampaignContextMap } from "@/lib/creative-decision-engine/campaign-context/source";
 import { readMetaDecisionsWorkspaceReadModel } from "@/lib/meta/decisions-workspace-read-model";
 import {
   getMetaCreativesWarehousePayload,
@@ -631,6 +630,14 @@ export async function readMetaIntelligence(input: {
   const workspaceRead = providerAccountId
     ? readMetaDecisionsWorkspaceReadModel({ businessId, providerAccountId })
     : null;
+  const campaignRead = providerAccountId
+    ? getMetaCampaignsForRange({
+        businessId,
+        startDate,
+        endDate,
+        accountId: providerAccountId,
+      })
+    : null;
 
   const [
     status,
@@ -681,12 +688,7 @@ export async function readMetaIntelligence(input: {
             observedAt: null,
           };
         }
-        const campaigns = await getMetaCampaignsForRange({
-          businessId,
-          startDate,
-          endDate,
-          accountId: providerAccountId,
-        });
+        const campaigns = await campaignRead!;
         // `rows` is the key this source actually serves; there is no
         // `campaigns` key on the result, and reading one left the tile blank.
         return {
@@ -836,61 +838,52 @@ export async function readMetaIntelligence(input: {
         };
       })(),
 
-      // 7 · campaign labels
+      // 7 · automatically inferred campaign roles
       (async () => {
         if (!providerAccountId) {
           return {
             facts: [],
-            unavailableReason: noAccountReason("the campaign label authority"),
+            unavailableReason: noAccountReason("the campaign role authority"),
             observedAt: null,
           };
         }
-        const result = await readMetaCampaignLabels({ businessId });
-        if (!Array.isArray(result)) {
-          // Not an empty list — an answer we could not read. Zero would be a
-          // count nobody took.
-          return { facts: [{ label: "Labelled campaigns", value: "Not reported" }], observedAt: null };
-        }
-        // `readMetaCampaignLabels` keys only on the business, and a business
-        // with two Meta accounts really does store labels for both (one such
-        // account pair holds 18 labels and 3). Listing all of them beside
-        // account-scoped rows attributed one account's campaigns to another.
-        // Each row records the account it was written against, so the scope is
-        // applied here rather than by widening the shared authority.
-        const scoped = result.filter(
-          (label) => label.providerAccountId === providerAccountId,
+        const campaignRows = (await campaignRead!).rows ?? [];
+        const campaignIds = campaignRows.map((campaign) => campaign.id);
+        const contexts = await readCampaignContextMap({
+          businessId,
+          providerAccountId,
+          campaignIds,
+          asOf: endDate,
+        });
+        const campaignById = new Map(
+          campaignRows.map((campaign) => [campaign.id, campaign]),
         );
-        // A label written against another account — or against none, so not
-        // attributable to this one — is excluded, and the exclusion is stated.
-        // A silently shorter list is a different lie from a silently longer one.
-        const withheld = result.length - scoped.length;
+        const classified = [...contexts].filter(([, entry]) => entry.kind);
+        const unresolvedCount = Math.max(0, campaignIds.length - classified.length);
         return {
           facts: [
-            { label: "Labelled campaigns", value: count(scoped) },
-            // The labels themselves, so the Campaign labels aside can show what
-            // was labelled rather than a bare count. A label with no stored
-            // name falls back to its campaign id — never to a made-up name.
-            ...scoped
+            { label: "Automatically classified", value: count(classified) },
+            ...classified
               .slice(0, LABEL_FACT_LIMIT)
-              .map((label) => ({
-                label: label.campaignName ?? label.campaignId,
-                value: labelKindDisplay(label.kind),
+              .map(([campaignId, entry]) => ({
+                label:
+                  campaignById.get(campaignId)?.name ?? campaignId,
+                value: `${entry.kind!.slice(0, 1).toUpperCase()}${entry.kind!.slice(1)} · ${entry.contextTrust ?? "unknown"}`,
               })),
           ],
           partial:
-            withheld > 0
+            unresolvedCount > 0
               ? {
                   isPartial: true,
-                  notReadyReason: `${withheld} labelled campaign${withheld === 1 ? "" : "s"} in this business ${withheld === 1 ? "is" : "are"} recorded against another Meta account, or against none, and ${withheld === 1 ? "is" : "are"} not counted here.`,
+                  notReadyReason: `${unresolvedCount} campaign${unresolvedCount === 1 ? "" : "s"} could not be classified automatically from fresh account-scoped evidence.`,
                 }
               : undefined,
-          // Deliberately null. `MetaCampaignLabel` carries `labeledAt` and
-          // `updatedAt` — when a person authored or last edited the label — and
-          // neither is an observation of an account. Only the history projection
-          // (`MetaCampaignLabelHistoryState.observedAt`) records one, and this
-          // read does not return it. Printing an authorship time under
-          // "Observed" would misname it.
-          observedAt: null,
+          observedAt:
+            classified
+              .map(([, entry]) => entry.provenance.sourceUpdatedAt)
+              .filter((value): value is string => Boolean(value))
+              .sort()
+              .at(-1) ?? null,
         };
       })(),
 
@@ -1275,7 +1268,7 @@ export async function readMetaIntelligence(input: {
     section("trends", "Trends", trends),
     section("breakdowns", "Breakdowns", breakdowns),
     section("anomalies", "Anomalies", anomalies),
-    section("labels", "Campaign labels", labels),
+    section("labels", "Campaign roles", labels),
     /*
      * "Structure", not "Structure & recommendations". The label asserted
      * coverage of the plan's recommendations item that this row never provided;

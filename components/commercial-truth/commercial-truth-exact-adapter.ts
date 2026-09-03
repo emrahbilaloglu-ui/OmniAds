@@ -74,21 +74,21 @@ export const TRUTH_CONSUMERS: CommercialTruthConsumerModel[] = [
     dot: "#2a5fe2",
     name: "Meta Decision Center",
     note: "Labels Scale / Cut against the ROAS anchors.",
-    reads: "Target ROAS · Breakeven",
+    reads: "Target ROAS · break-even ROAS",
     last: TRUTH_DASH,
   },
   {
     dot: "#6C41BE",
     name: "Automation guardrails",
     note: "Pause floor and write validation before any action.",
-    reads: "Breakeven · CPA ceiling",
+    reads: "Break-even ROAS · Target CPA",
     last: TRUTH_DASH,
   },
   {
     dot: "#0b7954",
     name: "Creative Studio",
     note: "Winner threshold on the heat table and board.",
-    reads: "Target ROAS · AOV floor",
+    reads: "Target ROAS · AOV assumption",
     last: TRUTH_DASH,
   },
   {
@@ -168,7 +168,15 @@ function finite(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
-function currencyFormatter(currencyCode: string): (value: number) => string {
+function currencyFormatter(
+  currencyCode: string | null,
+): (value: number) => string {
+  // A business with no configured currency must not be shown dollars. The
+  // amount is still real, so it is printed plainly; the workspace stat already
+  // shows the currency itself as unknown.
+  if (currencyCode === null) {
+    return (value) => Math.round(value).toLocaleString("en-US");
+  }
   try {
     const formatter = new Intl.NumberFormat("en-US", {
       style: "currency",
@@ -189,7 +197,8 @@ function currencyFormatter(currencyCode: string): (value: number) => string {
  * all — which is the same case in which `currencyFormatter` gives up on the
  * currency style too.
  */
-function currencySymbolOf(currencyCode: string): string {
+function currencySymbolOf(currencyCode: string | null): string {
+  if (currencyCode === null) return "";
   try {
     const parts = new Intl.NumberFormat("en-US", {
       style: "currency",
@@ -225,7 +234,14 @@ function pick(packValue: number | null | undefined, modelValue: number | null | 
 export function buildCommercialTruthExactModel(
   input: CommercialTruthAdapterInput,
 ): CommercialTruthExactModel {
-  const currencyCode = input.business.currency?.trim().toUpperCase() || "USD";
+  // Null when the business has no configured currency: never defaulted, so no
+  // surface can imply dollars the operator never chose.
+  const currencyCode = input.business.currency?.trim().toUpperCase() || null;
+  // The two money anchors say which unit they are in, so an operator cannot
+  // enter a figure in the wrong currency without noticing.
+  const AOV_UNIT = currencyCode
+    ? ` (${currencyCode})`
+    : " (currency not set)";
   const money = currencyFormatter(currencyCode);
   const pack = input.targetPack;
   const costModel = input.costModel;
@@ -250,7 +266,7 @@ export function buildCommercialTruthExactModel(
       id: "targetRoas",
       label: "Target ROAS",
       value: targetRoas === null ? TRUTH_DASH : targetRoas.toFixed(2),
-      hint: "Anchors Scale / Cut — drives the preview below",
+      hint: "Required for Scale. Pairs with the AOV assumption to set the spend unit.",
       accent: true,
       editable: input.pack.canEdit,
     },
@@ -258,7 +274,7 @@ export function buildCommercialTruthExactModel(
       id: "breakevenRoas",
       label: "Breakeven ROAS",
       value: breakevenRoas === null ? TRUTH_DASH : breakevenRoas.toFixed(2),
-      hint: "Hard floor for pause logic",
+      hint: "Required for Cut. Scale and Refresh do not use it.",
       accent: true,
       editable: input.pack.canEdit,
     },
@@ -272,9 +288,9 @@ export function buildCommercialTruthExactModel(
     },
     {
       id: "aovFloor",
-      label: "AOV floor",
+      label: `AOV assumption${AOV_UNIT}`,
       value: finite(pack?.aovAssumption) === null ? TRUTH_DASH : money(pack!.aovAssumption!),
-      hint: "Flags low-value winners",
+      hint: "Average order value you operate against. Spend unit = AOV ÷ Target ROAS. Leave empty if you set a Target CPA instead.",
       accent: false,
       editable: input.pack.canEdit,
     },
@@ -296,9 +312,9 @@ export function buildCommercialTruthExactModel(
     },
     {
       id: "cpaCeiling",
-      label: "CPA ceiling",
+      label: `Target CPA${AOV_UNIT}`,
       value: finite(pack?.targetCpa) === null ? TRUTH_DASH : money(pack!.targetCpa!),
-      hint: "Validates Launchpad drafts",
+      hint: "Cost per purchase you operate against. Used directly as the spend unit; the strongest anchor. Unlocks the threshold only — freshness, campaign role, calibration and governance still gate every action.",
       accent: false,
       editable: input.pack.canEdit,
     },

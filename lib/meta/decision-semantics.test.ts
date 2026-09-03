@@ -208,7 +208,15 @@ describe("projectMetaDecisionSemantics", () => {
       owner: "system",
       label: "Automatic Classification Pending",
     });
-    expect(projection.resolution?.nextStep).toContain("No label is required");
+    // D074b/D075 acceptance correction: resolution copy is system-owned
+    // automatic-evidence phrasing — no operator input, no label vocabulary,
+    // review-only until the automatic role resolves.
+    expect(projection.resolution?.nextStep).toContain(
+      "No operator input is required; hard actions stay review-only until the role resolves.",
+    );
+    expect(projection.resolution?.nextStep).not.toMatch(
+      /[Ll]abel|save an explicit correction|provisional role/,
+    );
   });
 
   it("keeps a stale cut verdict in provenance but blocks its buyer action", () => {

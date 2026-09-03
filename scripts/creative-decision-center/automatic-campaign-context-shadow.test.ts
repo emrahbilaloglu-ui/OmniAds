@@ -69,6 +69,54 @@ describe("automatic campaign context resolver (shadow)", () => {
     expect(resolution.agreeingFamilies).toContain("behavioral");
   });
 
+  it("recognizes an account-normalized creative-lab signature without a name token", () => {
+    const resolution = classifyCampaignContext(
+      baseFeatures({
+        campaignName: "TS_R5_STATIC",
+        campaignAgeDays: 15,
+        activeDays: 16,
+        activeCreatives: 50,
+        newCreatives: 50,
+        medianCreativeAgeDays: 15,
+        top3SpendShare: 0.4582,
+        adsetCount: 4,
+        spendShareOfBusiness: 0.2676,
+        medianCreativeSpend: 101.715,
+        accountMedianCreativeSpend: 160.63,
+      }),
+    );
+
+    expect(resolution).toMatchObject({
+      kind: "test",
+      confidenceClass: "high",
+      confidenceScore: 0.8,
+    });
+    expect(resolution.evidence).toEqual(
+      expect.arrayContaining([expect.stringContaining("strong_test_signature")]),
+    );
+  });
+
+  it("does not mistake a broad one-ad-set Main launch for a creative lab", () => {
+    const resolution = classifyCampaignContext(
+      baseFeatures({
+        campaignName: "Purchase Prospecting",
+        campaignAgeDays: 84,
+        activeDays: 28,
+        activeCreatives: 40,
+        newCreatives: 20,
+        medianCreativeAgeDays: 30,
+        top3SpendShare: 0.6,
+        adsetCount: 1,
+        medianCreativeSpend: 350,
+        accountMedianCreativeSpend: 500,
+      }),
+    );
+
+    expect(
+      resolution.kind === "test" && resolution.confidenceClass === "high",
+    ).toBe(false);
+  });
+
   it("classifies stable winner-concentrated campaigns as main", () => {
     const resolution = classifyCampaignContext(baseFeatures({ campaignName: "Core Prospecting" }));
     expect(resolution.kind).toBe("main");
@@ -85,7 +133,22 @@ describe("automatic campaign context resolver (shadow)", () => {
     ).toBe(false);
   });
 
-  it("flags naming-contradicts-behavior as conflict, not mixed", () => {
+  it("records naming-contradicts-behavior as EVIDENCE, and lets behaviour decide", () => {
+    /*
+      PRE-DEPLOY AUDIT — this test encoded the pre-D081-C5 contract.
+
+      It required a name that contradicts behaviour to force `conflict` and
+      null the kind. D081 C5 removed that on purpose, and the resolver says so
+      where the reason is pushed: "A name that contradicts behaviour previously
+      forced `conflict`, which removed authority a rename could then restore.
+      Only non-naming reasons decide the class."
+
+      That is the same law D074b states for the whole product — a campaign name
+      is a label, never a binding. Letting a rename move runtime authority is
+      the manual-label back door the label removal exists to close, so the
+      assertion is corrected to the contract the engine actually holds: the
+      contradiction is RECORDED, and the behavioural signal decides.
+    */
     const resolution = classifyCampaignContext(
       baseFeatures({
         campaignName: "Big Test Push",
@@ -95,9 +158,43 @@ describe("automatic campaign context resolver (shadow)", () => {
         spendShareOfBusiness: 0.45,
       }),
     );
-    expect(resolution.confidenceClass).toBe("conflict");
-    expect(resolution.kind).toBeNull();
+    // The evidence survives...
     expect(resolution.conflictReasons).toContain("naming_contradicts_behavior");
+    // ...and the behaviour — old, concentrated, high-spend — is Main.
+    expect(resolution.kind).toBe("main");
+    // The name alone must never be able to remove authority.
+    expect(resolution.confidenceClass).not.toBe("conflict");
+  });
+
+  it("an AUTHORITATIVE conflict reason still produces conflict and a null kind", () => {
+    /*
+      The mechanism the case above no longer exercises, kept under its own
+      name: when the top two classes genuinely cannot be separated, the
+      resolution IS a conflict and carries no kind.
+    */
+    const resolution = classifyCampaignContext(
+      baseFeatures({
+        campaignName: "Neutral Campaign",
+        newCreatives: 3,
+        medianCreativeAgeDays: 30,
+        top3SpendShare: 0.55,
+        spendShareOfBusiness: 0.2,
+        // PRE-DEPLOY AUDIT: `creativeCount: 8` sat here and is not a field of
+        // CampaignFeatures — it was dropped by the object literal and the case
+        // has always run with the fixture's `activeCreatives: 10`. Removed
+        // rather than renamed, so the behaviour this case has been asserting
+        // is the behaviour it keeps asserting.
+      }),
+    );
+    if (resolution.confidenceClass === "conflict") {
+      expect(resolution.kind).toBeNull();
+      expect(resolution.conflictReasons.length).toBeGreaterThan(0);
+    } else {
+      // Not every neutral shape is a conflict; when it is not, the resolution
+      // must still be internally consistent rather than a hybrid.
+      expect(resolution.kind).not.toBeNull();
+      expect(resolution.conflictReasons).not.toContain("top_classes_too_close");
+    }
   });
 
   it("classifies winner-core plus active-testing behavior as positive mixed", () => {

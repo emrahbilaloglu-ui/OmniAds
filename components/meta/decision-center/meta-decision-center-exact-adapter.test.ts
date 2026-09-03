@@ -11,11 +11,30 @@ import type {
   MetaWatchingSegment,
 } from "@/components/meta/redesign/types";
 import type { MetaCanonicalDecision } from "@/lib/meta/decisions-workspace-contract";
+import {
+  emptyAuthorityBlockerCounts,
+  projectMetaCommercialAnchorPanel,
+  type MetaCommercialAnchorPanel,
+} from "@/lib/meta/commercial-anchor-panel";
+import {
+  projectBudgetDecisionEvidencePanel,
+  type MetaBudgetDecisionEvidenceByDirection,
+} from "@/lib/meta/budget-decision-evidence-panel";
+import {
+  evaluateBudgetDecisionGates,
+} from "@/lib/meta/budget-decision-gates";
+import { buildWorkspaceBudgetGateInput } from "@/lib/meta/budget-decision-workspace-adapter";
+import {
+  makeAnchorTargetPack,
+  resolveAnchorProfileFixture,
+} from "@/lib/creative-decision-engine/__tests__/anchor-profile-fixture";
+import { makeAccountCalibration } from "@/lib/creative-decision-engine/__tests__/helpers";
 import type { MetaHistoryAccount } from "@/lib/meta/history-contract";
 import type { MetaRecommendation } from "@/lib/meta/recommendations";
 import type {
   MetaOsAdDecision,
   MetaOsDecisionAction,
+  MetaOsLegacyDecisionAction,
   MetaOsDecisionsPresentation,
   MetaOsStructureNode,
 } from "@/lib/meta/decisions-os-contract";
@@ -39,8 +58,8 @@ const urgency = {
 } as const;
 
 function actionFixture(
-  overrides: Partial<MetaOsDecisionAction> = {},
-): MetaOsDecisionAction {
+  overrides: Partial<MetaOsLegacyDecisionAction> = {},
+): MetaOsLegacyDecisionAction {
   return {
     code: "review_budget",
     label: "Review Campaign Budget",
@@ -188,6 +207,8 @@ interface WorkspaceFixtureInput {
   currency?: string | null;
   providerAccountId?: string | null;
   lastSyncAt?: string | null;
+  commercialAnchor?: MetaCommercialAnchorPanel;
+  budgetEvidence?: MetaBudgetDecisionEvidenceByDirection;
 }
 
 function fullOs(
@@ -236,6 +257,56 @@ function fullOs(
       sourcePreCapCount: creatives.length,
     },
     limitations: [],
+  };
+}
+
+function healthyPipelineHealth() {
+  return {
+    contractVersion: "meta-decision-pipeline-health.v1" as const,
+    evaluatedAt: "2026-08-17T10:00:00.000Z",
+    overall: "healthy" as const,
+    executionReady: true,
+    blockers: [],
+    syncActivity: {
+      status: "fresh" as const,
+      latestAt: "2026-08-17T09:58:00.000Z",
+      ageMinutes: 2,
+      maxAgeMinutes: 60,
+      latestJobStatus: "succeeded",
+      latestRunStatus: "succeeded",
+      reason: null,
+    },
+    warehouse: {
+      status: "fresh" as const,
+      latestFinalizedDate: "2026-08-16",
+      expectedFinalizedDate: "2026-08-16",
+      lagDays: 0,
+      accountTimeZone: "Europe/Istanbul",
+      reason: null,
+    },
+    admission: {
+      status: "fresh" as const,
+      allowed: true,
+      reason: "ready",
+      offender: null,
+      evaluatedAt: "2026-08-17T10:00:00.000Z",
+    },
+    decisionGeneration: {
+      status: "fresh" as const,
+      computedAt: "2026-08-17T09:55:00.000Z",
+      ageHours: 1 / 12,
+      maxAgeHours: 12,
+      engineVersion: "server-engine-v1",
+      reason: null,
+    },
+    manifest: {
+      status: "fresh" as const,
+      authority: "native_ad",
+      jobRunId: "job_1",
+      manifestHash: "a".repeat(64),
+      expectedAdCount: 1,
+      reason: null,
+    },
   };
 }
 
@@ -333,6 +404,13 @@ function workspaceFixture(
       currency: input.currency ?? null,
       killSwitchEngaged: false,
       killSwitchReason: null,
+      pipelineHealth: healthyPipelineHealth(),
+      ...(input.commercialAnchor
+        ? { commercialAnchor: input.commercialAnchor }
+        : {}),
+      ...(input.budgetEvidence
+        ? { budgetEvidence: input.budgetEvidence }
+        : {}),
     },
     viewer: null,
     banners: [],
@@ -1812,6 +1890,48 @@ describe("the served decision source is stated beside the rows, not instead of t
     ).toBe(false);
   });
 
+  it("does not paint a current decision source healthy when live sync admission is blocked", () => {
+    const workspace = grandmixShapedWorkspace();
+    workspace.system.pipelineHealth = {
+      ...healthyPipelineHealth(),
+      overall: "blocked",
+      executionReady: false,
+      blockers: ["sync_admission_blocked"],
+      syncActivity: {
+        ...healthyPipelineHealth().syncActivity,
+        status: "blocked",
+        reason: "New sync work is refused by the growth fence.",
+      },
+      admission: {
+        ...healthyPipelineHealth().admission,
+        status: "blocked",
+        allowed: false,
+        reason: "table_budget_exceeded",
+        offender: {
+          table: "meta_entity_state_history",
+          bytes: 5_368_750_080,
+          budget: 5_368_709_120,
+          overByBytes: 40_960,
+        },
+      },
+    };
+
+    const viewModel = buildMetaDecisionCenterExactViewModel({ workspace });
+
+    expect(viewModel.sourceProvenance?.tone).toBe("negative");
+    expect(viewModel.structureProvenance?.tone).toBe("negative");
+    expect(factValue(viewModel, "source", "pipeline-health")).toBe("blocked");
+    expect(factValue(viewModel, "source", "pipeline-execution-ready")).toBe(
+      "no",
+    );
+    expect(factValue(viewModel, "source", "pipeline-admission-table")).toBe(
+      "meta_entity_state_history",
+    );
+    expect(factValue(viewModel, "source", "pipeline-admission-over")).toBe(
+      "40,960 bytes",
+    );
+  });
+
   /**
    * LAW: a measured zero is a fact and stays 0; an unserved field is an em dash.
    *
@@ -2922,5 +3042,216 @@ describe("the canonical resolution is the served resolution", () => {
         expect(line.trim(), file).toMatch(/^(\*|\/\/|\/\*)/);
       }
     }
+  });
+});
+
+describe("commercial anchor projection (server-owned, client renders only)", () => {
+  /** Projects a REAL resolved profile exactly as the workspace route does. */
+  async function realPanel(input: {
+    targetPack: Parameters<typeof makeAnchorTargetPack>[0];
+    calibration?: ReturnType<typeof makeAccountCalibration>;
+    currency?: string | null;
+  }): Promise<MetaCommercialAnchorPanel> {
+    const profile = await resolveAnchorProfileFixture({
+      targetPack: makeAnchorTargetPack(input.targetPack),
+      calibration: input.calibration,
+    });
+    return projectMetaCommercialAnchorPanel({
+      eligibility: profile.hardActionEligibility,
+      currency: "currency" in input ? (input.currency ?? null) : "TRY",
+      blockers: {
+        ...emptyAuthorityBlockerCounts(),
+        profileHardActionIneligible: 603,
+        campaignContext: 12,
+      },
+    });
+  }
+
+  function anchorFacts(panel: MetaCommercialAnchorPanel | undefined) {
+    const model = buildMetaDecisionCenterExactViewModel({
+      workspace: workspaceFixture({
+        currency: "TRY",
+        ...(panel ? { commercialAnchor: panel } : {}),
+      }),
+    });
+    return model.sourceProvenance?.commercialAnchor ?? [];
+  }
+
+  function byId(facts: ReturnType<typeof anchorFacts>) {
+    return new Map(facts.map((entry) => [entry.id, entry]));
+  }
+
+  it("renders nothing at all when the server sent no panel", () => {
+    expect(anchorFacts(undefined)).toEqual([]);
+  });
+
+  it("renders the real source, confidence and spend unit in the business currency", async () => {
+    const panel = await realPanel({ targetPack: { targetCpa: 400 } });
+    const facts = byId(anchorFacts(panel));
+    expect(facts.get("anchor-status")?.value).toBe("eligible_target_cpa");
+    expect(facts.get("anchor-source")?.value).toBe("target_cpa");
+    expect(facts.get("anchor-confidence")?.value).toBe("high");
+    expect(String(facts.get("anchor-spend-unit")?.value)).toContain("₺");
+    expect(facts.get("anchor-currency")?.value).toBe("TRY");
+  });
+
+  /**
+   * THE REJECTED BEHAVIOUR, pinned at the render boundary: a ready sampled
+   * Meta AOV must never surface as a missing owner anchor.
+   */
+  it("renders a ready sampled Meta AOV as the real source, never anchor missing", async () => {
+    const panel = await realPanel({
+      targetPack: { targetCpa: null, operatorAovAssumption: null },
+      calibration: makeAccountCalibration({
+        metaAttributedAovMean90d: 60,
+        metaAttributedAovPurchaseCount90d: 40,
+        metaAttributedRevenue90d: 2400,
+      }),
+    });
+    const facts = byId(anchorFacts(panel));
+    expect(facts.get("anchor-source")?.value).toBe("meta_derived_aov");
+    expect(facts.get("anchor-status")?.value).toBe("eligible_meta_derived_aov");
+    expect(facts.get("anchor-status")?.value).not.toBe("anchor_missing");
+    expect(String(facts.get("anchor-meta-aov")?.value)).toContain("40");
+    expect(facts.has("anchor-missing-inputs")).toBe(false);
+  });
+
+  it("renders Scale, Cut and Refresh separately with code and operator copy", async () => {
+    const panel = await realPanel({
+      targetPack: { targetCpa: 400, breakEvenRoas: null, targetRoas: null },
+    });
+    const facts = byId(anchorFacts(panel));
+    expect(String(facts.get("anchor-action-cut")?.value)).toContain(
+      "break_even_roas_missing",
+    );
+    expect(String(facts.get("anchor-action-scale")?.value)).toContain(
+      "target_roas_missing",
+    );
+    expect(facts.get("anchor-action-refresh")?.value).toBe("eligible");
+    expect(String(facts.get("anchor-action-cut-copy")?.value)).toContain(
+      "break-even ROAS",
+    );
+    // An eligible action has no next-step row.
+    expect(facts.has("anchor-action-refresh-copy")).toBe(false);
+  });
+
+  it("separates the independent gates from the anchor gate", async () => {
+    const panel = await realPanel({ targetPack: { targetCpa: 400 } });
+    const facts = byId(anchorFacts(panel));
+    // Generic on purpose: `profile_hard_action_ineligible` is a first-blocker
+    // family, so the row must not claim a commercial-threshold cause.
+    expect(facts.get("anchor-withheld-profile-evidence")?.value).toBe("603");
+    expect(facts.has("anchor-withheld-threshold")).toBe(false);
+    expect(facts.get("anchor-withheld-campaign-context")?.value).toBe("12");
+  });
+
+  it("renders an unavailable profile honestly, with no spend unit or eligibility", () => {
+    const facts = byId(
+      anchorFacts(
+        projectMetaCommercialAnchorPanel({
+          eligibility: null,
+          profileReadFailed: true,
+          currency: "TRY",
+          blockers: emptyAuthorityBlockerCounts(),
+        }),
+      ),
+    );
+    expect(facts.get("anchor-status")?.value).toBe("unavailable");
+    expect(facts.get("anchor-unavailable-reason")?.value).toBe(
+      "profile_read_failed",
+    );
+    expect(facts.has("anchor-spend-unit")).toBe(false);
+    expect(facts.has("anchor-action-cut")).toBe(false);
+  });
+
+  it("never fabricates a currency the server did not supply", async () => {
+    const panel = await realPanel({
+      targetPack: { targetCpa: 400 },
+      currency: null,
+    });
+    const facts = byId(anchorFacts(panel));
+    expect(facts.get("anchor-currency")?.value).toBe("account currency");
+  });
+});
+
+/**
+ * D084 Correction 2 — the DIRECTIONAL envelope survives the trip to the view
+ * model, whole.
+ *
+ * It is forwarded rather than flattened into the source-fact list every other
+ * provenance group uses, because flattening separates a blocker code from its
+ * own sentence and would collapse the two directions into one.
+ */
+describe("the exact adapter forwards the budget-evidence directions", () => {
+  const servedEvidence = (): MetaBudgetDecisionEvidenceByDirection => {
+    const build = (direction: "increase" | "decrease") =>
+      projectBudgetDecisionEvidencePanel({
+        verdict: evaluateBudgetDecisionGates(
+          buildWorkspaceBudgetGateInput({
+            direction,
+            originMs: Date.parse("2026-09-01T00:00:00.000Z"),
+            profile: null,
+            profileSourceStatus: "read_failed",
+            profileUnavailableWhy: "the account decision profile read failed",
+            commercialTarget: null,
+            roleResolved: false,
+            providerCompatibilityKnown: false,
+            automationEnabled: false,
+            changeHistory: {
+              readState: "not_attempted",
+              readStateWhy: "no history read",
+              lastChangeAtMs: null,
+              changesForEntityToday: null, changesInAccountToday: null,
+              changesInBusinessToday: null, changesInFleetToday: null,
+              accountChangesToday: null, fleetChangesToday: null,
+              countSemantics: "prospective_including_candidate",
+            },
+            knownBindings: [],
+          }),
+        ),
+      });
+    return {
+      contractVersion: "meta-budget-decision-evidence-directional.v3",
+      directionToAction: { increase: "scale", decrease: "cut" },
+      directionToActionWhy: "an increase is a scale decision and a decrease is a cut decision",
+      directionSelected: null,
+      directionSelectedWhy: "no proposal direction has been selected",
+      increase: build("increase"),
+      decrease: build("decrease"),
+    };
+  };
+
+  it("carries both directions through verbatim, code and sentence together", () => {
+    const evidence = servedEvidence();
+    const model = buildMetaDecisionCenterExactViewModel({
+      workspace: workspaceFixture({ budgetEvidence: evidence }),
+    });
+    expect(model.budgetEvidence).toEqual(evidence);
+    for (const direction of ["increase", "decrease"] as const) {
+      const panel = model.budgetEvidence![direction];
+      const primary = panel.primaryBlocker!;
+      const owning = panel.sections.find((s) => s.blockerCodes.includes(primary.code));
+      expect(owning, `${direction}: ${primary.code} is in no section`).toBeTruthy();
+      expect(owning!.reasons).toContain(primary.reason);
+    }
+  });
+
+  it("keeps the two directions distinguishable rather than merging them", () => {
+    const evidence = servedEvidence();
+    const model = buildMetaDecisionCenterExactViewModel({
+      workspace: workspaceFixture({ budgetEvidence: evidence }),
+    });
+    expect(model.budgetEvidence!.directionSelected).toBeNull();
+    // An increase faces the conversion floor and the binding test; a decrease
+    // faces neither, so their blocker sets must not be identical.
+    const increaseCodes = model.budgetEvidence!.increase.sections.flatMap((s) => s.blockerCodes);
+    const decreaseCodes = model.budgetEvidence!.decrease.sections.flatMap((s) => s.blockerCodes);
+    expect(increaseCodes).toContain("evidence_conversions_below_increase_floor");
+    expect(decreaseCodes).not.toContain("evidence_conversions_below_increase_floor");
+  });
+
+  it("passes null when the server sent nothing, never an empty clear panel", () => {
+    const model = buildMetaDecisionCenterExactViewModel({ workspace: workspaceFixture({}) });
+    expect(model.budgetEvidence).toBeNull();
   });
 });

@@ -89,7 +89,12 @@ export interface BriefingCtrFunnel {
 }
 
 export type BriefingWatchingSubBucket =
-  "near_action" | "test_maturing" | "diagnostic" | "waiting_on_labels";
+  | "near_action"
+  | "test_maturing"
+  | "diagnostic"
+  | "waiting_on_role_resolution"
+  /** @deprecated pre-D074b alias; parse-only for older payloads. */
+  | "waiting_on_labels";
 
 export interface BriefingLaneSummary {
   actionNow: number;
@@ -165,6 +170,20 @@ export interface BriefingCanonicalNativeAdDecision {
     authorizedAction: "scale" | "cut" | "refresh" | null;
     actionEligible: boolean;
     reviewOnlyReason: string | null;
+    executionReadiness?:
+      | "decision_not_authorized"
+      | "stale_decision"
+      | "engine_version_drift"
+      | "kill_switched"
+      | "governance_unavailable"
+      | "source_pipeline_unready"
+      | "live_preflight_required";
+    decisionFreshness?: {
+      status: "fresh" | "stale" | "future" | "unavailable";
+      computedAt: string | null;
+      ageHours: number | null;
+      maxAgeHours: number;
+    };
   };
 }
 
@@ -294,6 +313,9 @@ export interface BriefingCreativeCard {
   limitedReason?: string | null;
   campaignKind?: MetaCampaignKind | null;
   campaignTestDimension?: MetaCampaignTestDimension | null;
+  /** Canonical automatic role-resolution status (D074b). */
+  campaignRoleStatus?: "resolved" | "unresolved" | "no_campaign" | null;
+  /** @deprecated pre-D074b alias; parse-only for older payloads. */
   campaignLabelStatus?: "labeled" | "unlabeled" | "no_campaign" | null;
   blockedActionType?: DecisionLabel | string | null;
   labelTransform?: DecisionLabelTransform | null;

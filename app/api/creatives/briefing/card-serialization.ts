@@ -8,6 +8,10 @@ import {
 import type { DecisionBacktestSummary } from "@/lib/creative-decision-engine/backtest";
 import { creativeAutomationReadiness } from "@/lib/creative-decision-engine/automation-readiness";
 import {
+  isCampaignRoleUnresolved,
+  resolveCampaignRoleStatus,
+} from "@/lib/creative-decision-engine/campaign-label-guard";
+import {
   BRIEFING_PRIORITY_SCORE_ACTION_WEIGHTS,
   BRIEFING_PRIORITY_SCORE_BANDS,
   BRIEFING_PRIORITY_SCORE_SEVERITY_WEIGHTS,
@@ -34,8 +38,11 @@ function badgeLabels(badges: DecisionBadge[]) {
     if (badge.type === "below_breakeven") return ["below_breakeven"];
     if (badge.type === "fatigue_watch" || badge.type === "fatigue_fatigued")
       return ["fatigue"];
-    if (badge.type === "unlabeled_campaign_context")
-      return ["unlabeled_campaign_context"];
+    if (
+      badge.type === "campaign_context_unresolved" ||
+      badge.type === "unlabeled_campaign_context"
+    )
+      return ["campaign_context_unresolved"];
     if (badge.type === "scale_readiness_blocked")
       return ["scale_readiness_blocked"];
     if (badge.type === "scale_calibration_thin")
@@ -60,23 +67,28 @@ function primaryActionForDecision(decision: DecisionOutput): {
   if (
     decision.label === "diagnose" &&
     decision.blockedActionType === "cut" &&
-    (decision.campaignLabelStatus === "unlabeled" ||
-      decision.campaignLabelStatus === "no_campaign")
+    isCampaignRoleUnresolved(decision)
   ) {
     return { kind: "review", label: "Cut review" };
   }
   if (decision.label === "cut") return { kind: "cut", label: "Cut" };
   if (decision.label === "scale") {
-    if (decision.campaignKind === "test") {
+    // D074b correction: kind-conditional CTAs require the canonical resolved
+    // automatic-role status, not just a campaignKind value. A kind carried by
+    // a legacy or contradictory payload has no automatic-role provenance.
+    const roleResolved = resolveCampaignRoleStatus(decision) === "resolved";
+    if (roleResolved && decision.campaignKind === "test") {
       return { kind: "promote", label: "Promote to main" };
     }
-    if (decision.campaignKind === "main") {
+    if (roleResolved && decision.campaignKind === "main") {
       return { kind: "scale_budget", label: "Scale budget" };
     }
-    if (decision.campaignKind === "mixed") {
+    if (roleResolved && decision.campaignKind === "mixed") {
       return { kind: "controlled_scale", label: "Review structure & scale" };
     }
-    return { kind: "review", label: "Label campaign before scaling" };
+    // D074b: never ask for a label. The role is inferred automatically; the
+    // honest ask is fresher evidence for the resolver.
+    return { kind: "review", label: "Resolve campaign role before scaling" };
   }
   if (decision.label === "refresh")
     return { kind: "fresh_test", label: "Launch fresh test" };
@@ -122,23 +134,49 @@ function blockedHardActionReview(decision: DecisionOutput) {
   return { kind: "review", label: "Open evidence" };
 }
 
+/**
+ * D074b acceptance corrections 2+3: a Decision Center compatibility row is
+ * PROVENANCE, not authority — and a resolved role only says what KIND of
+ * campaign this is; it does not prove the row is the current decision.
+ * The row's scale execution action may shape the current card primary only
+ * when ALL of the following hold:
+ *  - the current decision itself is an unblocked Scale verdict (no held
+ *    action, no authority blocker);
+ *  - the canonical automatic role is resolved and the action agrees with
+ *    the kind (test -> promote_to_main, main -> scale_budget, mixed ->
+ *    controlled_scale);
+ *  - the decision-derived current primary maps to the EXACT same CTA.
+ * Any disagreement — a current keep/diagnose/cut/refresh/test_more, a
+ * held or blocked state, a missing/legacy/contradictory role, a
+ * kind-mismatched action — leaves the current decision's own primary
+ * standing and the row as inert provenance.
+ */
 function primaryActionForDecisionCenterRow(
   row: DecisionCenterRowForCard | null | undefined,
+  decision: DecisionOutput,
 ): {
   kind: string;
   label: string;
 } | null {
   if (row?.buyerAction !== "scale") return null;
-  if (row.executionAction === "promote_to_main") {
-    return { kind: "promote", label: "Promote to main" };
-  }
-  if (row.executionAction === "scale_budget") {
-    return { kind: "scale_budget", label: "Scale budget" };
-  }
-  if (row.executionAction === "controlled_scale") {
-    return { kind: "controlled_scale", label: "Review structure & scale" };
-  }
-  return null;
+  if (decision.label !== "scale") return null;
+  if (decision.blockedActionType != null) return null;
+  if (decision.authorityBlocker != null) return null;
+  if (resolveCampaignRoleStatus(decision) !== "resolved") return null;
+  const kind = decision.campaignKind ?? null;
+  const rowMapped =
+    row.executionAction === "promote_to_main" && kind === "test"
+      ? { kind: "promote", label: "Promote to main" }
+      : row.executionAction === "scale_budget" && kind === "main"
+        ? { kind: "scale_budget", label: "Scale budget" }
+        : row.executionAction === "controlled_scale" && kind === "mixed"
+          ? { kind: "controlled_scale", label: "Review structure & scale" }
+          : null;
+  if (!rowMapped) return null;
+  // Current-decision agreement: the row may only CONFIRM the current
+  // server-derived primary, never replace it.
+  const current = primaryActionForDecision(decision);
+  return current.kind === rowMapped.kind ? rowMapped : null;
 }
 
 export function safeNumber(value: number | null | undefined) {
@@ -249,12 +287,8 @@ export function deriveWatchingSubBucket(
   decision: DecisionOutput,
 ): BriefingWatchingSubBucket | null {
   const badgeTypes = new Set(decision.badges.map((badge) => badge.type));
-  if (
-    (decision.campaignLabelStatus === "unlabeled" ||
-      decision.campaignLabelStatus === "no_campaign") &&
-    decision.blockedActionType
-  ) {
-    return "waiting_on_labels";
+  if (isCampaignRoleUnresolved(decision) && decision.blockedActionType) {
+    return "waiting_on_role_resolution";
   }
   if (
     decision.label === "diagnose" ||
@@ -629,12 +663,15 @@ export function cardForDecision(input: {
     },
     primary: hardActionAuthorityBlocked(decision)
       ? blockedHardActionReview(decision)
-      : primaryActionForDecisionCenterRow(decisionCenterRow) ??
+      : primaryActionForDecisionCenterRow(decisionCenterRow, decision) ??
         primaryActionForDecision(decision),
     automationReadiness: creativeAutomationReadiness({
       decision,
       backtestSummary: input.backtestSummary ?? null,
     }),
+    // The row is retained verbatim as provenance/evidence (drawer, dual-write
+    // continuity). Its current-action fields carry NO authority: every active
+    // consumer recomputes against the resolved-role gate above.
     ...(decisionCenterRow ? { decisionCenterRow } : {}),
     assessment,
     status: creativeInput?.effectiveStatus ?? row?.effective_status ?? null,
@@ -646,9 +683,17 @@ export function cardForDecision(input: {
     reviewStatus: creativeInput?.reviewStatus ?? null,
     disapprovalReason: creativeInput?.disapprovalReason ?? null,
     limitedReason: creativeInput?.limitedReason ?? null,
-    campaignKind: decision.campaignKind ?? null,
-    campaignTestDimension: decision.campaignTestDimension ?? null,
-    campaignLabelStatus: decision.campaignLabelStatus ?? null,
+    // D074b correction: a kind is served only under canonical resolved
+    // status; anything weaker serializes as role-unresolved with no kind.
+    campaignKind:
+      resolveCampaignRoleStatus(decision) === "resolved"
+        ? (decision.campaignKind ?? null)
+        : null,
+    campaignTestDimension:
+      resolveCampaignRoleStatus(decision) === "resolved"
+        ? (decision.campaignTestDimension ?? null)
+        : null,
+    campaignRoleStatus: resolveCampaignRoleStatus(decision),
     blockedActionType: decision.blockedActionType ?? null,
     labelTransform: decision.labelTransform ?? null,
     engineVersion: decision.engineVersion ?? null,

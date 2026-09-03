@@ -1,0 +1,279 @@
+{
+  "receiptKind": "authenticated_decision_center",
+  "correction": "D084 Correction 5",
+  "finalUrl": "http://localhost:3000/platforms/meta?businessId=f8a3b5ac-588c-462f-8702-11cd24ff3cd2&providerAccountId=act_1087566732415606&window=7d&startDate=2026-08-25&endDate=2026-08-31",
+  "urlScheme": "http",
+  "businessId": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+  "businessName": "IwaStore",
+  "providerAccountId": "act_1087566732415606",
+  "authenticatedAs": "the operator's existing signed-in local Chrome session; no credential was entered, minted, stored or read by the audit",
+  "dataSource": "real workspace payload from GET /api/meta/decisions-workspace (HTTP 200), real production data",
+  "servedContractVersions": {
+    "directional": "meta-budget-decision-evidence-directional.v3",
+    "panel": "meta-budget-decision-evidence-panel.v4",
+    "gate": "meta.budget-decision-gates.v3",
+    "workspaceAdapter": "meta-budget-decision-workspace-adapter.v4",
+    "profileSourceStatus": "resolved"
+  },
+  "directionToActionFromServer": {
+    "increase": "scale",
+    "decrease": "cut"
+  },
+  "measurementMethod": "same-origin iframe sized to the exact viewport inside the signed-in tab; the signed-in Chrome tab itself cannot be resized (resize_window is a no-op on it), and the iframe keeps the session intact",
+  "screenshot": "playwright/.evidence/d084-authenticated/authenticated-mobile-390.png",
+  "screenshotStatus": "persisted",
+  "screenshotSha256": "2bc519c84a8a0b0066dc306b3dbdcbd42b13796240b70966ba659c3e0a01a527",
+  "screenshotDimensions": {
+    "width": 390,
+    "height": 844
+  },
+  "screenshotCaptureMethod": "independent post-correction capture from the operator's existing signed-in top-level Chrome tab at an exact 390x844 browser viewport; the main Decision Center scroller was moved through the UI to expose the real mobile projection; no cookie, token or stored credential was read or copied",
+  "supplementalScreenshots": [
+    {
+      "purpose": "the separately stacked decrease/cut direction on the same real mobile projection",
+      "path": "playwright/.evidence/d084-authenticated/authenticated-mobile-390-decrease.png",
+      "sha256": "dc09ca8f080e9e14067bf304a7b7b07193028737485584ba0db5ade39f6b54e9",
+      "dimensions": {
+        "width": 390,
+        "height": 844
+      }
+    }
+  ],
+  "requestAudit": {
+    "intervalScope": "the instrumented same-origin iframe, across one full page lifecycle at 1440x900 and 390x844",
+    "totalRequestsObserved": 67,
+    "methodsObserved": {
+      "GET": 67
+    },
+    "mutatingApplicationRequests": 0,
+    "mutatingProviderRequests": 0,
+    "byMethodUrlClassStatus": [
+      {
+        "method": "GET",
+        "urlClass": "next_static",
+        "status": 200,
+        "count": 51
+      },
+      {
+        "method": "GET",
+        "urlClass": "app_api:/api/triage/state",
+        "status": 200,
+        "count": 2
+      },
+      {
+        "method": "GET",
+        "urlClass": "app_document:/platforms/meta",
+        "status": 200,
+        "count": 1
+      },
+      {
+        "method": "GET",
+        "urlClass": "app_api:/api/auth/me",
+        "status": 200,
+        "count": 1
+      },
+      {
+        "method": "GET",
+        "urlClass": "app_api:/api/notifications",
+        "status": 200,
+        "count": 1
+      },
+      {
+        "method": "GET",
+        "urlClass": "app_api:/api/oauth/shopify/pending",
+        "status": 200,
+        "count": 1
+      },
+      {
+        "method": "GET",
+        "urlClass": "app_api:/api/billing",
+        "status": 200,
+        "count": 1
+      },
+      {
+        "method": "GET",
+        "urlClass": "app_api:/api/integrations",
+        "status": 200,
+        "count": 1
+      },
+      {
+        "method": "GET",
+        "urlClass": "app_api:/api/meta/history/accounts",
+        "status": 0,
+        "count": 1
+      },
+      {
+        "method": "GET",
+        "urlClass": "app_api:/api/meta/history/accounts",
+        "status": 200,
+        "count": 1
+      },
+      {
+        "method": "GET",
+        "urlClass": "app_api:/api/meta/decisions-workspace",
+        "status": 200,
+        "count": 1
+      },
+      {
+        "method": "GET",
+        "urlClass": "app_api:/api/meta/anomalies",
+        "status": 200,
+        "count": 1
+      },
+      {
+        "method": "GET",
+        "urlClass": "app_api:/api/meta/ads/series",
+        "status": 200,
+        "count": 1
+      },
+      {
+        "method": "GET",
+        "urlClass": "app_document:/adsecute-mark.svg",
+        "status": 200,
+        "count": 1
+      },
+      {
+        "method": "GET",
+        "urlClass": "app_document:/platform-logos/Meta.png",
+        "status": 200,
+        "count": 1
+      },
+      {
+        "method": "GET",
+        "urlClass": "app_document:/platform-logos/googleAds.svg",
+        "status": 200,
+        "count": 1
+      }
+    ],
+    "sanitization": "URL CLASSES only: origin-relative pathnames, with every query string, header, cookie and token removed before recording. No credential, connection string or secret value is stored in this receipt.",
+    "statusZeroNote": "one /api/meta/history/accounts entry reports status 0: a request the renderer superseded before a response was attributed. It is a GET either way; the retry that followed returned 200.",
+    "note": "every observed request was a GET. No POST/PUT/PATCH/DELETE reached the application or any provider, and no DB, application or provider write was performed. The decisions-workspace read chain contains zero INSERT/UPDATE/DELETE statements.",
+    "productionTunnelWarning": "the local .env.local DATABASE_URL resolves to 127.0.0.1:15432, an SSH tunnel to PRODUCTION. Only read-only GET paths were exercised."
+  },
+  "surface": "BudgetDecisionEvidencePanel projected into MetaMobileDecisionsScreen's .meta-mobile-decision-stage on the real route",
+  "requestedViewport": {
+    "width": 390,
+    "height": 844
+  },
+  "measuredViewport": {
+    "innerWidth": 390,
+    "innerHeight": 844
+  },
+  "gridTemplateColumns": "276px",
+  "resolvedTracks": [
+    "276px"
+  ],
+  "occupiedColumnCount": 1,
+  "panelsTotalInDom": 4,
+  "panelsVisible": 2,
+  "visibleInMobileStage": 2,
+  "desktopMountHiddenAtMobile": true,
+  "desktopMountBoxes": [
+    {
+      "direction": "increase",
+      "width": 0,
+      "height": 0
+    },
+    {
+      "direction": "decrease",
+      "width": 0,
+      "height": 0
+    }
+  ],
+  "increase": {
+    "x": 52,
+    "y": 60,
+    "width": 276,
+    "height": 1773
+  },
+  "decrease": {
+    "x": 52,
+    "y": 1853,
+    "width": 276,
+    "height": 1679
+  },
+  "sideBySide": false,
+  "stacked": true,
+  "overlap": false,
+  "bothVisible": true,
+  "horizontalOverflow": {
+    "scrollWidth": 390,
+    "clientWidth": 390,
+    "overflows": false
+  },
+  "contentClipped": false,
+  "budgetPanelCtaCount": 2,
+  "budgetPanelCtaAllDisabled": true,
+  "budgetPanelCtaLabels": [
+    "Not executable",
+    "Not executable"
+  ],
+  "mobileStageOtherControls": [
+    {
+      "label": "Anomaly: Sudden ROAS drop detected",
+      "write": false
+    },
+    {
+      "label": "Campaigns & Ad sets 0",
+      "write": false
+    },
+    {
+      "label": "Creatives 52",
+      "write": false
+    },
+    {
+      "label": "Action 0",
+      "write": false
+    },
+    {
+      "label": "Needs Resolution 0",
+      "write": false
+    },
+    {
+      "label": "Watching 0",
+      "write": false
+    },
+    {
+      "label": "Healthy 0",
+      "write": false
+    },
+    {
+      "label": "Non-sales 0",
+      "write": false
+    },
+    {
+      "label": "Archive 1006",
+      "write": false
+    }
+  ],
+  "enabledWriteControls": 0,
+  "canonical": {
+    "increase": {
+      "action": "scale",
+      "availabilityStatus": "resolved",
+      "availabilityText": "The canonical profile reports scale eligible.",
+      "code": "Canonical code: none",
+      "eligible": "Canonical eligibility: true",
+      "contract": "Profile contract: adsecute.account-decision-profile.v1 · source: resolved",
+      "explanationChars": 988,
+      "execution": "not_executable"
+    },
+    "decrease": {
+      "action": "cut",
+      "availabilityStatus": "resolved",
+      "availabilityText": "The canonical profile reports cut eligible.",
+      "code": "Canonical code: none",
+      "eligible": "Canonical eligibility: true",
+      "contract": "Profile contract: adsecute.account-decision-profile.v1 · source: resolved",
+      "explanationChars": 988,
+      "execution": "not_executable"
+    }
+  },
+  "sameServerObjectAsDesktop": "the mobile stage renders the identical component from the identical `viewModel.budgetEvidence` expression the desktop mount uses; contract versions, direction-to-action mapping and every canonical field match the desktop receipt exactly",
+  "supersedes": {
+    "verdict": "NOT_DETERMINABLE",
+    "why": "r5 measured both direction panels at 0x0 because app/globals.css:1588 hides every sibling of .meta-mobile-decision-stage below 720px and the panel was mounted only in the hidden desktop subtree"
+  },
+  "verdict": "PASS",
+  "verdictWhy": "both directions visible, one-column stacked, nonzero, no overlap, no horizontal overflow, content unclipped, every canonical field present, both CTAs disabled, zero enabled write controls — on the real authenticated route at an exact 390x844"
+}

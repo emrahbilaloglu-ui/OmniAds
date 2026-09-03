@@ -68,6 +68,64 @@ certificates
 /docs/creative-decision-center/generated/h1-country-parent-challenger-*.json
 /docs/creative-decision-center/generated/h11-campaign-context-challenger-*.json
 /docs/creative-decision-center/generated/h12-decision-hysteresis-challenger-*.json
+# PRE-DEPLOY AUDIT 2026-09-03, CORRECTED 2026-09-03: the same class as above —
+# with one entry removed, because the claim that justified it was false.
+#
+# The removed pattern was
+# `/docs/creative-decision-center/generated/h11b-context-lifecycle-bundle-*.json`,
+# excused as "generator OUTPUT that no test reads from disk". It is read from
+# disk, by exact path AND by pinned SHA-256, at
+# `scripts/audits/d082-meta-role-provenance-replay.ts:99`
+# (`D082_PINNED_INPUTS.h11bBundlePath`). Ignoring it made D082 pass only
+# because the file happened to be sitting in this working tree: a clean
+# checkout has no such file, and D082 would refuse on a missing pinned input.
+# It is therefore tracked, and
+# `scripts/audits/d082-clean-checkout-inventory.test.ts` now proves every D082
+# pinned input survives a clean-checkout-equivalent inventory, so no future
+# ignore rule can silently take one away again.
+#
+# The two below were re-checked the same way and are genuinely unread:
+# the h11 regression path is the challenger's own `JSON_OUT`
+# (`h11-campaign-context-challenger.ts:58`) and nothing reads it back, and the
+# account-scoped shadow file has no reader anywhere in app/, components/, lib/
+# or scripts/.
+/docs/creative-decision-center/generated/h11-campaign-context-v2-posthoc-regression-*.json
+/docs/creative-decision-center/generated/automatic-campaign-context-shadow-account-scoped-*.json
+
+# Local prompt/correction files written beside the repo by the coding agents.
+# They are working notes, never part of a release.
+.codex-tmp-*
+
+# PRE-DEPLOY AUDIT 2026-09-03 — generated audit evidence that NO test opens.
+#
+# Almost all of docs/audits/generated/ is deliberately COMMITTED: those
+# artifacts are hash-pinned and read from disk by the D077-D086 acceptance
+# tests, so excluding them turns the suite red. The set was resolved by
+# following the test import closure, not by grepping basenames — several are
+# reached through an exported constant (`PIT_REPLAY_JSON_OUT`, `D084_JSON_OUT`)
+# or through a pinned-predecessor table the test iterates and `readFileSync`s
+# (`D084_SUPERSEDES.priorChain`), so a basename grep says "unused" about files
+# the suite hard-requires.
+#
+# These two are what is left: a shell transcript and a screenshot directory,
+# both run output that no test opens and that re-running regenerates.
+/docs/audits/generated/*.log
+# PRE-DEPLOY AUDIT 2026-09-03, CORRECTED: except the canonical whole-shell
+# captures. `lib/meta/__tests__/d077-artifact-hash-contract.test.ts` opens the
+# retained log by the path the ledger pins and refuses when it is missing
+# ("the portable whole-shell log is MISSING at … — fail-closed"), and the
+# release-candidate manifest pins it too. The blanket rule above excluded BOTH
+# the 2026-08-30 and the 2026-09-03 capture, so D077 could not have been
+# reproduced from a clean checkout — the same defect class as the H11b bundle,
+# found the same way: a claim that "no test opens it" that nobody checked
+# against the readers.
+!/docs/audits/generated/d077-canonical-database-seams-whole-shell-*.log
+/docs/audits/generated/d078-local-ui-screenshots/
+
+# Playwright evidence: the AUTHENTICATED receipts are read at module scope by
+# scripts/audits/d084-evidence-receipts.test.ts and therefore stay tracked. The
+# static-harness directory beside it is `existsSync`-guarded and is run output.
+playwright/.evidence/d084-budget-evidence/
 
 # Transient Playwright smoke output. Kept evidence lives in dated subdirectories
 # (e.g. playwright-smoke-artifacts/<name>-<date>/), which stay tracked; these two

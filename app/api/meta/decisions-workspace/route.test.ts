@@ -38,8 +38,16 @@ const assignmentsMock = vi.hoisted(() => ({
 }));
 const readModelMock = vi.hoisted(() => ({
   buildUnavailableMetaDecisionsWorkspaceReadModel: vi.fn(),
+  applyMetaExecutionGovernanceToReadModel: vi.fn(),
   readMetaDecisionCampaignContextRows: vi.fn(),
   readMetaDecisionsWorkspaceReadModel: vi.fn(),
+}));
+const governanceMock = vi.hoisted(() => ({
+  readEffectiveMetaWriteGovernance: vi.fn(),
+}));
+const pipelineHealthMock = vi.hoisted(() => ({
+  readMetaDecisionPipelineOperationalHealth: vi.fn(),
+  buildMetaDecisionPipelineHealth: vi.fn(),
 }));
 const metaApiMock = vi.hoisted(() => ({
   resolveMetaCredentials: vi.fn(),
@@ -101,10 +109,24 @@ vi.mock("@/lib/meta/decisions-workspace-read-model", () => ({
   resolveProvisionalCampaignKind: vi.fn(() => "main"),
   buildUnavailableMetaDecisionsWorkspaceReadModel:
     readModelMock.buildUnavailableMetaDecisionsWorkspaceReadModel,
+  applyMetaExecutionGovernanceToReadModel:
+    readModelMock.applyMetaExecutionGovernanceToReadModel,
   readMetaDecisionCampaignContextRows:
     readModelMock.readMetaDecisionCampaignContextRows,
   readMetaDecisionsWorkspaceReadModel:
     readModelMock.readMetaDecisionsWorkspaceReadModel,
+}));
+
+vi.mock("@/lib/meta/automation-control-plane", () => ({
+  readEffectiveMetaWriteGovernance:
+    governanceMock.readEffectiveMetaWriteGovernance,
+}));
+
+vi.mock("@/lib/meta/decision-pipeline-health", () => ({
+  readMetaDecisionPipelineOperationalHealth:
+    pipelineHealthMock.readMetaDecisionPipelineOperationalHealth,
+  buildMetaDecisionPipelineHealth:
+    pipelineHealthMock.buildMetaDecisionPipelineHealth,
 }));
 
 vi.mock("@/lib/meta/commercial-targets", () => ({
@@ -117,6 +139,56 @@ function jsonResponse(payload: unknown, status = 200) {
     status,
     headers: { "Content-Type": "application/json" },
   });
+}
+
+function healthyPipelineHealth() {
+  return {
+    contractVersion: "meta-decision-pipeline-health.v1" as const,
+    evaluatedAt: "2026-07-07T12:00:00.000Z",
+    overall: "healthy" as const,
+    executionReady: true,
+    blockers: [],
+    syncActivity: {
+      status: "fresh" as const,
+      latestAt: "2026-07-07T11:55:00.000Z",
+      ageMinutes: 5,
+      maxAgeMinutes: 60,
+      latestJobStatus: "succeeded",
+      latestRunStatus: "succeeded",
+      reason: null,
+    },
+    warehouse: {
+      status: "fresh" as const,
+      latestFinalizedDate: "2026-07-06",
+      expectedFinalizedDate: "2026-07-06",
+      lagDays: 0,
+      accountTimeZone: "Europe/Istanbul",
+      reason: null,
+    },
+    admission: {
+      status: "fresh" as const,
+      allowed: true,
+      reason: "ready",
+      offender: null,
+      evaluatedAt: "2026-07-07T12:00:00.000Z",
+    },
+    decisionGeneration: {
+      status: "fresh" as const,
+      computedAt: "2026-07-07T11:50:00.000Z",
+      ageHours: 1 / 6,
+      maxAgeHours: 12,
+      engineVersion: "v3-ad-current",
+      reason: null,
+    },
+    manifest: {
+      status: "fresh" as const,
+      authority: "native_ad",
+      jobRunId: "job_1",
+      manifestHash: "a".repeat(64),
+      expectedAdCount: 1,
+      reason: null,
+    },
+  };
 }
 
 function stubWorkspaceHttpUpstreams() {
@@ -224,6 +296,39 @@ describe("GET /api/meta/decisions-workspace", () => {
       scope: { businessId: "biz_1", providerAccountId: "act_1" },
     });
     readModelMock.readMetaDecisionCampaignContextRows.mockResolvedValue([]);
+    readModelMock.applyMetaExecutionGovernanceToReadModel.mockImplementation(
+      (input: { model: unknown }) => input.model,
+    );
+    pipelineHealthMock.readMetaDecisionPipelineOperationalHealth.mockResolvedValue(
+      healthyPipelineHealth(),
+    );
+    pipelineHealthMock.buildMetaDecisionPipelineHealth.mockReturnValue(
+      healthyPipelineHealth(),
+    );
+    governanceMock.readEffectiveMetaWriteGovernance.mockImplementation(
+      async () => {
+        const globallyKilled = ["1", "true"].includes(
+          process.env.META_ADS_WRITE_KILL_SWITCH?.trim().toLowerCase() ?? "",
+        );
+        return globallyKilled
+          ? {
+              verified: true,
+              controlsConfigured: false,
+              writeBlocked: true,
+              blockReason: "META_ADS_WRITE_KILL_SWITCH",
+              killSwitchEngaged: true,
+              killSwitchReason: "META_ADS_WRITE_KILL_SWITCH",
+            }
+          : {
+              verified: true,
+              controlsConfigured: true,
+              writeBlocked: false,
+              blockReason: null,
+              killSwitchEngaged: false,
+              killSwitchReason: null,
+            };
+      },
+    );
     commercialTargetsMock.readMetaCommercialTargets.mockResolvedValue({
       source: "none",
       targetRoas: null,
@@ -453,8 +558,10 @@ describe("GET /api/meta/decisions-workspace", () => {
       providerAccountId: "act_1",
       adCandidateLimit: 120,
       asOfDate: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+      generatedAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/),
       currentAds: [],
       currentAdSourceComplete: false,
+      adIds: undefined,
     });
     expect(payload.decisionReadModel).toMatchObject({
       status: "available",
@@ -522,6 +629,11 @@ describe("GET /api/meta/decisions-workspace", () => {
         confidenceClass: "unknown",
         sourceUpdatedAt: "2026-07-13T04:00:00.000Z",
         resolverVersion: "campaign-context-resolver.v1",
+        confidenceScore: 0.34,
+        evidence: ["signal volume below threshold"],
+        conflictReasons: [],
+        unresolvedReason: "insufficient_evidence",
+        lastEvaluatedAt: "2026-07-13T04:00:00.000Z",
       },
     ]);
     vi.stubGlobal(
@@ -568,6 +680,19 @@ describe("GET /api/meta/decisions-workspace", () => {
       decisionAvailability: "pending_native_evidence",
       action: { code: "await_ad_grain_evidence", providerMutation: null },
     });
+    // D074/D076: the resolver's explanation travels verbatim, and its null
+    // kind stays null even though the display role above is provisionally
+    // "main" — the two are separate claims and must stay distinguishable.
+    expect(payload.os.ads.items[0].campaignRoleExplanation).toEqual({
+      kind: null,
+      confidenceClass: "unknown",
+      confidenceScore: 0.34,
+      evidence: ["signal volume below threshold"],
+      conflictReasons: [],
+      unresolvedReason: "insufficient_evidence",
+      lastEvaluatedAt: "2026-07-13T04:00:00.000Z",
+      resolverVersion: "campaign-context-resolver.v1",
+    });
     expect(
       readModelMock.readMetaDecisionCampaignContextRows,
     ).toHaveBeenCalledWith({
@@ -575,6 +700,74 @@ describe("GET /api/meta/decisions-workspace", () => {
       providerAccountId: "act_1",
       campaignIds: ["cmp_1"],
       snapshotAsOf: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+    });
+  });
+
+  it("explains a campaign the resolver has never evaluated as not yet evaluated", async () => {
+    assignmentsMock.getProviderAccountAssignments.mockResolvedValue({
+      id: "assignment_1",
+      business_id: "biz_1",
+      provider: "meta",
+      account_ids: ["act_1"],
+      created_at: "2026-07-01T00:00:00.000Z",
+      updated_at: "2026-07-01T00:00:00.000Z",
+    });
+    metaApiMock.resolveMetaCredentials.mockResolvedValue({
+      businessId: "biz_1",
+      accessToken: "test-token",
+      accountIds: ["act_1"],
+      currency: "USD",
+      accountProfiles: {},
+    });
+    metaApiMock.fetchMetaActiveAdConfigsReceipt.mockResolvedValue({
+      complete: true,
+      termination: "natural_end",
+      rows: [
+        {
+          id: "120000000000000001",
+          name: "Current active Ad",
+          campaign_id: "cmp_1",
+          campaign: { id: "cmp_1", name: "Main Winners" },
+          adset_id: "adset_1",
+          creative: { id: "creative_1" },
+          status: "ACTIVE",
+          effective_status: "ACTIVE",
+          updated_time: "2026-07-13T08:00:00.000Z",
+        },
+      ],
+    });
+    // No context row was persisted for cmp_1 at all.
+    readModelMock.readMetaDecisionCampaignContextRows.mockResolvedValue([]);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string | URL | Request) => {
+        const pathname = new URL(String(url)).pathname;
+        if (pathname === "/api/meta/account-pulse")
+          return jsonResponse(metaPulse());
+        if (pathname === "/api/meta/lane-classify")
+          return jsonResponse(metaLanePayload());
+        return jsonResponse({ error: "unexpected" }, 404);
+      }),
+    );
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/meta/decisions-workspace?businessId=biz_1&providerAccountId=act_1",
+      ),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.os.ads.items).toHaveLength(1);
+    expect(payload.os.ads.items[0].campaignRoleExplanation).toEqual({
+      kind: null,
+      confidenceClass: "unknown",
+      confidenceScore: null,
+      evidence: [],
+      conflictReasons: [],
+      unresolvedReason: "not_yet_evaluated",
+      lastEvaluatedAt: null,
+      resolverVersion: null,
     });
   });
 
@@ -989,7 +1182,7 @@ describe("GET /api/meta/decisions-workspace", () => {
     expect(payload.pulse.roasHistory).toEqual([3.9, 4.05, 4.26]);
     expect(Object.keys(payload.pulse).sort()).toEqual(
       [
-        "labelCoverage",
+        "campaignRoleCoverage",
         "lastSyncAt",
         "operatingMode",
         "pacing",
@@ -1111,6 +1304,121 @@ describe("GET /api/meta/decisions-workspace", () => {
         (group: { key: string }) => group.key === "action",
       ).count,
     ).toBe(0);
+  });
+
+  it("keeps decisions readable while missing business controls block every write", async () => {
+    governanceMock.readEffectiveMetaWriteGovernance.mockResolvedValue({
+      verified: true,
+      controlsConfigured: false,
+      writeBlocked: true,
+      blockReason: "business_control_not_configured",
+      killSwitchEngaged: false,
+      killSwitchReason: null,
+    });
+    stubWorkspaceHttpUpstreams();
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/meta/decisions-workspace?businessId=biz_1",
+      ),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.decisionReadModel.status).toBe("unavailable");
+    expect(payload.system).toMatchObject({
+      killSwitchEngaged: false,
+      governanceVerified: true,
+      businessControlsConfigured: false,
+      executionGovernanceState: "unavailable",
+      executionGovernanceReason: "business_control_not_configured",
+    });
+    expect(payload.banners).toContainEqual(
+      expect.objectContaining({
+        id: "meta_execution_governance_unavailable",
+        blocking: true,
+      }),
+    );
+  });
+
+  it("serves live pipeline blockage as a blocking banner and withholds execution readiness", async () => {
+    const blocked = {
+      ...healthyPipelineHealth(),
+      overall: "blocked" as const,
+      executionReady: false,
+      blockers: ["sync_admission_blocked"],
+      syncActivity: {
+        ...healthyPipelineHealth().syncActivity,
+        status: "blocked" as const,
+        reason: "New sync work is refused by the growth fence.",
+      },
+      admission: {
+        ...healthyPipelineHealth().admission,
+        status: "blocked" as const,
+        allowed: false,
+        reason: "table_budget_exceeded",
+        offender: {
+          table: "meta_entity_state_history",
+          bytes: 5_368_750_080,
+          budget: 5_368_709_120,
+          overByBytes: 40_960,
+        },
+      },
+    };
+    pipelineHealthMock.buildMetaDecisionPipelineHealth.mockReturnValue(blocked);
+    assignmentsMock.getProviderAccountAssignments.mockResolvedValue({
+      id: "assignment_1",
+      business_id: "biz_1",
+      provider: "meta",
+      account_ids: ["act_1"],
+      created_at: "2026-07-01T00:00:00.000Z",
+      updated_at: "2026-07-01T00:00:00.000Z",
+    });
+    metaApiMock.resolveMetaCredentials.mockResolvedValue({
+      businessId: "biz_1",
+      accessToken: "test-token",
+      accountIds: ["act_1"],
+      currency: "USD",
+      accountProfiles: {},
+    });
+    metaApiMock.fetchMetaActiveAdConfigsReceipt.mockResolvedValue({
+      complete: true,
+      termination: "complete",
+      rows: [],
+    });
+    stubWorkspaceHttpUpstreams();
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/meta/decisions-workspace?businessId=biz_1&providerAccountId=act_1",
+      ),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.system.pipelineHealth).toMatchObject({
+      overall: "blocked",
+      executionReady: false,
+      blockers: ["sync_admission_blocked"],
+    });
+    expect(payload.banners).toContainEqual(
+      expect.objectContaining({
+        id: "meta_decision_pipeline_health",
+        tone: "danger",
+        blocking: true,
+      }),
+    );
+    expect(
+      readModelMock.applyMetaExecutionGovernanceToReadModel,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        pipeline: { verified: true, executionReady: false },
+      }),
+    );
+    expect(payload.os.source).toMatchObject({
+      health: "degraded",
+      fallbackReason: "sync_admission_blocked",
+    });
   });
 
   it.each(["stale", "unknown"] as const)(
@@ -1447,6 +1755,130 @@ describe("GET /api/meta/decisions-workspace", () => {
     expect(payload.source).toBe("account-pulse");
     expect(payload.detail).toEqual({ message: "not allowed" });
     expect(payload.message).toContain("account-pulse decision source");
+  });
+});
+
+/**
+ * D084 Correction 1 — the budget-decision evidence panel is actually served.
+ *
+ * The panel and its gate layer existed and were unit-tested, but no route ever
+ * returned one, so nothing a buyer could open was affected by any of it. These
+ * cases assert the panel reaches the response body with the server's own
+ * verdict, and that its posture is the fail-closed one: not executable, no CTA,
+ * and never a silent "nothing is blocking".
+ */
+describe("GET /api/meta/decisions-workspace budget evidence panel", () => {
+  async function servePayload() {
+    vi.stubEnv("META_DECISIONS_UPSTREAM_TRANSPORT", "in_process");
+    upstreamRouteMock.accountPulseGet.mockResolvedValue(jsonResponse(metaPulse()));
+    upstreamRouteMock.laneClassificationGet.mockResolvedValue(jsonResponse(metaLanePayload()));
+    vi.stubGlobal("fetch", vi.fn(() => { throw new Error("HTTP self-fetch must not run"); }));
+    const response = await GET(
+      new NextRequest("http://localhost/api/meta/decisions-workspace?businessId=biz_1",
+        { headers: { cookie: "session=test-session" } }),
+    );
+    expect(response.status).toBe(200);
+    return response.json();
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+    accessMock.requireBusinessAccess.mockResolvedValue({
+      session: {
+        sessionId: "sess_1", activeBusinessId: "biz_1", expiresAt: "2026-09-08T00:00:00.000Z",
+        user: { id: "user_1", name: "Operator", email: "operator@example.com", avatar: null, language: "en" },
+      },
+      membership: {
+        id: "mem_1", userId: "user_1", businessId: "biz_1",
+        role: "collaborator", status: "active", joinedAt: "2026-07-08T00:00:00.000Z",
+      },
+    });
+    reviewerMock.isReviewerEmail.mockReturnValue(false);
+    assignmentsMock.getProviderAccountAssignments.mockResolvedValue(null);
+    metaApiMock.resolveMetaCredentials.mockResolvedValue(null);
+    metaApiMock.fetchMetaActiveAdConfigsReceipt.mockResolvedValue({
+      complete: false, termination: "request_failed", rows: [],
+    });
+    readModelMock.buildUnavailableMetaDecisionsWorkspaceReadModel.mockReturnValue({
+      contractVersion: "meta-decisions-workspace.read.v1",
+      status: "unavailable",
+      scope: { businessId: "biz_1", providerAccountId: null },
+      unavailable: { code: "provider_account_required", message: "n/a" },
+    });
+    commercialTargetsMock.readMetaCommercialTargets.mockResolvedValue({
+      source: "none", targetRoas: null, breakEvenRoas: null, targetCpa: null,
+      breakEvenCpa: null, riskPosture: "balanced", freshness: "unknown", updatedAt: null,
+    });
+    commercialTargetsMock.hasMetaHardActionAnchor.mockReturnValue(false);
+    dbMock.getDb.mockImplementation(() => { throw new Error("db unavailable in this unit test"); });
+  });
+
+  it("publishes BOTH review-only directions and selects neither", () => {
+    // Correction 1 hardcoded `direction: "increase"` on an account-scoped panel
+    // where nothing had been selected.
+    return servePayload().then((payload) => {
+      const evidence = payload.system.budgetEvidence;
+      expect(evidence.contractVersion).toBe("meta-budget-decision-evidence-directional.v3");
+      // The server owns the direction-to-action mapping the client used to hold.
+      expect(evidence.directionToAction).toEqual({ increase: "scale", decrease: "cut" });
+      expect(evidence.directionToActionWhy).toContain("refresh");
+      expect(evidence.directionSelected).toBeNull();
+      expect(evidence.directionSelectedWhy).toContain("no proposal direction");
+      expect(evidence.increase).toBeTruthy();
+      expect(evidence.decrease).toBeTruthy();
+    });
+  });
+
+  it("serves the gate contract and every declared section, in contract order", async () => {
+    const payload = await servePayload();
+    for (const direction of ["increase", "decrease"] as const) {
+      const panel = payload.system.budgetEvidence[direction];
+      expect(panel.contractVersion, direction).toBe("meta-budget-decision-evidence-panel.v4");
+      expect(panel.sections.map((s: { section: string }) => s.section)).toEqual([
+        "input_integrity", "commercial_target", "evidence_floor", "change_safety", "execution_capability",
+      ]);
+    }
+  });
+
+  it("never serves an executable panel or an enabled call to action", async () => {
+    const payload = await servePayload();
+    for (const direction of ["increase", "decrease"] as const) {
+      const panel = payload.system.budgetEvidence[direction];
+      expect(panel.executionReadiness.state).toBe("not_executable");
+      expect(panel.executionReadiness.ctaEnabled).toBe(false);
+    }
+  });
+
+  it("names a blocker with its OWN sentence, in the section that owns it", async () => {
+    const payload = await servePayload();
+    for (const direction of ["increase", "decrease"] as const) {
+      const panel = payload.system.budgetEvidence[direction];
+      expect(panel.authority, direction).toBe("blocked");
+      expect(panel.primaryBlocker, direction).not.toBeNull();
+      const owning = panel.sections.find((s: { blockerCodes: string[] }) =>
+        s.blockerCodes.includes(panel.primaryBlocker.code));
+      expect(owning, `${direction}: the primary blocker is in no section`).toBeTruthy();
+      expect(owning.reasons).toContain(panel.primaryBlocker.reason);
+    }
+  });
+
+  it("reports unread change history as a blocker, never as a measured zero", async () => {
+    // This route performs no history read at all. Silence there used to clear
+    // the cooldown, all four caps and the concentration control.
+    const payload = await servePayload();
+    for (const direction of ["increase", "decrease"] as const) {
+      const panel = payload.system.budgetEvidence[direction];
+      const codes = panel.sections.flatMap((s: { blockerCodes: string[] }) => s.blockerCodes);
+      expect(codes, direction).toContain("change_safety_history_unavailable");
+    }
+  });
+
+  it("does not report any section clear while the account is blocked", async () => {
+    const payload = await servePayload();
+    const panel = payload.system.budgetEvidence.increase;
+    expect(panel.sections.some((s: { blockerCodes: string[] }) => s.blockerCodes.length > 0)).toBe(true);
   });
 });
 

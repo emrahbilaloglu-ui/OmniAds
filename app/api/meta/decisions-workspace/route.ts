@@ -28,17 +28,50 @@ import {
   type MetaDecisionsWorkspaceReadModel,
 } from "@/lib/meta/decisions-workspace-contract";
 import {
+  describeAccountStatePolicy,
+  readMetaAssignedAccountStates,
+} from "@/lib/meta/assigned-account-states";
+import {
   buildUnavailableMetaDecisionsWorkspaceReadModel,
+  applyMetaExecutionGovernanceToReadModel,
   readMetaDecisionCampaignContextRows,
   readMetaDecisionsWorkspaceReadModel,
   type MetaCurrentAdStatusSourceRow,
   type MetaDecisionCampaignContextSourceRow,
 } from "@/lib/meta/decisions-workspace-read-model";
 import {
+  readEffectiveMetaWriteGovernance,
+  type MetaEffectiveWriteGovernance,
+} from "@/lib/meta/automation-control-plane";
+import {
   buildMetaOsDecisionsPresentation,
   revalidateMetaStructureLanesForCurrentTargets,
 } from "@/lib/meta/decisions-os-presentation";
 import type { MetaOsWorkspaceBanner } from "@/lib/meta/decisions-os-contract";
+import {
+  projectMetaCommercialAnchorPanel,
+  tallyAuthorityBlockers,
+} from "@/lib/meta/commercial-anchor-panel";
+import {
+  ACCOUNT_DECISION_PROFILE_CONTRACT,
+  resolveAccountDecisionProfile,
+} from "@/lib/creative-decision-engine/account-decision-profile";
+import { evaluateBudgetDecisionGates } from "@/lib/meta/budget-decision-gates";
+import { projectBudgetDecisionEvidencePanel } from "@/lib/meta/budget-decision-evidence-panel";
+import {
+  type DryRunInput,
+  META_BUDGET_PROPOSAL_DRY_RUN_CONTRACT,
+  PROVIDER_CAPABILITY_TODAY,
+  admissionToSafetyFlag,
+  buildBudgetProposalDryRun,
+  governanceToKillSwitchFlag,
+  unknownSafetyFlag,
+} from "@/lib/meta/budget-proposal-dry-run";
+import { projectBudgetDryRunPanel } from "@/lib/meta/budget-dry-run-panel";
+import { WRITE_SAFETY_STEPS } from "@/lib/meta/write-safety-contract";
+import { buildWorkspaceBudgetGateInput } from "@/lib/meta/budget-decision-workspace-adapter";
+import { resolveEngineV3Flags } from "@/lib/creative-decision-engine/feature-flags";
+import { WarehouseDataSource } from "@/lib/creative-decision-engine/data-source";
 import {
   hasMetaHardActionAnchor,
   readMetaCommercialTargets,
@@ -54,6 +87,11 @@ import { getCachedValue } from "@/lib/server-cache";
 import { readMetaBusinessDataPosture } from "@/lib/meta/business-data-posture";
 import { META_FAILURES } from "@/lib/meta/read-state-contract";
 import { metaPostureUnavailable } from "@/app/api/meta/read-posture";
+import {
+  buildMetaDecisionPipelineHealth,
+  readMetaDecisionPipelineOperationalHealth,
+  type MetaDecisionPipelineHealth,
+} from "@/lib/meta/decision-pipeline-health";
 
 export const dynamic = "force-dynamic";
 
@@ -461,6 +499,7 @@ async function canonicalDecisionReadModel(input: {
   asOfDate: string;
   currentAds: CurrentMetaAdsResult;
   activeOnly: boolean;
+  generatedAt: string;
 }): Promise<
   | { ok: true; model: MetaDecisionsWorkspaceReadModel }
   | { ok: false; status: 403; payload: Record<string, unknown> }
@@ -475,6 +514,7 @@ async function canonicalDecisionReadModel(input: {
         message:
           "providerAccountId is required for the canonical Meta Decisions read model.",
         adCandidateLimit: input.adCandidateLimit,
+        generatedAt: input.generatedAt,
       }),
     };
   }
@@ -492,6 +532,7 @@ async function canonicalDecisionReadModel(input: {
         message:
           "The provider-account assignment source is unavailable; no canonical decisions were read.",
         adCandidateLimit: input.adCandidateLimit,
+        generatedAt: input.generatedAt,
       }),
     };
   }
@@ -515,6 +556,7 @@ async function canonicalDecisionReadModel(input: {
       message:
         "The current active-Ad inventory could not be verified, so stale or closed Ads were not substituted into Act now.",
       adCandidateLimit: input.adCandidateLimit,
+      generatedAt: input.generatedAt,
     });
     if (model.source) {
       model.source.fallbackReason =
@@ -531,6 +573,7 @@ async function canonicalDecisionReadModel(input: {
         businessId: input.businessId,
         providerAccountId: input.providerAccountId,
         adCandidateLimit: input.adCandidateLimit,
+        generatedAt: input.generatedAt,
         asOfDate: input.asOfDate,
         currentAds: input.currentAds.rows,
         currentAdSourceComplete: input.currentAds.complete,
@@ -549,6 +592,7 @@ async function canonicalDecisionReadModel(input: {
         message:
           "The account-scoped decision sources could not be read; no decision values were fabricated.",
         adCandidateLimit: input.adCandidateLimit,
+        generatedAt: input.generatedAt,
       }),
     };
   }
@@ -627,11 +671,6 @@ function isTrackingBlocked(pulse: MetaPulsePayload) {
     pulse.trackingHealth.status === "blocked" ||
     pulse.trackingHealth.status === "degraded"
   );
-}
-
-function isMetaWritesKillSwitchEngaged() {
-  const value = process.env.META_ADS_WRITE_KILL_SWITCH?.trim().toLowerCase();
-  return value === "1" || value === "true";
 }
 
 function workspaceViewer(input: {
@@ -1024,10 +1063,12 @@ function workspaceBanners(input: {
   pulse: MetaPulsePayload;
   lanes: MetaLanePayload;
   trackingBlocked: boolean;
-  killSwitchEngaged: boolean;
+  executionGovernance: MetaEffectiveWriteGovernance;
   viewer: MetaDecisionsWorkspacePayload["viewer"];
   commercialTargets: MetaCommercialTargets | null;
   commercialTargetsReadFailed: boolean;
+  decisionReadModel: MetaDecisionsWorkspaceReadModel;
+  pipelineHealth: MetaDecisionPipelineHealth;
 }): MetaOsWorkspaceBanner[] {
   const banners: MetaOsWorkspaceBanner[] = [];
   if (input.viewer?.readOnly && input.viewer.readOnlyReason) {
@@ -1106,21 +1147,109 @@ function workspaceBanners(input: {
       blocking: snapshotHealth.status === "missing",
     });
   }
-  if (input.killSwitchEngaged) {
+  if (!input.pipelineHealth.executionReady) {
+    const offender = input.pipelineHealth.admission.offender;
+    banners.push({
+      id: "meta_decision_pipeline_health",
+      tone:
+        input.pipelineHealth.overall === "blocked" ? "danger" : "warning",
+      title:
+        input.pipelineHealth.overall === "blocked"
+          ? "Meta decision pipeline is admission-blocked."
+          : "Meta decision pipeline is not current.",
+      detail: offender
+        ? `${offender.table} is ${offender.overByBytes.toLocaleString("en-US")} bytes over its ${offender.budget.toLocaleString("en-US")}-byte budget. Sync activity, warehouse cutoff, decision generation and manifest are separately blocked evidence.`
+        : `Blocked evidence: ${input.pipelineHealth.blockers.join(", ") || "pipeline health unavailable"}.`,
+      blocking: true,
+    });
+  }
+  const nonFreshExactDecisions =
+    input.decisionReadModel.queue?.adCandidates?.items.filter((decision) => {
+      const authority = decision.sourceAuthority;
+      return (
+        authority?.status === "native_exact" &&
+        authority.actionEligible === true &&
+        authority.decisionFreshness?.status !== "fresh"
+      );
+    }) ?? [];
+  if (nonFreshExactDecisions.length > 0) {
+    const statuses = [
+      ...new Set(
+        nonFreshExactDecisions.map(
+          (decision) =>
+            decision.sourceAuthority?.decisionFreshness?.status ??
+            "unavailable",
+        ),
+      ),
+    ];
+    banners.push({
+      id: "exact_ad_decision_freshness",
+      tone: "danger",
+      title: "Exact-Ad decisions are outside the execution window.",
+      detail: `${nonFreshExactDecisions.length} decision-authorized row(s) are ${statuses.join(
+        ", ",
+      )}. Refresh the native decision generation before attempting a provider write.`,
+      blocking: true,
+    });
+  }
+  if (input.executionGovernance.killSwitchEngaged) {
     banners.push({
       id: "meta_write_kill_switch",
       tone: "danger",
       title: "Kill switch engaged.",
       detail:
-        "All active Meta write endpoints are blocked by META_ADS_WRITE_KILL_SWITCH.",
+        input.executionGovernance.killSwitchReason ??
+        "All active Meta write endpoints are blocked by a verified kill switch.",
+      blocking: true,
+    });
+  } else if (
+    !input.executionGovernance.verified ||
+    !input.executionGovernance.controlsConfigured ||
+    input.executionGovernance.writeBlocked
+  ) {
+    banners.push({
+      id: "meta_execution_governance_unavailable",
+      tone: "danger",
+      title: "Meta execution governance is not ready.",
+      detail:
+        input.executionGovernance.blockReason ===
+        "business_control_not_configured"
+          ? "This business has no persisted automation control row. Decisions remain readable, but every Meta write is blocked."
+          : "Automation control state could not be verified. Decisions remain readable, but every Meta write is blocked.",
       blocking: true,
     });
   }
   return banners;
 }
 
+
+/**
+ * Collects the persisted first-authority-gate blocker of every canonical
+ * decision the read model serves. Server-owned evidence only: nothing is
+ * inferred from labels, badges, or reason text.
+ */
+function collectCanonicalAuthorityBlockers(
+  model: MetaDecisionsWorkspaceReadModel,
+): Array<string | null> {
+  const blockers: Array<string | null> = [];
+  const push = (
+    items:
+      | Array<{ sourceDecision?: { authorityBlocker?: string | null } }>
+      | undefined,
+  ) => {
+    for (const item of items ?? []) {
+      blockers.push(item.sourceDecision?.authorityBlocker ?? null);
+    }
+  };
+  push(model.queue?.adCandidates?.items);
+  push(model.queue?.inactiveAssets?.items);
+  return blockers;
+}
+
 export async function GET(request: NextRequest) {
   const requestStartedAt = performance.now();
+  const requestEvaluatedAt = new Date();
+  const requestGeneratedAt = requestEvaluatedAt.toISOString();
   const businessId = request.nextUrl.searchParams.get("businessId");
   if (!businessId) {
     return NextResponse.json(
@@ -1187,6 +1316,15 @@ export async function GET(request: NextRequest) {
     request.nextUrl.searchParams,
   );
   const compactOsSurface = request.nextUrl.searchParams.get("surface") === "os";
+  const executionGovernancePromise = readEffectiveMetaWriteGovernance({
+    businessId,
+  });
+  const operationalPipelineHealthPromise =
+    readMetaDecisionPipelineOperationalHealth({
+      businessId,
+      providerAccountId,
+      now: requestEvaluatedAt,
+    });
 
   const explicitEndDate = request.nextUrl.searchParams.get("endDate");
   const loadResolvedEndDate = () =>
@@ -1228,6 +1366,45 @@ export async function GET(request: NextRequest) {
   const commercialTargetsPromise = readMetaCommercialTargets(businessId)
     .then((targets) => ({ targets, readFailed: false as const }))
     .catch(() => ({ targets: null, readFailed: true as const }));
+  /**
+   * The canonical account decision profile, resolved as of the served day.
+   *
+   * This is the SOLE authority for the commercial-anchor explanation the
+   * Decision Center serves: the surface must show what the engine actually
+   * decided (including a ready sampled Meta AOV or an account-history rung),
+   * not a second resolver's guess from configured target fields. A failed read
+   * fails closed to `eligibility: null`, which the projection renders as
+   * unavailable rather than as "no anchor configured".
+   */
+  const loadCommercialAnchorProfile = async () => {
+    try {
+      const profile = await resolveAccountDecisionProfile({
+        businessId,
+        asOf: servedEndDate,
+        dataSource: new WarehouseDataSource(),
+        flags: await resolveEngineV3Flags(businessId),
+      });
+      return {
+        eligibility: profile.hardActionEligibility,
+        readFailed: false as const,
+      };
+    } catch {
+      return { eligibility: null, readFailed: true as const };
+    }
+  };
+  // Resolving the profile is 12-15 sequential warehouse queries and is not
+  // memoised anywhere, so it is cached per business/day exactly like the
+  // decision read model, with the same in-test bypass so unit tests never
+  // share state across cases.
+  const commercialAnchorProfilePromise =
+    process.env.VITEST === "true" || process.env.NODE_ENV === "test"
+      ? loadCommercialAnchorProfile()
+      : getCachedValue({
+          key: `meta-decisions-anchor-profile-v1:${businessId}:${servedEndDate}`,
+          ttlMs: 60_000,
+          staleWhileRevalidateMs: 240_000,
+          loader: loadCommercialAnchorProfile,
+        }).then((cached) => cached.value);
   let currentAdsCompletedAt = endDateResolvedAt;
   const currentAdsPromise = readCurrentMetaAds({
     businessId,
@@ -1246,6 +1423,7 @@ export async function GET(request: NextRequest) {
         asOfDate: servedEndDate,
         currentAds,
         activeOnly: compactOsSurface,
+        generatedAt: requestGeneratedAt,
       });
     const decisionRead =
       process.env.VITEST === "true" || process.env.NODE_ENV === "test"
@@ -1295,7 +1473,6 @@ export async function GET(request: NextRequest) {
           ).value;
     const upstreamsCompletedAt = performance.now();
     const trackingBlocked = isTrackingBlocked(pulse);
-    const killSwitchEngaged = isMetaWritesKillSwitchEngaged();
     const scopedRecommendations = [
       ...lanes.actionNow,
       ...lanes.watching,
@@ -1330,6 +1507,9 @@ export async function GET(request: NextRequest) {
       currentAdCampaignContexts,
       digest,
       commercialTargetRead,
+      executionGovernance,
+      operationalPipelineHealth,
+      commercialAnchorProfile,
     ] = await Promise.all([
       currentAdsPromise,
       decisionReadPromise,
@@ -1355,6 +1535,9 @@ export async function GET(request: NextRequest) {
             endDate: lanes.endDate ?? pulse.endDate,
           }),
       commercialTargetsPromise,
+      executionGovernancePromise,
+      operationalPipelineHealthPromise,
+      commercialAnchorProfilePromise,
     ]);
     const decisionBundleCompletedAt = performance.now();
     if (!decisionRead.ok) {
@@ -1362,6 +1545,300 @@ export async function GET(request: NextRequest) {
         status: decisionRead.status,
       });
     }
+    const pipelineHealth = buildMetaDecisionPipelineHealth({
+      operational: operationalPipelineHealth,
+      decisionReadModel: decisionRead.model,
+      now: requestEvaluatedAt,
+    });
+    const decisionReadModel = applyMetaExecutionGovernanceToReadModel({
+      model: decisionRead.model,
+      governance: executionGovernance,
+      pipeline: {
+        verified: pipelineHealth.overall !== "unavailable",
+        executionReady: pipelineHealth.executionReady,
+      },
+      now: requestEvaluatedAt,
+    });
+    // Server-owned commercial-anchor explanation. The client renders this
+    // object; it never derives eligibility, thresholds or campaign role.
+    const commercialAnchorPanel = projectMetaCommercialAnchorPanel({
+      eligibility: commercialAnchorProfile.eligibility,
+      profileReadFailed: commercialAnchorProfile.readFailed,
+      currency: pulse.currency ?? null,
+      blockers: tallyAuthorityBlockers(
+        collectCanonicalAuthorityBlockers(decisionReadModel),
+      ),
+    });
+    /**
+     * Server-owned budget-decision evidence, as TWO review-only directional
+     * projections.
+     *
+     * This panel is account-scoped and no proposal direction has been selected,
+     * so Correction 1's hardcoded `direction: "increase"` was asserting a
+     * choice nobody made — and hid the fact that an increase depends on the
+     * profile's `scale` verdict while a decrease depends on `cut`. The server
+     * publishes both; the client renders them and derives nothing.
+     */
+    const budgetGateFacts = (direction: "increase" | "decrease") =>
+      buildWorkspaceBudgetGateInput({
+        direction,
+        originMs: requestEvaluatedAt.getTime(),
+        // Per-action truth, carried verbatim. `refresh` travels for display and
+        // is never consulted for a budget direction.
+        profile: commercialAnchorProfile.readFailed || !commercialAnchorProfile.eligibility
+          ? null
+          : {
+              byAction: {
+                scale: {
+                  eligible: commercialAnchorProfile.eligibility.scale,
+                  code: commercialAnchorProfile.eligibility.codes?.scale ?? null,
+                  reason:
+                    commercialAnchorProfile.eligibility.reasons?.scale ??
+                    commercialAnchorProfile.eligibility.reason ?? null,
+                },
+                cut: {
+                  eligible: commercialAnchorProfile.eligibility.cut,
+                  code: commercialAnchorProfile.eligibility.codes?.cut ?? null,
+                  reason:
+                    commercialAnchorProfile.eligibility.reasons?.cut ??
+                    commercialAnchorProfile.eligibility.reason ?? null,
+                },
+                refresh: {
+                  eligible: commercialAnchorProfile.eligibility.refresh,
+                  code: commercialAnchorProfile.eligibility.codes?.refresh ?? null,
+                  reason:
+                    commercialAnchorProfile.eligibility.reasons?.refresh ??
+                    commercialAnchorProfile.eligibility.reason ?? null,
+                },
+              },
+              // The whole explanation, not a single field of it.
+              anchorExplanation:
+                (commercialAnchorProfile.eligibility.anchor as unknown as Record<string, unknown> | null) ?? null,
+              contractVersion: ACCOUNT_DECISION_PROFILE_CONTRACT,
+            },
+        // Stated, not inferred: a read that succeeded but produced no
+        // eligibility output is NOT a read failure.
+        profileSourceStatus: commercialAnchorProfile.readFailed
+          ? ("read_failed" as const)
+          : commercialAnchorProfile.eligibility
+            ? ("resolved" as const)
+            : ("output_not_retained" as const),
+        profileUnavailableWhy: commercialAnchorProfile.readFailed
+          ? "the account decision profile read failed"
+          : commercialAnchorProfile.eligibility
+            ? null
+            : "the account decision profile read succeeded but retained no hardActionEligibility output",
+        commercialTarget: commercialTargetRead.readFailed
+          ? null
+          : {
+              // `updatedAt` is `effective_at` (aliased in the pack read), so it
+              // is the EFFECTIVE clock and only that. The recorded clock is not
+              // exposed through this read, so the point-in-time knowable
+              // instant — max(effective, recorded) — is not computable here and
+              // stays null rather than borrowing the effective one.
+              effectiveAtMs:
+                commercialTargetRead.targets?.updatedAt != null
+                  ? Date.parse(commercialTargetRead.targets.updatedAt)
+                  : null,
+              pitKnowableAtMs: null,
+              // This read carries no cost basis, so nothing here can reconcile
+              // a break-even. False is measured, not assumed.
+              economicallyReconciled: false,
+            },
+        // A budget decision is scoped to an entity whose automatic role this
+        // route has not resolved.
+        roleResolved: false,
+        // D081 found no observed provider budget-write compatibility fact.
+        providerCompatibilityKnown: false,
+        automationEnabled: false,
+        // This route reads NO change history. Saying so is what stops the
+        // cooldown, the four caps and the concentration control from clearing
+        // on an absence.
+        changeHistory: {
+          readState: "not_attempted",
+          readStateWhy:
+            "the decisions workspace performs no recent-change history read, so no cooldown, cap or concentration control can be evaluated here",
+          lastChangeAtMs: null,
+          changesForEntityToday: null,
+          changesInAccountToday: null,
+          changesInBusinessToday: null,
+          changesInFleetToday: null,
+          accountChangesToday: null,
+          fleetChangesToday: null,
+          countSemantics: "prospective_including_candidate",
+        },
+        knownBindings: providerAccountId ? [{ businessId, providerAccountId }] : [],
+      });
+    const budgetEvidenceByDirection = {
+      contractVersion: "meta-budget-decision-evidence-directional.v3" as const,
+      directionSelected: null,
+      directionSelectedWhy:
+        "this panel is account-scoped and no proposal direction has been selected; both directions are published for review and neither is proposed",
+      // The server owns this mapping; the client renders it and derives nothing.
+      directionToAction: { increase: "scale", decrease: "cut" } as const,
+      directionToActionWhy:
+        "an increase is a scale decision and a decrease is a cut decision; refresh is a creative action and is never a budget-direction substitute",
+      increase: projectBudgetDecisionEvidencePanel({
+        verdict: evaluateBudgetDecisionGates(budgetGateFacts("increase")),
+        counterfactualLabel: null,
+      }),
+      decrease: projectBudgetDecisionEvidencePanel({
+        verdict: evaluateBudgetDecisionGates(budgetGateFacts("decrease")),
+        counterfactualLabel: null,
+      }),
+    };
+    /*
+      D085 — the account-scoped budget dry run.
+
+      This panel is account-scoped, so no concrete entity or direction is
+      selected and the dry run is honestly blocked on exactly that, plus every
+      other requirement the server can actually evaluate. The surface derives
+      nothing: `buildBudgetProposalDryRun` owns every gate and every sentence.
+    */
+    // The governance read carries no persisted timestamp, so the request's own
+    // server-owned instant is the honest as-of for it.
+    const nowIso = new Date().toISOString();
+    // The entrypoint now accepts `unknown` so it can be TOTAL at runtime, so
+    // the ceremony type is taken from the input contract directly rather than
+    // from the parameter position.
+    const dryRunWriteSafety: DryRunInput["writeSafety"] = {};
+    for (const step of WRITE_SAFETY_STEPS) dryRunWriteSafety[step] = "missing";
+    dryRunWriteSafety.exact_business_access = "satisfied";
+    dryRunWriteSafety.exact_physical_provider_account = providerAccountId ? "satisfied" : "missing";
+    dryRunWriteSafety.explicit_action_origin = "satisfied";
+
+    const budgetDryRun = buildBudgetProposalDryRun({
+      contractVersion: META_BUDGET_PROPOSAL_DRY_RUN_CONTRACT,
+      decision: { id: null, hash: null, version: null, decidedAt: null, maxAgeSeconds: 86_400 },
+      scope: {
+        businessId,
+        business: businessId,
+        providerAccountId: providerAccountId ?? "",
+        entityGrain: null,
+        entityId: null,
+        parentCampaignId: null,
+        accountIsWriteScope: Boolean(providerAccountId),
+        accountSelectionWhy: providerAccountId
+          ? "the selected serving account for this business"
+          : "no provider account is selected, so nothing is in write scope",
+      },
+      direction: null,
+      percent: null,
+      accountCurrency: null,
+      currencyExponent: null,
+      currencyRegistryVersion: null,
+      unitConfidence: "unknown",
+      role: {
+        role: null, source: null, resolverVersion: null, confidence: null, asOf: null,
+        accountScoped: true,
+        businessId, providerAccountId: providerAccountId ?? null,
+        resolved: false,
+        why: "automatic role authority has no retained qualifying rows; unresolved stays unresolved",
+      },
+      budgetFact: {
+        contractVersion: "meta.budget-fact.v4",
+        available: false,
+        currentMinorUnits: null,
+        budgetField: null,
+        ownerMode: "unknown",
+        scheduleStart: null,
+        scheduleEnd: null,
+        observedAt: null,
+        capturedAt: null,
+        lineage: "the canonical budget-fact contract is defined; its additive columns are not applied in production",
+        availabilityWhy:
+          "no canonical budget fact is resolved for an account-scoped panel: no concrete entity is selected",
+      },
+      commercial: {
+        profileContractVersion: "adsecute.account-decision-profile.v1",
+        businessId, providerAccountId: providerAccountId ?? null,
+        sourceStatus: commercialTargetRead.readFailed ? "read_failed" : "output_not_retained",
+        selectedAction: null,
+        eligible: null,
+        code: null,
+        reason: null,
+        blockerCodes: [],
+        evidenceFloorsClear: null,
+        changeSafetyClear: null,
+      },
+      safety: {
+        /*
+          Real server-owned evidence, not a hardcoded `false`.
+
+          The first pass wrote `false` for all five controls even though this
+          same handler already held the governance read, the pipeline-health
+          admission decision and an explicit `changeHistory.readState`. A
+          control nobody read cannot clear a proposal, so the three this route
+          does not read stay `unknown` and block as unverified.
+        */
+        /*
+          Governance READINESS is modelled separately from the kill switch.
+
+          r2 mapped `killSwitchEngaged === false` straight to `clear` while
+          ignoring `verified` and `controlsConfigured`, so an unread governance
+          state was presented as a proved-clear kill switch. A control nobody
+          could verify proves nothing in either direction.
+        */
+        killSwitch: governanceToKillSwitchFlag({
+          killSwitchEngaged: executionGovernance.killSwitchEngaged,
+          killSwitchReason: executionGovernance.killSwitchReason,
+          verified: executionGovernance.verified,
+          controlsConfigured: executionGovernance.controlsConfigured,
+          writeBlocked: executionGovernance.writeBlocked,
+          blockReason: executionGovernance.blockReason,
+          evaluatedAt: nowIso,
+        }),
+        admission: admissionToSafetyFlag({
+          status: pipelineHealth.admission.status,
+          allowed: pipelineHealth.admission.allowed,
+          reason: pipelineHealth.admission.reason,
+          evaluatedAt: pipelineHealth.admission.evaluatedAt,
+          serverEvaluatedAt: nowIso,
+        }),
+        // This route performs no recent-change history read, so the three
+        // history-derived controls are unverified — never clear.
+        cap: unknownSafetyFlag(
+          "the decisions workspace performs no recent-change history read, so no per-day cap can be evaluated here",
+        ),
+        cooldown: unknownSafetyFlag(
+          "the decisions workspace performs no recent-change history read, so no cooldown window can be evaluated here",
+        ),
+        conflict: unknownSafetyFlag(
+          "the decisions workspace acquires no claim and reads no conflict lock, so lock state is unverified here",
+        ),
+      },
+      capability: PROVIDER_CAPABILITY_TODAY,
+      rawIntent: null,
+      knownBindings: [],
+      intent: null,
+      intentRejections: ["current_value_missing"],
+      casBaseline: null,
+      preflight: null,
+      preflightEvidence: null,
+      writeSafety: dryRunWriteSafety,
+      originDate: new Date().toISOString().slice(0, 10),
+      knowledgeAsOf: new Date().toISOString(),
+    });
+
+    const budgetDryRunPanel = projectBudgetDryRunPanel({
+      dryRun: budgetDryRun,
+      observedFacts: [
+        { label: "Business", value: businessId },
+        { label: "Provider account", value: providerAccountId ?? "none selected" },
+        { label: "Entity", value: "none selected — this panel is account-scoped" },
+        /*
+          PRE-DEPLOY AUDIT: the `Automation: off` row was a constant served
+          inside a section captioned as observed facts. It stayed "off" after
+          an admin enabled automatic execution, so the one row an operator
+          would most want to trust was the only one that was not measured.
+          This route performs no control-plane read, so the honest fix is to
+          stop asserting the posture here; the Automation surface owns it and
+          measures it.
+        */
+      ],
+      writeSafetyMissing: WRITE_SAFETY_STEPS.filter((s) => dryRunWriteSafety[s] === "missing"),
+    });
+
     const targetHardActionEligibility = {
       scale:
         !commercialTargetRead.readFailed &&
@@ -1376,9 +1853,33 @@ export async function GET(request: NextRequest) {
       lanes,
       targetHardActionEligibility,
     );
+    // D078 R4: server-owned account-coverage evidence. Fail-closed: an
+    // unreadable states read serves null (rendered unavailable), never an
+    // invented single-account list.
+    const assignedAccountStates = await readMetaAssignedAccountStates(
+      pulse.businessId,
+    )
+      .then((states) =>
+        states.map((state) => ({
+          providerAccountId: state.providerAccountId,
+          accountName: state.accountName,
+          selectionState: state.selectionState,
+          accountCurrency: state.accountCurrency,
+          accountTimezone: state.accountTimezone,
+          latestFactDate: state.latestFactDate,
+          spend14d: state.spend14d,
+          latestDecisionAsOf: state.latestDecisionAsOf,
+          latestDecisionRows: state.latestDecisionRows,
+          latestDecisionAuthorizedRows: state.latestDecisionAuthorizedRows,
+          policy: describeAccountStatePolicy(state),
+        })),
+      )
+      .catch(() => null);
+
     const payload: MetaDecisionsWorkspacePayload & {
       decisionReadModel: MetaDecisionsWorkspaceReadModel;
     } = {
+      assignedAccountStates,
       businessId: pulse.businessId,
       window: pulse.window as MetaWindowKey,
       statusFilter: pulse.statusFilter,
@@ -1399,20 +1900,35 @@ export async function GET(request: NextRequest) {
         laneSnapshotCreatedAt: servedLanes.snapshotCreatedAt ?? null,
         engineVersion: pulse.engineVersion,
         currency: pulse.currency ?? null,
-        killSwitchEngaged,
-        killSwitchReason: killSwitchEngaged
-          ? "META_ADS_WRITE_KILL_SWITCH"
-          : null,
+        killSwitchEngaged: executionGovernance.killSwitchEngaged,
+        killSwitchReason: executionGovernance.killSwitchReason,
+        governanceVerified: executionGovernance.verified,
+        businessControlsConfigured:
+          executionGovernance.controlsConfigured,
+        executionGovernanceState: executionGovernance.killSwitchEngaged
+          ? "kill_switched"
+          : executionGovernance.verified &&
+              executionGovernance.controlsConfigured &&
+              !executionGovernance.writeBlocked
+            ? "ready_for_live_preflight"
+            : "unavailable",
+        executionGovernanceReason: executionGovernance.blockReason,
+        pipelineHealth,
+        commercialAnchor: commercialAnchorPanel,
+        budgetEvidence: budgetEvidenceByDirection,
+        budgetDryRun: budgetDryRunPanel,
       },
       viewer,
       banners: workspaceBanners({
         pulse,
         lanes: servedLanes,
         trackingBlocked,
-        killSwitchEngaged,
+        executionGovernance,
         viewer,
         commercialTargets: commercialTargetRead.targets,
         commercialTargetsReadFailed: commercialTargetRead.readFailed,
+        decisionReadModel,
+        pipelineHealth,
       }),
       digest: digest ?? {
         snapshotDate: servedLanes.snapshotDate,
@@ -1428,7 +1944,7 @@ export async function GET(request: NextRequest) {
         anomalies: { openedCount: 0, items: [] },
         deferrals: { dueCount: 0, items: [] },
       },
-      decisionReadModel: decisionRead.model,
+      decisionReadModel,
       /**
        * The §9 envelope, decided here and sent with the rows.
        *
@@ -1450,8 +1966,8 @@ export async function GET(request: NextRequest) {
         },
         capability: { canRead: true, canWrite: viewer?.readOnly !== true },
         sources: decisionsWorkspaceSources({
-          decisionStatus: decisionRead.model.status,
-          decisionUnavailableCode: decisionRead.model.unavailable?.code ?? null,
+          decisionStatus: decisionReadModel.status,
+          decisionUnavailableCode: decisionReadModel.unavailable?.code ?? null,
           laneRowCount:
             servedLanes.actionNow.length +
             servedLanes.watching.length +
@@ -1467,7 +1983,7 @@ export async function GET(request: NextRequest) {
           // Optional on purpose: the read model's `source` block is absent in
           // the unavailable arm, and reaching through it there turned a
           // degraded decision read into a 500 for the whole workspace.
-          decisionAsOf: decisionRead.model.source?.snapshotAsOf ?? null,
+          decisionAsOf: decisionReadModel.source?.snapshotAsOf ?? null,
         },
       }),
       os: buildMetaOsDecisionsPresentation({
@@ -1476,11 +1992,12 @@ export async function GET(request: NextRequest) {
         nonSales: servedLanes.nonSales,
         structureInventory: servedLanes.structureInventory,
         inactiveStructure: servedLanes.archive,
-        decisionReadModel: decisionRead.model,
+        decisionReadModel,
         currentAds: currentAds.complete ? currentAds.rows : [],
         currentAdCampaignContexts,
         currency: pulse.currency ?? null,
         targetHardActionEligibility,
+        pipelineHealth,
       }),
     };
     const responseReadyAt = performance.now();
@@ -1534,7 +2051,7 @@ export async function GET(request: NextRequest) {
           operatingMode: payload.pulse.operatingMode,
           seasonalRegime: payload.pulse.seasonalRegime,
           trackingHealth: payload.pulse.trackingHealth,
-          labelCoverage: payload.pulse.labelCoverage ?? null,
+          campaignRoleCoverage: payload.pulse.campaignRoleCoverage ?? null,
         },
         system: payload.system,
         viewer: payload.viewer,

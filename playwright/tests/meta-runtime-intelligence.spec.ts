@@ -208,10 +208,18 @@ test.describe("a refused source is never counted as one that answered", () => {
     /**
      * Provoked for real against the ephemeral database, not simulated.
      *
-     * `meta_campaign_labels` is the Campaign labels section's table and nothing
-     * else's, so renaming it makes exactly one of the eleven reads fail. That
-     * is the composition's whole claim: eleven independent reads, one of which
-     * can fail without taking the screen down and — the part that matters —
+     * PRE-DEPLOY AUDIT: this used to rename `meta_campaign_labels`. That
+     * section was rewritten to read the automatic campaign-role authority, so
+     * the manual label table is no longer any section's source and renaming it
+     * degraded nothing — the assertion below could not hold, and the premise
+     * in this comment had become false.
+     *
+     * `engine_v3_campaign_context_daily` is the Campaign roles section's
+     * table and nothing else's on this screen (`readCampaignContextMap` is
+     * imported once, at intelligence-server.ts:30, and called once, at :852),
+     * so renaming it makes exactly one of the eleven reads fail. That is the
+     * composition's whole claim: eleven independent reads, one of which can
+     * fail without taking the screen down and — the part that matters —
      * without being counted as served.
      *
      * The assertion names the section rather than counting states, because a
@@ -227,7 +235,8 @@ test.describe("a refused source is never counted as one that answered", () => {
     try {
       await withDb(async (client) => {
         await client.query(
-          "ALTER TABLE meta_campaign_labels RENAME TO meta_campaign_labels_faulted",
+          "ALTER TABLE engine_v3_campaign_context_daily"
+          + " RENAME TO engine_v3_campaign_context_daily_faulted",
         );
         renamed = true;
       });
@@ -266,12 +275,13 @@ test.describe("a refused source is never counted as one that answered", () => {
 
       // It says why, and does not say it in SQL.
       expect(brokenRow!.text, "labels withheld silently").not.toBe(brokenRow!.state);
-      expect(brokenRow!.text).not.toMatch(/meta_campaign_labels/);
+      expect(brokenRow!.text).not.toMatch(/engine_v3_campaign_context_daily/);
     } finally {
       if (renamed) {
         await withDb(async (client) => {
           await client.query(
-            "ALTER TABLE meta_campaign_labels_faulted RENAME TO meta_campaign_labels",
+            "ALTER TABLE engine_v3_campaign_context_daily_faulted"
+            + " RENAME TO engine_v3_campaign_context_daily",
           );
         });
       }

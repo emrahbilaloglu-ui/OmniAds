@@ -50,6 +50,11 @@ import { getDb } from "@/lib/db";
 import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 import { readMetaAutomationProposalRoasFloor } from "@/lib/meta/automation-guardrail-policy";
 import type { MutationAction } from "@/lib/zero-base/meta/dispatch-contract";
+import {
+  envelopeForProposalRow,
+  parseBudgetProposalEnvelope,
+  type BudgetProposalEnvelope,
+} from "@/lib/meta/budget-proposal-runtime";
 
 /** Grains the queue can aim a guarded write at. */
 export type MetaAutomationProposalScope = "campaign" | "adset";
@@ -289,6 +294,15 @@ export interface MetaAutomationProposal {
   decisionNote: string | null;
   receipt: MetaAutomationProposalReceipt | null;
   /**
+   * D088: the immutable server-built budget envelope.
+   *
+   * Non-null only on a `budget` row whose stored envelope parses AND whose
+   * stored fingerprint re-derives from its own fields. Null on every other
+   * action, on a pre-migration read, and on a `budget` row that has been
+   * tampered with — which is why the executor refuses when it is null.
+   */
+  budgetEnvelope: BudgetProposalEnvelope | null;
+  /**
    * The current (or last) execution claim.
    *
    * `null` on a database that has not run the claim migration yet, which is a
@@ -341,6 +355,10 @@ export function proposalActionLabel(
       return `Apply bid`;
     case "duplicate":
       return `Duplicate ${entity}`;
+    case "budget":
+      // D088. The amount is a server fact and belongs on the row's own
+      // evidence, not in a caption the queue renders from an enum.
+      return `Change ${entity} budget`;
   }
 }
 
@@ -493,6 +511,8 @@ interface ProposalDbRow {
   decided_at: string | null;
   decision_note: string | null;
   receipt_json: unknown;
+  /** D088. Absent on a pre-migration read; the mapper then yields null. */
+  budget_envelope_json?: unknown;
   /** Absent (undefined) on a database that predates the claim migration. */
   claim_token?: string | null;
   claimed_by?: string | null;
@@ -537,6 +557,27 @@ function mapProposalRow(row: ProposalDbRow): MetaAutomationProposal {
     receipt: isRecord(row.receipt_json)
       ? (row.receipt_json as unknown as MetaAutomationProposalReceipt)
       : null,
+    /*
+      D088 C2: the envelope must be THIS row's. The fingerprint proves it has
+      not been edited; the identity check proves it was not copied from another
+      proposal, account or entity, where it would re-fingerprint perfectly.
+    */
+    budgetEnvelope: envelopeForProposalRow(
+      parseBudgetProposalEnvelope(row.budget_envelope_json ?? null),
+      {
+        id: row.id,
+        businessId: row.business_id,
+        providerAccountId: row.provider_account_id,
+        scopeType: row.scope_type,
+        scopeId: row.scope_id,
+        proposedAction: row.proposed_action,
+        // D088 C3: the row's own decision lineage, re-checked.
+        recId: row.rec_id,
+        recType: row.rec_type,
+        snapshotDate: String(row.snapshot_date).slice(0, 10),
+        engineVersion: row.engine_version,
+      },
+    ),
     claimToken: row.claim_token ?? null,
     claimedBy: row.claimed_by ?? null,
     claimedAt: row.claimed_at ? new Date(row.claimed_at).toISOString() : null,
@@ -557,13 +598,21 @@ const PROPOSAL_BASE_COLUMNS = `
   decided_at, decision_note, receipt_json, created_at, updated_at
 `;
 
+/**
+ * D088's envelope column, read separately so a pre-migration database degrades
+ * the same way the claim columns do: the row still reads, the envelope is null,
+ * and a budget approval refuses rather than dispatching without one.
+ */
+const PROPOSAL_BUDGET_COLUMNS = `budget_envelope_json`;
+
 /** The claim columns, cast to text so a UUID arrives as the key it is used as. */
 const PROPOSAL_CLAIM_COLUMNS = `
   claim_token::text AS claim_token, claimed_by::text AS claimed_by,
   claimed_at, dispatch_started_at
 `;
 
-const PROPOSAL_COLUMNS = `${PROPOSAL_BASE_COLUMNS}, ${PROPOSAL_CLAIM_COLUMNS}`;
+const PROPOSAL_COLUMNS =
+  `${PROPOSAL_BASE_COLUMNS}, ${PROPOSAL_CLAIM_COLUMNS}, ${PROPOSAL_BUDGET_COLUMNS}`;
 
 /** PostgreSQL's `undefined_column`. */
 function isUndefinedColumnError(error: unknown): boolean {

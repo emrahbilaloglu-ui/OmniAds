@@ -14,12 +14,18 @@ import {
   readMetaAdExecutionState,
   type MetaAdsWriteContext,
 } from "@/lib/meta/ads-write";
+import {
+  buildMetaDecisionPipelineHealth,
+  readMetaDecisionPipelineOperationalHealth,
+} from "@/lib/meta/decision-pipeline-health";
+import { readMetaDecisionsWorkspaceReadModel } from "@/lib/meta/decisions-workspace-read-model";
 
 function unavailableEvidence(
   receipt: DecisionOriginAdExecutionEvidence["idempotencyReceipt"],
 ): DecisionOriginAdExecutionEvidence {
   return {
     killSwitch: { verified: false, engaged: false },
+    pipeline: { verified: false, executionReady: false },
     currentAccount: {
       found: false,
       businessId: null,
@@ -106,13 +112,40 @@ export async function runServerDecisionOriginAdActionPreflight(input: {
     });
   }
 
-  const [writeBlock, currentAd, sourceDecision] = await Promise.all([
+  const now = input.now ?? new Date();
+  const pipelineEvidencePromise = Promise.all([
+    readMetaDecisionPipelineOperationalHealth({
+      businessId: input.request.businessId,
+      providerAccountId: input.request.providerAccountId,
+      now,
+    }),
+    readMetaDecisionsWorkspaceReadModel({
+      businessId: input.request.businessId,
+      providerAccountId: input.request.providerAccountId,
+      adIds: [input.request.adId],
+      generatedAt: now.toISOString(),
+    }),
+  ])
+    .then(([operational, decisionReadModel]) => {
+      const health = buildMetaDecisionPipelineHealth({
+        operational,
+        decisionReadModel,
+        now,
+      });
+      return {
+        verified: health.overall !== "unavailable",
+        executionReady: health.executionReady,
+      };
+    })
+    .catch(() => ({ verified: false, executionReady: false }));
+  const [writeBlock, currentAd, sourceDecision, pipeline] = await Promise.all([
     getMetaWriteBlockState({ businessId: input.request.businessId }),
     readMetaAdExecutionState(input.ctx, input.request.adId),
     readDecisionOriginSourceDecision({
       snapshotId: input.request.snapshotId,
       evaluationId: input.request.evaluationId,
     }),
+    pipelineEvidencePromise,
   ]);
   const killSwitchVerified = writeBlock.reason !== "control_state_unavailable";
   const contextMatches =
@@ -123,6 +156,7 @@ export async function runServerDecisionOriginAdActionPreflight(input: {
       verified: killSwitchVerified,
       engaged: killSwitchVerified && writeBlock.blocked,
     },
+    pipeline,
     currentAccount: {
       found: true,
       businessId: input.ctx.businessId,
@@ -176,6 +210,6 @@ export async function runServerDecisionOriginAdActionPreflight(input: {
   return runDecisionOriginAdExecutionPreflight({
     request: input.request,
     rereadEvidence: async () => evidence,
-    now: input.now,
+    now,
   });
 }

@@ -1,19 +1,19 @@
 {
- "manifestHash": "8486ec50bca88f78955b8cc7a2e5b7cafdab70cda8cf36495e8d76b6c85ac671",
+ "manifestHash": "434cb01349c6c2d99d219b84433864a03fa662104e94179ba9e5ec1595c57d36",
  "hashAlgorithm": "sha256",
  "hashBasis": "sha256 over UTF-8 bytes of JSON.stringify(artifact, null, 1) of the artifact WITHOUT its embedded hash fields (the artifact object before {<hashField>, hashAlgorithm, hashBasis} are prepended)",
  "contract": "adsecute.d077.release-candidate-manifest.v3",
- "generatedAtUtc": "2026-09-03T21:26:49.621Z",
+ "generatedAtUtc": "2026-09-03T22:32:50.976Z",
  "branch": "codex/meta-disabled-readiness-20260829",
- "head": "5172235ad3d7deb70de1b88d9a6124742fe25390",
+ "head": "7c039edb8256e36ace77b96eec1d6a415c5622b2",
  "baseMain": "babf158e150fd33057117b39b175da044ac62d2e",
  "originMain": "babf158e150fd33057117b39b175da044ac62d2e",
  "remoteDivergence": {
-  "aheadOfOriginMain": 1,
+  "aheadOfOriginMain": 2,
   "behindOriginMain": 0
  },
  "selfExclusion": "this manifest's own path (docs/audits/generated/d077-release-candidate-manifest-2026-08-30.json) is EXCLUDED from its entry list: a manifest cannot recursively pin its own final bytes; its external SHA-256 is reported in the final response and by Codex's own hashing",
- "gitPorcelainEntryCount": 30,
+ "gitPorcelainEntryCount": 2,
  "releaseDiffEntryCountIncludingSelf": 509,
  "expandedOnDiskCandidateFileCountIncludingSelf": 509,
  "pinnedNonSelfFileCount": 508,
@@ -70,7 +70,7 @@
    "path": ".github/workflows/ci.yml",
    "git": "M",
    "class": "runtime",
-   "sha256": "5fc8c46081f268e572516340ae04f091e851718d53468202075a2c6140fd2715"
+   "sha256": "b541262551b59dbf8b7ca6273249a1e033b65d5de25906d4d230740ab091905d"
   },
   {
    "path": ".gitignore",
@@ -2000,7 +2000,7 @@
   },
   {
    "path": "lib/meta/budget-proposal-write-context.test.ts",
-   "git": "??",
+   "git": "A",
    "class": "tests_only",
    "sha256": "801ef966bf65443e2deb76475632ebf108ced9f712d839944b408e2b80f359ee"
   },
@@ -2806,7 +2806,7 @@
    "path": "scripts/audits/d085-budget-proposal-dry-run.test.ts",
    "git": "A",
    "class": "tests_only",
-   "sha256": "4eca7db11466ca9efcce6bacd68b0cff71f934abaa3883de4926db30a29a05a3"
+   "sha256": "89138eb61ba22d37e266bc043e8d6a8adb0154e75a6804aa461bafd9a928764d"
   },
   {
    "path": "scripts/audits/d085-budget-proposal-dry-run.ts",

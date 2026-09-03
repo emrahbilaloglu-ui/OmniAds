@@ -963,13 +963,17 @@ describe("D085 C12 — C: filesystem identity and containment", () => {
   });
 
   it("#10b derives the repository root from the module, not the process", () => {
-    expect(D085_REPO_ROOT).toMatch(/Adsecute$/);
-    expect(d085TrustedPath(D085_JSON_OUT).startsWith(D085_REPO_ROOT)).toBe(true);
-    // The output path is absolute and cwd-independent.
+    // A checkout directory is caller-owned (for example GitHub checks this
+    // repository out as OmniAds), so its basename is not an identity proof.
+    // Pin module-relative sentinels instead, then prove cwd changes cannot move
+    // either the root or a trusted path below it.
+    expect(existsSync(join(D085_REPO_ROOT, "package.json"))).toBe(true);
+    expect(existsSync(join(D085_REPO_ROOT, "scripts/audits/d085-budget-proposal-dry-run.ts"))).toBe(true);
+    expect(d085TrustedPath(D085_JSON_OUT)).toBe(join(D085_REPO_ROOT, D085_JSON_OUT));
     const original = process.cwd();
     try {
       process.chdir("/");
-      expect(d085TrustedPath(D085_JSON_OUT).startsWith(D085_REPO_ROOT)).toBe(true);
+      expect(d085TrustedPath(D085_JSON_OUT)).toBe(join(D085_REPO_ROOT, D085_JSON_OUT));
     } finally {
       process.chdir(original);
     }
@@ -1361,8 +1365,10 @@ describe("D085 C15 #2 — the production-boundary invariant, whole-graph and alw
     The Correction 14 version walked four hand-picked directories, matched two
     extensions, and sat inside `describe.skipIf(!RESOLVER_APPROVED)` — so the
     ordinary no-approval run skipped it. This repository also has `src`,
-    `store`, `providers`, `hooks` and 27 root-level code and config files, many
-    of them `.js`/`.mjs`. This suite has no approval gate.
+    `store`, `providers`, `hooks` and root-level code and config files. The
+    isolated fixture below proves the JavaScript variants even when a clean
+    checkout currently has no production `.js` file. This suite has no
+    approval gate and may not depend on untracked workstation files.
   */
   it("NO importable forge module exists anywhere in the repository", () => {
     // The r15 remedy was a test-only module that production could still import.
@@ -1386,7 +1392,7 @@ describe("D085 C15 #2 — the production-boundary invariant, whole-graph and alw
       expect(rel.some((f) => f.startsWith(`${root}/`)), `root '${root}' must be traversed`).toBe(true);
     }
     expect(rel.some((f) => !f.includes("/")), "root-level files must be traversed").toBe(true);
-    for (const ext of [".ts", ".tsx", ".js", ".mjs"]) {
+    for (const ext of [".ts", ".tsx", ".mjs"]) {
       expect(rel.some((f) => f.endsWith(ext)), `extension '${ext}' must be scanned`).toBe(true);
     }
   });

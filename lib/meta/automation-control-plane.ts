@@ -486,6 +486,12 @@ function toPositiveNumberOrNull(value: unknown) {
   return Number.isFinite(next) && next > 0 ? Math.trunc(next) : null;
 }
 
+/** Preserve guardrails whose configuration contract explicitly allows decimals. */
+function toPositiveFiniteNumberOrNull(value: unknown) {
+  const next = Number(value);
+  return Number.isFinite(next) && next > 0 ? next : null;
+}
+
 function toCurrencyOrNull(value: unknown) {
   if (typeof value !== "string") return null;
   const normalized = value.trim().toUpperCase();
@@ -611,10 +617,10 @@ function normalizeGuardrails(
       nobody chose.
     */
     budgetMinHoursBetweenChanges:
-      toPositiveNumberOrNull(record.budgetMinHoursBetweenChanges),
+      toPositiveFiniteNumberOrNull(record.budgetMinHoursBetweenChanges),
     budgetMaxChangesPer7d: toPositiveNumberOrNull(record.budgetMaxChangesPer7d),
     budgetMaxAccountConcentrationPct:
-      toPositiveNumberOrNull(record.budgetMaxAccountConcentrationPct),
+      toPositiveFiniteNumberOrNull(record.budgetMaxAccountConcentrationPct),
     dailyAutoActionCap:
       toPositiveNumberOrNull(record.dailyAutoActionCap) ??
       DEFAULT_META_AUTOMATION_GUARDRAILS.dailyAutoActionCap,
@@ -623,7 +629,7 @@ function normalizeGuardrails(
     perActionSpendCeilingValid: ceilingValid,
     notificationPolicy: toNotificationPolicy(record.notificationPolicy),
     maxBudgetIncreasePct:
-      toPositiveNumberOrNull(record.maxBudgetIncreasePct) ??
+      toPositiveFiniteNumberOrNull(record.maxBudgetIncreasePct) ??
       DEFAULT_META_AUTOMATION_GUARDRAILS.maxBudgetIncreasePct,
     maxDailyBudgetChangeMinor:
       toPositiveNumberOrNull(record.maxDailyBudgetChangeMinor) ??

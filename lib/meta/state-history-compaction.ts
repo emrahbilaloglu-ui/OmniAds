@@ -441,10 +441,10 @@ export async function computeTimelineHashes(
     `
     WITH sequenced AS (
       SELECT business_id, provider_account_id, entity_type, entity_id,
-        state_hash, captured_at,
+        state_hash, observed_at, captured_at, created_at, id,
         LAG(state_hash) OVER (
           PARTITION BY business_id, provider_account_id, entity_type, entity_id
-          ORDER BY captured_at, created_at, id
+          ORDER BY observed_at, captured_at, created_at, id
         ) AS previous_hash
       FROM meta_entity_state_history
       WHERE business_id = ANY($1::text[]) AND run_completeness = 'complete'
@@ -454,8 +454,9 @@ export async function computeTimelineHashes(
     )
     SELECT business_id, provider_account_id, entity_type,
       md5(string_agg(
-        entity_id || '@' || captured_at::text || ':' || state_hash,
-        '|' ORDER BY entity_id, captured_at
+        entity_id || '@' || observed_at::text || '/' || captured_at::text
+          || '/' || created_at::text || '/' || id::text || ':' || state_hash,
+        '|' ORDER BY entity_id, observed_at, captured_at, created_at, id
       )) AS timeline_hash,
       COUNT(*)::int AS transition_rows
     FROM transitions
@@ -662,7 +663,7 @@ export async function planStateHistoryCompaction(
     }>(
       `
       WITH run_manifest AS (
-        SELECT r.id AS run_id, r.captured_at, r.observed_at,
+        SELECT r.id AS run_id, r.observed_at, r.captured_at, r.created_at,
           COUNT(s.id) AS physical_rows,
           md5(string_agg(s.entity_id || ':' || s.state_hash, '|' ORDER BY s.entity_id)) AS manifest_sig
         FROM meta_entity_observation_runs r
@@ -670,12 +671,18 @@ export async function planStateHistoryCompaction(
         WHERE r.completeness = 'complete'
           AND r.business_id = $1 AND r.provider_account_id = $2
           AND r.entity_type = $3 AND r.endpoint = $4
-        GROUP BY r.id, r.captured_at, r.observed_at
+        GROUP BY r.id, r.observed_at, r.captured_at, r.created_at
       ), sequenced AS (
         SELECT *,
-          LAG(manifest_sig) OVER (ORDER BY captured_at, run_id) AS previous_sig,
-          LAG(observed_at) OVER (ORDER BY captured_at, run_id) AS previous_observed_at,
-          ROW_NUMBER() OVER (ORDER BY captured_at DESC, run_id DESC) AS recency_rank
+          LAG(manifest_sig) OVER (
+            ORDER BY observed_at, captured_at, created_at, run_id
+          ) AS previous_sig,
+          LAG(observed_at) OVER (
+            ORDER BY observed_at, captured_at, created_at, run_id
+          ) AS previous_observed_at,
+          ROW_NUMBER() OVER (
+            ORDER BY observed_at DESC, captured_at DESC, created_at DESC, run_id DESC
+          ) AS recency_rank
         FROM run_manifest
       )
       SELECT seq.run_id::text AS run_id, seq.physical_rows, seq.manifest_sig,

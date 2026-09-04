@@ -171,6 +171,31 @@ describe("meta automation control plane", () => {
     expect(payload.businessControl.guardrails.perActionSpendCeilingValid).toBe(valid);
   });
 
+  it("preserves fractional hour and percentage guardrails accepted by the write contract", async () => {
+    const sql = vi.fn()
+      .mockResolvedValueOnce([{
+        business_id: BUSINESS_ID,
+        kill_switch_engaged: false,
+        auto_execution_enabled: false,
+        guardrails_json: {
+          budgetMinHoursBetweenChanges: 0.5,
+          budgetMaxAccountConcentrationPct: 12.5,
+          maxBudgetIncreasePct: 2.75,
+        },
+      }])
+      .mockResolvedValue([]);
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const payload = await getMetaAutomationControlPlane({
+      businessId: BUSINESS_ID,
+      providerAccountId: "act_1",
+    });
+
+    expect(payload.businessControl.guardrails.budgetMinHoursBetweenChanges).toBe(0.5);
+    expect(payload.businessControl.guardrails.budgetMaxAccountConcentrationPct).toBe(12.5);
+    expect(payload.businessControl.guardrails.maxBudgetIncreasePct).toBe(2.75);
+  });
+
   it("marks promotion records unavailable when that collection read fails", async () => {
     const sql = vi.fn(async (parts: TemplateStringsArray) => {
       const query = Array.from(parts).join("?");

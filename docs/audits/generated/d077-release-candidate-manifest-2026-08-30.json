@@ -1,25 +1,25 @@
 {
- "manifestHash": "d5ca151e912345321fdedc2365e2f90d3995c6897d34d91474a8eeef2635153c",
+ "manifestHash": "5426ecaafba891a890f5da87da1bf1b9281076c522816b407fe1caad35274a59",
  "hashAlgorithm": "sha256",
  "hashBasis": "sha256 over UTF-8 bytes of JSON.stringify(artifact, null, 1) of the artifact WITHOUT its embedded hash fields (the artifact object before {<hashField>, hashAlgorithm, hashBasis} are prepended)",
  "contract": "adsecute.d077.release-candidate-manifest.v3",
- "generatedAtUtc": "2026-09-04T03:11:45.639Z",
+ "generatedAtUtc": "2026-09-04T03:56:38.388Z",
  "branch": "codex/meta-disabled-readiness-20260829",
- "head": "39d5ac981831d9590c1b92485c03d96e9d9eb74c",
+ "head": "84ec7686d6a56e1687a37daefc4067ddffdcb5fd",
  "baseMain": "babf158e150fd33057117b39b175da044ac62d2e",
  "originMain": "babf158e150fd33057117b39b175da044ac62d2e",
  "remoteDivergence": {
-  "aheadOfOriginMain": 9,
+  "aheadOfOriginMain": 10,
   "behindOriginMain": 0
  },
  "selfExclusion": "this manifest's own path (docs/audits/generated/d077-release-candidate-manifest-2026-08-30.json) is EXCLUDED from its entry list: a manifest cannot recursively pin its own final bytes; its external SHA-256 is reported in the final response and by Codex's own hashing",
  "gitPorcelainEntryCount": 9,
- "releaseDiffEntryCountIncludingSelf": 511,
- "expandedOnDiskCandidateFileCountIncludingSelf": 511,
- "pinnedNonSelfFileCount": 510,
+ "releaseDiffEntryCountIncludingSelf": 512,
+ "expandedOnDiskCandidateFileCountIncludingSelf": 512,
+ "pinnedNonSelfFileCount": 511,
  "historicalContext": "pre-task freeze was 217 porcelain entries / 265 files — historical context only, NOT the final tree",
  "classCounts": {
-  "tests_only": 185,
+  "tests_only": 186,
   "runtime": 171,
   "runtime_deletion": 2,
   "deploy_config": 1,
@@ -910,7 +910,7 @@
    "path": "docs/audits/generated/d077-release-deploy-approval-packet-2026-08-30.json",
    "git": "A",
    "class": "generated_evidence",
-   "sha256": "fcf8b145bed8f5448fe7db1309185fea2ff3e4b38738266324f876f273207c90"
+   "sha256": "fb425898d30332882a42c266a31f7831b197aed4e3f828f6af3259502c19bb8d"
   },
   {
    "path": "docs/audits/generated/d078-hard-action-recompute-2026-08-30.json",
@@ -1645,6 +1645,12 @@
    "sha256": "a853c3a2dedd53c5a79647c20d966f6ec25f70dbeffdfd96745b27eb3b4bdb2b"
   },
   {
+   "path": "lib/meta/__tests__/state-history-compaction-observation-order.test.ts",
+   "git": "??",
+   "class": "tests_only",
+   "sha256": "f871ccc94cfbd39a5b7d8182b39917f010785540d5ccdb1bcb293f7af27bca16"
+  },
+  {
    "path": "lib/meta/__tests__/state-history-compaction-planner-counts.test.ts",
    "git": "A",
    "class": "tests_only",
@@ -1714,13 +1720,13 @@
    "path": "lib/meta/automation-control-plane.test.ts",
    "git": "M",
    "class": "tests_only",
-   "sha256": "b2e4f54bc0f3e53ba2e410fa11ccf867fa8cce6c9ad0fa0ff10f8b3d6b25f3b0"
+   "sha256": "d7e8d4ca08e1cbff7e9b63fccea0cedd462cdbe02dab9befc49a0c082d5d1e78"
   },
   {
    "path": "lib/meta/automation-control-plane.ts",
    "git": "M",
    "class": "runtime",
-   "sha256": "acb0aa79f36ddd1c066d1dc401f7f529eca33b37076d5560d2897398796872b9"
+   "sha256": "33fff91b4324e52a3cfa57aeb2590bbdf5b2b56e50892aece093e73408af4e9b"
   },
   {
    "path": "lib/meta/automation-master-gate.test.ts",
@@ -2290,7 +2296,7 @@
    "path": "lib/meta/entity-state-history.ts",
    "git": "M",
    "class": "runtime",
-   "sha256": "3408274081de2acf1839c108fb7791e089581d5cb6762bcb990326fb11410c62"
+   "sha256": "736985aac009c84e8cf7eba6c06abcf4dc1a43de0da725e606b996a80216498c"
   },
   {
    "path": "lib/meta/funnel-cohort.ts",
@@ -2422,7 +2428,7 @@
    "path": "lib/meta/state-history-compaction-executor.ts",
    "git": "A",
    "class": "runtime",
-   "sha256": "60df5f661b8c4d45a92e8af2b19148fef8fe4b5796d90c71dd47a125ec1b72cc"
+   "sha256": "2c460ba0fd6a4b65a38638797baf4bbc9b55bddce50006fd79737e7a67336be9"
   },
   {
    "path": "lib/meta/state-history-compaction-readiness.ts",
@@ -2434,7 +2440,7 @@
    "path": "lib/meta/state-history-compaction.ts",
    "git": "A",
    "class": "runtime",
-   "sha256": "0c36ba04c94da85cc33a633f58c3f63f9253f079cf1595c764f944a578cabb27"
+   "sha256": "513ec5e28183da0f6e1e9ec88cdada9dc42af3e16efd8995b0115be86c53fd7f"
   },
   {
    "path": "lib/meta/watching-segments.ts",
@@ -2998,7 +3004,7 @@
    "path": "scripts/ephemeral-postgres-entity-state-history-seam-child.ts",
    "git": "M",
    "class": "script_ops_non_request_path",
-   "sha256": "18906414aed7445ec5f575985f023e66ec53e4098c1df2c54ba4d945ced8ae27"
+   "sha256": "64630e92169e00e49615ea0769084936832fce90ee10d035dd634e36c72ec9b9"
   },
   {
    "path": "scripts/ephemeral-postgres-launchpad-handoff-seam.ts",
@@ -3040,7 +3046,7 @@
    "path": "scripts/ephemeral-postgres-state-history-compaction-seam-child.ts",
    "git": "A",
    "class": "script_ops_non_request_path",
-   "sha256": "d744b3b790ed070dbd9ad63e0f4c5112aeacf8e07ff948cccb726b67d7d15738"
+   "sha256": "4d1cdf4f947d95c1aaedb81d7377b601cd437b1c84ff050eec1d93d05a1057ac"
   },
   {
    "path": "scripts/state-history-compaction-cli.ts",

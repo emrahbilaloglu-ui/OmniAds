@@ -476,7 +476,7 @@ export async function executeStateHistoryCompaction(input: {
 
         // Full revalidation of every run in this batch, in one statement:
         // scope identity, current row count, current manifest signature, an
-        // identical retained EARLIER manifest in the same scope, a retained
+        // identical retained IMMEDIATE PREDECESSOR in the same scope, a retained
         // NEWER run with rows (non-head proof), and pin freedom.
         const runIds = batch.map((run) => run.runId);
         const current = await db.query<{
@@ -502,7 +502,9 @@ export async function executeStateHistoryCompaction(input: {
                 AND newer.provider_account_id = r.provider_account_id
                 AND newer.entity_type = r.entity_type
                 AND newer.endpoint = r.endpoint
-                AND (newer.captured_at, newer.id) > (r.captured_at, r.id)
+                AND (
+                  newer.observed_at, newer.captured_at, newer.created_at, newer.id
+                ) > (r.observed_at, r.captured_at, r.created_at, r.id)
                 AND EXISTS (SELECT 1 FROM meta_entity_state_history ns WHERE ns.run_id = newer.id)
             ) AS has_newer_with_rows,
             EXISTS (
@@ -513,7 +515,7 @@ export async function executeStateHistoryCompaction(input: {
           LEFT JOIN meta_entity_state_history s ON s.run_id = r.id
           WHERE r.id = ANY($1::uuid[])
           GROUP BY r.id, r.business_id, r.provider_account_id, r.entity_type,
-            r.endpoint, r.captured_at
+            r.endpoint, r.observed_at, r.captured_at, r.created_at
           `,
           [runIds],
         );
@@ -586,8 +588,9 @@ export async function executeStateHistoryCompaction(input: {
           }
         }
         // Identical retained-predecessor proof for every run this batch will
-        // delete: an EARLIER complete run of the same scope, still holding
-        // rows, whose manifest signature equals the planned signature. This
+        // delete: the immediately earlier complete run in canonical observation
+        // order, still holding rows, whose manifest signature equals the planned
+        // signature. This
         // is the semantic-equivalence guarantee bound INSIDE the transaction:
         // the content being deleted provably survives in an older run.
         if (deletable.length > 0) {
@@ -609,7 +612,31 @@ export async function executeStateHistoryCompaction(input: {
                 AND earlier.provider_account_id = r.provider_account_id
                 AND earlier.entity_type = r.entity_type
                 AND earlier.endpoint = r.endpoint
-                AND (earlier.captured_at, earlier.id) < (r.captured_at, r.id)
+                AND earlier.id = (
+                  SELECT predecessor.id
+                  FROM meta_entity_observation_runs predecessor
+                  WHERE predecessor.completeness = 'complete'
+                    AND predecessor.business_id = r.business_id
+                    AND predecessor.provider_account_id = r.provider_account_id
+                    AND predecessor.entity_type = r.entity_type
+                    AND predecessor.endpoint = r.endpoint
+                    AND (
+                      predecessor.observed_at, predecessor.captured_at,
+                      predecessor.created_at, predecessor.id
+                    ) < (r.observed_at, r.captured_at, r.created_at, r.id)
+                    -- Match the planner's run_manifest lane: a run emptied by
+                    -- an earlier compaction batch is not a retained
+                    -- predecessor. Skip it and prove against the nearest
+                    -- earlier complete run that still owns its manifest.
+                    AND EXISTS (
+                      SELECT 1 FROM meta_entity_state_history predecessor_state
+                      WHERE predecessor_state.run_id = predecessor.id
+                    )
+                  ORDER BY predecessor.observed_at DESC,
+                    predecessor.captured_at DESC, predecessor.created_at DESC,
+                    predecessor.id DESC
+                  LIMIT 1
+                )
               GROUP BY earlier.id
               HAVING md5(string_agg(es.entity_id || ':' || es.state_hash, '|' ORDER BY es.entity_id)) = pair.sig
             )

@@ -2693,8 +2693,117 @@ async function verifyDeltaManifests(context: {
     `D14m: bulk storage should hold 2 runs and 1,043 rows, got ${JSON.stringify(bulkCensus)}`,
   );
 
+  // D14o: an older observation may be captured after newer live truth. The
+  // delta predecessor is selected by observed_at first (bounded by the
+  // incoming observation), with captured_at only breaking equal-observed
+  // ties. Otherwise the backfill becomes a false baseline and the next live
+  // transition is silently omitted.
+  const ORDER_ENDPOINT = "adset_configs_delta_observation_order";
+  const OA = "adset_delta_order_a";
+  const OB = "adset_delta_order_b";
+  const orderedObservation = (input: {
+    observedAt: string;
+    capturedAt: string;
+    aStatus: string;
+    bStatus: string;
+  }) => ({
+    ...adsetObservation({
+      observedAt: input.observedAt,
+      capturedAt: input.capturedAt,
+      entities: [
+        { id: OA, status: input.aStatus },
+        { id: OB, status: input.bStatus },
+      ],
+    }),
+    endpoint: ORDER_ENDPOINT,
+  });
+
+  const orderFull = await persistMetaEntityObservation(
+    orderedObservation({
+      observedAt: "2026-10-06T10:00:00Z",
+      capturedAt: "2026-10-06T10:00:01Z",
+      aStatus: "ACTIVE",
+      bStatus: "ACTIVE",
+    }),
+  );
+  const orderLive = await persistMetaEntityObservation(
+    orderedObservation({
+      observedAt: "2026-10-06T12:00:00Z",
+      capturedAt: "2026-10-06T12:00:01Z",
+      aStatus: "PAUSED",
+      bStatus: "ACTIVE",
+    }),
+  );
+  const orderBackfill = await persistMetaEntityObservation(
+    orderedObservation({
+      observedAt: "2026-10-06T11:00:00Z",
+      capturedAt: "2026-10-06T13:00:00Z",
+      aStatus: "ACTIVE",
+      bStatus: "ACTIVE",
+    }),
+  );
+  assert(
+    orderFull.manifestKind === "full" &&
+      orderLive.stateCount === 1 &&
+      orderBackfill.manifestKind === "delta" &&
+      orderBackfill.stateCount === 0,
+    `D14o: the out-of-order backfill compared against future truth: ${JSON.stringify({ orderFull, orderLive, orderBackfill })}`,
+  );
+  const orderNextLive = await persistMetaEntityObservation(
+    orderedObservation({
+      observedAt: "2026-10-06T14:00:00Z",
+      capturedAt: "2026-10-06T14:00:01Z",
+      aStatus: "ACTIVE",
+      bStatus: "ACTIVE",
+    }),
+  );
+  expectStats("D14o observed-at predecessor", orderNextLive.deltaStats, {
+    logicalEntityCount: 2,
+    changedEntityCount: 1,
+    newEntityCount: 0,
+    exitedEntityCount: 0,
+    lineageCarriedEntityCount: 0,
+    physicalStateRows: 1,
+  });
+
+  // Two different facts can share an observation timestamp. Insert the
+  // later-captured fact first, then the earlier-captured fact, so created_at
+  // cannot accidentally masquerade as the required captured_at tie-breaker.
+  await persistMetaEntityObservation(
+    orderedObservation({
+      observedAt: "2026-10-06T15:00:00Z",
+      capturedAt: "2026-10-06T15:00:02Z",
+      aStatus: "PAUSED",
+      bStatus: "ACTIVE",
+    }),
+  );
+  await persistMetaEntityObservation(
+    orderedObservation({
+      observedAt: "2026-10-06T15:00:00Z",
+      capturedAt: "2026-10-06T15:00:01Z",
+      aStatus: "ARCHIVED",
+      bStatus: "ACTIVE",
+    }),
+  );
+  const captureTieProbe = await persistMetaEntityObservation(
+    orderedObservation({
+      observedAt: "2026-10-06T16:00:00Z",
+      capturedAt: "2026-10-06T16:00:01Z",
+      aStatus: "PAUSED",
+      bStatus: "PAUSED",
+    }),
+  );
+  expectStats("D14o captured-at tie-breaker", captureTieProbe.deltaStats, {
+    logicalEntityCount: 2,
+    changedEntityCount: 1,
+    newEntityCount: 0,
+    exitedEntityCount: 0,
+    lineageCarriedEntityCount: 0,
+    physicalStateRows: 1,
+  });
+
   console.log(
-    "[entity-state-history-seam] D14 PASS delta manifests: first-complete stays a full manifest; identical truth coalesces across kinds; 1-of-3 appends one row with logical row_count 3; a scope exit appends one absent_unconfirmed row that as-of reads honor (and earlier cutoffs ignore); re-entry appends one present row; a forced checkpoint is a zero-row delta run the heartbeat resumes on; failed lanes stay kind-less and do not break the complete lane; replays add nothing; 8 concurrent changed observers serialize to one delta row; account and sibling-endpoint scopes never fabricate exits; relationship-named unchanged ads are carried for the lineage FK on the append path AND on the coalesced path (with truthful kept-run stats and no-op repeats); and a 1-of-1,042 change appends exactly ONE physical row (2 runs / 1,043 rows total).",
+    "[entity-state-history-seam] D14 PASS delta manifests: first-complete stays a full manifest; identical truth coalesces across kinds; 1-of-3 appends one row with logical row_count 3; a scope exit appends one absent_unconfirmed row that as-of reads honor (and earlier cutoffs ignore); re-entry appends one present row; a forced checkpoint is a zero-row delta run the heartbeat resumes on; failed lanes stay kind-less and do not break the complete lane; replays add nothing; 8 concurrent changed observers serialize to one delta row; account and sibling-endpoint scopes never fabricate exits; relationship-named unchanged ads are carried for the lineage FK on the append path AND on the coalesced path (with truthful kept-run stats and no-op repeats); a 1-of-1,042 change appends exactly ONE physical row (2 runs / 1,043 rows total); and out-of-order backfills use an incoming-bounded observed_at predecessor with a deterministic captured_at tie-breaker.",
   );
 }
 

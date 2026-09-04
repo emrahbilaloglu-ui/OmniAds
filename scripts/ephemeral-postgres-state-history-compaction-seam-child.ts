@@ -22,6 +22,7 @@ import {
 } from "@/lib/meta/entity-state-history";
 import {
   computeScopeFingerprint,
+  computeTimelineHashes,
   expectedApprovalToken,
   computeExecutionPayloadHash,
   planStateHistoryCompaction,
@@ -97,9 +98,14 @@ async function main() {
 
   const bizA = await mkBusiness("Compaction seam A");
   const bizB = await mkBusiness("Compaction seam twin B");
+  const bizObservedOrder = await mkBusiness("Compaction observed-order seam");
   const accA = await mkAccount(bizA, "act_compact_a");
   const accARef = accA;
   const accB = await mkAccount(bizB, "act_compact_b");
+  const accObservedOrder = await mkAccount(
+    bizObservedOrder,
+    "act_compact_observed_order",
+  );
 
   interface LegacyRunSpec {
     businessId: string;
@@ -107,6 +113,7 @@ async function main() {
     accountId: string;
     entityType: "campaign" | "ad" | "creative";
     endpoint: string;
+    observedAt?: string;
     capturedAt: string;
     completeness?: "complete" | "partial" | "failed";
     states: Array<{ entityId: string; stateHash: string; adId?: string; creativeId?: string }>;
@@ -114,7 +121,7 @@ async function main() {
   }
   const insertLegacyRun = async (spec: LegacyRunSpec) => {
     const completeness = spec.completeness ?? "complete";
-    const observedAt = spec.capturedAt;
+    const observedAt = spec.observedAt ?? spec.capturedAt;
     const runHash = buildMetaObservationRunHash({
       businessId: spec.businessId,
       providerAccountId: spec.accountId,
@@ -197,6 +204,52 @@ async function main() {
   };
   const scopeA = await fixtureScope(bizA, accARef, "act_compact_a");
   await fixtureScope(bizB, accB, "act_compact_b");
+
+  // Observation-order regression. Capture order is Y,X,X,Z, which used to
+  // make the second X look like a disposable duplicate. The historical/as-of
+  // order is X,Y,X,Z, so every row is a real transition and none is removable.
+  const observedOrderBase = {
+    businessId: bizObservedOrder,
+    accountRef: accObservedOrder,
+    accountId: "act_compact_observed_order",
+    entityType: "campaign" as const,
+    endpoint: "campaign_configs_observed_order",
+  };
+  const observedOrderState = (stateHash: string) => [{
+    entityId: "cmp_observed_order",
+    stateHash,
+  }];
+  const ORDER_X = hex64(31);
+  const ORDER_Y = hex64(32);
+  const ORDER_Z = hex64(33);
+  await insertLegacyRun({
+    ...observedOrderBase,
+    observedAt: "2026-06-20T01:00:00Z",
+    capturedAt: "2026-06-20T04:00:00Z",
+    states: observedOrderState(ORDER_X),
+    seed: 31,
+  });
+  await insertLegacyRun({
+    ...observedOrderBase,
+    observedAt: "2026-06-20T02:00:00Z",
+    capturedAt: "2026-06-20T03:00:00Z",
+    states: observedOrderState(ORDER_Y),
+    seed: 32,
+  });
+  await insertLegacyRun({
+    ...observedOrderBase,
+    observedAt: "2026-06-20T03:00:00Z",
+    capturedAt: "2026-06-20T05:00:00Z",
+    states: observedOrderState(ORDER_X),
+    seed: 33,
+  });
+  await insertLegacyRun({
+    ...observedOrderBase,
+    observedAt: "2026-06-20T04:00:00Z",
+    capturedAt: "2026-06-20T06:00:00Z",
+    states: observedOrderState(ORDER_Z),
+    seed: 34,
+  });
 
   // S3 (bizA ad scope): duplicate run pinned by a lineage edge.
   const S3 = { entityType: "ad" as const, endpoint: "ad_configs_compact" };
@@ -376,6 +429,27 @@ async function main() {
   );
 
   await sql`CREATE EXTENSION IF NOT EXISTS pgstattuple`;
+  const observedOrderTimelines = await computeTimelineHashes(sql, [
+    bizObservedOrder,
+  ]);
+  assert(
+    observedOrderTimelines.length === 1 &&
+      observedOrderTimelines[0]?.transitionRows === 4,
+    `observed-order timeline must retain X,Y,X,Z as four transitions: ${JSON.stringify(observedOrderTimelines)}`,
+  );
+  const observedOrderPlan = await plannedReadOnly([bizObservedOrder]);
+  const observedOrderScope = observedOrderPlan.scopes.find(
+    (scope) => scope.endpoint === observedOrderBase.endpoint,
+  );
+  assert(
+    observedOrderPlan.status === "nothing_to_do" &&
+      observedOrderScope?.candidateRuns === 0 &&
+      observedOrderScope.removableRuns === 0,
+    `captured-order Y,X,X,Z must not erase observed-order X,Y,X,Z: ${JSON.stringify({
+      status: observedOrderPlan.status,
+      scope: observedOrderScope,
+    })}`,
+  );
   const plan1 = await plannedReadOnly([bizA]);
   assert(plan1.status === "ready", `plan1 not ready: ${JSON.stringify(plan1.insufficiencyReasons)}`);
   assert(plan1.fence.metric === "effective_reusable_heap", "proof metric expected after CREATE EXTENSION");

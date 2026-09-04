@@ -1748,8 +1748,16 @@ export async function persistMetaEntityObservation(
             -- would fabricate scope exits for entities another endpoint
             -- legitimately observes.
             AND scope_run.endpoint = ${endpoint}
-          ORDER BY state.entity_id, state.captured_at DESC,
-            state.created_at DESC, state.id DESC
+            -- Reconstruct the predecessor as it was knowable for THIS
+            -- observation. A historical replay can arrive with a newer
+            -- capture clock than a later-observed live state; without both
+            -- cutoffs it can compare against the future and without
+            -- observed_at-first ordering it can become the next live run's
+            -- false baseline.
+            AND state.observed_at <= ${observedAt}::timestamptz
+            AND state.captured_at <= ${capturedAt}::timestamptz
+          ORDER BY state.entity_id, state.observed_at DESC,
+            state.captured_at DESC, state.created_at DESC, state.id DESC
         `;
         const baselinePresent = new Map(
           baseline

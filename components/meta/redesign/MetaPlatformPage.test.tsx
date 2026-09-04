@@ -3526,6 +3526,47 @@ describe("workspace posture banners", () => {
     expect(html).toContain("Hiding this banner does not unlock writes");
   });
 
+  it("keeps every blocking or danger banner outside the collapsed informational notes", () => {
+    state.workspaceBanners = [
+      {
+        id: "informational_note",
+        tone: "info",
+        title: "Informational note.",
+        detail: "This note does not block decisions.",
+        blocking: false,
+      },
+      {
+        id: "pipeline_blocker",
+        tone: "warning",
+        title: "Pipeline is not ready.",
+        detail: "Decision generation must recover.",
+        blocking: true,
+      },
+      {
+        id: "danger_without_blocking_flag",
+        tone: "danger",
+        title: "Critical provider failure.",
+        detail: "Provider state cannot be verified.",
+        blocking: false,
+      },
+    ];
+
+    const html = renderToStaticMarkup(
+      <MetaPlatformPage businessId="biz_1" businessName="TheSwaf" />,
+    );
+    const detailsIndex = html.indexOf(
+      '<details class="meta-posture-banners__details">',
+    );
+
+    expect(detailsIndex).toBeGreaterThan(-1);
+    expect(html.lastIndexOf("Pipeline is not ready.")).toBeLessThan(detailsIndex);
+    expect(html.lastIndexOf("Critical provider failure.")).toBeLessThan(
+      detailsIndex,
+    );
+    expect(html.lastIndexOf("Informational note.")).toBeGreaterThan(detailsIndex);
+    expect(html).toContain("1 additional data note");
+  });
+
   it("downgrades write controls to evidence review when the server marks the viewer read-only", () => {
     state.workspaceViewer = {
       role: "collaborator",

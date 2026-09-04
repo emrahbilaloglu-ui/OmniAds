@@ -3179,21 +3179,27 @@ function MetaWorkspacePostureBanners({
     );
   };
 
-  const [primaryBanner, ...additionalBanners] = visibleBanners;
-  if (!primaryBanner) return null;
+  const blockingBanners = visibleBanners.filter(
+    (banner) => banner.blocking || workspaceBannerToneClass(banner) === "danger",
+  );
+  const expandedBanners =
+    blockingBanners.length > 0 ? blockingBanners : visibleBanners.slice(0, 1);
+  const expandedIds = new Set(expandedBanners.map((banner) => banner.id));
+  const informationalBanners = visibleBanners.filter(
+    (banner) => !expandedIds.has(banner.id),
+  );
   return (
     <div className="meta-posture-banners" data-testid="meta-posture-banners">
       <p className="meta-posture-banners__eyebrow">Current operating status</p>
-      {renderBanner(primaryBanner, true)}
-      {additionalBanners.length > 0 ? (
+      {expandedBanners.map((banner, index) => renderBanner(banner, index === 0))}
+      {informationalBanners.length > 0 ? (
         <details className="meta-posture-banners__details">
           <summary>
-            {additionalBanners.length} additional safeguard
-            {additionalBanners.length === 1 ? "" : "s"} and data note
-            {additionalBanners.length === 1 ? "" : "s"}
+            {informationalBanners.length} additional data note
+            {informationalBanners.length === 1 ? "" : "s"}
           </summary>
           <div className="meta-posture-banners__detail-list">
-            {additionalBanners.map((banner) => renderBanner(banner, false))}
+            {informationalBanners.map((banner) => renderBanner(banner, false))}
           </div>
         </details>
       ) : null}

@@ -669,6 +669,19 @@ describe("native ad operator-response job contract", () => {
     expect(REPLACE_AD_OPERATOR_RESPONSE_BATCHES_QUERY).toContain(
       "replacement_set_hash",
     );
+    const responsePayloadSchema =
+      REPLACE_AD_OPERATOR_RESPONSE_BATCHES_QUERY.match(
+        /WITH response_payload[\s\S]*?\), event_payload/,
+      )?.[0] ?? "";
+    for (const requiredIdentity of [
+      "business_ref_id uuid",
+      "business_id text",
+      "provider_account_ref_id uuid",
+      "provider_account_id text",
+      "job_run_id uuid",
+    ]) {
+      expect(responsePayloadSchema).toContain(requiredIdentity);
+    }
   });
 
   it("rejects response/evidence cardinality drift before the atomic write", async () => {

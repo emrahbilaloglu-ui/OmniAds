@@ -8240,3 +8240,34 @@ a historical replay can hold no fresh provider baseline. The
 both owner grains, both directions, 0 would-write, every one caught on
 `d087:automation_disabled`. Assumption results describe the code, never an
 account.
+
+## D089 — Bounded state-history admission bridge after live D075 proof
+
+Status: accepted for the 2026-09-04 Meta recovery release. This changes sync
+admission only. It does not enable automation, authorize a proposal, or write to
+Meta.
+
+The former 5 GiB ceiling is no longer a useful runaway boundary: production's
+`meta_entity_state_history` is 5,989,081,088 bytes (5.58 GiB), so it refuses
+every observation before evaluating whether the deployed D075 delta writer has
+removed the amplification that caused the breach. A single 30-minute bounded
+override was therefore used as a production proof, not as a permanent bypass.
+All six operating businesses completed a Meta catch-up and their finalized ad
+facts advanced to 2026-09-02 or 2026-09-03 local fact dates. Across that catch-up
+the state-history relation remained exactly 4,239,764 rows and 5,989,081,088
+bytes, with the latest state capture still 2026-08-22: unchanged state was not
+rewritten.
+
+Decision: raise only this relation's default ceiling from 5 GiB to 6 GiB and
+keep the manual recovery preflight on the identical value. Six GiB is the
+smallest whole-GiB threshold above the measured relation and leaves 453,369,856
+bytes (about 432 MiB) for real entity transitions. The aggregate 160 GiB
+database fence, physical free-space checks, warning band, effective-size
+fail-closed fallback and every provider-write gate remain unchanged.
+
+This supersedes D077's rejection of another blind cap increase because the
+missing condition is now measured in production: D075 is deployed and a full
+six-business catch-up produced zero state-history growth. It does not supersede
+D077 compaction. Six GiB is a reversible operating bridge; a renewed
+full-manifest rewrite or exhaustion of the bounded delta headroom must refuse
+again and requires compaction, not another unmeasured increase.

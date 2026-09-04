@@ -415,8 +415,9 @@ const COVERAGE: Record<string, Coverage> = {
   "MetaDecisionsWorkspacePayload.startDate": N(
     "A range echo of the request: the date-window control renders the URL's own range (resolveDateWindowFromParams), so a second copy could disagree with the control the operator set.",
   ),
-  "MetaDecisionsWorkspacePayload.endDate": N(
-    "A range echo of the request: the date-window control renders the URL's own range (resolveDateWindowFromParams), so a second copy could disagree with the control the operator set.",
+  "MetaDecisionsWorkspacePayload.endDate": W(
+    S.KPI,
+    "the Spend tile's exact as-of date, so a stale or historical range is never mislabeled as today",
   ),
   "MetaDecisionsWorkspacePayload.queue.groups[].key": N(
     "A five-group summary that restates lanes.counts, which the lane pills already render; two counts of one population on one screen can disagree, and only one of them can be right.",
@@ -1478,8 +1479,9 @@ const COVERAGE: Record<string, Coverage> = {
     S.KPI,
     "the automatic campaign-role tile's numerator and its percentage",
   ),
-  "MetaCampaignRoleCoverage.unresolvedCampaigns": N(
-    "The tile states classified over active; unresolved is the remainder of that same pair and can be read off it.",
+  "MetaCampaignRoleCoverage.unresolvedCampaigns": W(
+    S.KPI,
+    "the automatic-inference detail line, explicitly identifying unresolved campaigns without a manual label workflow",
   ),
   "MetaCampaignRoleCoverage.latestUpdatedAt": N(
     "When automatic role inference last changed is coverage freshness; the tile states the coverage itself, which is what gates campaign context.",
@@ -3883,7 +3885,7 @@ const ELEMENT_PROOF_BY_SURFACE: Record<string, [number, number]> = {
   // the provenance band is one band, not a table of rows.
   INSPECTOR: [2, 13],
   INVENTORY: [0, 14],
-  KPI: [0, 19],
+  KPI: [0, 21],
   // PRE-DEPLOY AUDIT — 6 -> 59: the budget evidence, gate and dry-run panels
   // render here. Element-level stays 0 by construction (see
   // SURFACES_WITHOUT_ELEMENT_IDS), not by omission.
@@ -3913,7 +3915,7 @@ const DOM_PROOF_BY_SURFACE: Record<string, [number, number]> = {
   // evidence window's 'Served action' row, not the queue button's tone.
   ACTION: [9, 0],
   HEADER: [10, 0],
-  KPI: [19, 0],
+  KPI: [21, 0],
   PILLS: [7, 0],
   // Partly: the inspector's own facts render, the ones it only shows for a
   // selected creative do not; the Creatives queue and the source panel sit
@@ -3954,7 +3956,7 @@ const DOM_PROOF_BY_SURFACE: Record<string, [number, number]> = {
 // PRE-DEPLOY AUDIT — [120, 248] -> [159, 249]. The budget panels render in
 // the default markup, so 39 of their claims are proven in the DOM rather than
 // in a view model; one more sits behind a control.
-const DOM_PROOF_TOTALS: [number, number] = [159, 249];
+const DOM_PROOF_TOTALS: [number, number] = [161, 249];
 
 /** Claims on leaves the contract pins to one value, which cannot be varied. */
 // PRE-DEPLOY AUDIT — 7 -> 20. Thirteen more claims sit on leaves the budget
@@ -3974,7 +3976,7 @@ const DOM_PROOF_PINNED_LEAVES = 20;
 // read-back plumbing, the gate verdict's internal codes, and the dry-run's
 // server-side executable flag. Each is classified with its own reason above;
 // this is their total.
-const NOWHERE_LEAVES = 298;
+const NOWHERE_LEAVES = 296;
 
 /**
  * Of those, the ones that DO reach the callback boundary — the served tuple
@@ -4982,9 +4984,9 @@ describe("Meta Decision payload · every claim, proven against the running code"
      * strongest proof available there, so the honest thing is to let the
      * ratio move and say why.
      */
-    expect(rendered.length).toBe(428);
+    expect(rendered.length).toBe(430);
     expect(withElement.length).toBe(195);
-    expect(withoutElement.length).toBe(233);
+    expect(withoutElement.length).toBe(235);
 
     /*
      * AND WHICH ENTRIES, not merely how many.
@@ -6085,6 +6087,7 @@ describe("Meta Decision payload · the named starting points", () => {
       "MetaBudgetDryRunPanel.simulated.title",
       "MetaBudgetDryRunPanel.status",
       "MetaBudgetDryRunPanel.unavailableReason",
+      "MetaCampaignRoleCoverage.unresolvedCampaigns",
       "MetaCanonicalDecision.sourceDecision.computedAt",
       // D073's pipeline-health envelope: the exact decision-generation clock,
       // the generation manifest, and the four operational facts (successful
@@ -6144,6 +6147,7 @@ describe("Meta Decision payload · the named starting points", () => {
       "MetaDecisionsDigest.actions.silentFailureCount",
       "MetaDecisionsDigest.actions.verifiedCount",
       "MetaDecisionsDigest.snapshotDate",
+      "MetaDecisionsWorkspacePayload.endDate",
       "MetaDecisionsWorkspaceReadModel.queue.adCandidates.eligiblePreCapCount",
       "MetaDecisionsWorkspaceReadModel.status",
       "MetaHealthyEntity.isBidStrategyMixed",

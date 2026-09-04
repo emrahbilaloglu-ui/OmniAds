@@ -345,8 +345,8 @@ function statusForGlobalKillSwitch(
     return { label: UNKNOWN, tone: "unknown" };
   }
   return payload.globalKillSwitch.engaged
-    ? { label: "STOPPED", tone: "stopped" }
-    : { label: "ENABLED", tone: "enabled" };
+    ? { label: "ENGAGED", tone: "stopped" }
+    : { label: "NOT ENGAGED", tone: "enabled" };
 }
 
 function statusForBusinessKillSwitch(
@@ -355,11 +355,11 @@ function statusForBusinessKillSwitch(
   if (!hasServedBusinessControl(payload)) {
     return { label: UNKNOWN, tone: "unknown" };
   }
-  // An engaged stop reads STOPPED regardless of provenance — a stop is a
+  // An engaged stop reads ENGAGED regardless of provenance — a stop is a
   // stop, and softening it because the row is a default would weaken the
   // fail-closed direction.
   if (payload!.businessControl.killSwitchEngaged) {
-    return { label: "STOPPED", tone: "stopped" };
+    return { label: "ENGAGED", tone: "stopped" };
   }
   // A successful read of a MISSING control row degrades to defaults, and the
   // write boundary refuses every Meta write for that business with
@@ -367,9 +367,9 @@ function statusForBusinessKillSwitch(
   // a green ENABLED here claimed a write-enablement the server does not
   // grant; the pill states the effective posture instead.
   if (payload!.businessControl.source !== "persisted") {
-    return { label: "BLOCKED · NOT CONFIGURED", tone: "stopped" };
+    return { label: "NOT CONFIGURED", tone: "stopped" };
   }
-  return { label: "ENABLED", tone: "enabled" };
+  return { label: "NOT ENGAGED", tone: "enabled" };
 }
 
 function readinessFor(payload: AutomationPayload | null) {
@@ -1023,6 +1023,11 @@ export function MetaAutomationView({
   const [modificationNote, setModificationNote] = useState("");
   const globalStatus = statusForGlobalKillSwitch(payload);
   const businessStatus = statusForBusinessKillSwitch(payload);
+  const automaticExecutionState = hasServedBusinessControl(payload)
+    ? payload!.businessControl.autoExecutionEnabled
+      ? "ON"
+      : "OFF"
+    : UNKNOWN;
 
   /**
    * The Stop's own state, and the mutation that changes it.
@@ -1434,9 +1439,45 @@ export function MetaAutomationView({
         data-testid="automation-exact-desktop"
       >
         <div>
-          <p className={styles.eyebrow}>Meta · Supervision control plane</p>
+          <p className={styles.eyebrow}>Meta · Automation control</p>
           <h1 className={styles.title}>Automation</h1>
         </div>
+
+        <article
+          className={styles.operatingState}
+          data-testid="automation-operating-state"
+          data-automatic-execution={automaticExecutionState.toLowerCase()}
+        >
+          <div>
+            <p className={styles.operatingStateEyebrow}>Current state</p>
+            <h2>Automatic execution is {automaticExecutionState}</h2>
+            <p>
+              {automaticExecutionState === "OFF"
+                ? "No Meta change can run automatically for this business. You can finish configuration, historical backtests and readiness checks without turning it on."
+                : automaticExecutionState === "ON"
+                  ? "The business master switch is on. Every action still has to pass its decision-type tier, guardrails, live preflight and provider read-back."
+                  : "The server could not prove whether automatic execution is on or off. Writes remain fail-closed until the control state can be read."}
+            </p>
+          </div>
+          <dl>
+            <div>
+              <dt>Readiness</dt>
+              <dd>{readiness}</dd>
+            </div>
+            <div>
+              <dt>Pending approvals</dt>
+              <dd>{proposals.count}</dd>
+            </div>
+            <div>
+              <dt>Activation blockers</dt>
+              <dd>
+                {budgetWriteReadiness
+                  ? budgetWriteReadiness.execution.activationReadyBlockers.length
+                  : UNKNOWN}
+              </dd>
+            </div>
+          </dl>
+        </article>
 
         {/*
           The failure state's own recovery. The read this re-runs is the one
@@ -1478,7 +1519,7 @@ export function MetaAutomationView({
 
         <div className={styles.summaryGrid}>
           <article className={styles.killCard}>
-            <p className={styles.cardKickerDark}>Kill switch</p>
+            <p className={styles.cardKickerDark}>Emergency stops</p>
             <div className={styles.killRow}>
               {/*
                 Was "Global writes". The switch behind it is
@@ -1489,7 +1530,7 @@ export function MetaAutomationView({
                 have, and an operator reaching for it in an incident would have
                 believed Google Ads had stopped too.
               */}
-              <span>Meta writes · all businesses</span>
+              <span>All-business Meta stop</span>
               <span
                 className={styles.statusPill}
                 data-tone={globalStatus.tone}
@@ -1500,7 +1541,7 @@ export function MetaAutomationView({
               </span>
             </div>
             <div className={styles.killRow}>
-              <span>Meta writes · this business</span>
+              <span>This-business Meta stop</span>
               <span
                 className={styles.statusPill}
                 data-tone={businessStatus.tone}
@@ -2195,6 +2236,12 @@ export function MetaAutomationView({
           </p>
         </article>
 
+        <details className={styles.advancedAutomation}>
+          <summary>
+            <span>Advanced automation settings</span>
+            <small>Rules, autonomy tiers and activity history</small>
+          </summary>
+          <div className={styles.advancedAutomationBody}>
         <div className={styles.rulesAutonomyGrid}>
           <article className={styles.rulesCard}>
             <div className={styles.sectionHeader}>
@@ -2454,8 +2501,20 @@ export function MetaAutomationView({
           </div>
         </article>
 
-        <StateHistoryRecoverySection readiness={stateHistoryReadiness} />
-        <BudgetReadinessSection readiness={budgetReadiness} />
+          </div>
+        </details>
+
+        <details className={styles.systemDiagnostics}>
+          <summary>System diagnostics</summary>
+          <p>
+            Storage admission and proposal construction evidence for recovery
+            work. These diagnostics do not enable automation.
+          </p>
+          <div className={styles.systemDiagnosticsBody}>
+            <StateHistoryRecoverySection readiness={stateHistoryReadiness} />
+            <BudgetReadinessSection readiness={budgetReadiness} />
+          </div>
+        </details>
         <BudgetWriteReadinessSection
           readiness={budgetWriteReadiness}
           authorization={buildBudgetMasterSwitchAuthorization({
@@ -2499,15 +2558,24 @@ export function MetaAutomationView({
             <dd>{providerAccountId || UNKNOWN}</dd>
           </div>
         </dl>
-        <StateHistoryRecoverySection readiness={stateHistoryReadiness} />
-        <BudgetReadinessSection readiness={budgetReadiness} />
-        {/* The mobile pane declares itself read-only; it carries no form. */}
-        <BudgetWriteReadinessSection
-          readiness={budgetWriteReadiness}
-          authorization={buildBudgetMasterSwitchAuthorization({
-            viewer, surface: "mobile_read_only",
-          })}
-        />
+        <details className={styles.systemDiagnostics}>
+          <summary>Readiness details</summary>
+          <p>
+            Historical evidence, storage health and budget execution readiness.
+            This mobile view remains read-only.
+          </p>
+          <div className={styles.systemDiagnosticsBody}>
+            <StateHistoryRecoverySection readiness={stateHistoryReadiness} />
+            <BudgetReadinessSection readiness={budgetReadiness} />
+            {/* The mobile pane declares itself read-only; it carries no form. */}
+            <BudgetWriteReadinessSection
+              readiness={budgetWriteReadiness}
+              authorization={buildBudgetMasterSwitchAuthorization({
+                viewer, surface: "mobile_read_only",
+              })}
+            />
+          </div>
+        </details>
       </section>
     </div>
   );

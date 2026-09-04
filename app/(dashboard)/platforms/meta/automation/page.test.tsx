@@ -325,10 +325,11 @@ describe("Dashboard v2 exact Automation presentation", () => {
     const html = render();
 
     expect(html).toContain('data-screen-label="Automation"');
-    expect(html).toContain("Meta · Supervision control plane");
+    expect(html).toContain("Meta · Automation control");
     expect(html).toContain(">Automation</h1>");
     /*
       7 canonical cards
+      + 1 current automatic-execution state card (desktop)
       + 2 D077 state-history recovery-readiness sections (desktop + mobile)
       + 2 D086 budget-readiness sections (desktop + mobile)
 
@@ -337,7 +338,7 @@ describe("Dashboard v2 exact Automation presentation", () => {
       its own sections and was corrected in the D078 acceptance pass; this one is
       updated in the same slice that adds the sections it counts.
     */
-    expect(html.match(/<article/g)).toHaveLength(13);
+    expect(html.match(/<article/g)).toHaveLength(14);
     // ...and the D086 sections are display-only on both surfaces.
     expect(html.match(/data-testid="budget-readiness"/g)).toHaveLength(2);
     /*
@@ -348,13 +349,18 @@ describe("Dashboard v2 exact Automation presentation", () => {
     */
     expect(html.match(/data-testid="budget-write-readiness-unavailable"/g)).toHaveLength(2);
     expect(html).toContain("Automatic execution — master switch");
-    expect(html).toContain("Kill switch");
+    expect(html).toContain("Emergency stops");
     expect(html).toContain("Guardrails");
     expect(html).toContain("Readiness");
     expect(html).toContain("Needs your confirmation");
     expect(html).toContain("Rules");
     expect(html).toContain("Autonomy ladder");
     expect(html).toContain("Activity ledger");
+    expect(html).toContain("Advanced automation settings");
+    expect(html).toMatch(
+      /<details[^>]*><summary><span>Advanced automation settings<\/span>/,
+    );
+    expect(html).toMatch(/<summary>Readiness details<\/summary>/);
     /**
      * The design file's own copy here reads "Global writes" and "blocks every
      * provider write instantly", and both are false of the control.
@@ -392,7 +398,7 @@ describe("Dashboard v2 exact Automation presentation", () => {
     const html = render();
 
     expect(html).toMatch(
-      /data-field="global-writes"[^>]*data-read-only="true"[^>]*>ENABLED/,
+      /data-field="global-writes"[^>]*data-read-only="true"[^>]*>NOT ENGAGED/,
     );
     /*
      * The business row lost `data-read-only` when WP13's Stop control landed
@@ -401,7 +407,7 @@ describe("Dashboard v2 exact Automation presentation", () => {
      * product cannot stop Meta writes. The global row keeps the marker — that
      * switch is deployment-owned and this screen can never move it.
      */
-    expect(html).toMatch(/data-field="business-writes"[^>]*>STOPPED/);
+    expect(html).toMatch(/data-field="business-writes"[^>]*>ENGAGED/);
     expect(html).not.toMatch(
       /data-field="business-writes"[^>]*data-read-only="true"/,
     );
@@ -435,7 +441,7 @@ describe("Dashboard v2 exact Automation presentation", () => {
     });
 
     // The global read is the subject and still comes through.
-    expect(html).toMatch(/data-field="global-writes"[^>]*>STOPPED/);
+    expect(html).toMatch(/data-field="global-writes"[^>]*>ENGAGED/);
 
     // A defaulted control row is not an absent one. These defaults are what the
     // server enforces for a business nobody has configured:
@@ -445,8 +451,8 @@ describe("Dashboard v2 exact Automation presentation", () => {
     // provider. Printing an em dash beside a 15% ceiling and a 3-action cap
     // told the operator no limit was in force while one governed every write.
     // The fixture's business control is engaged, so the served answer is
-    // STOPPED — the point is that a served answer appears at all.
-    expect(html).toMatch(/data-field="business-writes"[^>]*>STOPPED/);
+    // ENGAGED — the point is that a served answer appears at all.
+    expect(html).toMatch(/data-field="business-writes"[^>]*>ENGAGED/);
     expect(html).not.toMatch(/data-field="readiness-tier">—/);
     expect(html).toContain("+15% max");
 
@@ -885,12 +891,12 @@ describe("Dashboard v2 exact Automation presentation", () => {
     });
 
     expect(html).not.toMatch(/data-field="business-writes"[^>]*>ENABLED/);
+    expect(html).toMatch(/data-field="business-writes"[^>]*>NOT CONFIGURED/);
     expect(html).toMatch(
-      /data-field="business-writes"[^>]*>BLOCKED · NOT CONFIGURED/,
+      /data-tone="stopped"[^>]*data-field="business-writes"/,
     );
-    expect(html).toMatch(/data-tone="stopped"[^>]*data-field="business-writes"/);
     // The global row keeps its own truth: the env switch is independent.
-    expect(html).toMatch(/data-field="global-writes"[^>]*>ENABLED/);
+    expect(html).toMatch(/data-field="global-writes"[^>]*>NOT ENGAGED/);
   });
 
   it("withholds every control fact when the control read failed, and names the failure", () => {
@@ -936,7 +942,7 @@ describe("Dashboard v2 exact Automation presentation", () => {
 
     // The global switch is read from the environment, not the control table,
     // so it is still a served fact and stays stated.
-    expect(html).toMatch(/data-field="global-writes"[^>]*>ENABLED/);
+    expect(html).toMatch(/data-field="global-writes"[^>]*>NOT ENGAGED/);
   });
 
   // Same law, absent flag: a payload that never proved the control read is not
@@ -1406,7 +1412,7 @@ describe("Dashboard v2 exact Automation presentation", () => {
     expect(html).toMatch(/data-field="global-writes"[^>]*data-read-only="true"/);
     expect(html).toContain('data-field="business-writes-control"');
 
-    // The default fixture is STOPPED, so the one control offered is the lift —
+    // The default fixture is ENGAGED, so the one control offered is the lift —
     // and it carries no refusal, at any gate setting.
     expect(html).toContain('data-ctl="gated:AUTO-02 release"');
     expect(html).not.toContain("data-stop-engage-refused");

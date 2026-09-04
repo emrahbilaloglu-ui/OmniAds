@@ -142,7 +142,7 @@ export const LIVE_MEASUREMENT = {
  * that gap is not established here, so the pessimistic direction is the one to
  * assume.
  *
- * The per-table ceilings sum to 180 GiB, above this aggregate on purpose. The
+ * The per-table ceilings sum to 181 GiB, above this aggregate on purpose. The
  * aggregate binds first and catches total growth; the per-table ceilings exist
  * to catch a single relation running away inside it.
  *
@@ -174,13 +174,15 @@ export const DEFAULT_TABLE_BUDGET_BYTES: Record<FencedTable, number> = {
   // "native_account_manifest_incomplete", so the Decision Center quietly served
   // its Creatives scope from the legacy path instead.
   //
-  // The runaway this guards against is absent - measured writes are ~200 rows
-  // (~220 KB) a day, so 5 GiB is roughly a decade of headroom at the observed
-  // rate while still refusing a genuine per-historical-day rewrite within days.
-  // The structural fix is retention: 3.76M rows reach back to 2020-04-27 and
-  // the decision path reads only recent state. That deletes history, so it is
-  // an operator decision, not a default.
-  meta_entity_state_history: 5 * 1024 ** 3, // live 4.11 GiB
+  // The earlier 5 GiB forecast was falsified by the pre-D075 full-manifest
+  // rewrite pattern. After D075 was deployed, one production catch-up of all
+  // six operating businesses on 2026-09-04 advanced Meta facts without adding
+  // one row or byte here: 4,239,764 rows and 5,989,081,088 bytes before and
+  // after. Six GiB is the smallest whole-GiB ceiling above that measured
+  // 5.58 GiB relation, leaving 453,369,856 bytes of bounded delta headroom.
+  // This remains a bridge, not a substitute for the operator-approved D077
+  // compaction; renewed manifest amplification will still hit the fence.
+  meta_entity_state_history: 6 * 1024 ** 3, // live 5.58 GiB after D075 proof
   sync_release_gates: 3 * 1024 ** 3, // live 1.26 GiB
   google_ads_raw_snapshots: 3 * 1024 ** 3, // live 0.93 GiB
   // New relations: zero today. Budgets sized for the observation rate the

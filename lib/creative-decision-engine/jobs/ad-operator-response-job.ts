@@ -2764,6 +2764,11 @@ WITH response_payload AS (
   FROM jsonb_to_recordset($1::jsonb) AS row(
     contract_version text,
     episode_key text,
+    business_ref_id uuid,
+    business_id text,
+    provider_account_ref_id uuid,
+    provider_account_id text,
+    job_run_id uuid,
     response_cutoff timestamptz,
     observation_status text,
     response_type text,

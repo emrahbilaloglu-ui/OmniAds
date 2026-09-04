@@ -652,7 +652,7 @@ describe("MetaPlatformPage", () => {
     expect(html).toContain("Policy delivery block");
     expect(html).toContain('data-screen-label="Meta Decision Center"');
     expect(html).toContain('data-meta-exact-section="kpis"');
-    expect(html).toContain("Spend · today");
+    expect(html).toContain("Spend · 2026-05-07");
     expect(html).toContain("ROAS · 28d");
     expect(html).toContain("$401");
     expect(html).toContain("+15%");
@@ -1337,7 +1337,7 @@ describe("MetaPlatformPage", () => {
 
     expect(html).toContain('data-testid="meta-anomaly-error"');
     expect(html).toContain("snapshot 2026-05-07");
-    expect(html).toContain("Spend · today");
+    expect(html).toContain("Spend · 2026-05-07");
     expect(html).toContain("$401");
     expect(html).toContain("anomaly scan failed");
     expect(html).not.toContain('data-testid="meta-briefing-error"');

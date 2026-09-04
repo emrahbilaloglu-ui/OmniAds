@@ -3122,64 +3122,81 @@ function MetaWorkspacePostureBanners({
         workspaceBannerPriority(left) - workspaceBannerPriority(right),
     );
   if (visibleBanners.length === 0) return null;
+
+  const renderBanner = (banner: MetaWorkspaceBanner, primary: boolean) => {
+    const tone = workspaceBannerToneClass(banner);
+    const destination = workspaceBannerDestination(
+      banner,
+      historyHref,
+      pathname,
+    );
+    return (
+      <div
+        key={banner.id}
+        className={cn(
+          "meta-posture-banner",
+          `meta-posture-banner--${tone}`,
+          primary && "meta-posture-banner--primary",
+        )}
+        data-banner-id={banner.id}
+        data-banner-blocking={banner.blocking ? "true" : "false"}
+        data-banner-scope={banner.scope ?? "workspace"}
+        role={banner.blocking || tone === "danger" ? "alert" : "status"}
+      >
+        <span className="meta-posture-banner__mark" aria-hidden="true" />
+        <span className="meta-posture-banner__title">{banner.title}</span>
+        <span className="meta-posture-banner__detail">
+          {workspaceBannerDetail(banner)}
+        </span>
+        <span className="meta-posture-banner__spacer" aria-hidden="true" />
+        {destination ? (
+          <a
+            className="meta-posture-banner__button"
+            href={destination.href}
+          >
+            {destination.label}
+          </a>
+        ) : null}
+        {banner.id === "tracking_write_gate" ? (
+          <>
+            <button
+              type="button"
+              className="meta-posture-banner__button"
+              onClick={onOpenTrackingDetails}
+            >
+              View details
+            </button>
+            <button
+              type="button"
+              className="meta-posture-banner__button meta-posture-banner__button--ghost"
+              onClick={onDismissTracking}
+            >
+              Hide banner
+            </button>
+          </>
+        ) : null}
+      </div>
+    );
+  };
+
+  const [primaryBanner, ...additionalBanners] = visibleBanners;
+  if (!primaryBanner) return null;
   return (
     <div className="meta-posture-banners" data-testid="meta-posture-banners">
-      {visibleBanners.map((banner) => {
-        const tone = workspaceBannerToneClass(banner);
-        return (
-          <div
-            key={banner.id}
-            className={cn(
-              "meta-posture-banner",
-              `meta-posture-banner--${tone}`,
-            )}
-            data-banner-id={banner.id}
-            data-banner-blocking={banner.blocking ? "true" : "false"}
-            data-banner-scope={banner.scope ?? "workspace"}
-            role={banner.blocking || tone === "danger" ? "alert" : "status"}
-          >
-            <span className="meta-posture-banner__mark" aria-hidden="true" />
-            <span className="meta-posture-banner__title">{banner.title}</span>
-            <span className="meta-posture-banner__detail">
-              {workspaceBannerDetail(banner)}
-            </span>
-            <span className="meta-posture-banner__spacer" aria-hidden="true" />
-            {(() => {
-              const destination = workspaceBannerDestination(
-                banner,
-                historyHref,
-                pathname,
-              );
-              return destination ? (
-                <a
-                  className="meta-posture-banner__button"
-                  href={destination.href}
-                >
-                  {destination.label}
-                </a>
-              ) : null;
-            })()}
-            {banner.id === "tracking_write_gate" ? (
-              <>
-                <button
-                  type="button"
-                  className="meta-posture-banner__button"
-                  onClick={onOpenTrackingDetails}
-                >
-                  View details
-                </button>
-                <button
-                  type="button"
-                  className="meta-posture-banner__button meta-posture-banner__button--ghost"
-                  onClick={onDismissTracking}
-                >
-                  Hide banner
-                </button>
-              </>
-            ) : null}
+      <p className="meta-posture-banners__eyebrow">Current operating status</p>
+      {renderBanner(primaryBanner, true)}
+      {additionalBanners.length > 0 ? (
+        <details className="meta-posture-banners__details">
+          <summary>
+            {additionalBanners.length} additional safeguard
+            {additionalBanners.length === 1 ? "" : "s"} and data note
+            {additionalBanners.length === 1 ? "" : "s"}
+          </summary>
+          <div className="meta-posture-banners__detail-list">
+            {additionalBanners.map((banner) => renderBanner(banner, false))}
           </div>
-        );
-      })}
+        </details>
+      ) : null}
     </div>
   );
 }

@@ -306,7 +306,10 @@ jobs:
               sys.exit(1)
 
           database_budget = 160 * 1024 ** 3
-          table_budget = 4 * 1024 ** 3
+          # Must match DEFAULT_TABLE_BUDGET_BYTES.meta_entity_state_history.
+          # A stale 4 GiB value made the recovery preflight describe and test a
+          # different fence from the worker it was meant to recover.
+          table_budget = 6 * 1024 ** 3
           minimum_free = 40 * 1024 ** 3
           database_bytes = int(row["database_bytes"])
           table_bytes = int(row["table_bytes"])

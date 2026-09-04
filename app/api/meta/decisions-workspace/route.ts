@@ -1149,18 +1149,23 @@ function workspaceBanners(input: {
   }
   if (!input.pipelineHealth.executionReady) {
     const offender = input.pipelineHealth.admission.offender;
+    const dataThrough = input.pipelineHealth.warehouse.latestFinalizedDate;
     banners.push({
       id: "meta_decision_pipeline_health",
       tone:
         input.pipelineHealth.overall === "blocked" ? "danger" : "warning",
       title:
         input.pipelineHealth.overall === "blocked"
-          ? "Meta decision pipeline is admission-blocked."
-          : "Meta decision pipeline is not current.",
-      detail: offender
-        ? `${offender.table} is ${offender.overByBytes.toLocaleString("en-US")} bytes over its ${offender.budget.toLocaleString("en-US")}-byte budget. Sync activity, warehouse cutoff, decision generation and manifest are separately blocked evidence.`
-        : `Blocked evidence: ${input.pipelineHealth.blockers.join(", ") || "pipeline health unavailable"}.`,
+          ? "Meta data sync is stopped — current decisions are unavailable."
+          : "Meta data is not current — decisions are review-only.",
+      detail: dataThrough
+        ? `Verified Meta data ends on ${dataThrough}. No current decision can execute until the data sync and decision generation recover.${offender ? " A storage safety limit stopped new Meta observations." : ""}`
+        : "The latest reliable Meta data date could not be verified. No decision can execute until the data sync and decision generation recover.",
       blocking: true,
+      action: {
+        label: "Open recovery status",
+        href: "/platforms/meta/automation",
+      },
     });
   }
   const nonFreshExactDecisions =

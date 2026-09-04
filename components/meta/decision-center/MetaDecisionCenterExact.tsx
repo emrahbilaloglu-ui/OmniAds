@@ -58,6 +58,8 @@ export interface MetaDecisionCenterExactChipViewModel {
 
 export interface MetaDecisionCenterExactKpisViewModel {
   spend?: {
+    /** The exact day this value describes; never assumed to be today. */
+    label?: MetaDecisionCenterExactDisplayValue;
     value?: MetaDecisionCenterExactDisplayValue;
     delta?: MetaDecisionCenterExactDisplayValue;
     detail?: MetaDecisionCenterExactDisplayValue;
@@ -81,6 +83,8 @@ export interface MetaDecisionCenterExactKpisViewModel {
   campaignRoles?: {
     coverage?: MetaDecisionCenterExactDisplayValue;
     percentage?: MetaDecisionCenterExactDisplayValue;
+    /** Server-fact presentation: resolved/unresolved coverage, not a manual label. */
+    detail?: MetaDecisionCenterExactDisplayValue;
   };
   mode?: {
     value?: MetaDecisionCenterExactDisplayValue;
@@ -782,6 +786,27 @@ function display(value: MetaDecisionCenterExactDisplayValue): string {
   return value.trim() || EM_DASH;
 }
 
+/**
+ * A count only when the server actually served one.
+ *
+ * The operating summary must never turn an absent count into zero: zero means
+ * the queue was read and proved empty, while an em dash means the read did not
+ * establish a count. Formatted integer strings are accepted because the exact
+ * view model intentionally supports both display strings and numbers.
+ */
+function servedCount(
+  value: MetaDecisionCenterExactDisplayValue,
+): number | null {
+  if (typeof value === "number") {
+    return Number.isSafeInteger(value) && value >= 0 ? value : null;
+  }
+  if (typeof value !== "string") return null;
+  const normalized = value.trim().replaceAll(",", "");
+  if (!/^\d+$/.test(normalized)) return null;
+  const parsed = Number(normalized);
+  return Number.isSafeInteger(parsed) ? parsed : null;
+}
+
 function nonBlankDisplay(value: MetaDecisionCenterExactDisplayValue): boolean {
   return typeof value === "string" && value.trim().length > 0;
 }
@@ -937,7 +962,9 @@ function QueueStaleDemoted({
   if (!demoted) return null;
   return (
     <span className={styles.staleDemoted} data-el="stale-demoted">
-      {meaningfulDisplay(reason) ? display(reason) : copy.confidenceCappedStillServed}
+      {meaningfulDisplay(reason)
+        ? display(reason)
+        : copy.confidenceCappedStillServed}
     </span>
   );
 }
@@ -1001,7 +1028,9 @@ function ExactKpiBand({
   return (
     <div className={styles.kpiGrid} data-meta-exact-section="kpis">
       <article className={styles.kpiCard}>
-        <p className={styles.kpiLabel}>{copy.spendToday}</p>
+        <p className={styles.kpiLabel}>
+          {display(kpis?.spend?.label ?? copy.spendToday)}
+        </p>
         <p className={styles.kpiValue}>
           {display(kpis?.spend?.value)}{" "}
           <span className={styles.spendDelta}>
@@ -1082,7 +1111,12 @@ function ExactKpiBand({
           </span>
         </p>
         <p className={styles.roleInference}>
-          {language === "tr" ? "Otomatik sınıflandırma" : "Automatic inference"}
+          {display(
+            kpis?.campaignRoles?.detail ??
+              (language === "tr"
+                ? "Otomatik sınıflandırma"
+                : "Automatic inference"),
+          )}
         </p>
       </article>
 
@@ -1101,6 +1135,126 @@ function ExactKpiBand({
         </div>
       </article>
     </div>
+  );
+}
+
+/**
+ * The operator's starting point.
+ *
+ * Every number and lane remains server-owned. This component does not infer a
+ * buyer action, promote a blocked decision or reinterpret confidence; it only
+ * turns the already-served queue counts into a readable route into that queue.
+ */
+function OperatorDecisionSummary({
+  counts,
+  onSelectLane,
+  onSelectScope,
+}: {
+  counts?: MetaDecisionCenterExactCountsViewModel;
+  onSelectLane: (lane: MetaDecisionCenterExactLane) => void;
+  onSelectScope: (scope: MetaDecisionCenterExactScope) => void;
+}) {
+  const language = useZeroBaseLanguage();
+  const action = servedCount(counts?.action);
+  const needsResolution = servedCount(counts?.needsres);
+  const watching = servedCount(counts?.watching);
+  const creatives = servedCount(counts?.creatives);
+
+  const headline =
+    action !== null && action > 0
+      ? language === "tr"
+        ? `${action} karar şimdi operatör incelemesi bekliyor.`
+        : `${action} decision${action === 1 ? "" : "s"} need operator review now.`
+      : needsResolution !== null && needsResolution > 0
+        ? language === "tr"
+          ? `Şu anda uygulanmaya hazır değişiklik yok. ${needsResolution} kararın kanıt eksiği çözülmeli.`
+          : `No immediate Meta change is ready. ${needsResolution} decision${needsResolution === 1 ? "" : "s"} need evidence resolved.`
+        : action === 0 &&
+            needsResolution === 0 &&
+            watching !== null &&
+            watching > 0
+          ? language === "tr"
+            ? `Şu anda değişiklik önerilmiyor. ${watching} karar izleniyor.`
+            : `No immediate Meta change is recommended. ${watching} decision${watching === 1 ? " is" : "s are"} being watched.`
+          : action === 0 && needsResolution === 0 && watching === 0
+            ? language === "tr"
+              ? "Bu anlık görüntü için Meta değişikliği önerilmiyor."
+              : "No Meta change is recommended for this snapshot."
+            : language === "tr"
+              ? "Güncel öneri özeti doğrulanamadı."
+              : "The current recommendation summary could not be verified.";
+
+  const openLane = (lane: MetaDecisionCenterExactLane) => {
+    onSelectScope("structure");
+    onSelectLane(lane);
+  };
+
+  return (
+    <section
+      className={styles.operatorSummary}
+      data-meta-exact-operator-summary
+      aria-labelledby="meta-operator-summary-title"
+    >
+      <div className={styles.operatorSummaryCopy}>
+        <p className={styles.operatorSummaryEyebrow}>
+          {language === "tr"
+            ? "Adsecute şimdi ne öneriyor?"
+            : "What Adsecute recommends now"}
+        </p>
+        <h2 id="meta-operator-summary-title">{headline}</h2>
+        <p>
+          {language === "tr"
+            ? "Kampanya rolü otomatik belirlenir; çözülemeyen roller yeni kanıt gelene kadar güvenli biçimde engellenir."
+            : "Campaign role is inferred automatically; unresolved roles stay safely blocked until fresh evidence resolves them."}
+        </p>
+        <div className={styles.operatorSummaryActions}>
+          {action !== null && action > 0 ? (
+            <button type="button" onClick={() => openLane("action")}>
+              {language === "tr"
+                ? "Şimdi yapılacakları incele"
+                : "Review Action Now"}
+            </button>
+          ) : null}
+          {needsResolution !== null && needsResolution > 0 ? (
+            <button type="button" onClick={() => openLane("needsres")}>
+              {language === "tr" ? "Engelleri çöz" : "Resolve blockers"}
+            </button>
+          ) : null}
+          {watching !== null && watching > 0 ? (
+            <button type="button" onClick={() => openLane("watching")}>
+              {language === "tr" ? "İzlenenleri gör" : "Review watching"}
+            </button>
+          ) : null}
+          {creatives !== null && creatives > 0 ? (
+            <button type="button" onClick={() => onSelectScope("creatives")}>
+              {language === "tr"
+                ? "Kreatif kararları aç"
+                : "Open creative decisions"}
+            </button>
+          ) : null}
+        </div>
+      </div>
+      <dl className={styles.operatorSummaryCounts}>
+        <div>
+          <dt>{language === "tr" ? "Şimdi yapılacak" : "Action now"}</dt>
+          <dd>{display(counts?.action)}</dd>
+        </div>
+        <div>
+          <dt>{language === "tr" ? "Çözüm gerekiyor" : "Needs resolution"}</dt>
+          <dd>{display(counts?.needsres)}</dd>
+        </div>
+        <div>
+          <dt>{language === "tr" ? "İzleniyor" : "Watching"}</dt>
+          <dd>{display(counts?.watching)}</dd>
+        </div>
+        <div>
+          <dt>
+            {language === "tr" ? "Kreatif kararlar" : "Creative decisions"}
+          </dt>
+          <dd>{display(counts?.creatives)}</dd>
+        </div>
+      </dl>
+    </section>
   );
 }
 
@@ -1224,11 +1378,7 @@ function LevelFilter({
         {LEVEL_OPTIONS.map((option) => {
           const unavailable = !served.includes(option.id);
           return (
-            <option
-              disabled={unavailable}
-              key={option.id}
-              value={option.id}
-            >
+            <option disabled={unavailable} key={option.id} value={option.id}>
               {copy[option.labelKey]}
               {unavailable
                 ? ` — ${
@@ -1271,8 +1421,7 @@ function ShareViewControl() {
   >({ kind: "idle" });
 
   const share = async () => {
-    const url =
-      typeof window === "undefined" ? "" : window.location.href;
+    const url = typeof window === "undefined" ? "" : window.location.href;
     if (!url) return;
     try {
       await navigator.clipboard.writeText(url);
@@ -1317,15 +1466,13 @@ function ShareViewControl() {
 }
 
 /** A lane that served no rows, said rather than drawn as blankness. */
-function LaneEmpty({
-  reason,
-  lane,
-}: {
-  reason: string;
-  lane: string;
-}) {
+function LaneEmpty({ reason, lane }: { reason: string; lane: string }) {
   return (
-    <p className={styles.laneEmpty} data-meta-exact-lane-empty={lane} role="status">
+    <p
+      className={styles.laneEmpty}
+      data-meta-exact-lane-empty={lane}
+      role="status"
+    >
       {reason}
     </p>
   );
@@ -2113,6 +2260,7 @@ function CreativesScope({
         ))}
       </div>
       <SourceProvenancePanel
+        defaultOpen={false}
         model={provenance}
         notice={notice}
         scope="creatives"
@@ -2215,7 +2363,10 @@ function WorkflowMenu({
   );
 
   return (
-    <div className={styles.workflowActions} data-meta-exact-workflow-menu={open ? "open" : "closed"}>
+    <div
+      className={styles.workflowActions}
+      data-meta-exact-workflow-menu={open ? "open" : "closed"}
+    >
       <button
         aria-disabled={refused ? true : undefined}
         aria-expanded={open}
@@ -2311,7 +2462,10 @@ function WorkflowMenu({
               {copy.assignToMemberId}
               <input
                 onChange={(event) =>
-                  setValues((v) => ({ ...v, assigneeUserId: event.target.value }))
+                  setValues((v) => ({
+                    ...v,
+                    assigneeUserId: event.target.value,
+                  }))
                 }
                 required
                 value={values.assigneeUserId}
@@ -2402,9 +2556,7 @@ function WorkflowConflictDialog({
         <button
           aria-disabled={conflict.keepRefusedReason ? true : undefined}
           data-ctl="live:META-WF-11 keep"
-          onClick={
-            conflict.keepRefusedReason ? undefined : conflict.onKeepMine
-          }
+          onClick={conflict.keepRefusedReason ? undefined : conflict.onKeepMine}
           type="button"
         >
           {copy.keepMineReapplyAgainstVersion} {conflict.currentVersion}
@@ -2418,7 +2570,10 @@ function WorkflowConflictDialog({
         </button>
       </span>
       {conflict.keepRefusedReason ? (
-        <p className={styles.inspectorMeta} data-meta-exact-conflict-keep-refused>
+        <p
+          className={styles.inspectorMeta}
+          data-meta-exact-conflict-keep-refused
+        >
           {conflict.keepRefusedReason}
         </p>
       ) : null}
@@ -2459,7 +2614,9 @@ function EvidenceInspector({
       data-meta-exact-inspector
     >
       <div className={styles.inspectorHeader}>
-        <span className={styles.inspectorEyebrow}>{copy.evidenceInspector}</span>
+        <span className={styles.inspectorEyebrow}>
+          {copy.evidenceInspector}
+        </span>
         <span className={`${styles.inspectorDecision} ${inspectorTone}`}>
           {display(model?.decisionLabel)}
         </span>
@@ -2481,7 +2638,9 @@ function EvidenceInspector({
           <p className={styles.inspectorMeta}>{display(model?.entityMeta)}</p>
         </div>
         <div className={styles.contractCard}>
-          <p className={styles.inspectorSectionLabel}>{copy.decisionContract}</p>
+          <p className={styles.inspectorSectionLabel}>
+            {copy.decisionContract}
+          </p>
           <p className={styles.contractCopy}>
             {copy.serverVerdict}: <b>{display(model?.serverVerdict)}</b>
             {hasContractDetail ? `. ${display(model?.contractDetail)}` : null}
@@ -2591,13 +2750,17 @@ function EvidenceInspector({
             </div>
             <div>
               <dt>{copy.evidenceWindow}</dt>
-              <dd data-el="evidence-window">{display(model?.evidenceWindow)}</dd>
+              <dd data-el="evidence-window">
+                {display(model?.evidenceWindow)}
+              </dd>
             </div>
           </dl>
         ) : null}
         {(model?.provenanceGaps ?? []).filter(meaningfulDisplay).length > 0 ? (
           <div>
-            <p className={styles.blockersHeading}>{copy.notServedAtThisGrain}</p>
+            <p className={styles.blockersHeading}>
+              {copy.notServedAtThisGrain}
+            </p>
             <p className={styles.provenanceGap} data-el="provenance-gap">
               {(model?.provenanceGaps ?? [])
                 .filter(meaningfulDisplay)
@@ -2612,7 +2775,10 @@ function EvidenceInspector({
           band: what an operator can do with THIS row without executing it.
         */}
         {model?.workflow ? (
-          <div data-meta-exact-workflow data-workflow-state={model.workflow.state}>
+          <div
+            data-meta-exact-workflow
+            data-workflow-state={model.workflow.state}
+          >
             <p className={styles.inspectorSectionLabel}>{copy.workflow}</p>
             {model.workflow.unavailableReason ? (
               /*
@@ -2653,7 +2819,9 @@ function EvidenceInspector({
         {model?.stickyBar ? (
           <div className={styles.stickyBar} data-meta-exact-sticky-bar>
             <button
-              aria-disabled={model.manualAction?.refusalReason ? true : undefined}
+              aria-disabled={
+                model.manualAction?.refusalReason ? true : undefined
+              }
               className={styles.manualActionButton}
               data-ctl="gated:META-WRITE-01"
               onClick={
@@ -2677,7 +2845,9 @@ function EvidenceInspector({
         {model?.manualAction ? (
           <p className={styles.rowAction}>
             <button
-              aria-disabled={model.manualAction.refusalReason ? true : undefined}
+              aria-disabled={
+                model.manualAction.refusalReason ? true : undefined
+              }
               className={styles.manualActionButton}
               data-ctl="gated:META-WRITE-01 open-manual"
               onClick={
@@ -2847,10 +3017,7 @@ export function MetaDecisionCenterExact({
   ].filter((value): value is string => Boolean(value));
   const laneEmptyReason =
     activeFilters.length > 0
-      ? copy.noRowMatchesFilters.replace(
-          "{filters}",
-          activeFilters.join(" · "),
-        )
+      ? copy.noRowMatchesFilters.replace("{filters}", activeFilters.join(" · "))
       : copy.laneServedNoRows;
   const activeWindow =
     viewModel.activeWindow === undefined ? "28d" : viewModel.activeWindow;
@@ -2949,6 +3116,12 @@ export function MetaDecisionCenterExact({
       <ExactKpiBand
         kpis={viewModel.kpis}
         activeWindow={activeWindow ?? EM_DASH}
+      />
+
+      <OperatorDecisionSummary
+        counts={counts}
+        onSelectLane={selectLane}
+        onSelectScope={selectScope}
       />
 
       <div className={styles.scopeRow}>
@@ -3149,9 +3322,9 @@ export function MetaDecisionCenterExact({
           data-testid="assigned-account-coverage-unavailable"
           role="alert"
         >
-          Assigned-account coverage unavailable — the account-state read
-          failed. Do not assume there is only one account or no historical
-          account for this business.
+          Assigned-account coverage unavailable — the account-state read failed.
+          Do not assume there is only one account or no historical account for
+          this business.
         </p>
       ) : null}
       {viewModel.assignedAccountStates &&
@@ -3161,18 +3334,34 @@ export function MetaDecisionCenterExact({
           data-meta-exact-account-coverage
           data-testid="assigned-account-coverage-empty"
         >
-          Account-state read succeeded and found ZERO assigned Meta
-          identities — anomalous for an active Meta workspace; verify the
-          account assignment before trusting any decision surface here.
+          Account-state read succeeded and found ZERO assigned Meta identities —
+          anomalous for an active Meta workspace; verify the account assignment
+          before trusting any decision surface here.
         </p>
       ) : null}
       {viewModel.assignedAccountStates &&
       viewModel.assignedAccountStates.length > 0 ? (
-        <section
-          className={styles.inactiveStrip}
+        <details
+          className={`${styles.inactiveStrip} ${styles.accountCoverageDisclosure}`}
           data-meta-exact-account-coverage
           data-testid="assigned-account-coverage"
         >
+          <summary className={styles.accountCoverageSummary}>
+            <strong>
+              {viewModel.assignedAccountStates.length} assigned Meta account
+              {viewModel.assignedAccountStates.length === 1 ? "" : "s"}
+            </strong>
+            <span>
+              {(() => {
+                const selected = viewModel.assignedAccountStates?.find(
+                  (state) => state.selectionState === "selected",
+                );
+                return selected?.latestFactDate
+                  ? `Selected account data through ${selected.latestFactDate}`
+                  : "Open account coverage details";
+              })()}
+            </span>
+          </summary>
           <strong>Assigned accounts</strong>
           {viewModel.assignedAccountStates.map((state) => (
             <div
@@ -3192,8 +3381,12 @@ export function MetaDecisionCenterExact({
               </span>
               <span data-account-coverage-facts>
                 {[
-                  state.accountCurrency ? `currency ${state.accountCurrency}` : null,
-                  state.accountTimezone ? `timezone ${state.accountTimezone}` : null,
+                  state.accountCurrency
+                    ? `currency ${state.accountCurrency}`
+                    : null,
+                  state.accountTimezone
+                    ? `timezone ${state.accountTimezone}`
+                    : null,
                   state.spend14d !== null
                     ? `spend 14d ${state.spend14d.toLocaleString("en-US", { maximumFractionDigits: 0 })}${state.accountCurrency ? ` ${state.accountCurrency}` : ""}`
                     : "spend 14d unavailable",
@@ -3220,7 +3413,7 @@ export function MetaDecisionCenterExact({
               <span data-account-coverage-policy>{state.policy}</span>
             </div>
           ))}
-        </section>
+        </details>
       ) : null}
       {activeScope === "structure" ? (
         <p className={styles.inactiveStrip} data-meta-exact-inactive-strip>
@@ -3286,15 +3479,22 @@ export function MetaDecisionCenterExact({
             an operator can miss. The surface evaluates no gate of its own and
             never enables an action from this.
           */}
-          <BudgetDecisionEvidencePanel
-            evidence={viewModel.budgetEvidence ?? null}
-          />
-          {/*
-            D085 — the server-owned budget dry run, beside the evidence panel
-            and under the same account scope. It renders verbatim and offers no
-            enabled control.
-          */}
-          <BudgetDryRunPanel panel={viewModel.budgetDryRun ?? null} />
+          {viewModel.budgetEvidence || viewModel.budgetDryRun ? (
+            <details className={styles.technicalDisclosure}>
+              <summary>Budget decision readiness</summary>
+              <div className={styles.technicalDisclosureBody}>
+                <BudgetDecisionEvidencePanel
+                  evidence={viewModel.budgetEvidence ?? null}
+                />
+                {/*
+                  D085 — the server-owned budget dry run, beside the evidence panel
+                  and under the same account scope. It renders verbatim and offers no
+                  enabled control.
+                */}
+                <BudgetDryRunPanel panel={viewModel.budgetDryRun ?? null} />
+              </div>
+            </details>
+          ) : null}
           {activeScope === "structure" && activeLane === "action" ? (
             <ActionLane
               emptyReason={laneEmptyReason}

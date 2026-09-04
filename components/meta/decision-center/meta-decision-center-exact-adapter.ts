@@ -740,7 +740,9 @@ function actionRows(input: {
  * row whose OS node was not served is NOT blocked — it is a row with no
  * projection, which the notice states rather than this function guessing.
  */
-function isServerBlocked(node: MetaOsStructureNode | null | undefined): boolean {
+function isServerBlocked(
+  node: MetaOsStructureNode | null | undefined,
+): boolean {
   return node?.lane === "blocked";
 }
 
@@ -2317,9 +2319,11 @@ function inspector(input: {
       ? null
       : briefHref
         ? { href: briefHref, label: "Create a brief from this decision" }
-        : { refusalReason: briefGate.ok
-            ? "This route family has no brief workspace to open."
-            : briefGate.reason },
+        : {
+            refusalReason: briefGate.ok
+              ? "This route family has no brief workspace to open."
+              : briefGate.reason,
+          },
   };
 }
 
@@ -2396,7 +2400,11 @@ function decisionPipelineTone(
   workspace: MetaDecisionsWorkspacePayload,
 ): MetaDecisionCenterExactTone {
   const health = workspace.system?.pipelineHealth;
-  if (!health || health.overall === "unavailable" || health.overall === "blocked") {
+  if (
+    !health ||
+    health.overall === "unavailable" ||
+    health.overall === "blocked"
+  ) {
     return "negative";
   }
   return health.overall === "healthy" && health.executionReady
@@ -2422,12 +2430,7 @@ function decisionPipelineFacts(
         "unavailable (legacy payload)",
         tone,
       ),
-      fact(
-        "pipeline-execution-ready",
-        "Pipeline execution ready",
-        "no",
-        tone,
-      ),
+      fact("pipeline-execution-ready", "Pipeline execution ready", "no", tone),
     ];
   }
   const offender = health.admission.offender;
@@ -2436,16 +2439,8 @@ function decisionPipelineFacts(
   const bytes = (value: number) =>
     `${Math.trunc(value).toLocaleString("en-US")} bytes`;
   return [
-    fact(
-      "pipeline-contract",
-      "Pipeline contract",
-      health.contractVersion,
-    ),
-    fact(
-      "pipeline-evaluated",
-      "Pipeline evaluated at",
-      health.evaluatedAt,
-    ),
+    fact("pipeline-contract", "Pipeline contract", health.contractVersion),
+    fact("pipeline-evaluated", "Pipeline evaluated at", health.evaluatedAt),
     fact("pipeline-health", "Decision pipeline", health.overall, tone),
     fact(
       "pipeline-execution-ready",
@@ -2460,7 +2455,11 @@ function decisionPipelineFacts(
       tone,
     ),
     fact("pipeline-sync-status", "Sync activity", health.syncActivity.status),
-    fact("pipeline-sync-latest", "Latest successful sync", health.syncActivity.latestAt),
+    fact(
+      "pipeline-sync-latest",
+      "Latest successful sync",
+      health.syncActivity.latestAt,
+    ),
     fact(
       "pipeline-sync-age",
       "Successful sync age",
@@ -2471,37 +2470,99 @@ function decisionPipelineFacts(
       "Maximum sync age",
       `${health.syncActivity.maxAgeMinutes} minutes`,
     ),
-    fact("pipeline-sync-job-status", "Latest sync job status", health.syncActivity.latestJobStatus),
-    fact("pipeline-sync-run-status", "Latest sync run status", health.syncActivity.latestRunStatus),
-    fact("pipeline-sync-reason", "Sync status reason", health.syncActivity.reason),
-    fact("pipeline-warehouse-status", "Warehouse cutoff", health.warehouse.status),
-    fact("pipeline-warehouse-latest", "Latest finalized Ad day", health.warehouse.latestFinalizedDate),
-    fact("pipeline-warehouse-expected", "Expected finalized Ad day", health.warehouse.expectedFinalizedDate),
+    fact(
+      "pipeline-sync-job-status",
+      "Latest sync job status",
+      health.syncActivity.latestJobStatus,
+    ),
+    fact(
+      "pipeline-sync-run-status",
+      "Latest sync run status",
+      health.syncActivity.latestRunStatus,
+    ),
+    fact(
+      "pipeline-sync-reason",
+      "Sync status reason",
+      health.syncActivity.reason,
+    ),
+    fact(
+      "pipeline-warehouse-status",
+      "Warehouse cutoff",
+      health.warehouse.status,
+    ),
+    fact(
+      "pipeline-warehouse-latest",
+      "Latest finalized Ad day",
+      health.warehouse.latestFinalizedDate,
+    ),
+    fact(
+      "pipeline-warehouse-expected",
+      "Expected finalized Ad day",
+      health.warehouse.expectedFinalizedDate,
+    ),
     fact(
       "pipeline-warehouse-lag",
       "Warehouse lag",
-      health.warehouse.lagDays === null ? null : `${health.warehouse.lagDays} days`,
+      health.warehouse.lagDays === null
+        ? null
+        : `${health.warehouse.lagDays} days`,
     ),
-    fact("pipeline-account-timezone", "Provider account timezone", health.warehouse.accountTimeZone),
-    fact("pipeline-warehouse-reason", "Warehouse status reason", health.warehouse.reason),
-    fact("pipeline-admission-status", "Sync admission", health.admission.status),
+    fact(
+      "pipeline-account-timezone",
+      "Provider account timezone",
+      health.warehouse.accountTimeZone,
+    ),
+    fact(
+      "pipeline-warehouse-reason",
+      "Warehouse status reason",
+      health.warehouse.reason,
+    ),
+    fact(
+      "pipeline-admission-status",
+      "Sync admission",
+      health.admission.status,
+    ),
     fact(
       "pipeline-admission-allowed",
       "Sync admission allowed",
       health.admission.allowed ? "yes" : "no",
     ),
-    fact("pipeline-admission-reason", "Admission reason", health.admission.reason),
+    fact(
+      "pipeline-admission-reason",
+      "Admission reason",
+      health.admission.reason,
+    ),
     fact(
       "pipeline-admission-evaluated",
       "Admission evaluated at",
       health.admission.evaluatedAt,
     ),
     fact("pipeline-admission-table", "Admission offender", offender?.table),
-    fact("pipeline-admission-bytes", "Offender physical size", offender ? bytes(offender.bytes) : null),
-    fact("pipeline-admission-budget", "Offender budget", offender ? bytes(offender.budget) : null),
-    fact("pipeline-admission-over", "Over budget by", offender ? bytes(offender.overByBytes) : null),
-    fact("pipeline-generation-status", "Decision generation", health.decisionGeneration.status),
-    fact("pipeline-generation-computed", "Decision computed at", health.decisionGeneration.computedAt),
+    fact(
+      "pipeline-admission-bytes",
+      "Offender physical size",
+      offender ? bytes(offender.bytes) : null,
+    ),
+    fact(
+      "pipeline-admission-budget",
+      "Offender budget",
+      offender ? bytes(offender.budget) : null,
+    ),
+    fact(
+      "pipeline-admission-over",
+      "Over budget by",
+      offender ? bytes(offender.overByBytes) : null,
+    ),
+    fact(
+      "pipeline-generation-status",
+      "Decision generation",
+      health.decisionGeneration.status,
+    ),
+    fact(
+      "pipeline-generation-computed",
+      "Decision computed at",
+      health.decisionGeneration.computedAt,
+    ),
     fact(
       "pipeline-generation-age",
       "Decision generation age",
@@ -2512,12 +2573,32 @@ function decisionPipelineFacts(
       "Maximum decision age",
       `${health.decisionGeneration.maxAgeHours} hours`,
     ),
-    fact("pipeline-generation-engine", "Decision engine", health.decisionGeneration.engineVersion),
-    fact("pipeline-generation-reason", "Decision generation reason", health.decisionGeneration.reason),
-    fact("pipeline-manifest-status", "Generation manifest", health.manifest.status),
-    fact("pipeline-manifest-authority", "Manifest authority", health.manifest.authority),
+    fact(
+      "pipeline-generation-engine",
+      "Decision engine",
+      health.decisionGeneration.engineVersion,
+    ),
+    fact(
+      "pipeline-generation-reason",
+      "Decision generation reason",
+      health.decisionGeneration.reason,
+    ),
+    fact(
+      "pipeline-manifest-status",
+      "Generation manifest",
+      health.manifest.status,
+    ),
+    fact(
+      "pipeline-manifest-authority",
+      "Manifest authority",
+      health.manifest.authority,
+    ),
     fact("pipeline-manifest-job", "Manifest job run", health.manifest.jobRunId),
-    fact("pipeline-manifest-hash", "Manifest hash", health.manifest.manifestHash),
+    fact(
+      "pipeline-manifest-hash",
+      "Manifest hash",
+      health.manifest.manifestHash,
+    ),
     fact(
       "pipeline-manifest-expected",
       "Manifest expected Ads",
@@ -2525,7 +2606,11 @@ function decisionPipelineFacts(
         ? null
         : formatNumber(health.manifest.expectedAdCount),
     ),
-    fact("pipeline-manifest-reason", "Manifest status reason", health.manifest.reason),
+    fact(
+      "pipeline-manifest-reason",
+      "Manifest status reason",
+      health.manifest.reason,
+    ),
   ];
 }
 
@@ -2890,7 +2975,9 @@ function commercialAnchorFacts(
     fact(
       "anchor-target-cpa",
       "Target CPA",
-      lineage.targetCpa === null ? null : formatMoney(lineage.targetCpa, currency),
+      lineage.targetCpa === null
+        ? null
+        : formatMoney(lineage.targetCpa, currency),
     ),
     fact(
       "anchor-aov",
@@ -3004,10 +3091,10 @@ function sourceProvenance(input: {
       : health === "degraded" ||
           pipelineTone === "warning" ||
           (authority !== null && authority !== "native_ad")
-      ? "warning"
-      : health === "healthy"
-        ? "positive"
-        : "neutral";
+        ? "warning"
+        : health === "healthy"
+          ? "positive"
+          : "neutral";
 
   /*
    * Paired against the DERIVED eligible pre-cap, NOT `sourcePreCapCount`, and
@@ -3254,13 +3341,13 @@ function structureProvenance(
       ? "negative"
       : sourceStatus !== null && sourceStatus !== "available"
         ? "negative"
-      : pipelineTone === "warning"
-        ? "warning"
-      : writeBearingGap === true
-        ? "warning"
-        : sourceStatus === "available" && writeBearingGap === false
-          ? "positive"
-          : "neutral";
+        : pipelineTone === "warning"
+          ? "warning"
+          : writeBearingGap === true
+            ? "warning"
+            : sourceStatus === "available" && writeBearingGap === false
+              ? "positive"
+              : "neutral";
 
   /*
    * Paired against the served census, which is the population these lanes are
@@ -3452,7 +3539,10 @@ export function buildMetaDecisionCenterExactViewModel(
   const watchingSplit = splitByServerLane(servedWatchingRecommendations, nodes);
   const actionRecommendations = actionSplit.open;
   const watchingRecommendations = watchingSplit.open;
-  const blockedRecommendations = [...actionSplit.blocked, ...watchingSplit.blocked];
+  const blockedRecommendations = [
+    ...actionSplit.blocked,
+    ...watchingSplit.blocked,
+  ];
   /*
    * The same split over the UNFILTERED served arrays, for the counters only.
    *
@@ -3464,7 +3554,10 @@ export function buildMetaDecisionCenterExactViewModel(
    * population, with nothing filtered out of it.
    */
   const servedActionSplit = splitByServerLane(workspace.lanes.actionNow, nodes);
-  const servedWatchingSplit = splitByServerLane(workspace.lanes.watching, nodes);
+  const servedWatchingSplit = splitByServerLane(
+    workspace.lanes.watching,
+    nodes,
+  );
   const canonical = canonicalDecisionsByKey(canonicalDecisions);
   const snapshotAsOf =
     nonBlank(workspace.decisionReadModel.source.snapshotAsOf) ??
@@ -3592,6 +3685,7 @@ export function buildMetaDecisionCenterExactViewModel(
     },
     kpis: {
       spend: {
+        label: `Spend · ${workspace.endDate}`,
         value: formatMoney(pacing.spendToday, fallbackCurrency),
         delta: percentageDelta(pacing.spendToday, pacing.avg7dSpend),
         detail:
@@ -3647,6 +3741,13 @@ export function buildMetaDecisionCenterExactViewModel(
                   100,
               )}%`
             : EM_DASH,
+        detail: campaignRoleCoverage
+          ? campaignRoleCoverage.activeCampaigns === 0
+            ? "Automatic inference · no active campaigns"
+            : campaignRoleCoverage.unresolvedCampaigns > 0
+              ? `Automatic inference · ${formatNumber(campaignRoleCoverage.unresolvedCampaigns)} unresolved`
+              : "Automatic inference · all active campaigns resolved"
+          : "Automatic inference unavailable · hard actions remain blocked",
       },
       mode: {
         value: nonBlank(workspace.pulse.operatingMode) ?? EM_DASH,

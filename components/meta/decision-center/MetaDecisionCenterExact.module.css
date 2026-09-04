@@ -10,7 +10,12 @@
   width: 100%;
   min-width: 0;
   color: #0e1526;
-  font-family: var(--font-instrument-sans), "Instrument Sans", -apple-system, "Segoe UI", sans-serif;
+  font-family:
+    var(--font-instrument-sans),
+    "Instrument Sans",
+    -apple-system,
+    "Segoe UI",
+    sans-serif;
   font-size: 16px;
   line-height: normal;
   -webkit-font-smoothing: auto;
@@ -64,9 +69,6 @@
   gap: 8px;
   flex-wrap: wrap;
 }
-
-
-
 
 .snapshotButton,
 .newCampaignButton {
@@ -215,6 +217,122 @@
   background: var(--tone-bg);
   color: var(--tone-fg);
   font-weight: 600;
+}
+
+.operatorSummary {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(360px, 0.9fr);
+  gap: 20px;
+  padding: 20px;
+  border: 1px solid #c9d8ff;
+  border-radius: 16px;
+  background: linear-gradient(135deg, #0b1020 0%, #142349 100%);
+  color: #fff;
+}
+
+.operatorSummaryCopy {
+  min-width: 0;
+}
+
+.operatorSummaryEyebrow {
+  margin: 0;
+  color: #a9c1ff;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.operatorSummary h2 {
+  max-width: 760px;
+  margin: 7px 0 0;
+  color: #fff;
+  font-family: var(--font-space-grotesk), "Space Grotesk", sans-serif;
+  font-size: 22px;
+  line-height: 1.25;
+}
+
+.operatorSummaryCopy > p:not(.operatorSummaryEyebrow) {
+  max-width: 760px;
+  margin: 8px 0 0;
+  color: #c9d2e8;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.operatorSummaryActions {
+  display: flex;
+  gap: 8px;
+  margin-top: 14px;
+  flex-wrap: wrap;
+}
+
+.operatorSummaryActions button {
+  min-height: 36px;
+  padding: 0 13px;
+  border: 1px solid rgba(255, 255, 255, 0.26);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.operatorSummaryActions button:first-child {
+  border-color: #fff;
+  background: #fff;
+  color: #142349;
+}
+
+.operatorSummaryActions button:hover {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.operatorSummaryActions button:first-child:hover {
+  background: #eef3ff;
+}
+
+.operatorSummaryCounts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.operatorSummaryCounts > div {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 11px;
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.operatorSummaryCounts dt {
+  color: #b9c5dc;
+  font-size: 12px;
+  line-height: 1.3;
+}
+
+.operatorSummaryCounts dd {
+  margin: 6px 0 0;
+  color: #fff;
+  font-family: var(--font-space-grotesk), "Space Grotesk", sans-serif;
+  font-size: 24px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+
+@media (max-width: 900px) {
+  .operatorSummary {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 520px) {
+  .operatorSummaryCounts {
+    grid-template-columns: 1fr 1fr;
+  }
 }
 
 .scopeRow {
@@ -2097,6 +2215,57 @@
   color: #555d6d;
   font-size: 12px;
   line-height: 16px;
+}
+
+.accountCoverageDisclosure {
+  display: block;
+}
+
+.accountCoverageSummary {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  cursor: pointer;
+  list-style-position: inside;
+}
+
+.accountCoverageSummary span {
+  color: #68707f;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.accountCoverageDisclosure[open] .accountCoverageSummary {
+  margin-bottom: 10px;
+}
+
+.technicalDisclosure {
+  border: 1px solid #e4e8f0;
+  border-radius: 12px;
+  background: #fbfcfe;
+  color: #45526b;
+}
+
+.technicalDisclosure > summary {
+  cursor: pointer;
+  padding: 11px 14px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.technicalDisclosureBody {
+  display: grid;
+  gap: 8px;
+  padding: 0 10px 10px;
+}
+
+@media (max-width: 640px) {
+  .accountCoverageSummary {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 4px;
+  }
 }
 
 .inactiveStripOpen {

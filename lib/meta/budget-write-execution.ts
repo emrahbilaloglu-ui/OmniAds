@@ -221,6 +221,12 @@ const classifyFailure = (failure: MetaAdsWriteFailure): "failed" | "unknown" => 
   return "failed";
 };
 
+const failureBlockers = (failure: MetaAdsWriteFailure): string[] =>
+  [...new Set([
+    failure.error?.code ?? "provider_failed",
+    failure.verificationFailure?.code ?? null,
+  ].filter((code): code is string => Boolean(code)))];
+
 export async function executeBudgetWrite(
   deps: BudgetWriteDeps,
   rawRequest: unknown,
@@ -376,16 +382,17 @@ export async function executeBudgetWrite(
 
   if (!isSuccess(result)) {
     const resultClass = classifyFailure(result);
+    const blockers = failureBlockers(result);
     await deps.journal.complete(opened.id, {
       providerAttempted: result.providerMutationAttempted === true,
       providerHttpStatus: result.httpStatus ?? null,
       resultClass,
-      blockers: [result.error?.code ?? "provider_failed"],
+      blockers,
       rollbackEligible: false,
       completedAtMs: deps.nowMs(),
     });
     return {
-      ok: false, resultClass, blockers: [result.error?.code ?? "provider_failed"],
+      ok: false, resultClass, blockers,
       journalId: opened.id, readbackAmountMinor: null,
       message: result.error?.message ?? null,
     };
@@ -527,7 +534,7 @@ export async function rollbackBudgetWrite(
   if (!isSuccess(result)) {
     return {
       ok: false, resultClass: classifyFailure(result),
-      blockers: [result.error?.code ?? "provider_failed"],
+      blockers: failureBlockers(result),
       journalId: row.id, readbackAmountMinor: null,
       message: result.error?.message ?? null,
     };

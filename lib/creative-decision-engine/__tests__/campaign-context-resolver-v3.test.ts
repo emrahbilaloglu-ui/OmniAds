@@ -189,7 +189,7 @@ describe("lifecycle family (D076)", () => {
     campaignAgeDays: 120,
   });
 
-  it("missing lifecycle evidence renormalizes away and never adds confidence", () => {
+  it("missing lifecycle evidence keeps its weight empty and never adds confidence", () => {
     const absent = computeSignalScoresV3(base, null);
     expect(absent.lifecyclePresent).toBe(false);
     expect(absent.lifecycleMain).toBe(0);
@@ -209,6 +209,32 @@ describe("lifecycle family (D076)", () => {
     expect(withLifecycle.mainScore).toBeGreaterThanOrEqual(
       withoutLifecycle.mainScore - 0.0001,
     );
+  });
+
+  it("does not inflate a score when lifecycle coverage is absent", () => {
+    const fourCreativeMain = features({
+      activeCreatives: 4,
+      newCreatives: 0,
+      medianCreativeAgeDays: 30,
+      top3SpendShare: 0.9,
+      spendShareOfBusiness: 0.05,
+      campaignAgeDays: 60,
+    });
+    const absent = classifyCampaignContextV3(fourCreativeMain, null);
+    const presentWithZeroMainSignal = classifyCampaignContextV3(
+      fourCreativeMain,
+      lifecycle({
+        activeStatusShare28: 0,
+        effectiveDailyBudget: 75,
+        accountMedianDailyBudget: 100,
+      }),
+    );
+
+    expect(absent.kind).toBe("main");
+    expect(absent.mainScore).toBeLessThanOrEqual(
+      presentWithZeroMainSignal.mainScore,
+    );
+    expect(absent.confidenceClass).not.toBe("high");
   });
 
   it("scores below-median budget and short life as test-side evidence", () => {

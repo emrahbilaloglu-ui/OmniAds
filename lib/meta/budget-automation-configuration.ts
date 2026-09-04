@@ -71,11 +71,13 @@ export async function saveBudgetAutomationConfiguration(input: {
   const rows = (await getDb().query(
     `INSERT INTO meta_automation_business_controls
        (business_id, auto_execution_enabled,
-        auto_execution_provider_account_id, guardrails_json,
+        auto_execution_provider_account_id, auto_execution_enabled_by,
+        guardrails_json,
         updated_at, updated_by)
      VALUES (
        $1::uuid,
        FALSE,
+       NULL,
        NULL,
        COALESCE(
          (SELECT guardrails_json FROM meta_automation_business_controls
@@ -87,6 +89,7 @@ export async function saveBudgetAutomationConfiguration(input: {
      ON CONFLICT (business_id) DO UPDATE SET
        auto_execution_enabled = FALSE,
        auto_execution_provider_account_id = NULL,
+       auto_execution_enabled_by = NULL,
        guardrails_json =
          COALESCE(meta_automation_business_controls.guardrails_json, '{}'::jsonb)
          || $2::jsonb,

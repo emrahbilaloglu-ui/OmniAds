@@ -199,6 +199,29 @@ describe("D087 C1 — the adapter re-checks the baseline immediately before POST
     expect(result.ok).toBe(false);
     expect(posts()).toHaveLength(0);
   });
+
+  it("marks a successful POST with an unreadable verification GET as ambiguous", async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(node())
+      .mockResolvedValueOnce(json({ success: true }))
+      .mockRejectedValueOnce(new Error("verification timeout"));
+
+    const result = await call();
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.providerMutationAttempted).toBe(true);
+      expect(result.providerOutcome).toBe("outcome_ambiguous");
+      expect(result.error.code).toBe("provider_outcome_ambiguous");
+      expect(result.mutationAttempt).toMatchObject({
+        attemptCount: 1,
+        providerResponseReceived: true,
+        providerResponseSuccessful: true,
+        automaticRetryAttempted: false,
+      });
+    }
+    expect(posts()).toHaveLength(1);
+  });
 });
 
 /**
@@ -336,7 +359,12 @@ describe("budget currency: the account's, verified, never the request's", () => 
 
     const result = await call();
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error.code).toBe(code);
+    if (!result.ok) {
+      expect(result.providerMutationAttempted).toBe(true);
+      expect(result.providerOutcome).toBe("outcome_ambiguous");
+      expect(result.error.code).toBe("provider_outcome_ambiguous");
+      expect(result.verificationFailure?.code).toBe(code);
+    }
   });
 
   it("takes no currency from the entity payload, however loudly it claims one", async () => {

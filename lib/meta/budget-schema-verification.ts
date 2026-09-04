@@ -205,6 +205,36 @@ export async function assertD088BudgetSchema(sql: Sql): Promise<D088SchemaVerifi
     verified.push("auto_execution_provider_account_id (text, nullable, no default)");
   }
 
+  // ── 1b. activation authority is distinct from the row's last editor ─────
+  const activationActor = (await sql.query<{
+    data_type: string; is_nullable: string; column_default: string | null;
+  }>(
+    `SELECT data_type, is_nullable, column_default
+       FROM information_schema.columns
+      WHERE table_schema = current_schema()
+        AND table_name = 'meta_automation_business_controls'
+        AND column_name = 'auto_execution_enabled_by'`,
+  )) as Array<{ data_type: string; is_nullable: string; column_default: string | null }>;
+  if (activationActor.length !== 1) {
+    failures.push(
+      "meta_automation_business_controls.auto_execution_enabled_by is absent",
+    );
+  } else {
+    const column = activationActor[0]!;
+    if (column.data_type !== "uuid") {
+      failures.push(`auto_execution_enabled_by is ${column.data_type}, not uuid`);
+    }
+    if (column.is_nullable !== "YES") {
+      failures.push("auto_execution_enabled_by must be nullable: disabled is no authority");
+    }
+    if (column.column_default !== null) {
+      failures.push(
+        `auto_execution_enabled_by must have no default, found ${String(column.column_default)}`,
+      );
+    }
+    verified.push("auto_execution_enabled_by (uuid, nullable, no default)");
+  }
+
   // ── 2. the master switch keeps its FALSE default and NOT NULL ────────────
   const master = (await sql.query<{ is_nullable: string; column_default: string | null }>(
     `SELECT is_nullable, column_default

@@ -12,8 +12,9 @@
  * - A result WITHHELD before the provider was reached never marks dispatch as
  *   started. "We decided not to call" and "we called and heard nothing" are
  *   different facts and an operator must be able to tell them apart.
- * - A claimed row is always settled. An executor that throws settles to
- *   `reconcile`, because the write may have landed.
+ * - A claimed row is always settled. An executor that throws AFTER the
+ *   pre-POST marker settles to `reconcile`, because the write may have landed;
+ *   an exception before that marker is a proven non-attempt and settles failed.
  */
 import type { MetaAutomationProposal } from "@/lib/meta/automation-proposals";
 import type { BudgetProposalExecutionResult } from "@/lib/meta/budget-proposal-runtime";
@@ -123,9 +124,9 @@ export async function runClaimedProposalExecution(
     outcome = await deps.execute(beforeProviderPost);
   } catch {
     /*
-      The executor entered and produced no answer. The row must not stay
-      claimed, and the outcome must not be reported as a failure: a write may be
-      live at the provider.
+      The executor entered and produced no answer. Whether a provider write may
+      be live is decided below by the durable pre-POST marker, never by the mere
+      existence of an exception.
     */
     threw = true;
     outcome = {
@@ -151,7 +152,8 @@ export async function runClaimedProposalExecution(
     A marker that could not be written vetoed the POST, so the outcome is a
     definite non-attempt, not an unknown one.
   */
-  const outcomeNeedsReconcile = (outcome.reconcile === true || threw) && !markerFailed;
+  const outcomeNeedsReconcile = providerDispatchStarted
+    && (outcome.reconcile === true || threw);
   let settledStatus: ClaimedSettleStatus = outcomeNeedsReconcile
     ? "reconcile"
     : outcome.ok ? "approved" : "failed";

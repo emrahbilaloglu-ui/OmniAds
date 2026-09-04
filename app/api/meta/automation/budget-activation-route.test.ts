@@ -105,8 +105,10 @@ describe("D088 C1 — the activation route", () => {
     expect(helper).toContain("meta_automation_business_controls");
     expect(helper).toContain("auto_execution_enabled");
     expect(helper).toContain("auto_execution_provider_account_id");
+    expect(helper).toContain("auto_execution_enabled_by");
     // Disabling always CLEARS the bound account.
     expect(helper).toContain("row.enabled ? row.providerAccountId : null");
+    expect(helper).toContain("auto_execution_enabled_by = NULL");
     // Both paths use the same writer. Enable wraps it only to carry the
     // optimistic version read with readiness; disable calls it directly.
     expect(ROUTE).toContain("persist: persistBudgetAutoExecution");

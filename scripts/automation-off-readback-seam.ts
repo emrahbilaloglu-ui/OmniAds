@@ -188,7 +188,8 @@ export async function runAutomationOffReadbackSeam(): Promise<ReadbackSeamReport
     */
     const strip = psql(
       "ALTER TABLE meta_automation_business_controls "
-      + "DROP COLUMN IF EXISTS auto_execution_provider_account_id; "
+      + "DROP COLUMN IF EXISTS auto_execution_provider_account_id, "
+      + "DROP COLUMN IF EXISTS auto_execution_enabled_by; "
       + "DROP TABLE IF EXISTS meta_budget_write_journal CASCADE;",
     );
     if (strip.status !== 0) {

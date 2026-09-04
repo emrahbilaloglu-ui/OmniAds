@@ -34,6 +34,7 @@ export const BUDGET_PROPOSAL_WITHHELD_REASONS = [
   "manual_confirmation_absent",
   "account_not_activated",
   "enabling_actor_absent",
+  "scheduled_authority_changed",
 ] as const;
 export type BudgetProposalWithheldReason =
   (typeof BUDGET_PROPOSAL_WITHHELD_REASONS)[number];

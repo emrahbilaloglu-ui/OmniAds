@@ -3880,6 +3880,26 @@ challenger stays parked until more labeled truth accrues (new running
 tests, an independent adjudication package, or production shadow waves
 after ingestion resumes).
 
+### D076 Correction 1 - Missing Lifecycle Weight Must Stay Unallocated
+
+Status: recorded before implementation during PR review. The v3 challenger
+remains REJECTED and offline; v2 stays compiled and every authority gate stays
+closed.
+
+Problem. The implementation divided every remaining family weight by
+`1 - lifecycleWeight` when lifecycle evidence was unavailable. That raised both
+the reported score and the naming-free score. A campaign could therefore become
+`high` because required evidence was missing, contradicting D007, CR-005 and the
+D076 invariant that absence may only lower confidence.
+
+Decision. When lifecycle coverage is absent or incomplete, its configured 0.15
+weight stays unallocated and contributes zero. The other family weights are not
+rescaled. Deterministic tests compare the same four-creative Main shape with and
+without lifecycle coverage and prove absence cannot raise its Main score. This
+is a correction to the never-deployed challenger inside the same PR, so the
+unreleased v3 candidate identity remains unchanged; no persisted or live row can
+carry the defective implementation under that identity.
+
 
 ## D077 - State-History Growth-Fence Recovery: Duplicate-Manifest Compaction With Honest Byte Semantics
 

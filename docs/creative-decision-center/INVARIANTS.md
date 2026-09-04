@@ -647,7 +647,8 @@ scope, engine epoch)`. Nullable `creative_id` is grouping evidence only and
   package and deterministic tests. The v3 lifecycle challenger is in this
   state: gate verdict REJECT (2026-08-29), v2 remains compiled. Missing
   challenger evidence (e.g. lifecycle features on scopes without status
-  history) must renormalize away — it may lower confidence, never raise it.
+  history) leaves that family's weight unallocated; other weights must not be
+  increased — absence may lower confidence, never raise it.
 - A complete observation where only K of N entities changed must persist a
   number of state rows bounded by K plus new plus scope-exited entities, never
   N (D075). `row_count` remains the logical full-scope count on every

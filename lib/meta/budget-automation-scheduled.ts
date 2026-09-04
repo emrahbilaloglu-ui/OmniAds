@@ -25,6 +25,7 @@ import {
   forceMetaAutomationProposalReconcile,
   markMetaAutomationProposalDispatchStarted,
   settleMetaAutomationProposal,
+  sweepStaleMetaAutomationProposalClaims,
   type MetaAutomationProposal,
   providerDispatchFacts,
 } from "@/lib/meta/automation-proposals";
@@ -173,6 +174,20 @@ export async function runMetaBudgetAutomationSweepIfDue(
       });
       continue;
     }
+    const activationControlVersion = verdict.activationControlVersion ?? "";
+    if (activationControlVersion.trim() === "") {
+      reports.push({
+        contract: BUDGET_SWEEP_CONTRACT,
+        ran: false,
+        blockers: ["activation_provenance_absent"],
+        considered: 0,
+        executed: 0,
+        skipped: 0,
+        withheld: 0,
+        failed: 0,
+      });
+      continue;
+    }
 
     const dailyCap = verdict.dailyAutoActionCap;
     if (!Number.isSafeInteger(dailyCap) || (dailyCap ?? 0) <= 0 || nowIso === null) {
@@ -180,6 +195,32 @@ export async function runMetaBudgetAutomationSweepIfDue(
         contract: BUDGET_SWEEP_CONTRACT,
         ran: false,
         blockers: ["daily_auto_action_cap_unavailable"],
+        considered: 0,
+        executed: 0,
+        skipped: 0,
+        withheld: 0,
+        failed: 0,
+      });
+      continue;
+    }
+    /*
+      Expired claims must be classified BEFORE this preliminary count. A
+      markerless crashed attempt is safe to requeue; one whose dispatch marker
+      exists becomes reconcile. If the sweep itself is unavailable, the cap is
+      unknown and unattended execution stops here rather than assuming space.
+
+      The claim helper repeats this transition under its advisory transaction
+      lock immediately before the authoritative cap count.
+    */
+    const staleClaims = await sweepStaleMetaAutomationProposalClaims({
+      businessId: row.business_id,
+      now,
+    }).catch(() => null);
+    if (!staleClaims?.ran) {
+      reports.push({
+        contract: BUDGET_SWEEP_CONTRACT,
+        ran: false,
+        blockers: ["stale_claim_sweep_unavailable"],
         considered: 0,
         executed: 0,
         skipped: 0,
@@ -285,6 +326,8 @@ export async function runMetaBudgetAutomationSweepIfDue(
           // The enabling admin holds the claim: `claimed_by` is a UUID
           // column and the authority for this write is theirs.
           claimedBy: enablingActor,
+          expectedEnablingActorUserId: enablingActor,
+          expectedActivationControlVersion: activationControlVersion,
           dailyAutoActionCap: dailyCap!,
           now,
         }).catch(() => null);
@@ -368,7 +411,11 @@ export async function runMetaBudgetAutomationSweepIfDue(
             proposal,
             dryRunOnly: verdict.dryRunOnly !== false,
             claimToken,
-            authorization: { kind: "scheduled" },
+            authorization: {
+              kind: "scheduled",
+              expectedEnablingActorUserId: enablingActor,
+              expectedActivationControlVersion: activationControlVersion,
+            },
             beforeProviderPost,
           }),
         });

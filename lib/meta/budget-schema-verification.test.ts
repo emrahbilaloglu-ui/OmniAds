@@ -36,6 +36,9 @@ interface CatalogColumn {
 
 interface Catalog {
   activation: Array<{ data_type: string; is_nullable: string; column_default: string | null }>;
+  activationActor: Array<{
+    data_type: string; is_nullable: string; column_default: string | null;
+  }>;
   master: Array<{ is_nullable: string; column_default: string | null }>;
   envelopeColumn: number;
   constraints: Array<{ conname: string; relname: string; def: string }>;
@@ -48,6 +51,7 @@ interface Catalog {
 function healthyCatalog(): Catalog {
   return {
     activation: [{ data_type: "text", is_nullable: "YES", column_default: null }],
+    activationActor: [{ data_type: "uuid", is_nullable: "YES", column_default: null }],
     master: [{ is_nullable: "NO", column_default: "false" }],
     envelopeColumn: 1,
     constraints: [
@@ -104,6 +108,7 @@ function sqlFor(catalog: Catalog) {
     query: async (text: string): Promise<unknown> => {
       const sql = text.replace(/\s+/g, " ");
       if (sql.includes("auto_execution_provider_account_id")) return catalog.activation;
+      if (sql.includes("auto_execution_enabled_by")) return catalog.activationActor;
       if (sql.includes("'auto_execution_enabled'")) return catalog.master;
       if (sql.includes("'budget_envelope_json'")) return [{ n: String(catalog.envelopeColumn) }];
       if (sql.includes("pg_get_constraintdef(c.oid) AS def") && sql.includes("c.contype = 'c'")) {
@@ -398,6 +403,20 @@ describe("D088 schema verification — the activation column, exactly", () => {
       .toContain("auto_execution_enabled must be NOT NULL");
     expect((await failuresFor((catalog) => { catalog.master[0]!.column_default = "true"; })).join(" | "))
       .toContain("auto_execution_enabled default is true, not false");
+  });
+
+  it("refuses missing or malformed dedicated activation authority", async () => {
+    expect(await failuresFor((catalog) => { catalog.activationActor = []; }))
+      .toContain("meta_automation_business_controls.auto_execution_enabled_by is absent");
+    expect(await failuresFor((catalog) => {
+      catalog.activationActor[0]!.data_type = "text";
+    })).toContain("auto_execution_enabled_by is text, not uuid");
+    expect(await failuresFor((catalog) => {
+      catalog.activationActor[0]!.is_nullable = "NO";
+    })).toContain("auto_execution_enabled_by must be nullable: disabled is no authority");
+    expect((await failuresFor((catalog) => {
+      catalog.activationActor[0]!.column_default = "gen_random_uuid()";
+    })).join(" | ")).toContain("auto_execution_enabled_by must have no default");
   });
 });
 

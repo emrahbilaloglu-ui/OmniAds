@@ -4609,6 +4609,7 @@ export async function runMigrations(options?: {
           kill_switch_engaged BOOLEAN NOT NULL DEFAULT FALSE,
           kill_switch_reason TEXT,
           auto_execution_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+          auto_execution_enabled_by UUID REFERENCES users(id) ON DELETE SET NULL,
           readiness_tier TEXT NOT NULL DEFAULT 'manual_review'
             CHECK (readiness_tier IN ('read_only', 'manual_review', 'backtest_candidate', 'auto_execute')),
           guardrails_json JSONB NOT NULL DEFAULT '{
@@ -4979,6 +4980,19 @@ export async function runMigrations(options?: {
         () =>
           sql`ALTER TABLE meta_automation_business_controls
           ADD COLUMN IF NOT EXISTS auto_execution_provider_account_id TEXT`.catch(() => {}),
+        /*
+          PR #272 review: activation authority is not the row's last editor.
+
+          Guardrail and kill-switch edits legitimately update `updated_by`
+          without re-running the automatic-execution activation ceremony.
+          Keeping the enabling admin in a dedicated nullable FK prevents those
+          later edits from transferring write authority. Existing rows remain
+          fail-closed because the additive column has no default.
+        */
+        () =>
+          sql`ALTER TABLE meta_automation_business_controls
+          ADD COLUMN IF NOT EXISTS auto_execution_enabled_by UUID
+          REFERENCES users(id) ON DELETE SET NULL`.catch(() => {}),
           () =>
             sql`DO $$
           DECLARE

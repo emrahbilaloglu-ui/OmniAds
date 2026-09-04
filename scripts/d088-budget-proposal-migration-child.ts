@@ -12,6 +12,7 @@ const require_ = (ok: unknown, message: string) => { if (!ok) failures.push(mess
 
 const BIZ = "11111111-1111-4111-8111-111111111111";
 const OWNER = "55555555-5555-4555-8555-555555555555";
+const POLICY_EDITOR = "66666666-6666-4666-8666-666666666666";
 
 async function main() {
   const expected = process.env.D088_EXPECTED_URL ?? "";
@@ -64,8 +65,17 @@ async function main() {
     `INSERT INTO users (id, name, email, password_hash)
      VALUES ($1, 'D088', 'd088@example.invalid', 'x') ON CONFLICT (id) DO NOTHING`, [OWNER]);
   await sql.query(
+    `INSERT INTO users (id, name, email, password_hash)
+     VALUES ($1, 'D088 policy editor', 'd088-editor@example.invalid', 'x')
+     ON CONFLICT (id) DO NOTHING`, [POLICY_EDITOR]);
+  await sql.query(
     `INSERT INTO businesses (id, name, owner_id, currency)
      VALUES ($1, 'D088', $2, 'TRY') ON CONFLICT (id) DO NOTHING`, [BIZ, OWNER]);
+  await sql.query(
+    `INSERT INTO memberships (user_id, business_id, role, status)
+     VALUES ($1, $2, 'admin', 'active')
+     ON CONFLICT (user_id, business_id) DO UPDATE SET
+       role = 'admin', status = 'active'`, [OWNER, BIZ]);
 
   /*
     D088 C3 — the ACTIVATION column.
@@ -89,27 +99,54 @@ async function main() {
     "auto_execution_provider_account_id must be nullable: unactivated is unknown");
   require_(activationColumn[0]?.column_default === null,
     "auto_execution_provider_account_id must have no default");
+  const activationActorColumn = await sql.query<{
+    data_type: string; is_nullable: string; column_default: string | null;
+  }>(
+    `SELECT data_type, is_nullable, column_default
+       FROM information_schema.columns
+      WHERE table_schema='public' AND table_name='meta_automation_business_controls'
+        AND column_name='auto_execution_enabled_by'`);
+  require_(activationActorColumn.length === 1,
+    "auto_execution_enabled_by was not created");
+  require_(activationActorColumn[0]?.data_type === "uuid",
+    "auto_execution_enabled_by must be UUID");
+  require_(activationActorColumn[0]?.is_nullable === "YES",
+    "auto_execution_enabled_by must be nullable");
+  require_(activationActorColumn[0]?.column_default === null,
+    "auto_execution_enabled_by must have no default");
   await sql.query(
     `INSERT INTO meta_automation_business_controls
        (business_id, auto_execution_enabled, auto_execution_provider_account_id,
-        updated_by)
-     VALUES ($1, TRUE, 'act_1', $2)
+        auto_execution_enabled_by, updated_by)
+     VALUES ($1, TRUE, 'act_1', $2, $2)
      ON CONFLICT (business_id) DO UPDATE SET
        auto_execution_enabled = EXCLUDED.auto_execution_enabled,
        auto_execution_provider_account_id =
          EXCLUDED.auto_execution_provider_account_id,
+       auto_execution_enabled_by = EXCLUDED.auto_execution_enabled_by,
        updated_by = EXCLUDED.updated_by`, [BIZ, OWNER]);
+  // A later policy edit changes the row editor, not the activation authority.
+  await sql.query(
+    `UPDATE meta_automation_business_controls
+        SET min_roas_floor = 1.5, updated_by = $2, updated_at = NOW()
+      WHERE business_id = $1`, [BIZ, POLICY_EDITOR]);
   const activation = await sql.query<{
-    account: string | null; updated_by: string | null;
+    account: string | null; enabled_by: string | null; updated_by: string | null;
+    activation_version: string | null;
   }>(
-    `SELECT auto_execution_provider_account_id AS account, updated_by::text AS updated_by
+    `SELECT auto_execution_provider_account_id AS account,
+            auto_execution_enabled_by::text AS enabled_by,
+            updated_by::text AS updated_by,
+            updated_at::text AS activation_version
        FROM meta_automation_business_controls WHERE business_id = $1`, [BIZ]);
   require_(activation[0]?.account === "act_1",
     "the activated account did not round-trip");
-  require_(activation[0]?.updated_by === OWNER,
+  require_(activation[0]?.enabled_by === OWNER,
     "the enabling admin did not round-trip as a UUID");
+  require_(activation[0]?.updated_by === POLICY_EDITOR,
+    "the later policy editor did not become the generic row editor");
   note("activation",
-    `auto_execution_provider_account_id nullable TEXT; round-trips with the enabling admin`);
+    `account + enabling admin round-trip; later policy edit preserves activation authority`);
 
   /*
     ── ROLLBACK COMPATIBILITY, executed ──────────────────────────────────────
@@ -206,6 +243,26 @@ async function main() {
     fingerprint: "a".repeat(64),
   });
   require_(budget.length === 1, "a budget proposal could not be inserted");
+
+  /* The exact row lock + activation tuple used by the scheduled claim. */
+  const { claimScheduledMetaAutomationProposal } =
+    await import("@/lib/meta/automation-proposals");
+  const scheduledClaim = activation[0]?.activation_version
+    ? await claimScheduledMetaAutomationProposal({
+        businessId: BIZ,
+        providerAccountId: "act_1",
+        proposalId: budget[0]!.id,
+        claimedBy: OWNER,
+        expectedEnablingActorUserId: OWNER,
+        expectedActivationControlVersion: activation[0].activation_version,
+        dailyAutoActionCap: 1,
+        now: new Date(),
+      })
+    : { status: "activation_changed" as const };
+  require_(scheduledClaim.status === "claimed",
+    `scheduled claim did not preserve the exact activation tuple (${scheduledClaim.status})`);
+  note("scheduled_claim_authority",
+    "control row + active admin membership share-locked before the cap and claim");
 
   // ...and a budget proposal WITHOUT its envelope must be refused.
   let refused = "";

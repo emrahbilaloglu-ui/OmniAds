@@ -92,6 +92,7 @@ describe("budget automation configuration — the write can never enable", () =>
     // The UPDATE branch.
     expect(sql).toContain("auto_execution_enabled = FALSE");
     expect(sql).toContain("auto_execution_provider_account_id = NULL");
+    expect(sql).toContain("auto_execution_enabled_by = NULL");
     // Neither branch may take the value from the caller.
     expect(sql).not.toContain("EXCLUDED.auto_execution_enabled");
     expect(sql).not.toContain("EXCLUDED.auto_execution_provider_account_id");

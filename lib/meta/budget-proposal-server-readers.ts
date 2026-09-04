@@ -238,6 +238,9 @@ export async function readMeasuredBudgetHistory(input: {
             sum(owned_minor) FILTER (
               WHERE entity_type = $4 AND entity_id = $3
             ) AS subject_minor,
+            max(owned_minor) FILTER (
+              WHERE NOT (entity_type = $4 AND entity_id = $3)
+            ) AS max_other_minor,
             (SELECT count(*) FROM present
               WHERE budget_origin IS NULL
                  OR budget_origin NOT IN ('campaign', 'adset', 'not_applicable'))::int
@@ -251,6 +254,7 @@ export async function readMeasuredBudgetHistory(input: {
   ).catch(() => null)) as Array<{
     owner_rows: number; unpriced_rows: number;
     total_minor: string | null; subject_minor: string | null;
+    max_other_minor: string | null;
     unknown_origin_rows: number;
     present_identities: unknown;
   }> | null;
@@ -286,15 +290,18 @@ export async function readMeasuredBudgetHistory(input: {
   if (!Number.isFinite(total) || total <= 0) return null;
   const subject = row.subject_minor === null ? Number.NaN : Number(row.subject_minor);
   if (!Number.isFinite(subject) || subject <= 0) return null;
+  const maxOther = row.max_other_minor === null ? 0 : Number(row.max_other_minor);
+  if (!Number.isFinite(maxOther) || maxOther < 0) return null;
   // PROSPECTIVE: the proposed target replaces the subject in both terms.
   const prospectiveTotal = total - subject + input.intendedAmountMinor;
   if (!(prospectiveTotal > 0)) return null;
+  const prospectiveLargestOwner = Math.max(input.intendedAmountMinor, maxOther);
   return {
     lastChangeAtMs: changes[0]?.last_change_ms === null
       || changes[0]?.last_change_ms === undefined
       ? null : Number(changes[0].last_change_ms),
     changesInLast7d: Number(changes[0]?.in_7d ?? 0),
-    accountConcentrationPercent: (input.intendedAmountMinor / prospectiveTotal) * 100,
+    accountConcentrationPercent: (prospectiveLargestOwner / prospectiveTotal) * 100,
   };
 }
 
@@ -340,6 +347,7 @@ export function createBudgetServerReaders(
         return {
           releaseGateOpen: false, autoExecutionEnabled: false, dryRunOnly: true,
           enablingActorUserId: null, enabledProviderAccountId: null,
+          activationControlVersion: null,
           dailyAutoActionCap: null,
         };
       }
@@ -350,19 +358,23 @@ export function createBudgetServerReaders(
         act under.
       */
       const activation = (await getDb().query(
-        `SELECT auto_execution_provider_account_id,
+        `SELECT controls.auto_execution_provider_account_id,
+                controls.updated_at::text AS activation_control_version,
                 CASE WHEN EXISTS (
                   SELECT 1 FROM memberships m
-                   WHERE m.user_id = updated_by
-                     AND m.business_id = meta_automation_business_controls.business_id
+                   WHERE m.user_id = controls.auto_execution_enabled_by
+                     AND m.business_id = controls.business_id
                      AND m.role = 'admin'
                      AND m.status = 'active'
-                ) THEN updated_by::text ELSE NULL END AS updated_by
-           FROM meta_automation_business_controls WHERE business_id = $1::uuid`,
+                ) THEN controls.auto_execution_enabled_by::text
+                  ELSE NULL END AS enabling_actor_user_id
+           FROM meta_automation_business_controls controls
+          WHERE controls.business_id = $1::uuid`,
         [proposal.businessId],
       ).catch(() => null)) as Array<{
         auto_execution_provider_account_id: string | null;
-        updated_by: string | null;
+        enabling_actor_user_id: string | null;
+        activation_control_version: string | null;
       }> | null;
       const budgetMode = control.decisionTypeModes
         .find((mode: MetaAutomationDecisionTypeMode) => mode.decisionType === "budget")
@@ -392,9 +404,11 @@ export function createBudgetServerReaders(
           && budgetMode === "auto",
         // The PERSISTED guardrail, not a restatement of the global gate.
         dryRunOnly: control.businessControl.guardrails.dryRunOnly !== false,
-        enablingActorUserId: activation?.[0]?.updated_by ?? null,
+        enablingActorUserId: activation?.[0]?.enabling_actor_user_id ?? null,
         enabledProviderAccountId:
           activation?.[0]?.auto_execution_provider_account_id ?? null,
+        activationControlVersion:
+          activation?.[0]?.activation_control_version ?? null,
         dailyAutoActionCap: control.businessControl.guardrails.dailyAutoActionCap,
       };
     },

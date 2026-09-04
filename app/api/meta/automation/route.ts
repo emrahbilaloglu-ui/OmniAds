@@ -79,6 +79,7 @@ async function persistBudgetAutoExecution(row: {
       `UPDATE meta_automation_business_controls
           SET auto_execution_enabled = $2::boolean,
               auto_execution_provider_account_id = $4,
+              auto_execution_enabled_by = $3::uuid,
               updated_at = now(),
               updated_by = $3::uuid
         WHERE business_id = $1::uuid
@@ -98,12 +99,14 @@ async function persistBudgetAutoExecution(row: {
   await getDb().query(
     `INSERT INTO meta_automation_business_controls
        (business_id, auto_execution_enabled,
-        auto_execution_provider_account_id, updated_at, updated_by)
-     VALUES ($1::uuid, $2, $4, now(), $3::uuid)
+        auto_execution_provider_account_id, auto_execution_enabled_by,
+        updated_at, updated_by)
+     VALUES ($1::uuid, $2, $4, NULL, now(), $3::uuid)
      ON CONFLICT (business_id) DO UPDATE SET
        auto_execution_enabled = EXCLUDED.auto_execution_enabled,
        auto_execution_provider_account_id =
          EXCLUDED.auto_execution_provider_account_id,
+       auto_execution_enabled_by = NULL,
        updated_at = now(), updated_by = EXCLUDED.updated_by`,
     [row.businessId, row.enabled, row.decidedBy,
       row.enabled ? row.providerAccountId : null],

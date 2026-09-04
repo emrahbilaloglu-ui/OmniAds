@@ -420,17 +420,13 @@ export function classifyCampaignContextV3(
 ): ContextResolution {
   const signals = computeSignalScoresV3(features, lifecycle, config);
 
-  // Family weights renormalize when lifecycle is absent, so a scope without
-  // status history is scored by the remaining evidence at full weight —
-  // never granted the missing family's share as phantom confidence.
+  // Missing lifecycle evidence keeps its configured weight UNALLOCATED. If we
+  // divide the other weights by (1 - lifecycle), the absence itself raises
+  // both the reported and naming-free scores and can manufacture HIGH
+  // authority. A missing family must contribute zero and may only lower the
+  // score versus the same evidence with a positive lifecycle signal.
   const weights = { ...config.familyWeights };
   if (!signals.lifecyclePresent) {
-    const remaining = 1 - weights.lifecycle;
-    weights.behavioral /= remaining;
-    weights.structure /= remaining;
-    weights.naming /= remaining;
-    weights.lineage /= remaining;
-    weights.continuity /= remaining;
     weights.lifecycle = 0;
   }
 

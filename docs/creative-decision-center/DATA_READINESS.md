@@ -162,7 +162,8 @@ Known facts to preserve unless repo evidence proves otherwise:
   campaign/ad-set entity-state history (status, budgets, structure) exists
   ONLY from 2026-07-13, and every source stops at 2026-08-22 (ingestion
   halted at the storage fence). Lifecycle-family features are therefore
-  nullable by contract and renormalize away when absent.
+  nullable by contract; when absent, their weight stays unallocated and the
+  other family weights are not increased.
 - Label truth remains sparse and stamp-dated: 57 labels across five of the
   six businesses (IwaTR: zero), only 7 Test labels, of which 5 describe
   tests concluded before any observable anchor. Test recall against running

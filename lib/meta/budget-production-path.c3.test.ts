@@ -51,8 +51,8 @@ const OTHER = {
   grain: "campaign" as const,
   entityId: "23850000000000000",
   parentCampaignId: null as string | null,
-  current: 660_000,
-  intended: 660_000,
+  current: 535_000,
+  intended: 535_000,
 };
 const CAMPAIGN_RUN = "44444444-4444-4444-8444-444444444444";
 const ADSET_RUN = "77777777-7777-4777-8777-777777777777";
@@ -219,15 +219,17 @@ const query = vi.fn(async (sql: string, params: unknown[] = []) => {
       // An owner row whose amount could not be priced: the population is
       // incomplete, so the share is UNKNOWN.
       return [{
-        owner_rows: 3, unpriced_rows: 1, total_minor: "1000000",
+        owner_rows: 3, unpriced_rows: 1, total_minor: "875000",
         subject_minor: String(CBO.current),
+        max_other_minor: String(OTHER.current),
         unknown_origin_rows: 0, present_identities: presentIdentities,
       }];
     }
     return [{
       owner_rows: 3, unpriced_rows: 0,
-      total_minor: "1000000",
+      total_minor: "875000",
       subject_minor: String(params[2] === CBO.entityId ? CBO.current : ABO.current),
+      max_other_minor: String(OTHER.current),
       unknown_origin_rows: 0, present_identities: presentIdentities,
     }];
   }
@@ -282,6 +284,8 @@ const { projectMetaBudgetProposals, listTypedBudgetCandidates, insertBudgetPropo
   await import("@/lib/meta/budget-proposal-producer");
 const { loadBudgetCompositionSourcesForCandidate } =
   await import("@/lib/meta/budget-proposal-source-loader");
+const { readMeasuredBudgetHistory } =
+  await import("@/lib/meta/budget-proposal-server-readers");
 const { parseBudgetProposalEnvelope } = await import("@/lib/meta/budget-proposal-runtime");
 
 const json = (payload: unknown, status = 200) =>
@@ -493,6 +497,35 @@ describe("D088 C3 — the real producer projects real rows", () => {
     // Unknown, not zero: an unpriced owner row makes the share unprovable.
     expect(result.refusals.change_history_unknown).toBe(2);
     expect(inserted).toHaveLength(0);
+  });
+
+  it("measures the largest prospective owner after a decrease", async () => {
+    const original = query.getMockImplementation()!;
+    query.mockImplementation(async (sql: string, params: unknown[] = []) => {
+      if (String(sql).includes("FROM owners")) {
+        return [{
+          owner_rows: 2, unpriced_rows: 0,
+          total_minor: "100", subject_minor: "50", max_other_minor: "50",
+          unknown_origin_rows: 0,
+          // Two budget owners plus two present not-applicable identities.
+          present_identities: presentIdentities,
+        }];
+      }
+      return original(sql, params);
+    });
+
+    const history = await readMeasuredBudgetHistory({
+      businessId: BIZ,
+      providerAccountId: ACCOUNT,
+      entityGrain: "campaign",
+      entityId: CBO.entityId,
+      intendedAmountMinor: 20,
+      nowMs: NOW,
+    });
+
+    expect(history).not.toBeNull();
+    expect(history!.accountConcentrationPercent).toBeCloseTo(71.428571, 5);
+    query.mockImplementation(original);
   });
 
   it("refuses an ad set whose role evidence is for a DIFFERENT campaign", async () => {

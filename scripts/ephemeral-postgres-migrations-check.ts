@@ -190,6 +190,10 @@ const REQUIRED_COLUMNS: ReadonlyArray<{ table: string; column: string }> = [
     table: "meta_automation_business_controls",
     column: "auto_execution_provider_account_id",
   },
+  {
+    table: "meta_automation_business_controls",
+    column: "auto_execution_enabled_by",
+  },
   { table: "meta_campaign_label_history", column: "state_hash" },
   { table: "meta_campaign_label_history", column: "business_ref_id" },
   {

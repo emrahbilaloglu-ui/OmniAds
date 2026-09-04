@@ -33,13 +33,14 @@ export async function readBudgetWriteSurfaceReadiness(input: {
               auto_execution_provider_account_id,
               CASE WHEN EXISTS (
                 SELECT 1 FROM memberships m
-                 WHERE m.user_id = updated_by
-                   AND m.business_id = meta_automation_business_controls.business_id
+                 WHERE m.user_id = controls.auto_execution_enabled_by
+                   AND m.business_id = controls.business_id
                    AND m.role = 'admin'
                    AND m.status = 'active'
-              ) THEN updated_by::text ELSE NULL END AS enabling_admin_user_id
-         FROM meta_automation_business_controls
-        WHERE business_id = $1::uuid`,
+              ) THEN controls.auto_execution_enabled_by::text
+                ELSE NULL END AS enabling_admin_user_id
+         FROM meta_automation_business_controls controls
+        WHERE controls.business_id = $1::uuid`,
       [input.businessId],
     ).catch(() => null) as Promise<Array<{
       auto_execution_enabled: boolean | null;

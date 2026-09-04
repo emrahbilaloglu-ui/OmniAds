@@ -95,6 +95,8 @@ describe("D088 C3 — no fabricated authority survives on an authoritative path"
     expect(runtime).toContain("account_not_activated");
     const readers = readFileSync("lib/meta/budget-proposal-server-readers.ts", "utf8");
     expect(readers).toContain("auto_execution_provider_account_id");
+    expect(readers).toContain("auto_execution_enabled_by");
+    expect(readers).not.toContain("THEN controls.updated_by");
     expect(readers).toContain("SELECT 1 FROM memberships m");
     expect(readers).toContain("m.role = 'admin'");
     expect(readers).toContain("m.status = 'active'");

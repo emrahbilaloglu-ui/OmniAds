@@ -720,33 +720,28 @@ export interface SweepMetaAutomationProposalClaimsResult {
   ran: boolean;
 }
 
+type ProposalClaimSweepDb = Pick<ReturnType<typeof getDb>, "query">;
+const SCHEDULED_ACTOR_UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 /**
- * Age out claims that outlived their lease — WITHOUT ever guessing.
+ * The stale-lease transition against the caller's current DB handle.
  *
- * Three branches, and the split between them is the whole point:
- *
- * - `dispatch_started_at IS NULL` means the claim holder never entered the
- *   provider handler, because that column is written first. Nothing reached
- *   Meta, so the row may go back to `pending` (or to `expired` if its evidence
- *   aged out meanwhile). This is a *proven* requeue, not a blind one.
- * - `dispatch_started_at IS NOT NULL` means a provider write may exist. It is
- *   moved to `reconcile` and left there: requeueing it could pause the same
- *   entity twice, and calling it `approved` would report a success nobody
- *   observed. Both are guesses; a human resolves this one.
+ * Keeping this separate from schema readiness is load-bearing: the scheduled
+ * claim path calls it after taking its transaction advisory lock, and
+ * `getDb()` then resolves to that same transaction through AsyncLocalStorage.
+ * The sweep and the cap count therefore cannot be interleaved by another cron
+ * worker for the same business/account.
  */
-export async function sweepStaleMetaAutomationProposalClaims(input: {
-  businessId: string;
-  now?: Date;
-}): Promise<SweepMetaAutomationProposalClaimsResult> {
-  if (!(await proposalsReady())) {
-    return { requeued: 0, expired: 0, reconcile: 0, ran: false };
-  }
-  const now = input.now ?? new Date();
+async function sweepStaleMetaAutomationProposalClaimsWithDb(
+  db: ProposalClaimSweepDb,
+  input: { businessId: string; now: Date },
+): Promise<SweepMetaAutomationProposalClaimsResult> {
   const leaseCutoff = new Date(
-    now.getTime() - META_AUTOMATION_PROPOSAL_CLAIM_LEASE_MS,
+    input.now.getTime() - META_AUTOMATION_PROPOSAL_CLAIM_LEASE_MS,
   ).toISOString();
   try {
-    const rows = (await getDb().query<{ next_status: string }>(
+    const rows = (await db.query<{ next_status: string }>(
       `
         UPDATE meta_automation_proposals
         SET status = CASE
@@ -775,7 +770,7 @@ export async function sweepStaleMetaAutomationProposalClaims(input: {
           AND claimed_at <= $3::timestamptz
         RETURNING status AS next_status
       `,
-      [input.businessId, now.toISOString(), leaseCutoff],
+      [input.businessId, input.now.toISOString(), leaseCutoff],
     )) as Array<{ next_status: string }>;
     return {
       requeued: rows.filter((row) => row.next_status === "pending").length,
@@ -784,13 +779,40 @@ export async function sweepStaleMetaAutomationProposalClaims(input: {
       ran: true,
     };
   } catch (error) {
-    // An unmigrated database has no claims to sweep, and it must not be
-    // reported as a sweep that ran and found nothing.
+    // An unmigrated database has no safe way to classify claim leases.
     if (isUndefinedColumnError(error)) {
       return { requeued: 0, expired: 0, reconcile: 0, ran: false };
     }
     throw error;
   }
+}
+
+/**
+ * Age out claims that outlived their lease — WITHOUT ever guessing.
+ *
+ * Three branches, and the split between them is the whole point:
+ *
+ * - `dispatch_started_at IS NULL` means the claim holder never entered the
+ *   provider handler, because that column is written first. Nothing reached
+ *   Meta, so the row may go back to `pending` (or to `expired` if its evidence
+ *   aged out meanwhile). This is a *proven* requeue, not a blind one.
+ * - `dispatch_started_at IS NOT NULL` means a provider write may exist. It is
+ *   moved to `reconcile` and left there: requeueing it could pause the same
+ *   entity twice, and calling it `approved` would report a success nobody
+ *   observed. Both are guesses; a human resolves this one.
+ */
+export async function sweepStaleMetaAutomationProposalClaims(input: {
+  businessId: string;
+  now?: Date;
+}): Promise<SweepMetaAutomationProposalClaimsResult> {
+  if (!(await proposalsReady())) {
+    return { requeued: 0, expired: 0, reconcile: 0, ran: false };
+  }
+  const now = input.now ?? new Date();
+  return sweepStaleMetaAutomationProposalClaimsWithDb(getDb(), {
+    businessId: input.businessId,
+    now,
+  });
 }
 
 export interface ProjectMetaAutomationProposalsResult {
@@ -1170,7 +1192,8 @@ export type ClaimMetaAutomationProposalResult =
 export type ClaimScheduledMetaAutomationProposalResult =
   | ClaimMetaAutomationProposalResult
   | { status: "cap_reached" }
-  | { status: "cap_unavailable" };
+  | { status: "cap_unavailable" }
+  | { status: "activation_changed" };
 
 /**
  * Reserve one unattended budget action under the business/account daily cap.
@@ -1186,14 +1209,22 @@ export async function claimScheduledMetaAutomationProposal(input: {
   providerAccountId: string;
   proposalId: string;
   claimedBy: string;
+  /** Exact activation tuple observed before this unattended claim. */
+  expectedEnablingActorUserId: string;
+  expectedActivationControlVersion: string;
   dailyAutoActionCap: number;
   now?: Date;
 }): Promise<ClaimScheduledMetaAutomationProposalResult> {
   const now = input.now ?? new Date();
   if (!Number.isSafeInteger(input.dailyAutoActionCap)
     || input.dailyAutoActionCap <= 0
+    || typeof input.expectedEnablingActorUserId !== "string"
+    || !SCHEDULED_ACTOR_UUID_PATTERN.test(input.expectedEnablingActorUserId)
+    || input.claimedBy !== input.expectedEnablingActorUserId
+    || typeof input.expectedActivationControlVersion !== "string"
+    || input.expectedActivationControlVersion.trim() === ""
     || !Number.isFinite(now.getTime())) {
-    return { status: "cap_unavailable" };
+    return { status: "activation_changed" };
   }
   if (!(await proposalsReady())) return { status: "unavailable" };
 
@@ -1205,6 +1236,42 @@ export async function claimScheduledMetaAutomationProposal(input: {
        )`,
       [input.businessId, input.providerAccountId],
     );
+    /*
+      Bind the claim itself to the exact activation observed by the scheduler.
+      The row and enabling membership are share-locked until the claim commits,
+      so disable/re-enable or actor replacement cannot create a claim under the
+      previous authority tuple.
+    */
+    const activation = await getDb().query<{ business_id: string }>(
+      `SELECT controls.business_id::text AS business_id
+         FROM meta_automation_business_controls controls
+         JOIN memberships m
+           ON m.user_id = controls.auto_execution_enabled_by
+          AND m.business_id = controls.business_id
+          AND m.role = 'admin'
+          AND m.status = 'active'
+        WHERE controls.business_id = $1::uuid
+          AND controls.auto_execution_enabled = TRUE
+          AND controls.auto_execution_provider_account_id = $2
+          AND controls.auto_execution_enabled_by = $3::uuid
+          AND controls.updated_at = $4::timestamptz
+        FOR SHARE OF controls, m`,
+      [input.businessId, input.providerAccountId,
+        input.expectedEnablingActorUserId,
+        input.expectedActivationControlVersion],
+    );
+    if (activation.length !== 1) return { status: "activation_changed" };
+    /*
+      A `claimed` row reserves one daily slot, but only for the five-minute
+      lease. Reclassify expired leases while this business/account cap lock is
+      held; otherwise a crashed markerless worker can consume the cap forever
+      and prevent the scheduler from ever reaching this helper again.
+    */
+    const swept = await sweepStaleMetaAutomationProposalClaimsWithDb(getDb(), {
+      businessId: input.businessId,
+      now,
+    });
+    if (!swept.ran) return { status: "cap_unavailable" };
     const rows = await getDb().query<{ used: number }>(
       `SELECT count(*)::int AS used
          FROM meta_automation_proposals

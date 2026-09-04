@@ -37,6 +37,8 @@ import {
 const NOW = new Date("2026-08-17T12:00:00.000Z");
 const BUSINESS_ID = "172d0ab8-495b-4679-a4c6-ffa404c389d3";
 const RULE_ID = "11111111-1111-4111-8111-111111111111";
+const ACTOR_ID = "22222222-2222-4222-8222-222222222222";
+const ACTIVATION_VERSION = "2026-08-17T11:55:00.000Z";
 
 /**
  * A db double that RECORDS the statement it was handed.
@@ -65,25 +67,96 @@ beforeEach(() => {
 
 describe("scheduled proposal claims reserve the daily cap atomically", () => {
   it("locks, counts in-flight/reconcile reservations, and refuses a claim at cap", async () => {
-    const { tagged, calls } = recordingDb([[], [{ used: 1 }]]);
+    const { tagged, calls } = recordingDb([
+      [], [{ business_id: BUSINESS_ID }], [], [{ used: 1 }],
+    ]);
     vi.mocked(dbModule.getDb).mockReturnValue(tagged as never);
 
     const result = await claimScheduledMetaAutomationProposal({
       businessId: BUSINESS_ID,
       providerAccountId: "act_123",
       proposalId: RULE_ID,
-      claimedBy: "22222222-2222-4222-8222-222222222222",
+      claimedBy: ACTOR_ID,
+      expectedEnablingActorUserId: ACTOR_ID,
+      expectedActivationControlVersion: ACTIVATION_VERSION,
       dailyAutoActionCap: 1,
       now: NOW,
     });
 
     expect(result).toEqual({ status: "cap_reached" });
-    expect(calls).toHaveLength(2);
+    expect(calls).toHaveLength(4);
     expect(calls[0]!.text).toContain("pg_advisory_xact_lock");
-    expect(calls[1]!.text).toContain("status = 'claimed'");
-    expect(calls[1]!.text).toContain("status = 'reconcile'");
-    expect(calls[1]!.text).toContain("receipt_json->>'executionKind' = 'scheduled'");
+    expect(calls[1]!.text).toContain("FOR SHARE OF controls, m");
+    expect(calls[1]!.values).toEqual([
+      BUSINESS_ID, "act_123", ACTOR_ID, ACTIVATION_VERSION,
+    ]);
+    expect(calls[2]!.text).toContain("claimed_at <= $3::timestamptz");
+    expect(calls[3]!.text).toContain("status = 'claimed'");
+    expect(calls[3]!.text).toContain("status = 'reconcile'");
+    expect(calls[3]!.text).toContain("receipt_json->>'executionKind' = 'scheduled'");
     expect(calls.some(({ text }) => text.includes("SET status = 'claimed'")))
+      .toBe(false);
+  });
+
+  it("fails closed before the cap count when stale leases cannot be classified", async () => {
+    const calls: string[] = [];
+    const tagged = Object.assign(
+      () => Promise.resolve([]),
+      {
+        query: async (text: string) => {
+          calls.push(text);
+          if (text.includes("FOR SHARE OF controls, m")) {
+            return [{ business_id: BUSINESS_ID }];
+          }
+          if (text.includes("claimed_at <= $3::timestamptz")) {
+            throw Object.assign(new Error("missing claim column"), { code: "42703" });
+          }
+          return [];
+        },
+      },
+    );
+    vi.mocked(dbModule.getDb).mockReturnValue(tagged as never);
+
+    const result = await claimScheduledMetaAutomationProposal({
+      businessId: BUSINESS_ID,
+      providerAccountId: "act_123",
+      proposalId: RULE_ID,
+      claimedBy: ACTOR_ID,
+      expectedEnablingActorUserId: ACTOR_ID,
+      expectedActivationControlVersion: ACTIVATION_VERSION,
+      dailyAutoActionCap: 1,
+      now: NOW,
+    });
+
+    expect(result).toEqual({ status: "cap_unavailable" });
+    expect(calls[0]).toContain("pg_advisory_xact_lock");
+    expect(calls[1]).toContain("FOR SHARE OF controls, m");
+    expect(calls[2]).toContain("claimed_at <= $3::timestamptz");
+    expect(calls.some((text) => text.includes("receipt_json->>'executionKind'")))
+      .toBe(false);
+  });
+
+  it("refuses before lease sweep and cap count when activation changed", async () => {
+    const { tagged, calls } = recordingDb([[], []]);
+    vi.mocked(dbModule.getDb).mockReturnValue(tagged as never);
+
+    const result = await claimScheduledMetaAutomationProposal({
+      businessId: BUSINESS_ID,
+      providerAccountId: "act_123",
+      proposalId: RULE_ID,
+      claimedBy: ACTOR_ID,
+      expectedEnablingActorUserId: ACTOR_ID,
+      expectedActivationControlVersion: ACTIVATION_VERSION,
+      dailyAutoActionCap: 1,
+      now: NOW,
+    });
+
+    expect(result).toEqual({ status: "activation_changed" });
+    expect(calls).toHaveLength(2);
+    expect(calls[1]!.text).toContain("FOR SHARE OF controls, m");
+    expect(calls.some(({ text }) => text.includes("claimed_at <= $3::timestamptz")))
+      .toBe(false);
+    expect(calls.some(({ text }) => text.includes("receipt_json->>'executionKind'")))
       .toBe(false);
   });
 });

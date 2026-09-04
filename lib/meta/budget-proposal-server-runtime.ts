@@ -62,6 +62,8 @@ export interface BudgetServerRuntimeReaders {
     enablingActorUserId?: string | null;
     /** The account the enablement was proven for. */
     enabledProviderAccountId?: string | null;
+    /** Exact control-row version carrying the activation tuple. */
+    activationControlVersion?: string | null;
     /** Persisted business cap for unattended writes in a rolling 24h window. */
     dailyAutoActionCap?: number | null;
   }>;
@@ -106,7 +108,11 @@ export interface BudgetServerRuntimeInput {
    */
   authorization:
     | { kind: "manual"; explicitConfirmation: boolean; operatorUserId: string }
-    | { kind: "scheduled" };
+    | {
+        kind: "scheduled";
+        expectedEnablingActorUserId: string;
+        expectedActivationControlVersion: string;
+      };
   /** Fired at the pre-POST boundary by the shared lifecycle. */
   beforeProviderPost?: () => Promise<boolean>;
 }
@@ -144,6 +150,20 @@ export function createBudgetProposalServerRuntime(
     if (!claimToken) return withheld("claim_absent");
 
     const gates = await readers.readGates({ proposal });
+    const scheduledActivationTupleMatches = (
+      current: Awaited<ReturnType<BudgetServerRuntimeReaders["readGates"]>>,
+    ) => input.authorization.kind === "scheduled"
+      && current.enabledProviderAccountId === proposal.providerAccountId
+      && current.enablingActorUserId
+        === input.authorization.expectedEnablingActorUserId
+      && current.activationControlVersion
+        === input.authorization.expectedActivationControlVersion;
+    const scheduledWriteAuthorityOpen = (
+      current: Awaited<ReturnType<BudgetServerRuntimeReaders["readGates"]>>,
+    ) => current.releaseGateOpen === true
+      && current.autoExecutionEnabled === true
+      && current.dryRunOnly === false
+      && scheduledActivationTupleMatches(current);
     /*
       The gates first, and nothing else if they are shut.
 
@@ -170,6 +190,8 @@ export function createBudgetProposalServerRuntime(
       /* No enabling admin — or one that is not a real user id — means no
          authority to act under, and the claim/journal columns are UUIDs. */
       return withheld("enabling_actor_absent");
+    } else if (!scheduledActivationTupleMatches(gates)) {
+      return withheld("scheduled_authority_changed");
     }
     // The caller's posture OR the persisted guardrail. Either one holds.
     if (input.dryRunOnly === true || gates.dryRunOnly === true) {
@@ -202,6 +224,18 @@ export function createBudgetProposalServerRuntime(
       claimToken,
     });
 
+    /*
+      Composition can include several DB reads and provider baselines. Re-read
+      the complete scheduled authority tuple before building the journal-bound
+      write dependencies; a disable/re-enable cannot inherit the old claim.
+    */
+    if (input.authorization.kind === "scheduled") {
+      const current = await readers.readGates({ proposal }).catch(() => null);
+      if (!current || !scheduledWriteAuthorityOpen(current)) {
+        return withheld("scheduled_authority_changed");
+      }
+    }
+
     const writeDeps = await readers.writeDeps({
       proposal, claimToken, providerWriteAuthorized,
     });
@@ -228,7 +262,19 @@ export function createBudgetProposalServerRuntime(
       },
       // The ONE executor. Manual approval and the sweep both arrive here.
       execute: async (request) => executeBudgetWrite(writeDeps, request, {
-        beforeProviderPost: input.beforeProviderPost,
+        beforeProviderPost: input.authorization.kind === "scheduled"
+          ? async () => {
+              /*
+                Last check at the adapter's literal pre-POST boundary, before
+                the durable dispatch marker. A changed/off authority tuple
+                returns false, so neither marker nor Meta POST is emitted.
+              */
+              const current = await readers.readGates({ proposal }).catch(() => null);
+              if (!current || !scheduledWriteAuthorityOpen(current)
+                || !input.beforeProviderPost) return false;
+              return input.beforeProviderPost();
+            }
+          : input.beforeProviderPost,
       }),
     });
   };

@@ -201,6 +201,7 @@ describe("PRE-DEPLOY — the automation master switch, exercised", () => {
       BUSINESS_ID, true, ADMIN, ACCOUNT, "2026-09-03T00:00:00.000Z",
     ]);
     expect(write!.sql).toContain("auto_execution_provider_account_id");
+    expect(write!.sql).toContain("auto_execution_enabled_by = $3::uuid");
     expect(write!.sql).toContain("updated_at = $5::timestamptz");
   });
 
@@ -307,6 +308,7 @@ describe("PRE-DEPLOY — the automation master switch, exercised", () => {
     // enabled false, and the activated account cleared to NULL.
     expect(write!.params[1]).toBe(false);
     expect(write!.params[3]).toBeNull();
+    expect(write!.sql).toContain("auto_execution_enabled_by = NULL");
   });
 
   it("DISABLE still works when every readiness read FAILS", async () => {
@@ -435,6 +437,7 @@ describe("PRE-DEPLOY — the automation master switch, exercised", () => {
     // FALSE and NULL are literals in the statement, not caller values.
     expect(write!.sql).toContain("auto_execution_enabled = FALSE");
     expect(write!.sql).toContain("auto_execution_provider_account_id = NULL");
+    expect(write!.sql).toContain("auto_execution_enabled_by = NULL");
     expect(write!.sql).not.toContain("kill_switch_engaged");
     // No phrase was sent, and none was needed — this is not the enable verb.
     expect(write!.params.length).toBe(3);

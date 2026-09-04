@@ -104,6 +104,8 @@ export type MetaAdsWriteFailure = {
   httpStatus: number;
   providerMutationAttempted?: boolean;
   providerOutcome?: "definite_failure" | "outcome_ambiguous";
+  /** The exact read-back fault retained when the public outcome is ambiguous. */
+  verificationFailure?: MetaAdsWriteError | null;
   mutationAttempt?: MetaProviderMutationAttemptReceipt | null;
   sourceIdentity?: MetaAdDuplicateSourceIdentity | null;
   responsePayload?: Record<string, unknown> | null;
@@ -3198,8 +3200,23 @@ export async function updateEntityBudget(
   if (after.failure) {
     return {
       ...after.failure,
+      httpStatus: 502,
       providerMutationAttempted: true,
+      /*
+        The POST above was accepted, but this GET did not establish the state
+        Meta committed. Calling that a definite failure permits a second
+        adjustment against an account whose budget may already have moved.
+        Hold the proposal for exact reconciliation instead.
+      */
+      providerOutcome: "outcome_ambiguous",
       mutationAttempt: write.mutationAttempt,
+      verificationFailure: after.failure.error,
+      error: {
+        code: META_PROVIDER_OUTCOME_AMBIGUOUS_CODE,
+        message:
+          "Meta accepted the budget write, but its post-write state could not be verified. Reconcile the exact provider state before any retry.",
+      },
+      responsePayload: write.payload,
     };
   }
   const verdict = classifyRead(after.payload, write.payload, {
@@ -3208,8 +3225,16 @@ export async function updateEntityBudget(
   if (verdict.failure) {
     return {
       ...verdict.failure,
+      httpStatus: 502,
       providerMutationAttempted: true,
+      providerOutcome: "outcome_ambiguous",
       mutationAttempt: write.mutationAttempt,
+      verificationFailure: verdict.failure.error,
+      error: {
+        code: META_PROVIDER_OUTCOME_AMBIGUOUS_CODE,
+        message:
+          "Meta accepted the budget write, but its post-write state did not match the approved change. Reconcile the exact provider state before any retry.",
+      },
     };
   }
 

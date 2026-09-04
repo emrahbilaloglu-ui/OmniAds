@@ -124,14 +124,32 @@ describe("D088 C2 — one lifecycle, shared by both entry points", () => {
     expect(result.rollbackRequested).toBe(false);
   });
 
-  it("NEVER leaves a claimed row unsettled when the executor throws", async () => {
+  it("settles an unmarked executor exception as failed, not reconcile", async () => {
     const settles: string[] = [];
     const result = await runClaimedProposalExecution(deps({
       settle: async (input) => { settles.push(input.status); return proposal(); },
       execute: async () => { throw new Error("socket hang up"); },
     }));
     expect(result.ok).toBe(false);
+    expect(settles).toEqual(["failed"]);
+    expect(result.providerDispatchStarted).toBe(false);
+    expect(result.reconcile).toBe(false);
+    expect(result.providerOutcomeKnown).toBe(false);
+  });
+
+  it("settles a marked executor exception as reconcile", async () => {
+    const settles: string[] = [];
+    const result = await runClaimedProposalExecution(deps({
+      settle: async (input) => { settles.push(input.status); return proposal(); },
+      execute: async (beforeProviderPost) => {
+        await beforeProviderPost();
+        throw new Error("socket hang up after POST boundary");
+      },
+    }));
+    expect(result.ok).toBe(false);
     expect(settles).toEqual(["reconcile"]);
+    expect(result.providerDispatchStarted).toBe(true);
+    expect(result.reconcile).toBe(true);
     expect(result.providerOutcomeKnown).toBe(false);
   });
 

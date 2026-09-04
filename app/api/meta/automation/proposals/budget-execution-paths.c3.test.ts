@@ -256,6 +256,7 @@ const baseQuery = async (sql: string, params: unknown[] = []): Promise<unknown[]
     return [{
       owner_rows: 3, unpriced_rows: 0,
       total_minor: "1000000", subject_minor: String(CBO.current),
+      max_other_minor: "500000",
       unknown_origin_rows: 0, present_identities: presentIdentities,
     }];
   }
@@ -263,10 +264,16 @@ const baseQuery = async (sql: string, params: unknown[] = []): Promise<unknown[]
     && text.includes("last_change_ms")) {
     return [{ last_change_ms: null, in_7d: 0 }];
   }
-  if (text.includes("SELECT auto_execution_provider_account_id")) {
+  if (text.includes("auto_execution_enabled_by")
+    && text.includes("FROM meta_automation_business_controls controls")) {
+    activationReadCount += 1;
+    const changed = activationChangesAfterRead !== null
+      && activationReadCount > activationChangesAfterRead;
     return [{
       auto_execution_provider_account_id: activatedAccount,
-      updated_by: ADMIN,
+      enabling_actor_user_id: changed ? replacementActivationActor : activationActor,
+      activation_control_version: changed
+        ? replacementActivationVersion : activationControlVersion,
     }];
   }
   if (text.includes("SELECT * FROM meta_budget_write_journal")) {
@@ -332,6 +339,16 @@ const baseQuery = async (sql: string, params: unknown[] = []): Promise<unknown[]
     && text.includes("receipt_json->>'executionKind'")) {
     return [{ used: scheduledUsed }];
   }
+  if (text.includes("UPDATE meta_automation_proposals")
+    && text.includes("claimed_at <= $3::timestamptz")) {
+    if (!staleSweepAvailable) {
+      throw Object.assign(new Error("dispatch_started_at is absent"), { code: "42703" });
+    }
+    if (staleSweepRows.some((row) => row.next_status === "pending")) {
+      scheduledUsed = 0;
+    }
+    return staleSweepRows;
+  }
   if (text.includes("FROM meta_automation_proposals")
     && text.includes("proposed_action = 'budget'")) {
     /*
@@ -385,6 +402,13 @@ vi.mock("@/lib/db", () => ({
 }));
 
 let activatedAccount: string | null = null;
+/** Dedicated activation provenance; unrelated control edits never replace it. */
+let activationActor: string | null = ADMIN;
+let activationControlVersion = "2026-08-31T11:55:00.000Z";
+let activationReadCount = 0;
+let activationChangesAfterRead: number | null = null;
+let replacementActivationActor = "55555555-5555-4555-8555-555555555555";
+let replacementActivationVersion = "2026-08-31T11:59:00.000Z";
 /** The single account the persisted control row binds automatic execution to. */
 let boundAccount: string | null = ACCOUNT;
 /** The pending budget queue, as rows the real predicate can be applied to. */
@@ -392,6 +416,8 @@ let pendingRows: Array<{
   id: string; provider_account_id: string; created_at: string;
 }> = [];
 let scheduledUsed = 0;
+let staleSweepAvailable = true;
+let staleSweepRows: Array<{ next_status: "pending" | "expired" | "reconcile" }> = [];
 
 const access = await import("@/lib/access");
 const controlPlane = await import("@/lib/meta/automation-control-plane");
@@ -675,6 +701,32 @@ describe("D088 C3 — a projected budget row through the real manual route", () 
     expect(journalRows).toHaveLength(1);
     expect(journalRows[0]!.result_class).not.toBe("verified");
   });
+
+  it("reconciles a 2xx budget POST whose verification GET is unreadable", async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(node(CBO.current))
+      .mockResolvedValueOnce(node(CBO.current))
+      .mockResolvedValueOnce(node(CBO.current))
+      .mockResolvedValueOnce(json({ success: true }))
+      .mockRejectedValueOnce(new Error("verification connection reset"));
+
+    const response = await approve();
+    const payload = await response.json() as {
+      ok?: boolean; proposalStatus?: string; providerOutcomeKnown?: boolean;
+    };
+
+    expect(response.status).toBe(200);
+    expect(payload.ok).toBe(true);
+    expect(payload.proposalStatus).toBe("reconcile");
+    expect(payload.providerOutcomeKnown).toBe(false);
+    expect(calls("POST")).toHaveLength(1);
+    expect(journalRows).toHaveLength(1);
+    expect(journalRows[0]!.provider_attempted).toBe(true);
+    expect(journalRows[0]!.result_class).toBe("unknown");
+    expect(store.settleMetaAutomationProposal).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "reconcile" }),
+    );
+  });
 });
 
 describe("D088 C3 — the SCHEDULED path shares the one lifecycle", () => {
@@ -685,12 +737,18 @@ describe("D088 C3 — the SCHEDULED path shares the one lifecycle", () => {
     journalRows.length = 0;
     query.mockClear();
     activatedAccount = ACCOUNT;
+    activationActor = ADMIN;
+    activationControlVersion = "2026-08-31T11:55:00.000Z";
+    activationReadCount = 0;
+    activationChangesAfterRead = null;
     boundAccount = ACCOUNT;
     pendingRows = [{
       id: PROPOSAL_ID, provider_account_id: ACCOUNT,
       created_at: "2026-08-31T11:00:00.000Z",
     }];
     scheduledUsed = 0;
+    staleSweepAvailable = true;
+    staleSweepRows = [];
     vi.stubGlobal("fetch", vi.fn());
     vi.stubEnv(CAMPAIGN_CONTEXT_AUTHORITY_RESOLVER_VERSION_ENV,
       CAMPAIGN_CONTEXT_RESOLVER_VERSION);
@@ -706,6 +764,9 @@ describe("D088 C3 — the SCHEDULED path shares the one lifecycle", () => {
       },
       decisionTypeModes: [{ decisionType: "budget", mode: "auto" }],
     } as never);
+    vi.mocked(controlPlane.getMetaWriteBlockState).mockResolvedValue({
+      blocked: false, reason: null, message: null,
+    });
     vi.mocked(store.readMetaAutomationProposal).mockResolvedValue(proposal() as never);
     vi.mocked(store.claimMetaAutomationProposal).mockResolvedValue({
       status: "claimed", claimToken: CLAIM,
@@ -746,13 +807,44 @@ describe("D088 C3 — the SCHEDULED path shares the one lifecycle", () => {
     // The claim, the settle and the journal all name the enabling ADMIN.
     expect(journalRows[0]!.actor_user_id).toBe(ADMIN);
     expect(vi.mocked(store.claimScheduledMetaAutomationProposal).mock.calls[0]![0])
-      .toMatchObject({ claimedBy: ADMIN });
+      .toMatchObject({
+        claimedBy: ADMIN,
+        expectedEnablingActorUserId: ADMIN,
+        expectedActivationControlVersion: activationControlVersion,
+      });
     // The proposal returned by the atomic claim is the execution input. A
     // second post-claim read could fail and strand the claimed row.
     expect(vi.mocked(store.readMetaAutomationProposal)).not.toHaveBeenCalled();
     expect(vi.mocked(store.settleMetaAutomationProposal).mock.calls[0]![0])
       .toMatchObject({ decidedBy: ADMIN, status: "approved" });
     expect(vi.mocked(store.settleMetaAutomationProposal)).toHaveBeenCalledTimes(1);
+    const actorRead = query.mock.calls.find(([sql]) =>
+      String(sql).includes("auto_execution_enabled_by"));
+    expect(actorRead).toBeDefined();
+    expect(String(actorRead![0])).not.toContain("THEN controls.updated_by");
+  });
+
+  it("honours the full quiet-hours/guard-rule choke point immediately before POST", async () => {
+    vi.mocked(controlPlane.getMetaWriteBlockState).mockResolvedValue({
+      blocked: true,
+      reason: "automation_guard_rule",
+      message: "Configured quiet hours block Meta writes now.",
+      guardRule: null,
+    });
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(node(CBO.current))
+      .mockResolvedValueOnce(node(CBO.current))
+      .mockResolvedValueOnce(node(CBO.current));
+
+    const result = await runMetaBudgetAutomationSweepIfDue();
+
+    expect(result.skipped).toBe(false);
+    expect(controlPlane.getMetaWriteBlockState).toHaveBeenCalledWith({ businessId: BIZ });
+    expect(calls("POST")).toHaveLength(0);
+    expect(store.markMetaAutomationProposalDispatchStarted).not.toHaveBeenCalled();
+    expect(store.settleMetaAutomationProposal).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "failed" }),
+    );
   });
 
   it("counts a post-dispatch settlement failure as failed, never executed", async () => {
@@ -868,6 +960,26 @@ describe("D088 C3 — the SCHEDULED path shares the one lifecycle", () => {
     expect(sql).not.toContain("ORDER BY provider_account_id");
   });
 
+  it("rechecks the exact activation tuple at the pre-POST boundary", async () => {
+    // Outer gate, runtime gate, post-composition gate and write-deps gate see A.
+    // The literal pre-POST gate sees a disable/re-enable by B.
+    activationChangesAfterRead = 4;
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(node(CBO.current))
+      .mockResolvedValueOnce(node(CBO.current))
+      .mockResolvedValueOnce(node(CBO.current));
+
+    const result = await runMetaBudgetAutomationSweepIfDue();
+
+    expect(result.skipped).toBe(false);
+    expect(activationReadCount).toBeGreaterThanOrEqual(5);
+    expect(calls("POST")).toHaveLength(0);
+    expect(vi.mocked(store.markMetaAutomationProposalDispatchStarted))
+      .not.toHaveBeenCalled();
+    expect(vi.mocked(store.settleMetaAutomationProposal).mock.calls[0]![0])
+      .toMatchObject({ decidedBy: ADMIN, status: "failed" });
+  });
+
   it("reads the binding in the enablement query and refuses a null one", async () => {
     boundAccount = null;
 
@@ -904,22 +1016,68 @@ describe("D088 C3 — the SCHEDULED path shares the one lifecycle", () => {
 
   it("a non-UUID enabling actor claims nothing", async () => {
     activatedAccount = ACCOUNT;
-    query.mockImplementation(async (sql: string, params: unknown[] = []) => {
-      if (String(sql).includes("SELECT auto_execution_provider_account_id")) {
-        return [{
-          auto_execution_provider_account_id: ACCOUNT,
-          updated_by: "meta_budget_automation_sweep",
-        }];
-      }
-      return baseQuery(sql, params);
-    });
+    activationActor = "meta_budget_automation_sweep";
     const result = await runMetaBudgetAutomationSweepIfDue();
     expect(vi.mocked(store.claimScheduledMetaAutomationProposal)).not.toHaveBeenCalled();
     expect(vi.mocked(fetch).mock.calls).toHaveLength(0);
     if (!result.skipped) {
       expect(result.reports[0]!.blockers).toEqual(["enabling_actor_absent"]);
     }
-    query.mockImplementation(baseQuery);
+  });
+
+  it("fails closed when stale claims cannot be classified before the cap count", async () => {
+    staleSweepAvailable = false;
+
+    const result = await runMetaBudgetAutomationSweepIfDue();
+
+    expect(result.skipped).toBe(false);
+    if (!result.skipped) {
+      expect(result.reports[0]).toMatchObject({
+        ran: false,
+        blockers: ["stale_claim_sweep_unavailable"],
+        considered: 0,
+        executed: 0,
+      });
+    }
+    expect(vi.mocked(store.claimScheduledMetaAutomationProposal)).not.toHaveBeenCalled();
+    expect(calls("POST")).toHaveLength(0);
+  });
+
+  it("requeues an expired markerless claim before counting the daily cap", async () => {
+    scheduledUsed = 3;
+    staleSweepRows = [{ next_status: "pending" }];
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(node(CBO.current))
+      .mockResolvedValueOnce(node(CBO.current))
+      .mockResolvedValueOnce(node(CBO.current))
+      .mockResolvedValueOnce(json({ success: true }))
+      .mockResolvedValueOnce(node(CBO.intended));
+
+    const result = await runMetaBudgetAutomationSweepIfDue();
+
+    expect(result.skipped).toBe(false);
+    expect(vi.mocked(store.claimScheduledMetaAutomationProposal)).toHaveBeenCalledTimes(1);
+    expect(calls("POST")).toHaveLength(1);
+    const sweepOrder = query.mock.calls.findIndex(([sql]) =>
+      String(sql).includes("claimed_at <= $3::timestamptz"));
+    const countOrder = query.mock.calls.findIndex(([sql]) =>
+      String(sql).includes("receipt_json->>'executionKind'"));
+    expect(sweepOrder).toBeGreaterThanOrEqual(0);
+    expect(sweepOrder).toBeLessThan(countOrder);
+  });
+
+  it("keeps a stale dispatched claim in reconcile and does not reopen its slot", async () => {
+    scheduledUsed = 3;
+    staleSweepRows = [{ next_status: "reconcile" }];
+
+    const result = await runMetaBudgetAutomationSweepIfDue();
+
+    expect(result.skipped).toBe(false);
+    if (!result.skipped) {
+      expect(result.reports[0]!.blockers).toEqual(["daily_auto_action_cap_reached"]);
+    }
+    expect(vi.mocked(store.claimScheduledMetaAutomationProposal)).not.toHaveBeenCalled();
+    expect(calls("POST")).toHaveLength(0);
   });
 
   it("bounds the queue by the remaining daily automatic-action allowance", async () => {

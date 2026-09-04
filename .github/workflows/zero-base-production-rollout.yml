@@ -321,7 +321,7 @@ jobs:
           available_bytes = int(disk["availableBytes"]) if disk else -1
           projected_free = available_bytes - max(database_budget - database_bytes, 0)
           safe = (
-              table_bytes > table_budget
+              table_bytes >= table_budget
               and database_bytes < database_budget
               and database.get("name") == row.get("database_name")
               and -60 <= age_seconds <= 2100

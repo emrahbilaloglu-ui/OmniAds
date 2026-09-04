@@ -20,10 +20,17 @@ const ADAPTER = readFileSync(
 );
 
 describe("the scope counters count their scope", () => {
-  const block = ADAPTER.slice(
-    ADAPTER.indexOf("counts: {"),
-    ADAPTER.indexOf("      action: structureActionCount,"),
+  const countsStart = ADAPTER.indexOf("\n    counts: {\n      /*");
+  const countsEnd = ADAPTER.indexOf(
+    "\n      action: structureActionCount,",
+    countsStart,
   );
+
+  if (countsStart === -1 || countsEnd <= countsStart) {
+    throw new Error("Unable to locate the top-level scope counts block");
+  }
+
+  const block = ADAPTER.slice(countsStart, countsEnd);
 
   it("counts creatives from the served population, not the act lane", () => {
     expect(block).toContain("workspace.os?.ads?.items?.length");

@@ -421,6 +421,41 @@ describe("MetaDecisionCenterExact canonical desktop anatomy", () => {
     ).toBeTruthy();
   });
 
+  it("exposes both contributing scopes when a combined action count spans them", () => {
+    const onLaneChange = vi.fn();
+    const onScopeChange = vi.fn();
+    const viewModel = exactViewModel({
+      operatorSummary: {
+        action: 3,
+        needsResolution: 0,
+        watching: 0,
+        creatives: 1,
+        actionScope: "structure",
+        scopeCounts: {
+          structure: { action: 2, needsResolution: 0, watching: 0 },
+          creatives: { action: 1, needsResolution: 0, watching: 0 },
+        },
+      },
+    });
+
+    renderExact({ viewModel, onLaneChange, onScopeChange });
+
+    expect(
+      screen.queryByRole("button", { name: "Review Action Now" }),
+    ).toBeNull();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Review structure actions (2)" }),
+    );
+    expect(onScopeChange).toHaveBeenLastCalledWith("structure");
+    expect(onLaneChange).toHaveBeenLastCalledWith("action");
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Review creative actions (1)" }),
+    );
+    expect(onScopeChange).toHaveBeenLastCalledWith("creatives");
+    expect(onLaneChange).toHaveBeenLastCalledWith("action");
+  });
+
   it("shows the canonical default inline inspector without a row-selection dependency", () => {
     renderExact();
     const inspector = document.querySelector("[data-meta-exact-inspector]");
@@ -1578,6 +1613,27 @@ describe("the Decision Center mounts the budget-decision evidence", () => {
     expect(
       direction("decrease")?.querySelector('[data-el="primary-blocker"]'),
     ).toBeNull();
+  });
+
+  it("keeps the primary budget blocker visible while details are closed", () => {
+    render(
+      <MetaDecisionCenterExact
+        viewModel={exactViewModel({ budgetEvidence: evidence() })}
+      />,
+    );
+
+    const summary = root().querySelector(
+      "[data-meta-exact-budget-readiness-summary]",
+    );
+    const disclosure = summary?.closest("details") as HTMLDetailsElement | null;
+    expect(disclosure?.open).toBe(false);
+    expect(summary?.parentElement?.getAttribute("data-readiness-state")).toBe(
+      "blocked",
+    );
+    expect(summary?.textContent).toContain("Increase blocked");
+    expect(summary?.textContent).toContain(
+      "no retained budget fact exists for this entity",
+    );
   });
 
   it("shows the unavailable-history blocker where a buyer can read it", () => {

@@ -89,14 +89,16 @@ describe("the panel states what the verdict was measured over", () => {
   });
 
   it("draws no provenance band when the payload stated neither fact", () => {
-    render(<MetaDecisionCenterExact viewModel={viewModel({ entityName: "X" })} />);
+    render(
+      <MetaDecisionCenterExact viewModel={viewModel({ entityName: "X" })} />,
+    );
     expect(document.querySelector('[data-el="asof-row"]')).toBeNull();
     expect(document.querySelector('[data-el="provenance-gap"]')).toBeNull();
   });
 });
 
 describe("the panel keeps long safety evidence readable", () => {
-  it("shows the first blocker and collapses the remaining exact checks", () => {
+  it("keeps every blocker visible without a disclosure interaction", () => {
     render(
       <MetaDecisionCenterExact
         viewModel={viewModel({
@@ -109,24 +111,22 @@ describe("the panel keeps long safety evidence readable", () => {
     );
 
     const blockerGroup = screen.getByText("Blockers").parentElement;
-    const primary = blockerGroup?.querySelector("p:nth-of-type(2)");
-    const details = blockerGroup?.querySelector(
-      "details",
-    ) as HTMLDetailsElement | null;
-    expect(primary?.textContent).toBe("Snapshot is stale");
-    expect(details?.open).toBe(false);
-    expect(details?.querySelector("summary")?.textContent).toBe(
-      "Show 2 additional safety checks",
+    const blockers = blockerGroup?.querySelectorAll(
+      "[data-meta-exact-blockers] li",
     );
-    expect(details?.querySelectorAll("li")).toHaveLength(2);
-    expect(details?.textContent).toContain("Commercial target is missing");
-    expect(details?.textContent).toContain("Executor is disabled");
+    expect(blockerGroup?.querySelector("details")).toBeNull();
+    expect(blockers).toHaveLength(3);
+    expect(blockers?.[0]?.textContent).toBe("Snapshot is stale");
+    expect(blockers?.[1]?.textContent).toBe("Commercial target is missing");
+    expect(blockers?.[2]?.textContent).toBe("Executor is disabled");
   });
 });
 
 describe("the panel can be put away", () => {
   it("offers no close control when the caller supplies no handler", () => {
-    render(<MetaDecisionCenterExact viewModel={viewModel({ entityName: "X" })} />);
+    render(
+      <MetaDecisionCenterExact viewModel={viewModel({ entityName: "X" })} />,
+    );
     // Drawn-and-inert is worse than absent: it teaches that the control is
     // broken rather than that the caller does not offer one.
     expect(document.querySelector('[data-ctl="live:close"]')).toBeNull();
@@ -166,14 +166,14 @@ describe("the brief control is a route or a reason, never a broken link", () => 
       />,
     );
 
-    const control = document.querySelector('[data-ctl="live:CREATIVE-07 brief"]');
+    const control = document.querySelector(
+      '[data-ctl="live:CREATIVE-07 brief"]',
+    );
     expect(control?.tagName).toBe("A");
     expect(control?.getAttribute("href")).toBe(
       "/c/biz/creative/briefs?creativeId=c1",
     );
-    expect(
-      document.querySelector('[data-el="row-action"]'),
-    ).toBeTruthy();
+    expect(document.querySelector('[data-el="row-action"]')).toBeTruthy();
   });
 
   it("refuses in the brief contract's own words when the row cannot mint one", () => {
@@ -189,7 +189,9 @@ describe("the brief control is a route or a reason, never a broken link", () => 
       />,
     );
 
-    const control = document.querySelector('[data-ctl="live:CREATIVE-07 brief"]');
+    const control = document.querySelector(
+      '[data-ctl="live:CREATIVE-07 brief"]',
+    );
     /*
      * Present and refusing, with the reason attached — not absent, and not a
      * link that would be refused after the navigation.

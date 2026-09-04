@@ -3655,6 +3655,18 @@ export function buildMetaDecisionCenterExactViewModel(
         structureWatchingCount > 0 || creativeWatchingCount === null
           ? "structure"
           : "creatives",
+      scopeCounts: {
+        structure: {
+          action: structureActionCount,
+          needsResolution: structureNeedsResolutionCount,
+          watching: structureWatchingCount,
+        },
+        creatives: {
+          action: creativeActionCount ?? EM_DASH,
+          needsResolution: creativeNeedsResolutionCount ?? EM_DASH,
+          watching: creativeWatchingCount ?? EM_DASH,
+        },
+      },
     },
     counts: {
       /*

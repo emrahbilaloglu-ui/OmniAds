@@ -2954,6 +2954,10 @@ describe("served structure inventory", () => {
       watching: 0,
       creatives: 1,
       actionScope: "creatives",
+      scopeCounts: {
+        structure: { action: 0, needsResolution: 0, watching: 0 },
+        creatives: { action: 1, needsResolution: 0, watching: 0 },
+      },
     });
   });
 

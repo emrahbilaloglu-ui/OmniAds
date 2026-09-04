@@ -107,6 +107,19 @@ export interface MetaDecisionCenterExactOperatorSummaryViewModel {
   actionScope?: MetaDecisionCenterExactScope;
   needsResolutionScope?: MetaDecisionCenterExactScope;
   watchingScope?: MetaDecisionCenterExactScope;
+  /** Per-scope server counts used when one combined CTA cannot show every row. */
+  scopeCounts?: {
+    structure?: {
+      action?: MetaDecisionCenterExactDisplayValue;
+      needsResolution?: MetaDecisionCenterExactDisplayValue;
+      watching?: MetaDecisionCenterExactDisplayValue;
+    };
+    creatives?: {
+      action?: MetaDecisionCenterExactDisplayValue;
+      needsResolution?: MetaDecisionCenterExactDisplayValue;
+      watching?: MetaDecisionCenterExactDisplayValue;
+    };
+  };
 }
 
 export interface MetaDecisionCenterExactCountsViewModel {
@@ -842,6 +855,70 @@ function meaningfulDisplay(
   );
 }
 
+/**
+ * The disclosure stays compact, but its closed state must never hide why a
+ * budget decision is blocked. Every reason below is carried by the server
+ * panel; this helper only chooses which served status sentences to expose.
+ */
+function budgetDecisionReadinessSummary(
+  evidence?: MetaBudgetDecisionEvidenceByDirection | null,
+  dryRun?: MetaBudgetDryRunPanel | null,
+): {
+  text: string;
+  state: "blocked" | "unavailable" | "review_only" | "unknown";
+} {
+  const blockingStates: string[] = [];
+  let hasBlockedState = false;
+  let hasUnavailableState = false;
+
+  for (const [label, panel] of [
+    ["Increase", evidence?.increase],
+    ["Decrease", evidence?.decrease],
+  ] as const) {
+    if (!panel) continue;
+    if (panel.status === "unavailable") {
+      hasUnavailableState = true;
+      blockingStates.push(
+        `${label} unavailable · ${panel.executionReadiness.why}`,
+      );
+      continue;
+    }
+    if (panel.authority === "blocked") {
+      hasBlockedState = true;
+      blockingStates.push(
+        `${label} blocked · ${panel.primaryBlocker?.reason ?? panel.executionReadiness.why}`,
+      );
+    }
+  }
+
+  if (dryRun?.status === "unavailable") {
+    hasUnavailableState = true;
+    blockingStates.push(`Dry run unavailable · ${dryRun.headline}`);
+  } else if (dryRun?.required.blockers[0]) {
+    hasBlockedState = true;
+    blockingStates.push(`Dry run blocked · ${dryRun.required.blockers[0].why}`);
+  }
+
+  if (blockingStates.length > 0) {
+    return {
+      text: blockingStates.join(" · "),
+      state: hasBlockedState
+        ? "blocked"
+        : hasUnavailableState
+          ? "unavailable"
+          : "unknown",
+    };
+  }
+  if (dryRun) return { text: dryRun.headline, state: "review_only" };
+  if (evidence) {
+    return {
+      text: evidence.increase.executionReadiness.why,
+      state: "review_only",
+    };
+  }
+  return { text: EM_DASH, state: "unknown" };
+}
+
 function toneClass(
   tone: MetaDecisionCenterExactTone | null | undefined,
 ): string {
@@ -1204,6 +1281,68 @@ function OperatorDecisionSummary({
   const watching = servedCount(summary?.watching ?? counts?.watching);
   const creatives = servedCount(summary?.creatives ?? counts?.creatives);
 
+  const routeButtons = ({
+    lane,
+    total,
+    fallbackScope,
+    genericLabel,
+    structureLabel,
+    creativeLabel,
+    structureCount,
+    creativeCount,
+  }: {
+    lane: MetaDecisionCenterExactLane;
+    total: number | null;
+    fallbackScope: MetaDecisionCenterExactScope;
+    genericLabel: string;
+    structureLabel: string;
+    creativeLabel: string;
+    structureCount: MetaDecisionCenterExactDisplayValue;
+    creativeCount: MetaDecisionCenterExactDisplayValue;
+  }) => {
+    if (total === null || total <= 0) return null;
+
+    const perScope = (
+      [
+        {
+          scope: "structure" as const,
+          count: servedCount(structureCount),
+          label: structureLabel,
+        },
+        {
+          scope: "creatives" as const,
+          count: servedCount(creativeCount),
+          label: creativeLabel,
+        },
+      ] as const
+    ).flatMap((item) =>
+      item.count !== null && item.count > 0
+        ? [{ ...item, count: item.count }]
+        : [],
+    );
+
+    if (perScope.length > 1) {
+      return perScope.map((item) => (
+        <button
+          key={`${lane}-${item.scope}`}
+          type="button"
+          onClick={() => openLane(lane, item.scope)}
+        >
+          {item.label} ({item.count})
+        </button>
+      ));
+    }
+
+    return (
+      <button
+        type="button"
+        onClick={() => openLane(lane, perScope[0]?.scope ?? fallbackScope)}
+      >
+        {genericLabel}
+      </button>
+    );
+  };
+
   const headline =
     action !== null && action > 0
       ? language === "tr"
@@ -1255,41 +1394,59 @@ function OperatorDecisionSummary({
             : "Campaign role is inferred automatically; unresolved roles stay safely blocked until fresh evidence resolves them."}
         </p>
         <div className={styles.operatorSummaryActions}>
-          {action !== null && action > 0 ? (
-            <button
-              type="button"
-              onClick={() =>
-                openLane("action", summary?.actionScope ?? "structure")
-              }
-            >
-              {language === "tr"
+          {routeButtons({
+            lane: "action",
+            total: action,
+            fallbackScope: summary?.actionScope ?? "structure",
+            genericLabel:
+              language === "tr"
                 ? "Şimdi yapılacakları incele"
-                : "Review Action Now"}
-            </button>
-          ) : null}
-          {needsResolution !== null && needsResolution > 0 ? (
-            <button
-              type="button"
-              onClick={() =>
-                openLane(
-                  "needsres",
-                  summary?.needsResolutionScope ?? "structure",
-                )
-              }
-            >
-              {language === "tr" ? "Engelleri çöz" : "Resolve blockers"}
-            </button>
-          ) : null}
-          {watching !== null && watching > 0 ? (
-            <button
-              type="button"
-              onClick={() =>
-                openLane("watching", summary?.watchingScope ?? "structure")
-              }
-            >
-              {language === "tr" ? "İzlenenleri gör" : "Review watching"}
-            </button>
-          ) : null}
+                : "Review Action Now",
+            structureLabel:
+              language === "tr"
+                ? "Yapı aksiyonlarını incele"
+                : "Review structure actions",
+            creativeLabel:
+              language === "tr"
+                ? "Kreatif aksiyonlarını incele"
+                : "Review creative actions",
+            structureCount: summary?.scopeCounts?.structure?.action,
+            creativeCount: summary?.scopeCounts?.creatives?.action,
+          })}
+          {routeButtons({
+            lane: "needsres",
+            total: needsResolution,
+            fallbackScope: summary?.needsResolutionScope ?? "structure",
+            genericLabel:
+              language === "tr" ? "Engelleri çöz" : "Resolve blockers",
+            structureLabel:
+              language === "tr"
+                ? "Yapı engellerini çöz"
+                : "Resolve structure blockers",
+            creativeLabel:
+              language === "tr"
+                ? "Kreatif engellerini çöz"
+                : "Resolve creative blockers",
+            structureCount: summary?.scopeCounts?.structure?.needsResolution,
+            creativeCount: summary?.scopeCounts?.creatives?.needsResolution,
+          })}
+          {routeButtons({
+            lane: "watching",
+            total: watching,
+            fallbackScope: summary?.watchingScope ?? "structure",
+            genericLabel:
+              language === "tr" ? "İzlenenleri gör" : "Review watching",
+            structureLabel:
+              language === "tr"
+                ? "Yapı izleme listesini incele"
+                : "Review structure watchlist",
+            creativeLabel:
+              language === "tr"
+                ? "Kreatif izleme listesini incele"
+                : "Review creative watchlist",
+            structureCount: summary?.scopeCounts?.structure?.watching,
+            creativeCount: summary?.scopeCounts?.creatives?.watching,
+          })}
           {creatives !== null && creatives > 0 ? (
             <button type="button" onClick={() => onSelectScope("creatives")}>
               {language === "tr"
@@ -2799,25 +2956,19 @@ function EvidenceInspector({
         {hasBlockers ? (
           <div>
             <p className={styles.blockersHeading}>{copy.blockers}</p>
-            <p
-              className={`${styles.blockersCopy} ${toneClass(model?.blockerTone)}`}
+            <ul
+              className={styles.inspectorBlockerList}
+              data-meta-exact-blockers
             >
-              {blockerItems[0]}
-            </p>
-            {blockerItems.length > 1 ? (
-              <details className={styles.inspectorBlockerDetails}>
-                <summary>
-                  {language === "tr"
-                    ? `${blockerItems.length - 1} ek güvenlik kontrolünü göster`
-                    : `Show ${blockerItems.length - 1} additional safety checks`}
-                </summary>
-                <ul>
-                  {blockerItems.slice(1).map((blocker, index) => (
-                    <li key={`inspector-blocker-${index}`}>{blocker}</li>
-                  ))}
-                </ul>
-              </details>
-            ) : null}
+              {blockerItems.map((blocker, index) => (
+                <li
+                  className={`${styles.blockersCopy} ${toneClass(model?.blockerTone)}`}
+                  key={`inspector-blocker-${index}`}
+                >
+                  {blocker}
+                </li>
+              ))}
+            </ul>
           </div>
         ) : null}
         {hasAdvisories ? (
@@ -3119,6 +3270,10 @@ export function MetaDecisionCenterExact({
     viewModel.activeWindow === undefined ? "28d" : viewModel.activeWindow;
   const counts = viewModel.counts;
   const identity = viewModel.identity;
+  const budgetReadinessSummary = budgetDecisionReadinessSummary(
+    viewModel.budgetEvidence,
+    viewModel.budgetDryRun,
+  );
   // The reference resolves the two-column grid for the Action state, and that
   // is where the inspector always sits. Watching gets it too, but only once a
   // row has actually been reviewed: its "Review" button had nowhere to put the
@@ -3598,7 +3753,17 @@ export function MetaDecisionCenterExact({
           */}
           {viewModel.budgetEvidence || viewModel.budgetDryRun ? (
             <details className={styles.technicalDisclosure}>
-              <summary>Budget decision readiness</summary>
+              <summary>
+                <span
+                  className={styles.technicalDisclosureSummary}
+                  data-readiness-state={budgetReadinessSummary.state}
+                >
+                  <span>Budget decision readiness</span>
+                  <small data-meta-exact-budget-readiness-summary>
+                    {budgetReadinessSummary.text}
+                  </small>
+                </span>
+              </summary>
               <div className={styles.technicalDisclosureBody}>
                 <BudgetDecisionEvidencePanel
                   evidence={viewModel.budgetEvidence ?? null}

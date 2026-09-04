@@ -47,34 +47,34 @@ describe("the scope counters count their scope", () => {
   });
 
   /**
-   * The lane counters still start from the server's own totals.
-   *
-   * This law is about the SCOPE pills and is not licence to recount a lane from
-   * whatever the table happens to be drawing. What the Needs Resolution lane
-   * changed is only WHERE a row is counted: each counter is still
-   * `workspace.lanes.counts.*`, with the blocked rows the queue actually moved
-   * subtracted from it and added to the new lane. The sum is unchanged, and —
-   * the property that matters — the split is taken over the payload's served
-   * arrays rather than the filtered overrides, so a search term still cannot
-   * make a lane counter fall.
+   * The OS is authoritative for Act/Blocked, while Watching counts only
+   * recommendation-backed rows. `os.structure.monitorCount` includes ordinary
+   * inventory with no decision and therefore cannot be presented as a count
+   * of watched decisions.
    */
-  it("leaves the lane counters starting from the server's own totals", () => {
+  it("uses OS verdict totals without calling Monitor inventory a decision", () => {
+    expect(ADAPTER).toContain("workspace.os?.structure?.actCount");
+    expect(ADAPTER).toContain("workspace.os?.structure?.blockedCount");
+    expect(ADAPTER).not.toContain("workspace.os?.structure?.monitorCount");
     expect(ADAPTER).toMatch(
-      /workspace\.lanes\.counts\.actionNow\s*-\s*servedActionSplit\.blocked\.length/,
-    );
-    expect(ADAPTER).toMatch(
-      /workspace\.lanes\.counts\.watching\s*-\s*servedWatchingSplit\.blocked\.length/,
+      /const structureWatchingCount\s*=\s*servedProjection\.watching\.length\s*\+\s*unseenWatchingCount/,
     );
   });
 
-  it("splits the counters over the served arrays, never the filtered overrides", () => {
+  it("projects counters over the served arrays, never filtered overrides", () => {
     // `overrides.actionNow` is the page's search/level-filtered array. If the
-    // counters were split over it, every keystroke would shrink the account.
-    expect(ADAPTER).toMatch(
-      /const servedActionSplit\s*=\s*splitByServerLane\(\s*workspace\.lanes\.actionNow,\s*nodes,?\s*\);/,
+    // counters were projected over it, every keystroke would shrink the
+    // account.
+    const start = ADAPTER.indexOf(
+      "const servedProjection = projectStructureRecommendations({",
     );
-    expect(ADAPTER).toMatch(
-      /const servedWatchingSplit\s*=\s*splitByServerLane\(\s*workspace\.lanes\.watching,\s*nodes,?\s*\);/,
-    );
+    const end = ADAPTER.indexOf("\n  });", start);
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    const servedProjection = ADAPTER.slice(start, end);
+    expect(servedProjection).toContain("action: workspace.lanes.actionNow");
+    expect(servedProjection).toContain("watching: workspace.lanes.watching");
+    expect(servedProjection).toContain("nonSales: workspace.lanes.nonSales");
+    expect(servedProjection).not.toContain("overrides.");
   });
 });

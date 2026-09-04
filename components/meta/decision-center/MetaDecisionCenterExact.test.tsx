@@ -288,9 +288,9 @@ describe("MetaDecisionCenterExact canonical desktop anatomy", () => {
     expect(
       root().children[4]?.hasAttribute("data-meta-exact-lane-toolbar"),
     ).toBe(true);
-    expect(
-      root().children[5]?.hasAttribute("data-meta-exact-workspace"),
-    ).toBe(true);
+    expect(root().children[5]?.hasAttribute("data-meta-exact-workspace")).toBe(
+      true,
+    );
     expect(
       root().children[6]?.hasAttribute("data-meta-exact-inactive-strip"),
     ).toBe(true);
@@ -1002,6 +1002,62 @@ describe("MetaDecisionCenterExact branches and callbacks", () => {
       />,
     );
     expect(renderedGroups()).toEqual(["monitor"]);
+  });
+
+  it("keeps all creative decision lanes reachable after switching scopes", () => {
+    render(
+      <MetaDecisionCenterExact
+        defaultLane="watching"
+        viewModel={{
+          operatorSummary: {
+            scopeCounts: {
+              creatives: { action: 1, needsResolution: 1, watching: 1 },
+            },
+          },
+          creativeGroups: [
+            {
+              id: "act",
+              label: "Act",
+              rows: [{ id: "act-row", name: "Act row" }],
+            },
+            {
+              id: "blocked",
+              label: "Blocked",
+              rows: [{ id: "blocked-row", name: "Blocked row" }],
+            },
+            {
+              id: "monitor",
+              label: "Monitor",
+              rows: [{ id: "monitor-row", name: "Monitor row" }],
+            },
+          ],
+        }}
+      />,
+    );
+
+    fireEvent.click(
+      document.querySelector('[data-meta-exact-scope="creatives"]')!,
+    );
+    const creativeLaneToolbar = document.querySelector(
+      "[data-meta-exact-creative-lane-toolbar]",
+    );
+    expect(creativeLaneToolbar).toBeTruthy();
+    expect(
+      creativeLaneToolbar?.querySelectorAll("[data-meta-exact-creative-lane]"),
+    ).toHaveLength(3);
+    expect(
+      document.querySelector('[data-meta-exact-creative-group="monitor"]'),
+    ).toBeTruthy();
+
+    fireEvent.click(
+      document.querySelector('[data-meta-exact-creative-lane="action"]')!,
+    );
+    expect(
+      document.querySelector('[data-meta-exact-creative-group="act"]'),
+    ).toBeTruthy();
+    expect(
+      document.querySelector('[data-meta-exact-creative-group="monitor"]'),
+    ).toBeNull();
   });
 
   // The window pills are gone. The shell topbar picker owns the window and

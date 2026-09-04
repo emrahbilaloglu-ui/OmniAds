@@ -3668,24 +3668,28 @@ export function buildMetaDecisionCenterExactViewModel(
   );
   const osStructureActionCount = finite(workspace.os?.structure?.actCount);
   const osStructureBlockedCount = finite(workspace.os?.structure?.blockedCount);
-  const osStructureWatchingCount = finite(workspace.os?.structure?.monitorCount);
-  const hasCompleteOsStructureCounts =
-    osStructureActionCount !== null &&
-    osStructureBlockedCount !== null &&
-    osStructureWatchingCount !== null;
-  const structureActionCount = hasCompleteOsStructureCounts
+  const hasAuthoritativeOsActionAndBlockedCounts =
+    osStructureActionCount !== null && osStructureBlockedCount !== null;
+  const structureActionCount = hasAuthoritativeOsActionAndBlockedCounts
     ? osStructureActionCount! +
       servedProjection.unprojected.action +
       unseenActionCount
     : servedProjection.action.length + unseenActionCount;
-  const structureNeedsResolutionCount = hasCompleteOsStructureCounts
+  const structureNeedsResolutionCount = hasAuthoritativeOsActionAndBlockedCounts
     ? osStructureBlockedCount!
     : servedProjection.blocked.length;
-  const structureWatchingCount = hasCompleteOsStructureCounts
-    ? osStructureWatchingCount! +
-      servedProjection.unprojected.watching +
-      unseenWatchingCount
-    : servedProjection.watching.length + unseenWatchingCount;
+  /*
+   * `os.structure.monitorCount` is an inventory count, not a decision count:
+   * the OS deliberately places structure entities with no recommendation in
+   * Monitor so the full account remains inspectable. The buyer-facing summary
+   * must count only recommendation-backed rows or it can announce hundreds of
+   * "watched decisions" above an empty Watching queue. `servedProjection` is
+   * the same unfiltered recommendation population used to build that queue;
+   * the source remainder preserves a server-reported pre-page total without
+   * promoting plain inventory into a decision.
+   */
+  const structureWatchingCount =
+    servedProjection.watching.length + unseenWatchingCount;
   const structureNonSalesCount =
     servedProjection.nonSales.length + unseenNonSalesCount;
   const creativeActionCount = finite(workspace.os?.ads?.actCount);

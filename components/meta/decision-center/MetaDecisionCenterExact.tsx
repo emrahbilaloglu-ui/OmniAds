@@ -1417,8 +1417,7 @@ function OperatorDecisionSummary({
               ? routeButtons({
                   lane: "needsres",
                   total: needsResolution,
-                  fallbackScope:
-                    summary?.needsResolutionScope ?? "structure",
+                  fallbackScope: summary?.needsResolutionScope ?? "structure",
                   genericLabel:
                     language === "tr" ? "Engelleri çöz" : "Resolve blockers",
                   structureLabel:
@@ -3515,11 +3514,59 @@ export function MetaDecisionCenterExact({
          * and the term is also what the deep link restores. So the control
          * comes along instead.
          *
-         * The lane pills and the sort do NOT come along: the lanes are the
-         * structure lanes and the sort is applied to structure rows only, so
-         * rendering either here would be a control that changes nothing.
+         * Sort does NOT come along: it is applied to structure rows only. The
+         * three decision-bearing lane controls DO come along because the
+         * server also groups creatives as Act, Blocked and Monitor. Without
+         * these controls, a lane retained while switching scopes became an
+         * invisible filter with no way to reach the other creative groups.
          */
         <div className={styles.laneToolbar} data-meta-exact-creative-toolbar>
+          <span
+            aria-label={`${copy.decisionLanes} · ${copy.creatives}`}
+            className={styles.laneGroup}
+            data-meta-exact-creative-lane-toolbar
+            role="radiogroup"
+          >
+            {(
+              [
+                {
+                  id: "action",
+                  label: copy.laneActionNow,
+                  count:
+                    viewModel.operatorSummary?.scopeCounts?.creatives?.action,
+                },
+                {
+                  id: "needsres",
+                  label: copy.laneNeedsResolution,
+                  count:
+                    viewModel.operatorSummary?.scopeCounts?.creatives
+                      ?.needsResolution,
+                },
+                {
+                  id: "watching",
+                  label: copy.laneWatching,
+                  count:
+                    viewModel.operatorSummary?.scopeCounts?.creatives?.watching,
+                },
+              ] as const
+            ).map((item) => (
+              <button
+                aria-checked={activeLane === item.id}
+                className={`${styles.laneOption} ${
+                  activeLane === item.id ? styles.laneOptionActive : ""
+                }`}
+                data-meta-exact-creative-lane={item.id}
+                key={item.id}
+                onClick={() => selectLane(item.id)}
+                role="radio"
+                tabIndex={activeLane === item.id ? 0 : -1}
+                type="button"
+              >
+                {item.label}
+                <span>{display(item.count)}</span>
+              </button>
+            ))}
+          </span>
           <span className={styles.toolbarSpacer} />
           {/*
             The level filter comes along for the same reason the search box

@@ -2964,6 +2964,49 @@ describe("served structure inventory", () => {
     });
   });
 
+  it("does not count recommendation-free Monitor inventory as watched decisions", () => {
+    const recommendation = metaRec({
+      id: "watching_recommendation",
+      level: "campaign",
+      campaignId: "cmp_watching",
+      decisionState: "watch",
+    });
+    const workspace = workspaceFixture({
+      watching: [recommendation],
+      os: fullOs({
+        nodes: [
+          structureNodeFixture({
+            id: "campaign:cmp_watching",
+            sourceRecommendationId: recommendation.id,
+            providerEntityId: "cmp_watching",
+            campaignId: "cmp_watching",
+            lane: "monitor",
+          }),
+          structureNodeFixture({
+            id: "campaign:cmp_inventory_only",
+            sourceRecommendationId: null,
+            providerEntityId: "cmp_inventory_only",
+            campaignId: "cmp_inventory_only",
+            lane: "monitor",
+          }),
+        ],
+      }),
+    });
+
+    const model = buildMetaDecisionCenterExactViewModel({ workspace });
+
+    expect(workspace.os?.structure?.monitorCount).toBe(2);
+    expect(model.watchingRows?.map((row) => row.id)).toEqual([
+      recommendation.id,
+    ]);
+    expect(model.operatorSummary).toMatchObject({
+      watching: 1,
+      scopeCounts: {
+        structure: { watching: 1 },
+      },
+    });
+  });
+
   it("routes an active non-sales source row into the server-owned Action lane", () => {
     const recommendation = metaRec({
       id: "non_sales_act",
@@ -3003,9 +3046,7 @@ describe("served structure inventory", () => {
       watching: 0,
       nonsales: 0,
     });
-    expect(model.actionRows?.map((row) => row.id)).toEqual([
-      recommendation.id,
-    ]);
+    expect(model.actionRows?.map((row) => row.id)).toEqual([recommendation.id]);
     expect(model.nonSales?.map((card) => card.id)).not.toContain(
       recommendation.id,
     );

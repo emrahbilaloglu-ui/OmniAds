@@ -456,12 +456,12 @@ const COVERAGE: Record<string, Coverage> = {
   "MetaCommercialAnchorPanel.status": R(
     S.PROVENANCE,
     "the Commercial anchor group's first row, and the tone that marks it as withholding",
-  "anchor-status",
+    "anchor-status",
   ),
   "MetaCommercialAnchorPanel.currency": R(
     S.PROVENANCE,
     "the currency every anchor money value in the group is formatted in; never defaulted to USD",
-  "anchor-currency",
+    "anchor-currency",
   ),
   "MetaCommercialAnchorPanel.withheld.profileHardActionEvidence": R(
     S.PROVENANCE,
@@ -471,12 +471,12 @@ const COVERAGE: Record<string, Coverage> = {
   "MetaCommercialAnchorPanel.withheld.campaignContext": R(
     S.PROVENANCE,
     "the Withheld · campaign role unresolved count, which separates the independent gate from the anchor",
-  "anchor-withheld-campaign-context",
+    "anchor-withheld-campaign-context",
   ),
   "MetaCommercialAnchorPanel.withheld.recentRecoveryUnverifiable": R(
     S.PROVENANCE,
     "the Withheld · recovery unverifiable count",
-  "anchor-withheld-recovery",
+    "anchor-withheld-recovery",
   ),
   "MetaCommercialAnchorPanel.withheld.total": N(
     "The sum of the four withholding counts, three of which are already rows in the same group. A total the operator can add up from the rows above it invites a reader to look for the difference.",
@@ -2573,8 +2573,9 @@ const COVERAGE: Record<string, Coverage> = {
   "MetaOsStructureNode.optimizationGoal": N(
     "The row's optimization-goal chip comes from the recommendation's own entity configuration; the node's copy is the same goal.",
   ),
-  "MetaOsStructureNode.lane": N(
-    "Which lane a structure row sits in on this screen is the server's lane payload - Action Now, Watching, Healthy, Non-sales, Archive - and the node's own three-state lane is summarised as counts on the source panel instead of re-filing a row.",
+  "MetaOsStructureNode.lane": W(
+    S.PILLS,
+    "the server-owned Act, Blocked or Monitor verdict routes the recommendation and changes the matching lane count; inventory-only Monitor nodes remain outside the watched-decision total",
   ),
   "MetaOsStructureNode.confidence": R(
     S.ACTION,
@@ -2585,8 +2586,8 @@ const COVERAGE: Record<string, Coverage> = {
     "the row's decision label, when the recommendation carried none",
   ),
   "MetaOsStructureNode.whyNow": R(
-    S.WATCHING,
-    "the Watching row's note, and the inspector's reason line",
+    S.INSPECTOR,
+    "the inspector's reason line; Monitor rows also reuse it as their Watching note",
   ),
   "MetaOsStructureNode.expectedImpact": R(
     S.ACTION,
@@ -3013,41 +3014,46 @@ const COVERAGE: Record<string, Coverage> = {
     S.MOBILE,
     "the reason line shown when no dry run could be built",
   ),
-  "MetaBudgetDryRunPanel.headline": W(
-    S.MOBILE,
-    "the panel heading",
-  ),
+  "MetaBudgetDryRunPanel.headline": W(S.MOBILE, "the panel heading"),
   "MetaBudgetDryRunPanel.observed.title": W(
-    S.MOBILE, "the observed-state section heading",
+    S.MOBILE,
+    "the observed-state section heading",
   ),
   "MetaBudgetDryRunPanel.observed.note": W(
-    S.MOBILE, "the observed-state note beneath its heading",
+    S.MOBILE,
+    "the observed-state note beneath its heading",
   ),
   "MetaBudgetDryRunPanel.proposed.title": W(
-    S.MOBILE, "the proposed-change section heading",
+    S.MOBILE,
+    "the proposed-change section heading",
   ),
   "MetaBudgetDryRunPanel.proposed.note": W(
-    S.MOBILE, "the proposed-change note beneath its heading",
+    S.MOBILE,
+    "the proposed-change note beneath its heading",
   ),
   "MetaBudgetDryRunPanel.proposed.available": W(
     S.MOBILE,
     "the availability attribute on the proposed-change note, which distinguishes an absent proposal from a refused one",
   ),
   "MetaBudgetDryRunPanel.simulated.title": W(
-    S.MOBILE, "the simulated-result section heading",
+    S.MOBILE,
+    "the simulated-result section heading",
   ),
   "MetaBudgetDryRunPanel.simulated.note": W(
-    S.MOBILE, "the simulated-result note beneath its heading",
+    S.MOBILE,
+    "the simulated-result note beneath its heading",
   ),
   "MetaBudgetDryRunPanel.simulated.available": W(
     S.MOBILE,
     "the availability attribute on the simulated-result note",
   ),
   "MetaBudgetDryRunPanel.required.title": W(
-    S.MOBILE, "the requirements section heading",
+    S.MOBILE,
+    "the requirements section heading",
   ),
   "MetaBudgetDryRunPanel.required.note": W(
-    S.MOBILE, "the requirements note, printed as the blocker line",
+    S.MOBILE,
+    "the requirements note, printed as the blocker line",
   ),
   "MetaBudgetDryRunPanel.required.writeSafetyMissing": W(
     S.MOBILE,
@@ -3097,13 +3103,16 @@ const COVERAGE: Record<string, Coverage> = {
     "The server's own executable flag. The surface prints `executionState`, `providerOutcome` and the disabled CTA instead: three facts an operator can check, rather than one boolean that would have to be trusted.",
   ),
   "MetaBudgetDryRunPanel.fingerprints.input": W(
-    S.MOBILE, "the input fingerprint on the fingerprints line",
+    S.MOBILE,
+    "the input fingerprint on the fingerprints line",
   ),
   "MetaBudgetDryRunPanel.fingerprints.policy": W(
-    S.MOBILE, "the policy fingerprint on the fingerprints line",
+    S.MOBILE,
+    "the policy fingerprint on the fingerprints line",
   ),
   "MetaBudgetDryRunPanel.fingerprints.preflight": W(
-    S.MOBILE, "the preflight fingerprint on the fingerprints line",
+    S.MOBILE,
+    "the preflight fingerprint on the fingerprints line",
   ),
 
   /*
@@ -3883,7 +3892,7 @@ const ELEMENT_PROOF_BY_SURFACE: Record<string, [number, number]> = {
   HEALTHY: [0, 10],
   // Five more claims on this panel, none of them keyed to a stable row id:
   // the provenance band is one band, not a table of rows.
-  INSPECTOR: [2, 13],
+  INSPECTOR: [2, 14],
   INVENTORY: [0, 14],
   KPI: [0, 21],
   // PRE-DEPLOY AUDIT — 6 -> 59: the budget evidence, gate and dry-run panels
@@ -3891,10 +3900,10 @@ const ELEMENT_PROOF_BY_SURFACE: Record<string, [number, number]> = {
   // SURFACES_WITHOUT_ELEMENT_IDS), not by omission.
   MOBILE: [0, 59],
   NONSALES: [0, 1],
-  PILLS: [0, 7],
+  PILLS: [0, 8],
   POSTURE: [2, 0],
   PROVENANCE: [97, 5],
-  WATCHING: [0, 4],
+  WATCHING: [0, 3],
 };
 
 /**
@@ -3916,7 +3925,7 @@ const DOM_PROOF_BY_SURFACE: Record<string, [number, number]> = {
   ACTION: [9, 0],
   HEADER: [10, 0],
   KPI: [21, 0],
-  PILLS: [7, 0],
+  PILLS: [8, 0],
   // Partly: the inspector's own facts render, the ones it only shows for a
   // selected creative do not; the Creatives queue and the source panel sit
   // behind the scope tabs and show only what the resting scope draws.
@@ -3924,9 +3933,9 @@ const DOM_PROOF_BY_SURFACE: Record<string, [number, number]> = {
   // The provenance band put five payload leaves in this panel's DOM that had
   // never reached a screen: the evidence window's two dates, the engine write
   // time, and the two metrics whose ABSENCE the gap line now names.
-  INSPECTOR: [8, 6],
+  INSPECTOR: [9, 6],
   PROVENANCE: [50, 50],
-  WATCHING: [1, 3],
+  WATCHING: [1, 2],
   // Behind a lane tab the default render never presses. This is the whole
   // demonstration: ARCHIVE's claims are real and none of them is in the DOM
   // of a page nobody has clicked yet.
@@ -3956,7 +3965,7 @@ const DOM_PROOF_BY_SURFACE: Record<string, [number, number]> = {
 // PRE-DEPLOY AUDIT — [120, 248] -> [159, 249]. The budget panels render in
 // the default markup, so 39 of their claims are proven in the DOM rather than
 // in a view model; one more sits behind a control.
-const DOM_PROOF_TOTALS: [number, number] = [161, 249];
+const DOM_PROOF_TOTALS: [number, number] = [163, 248];
 
 /** Claims on leaves the contract pins to one value, which cannot be varied. */
 // PRE-DEPLOY AUDIT — 7 -> 20. Thirteen more claims sit on leaves the budget
@@ -3976,7 +3985,7 @@ const DOM_PROOF_PINNED_LEAVES = 20;
 // read-back plumbing, the gate verdict's internal codes, and the dry-run's
 // server-side executable flag. Each is classified with its own reason above;
 // this is their total.
-const NOWHERE_LEAVES = 296;
+const NOWHERE_LEAVES = 295;
 
 /**
  * Of those, the ones that DO reach the callback boundary — the served tuple
@@ -4727,13 +4736,13 @@ describe("Meta Decision payload · every claim, proven against the running code"
         dom,
       });
     }
-  // This hook probes 706 varying leaves across every served scenario and
-  // renders the real adapters/page for each mutation. The clean two-core CI
-  // runner first measured the completed hook at 358,465ms, then a loaded
-  // 2026-09-04 runner completed its probe work in 484,342ms and hit the old
-  // 420s hook bound before assertions could run. That is a liveness failure,
-  // not an assertion failure. Keep a finite 600s bound local to this hook; no
-  // probe or assertion is skipped.
+    // This hook probes 706 varying leaves across every served scenario and
+    // renders the real adapters/page for each mutation. The clean two-core CI
+    // runner first measured the completed hook at 358,465ms, then a loaded
+    // 2026-09-04 runner completed its probe work in 484,342ms and hit the old
+    // 420s hook bound before assertions could run. That is a liveness failure,
+    // not an assertion failure. Keep a finite 600s bound local to this hook; no
+    // probe or assertion is skipped.
   }, 600_000);
 
   it("builds a payload that carries every served field", () => {
@@ -4975,9 +4984,10 @@ describe("Meta Decision payload · every claim, proven against the running code"
     const withoutElement = rendered.filter(([, value]) => !value.element);
 
     /*
-     * PRE-DEPLOY AUDIT — 375/194/181 -> 428/195/233. The 53 new rendered
-     * claims are the budget evidence, gate and dry-run leaves, and 52 of them
-     * are recorded at the SURFACE strength only. That moves the
+     * PRE-DEPLOY AUDIT — 375/194/181 -> 431/195/236. The added rendered
+     * claims are principally the budget evidence, gate and dry-run leaves;
+     * the server-owned structure lane is now also wired to the lane surface.
+     * Most of these claims are recorded at the SURFACE strength only. That moves the
      * proven-at-element share from 52% to 45%, and the reason is the one this
      * file already names rather than a lapse: they land on MOBILE, an HTML
      * surface listed in SURFACES_WITHOUT_ELEMENT_IDS because it emits no
@@ -4985,9 +4995,9 @@ describe("Meta Decision payload · every claim, proven against the running code"
      * strongest proof available there, so the honest thing is to let the
      * ratio move and say why.
      */
-    expect(rendered.length).toBe(430);
+    expect(rendered.length).toBe(431);
     expect(withElement.length).toBe(195);
-    expect(withoutElement.length).toBe(235);
+    expect(withoutElement.length).toBe(236);
 
     /*
      * AND WHICH ENTRIES, not merely how many.
@@ -6021,6 +6031,9 @@ describe("Meta Decision payload · the named starting points", () => {
      * named in its handoff. It is not "younger than the deployed release" —
      * almost every surface this matrix names is younger than that, and a rule
      * that swept two hundred entries in here would say nothing about anything.
+     * This round also wires the OS structure lane into the visible lane totals
+     * and recommendation routing; that single entry is listed with the budget
+     * and pipeline surface work below.
      */
     const wired = Object.entries(COVERAGE)
       .filter(([, value]) => value.classification === "WIRED-NOW")
@@ -6171,6 +6184,7 @@ describe("Meta Decision payload · the named starting points", () => {
       "MetaOsCampaignRoleExplanation.unresolvedReason",
       "MetaOsDecisionMetrics.cpa",
       "MetaOsDecisionMetrics.ctr",
+      "MetaOsStructureNode.lane",
       // The token that says whether the figures on this page measure this
       // account at all, which until this round reached nothing on a demo
       // business — the one state where it is the only thing that would.

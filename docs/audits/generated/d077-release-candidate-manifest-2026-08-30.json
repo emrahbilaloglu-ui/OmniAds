@@ -1,19 +1,19 @@
 {
- "manifestHash": "c6086877ac76a1fc9b3815ba1f8bd4a285d412491a02301d198dc18fd206f5fc",
+ "manifestHash": "d5ca151e912345321fdedc2365e2f90d3995c6897d34d91474a8eeef2635153c",
  "hashAlgorithm": "sha256",
  "hashBasis": "sha256 over UTF-8 bytes of JSON.stringify(artifact, null, 1) of the artifact WITHOUT its embedded hash fields (the artifact object before {<hashField>, hashAlgorithm, hashBasis} are prepended)",
  "contract": "adsecute.d077.release-candidate-manifest.v3",
- "generatedAtUtc": "2026-09-04T02:38:30.731Z",
+ "generatedAtUtc": "2026-09-04T03:11:45.639Z",
  "branch": "codex/meta-disabled-readiness-20260829",
- "head": "c6a0456c524c835dbedb8a5efbcb27f05344290e",
+ "head": "39d5ac981831d9590c1b92485c03d96e9d9eb74c",
  "baseMain": "babf158e150fd33057117b39b175da044ac62d2e",
  "originMain": "babf158e150fd33057117b39b175da044ac62d2e",
  "remoteDivergence": {
-  "aheadOfOriginMain": 8,
+  "aheadOfOriginMain": 9,
   "behindOriginMain": 0
  },
  "selfExclusion": "this manifest's own path (docs/audits/generated/d077-release-candidate-manifest-2026-08-30.json) is EXCLUDED from its entry list: a manifest cannot recursively pin its own final bytes; its external SHA-256 is reported in the final response and by Codex's own hashing",
- "gitPorcelainEntryCount": 33,
+ "gitPorcelainEntryCount": 9,
  "releaseDiffEntryCountIncludingSelf": 511,
  "expandedOnDiskCandidateFileCountIncludingSelf": 511,
  "pinnedNonSelfFileCount": 510,
@@ -280,7 +280,7 @@
    "path": "app/api/meta/automation/proposals/budget-execution-paths.c3.test.ts",
    "git": "A",
    "class": "tests_only",
-   "sha256": "24f6f90e0dca108af4d52e34af048efbb2018dc655d4e59c4ecf32367b3135ac"
+   "sha256": "e8d1ebccb05194c6fb09134601155f19a375ca436ada55a31f0669a8d4f024b2"
   },
   {
    "path": "app/api/meta/automation/proposals/route.test.ts",
@@ -292,7 +292,7 @@
    "path": "app/api/meta/automation/proposals/route.ts",
    "git": "M",
    "class": "runtime",
-   "sha256": "180786815271b794e49a912b9f4f6ae7899709523d2ce4b5c8c1846ab2f62a77"
+   "sha256": "a2c0884a6cc7d8badfcb1720abfffe0c72e41691d1c6f32bfdab2f484557f95c"
   },
   {
    "path": "app/api/meta/automation/route.test.ts",
@@ -1678,7 +1678,7 @@
    "path": "lib/meta/ads-write.ts",
    "git": "M",
    "class": "runtime",
-   "sha256": "27d52b22d9acf1c02cfc1b87655bea3d5c6cd89f000b16d6db44538e1ded24ee"
+   "sha256": "2f601da87438608c06fb9ec1ee59e1b0a93a602b7c575b404cd36f12c2da9ab1"
   },
   {
    "path": "lib/meta/assigned-account-states.ts",
@@ -1882,13 +1882,13 @@
    "path": "lib/meta/budget-execution-lifecycle.test.ts",
    "git": "A",
    "class": "tests_only",
-   "sha256": "349c6f267d566445521bf24c0a506b63a8f10caf7468755f55ac65c43d21cd43"
+   "sha256": "110b2487fc325f95437de373ac8e9b61979a4c5914ea88a6396e69190ddf1fb9"
   },
   {
    "path": "lib/meta/budget-execution-lifecycle.ts",
    "git": "A",
    "class": "runtime",
-   "sha256": "563b48703127bfe34c121a934c714670603d2f0aec60643f575544f925829ae5"
+   "sha256": "576c929245391c20ded3e2b67a5280f03f46fdc080062f572adb18b0d83f4a20"
   },
   {
    "path": "lib/meta/budget-fact.test.ts",
@@ -1918,7 +1918,7 @@
    "path": "lib/meta/budget-no-fabricated-defaults.test.ts",
    "git": "A",
    "class": "tests_only",
-   "sha256": "e153068d253c927fac31338d01b73797761da61678bfe91c59587330d0c7a0aa"
+   "sha256": "3dd928c6724349e255ed3149a2bf9c678bbc468799a07d70209c7c0ddddfa78e"
   },
   {
    "path": "lib/meta/budget-observation-projection.ts",
@@ -1978,7 +1978,7 @@
    "path": "lib/meta/budget-proposal-runtime.ts",
    "git": "A",
    "class": "runtime",
-   "sha256": "b670181d338eb17b1c53dd5dcbefac235a303cba4c610622432a55944b2d350c"
+   "sha256": "5e40fd85dcd8fb4a5c9d5d0dd1ae7ff121d5a54756b7f6399424792056065984"
   },
   {
    "path": "lib/meta/budget-proposal-server-readers.ts",
@@ -2050,7 +2050,7 @@
    "path": "lib/meta/budget-write-adapter.test.ts",
    "git": "A",
    "class": "tests_only",
-   "sha256": "4143fc5842d9a275ca4884ca45c9e43373152de6814a68ef72b5c5cb2a760bc1"
+   "sha256": "d67c2681f3127522f17828d452ef79a11fd3b62d8463b787e44fa142a0b6926d"
   },
   {
    "path": "lib/meta/budget-write-authority.test.ts",
@@ -2080,7 +2080,7 @@
    "path": "lib/meta/budget-write-execution.ts",
    "git": "A",
    "class": "runtime",
-   "sha256": "5824d08893b7890c248d23ee417a787ce043573e34afe6a16215cfaec1046d8d"
+   "sha256": "29320875fa80a1c0306ff20885f2dec4f7d52657c9facdc5b5ec89e8802019f4"
   },
   {
    "path": "lib/meta/budget-write-preflight.ts",

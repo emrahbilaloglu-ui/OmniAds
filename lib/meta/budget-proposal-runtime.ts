@@ -168,6 +168,8 @@ export interface BudgetProposalExecutionReceipt {
   endpoint: string | null;
   withheld: BudgetProposalWithheldReason | null;
   receiptKey: string | null;
+  /** Exact provider mutation fact; distinct from the durable intent marker. */
+  providerMutationAttempted?: boolean;
   /** Persisted by the shared lifecycle; absent on pre-D088 receipts. */
   executionKind?: "manual" | "scheduled";
 }
@@ -283,6 +285,8 @@ export async function executeBudgetProposal(
     attempt or an automatic rollback would each be a new unreviewed mutation.
   */
   const reconcile = outcome.resultClass === "unknown";
+  const providerMutationAttempted = outcome.providerAttempted
+    ?? (outcome.ok || outcome.resultClass === "unknown");
   return {
     ok: outcome.ok,
     receipt: {
@@ -297,6 +301,7 @@ export async function executeBudgetProposal(
       endpoint: `${envelope.ownerGrain}:${envelope.entityId}`,
       withheld: null,
       receiptKey: input.claimToken,
+      providerMutationAttempted,
     },
     reconcile,
     rollbackRequested: false,

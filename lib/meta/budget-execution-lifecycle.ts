@@ -9,9 +9,9 @@
  *
  * Two invariants the shape enforces:
  *
- * - A result WITHHELD before the provider was reached never marks dispatch as
- *   started. "We decided not to call" and "we called and heard nothing" are
- *   different facts and an operator must be able to tell them apart.
+ * - A durable marker records dispatch INTENT. The execution receipt separately
+ *   records whether a provider mutation was actually attempted, because the
+ *   final provider-side CAS can still refuse after the marker.
  * - A claimed row is always settled. An executor that throws AFTER the
  *   pre-POST marker settles to `reconcile`, because the write may have landed;
  *   an exception before that marker is a proven non-attempt and settles failed.
@@ -41,7 +41,7 @@ export interface ClaimedExecutionDeps {
   actorUserId: string;
   executionKind: "manual" | "scheduled";
   /**
-   * Stamped SYNCHRONOUSLY, immediately before the provider POST.
+   * Stamped as write-ahead intent before the final provider-side CAS.
    *
    * D088 C3: C2 marked after the outcome, which is not crash-safe — a process
    * that died mid-POST left no record that a call had been entered. The
@@ -78,6 +78,8 @@ export interface ClaimedExecutionResult {
   settledStatus: ClaimedSettleStatus;
   /** Whether a provider call was entered at all. */
   providerDispatchStarted: boolean;
+  /** Whether the crash-safe write-ahead intent marker was persisted. */
+  providerDispatchIntentMarked: boolean;
   /** Whether its outcome is established. */
   providerOutcomeKnown: boolean;
   reconcile: boolean;
@@ -105,10 +107,9 @@ export async function runClaimedProposalExecution(
   let markerWritten = false;
   let markerFailed = false;
   /*
-    The marker, fired from inside the executor at the literal pre-POST
-    boundary. It is idempotent for one attempt and it VETOES the write when it
-    cannot be recorded: a provider call nobody knows was made is the one state
-    reconciliation cannot recover from.
+    The marker, fired from inside the executor before its final provider-side
+    CAS. It is idempotent for one attempt and it VETOES the write when it cannot
+    be recorded. It is write-ahead intent, not proof that a POST happened.
   */
   const beforeProviderPost = async (): Promise<boolean> => {
     if (markerWritten) return true;
@@ -147,7 +148,9 @@ export async function runClaimedProposalExecution(
     downstream read.
   */
   const withheld = outcome.receipt.withheld !== null;
-  const providerDispatchStarted = markerWritten;
+  const providerDispatchStarted = threw
+    ? markerWritten
+    : outcome.receipt.providerMutationAttempted ?? markerWritten;
   /*
     A marker that could not be written vetoed the POST, so the outcome is a
     definite non-attempt, not an unknown one.
@@ -222,6 +225,7 @@ export async function runClaimedProposalExecution(
       providerAccountId: deps.providerAccountId,
       receipt,
       // Three separate facts, never one boolean.
+      providerDispatchIntentMarked: markerWritten,
       providerDispatchStarted,
       providerOutcomeKnown: providerDispatchStarted && !reconcile,
       providerWriteSucceeded: providerDispatchStarted && !reconcile && outcome.ok,
@@ -234,6 +238,7 @@ export async function runClaimedProposalExecution(
     contract: CLAIMED_EXECUTION_CONTRACT,
     markerFailed,
     settledStatus,
+    providerDispatchIntentMarked: markerWritten,
     providerDispatchStarted,
     providerOutcomeKnown: providerDispatchStarted && !reconcile,
     reconcile,

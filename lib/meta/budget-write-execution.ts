@@ -131,11 +131,12 @@ export interface BudgetWriteDeps {
      * D087 C1: the value the account must STILL hold when the adapter POSTs.
      *
      * The orchestrator's compare-and-set ran against a read taken earlier; this
-     * is what closes the remaining gap inside the adapter, where nothing can
-     * intervene between the check and the mutation.
+     * becomes the adapter's last application-level provider observation before
+     * the mutation. Meta exposes no versioned/conditional budget update, so the
+     * separate GET and POST cannot be a provider-atomic CAS.
      */
     expectedPreviousAmountMinor: number;
-    /** Durably marks dispatch after the adapter's final CAS and before POST. */
+    /** Durably marks write intent before the adapter's final provider CAS. */
     beforeProviderPost?: () => Promise<boolean>;
   }): Promise<MetaEntityBudgetWriteSuccess | MetaAdsWriteFailure>;
 }
@@ -147,6 +148,8 @@ export interface BudgetWriteOutcome {
   journalId: string | null;
   readbackAmountMinor: number | null;
   message: string | null;
+  /** Exact for this execution; a durable intent marker is not a provider POST. */
+  providerAttempted?: boolean;
 }
 
 /** Fields that must never reach the journal, whatever a caller attaches. */
@@ -239,6 +242,7 @@ export async function executeBudgetWrite(
     return {
       ok: false, resultClass: "refused_request", blockers: [parsed.code],
       journalId: null, readbackAmountMinor: null, message: parsed.message,
+      providerAttempted: false,
     };
   }
   const request: BudgetWriteRequest = parsed.request;
@@ -258,6 +262,7 @@ export async function executeBudgetWrite(
         blockers: ["idempotency_key_reused_with_different_payload"],
         journalId: existing.id, readbackAmountMinor: null,
         message: "This idempotency key already names a different budget change.",
+        providerAttempted: existing.providerAttempted,
       };
     }
     return {
@@ -267,6 +272,7 @@ export async function executeBudgetWrite(
       journalId: existing.id,
       readbackAmountMinor: existing.readbackAmountMinor,
       message: "This exact budget change has already been attempted.",
+      providerAttempted: existing.providerAttempted,
     };
   }
 
@@ -336,6 +342,7 @@ export async function executeBudgetWrite(
       blockers: ["idempotency_race_lost"],
       journalId: null, readbackAmountMinor: null,
       message: "Another attempt for this idempotency key committed first.",
+      providerAttempted: false,
     };
   }
 
@@ -344,6 +351,7 @@ export async function executeBudgetWrite(
       ok: false, resultClass: "refused_preflight", blockers: preflight.blockers,
       journalId: opened.id, readbackAmountMinor: null,
       message: "The budget write preflight refused this attempt.",
+      providerAttempted: false,
     };
   }
 
@@ -377,6 +385,7 @@ export async function executeBudgetWrite(
       ok: false, resultClass: "unknown", blockers: ["provider_outcome_unknown"],
       journalId: opened.id, readbackAmountMinor: null,
       message: error instanceof Error ? error.name : "provider outcome unknown",
+      providerAttempted: true,
     };
   }
 
@@ -395,6 +404,7 @@ export async function executeBudgetWrite(
       ok: false, resultClass, blockers,
       journalId: opened.id, readbackAmountMinor: null,
       message: result.error?.message ?? null,
+      providerAttempted: result.providerMutationAttempted === true,
     };
   }
 
@@ -411,6 +421,7 @@ export async function executeBudgetWrite(
     ok: true, resultClass: "verified", blockers: [],
     journalId: opened.id, readbackAmountMinor: result.verifiedAmountMinor,
     message: null,
+    providerAttempted: true,
   };
 }
 

@@ -947,6 +947,12 @@ async function metaFetchWriteOnce(input: {
   method: "POST";
   body?: URLSearchParams;
   beforeMutationAttempt?: () => Promise<void>;
+  /**
+   * The last awaited operation before the provider request is constructed and
+   * sent. Budget writes use this for their provider-side compare-and-set read:
+   * every control-plane and durable-journal await must already be complete.
+   */
+  beforeProviderMutation?: () => Promise<void>;
   uncertainHttpResponseIsAmbiguous?: boolean;
 }): Promise<{
   response: Response | null;
@@ -963,20 +969,19 @@ async function metaFetchWriteOnce(input: {
       mutationAttempt: null,
     };
   }
-  try {
-    await input.beforeMutationAttempt?.();
-  } catch (error) {
-    const typedError =
-      error !== null &&
-      typeof error === "object" &&
-      "code" in error &&
-      typeof (error as { code?: unknown }).code === "string"
-        ? (error as { code: string; message?: unknown })
-        : null;
-    return {
-      response: null,
-      payload: null,
-      error: {
+  const runPreMutationHook = async (hook: (() => Promise<void>) | undefined) => {
+    try {
+      await hook?.();
+      return null;
+    } catch (error) {
+      const typedError =
+        error !== null &&
+        typeof error === "object" &&
+        "code" in error &&
+        typeof (error as { code?: unknown }).code === "string"
+          ? (error as { code: string; message?: unknown })
+          : null;
+      return {
         code: typedError?.code ?? "before_mutation_attempt_failed",
         message: sanitizeMetaMessage(
           typedError && typeof typedError.message === "string"
@@ -985,7 +990,26 @@ async function metaFetchWriteOnce(input: {
               ? error.message
               : String(error),
         ),
-      },
+      } satisfies MetaAdsWriteError;
+    }
+  };
+
+  const journalFailure = await runPreMutationHook(input.beforeMutationAttempt);
+  if (journalFailure) {
+    return {
+      response: null,
+      payload: null,
+      error: journalFailure,
+      mutationAttempt: null,
+    };
+  }
+
+  const boundaryFailure = await runPreMutationHook(input.beforeProviderMutation);
+  if (boundaryFailure) {
+    return {
+      response: null,
+      payload: null,
+      error: boundaryFailure,
       mutationAttempt: null,
     };
   }
@@ -2905,8 +2929,8 @@ export async function updateEntityBudget(
      */
     expectedPreviousAmountMinor: number;
     /**
-     * Called after the final compare-and-set read and immediately before POST.
-     * A false/throwing marker vetoes the mutation.
+     * Persists the durable dispatch marker before the final provider-side
+     * compare-and-set read. A false/throwing marker vetoes the mutation.
      */
     beforeProviderPost?: () => Promise<boolean>;
     dryRun?: boolean;
@@ -3095,80 +3119,77 @@ export async function updateEntityBudget(
     };
   }
 
-  /*
-    THE LAST WORD BEFORE THE POST.
-
-    This read is taken here, in the adapter, so nothing can happen between the
-    check and the mutation except this function's own next statement. It must
-    show the value the proposal was accepted against; any other answer means
-    somebody changed the budget after preflight, and the intended value is no
-    longer the value that was reasoned about.
-  */
-  const before = await readBack(null);
-  // Nothing has been POSTed yet, and the refusal has to say so: a caller that
-  // cannot tell a pre-write refusal from a post-write one must retry neither.
-  if (before.failure) return { ...before.failure, providerMutationAttempted: false };
-  const precondition = classifyRead(before.payload, null, {
-    amountMinor: input.expectedPreviousAmountMinor, prefix: "precondition",
-  });
-  if (precondition.failure) {
-    return { ...precondition.failure, providerMutationAttempted: false };
-  }
-  const previousAmountMinor = precondition.amount;
-
-  /*
-    PRE-DEPLOY AUDIT — the block check comes BEFORE the marker.
-
-    `metaFetchWriteOnce` refuses a blocked write (global or business kill
-    switch, guard rule, quiet hours, demo workspace) as its first act — but it
-    is only reached AFTER `beforeProviderPost` has already stamped the durable
-    dispatch marker. A write the server was always going to refuse was
-    therefore recorded as "a provider call was entered", which is exactly the
-    distinction the marker exists to make and the one the shared lifecycle
-    states as an invariant. Asking the same guard here, first, keeps a
-    pre-provider refusal markerless.
-  */
-  const preMarkerBlock = await getMetaAdsWriteBlockFailure(ctx);
-  if (preMarkerBlock) {
-    return {
-      ok: false,
-      httpStatus: 503,
-      providerMutationAttempted: false,
-      providerOutcome: "definite_failure",
-      error: preMarkerBlock.error,
-      responsePayload: null,
-      verificationPayload: before.payload,
-    };
-  }
-
-  if (input.beforeProviderPost) {
-    const marked = await input.beforeProviderPost().catch(() => false);
-    if (!marked) {
-      return {
-        ok: false,
-        httpStatus: 503,
-        providerMutationAttempted: false,
-        providerOutcome: "definite_failure",
-        error: {
-          code: "dispatch_marker_unavailable",
-          message:
-            "The dispatch marker could not be persisted, so no Meta budget write was attempted.",
-        },
-        responsePayload: null,
-        verificationPayload: before.payload,
-      };
-    }
-  }
-
   const body = new URLSearchParams({
     [BUDGET_MUTATION_BODY_KEYS[input.budgetField]]: String(amountMinor),
   });
+  let finalPreconditionFailure: MetaAdsWriteFailure | null = null;
+  let previousAmountMinor = Number.NaN;
+
   const write = await metaFetchWriteOnce({
     ctx,
     path: input.entityId,
     method: "POST",
     body,
+    /*
+      `metaFetchWriteOnce` runs the complete kill-switch/control/authority gate
+      before this callback. Consequently a write that is already blocked never
+      gets a dispatch marker.
+    */
+    beforeMutationAttempt: input.beforeProviderPost
+      ? async () => {
+          const marked = await input.beforeProviderPost?.().catch(() => false);
+          if (!marked) {
+            throw {
+              code: "dispatch_marker_unavailable",
+              message:
+                "The dispatch marker could not be persisted, so no Meta budget write was attempted.",
+            };
+          }
+        }
+      : undefined,
+    /*
+      THE LAST WORD BEFORE THE POST.
+
+      This provider read deliberately happens AFTER every asynchronous
+      control-plane check and durable marker write. `metaFetchWriteOnce` calls
+      no other awaited hook after it; the next operation is the one Meta POST.
+      A concurrent budget edit during either earlier await is therefore seen
+      here and refused instead of being overwritten.
+
+      Meta does not expose a conditional/versioned budget mutation. Therefore
+      the separate GET and POST still have an irreducible provider/network race;
+      this is the narrowest application-level check, not an atomic CAS claim.
+
+      The marker can exist when this final comparison refuses. The returned
+      failure still proves that no provider mutation was attempted and normal
+      settlement closes it as failed. Only a process crash in this tiny window
+      remains conservatively reconcilable, which is safer than retrying an
+      unknown provider outcome.
+    */
+    beforeProviderMutation: async () => {
+      const before = await readBack(null);
+      if (before.failure) {
+        finalPreconditionFailure = {
+          ...before.failure,
+          providerMutationAttempted: false,
+        };
+        throw before.failure.error;
+      }
+      const precondition = classifyRead(before.payload, null, {
+        amountMinor: input.expectedPreviousAmountMinor,
+        prefix: "precondition",
+      });
+      if (precondition.failure) {
+        finalPreconditionFailure = {
+          ...precondition.failure,
+          providerMutationAttempted: false,
+        };
+        throw precondition.failure.error;
+      }
+      previousAmountMinor = precondition.amount;
+    },
   });
+  if (finalPreconditionFailure) return finalPreconditionFailure;
   if (write.error) {
     return buildWriteTransportFailure({
       error: write.error,

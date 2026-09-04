@@ -603,10 +603,10 @@ describe("D088 C3 — a projected budget row through the real manual route", () 
     const fetchOrder = vi.mocked(fetch).mock.invocationCallOrder;
     const markerOrder = vi.mocked(store.markMetaAutomationProposalDispatchStarted)
       .mock.invocationCallOrder[0]!;
-    // The marker follows the adapter's final CAS GET and is the last operation
-    // before the provider POST.
-    expect(fetchOrder[2]!).toBeLessThan(markerOrder);
-    expect(markerOrder).toBeLessThan(fetchOrder[3]!);
+    // Every async control/marker operation finishes first. The adapter's final
+    // provider-side CAS GET is then the last awaited boundary before the POST.
+    expect(markerOrder).toBeLessThan(fetchOrder[2]!);
+    expect(fetchOrder[2]!).toBeLessThan(fetchOrder[3]!);
     expect(vi.mocked(store.settleMetaAutomationProposal)).toHaveBeenCalledTimes(1);
   });
 
@@ -633,19 +633,24 @@ describe("D088 C3 — a projected budget row through the real manual route", () 
     expect(store.forceMetaAutomationProposalReconcile).toHaveBeenCalledTimes(1);
   });
 
-  it("a failed final CAS writes no dispatch marker and sends no POST", async () => {
+  it("a failed final CAS settles the existing marker but sends no POST", async () => {
     vi.mocked(fetch)
       .mockResolvedValueOnce(node(CBO.current))
       .mockResolvedValueOnce(node(CBO.current))
       .mockResolvedValueOnce(node(CBO.current + 1));
 
-    await approve();
+    const payload = await (await approve()).json() as {
+      providerDispatchStarted?: boolean;
+      providerOutcomeKnown?: boolean;
+    };
 
     expect(calls("POST")).toHaveLength(0);
     expect(vi.mocked(store.markMetaAutomationProposalDispatchStarted))
-      .not.toHaveBeenCalled();
+      .toHaveBeenCalledTimes(1);
     expect(vi.mocked(store.settleMetaAutomationProposal).mock.calls[0]![0])
       .toMatchObject({ status: "failed" });
+    expect(payload.providerDispatchStarted).toBe(false);
+    expect(payload.providerOutcomeKnown).toBe(false);
   });
 
   it("refuses without the explicit confirmation, before any provider contact", async () => {

@@ -153,6 +153,40 @@ describe("D088 C2 — one lifecycle, shared by both entry points", () => {
     expect(result.providerOutcomeKnown).toBe(false);
   });
 
+  it("separates a durable intent marker from a proven provider non-attempt", async () => {
+    const settles: string[] = [];
+    const ledger: Record<string, unknown>[] = [];
+    const result = await runClaimedProposalExecution(deps({
+      settle: async (input) => { settles.push(input.status); return proposal(); },
+      recordLedger: async (input) => { ledger.push(input.payload); },
+      execute: async (beforeProviderPost) => {
+        await beforeProviderPost();
+        // The final provider-side CAS rejected after the write-ahead marker.
+        return {
+          ok: false,
+          receipt: {
+            httpStatus: 502, response: null, dryRun: false,
+            dispatchedAt: "2026-08-31T12:00:00.000Z",
+            endpoint: "campaign:c_100", withheld: null, receiptKey: CLAIM,
+            providerMutationAttempted: false,
+          },
+          reconcile: false, rollbackRequested: false as const, journalId: "journal-1",
+        };
+      },
+    }));
+
+    expect(settles).toEqual(["failed"]);
+    expect(result.providerDispatchIntentMarked).toBe(true);
+    expect(result.providerDispatchStarted).toBe(false);
+    expect(result.providerOutcomeKnown).toBe(false);
+    expect(result.reconcile).toBe(false);
+    expect(ledger[0]).toMatchObject({
+      providerDispatchIntentMarked: true,
+      providerDispatchStarted: false,
+      providerWriteSucceeded: false,
+    });
+  });
+
   it("still records the ledger when the settle loses the row", async () => {
     const ledger: string[] = [];
     const result = await runClaimedProposalExecution(deps({

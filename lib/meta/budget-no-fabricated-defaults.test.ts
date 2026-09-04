@@ -187,10 +187,12 @@ describe("D088 C3 — no fabricated authority survives on an authoritative path"
     const budgetAdapter = adapter.slice(adapter.indexOf("export async function updateEntityBudget"));
     expect(budgetAdapter).toContain("beforeProviderPost");
     expect(budgetAdapter).toContain("dispatch_marker_unavailable");
-    expect(budgetAdapter.indexOf("const precondition = classifyRead"))
-      .toBeLessThan(budgetAdapter.indexOf("await input.beforeProviderPost()"));
-    expect(budgetAdapter.indexOf("await input.beforeProviderPost()"))
-      .toBeLessThan(budgetAdapter.indexOf("const write = await metaFetchWriteOnce"));
+    expect(budgetAdapter).toContain("beforeMutationAttempt: input.beforeProviderPost");
+    expect(budgetAdapter).toContain("beforeProviderMutation: async ()");
+    expect(budgetAdapter.indexOf("beforeMutationAttempt: input.beforeProviderPost"))
+      .toBeLessThan(budgetAdapter.indexOf("beforeProviderMutation: async ()"));
+    expect(budgetAdapter.indexOf("beforeProviderMutation: async ()"))
+      .toBeLessThan(budgetAdapter.indexOf("const before = await readBack(null)"));
     const lifecycle = readFileSync("lib/meta/budget-execution-lifecycle.ts", "utf8");
     expect(lifecycle).toContain("markerFailed");
   });

@@ -771,6 +771,7 @@ async function approve(input: {
               ? "reconciliation_receipt_write_failed"
               : null,
           },
+          providerDispatchIntentMarked: lifecycle.providerDispatchIntentMarked,
           providerDispatchStarted: lifecycle.providerDispatchStarted,
           providerOutcomeKnown: lifecycle.providerOutcomeKnown,
           providerWriteVerified: false,
@@ -786,6 +787,7 @@ async function approve(input: {
         receipt: execution.receipt,
         receiptKey: claim.claimToken,
         proposalStatus: lifecycle.settledStatus,
+        providerDispatchIntentMarked: lifecycle.providerDispatchIntentMarked,
         providerDispatchStarted: lifecycle.providerDispatchStarted,
         providerOutcomeKnown: lifecycle.providerOutcomeKnown,
         providerWriteVerified:

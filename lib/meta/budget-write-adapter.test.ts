@@ -150,6 +150,30 @@ describe("D087 C1 — the adapter re-checks the baseline immediately before POST
     }
   });
 
+  it("rechecks after an asynchronous dispatch marker and refuses a concurrent edit", async () => {
+    let markerFinished = false;
+    const marker = vi.fn(async () => {
+      // Model another operator changing Meta while the durable marker await is
+      // in flight. The provider read must happen only after this completes.
+      markerFinished = true;
+      return true;
+    });
+    vi.mocked(fetch).mockImplementationOnce(async () => {
+      expect(markerFinished).toBe(true);
+      return node({ daily_budget: "260000" });
+    });
+
+    const result = await call({ beforeProviderPost: marker });
+
+    expect(marker).toHaveBeenCalledTimes(1);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.code).toBe("precondition_amount_mismatch");
+      expect(result.providerMutationAttempted).toBe(false);
+    }
+    expect(posts()).toHaveLength(0);
+  });
+
   it("writes the AD-SET field on the ad-set node", async () => {
     vi.mocked(fetch)
       .mockResolvedValueOnce(json({

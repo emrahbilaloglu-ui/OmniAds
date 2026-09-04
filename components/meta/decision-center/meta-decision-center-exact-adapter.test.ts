@@ -237,10 +237,13 @@ function fullOs(
         highestUrgency: node.urgency,
         urgentAdsetCount: 0,
       })),
-      actCount: nodes.length,
-      blockedCount: 0,
-      monitorCount: 0,
-      suppressedAlternativeCount: 0,
+      actCount: nodes.filter((node) => node.lane === "act").length,
+      blockedCount: nodes.filter((node) => node.lane === "blocked").length,
+      monitorCount: nodes.filter((node) => node.lane === "monitor").length,
+      suppressedAlternativeCount: nodes.reduce(
+        (total, node) => total + node.suppressedAlternativeCount,
+        0,
+      ),
     },
     ads: {
       items: creatives,
@@ -2958,6 +2961,97 @@ describe("served structure inventory", () => {
         structure: { action: 0, needsResolution: 0, watching: 0 },
         creatives: { action: 1, needsResolution: 0, watching: 0 },
       },
+    });
+  });
+
+  it("routes an active non-sales source row into the server-owned Action lane", () => {
+    const recommendation = metaRec({
+      id: "non_sales_act",
+      level: "campaign",
+      campaignId: "cmp_non_sales",
+      campaignName: "Server-routed campaign",
+      decisionState: "act",
+    });
+    const workspace = workspaceFixture({
+      nonSales: [recommendation],
+      os: fullOs({
+        nodes: [
+          structureNodeFixture({
+            id: "campaign:cmp_non_sales",
+            sourceRecommendationId: recommendation.id,
+            providerEntityId: "cmp_non_sales",
+            campaignId: "cmp_non_sales",
+            campaignName: "Server-routed campaign",
+            name: "Server-routed campaign",
+            lane: "act",
+          }),
+        ],
+      }),
+    });
+
+    const model = buildMetaDecisionCenterExactViewModel({ workspace });
+
+    expect(model.operatorSummary).toMatchObject({
+      action: 1,
+      needsResolution: 0,
+      watching: 0,
+      actionScope: "structure",
+    });
+    expect(model.counts).toMatchObject({
+      action: 1,
+      needsres: 0,
+      watching: 0,
+      nonsales: 0,
+    });
+    expect(model.actionRows?.map((row) => row.id)).toEqual([
+      recommendation.id,
+    ]);
+    expect(model.nonSales?.map((card) => card.id)).not.toContain(
+      recommendation.id,
+    );
+  });
+
+  it("does not draw server-suppressed alternatives as duplicate entity decisions", () => {
+    const selected = metaRec({
+      id: "selected_campaign_decision",
+      level: "campaign",
+      campaignId: "cmp_shared",
+      campaignName: "Shared campaign",
+    });
+    const suppressed = metaRec({
+      id: "suppressed_campaign_decision",
+      level: "campaign",
+      campaignId: "cmp_shared",
+      campaignName: "Shared campaign",
+    });
+    const workspace = workspaceFixture({
+      watching: [suppressed, selected],
+      os: fullOs({
+        nodes: [
+          structureNodeFixture({
+            id: "campaign:cmp_shared",
+            sourceRecommendationId: selected.id,
+            providerEntityId: "cmp_shared",
+            campaignId: "cmp_shared",
+            campaignName: "Shared campaign",
+            name: "Shared campaign",
+            lane: "blocked",
+            suppressedAlternativeCount: 1,
+          }),
+        ],
+      }),
+    });
+
+    const model = buildMetaDecisionCenterExactViewModel({ workspace });
+
+    expect(model.needsResolutionRows?.map((row) => row.id)).toEqual([
+      selected.id,
+    ]);
+    expect(model.watchingRows).toEqual([]);
+    expect(model.operatorSummary).toMatchObject({
+      action: 0,
+      needsResolution: 1,
+      watching: 0,
     });
   });
 

@@ -581,6 +581,34 @@ function structureNodesByRecommendationId(
   return nodes;
 }
 
+function structureEntityKeyForRecommendation(
+  recommendation: MetaRecommendation,
+): string | null {
+  if (recommendation.level === "campaign") {
+    return `campaign:${nonBlank(recommendation.campaignId) ?? recommendation.id}`;
+  }
+  if (recommendation.level === "adset") {
+    return `adset:${nonBlank(recommendation.adsetId) ?? recommendation.id}`;
+  }
+  return null;
+}
+
+function structureNodesByEntityKey(
+  workspace: MetaDecisionsWorkspacePayload,
+): Map<string, MetaOsStructureNode> {
+  const nodes = new Map<string, MetaOsStructureNode>();
+  for (const group of workspace.os?.structure?.groups ?? []) {
+    for (const node of [group.campaign, ...group.adsets]) {
+      const providerEntityId =
+        nonBlank(node.providerEntityId) ??
+        (node.level === "campaign" ? nonBlank(node.campaignId) : null);
+      if (!providerEntityId) continue;
+      nodes.set(`${node.level}:${providerEntityId}`, node);
+    }
+  }
+  return nodes;
+}
+
 /**
  * Every canonical envelope the payload carries, as a LOOKUP TABLE.
  *
@@ -742,33 +770,88 @@ function actionRows(input: {
  * row whose OS node was not served is NOT blocked — it is a row with no
  * projection, which the notice states rather than this function guessing.
  */
-function isServerBlocked(
-  node: MetaOsStructureNode | null | undefined,
-): boolean {
-  return node?.lane === "blocked";
+interface ProjectedStructureRecommendations {
+  action: MetaRecommendation[];
+  blocked: MetaRecommendation[];
+  watching: MetaRecommendation[];
+  nonSales: MetaRecommendation[];
+  /** Legacy rows the OS did not project, grouped by their served fallback. */
+  unprojected: {
+    action: number;
+    watching: number;
+    nonSales: number;
+  };
 }
 
 /**
- * A lane's recommendations, split by the server's own classification.
+ * Route every structure recommendation by the server-owned OS lane.
  *
- * Blocked rows used to stay in whichever legacy lane they arrived in, so a
- * decision the engine had explicitly refused authority for was drawn under
- * "Action Now" beside decisions that could actually be executed. The split is
- * presentation only — every row is still served, still counted, and still
- * carries the same verdict bytes.
+ * The legacy payload has three source arrays, but the OS is the authoritative
+ * classifier and can legitimately move any campaign/ad-set recommendation to
+ * Act, Blocked or Monitor. In particular, an active recommendation sourced
+ * from `nonSales` is an Act node. Keeping it on an informational card hid a
+ * real action from both the headline and its destination lane.
+ *
+ * The OS also chooses one recommendation per physical entity. Alternatives
+ * explicitly counted as suppressed by that node are omitted from the queue;
+ * drawing them beside the chosen node produced contradictory duplicate cards
+ * for the same campaign in the real Grandmix payload. Account-level legacy
+ * advice and other rows the OS genuinely did not project keep their original
+ * lane and remain visible.
  */
-function splitByServerLane(
-  recommendations: readonly MetaRecommendation[],
-  nodes: ReadonlyMap<string, MetaOsStructureNode>,
-): { open: MetaRecommendation[]; blocked: MetaRecommendation[] } {
-  const open: MetaRecommendation[] = [];
-  const blocked: MetaRecommendation[] = [];
-  for (const recommendation of recommendations) {
-    (isServerBlocked(nodes.get(recommendation.id)) ? blocked : open).push(
-      recommendation,
-    );
-  }
-  return { open, blocked };
+function projectStructureRecommendations(input: {
+  action: readonly MetaRecommendation[];
+  watching: readonly MetaRecommendation[];
+  nonSales: readonly MetaRecommendation[];
+  nodesByRecommendationId: ReadonlyMap<string, MetaOsStructureNode>;
+  nodesByEntityKey: ReadonlyMap<string, MetaOsStructureNode>;
+}): ProjectedStructureRecommendations {
+  const result: ProjectedStructureRecommendations = {
+    action: [],
+    blocked: [],
+    watching: [],
+    nonSales: [],
+    unprojected: { action: 0, watching: 0, nonSales: 0 },
+  };
+  const seen = new Set<string>();
+
+  const append = (
+    recommendation: MetaRecommendation,
+    fallback: "action" | "watching" | "nonSales",
+  ) => {
+    if (seen.has(recommendation.id)) return;
+    seen.add(recommendation.id);
+
+    const node = input.nodesByRecommendationId.get(recommendation.id);
+    if (node) {
+      if (node.lane === "act") result.action.push(recommendation);
+      else if (node.lane === "blocked") result.blocked.push(recommendation);
+      else result.watching.push(recommendation);
+      return;
+    }
+
+    const entityKey = structureEntityKeyForRecommendation(recommendation);
+    const selectedNode = entityKey
+      ? input.nodesByEntityKey.get(entityKey)
+      : undefined;
+    if (
+      selectedNode &&
+      selectedNode.suppressedAlternativeCount > 0 &&
+      nonBlank(selectedNode.sourceRecommendationId) !== recommendation.id
+    ) {
+      return;
+    }
+
+    result[fallback].push(recommendation);
+    result.unprojected[fallback] += 1;
+  };
+
+  for (const recommendation of input.action) append(recommendation, "action");
+  for (const recommendation of input.watching)
+    append(recommendation, "watching");
+  for (const recommendation of input.nonSales)
+    append(recommendation, "nonSales");
+  return result;
 }
 
 /**
@@ -3523,33 +3606,35 @@ export function buildMetaDecisionCenterExactViewModel(
   const servedWatchingRecommendations =
     overrides.watching ?? workspace.lanes.watching;
   const healthy = overrides.healthy ?? workspace.lanes.healthy;
-  const nonSales = overrides.nonSales ?? workspace.lanes.nonSales;
+  const servedNonSalesRecommendations =
+    overrides.nonSales ?? workspace.lanes.nonSales;
   const archived = overrides.archive ?? defaultArchiveItems(workspace);
   const creativeDecisions =
     overrides.creatives ?? workspace.os?.ads?.items ?? [];
   const canonicalDecisions =
     overrides.canonicalDecisions ?? defaultCanonicalDecisions(workspace);
   const nodes = structureNodesByRecommendationId(workspace);
+  const nodesByEntityKey = structureNodesByEntityKey(workspace);
   /*
-   * The three server lanes, applied to the two legacy arrays that can carry a
-   * blocked row.
+   * The three server lanes, applied across every legacy source array.
    *
-   * `healthy`, `nonSales` and `archive` are not split: healthy rows carry no
-   * decision, non-sales is an out-of-scope statement rather than a queue lane,
-   * and the archive is inactive assets. Only Action Now and Watching promise
-   * something about a decision the engine made, and only they can therefore
-   * mis-promise it.
+   * `nonSales` is a source cohort, not final authority: the server can promote
+   * an active row from it into Act or Monitor. `healthy` carries no decision
+   * and Archive is inactive inventory, so neither participates.
    */
-  const actionSplit = splitByServerLane(servedActionRecommendations, nodes);
-  const watchingSplit = splitByServerLane(servedWatchingRecommendations, nodes);
-  const actionRecommendations = actionSplit.open;
-  const watchingRecommendations = watchingSplit.open;
-  const blockedRecommendations = [
-    ...actionSplit.blocked,
-    ...watchingSplit.blocked,
-  ];
+  const projected = projectStructureRecommendations({
+    action: servedActionRecommendations,
+    watching: servedWatchingRecommendations,
+    nonSales: servedNonSalesRecommendations,
+    nodesByRecommendationId: nodes,
+    nodesByEntityKey,
+  });
+  const actionRecommendations = projected.action;
+  const watchingRecommendations = projected.watching;
+  const blockedRecommendations = projected.blocked;
+  const nonSalesRecommendations = projected.nonSales;
   /*
-   * The same split over the UNFILTERED served arrays, for the counters only.
+   * The same projection over the UNFILTERED served arrays, for counters only.
    *
    * The rows above may be a filtered override — the page narrows them by search
    * and level — and a lane counter that moved with a search term would report
@@ -3558,21 +3643,51 @@ export function buildMetaDecisionCenterExactViewModel(
    * served array is the same arithmetic the server would do, on the same
    * population, with nothing filtered out of it.
    */
-  const servedActionSplit = splitByServerLane(workspace.lanes.actionNow, nodes);
-  const servedWatchingSplit = splitByServerLane(
+  const servedProjection = projectStructureRecommendations({
+    action: workspace.lanes.actionNow,
+    watching: workspace.lanes.watching,
+    nonSales: workspace.lanes.nonSales,
+    nodesByRecommendationId: nodes,
+    nodesByEntityKey,
+  });
+  const sourceCountRemainder = (
+    count: number,
+    rows: readonly MetaRecommendation[],
+  ) => Math.max(0, count - rows.length);
+  const unseenActionCount = sourceCountRemainder(
+    workspace.lanes.counts.actionNow,
+    workspace.lanes.actionNow,
+  );
+  const unseenWatchingCount = sourceCountRemainder(
+    workspace.lanes.counts.watching,
     workspace.lanes.watching,
-    nodes,
   );
-  const structureActionCount = Math.max(
-    0,
-    workspace.lanes.counts.actionNow - servedActionSplit.blocked.length,
+  const unseenNonSalesCount = sourceCountRemainder(
+    workspace.lanes.counts.nonSales,
+    workspace.lanes.nonSales,
   );
-  const structureNeedsResolutionCount =
-    servedActionSplit.blocked.length + servedWatchingSplit.blocked.length;
-  const structureWatchingCount = Math.max(
-    0,
-    workspace.lanes.counts.watching - servedWatchingSplit.blocked.length,
-  );
+  const osStructureActionCount = finite(workspace.os?.structure?.actCount);
+  const osStructureBlockedCount = finite(workspace.os?.structure?.blockedCount);
+  const osStructureWatchingCount = finite(workspace.os?.structure?.monitorCount);
+  const hasCompleteOsStructureCounts =
+    osStructureActionCount !== null &&
+    osStructureBlockedCount !== null &&
+    osStructureWatchingCount !== null;
+  const structureActionCount = hasCompleteOsStructureCounts
+    ? osStructureActionCount! +
+      servedProjection.unprojected.action +
+      unseenActionCount
+    : servedProjection.action.length + unseenActionCount;
+  const structureNeedsResolutionCount = hasCompleteOsStructureCounts
+    ? osStructureBlockedCount!
+    : servedProjection.blocked.length;
+  const structureWatchingCount = hasCompleteOsStructureCounts
+    ? osStructureWatchingCount! +
+      servedProjection.unprojected.watching +
+      unseenWatchingCount
+    : servedProjection.watching.length + unseenWatchingCount;
+  const structureNonSalesCount =
+    servedProjection.nonSales.length + unseenNonSalesCount;
   const creativeActionCount = finite(workspace.os?.ads?.actCount);
   const creativeNeedsResolutionCount = finite(workspace.os?.ads?.blockedCount);
   const creativeWatchingCount = finite(workspace.os?.ads?.monitorCount);
@@ -3723,7 +3838,7 @@ export function buildMetaDecisionCenterExactViewModel(
       needsres: structureNeedsResolutionCount,
       watching: structureWatchingCount,
       healthy: workspace.lanes.counts.healthy,
-      nonsales: workspace.lanes.counts.nonSales,
+      nonsales: structureNonSalesCount,
       // The lane total, over BOTH grains the lane now holds. Deliberately read
       // off the workspace rather than the rendered rows, so a search term
       // narrows the table without appearing to shrink the account — the same
@@ -3853,8 +3968,8 @@ export function buildMetaDecisionCenterExactViewModel(
     }),
     healthyGroups: healthyGroups(healthy, fallbackCurrency),
     nonSales:
-      nonSales.length > 0
-        ? nonSales.map((recommendation) =>
+      nonSalesRecommendations.length > 0
+        ? nonSalesRecommendations.map((recommendation) =>
             nonSalesCard(recommendation, fallbackCurrency),
           )
         : [nonSalesCard(null, fallbackCurrency)],
@@ -3892,7 +4007,7 @@ export function buildMetaDecisionCenterExactViewModel(
         // find it and drew em dashes.
         ...blockedRecommendations,
         ...watchingRecommendations,
-        ...nonSales,
+        ...nonSalesRecommendations,
       ],
       creativeDecisions,
       nodes,

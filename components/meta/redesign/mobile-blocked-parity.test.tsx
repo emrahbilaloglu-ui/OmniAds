@@ -21,9 +21,10 @@ const PAGE = readFileSync(
 
 describe("mobile carries the served decision state", () => {
   it("takes the state and the blockers off the creative row", () => {
+    const start = PAGE.indexOf("function mobileQueueRows");
     const builder = PAGE.slice(
-      PAGE.indexOf("function mobileQueueRows"),
-      PAGE.indexOf('if (lane === "watching")'),
+      start,
+      PAGE.indexOf('if (lane === "needsres")', start),
     );
     expect(builder).toContain("stateLabel: row.stateLabel");
     expect(builder).toContain("stateTone: row.stateTone");

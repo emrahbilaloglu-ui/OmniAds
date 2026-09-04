@@ -1279,7 +1279,6 @@ function OperatorDecisionSummary({
     summary?.needsResolution ?? counts?.needsres,
   );
   const watching = servedCount(summary?.watching ?? counts?.watching);
-  const creatives = servedCount(summary?.creatives ?? counts?.creatives);
 
   const routeButtons = ({
     lane,
@@ -1394,88 +1393,68 @@ function OperatorDecisionSummary({
             : "Campaign role is inferred automatically; unresolved roles stay safely blocked until fresh evidence resolves them."}
         </p>
         <div className={styles.operatorSummaryActions}>
-          {routeButtons({
-            lane: "action",
-            total: action,
-            fallbackScope: summary?.actionScope ?? "structure",
-            genericLabel:
-              language === "tr"
-                ? "Şimdi yapılacakları incele"
-                : "Review Action Now",
-            structureLabel:
-              language === "tr"
-                ? "Yapı aksiyonlarını incele"
-                : "Review structure actions",
-            creativeLabel:
-              language === "tr"
-                ? "Kreatif aksiyonlarını incele"
-                : "Review creative actions",
-            structureCount: summary?.scopeCounts?.structure?.action,
-            creativeCount: summary?.scopeCounts?.creatives?.action,
-          })}
-          {routeButtons({
-            lane: "needsres",
-            total: needsResolution,
-            fallbackScope: summary?.needsResolutionScope ?? "structure",
-            genericLabel:
-              language === "tr" ? "Engelleri çöz" : "Resolve blockers",
-            structureLabel:
-              language === "tr"
-                ? "Yapı engellerini çöz"
-                : "Resolve structure blockers",
-            creativeLabel:
-              language === "tr"
-                ? "Kreatif engellerini çöz"
-                : "Resolve creative blockers",
-            structureCount: summary?.scopeCounts?.structure?.needsResolution,
-            creativeCount: summary?.scopeCounts?.creatives?.needsResolution,
-          })}
-          {routeButtons({
-            lane: "watching",
-            total: watching,
-            fallbackScope: summary?.watchingScope ?? "structure",
-            genericLabel:
-              language === "tr" ? "İzlenenleri gör" : "Review watching",
-            structureLabel:
-              language === "tr"
-                ? "Yapı izleme listesini incele"
-                : "Review structure watchlist",
-            creativeLabel:
-              language === "tr"
-                ? "Kreatif izleme listesini incele"
-                : "Review creative watchlist",
-            structureCount: summary?.scopeCounts?.structure?.watching,
-            creativeCount: summary?.scopeCounts?.creatives?.watching,
-          })}
-          {creatives !== null && creatives > 0 ? (
-            <button type="button" onClick={() => onSelectScope("creatives")}>
-              {language === "tr"
-                ? "Kreatif kararları aç"
-                : "Open creative decisions"}
-            </button>
-          ) : null}
+          {action !== null && action > 0
+            ? routeButtons({
+                lane: "action",
+                total: action,
+                fallbackScope: summary?.actionScope ?? "structure",
+                genericLabel:
+                  language === "tr"
+                    ? "Şimdi yapılacakları incele"
+                    : "Review Action Now",
+                structureLabel:
+                  language === "tr"
+                    ? "Yapı aksiyonlarını incele"
+                    : "Review structure actions",
+                creativeLabel:
+                  language === "tr"
+                    ? "Kreatif aksiyonlarını incele"
+                    : "Review creative actions",
+                structureCount: summary?.scopeCounts?.structure?.action,
+                creativeCount: summary?.scopeCounts?.creatives?.action,
+              })
+            : needsResolution !== null && needsResolution > 0
+              ? routeButtons({
+                  lane: "needsres",
+                  total: needsResolution,
+                  fallbackScope:
+                    summary?.needsResolutionScope ?? "structure",
+                  genericLabel:
+                    language === "tr" ? "Engelleri çöz" : "Resolve blockers",
+                  structureLabel:
+                    language === "tr"
+                      ? "Yapı engellerini çöz"
+                      : "Resolve structure blockers",
+                  creativeLabel:
+                    language === "tr"
+                      ? "Kreatif engellerini çöz"
+                      : "Resolve creative blockers",
+                  structureCount:
+                    summary?.scopeCounts?.structure?.needsResolution,
+                  creativeCount:
+                    summary?.scopeCounts?.creatives?.needsResolution,
+                })
+              : watching !== null && watching > 0
+                ? routeButtons({
+                    lane: "watching",
+                    total: watching,
+                    fallbackScope: summary?.watchingScope ?? "structure",
+                    genericLabel:
+                      language === "tr" ? "İzlenenleri gör" : "Review watching",
+                    structureLabel:
+                      language === "tr"
+                        ? "Yapı izleme listesini incele"
+                        : "Review structure watchlist",
+                    creativeLabel:
+                      language === "tr"
+                        ? "Kreatif izleme listesini incele"
+                        : "Review creative watchlist",
+                    structureCount: summary?.scopeCounts?.structure?.watching,
+                    creativeCount: summary?.scopeCounts?.creatives?.watching,
+                  })
+                : null}
         </div>
       </div>
-      <dl className={styles.operatorSummaryCounts}>
-        <div>
-          <dt>{language === "tr" ? "Şimdi yapılacak" : "Action now"}</dt>
-          <dd>{display(summary?.action ?? counts?.action)}</dd>
-        </div>
-        <div>
-          <dt>{language === "tr" ? "Çözüm gerekiyor" : "Needs resolution"}</dt>
-          <dd>{display(summary?.needsResolution ?? counts?.needsres)}</dd>
-        </div>
-        <div>
-          <dt>{language === "tr" ? "İzleniyor" : "Watching"}</dt>
-          <dd>{display(summary?.watching ?? counts?.watching)}</dd>
-        </div>
-        <div>
-          <dt>
-            {language === "tr" ? "Kreatif kararlar" : "Creative decisions"}
-          </dt>
-          <dd>{display(summary?.creatives ?? counts?.creatives)}</dd>
-        </div>
-      </dl>
     </section>
   );
 }
@@ -2508,12 +2487,6 @@ function CreativesScope({
           </div>
         ))}
       </div>
-      <SourceProvenancePanel
-        defaultOpen={false}
-        model={provenance}
-        notice={notice}
-        scope="creatives"
-      />
       {hasGroupedDecisions && visibleGroups.length === 0 ? (
         <LaneEmpty lane={`creatives-${lane}`} reason={copy.laneServedNoRows} />
       ) : hasGroupedDecisions ? (
@@ -2544,6 +2517,12 @@ function CreativesScope({
       ) : (
         decisions.map((row) => <CreativeCard key={row.id} row={row} />)
       )}
+      <SourceProvenancePanel
+        defaultOpen={false}
+        model={provenance}
+        notice={notice}
+        scope="creatives"
+      />
       <div className={styles.creativeFootnote}>
         <p data-meta-exact-creative-footnote>{display(footnote)}</p>
         <span {...controlProps(onOpenCreativeStudio)}>
@@ -3385,16 +3364,16 @@ export function MetaDecisionCenterExact({
         </div>
       </div>
 
+      <ExactKpiBand
+        kpis={viewModel.kpis}
+        activeWindow={activeWindow ?? EM_DASH}
+      />
+
       <OperatorDecisionSummary
         counts={counts}
         summary={viewModel.operatorSummary}
         onSelectLane={selectLane}
         onSelectScope={selectScope}
-      />
-
-      <ExactKpiBand
-        kpis={viewModel.kpis}
-        activeWindow={activeWindow ?? EM_DASH}
       />
 
       <div className={styles.scopeRow}>
@@ -3567,26 +3546,128 @@ export function MetaDecisionCenterExact({
         </div>
       )}
 
-      {/*
-        The advisory strip: what this account holds that no lane decides about.
+      <div
+        className={`${styles.workspace} ${showInspector ? styles.workspaceWithInspector : ""}`}
+        data-meta-exact-workspace
+      >
+        <div className={styles.queue}>
+          {activeScope === "structure" && activeLane === "action" ? (
+            <ActionLane
+              emptyReason={laneEmptyReason}
+              onLoadMore={loadMoreFor("action")}
+              rows={viewModel.actionRows ?? []}
+              shown={shownFor("action")}
+            />
+          ) : null}
+          {activeScope === "structure" && activeLane === "needsres" ? (
+            <NeedsResolutionLane
+              emptyReason={laneEmptyReason}
+              notice={viewModel.needsResolutionNotice}
+              onLoadMore={loadMoreFor("needsres")}
+              rows={viewModel.needsResolutionRows ?? []}
+              shown={shownFor("needsres")}
+            />
+          ) : null}
+          {activeScope === "structure" && activeLane === "watching" ? (
+            <WatchingLane
+              rows={viewModel.watchingRows ?? []}
+              segments={viewModel.watchSegments ?? []}
+            />
+          ) : null}
+          {activeScope === "structure" && activeLane === "healthy" ? (
+            <HealthyLane groups={viewModel.healthyGroups ?? []} />
+          ) : null}
+          {activeScope === "structure" && activeLane === "nonsales" ? (
+            <NonSalesLane cards={viewModel.nonSales ?? []} />
+          ) : null}
+          {activeScope === "structure" && activeLane === "archive" ? (
+            <ArchiveLane
+              rows={viewModel.archiveRows ?? []}
+              windowLabel={activeWindow ?? EM_DASH}
+            />
+          ) : null}
+          {activeScope === "creatives" ? (
+            <CreativesScope
+              decisions={viewModel.creativeDecisions ?? []}
+              footnote={viewModel.creativeFootnote}
+              groups={viewModel.creativeGroups}
+              lane={activeLane}
+              notice={viewModel.creativesNotice}
+              onOpenCreativeStudio={onOpenCreativeStudio}
+              posture={viewModel.creativePosture ?? []}
+              provenance={viewModel.sourceProvenance}
+            />
+          ) : null}
+          {/*
+           * Supporting evidence follows the decision queue. The reference
+           * surface opens with actionable rows; source and budget diagnostics
+           * remain available without standing between the operator and the
+           * decision they came here to review.
+           *
+           * @see structureProvenance in meta-decision-center-exact-adapter.ts
+           */}
+          {activeScope === "structure" ? (
+            <SourceProvenancePanel
+              defaultOpen={false}
+              model={viewModel.structureProvenance}
+              scope="structure"
+            />
+          ) : null}
+          {viewModel.budgetEvidence || viewModel.budgetDryRun ? (
+            <details className={styles.technicalDisclosure}>
+              <summary>
+                <span
+                  className={styles.technicalDisclosureSummary}
+                  data-readiness-state={budgetReadinessSummary.state}
+                >
+                  <span>Budget decision readiness</span>
+                  <small data-meta-exact-budget-readiness-summary>
+                    {budgetReadinessSummary.text}
+                  </small>
+                </span>
+              </summary>
+              <div className={styles.technicalDisclosureBody}>
+                <BudgetDecisionEvidencePanel
+                  evidence={viewModel.budgetEvidence ?? null}
+                />
+                <BudgetDryRunPanel panel={viewModel.budgetDryRun ?? null} />
+              </div>
+            </details>
+          ) : null}
+        </div>
+        {showInspector ? (
+          <EvidenceInspector
+            model={viewModel.inspector}
+            onClose={
+              onCloseInspector
+                ? () => {
+                    onCloseInspector();
+                    // The row that opened it, then any row: a panel that closed
+                    // and left focus on `<body>` would drop a keyboard operator
+                    // at the top of the document.
+                    const back =
+                      rootRef.current?.querySelector<HTMLElement>(
+                        '[data-meta-exact-selected="true"] [data-meta-exact-card-open]',
+                      ) ??
+                      rootRef.current?.querySelector<HTMLElement>(
+                        "[data-meta-exact-card-open]",
+                      );
+                    back?.focus();
+                  }
+                : undefined
+            }
+          />
+        ) : null}
+      </div>
 
-        `live:META-DEC-13 open` contracts an inactive-assets strip whose detail
-        is read-only, and the Archive lane IS that detail — every row in it is
-        an inactive campaign, ad set or withheld Ad decision, and none of them
-        carries an action. The control opens the lane rather than a second
-        panel that would say the same thing twice.
-      */}
       {/*
-        D078 R4 (correction 2): account-coverage panel — every ASSIGNED
-        identity with its selection state, so a deselected-but-spending
-        account is an explicit fact rather than an invisible one. All
-        evidence — id/name, state, currency, TIMEZONE, own-window spend,
-        fact freshness, latest generation and produced/authorized counts,
-        and the operator policy implication — is VISIBLE text (no
-        hover-only facts). Display-only: no control, no scope switch, no
-        write affordance. Tri-state: null = the read FAILED (warning; never
-        assume one/no account); [] = a successful read proved zero
-        (anomalous, said so); undefined = legacy payload (nothing).
+        Supporting account coverage follows the decisions. These facts remain
+        available for audit, but they must not displace the queue from the
+        first viewport.
+
+        D078 R4 (correction 2): every assigned identity keeps its selection
+        state, currency, timezone, own-window spend, fact freshness, latest
+        generation, decision counts and policy visible inside this disclosure.
       */}
       {viewModel.assignedAccountStates === null ? (
         <p
@@ -3738,138 +3819,6 @@ export function MetaDecisionCenterExact({
           ) : null}
         </p>
       ) : null}
-
-      <div
-        className={`${styles.workspace} ${showInspector ? styles.workspaceWithInspector : ""}`}
-        data-meta-exact-workspace
-      >
-        <div className={styles.queue}>
-          {/*
-           * The Structures scope states its own source, in every lane.
-           *
-           * It used to state none at all: the same read model and the same
-           * capabilities envelope back both scopes, but only Creatives said so,
-           * while Structures is the scope that draws the action buttons
-           * `providerWriteLinkage` and `responseAttribution` govern. Rendered
-           * outside the lane branches on purpose — the source is a property of
-           * the account and the snapshot, not of which lane happens to be
-           * selected, and a panel that vanished on the Archive tab would be a
-           * disclosure the operator could lose by clicking.
-           *
-           * @see structureProvenance in meta-decision-center-exact-adapter.ts
-           */}
-          {activeScope === "structure" ? (
-            <SourceProvenancePanel
-              defaultOpen={false}
-              model={viewModel.structureProvenance}
-              scope="structure"
-            />
-          ) : null}
-          {/*
-            The server's own budget-decision gate verdict, rendered verbatim.
-            It is account-scoped rather than lane-scoped, so it is not hidden
-            behind a scope: a blocker that only appears in one tab is a blocker
-            an operator can miss. The surface evaluates no gate of its own and
-            never enables an action from this.
-          */}
-          {viewModel.budgetEvidence || viewModel.budgetDryRun ? (
-            <details className={styles.technicalDisclosure}>
-              <summary>
-                <span
-                  className={styles.technicalDisclosureSummary}
-                  data-readiness-state={budgetReadinessSummary.state}
-                >
-                  <span>Budget decision readiness</span>
-                  <small data-meta-exact-budget-readiness-summary>
-                    {budgetReadinessSummary.text}
-                  </small>
-                </span>
-              </summary>
-              <div className={styles.technicalDisclosureBody}>
-                <BudgetDecisionEvidencePanel
-                  evidence={viewModel.budgetEvidence ?? null}
-                />
-                {/*
-                  D085 — the server-owned budget dry run, beside the evidence panel
-                  and under the same account scope. It renders verbatim and offers no
-                  enabled control.
-                */}
-                <BudgetDryRunPanel panel={viewModel.budgetDryRun ?? null} />
-              </div>
-            </details>
-          ) : null}
-          {activeScope === "structure" && activeLane === "action" ? (
-            <ActionLane
-              emptyReason={laneEmptyReason}
-              onLoadMore={loadMoreFor("action")}
-              rows={viewModel.actionRows ?? []}
-              shown={shownFor("action")}
-            />
-          ) : null}
-          {activeScope === "structure" && activeLane === "needsres" ? (
-            <NeedsResolutionLane
-              emptyReason={laneEmptyReason}
-              notice={viewModel.needsResolutionNotice}
-              onLoadMore={loadMoreFor("needsres")}
-              rows={viewModel.needsResolutionRows ?? []}
-              shown={shownFor("needsres")}
-            />
-          ) : null}
-          {activeScope === "structure" && activeLane === "watching" ? (
-            <WatchingLane
-              rows={viewModel.watchingRows ?? []}
-              segments={viewModel.watchSegments ?? []}
-            />
-          ) : null}
-          {activeScope === "structure" && activeLane === "healthy" ? (
-            <HealthyLane groups={viewModel.healthyGroups ?? []} />
-          ) : null}
-          {activeScope === "structure" && activeLane === "nonsales" ? (
-            <NonSalesLane cards={viewModel.nonSales ?? []} />
-          ) : null}
-          {activeScope === "structure" && activeLane === "archive" ? (
-            <ArchiveLane
-              rows={viewModel.archiveRows ?? []}
-              windowLabel={activeWindow ?? EM_DASH}
-            />
-          ) : null}
-          {activeScope === "creatives" ? (
-            <CreativesScope
-              decisions={viewModel.creativeDecisions ?? []}
-              footnote={viewModel.creativeFootnote}
-              groups={viewModel.creativeGroups}
-              lane={activeLane}
-              notice={viewModel.creativesNotice}
-              onOpenCreativeStudio={onOpenCreativeStudio}
-              posture={viewModel.creativePosture ?? []}
-              provenance={viewModel.sourceProvenance}
-            />
-          ) : null}
-        </div>
-        {showInspector ? (
-          <EvidenceInspector
-            model={viewModel.inspector}
-            onClose={
-              onCloseInspector
-                ? () => {
-                    onCloseInspector();
-                    // The row that opened it, then any row: a panel that closed
-                    // and left focus on `<body>` would drop a keyboard operator
-                    // at the top of the document.
-                    const back =
-                      rootRef.current?.querySelector<HTMLElement>(
-                        '[data-meta-exact-selected="true"] [data-meta-exact-card-open]',
-                      ) ??
-                      rootRef.current?.querySelector<HTMLElement>(
-                        "[data-meta-exact-card-open]",
-                      );
-                    back?.focus();
-                  }
-                : undefined
-            }
-          />
-        ) : null}
-      </div>
     </section>
   );
 }

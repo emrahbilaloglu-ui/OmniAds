@@ -3171,6 +3171,7 @@ function MetaWorkspacePostureBanners({
 
   const renderBanner = (banner: MetaWorkspaceBanner, primary: boolean) => {
     const tone = workspaceBannerToneClass(banner);
+    const detail = workspaceBannerDetail(banner);
     const destination = workspaceBannerDestination(
       banner,
       historyHref,
@@ -3191,8 +3192,8 @@ function MetaWorkspacePostureBanners({
       >
         <span className="meta-posture-banner__mark" aria-hidden="true" />
         <span className="meta-posture-banner__title">{banner.title}</span>
-        <span className="meta-posture-banner__detail">
-          {workspaceBannerDetail(banner)}
+        <span className="meta-posture-banner__detail" title={detail}>
+          {detail}
         </span>
         <span className="meta-posture-banner__spacer" aria-hidden="true" />
         {destination ? (

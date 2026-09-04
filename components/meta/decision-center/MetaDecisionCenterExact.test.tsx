@@ -266,33 +266,34 @@ function root(): HTMLElement {
 }
 
 describe("MetaDecisionCenterExact canonical desktop anatomy", () => {
-  it("renders the header, five KPI cards, scope, six lanes, queue and inspector in exact order", () => {
+  it("renders the header, KPIs and controls before the decision-first workspace", () => {
     renderExact();
 
-    // Header, operator summary, KPI band, scope row, lane toolbar, the advisory
-    // inactive-assets strip, then the workspace.
+    // Header, KPI band, operator summary, scope row and lane toolbar lead
+    // directly into the decision workspace. Supporting inactive/account facts
+    // follow the queue so they cannot displace decisions from the first view.
     expect(root().children).toHaveLength(7);
     expect(root().children[0]?.textContent).toContain("Decision Center");
-    expect(
-      root().children[1]?.hasAttribute("data-meta-exact-operator-summary"),
-    ).toBe(true);
-    expect(root().children[1]?.textContent).toContain(
-      "What Adsecute recommends now",
-    );
-    expect(root().children[2]?.getAttribute("data-meta-exact-section")).toBe(
+    expect(root().children[1]?.getAttribute("data-meta-exact-section")).toBe(
       "kpis",
     );
-    expect(root().children[2]?.children).toHaveLength(5);
+    expect(root().children[1]?.children).toHaveLength(5);
+    expect(
+      root().children[2]?.hasAttribute("data-meta-exact-operator-summary"),
+    ).toBe(true);
+    expect(root().children[2]?.textContent).toContain(
+      "What Adsecute recommends now",
+    );
     expect(root().children[3]?.textContent).toContain("Campaigns & Ad sets");
     expect(
       root().children[4]?.hasAttribute("data-meta-exact-lane-toolbar"),
     ).toBe(true);
     expect(
-      root().children[5]?.hasAttribute("data-meta-exact-inactive-strip"),
+      root().children[5]?.hasAttribute("data-meta-exact-workspace"),
     ).toBe(true);
-    expect(root().children[6]?.hasAttribute("data-meta-exact-workspace")).toBe(
-      true,
-    );
+    expect(
+      root().children[6]?.hasAttribute("data-meta-exact-inactive-strip"),
+    ).toBe(true);
 
     expect(
       Array.from(document.querySelectorAll("[data-meta-exact-scope]")).map(
@@ -568,13 +569,13 @@ describe("MetaDecisionCenterExact branches and callbacks", () => {
     );
     expect(onScopeChange).toHaveBeenLastCalledWith("structure");
     expect(onLaneChange).toHaveBeenLastCalledWith("needsres");
-
-    fireEvent.click(
-      within(summary as HTMLElement).getByRole("button", {
+    // Lower-priority routes stay in the scope/lane controls directly below;
+    // the summary carries only the single most urgent recommendation family.
+    expect(
+      within(summary as HTMLElement).queryByRole("button", {
         name: "Open creative decisions",
       }),
-    );
-    expect(onScopeChange).toHaveBeenLastCalledWith("creatives");
+    ).toBeNull();
   });
 
   it("renders watching, healthy, non-sales and archive branches in lane order", () => {
@@ -755,12 +756,12 @@ describe("MetaDecisionCenterExact branches and callbacks", () => {
       queue?.children[0]?.hasAttribute("data-meta-exact-creative-posture"),
     ).toBe(true);
     expect(
-      queue?.children[1]?.hasAttribute("data-meta-exact-source-provenance"),
-    ).toBe(true);
-    // The rows are still the primary content and still render underneath.
-    expect(
-      queue?.children[2]?.getAttribute("data-meta-exact-creative-row"),
+      queue?.children[1]?.getAttribute("data-meta-exact-creative-row"),
     ).toBe("creative-a");
+    // Source diagnostics remain available after the primary decision rows.
+    expect(
+      queue?.children[2]?.hasAttribute("data-meta-exact-source-provenance"),
+    ).toBe(true);
 
     // Every one of these is the server's own string. None is gated on the queue.
     expect(
@@ -1374,7 +1375,7 @@ describe("the Structures scope states the envelope its actions answer to", () =>
     };
   }
 
-  it("renders the same panel above the structure lanes, folded", () => {
+  it("keeps the same folded panel after the structure decisions", () => {
     const viewModel = exactViewModel();
     viewModel.structureProvenance = structureProvenanceModel();
 
@@ -1388,13 +1389,13 @@ describe("the Structures scope states the envelope its actions answer to", () =>
     const queue = document.querySelector(
       "[data-meta-exact-workspace]",
     )?.firstElementChild;
-    const panel = queue?.children[0];
+    const laneBody = queue?.children[0];
+    const panel = queue?.children[1];
     expect(panel?.getAttribute("data-meta-exact-source-scope")).toBe(
       "structure",
     );
-    // The rows are still the primary content and still render underneath, now
-    // inside the lane body that carries the collection the design names.
-    const laneBody = queue?.children[1];
+    // The rows are the primary content and render before the supporting source
+    // envelope, inside the lane body that carries the named collection.
     expect(laneBody?.getAttribute("data-collection")).toBe("decisions");
     expect(
       laneBody?.firstElementChild?.getAttribute("data-meta-exact-action-row"),

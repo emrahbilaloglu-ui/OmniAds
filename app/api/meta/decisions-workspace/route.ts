@@ -1373,48 +1373,50 @@ export async function GET(request: NextRequest) {
       now: requestEvaluatedAt,
     });
 
-  const explicitEndDate = request.nextUrl.searchParams.get("endDate");
-  const loadResolvedEndDate = () =>
+  /**
+   * The shell's date range scopes metrics only. It must never pin the current
+   * decision inventory to the last metric day: the latest complete native
+   * generation is commonly produced the following day (for example, a Sep 4
+   * generation over facts finalized through Sep 3). Passing `explicitEndDate`
+   * here made the normal shell URL suppress that healthy generation and serve
+   * an older, sometimes invalid, manifest while claiming that the range did
+   * not affect decisions.
+   *
+   * Keep the metric end date as the upstream window below, and resolve the
+   * decision as-of independently from persisted decision evidence (D090).
+   */
+  const loadResolvedDecisionAsOf = () =>
     resolveWorkspaceEndDate({
       businessId,
       providerAccountId,
-      explicitEndDate,
+      explicitEndDate: null,
     });
-  const resolvedEndDate =
-    process.env.VITEST === "true" ||
-    process.env.NODE_ENV === "test" ||
-    Boolean(explicitEndDate?.trim())
-      ? await loadResolvedEndDate()
+  const decisionAsOfDate =
+    process.env.VITEST === "true" || process.env.NODE_ENV === "test"
+      ? await loadResolvedDecisionAsOf()
       : (
           await getCachedValue({
-            key: `meta-decisions-end-date-v2:${businessId}:${providerAccountId ?? "none"}`,
+            key: `meta-decisions-as-of-v3:${businessId}:${providerAccountId ?? "none"}`,
             ttlMs: 5 * 60_000,
             staleWhileRevalidateMs: 60 * 60_000,
-            loader: loadResolvedEndDate,
+            loader: loadResolvedDecisionAsOf,
           })
         ).value;
   const endDateResolvedAt = performance.now();
-  const params = workspaceParams(request.nextUrl.searchParams, resolvedEndDate);
-  /**
-   * The last day of the window that was actually resolved above — the one both
-   * upstreams are being handed.
-   *
-   * The decision read model used `resolvedEndDate` directly, which is only the
-   * *fallback* anchor. Whenever the resolved window ended on a different day
-   * (a caller stating a start date with no end), the lanes were classified for
-   * one window while the decisions behind them were read as of another. Read
-   * the served value back off `params` so there is exactly one answer to "which
-   * day is this?" on this request.
-   */
-  const servedEndDate = params.get("endDate") ?? resolvedEndDate;
-  // A dated view keeps the persisted snapshot's historical target provenance,
-  // but serve-time action authority must always be revalidated against current
+  // Direct API callers without dates get the same completed-day metric window
+  // as the shell. A current-day decision may still be served over it.
+  const metricsEndDate =
+    statedIsoDate(request.nextUrl.searchParams, "endDate") ?? previousUtcDate();
+  const params = workspaceParams(request.nextUrl.searchParams, metricsEndDate);
+  // The metric window and current decision date are deliberately independent.
+  // Serve-time action authority is always revalidated against current
   // commercial truth (D045).
   const commercialTargetsPromise = readMetaCommercialTargets(businessId)
     .then((targets) => ({ targets, readFailed: false as const }))
     .catch(() => ({ targets: null, readFailed: true as const }));
   /**
-   * The canonical account decision profile, resolved as of the served day.
+   * The canonical account decision profile, resolved as of the current
+   * decision generation rather than the metric window's final day.
    *
    * This is the SOLE authority for the commercial-anchor explanation the
    * Decision Center serves: the surface must show what the engine actually
@@ -1427,7 +1429,7 @@ export async function GET(request: NextRequest) {
     try {
       const profile = await resolveAccountDecisionProfile({
         businessId,
-        asOf: servedEndDate,
+        asOf: decisionAsOfDate,
         dataSource: new WarehouseDataSource(),
         flags: await resolveEngineV3Flags(businessId),
       });
@@ -1447,7 +1449,7 @@ export async function GET(request: NextRequest) {
     process.env.VITEST === "true" || process.env.NODE_ENV === "test"
       ? loadCommercialAnchorProfile()
       : getCachedValue({
-          key: `meta-decisions-anchor-profile-v1:${businessId}:${servedEndDate}`,
+          key: `meta-decisions-anchor-profile-v1:${businessId}:${decisionAsOfDate}`,
           ttlMs: 60_000,
           staleWhileRevalidateMs: 240_000,
           loader: loadCommercialAnchorProfile,
@@ -1467,7 +1469,7 @@ export async function GET(request: NextRequest) {
         businessId,
         providerAccountId,
         adCandidateLimit,
-        asOfDate: servedEndDate,
+        asOfDate: decisionAsOfDate,
         currentAds,
         activeOnly: compactOsSurface,
         generatedAt: requestGeneratedAt,
@@ -1477,7 +1479,7 @@ export async function GET(request: NextRequest) {
         ? await loadDecisionRead()
         : (
             await getCachedValue({
-              key: `meta-decisions-read-v7:${businessId}:${providerAccountId ?? "none"}:${servedEndDate}:${adCandidateLimit}:${compactOsSurface ? "active" : "full"}:${inputAdScopeKey(currentAds)}`,
+              key: `meta-decisions-read-v8:${businessId}:${providerAccountId ?? "none"}:${decisionAsOfDate}:${adCandidateLimit}:${compactOsSurface ? "active" : "full"}:${inputAdScopeKey(currentAds)}`,
               ttlMs: 60_000,
               staleWhileRevalidateMs: 240_000,
               loader: loadDecisionRead,
@@ -1536,14 +1538,14 @@ export async function GET(request: NextRequest) {
       readCurrentCampaignContexts({
         businessId,
         providerAccountId,
-        snapshotAsOf: servedEndDate,
+        snapshotAsOf: decisionAsOfDate,
         campaignIds: campaignContextIds,
       });
     const currentCampaignContextsPromise =
       process.env.VITEST === "true" || process.env.NODE_ENV === "test"
         ? loadCurrentCampaignContexts()
         : getCachedValue({
-            key: `meta-decisions-context-v1:${businessId}:${providerAccountId ?? "none"}:${servedEndDate}:${metaDecisionCampaignContextScopeKey(campaignContextIds)}`,
+            key: `meta-decisions-context-v1:${businessId}:${providerAccountId ?? "none"}:${decisionAsOfDate}:${metaDecisionCampaignContextScopeKey(campaignContextIds)}`,
             ttlMs: 60_000,
             staleWhileRevalidateMs: 240_000,
             loader: loadCurrentCampaignContexts,

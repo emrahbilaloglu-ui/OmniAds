@@ -8271,3 +8271,25 @@ six-business catch-up produced zero state-history growth. It does not supersede
 D077 compaction. Six GiB is a reversible operating bridge; a renewed
 full-manifest rewrite or exhaustion of the bounded delta headroom must refuse
 again and requires compaction, not another unmeasured increase.
+
+## D090 — Metric windows cannot pin the current decision generation
+
+Decision: the Decision Center resolves two dates independently. The shell's
+`startDate`/`endDate` pair continues to scope account-pulse and lane metrics to
+completed days. The canonical decision inventory, campaign-role context and
+account decision profile instead use the newest account-scoped persisted
+decision as-of date. A metric URL never becomes a historical-decision selector.
+
+Reason: the public contract and UI already state
+`metricsRangeAffectsDecisionSnapshot: false`, but the route passed the metric
+`endDate` into the canonical decision read. In production on 2026-09-04 this
+made the ordinary completed-day window end on 2026-09-03 and suppressed a
+healthy 2026-09-04 native generation (2,517 expected and hydrated Ads with
+matching manifest hashes), resurrecting the earlier invalid 2026-09-03
+manifest. The operator therefore saw 71 review-only legacy rows even though a
+valid current native inventory existed.
+
+Scope: this changes no decision math, threshold, role resolver, route name,
+provider write path or persisted row. Historical counterfactual simulation
+keeps its dedicated replay surfaces. Rollback is the route-only date binding
+revert; it would restore the known contradiction and is not data-destructive.

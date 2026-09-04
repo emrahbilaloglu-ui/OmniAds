@@ -1,5 +1,5 @@
 {
- "manifestHash": "57a62b7afc8622851bf5cb4b031412d5f897af1298fb99345a58e3f0bdf5edde",
+ "manifestHash": "4f83a0143f88a5a91ac23ae9718fcc12084576372b60fc4af48b273f666eb85d",
  "hashAlgorithm": "sha256",
  "hashBasis": "sha256 over UTF-8 bytes of JSON.stringify(artifact, null, 1) of the artifact WITHOUT its embedded hash fields (the artifact object before {<hashField>, hashAlgorithm, hashBasis} are prepended)",
  "contract": "adsecute.d077.release-candidate-manifest.v3",
@@ -346,13 +346,13 @@
    "path": "app/api/meta/decisions-workspace/route.test.ts",
    "git": "M",
    "class": "tests_only",
-   "sha256": "3be12014fe8a08bb9f7ca40a1766d199426286e2adba5618a1fa3fd1d4cf201e"
+   "sha256": "420e184ee9b01518e6ad8262c10b76cd52253152bec450ecda5444e96d28ad73"
   },
   {
    "path": "app/api/meta/decisions-workspace/route.ts",
    "git": "M",
    "class": "runtime",
-   "sha256": "21cc90f79af13cf9bf978d12827c8ee7af5495c5878b009e4599ab932fb41a81"
+   "sha256": "a15a086014096519cd43a3fc21eece516fdbee6af21eb3e6c0d15b11d866f1e2"
   },
   {
    "path": "app/api/meta/history/accounts/route.test.ts",
@@ -1294,7 +1294,7 @@
    "path": "docs/creative-decision-center/DECISION_LOG.md",
    "git": "M",
    "class": "docs",
-   "sha256": "4080e226b8f66a94e065a9749f83e35ad1cfd41612c786ce1fe1ee7f22d1888f"
+   "sha256": "125704951a3f86af45ff89da3e8ac313dbc7b815cdf04493e4f347f6dab95f9f"
   },
   {
    "path": "docs/creative-decision-center/generated/h11b-context-lifecycle-bundle-2026-07-13-to-2026-08-22.json",
@@ -1318,7 +1318,7 @@
    "path": "docs/creative-decision-center/GOLDEN_CASES.md",
    "git": "M",
    "class": "docs",
-   "sha256": "81598a5050fe82d90212e108d987193a052ec1e7df122dedebb707248abf5996"
+   "sha256": "d9460b8675d4f475875dfff5f65313390bc892e5d312584b71294920e01bf658"
   },
   {
    "path": "docs/creative-decision-center/H11_CAMPAIGN_CONTEXT_V2_POSTHOC_REGRESSION_2025-12-01_TO_2026-07-05.md",

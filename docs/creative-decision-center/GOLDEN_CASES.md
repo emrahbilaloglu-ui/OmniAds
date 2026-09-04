@@ -434,6 +434,7 @@ fixtures:
 | AR-013 | Business exists but has no `meta_automation_business_controls` row | keep the Decisions read available, serve `governance_unavailable` and a blocking banner; central write guard refuses before provider mutation | `automation-control-plane.test.ts`, `decisions-workspace/route.test.ts` |
 | AR-014 | Cached decision inventory crosses the 12-hour boundary between requests | recompute exact freshness on the request-specific cloned read model; cached source object remains unchanged and no action stays enabled | `decisions-workspace-read-model.test.ts` |
 | AR-015 | Exact native Cut is fresh and decision-authorized, but sync admission is blocked, durable sync is stale, warehouse cutoff lags, or the generation manifest is invalid | retain and render the decision evidence; serve blocking pipeline health and `source_pipeline_unready`; Creative Briefing, Launchpad, and the decision-origin write boundary offer or perform zero provider mutation | `decision-pipeline-health.test.ts`, `decisions-workspace/route.test.ts`, `meta-decision-center-exact-adapter.test.ts`, `decision-origin-action-preflight.test.ts` |
+| AR-016 | The metric picker ends on the latest completed fact day while a newer native decision generation exists | keep the stated dates for pulse/lane metrics; serve the newest account-scoped decision generation independently, so the metric window cannot resurrect an older invalid manifest | `decisions-workspace/route.test.ts` |
 
 ### D076 campaign-role resolver challenger guards (2026-08-29)
 

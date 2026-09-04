@@ -1,19 +1,19 @@
 {
- "manifestHash": "bc5dfc968d7779ba34e185bda19dc822929ac22d04349fdb73f9c8ad3ac47aa1",
+ "manifestHash": "2f93055ea6457a66c812b34a4e0a95955a30153ac710bbee11ae11430fd517d7",
  "hashAlgorithm": "sha256",
  "hashBasis": "sha256 over UTF-8 bytes of JSON.stringify(artifact, null, 1) of the artifact WITHOUT its embedded hash fields (the artifact object before {<hashField>, hashAlgorithm, hashBasis} are prepended)",
  "contract": "adsecute.d077.release-candidate-manifest.v3",
- "generatedAtUtc": "2026-09-04T17:52:33.304Z",
+ "generatedAtUtc": "2026-09-04T18:25:21.463Z",
  "branch": "codex/meta-disabled-readiness-20260829",
- "head": "c44775452c4c216228558727ca38946f03f44cec",
+ "head": "7bd9ba91613427703722ad8eb1b8f9269d7d6f1f",
  "baseMain": "babf158e150fd33057117b39b175da044ac62d2e",
  "originMain": "babf158e150fd33057117b39b175da044ac62d2e",
  "remoteDivergence": {
-  "aheadOfOriginMain": 1,
+  "aheadOfOriginMain": 2,
   "behindOriginMain": 0
  },
  "selfExclusion": "this manifest's own path (docs/audits/generated/d077-release-candidate-manifest-2026-08-30.json) is EXCLUDED from its entry list: a manifest cannot recursively pin its own final bytes; its external SHA-256 is reported in the final response and by Codex's own hashing",
- "gitPorcelainEntryCount": 1,
+ "gitPorcelainEntryCount": 2,
  "releaseDiffEntryCountIncludingSelf": 522,
  "expandedOnDiskCandidateFileCountIncludingSelf": 522,
  "pinnedNonSelfFileCount": 521,
@@ -646,13 +646,13 @@
    "path": "components/meta/decision-center/meta-decision-center-exact-adapter.test.ts",
    "git": "M",
    "class": "tests_only",
-   "sha256": "a3fb3df3ae621dc25d267e91e8051b4cee5d0206dd620bf96d7e73f2262dcd69"
+   "sha256": "275135f64d297d4a82d710279a7c3986df7ad474a6655ade43baa304c5a1ec49"
   },
   {
    "path": "components/meta/decision-center/meta-decision-center-exact-adapter.ts",
    "git": "M",
    "class": "runtime",
-   "sha256": "5bde29f3e5b1e11f716bc167fad939402f37b5b362e2e10c085de623088e1a7a"
+   "sha256": "05db1dbe374200a14946626ea92e7ff908b930654ba8c51de13979ba8a63c3ea"
   },
   {
    "path": "components/meta/decision-center/MetaDecisionCenterExact.module.css",

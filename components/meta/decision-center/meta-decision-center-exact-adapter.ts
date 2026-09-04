@@ -489,11 +489,19 @@ function entityName(recommendation: MetaRecommendation): string {
   );
 }
 
+function automaticRoleChip(recommendation: MetaRecommendation): string | null {
+  const context = recommendation.campaignContext;
+  if (!context) return null;
+  return context.source === "system_inferred" &&
+    context.trustedForAction === true &&
+    context.kind
+    ? `Auto · ${titleToken(context.kind)}`
+    : "Auto · Unresolved";
+}
+
 function structureChips(recommendation: MetaRecommendation): string[] {
   const candidates = [
-    recommendation.campaignContext?.kind
-      ? `Auto · ${titleToken(recommendation.campaignContext.kind)}`
-      : null,
+    automaticRoleChip(recommendation),
     nonBlank(recommendation.entityConfiguration?.status),
     nonBlank(recommendation.entityConfiguration?.optimizationGoal),
     nonBlank(recommendation.rowPresentation?.blockerLabel),
@@ -502,14 +510,6 @@ function structureChips(recommendation: MetaRecommendation): string[] {
   return candidates
     .filter((value): value is string => Boolean(value))
     .slice(0, 3);
-}
-
-function automaticRoleChip(recommendation: MetaRecommendation): string | null {
-  const context = recommendation.campaignContext;
-  if (!context) return null;
-  return context.source === "system_inferred" && context.kind
-    ? `Auto · ${titleToken(context.kind)}`
-    : "Auto · Unresolved";
 }
 
 /**

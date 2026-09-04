@@ -3015,6 +3015,66 @@ describe("served structure inventory", () => {
     expect(watchingModel.inspector?.entityName).toBe("Watching default");
   });
 
+  it("withholds an inferred role chip until the independent action-authority gate passes", () => {
+    const reviewOnly = metaRec({
+      id: "rec_role_review_only",
+      campaignId: "cmp_role_review_only",
+      campaignName: "Review-only role",
+      campaignContext: {
+        kind: "main",
+        source: "system_inferred",
+        confidence: "high",
+        trustedForAction: false,
+      },
+    });
+    const authoritative = metaRec({
+      id: "rec_role_authoritative",
+      campaignId: "cmp_role_authoritative",
+      campaignName: "Authoritative role",
+      campaignContext: {
+        kind: "main",
+        source: "system_inferred",
+        confidence: "high",
+        trustedForAction: true,
+      },
+    });
+    const workspace = workspaceFixture({
+      actionNow: [reviewOnly, authoritative],
+      os: fullOs({
+        nodes: [
+          structureNodeFixture({
+            id: "campaign:cmp_role_review_only",
+            sourceRecommendationId: reviewOnly.id,
+            providerEntityId: "cmp_role_review_only",
+            campaignId: "cmp_role_review_only",
+            campaignName: "Review-only role",
+            name: "Review-only role",
+            lane: "blocked",
+          }),
+          structureNodeFixture({
+            id: "campaign:cmp_role_authoritative",
+            sourceRecommendationId: authoritative.id,
+            providerEntityId: "cmp_role_authoritative",
+            campaignId: "cmp_role_authoritative",
+            campaignName: "Authoritative role",
+            name: "Authoritative role",
+            lane: "blocked",
+          }),
+        ],
+      }),
+    });
+
+    const model = buildMetaDecisionCenterExactViewModel({ workspace });
+
+    expect(
+      model.needsResolutionRows?.find((row) => row.id === reviewOnly.id)?.chips,
+    ).toEqual(["Auto · Unresolved"]);
+    expect(
+      model.needsResolutionRows?.find((row) => row.id === authoritative.id)
+        ?.chips,
+    ).toEqual(["Auto · Main"]);
+  });
+
   it("does not count recommendation-free Monitor inventory as watched decisions", () => {
     const recommendation = metaRec({
       id: "watching_recommendation",

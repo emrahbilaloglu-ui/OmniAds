@@ -95,6 +95,35 @@ describe("the panel states what the verdict was measured over", () => {
   });
 });
 
+describe("the panel keeps long safety evidence readable", () => {
+  it("shows the first blocker and collapses the remaining exact checks", () => {
+    render(
+      <MetaDecisionCenterExact
+        viewModel={viewModel({
+          entityName: "Prospecting",
+          blockers:
+            "Snapshot is stale · Commercial target is missing · Executor is disabled",
+          blockerTone: "warning",
+        })}
+      />,
+    );
+
+    const blockerGroup = screen.getByText("Blockers").parentElement;
+    const primary = blockerGroup?.querySelector("p:nth-of-type(2)");
+    const details = blockerGroup?.querySelector(
+      "details",
+    ) as HTMLDetailsElement | null;
+    expect(primary?.textContent).toBe("Snapshot is stale");
+    expect(details?.open).toBe(false);
+    expect(details?.querySelector("summary")?.textContent).toBe(
+      "Show 2 additional safety checks",
+    );
+    expect(details?.querySelectorAll("li")).toHaveLength(2);
+    expect(details?.textContent).toContain("Commercial target is missing");
+    expect(details?.textContent).toContain("Executor is disabled");
+  });
+});
+
 describe("the panel can be put away", () => {
   it("offers no close control when the caller supplies no handler", () => {
     render(<MetaDecisionCenterExact viewModel={viewModel({ entityName: "X" })} />);

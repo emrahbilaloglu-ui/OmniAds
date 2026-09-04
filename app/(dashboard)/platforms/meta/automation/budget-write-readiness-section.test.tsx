@@ -88,8 +88,10 @@ describe("D087 — the budget write panel is truthful and unpressable", () => {
     expect(html).toContain("automation_disabled");
     // ...and the activation verdict's own named conditions.
     expect(html).toContain('data-field="activation-ready-blockers"');
-    expect(html).toContain("global_gate_closed");
-    expect(html).toContain("budget_mode_not_auto");
+    expect(html).toContain('data-blocker-code="global_gate_closed"');
+    expect(html).toContain("The production live-write capability is still closed.");
+    expect(html).toContain('data-blocker-code="budget_mode_not_auto"');
+    expect(html).toContain("Set Budget to Tier 3 — Auto-execute.");
   });
 
   it("offers no DISPATCH affordance; its controls change a CONTROL ROW, not a budget", () => {

@@ -163,6 +163,8 @@ export interface MetaDecisionCenterExactNeedsResolutionRowViewModel {
   decisionTone?: MetaDecisionCenterExactTone;
   /** Why this row cannot move, in the server's words. */
   blocker?: MetaDecisionCenterExactDisplayValue;
+  /** Exact number of server-owned readiness checks still open. */
+  blockerCount?: number | null;
   blockerTone?: MetaDecisionCenterExactTone;
   /** The server's next step, when it stated one. */
   resolution?: MetaDecisionCenterExactDisplayValue;
@@ -1604,6 +1606,7 @@ function NeedsResolutionLane({
   onLoadMore?: () => void;
 }) {
   const copy = useCopy();
+  const language = useZeroBaseLanguage();
   const page = rows.slice(0, shown);
   if (rows.length === 0) {
     return (
@@ -1663,12 +1666,21 @@ function NeedsResolutionLane({
             lane: the row is here because `node.lane === "blocked"`, and the
             operator's next question is what is holding it.
           */}
-          <span
-            className={`${styles.blockerChip} ${toneClass(row.blockerTone ?? "warning")}`}
-            data-el="blocker-chip"
-          >
-            {display(row.blocker)}
-          </span>
+          <div className={styles.blockerSummary}>
+            <span
+              className={`${styles.blockerChip} ${toneClass(row.blockerTone ?? "warning")}`}
+              data-el="blocker-chip"
+            >
+              {display(row.blocker)}
+            </span>
+            {typeof row.blockerCount === "number" && row.blockerCount > 1 ? (
+              <span className={styles.blockerCount}>
+                {language === "tr"
+                  ? `${row.blockerCount} güvenlik kontrolü açık · tüm ayrıntılar için kanıtı aç`
+                  : `${row.blockerCount} safety checks open · open evidence for full details`}
+              </span>
+            ) : null}
+          </div>
           {meaningfulDisplay(row.resolution) ? (
             <p
               className={styles.needsResolutionStep}
@@ -2589,6 +2601,7 @@ function EvidenceInspector({
   onClose?: () => void;
 }) {
   const copy = useCopy();
+  const language = useZeroBaseLanguage();
   const reasons = (model?.reasons ?? []).filter(meaningfulDisplay);
   const evidence = (model?.evidence ?? []).filter(
     (item) => meaningfulDisplay(item.label) && meaningfulDisplay(item.value),
@@ -2598,6 +2611,12 @@ function EvidenceInspector({
   const hasTargetComparison = meaningfulDisplay(model?.targetComparison);
   const hasMoneyDetail = meaningfulDisplay(model?.moneyDetail);
   const hasBlockers = meaningfulDisplay(model?.blockers);
+  const blockerItems = hasBlockers
+    ? display(model?.blockers)
+        .split(" · ")
+        .map((item) => item.trim())
+        .filter(Boolean)
+    : [];
   const hasAdvisories = meaningfulDisplay(model?.advisories);
   const hasProvenance = meaningfulDisplay(model?.provenance);
   /*
@@ -2720,8 +2739,22 @@ function EvidenceInspector({
             <p
               className={`${styles.blockersCopy} ${toneClass(model?.blockerTone)}`}
             >
-              {display(model?.blockers)}
+              {blockerItems[0]}
             </p>
+            {blockerItems.length > 1 ? (
+              <details className={styles.inspectorBlockerDetails}>
+                <summary>
+                  {language === "tr"
+                    ? `${blockerItems.length - 1} ek güvenlik kontrolünü göster`
+                    : `Show ${blockerItems.length - 1} additional safety checks`}
+                </summary>
+                <ul>
+                  {blockerItems.slice(1).map((blocker, index) => (
+                    <li key={`inspector-blocker-${index}`}>{blocker}</li>
+                  ))}
+                </ul>
+              </details>
+            ) : null}
           </div>
         ) : null}
         {hasAdvisories ? (
@@ -3113,15 +3146,15 @@ export function MetaDecisionCenterExact({
         </div>
       </div>
 
-      <ExactKpiBand
-        kpis={viewModel.kpis}
-        activeWindow={activeWindow ?? EM_DASH}
-      />
-
       <OperatorDecisionSummary
         counts={counts}
         onSelectLane={selectLane}
         onSelectScope={selectScope}
+      />
+
+      <ExactKpiBand
+        kpis={viewModel.kpis}
+        activeWindow={activeWindow ?? EM_DASH}
       />
 
       <div className={styles.scopeRow}>

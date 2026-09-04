@@ -268,20 +268,20 @@ describe("MetaDecisionCenterExact canonical desktop anatomy", () => {
   it("renders the header, five KPI cards, scope, six lanes, queue and inspector in exact order", () => {
     renderExact();
 
-    // Header, KPI band, operator summary, scope row, lane toolbar, the advisory
+    // Header, operator summary, KPI band, scope row, lane toolbar, the advisory
     // inactive-assets strip, then the workspace.
     expect(root().children).toHaveLength(7);
     expect(root().children[0]?.textContent).toContain("Decision Center");
-    expect(root().children[1]?.getAttribute("data-meta-exact-section")).toBe(
-      "kpis",
-    );
-    expect(root().children[1]?.children).toHaveLength(5);
     expect(
-      root().children[2]?.hasAttribute("data-meta-exact-operator-summary"),
+      root().children[1]?.hasAttribute("data-meta-exact-operator-summary"),
     ).toBe(true);
-    expect(root().children[2]?.textContent).toContain(
+    expect(root().children[1]?.textContent).toContain(
       "What Adsecute recommends now",
     );
+    expect(root().children[2]?.getAttribute("data-meta-exact-section")).toBe(
+      "kpis",
+    );
+    expect(root().children[2]?.children).toHaveLength(5);
     expect(root().children[3]?.textContent).toContain("Campaigns & Ad sets");
     expect(
       root().children[4]?.hasAttribute("data-meta-exact-lane-toolbar"),

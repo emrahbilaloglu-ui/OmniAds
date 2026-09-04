@@ -48,7 +48,10 @@ import {
 } from "./viewer-envelope";
 import type { StateHistoryCompactionReadiness } from "@/lib/meta/state-history-compaction-readiness";
 import type { BudgetWriteReadinessModel } from "@/lib/meta/budget-write-readiness";
-import { BUDGET_ACTIVATION_CONFIRMATION_PHRASE } from "@/lib/meta/budget-activation";
+import {
+  BUDGET_ACTIVATION_CONFIRMATION_PHRASE,
+  type BudgetActivationCondition,
+} from "@/lib/meta/budget-activation";
 import {
   parseBudgetAutomationConfig,
   type BudgetAutomationConfigInput,
@@ -155,6 +158,47 @@ const MODE_SEGMENT_LABELS: Record<MetaAutomationDecisionMode, string> = {
   manual: "Tier 1",
   semi_auto: "Tier 2",
   auto: "Tier 3",
+};
+
+const ACTIVATION_BLOCKER_LABELS: Record<BudgetActivationCondition, string> = {
+  control_row_absent: "Save this business's automation guardrails.",
+  global_gate_closed: "The production live-write capability is still closed.",
+  business_stop_engaged: "Release the business emergency stop.",
+  budget_mode_not_auto: "Set Budget to Tier 3 — Auto-execute.",
+  dry_run_guardrail_engaged: "Turn off dry-run-only in the saved guardrails.",
+  canonical_fact_retention_not_ready:
+    "Historical canonical-decision retention is not yet proven.",
+  profile_retention_not_ready:
+    "Performance-profile retention is not yet proven.",
+  automatic_role_retention_not_ready:
+    "Automatic campaign-role history is not yet proven.",
+  account_scope_not_exact: "Select and verify exactly one Meta ad account.",
+  journal_schema_not_ready: "The execution journal is not ready.",
+  unresolved_reconciliation: "Resolve the in-progress provider reconciliation.",
+  open_claim: "Wait for or clear the open execution claim.",
+};
+
+function activationBlockerLabel(code: string): string {
+  if (code === "enabling_actor_absent") {
+    return "The enabling admin no longer has active authority.";
+  }
+  return (
+    ACTIVATION_BLOCKER_LABELS[code as BudgetActivationCondition] ??
+    code.replaceAll("_", " ").replace(/^./, (letter) => letter.toUpperCase())
+  );
+}
+
+const PREPARATION_FIELD_LABELS: Record<
+  (typeof BUDGET_PREPARATION_FIELDS)[number],
+  string
+> = {
+  dryRunOnly: "dry-run choice",
+  budgetMinHoursBetweenChanges: "minimum hours between changes",
+  budgetMaxChangesPer7d: "maximum changes per 7 days",
+  budgetMaxAccountConcentrationPct: "maximum account concentration",
+  maxBudgetIncreasePct: "maximum single increase",
+  perActionSpendCeilingMinor: "per-action spend ceiling",
+  perActionSpendCeilingCurrency: "spend-ceiling currency",
 };
 
 /**
@@ -1458,6 +1502,14 @@ export function MetaAutomationView({
                   ? "The business master switch is on. Every action still has to pass its decision-type tier, guardrails, live preflight and provider read-back."
                   : "The server could not prove whether automatic execution is on or off. Writes remain fail-closed until the control state can be read."}
             </p>
+            {budgetWriteReadiness ? (
+              <a
+                className={styles.operatingStateLink}
+                href="#automatic-execution-control"
+              >
+                Review setup and execution controls
+              </a>
+            ) : null}
           </div>
           <dl>
             <div>
@@ -3621,6 +3673,7 @@ export function BudgetWriteReadinessSection({
   if (!readiness) {
     return (
       <article
+        id="automatic-execution-control"
         data-testid="budget-write-readiness-unavailable"
         data-display-only="true"
         style={{
@@ -3631,7 +3684,7 @@ export function BudgetWriteReadinessSection({
         }}
       >
         <h3 style={{ margin: 0, fontSize: 14 }}>
-          Automatic execution — master switch (budget writes)
+          Automatic execution — master switch
         </h3>
         <p style={{ margin: "6px 0 0" }}>
           Automatic-execution state unavailable. Unavailable is not
@@ -3666,6 +3719,7 @@ export function BudgetWriteReadinessSection({
     && execution.activatedProviderAccountId === readiness.providerAccountId;
   return (
     <article
+      id="automatic-execution-control"
       data-testid="budget-write-readiness"
       data-display-only="true"
       data-execution-enabled={String(execution.executionEnabled)}
@@ -3678,7 +3732,7 @@ export function BudgetWriteReadinessSection({
       }}
     >
       <h3 style={{ margin: 0, fontSize: 14 }}>
-        Automatic execution — master switch (budget writes)
+        Automatic execution — master switch
       </h3>
       {/*
         PRE-DEPLOY AUDIT: say what this control actually flips.
@@ -3841,10 +3895,14 @@ export function BudgetWriteReadinessSection({
         </p>
       )}
 
-      <p style={{ margin: "8px 0 0" }} data-field="preflight-blockers">
+      <p
+        style={{ margin: "8px 0 0" }}
+        data-field="preflight-blockers"
+        data-blockers={execution.preflightBlockers.join(",")}
+      >
         {execution.preflightBlockers.length === 0
-          ? "none"
-          : execution.preflightBlockers.join("; ")}
+          ? "No proposal safety blockers are reported."
+          : execution.preflightBlockers.map(activationBlockerLabel).join("; ")}
       </p>
       {/*
         PRE-DEPLOY AUDIT — the controls exist only for a viewer who may use them.
@@ -3975,11 +4033,24 @@ export function BudgetWriteReadinessSection({
           {activationMessage}
         </p>
       ) : null}
-      <p style={{ margin: "8px 0 0" }} data-field="activation-ready-blockers">
-        {execution.activationReadyBlockers.length === 0
-          ? "none"
-          : execution.activationReadyBlockers.join("; ")}
-      </p>
+      <div style={{ margin: "8px 0 0" }} data-field="activation-ready-blockers">
+        {execution.activationReadyBlockers.length === 0 ? (
+          <p style={{ margin: 0 }}>All activation requirements are satisfied.</p>
+        ) : (
+          <details>
+            <summary>
+              Show {execution.activationReadyBlockers.length} activation requirements
+            </summary>
+            <ul style={{ margin: "6px 0 0", paddingLeft: 18 }}>
+              {execution.activationReadyBlockers.map((blocker) => (
+                <li key={blocker} data-blocker-code={blocker}>
+                  {activationBlockerLabel(blocker)}
+                </li>
+              ))}
+            </ul>
+          </details>
+        )}
+      </div>
       <ul style={{ margin: "6px 0 0", paddingLeft: 18 }} data-field="activation-blockers">
         {execution.activationBlockers.map((blocker) => (
           <li key={blocker.code} data-blocker={blocker.code}>
@@ -4173,6 +4244,12 @@ function BudgetPreparationForm({
   };
   const parsed = parseBudgetAutomationConfig(candidate);
   const missing = preparation ? unpreparedFields(preparation) : [];
+  const missingLabels = missing.map(
+    (key) =>
+      PREPARATION_FIELD_LABELS[
+        key as (typeof BUDGET_PREPARATION_FIELDS)[number]
+      ] ?? key,
+  );
   const saveEnabled = parsed.ok && !busy && !fieldsLocked;
 
   const submit = async () => {
@@ -4278,7 +4355,7 @@ function BudgetPreparationForm({
           data-missing={missing.join(",")}
           style={{ margin: "6px 0 0", fontSize: 12 }}
         >
-          Not yet prepared: {missing.join(", ")}. Activation readiness cannot be
+          Not yet prepared: {missingLabels.join(", ")}. Activation readiness cannot be
           satisfied until each carries a value.
         </p>
       ) : null}
@@ -4382,7 +4459,9 @@ function BudgetPreparationForm({
           data-rejection={parsed.rejection}
           style={{ margin: "8px 0 0", fontSize: 12 }}
         >
-          {parsed.rejection}: {parsed.message}
+          {parsed.rejection === "dry_run_only_not_boolean"
+            ? "Choose whether this setup should remain dry-run only."
+            : parsed.message}
         </p>
       ) : null}
 

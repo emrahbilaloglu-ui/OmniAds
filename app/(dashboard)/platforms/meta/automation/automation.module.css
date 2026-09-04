@@ -184,6 +184,19 @@
   line-height: 1.55;
 }
 
+.operatingStateLink {
+  display: inline-flex;
+  margin-top: 12px;
+  color: #244fbd;
+  font-size: 13px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.operatingStateLink:hover {
+  text-decoration: underline;
+}
+
 .operatingState dl {
   display: grid;
   gap: 0;

@@ -1440,6 +1440,27 @@
   font-weight: 600;
 }
 
+.inspectorBlockerDetails {
+  margin-top: 8px;
+  color: #555d6d;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.inspectorBlockerDetails summary {
+  width: fit-content;
+  cursor: pointer;
+  color: #2a5fe2;
+  font-weight: 600;
+}
+
+.inspectorBlockerDetails ul {
+  display: grid;
+  gap: 5px;
+  margin: 8px 0 0;
+  padding-left: 18px;
+}
+
 .evidenceRow {
   display: flex;
   align-items: center;
@@ -2018,6 +2039,13 @@
   flex-wrap: wrap;
 }
 
+.blockerSummary {
+  display: grid;
+  min-width: min(100%, 260px);
+  max-width: 430px;
+  gap: 4px;
+}
+
 .blockerChip {
   display: inline-flex;
   align-items: center;
@@ -2030,6 +2058,12 @@
   font-size: 12px;
   font-weight: 600;
   line-height: 18px;
+}
+
+.blockerCount {
+  color: #68707f;
+  font-size: 12px;
+  line-height: 16px;
 }
 
 .needsResolutionStep {

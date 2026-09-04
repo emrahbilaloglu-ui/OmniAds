@@ -140,6 +140,24 @@ export function buildBudgetWriteReadiness(
     activatedProviderAccountId: input.runtime?.activatedProviderAccountId ?? null,
   };
 
+  /*
+    `null` is the normal read-only surface state: no persisted proposal is
+    waiting to be previewed. It is not a malformed request. Treating it as one
+    leaked the request parser's `request_not_an_object` diagnostic into the
+    operator UI even though nobody had submitted a request.
+  */
+  if (input.candidate === null || input.candidate === undefined) {
+    return {
+      contract: BUDGET_WRITE_READINESS_CONTRACT,
+      businessId: input.businessId,
+      providerAccountId: input.providerAccountId,
+      proposal: null,
+      execution,
+      unavailableReason: "No budget proposal is currently awaiting execution.",
+      preparation: input.preparation ?? null,
+    };
+  }
+
   const parsed = parseBudgetWriteRequest(input.candidate);
   if (!parsed.ok) {
     return {

@@ -59,11 +59,11 @@ describe("the scope counters count their scope", () => {
   it("splits the counters over the served arrays, never the filtered overrides", () => {
     // `overrides.actionNow` is the page's search/level-filtered array. If the
     // counters were split over it, every keystroke would shrink the account.
-    expect(ADAPTER).toContain(
-      "const servedActionSplit = splitByServerLane(workspace.lanes.actionNow, nodes);",
+    expect(ADAPTER).toMatch(
+      /const servedActionSplit\s*=\s*splitByServerLane\(\s*workspace\.lanes\.actionNow,\s*nodes,?\s*\);/,
     );
-    expect(ADAPTER).toContain(
-      "const servedWatchingSplit = splitByServerLane(workspace.lanes.watching, nodes);",
+    expect(ADAPTER).toMatch(
+      /const servedWatchingSplit\s*=\s*splitByServerLane\(\s*workspace\.lanes\.watching,\s*nodes,?\s*\);/,
     );
   });
 });

@@ -710,7 +710,9 @@ function actionRows(input: {
        * text.
        */
       staleDemoted: (node?.confidence ?? recommendation.confidence) === "low",
-      staleDemotedReason: nonBlank(recommendation.confidenceReason),
+      staleDemotedReason: nonBlank(recommendation.confidenceReason)
+        ? operatorFactLabel(recommendation.confidenceReason!)
+        : null,
       ...(node && input.callbacks.onStructurePrimary
         ? {
             onPrimary: () =>
@@ -837,11 +839,11 @@ function needsResolutionRows(input: {
             EM_DASH),
       decisionTone: decisionTone(recommendation.decisionLabel),
       blocker:
-        blockerParts.length > 0
-          ? blockerParts.map(operatorFactLabel).join(" · ")
-          : // The node's own assessment is the server's short form of the same
-            // fact ("Decision Blocked"); `whyNow` carries the long one.
-            (nonBlank(node?.assessment) ?? "Authority withheld"),
+        nonBlank(readiness?.reason) ??
+        // The node's own assessment is the server's short form of the same
+        // fact ("Decision Blocked"); `whyNow` carries the long one.
+        (nonBlank(node?.assessment) ?? "Authority withheld"),
+      blockerCount: blockerParts.length,
       blockerTone: "warning",
       resolution:
         nonBlank(node?.action?.scopeNote) ??
@@ -852,7 +854,9 @@ function needsResolutionRows(input: {
       confidence: titleToken(confidence),
       confidenceTone: confidenceTone(confidence),
       staleDemoted: confidence === "low",
-      staleDemotedReason: nonBlank(recommendation.confidenceReason),
+      staleDemotedReason: nonBlank(recommendation.confidenceReason)
+        ? operatorFactLabel(recommendation.confidenceReason!)
+        : null,
       ...(input.callbacks.onStructureMenu
         ? { onOpen: () => input.callbacks.onStructureMenu?.(recommendation) }
         : {}),

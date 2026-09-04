@@ -2459,10 +2459,20 @@ function SourceProvenancePanel({
   );
 }
 
+function creativeGroupIdForLane(
+  lane: MetaDecisionCenterExactLane,
+): "act" | "blocked" | "monitor" | null {
+  if (lane === "action") return "act";
+  if (lane === "needsres") return "blocked";
+  if (lane === "watching") return "monitor";
+  return null;
+}
+
 function CreativesScope({
   posture,
   decisions,
   groups,
+  lane,
   provenance,
   notice,
   footnote,
@@ -2471,12 +2481,19 @@ function CreativesScope({
   posture: readonly MetaDecisionCenterExactCreativePostureViewModel[];
   decisions: readonly MetaDecisionCenterExactCreativeDecisionViewModel[];
   groups?: readonly MetaDecisionCenterExactCreativeGroupViewModel[];
+  lane: MetaDecisionCenterExactLane;
   provenance?: MetaDecisionCenterExactSourceProvenanceViewModel | null;
   notice?: MetaDecisionCenterExactDisplayValue;
   footnote?: MetaDecisionCenterExactDisplayValue;
   onOpenCreativeStudio?: () => void;
 }) {
+  const copy = useCopy();
   const servedGroups = (groups ?? []).filter((group) => group.rows.length > 0);
+  const selectedGroupId = creativeGroupIdForLane(lane);
+  const visibleGroups = selectedGroupId
+    ? servedGroups.filter((group) => group.id === selectedGroupId)
+    : servedGroups;
+  const hasGroupedDecisions = groups !== undefined;
   return (
     <>
       <div className={styles.postureGrid} data-meta-exact-creative-posture>
@@ -2497,32 +2514,36 @@ function CreativesScope({
         notice={notice}
         scope="creatives"
       />
-      {servedGroups.length > 0
-        ? servedGroups.map((group) => (
-            <section
-              className={styles.creativeGroup}
-              data-meta-exact-creative-group={group.id}
-              key={group.id}
-            >
-              <header className={styles.creativeGroupHeader}>
-                <span
-                  className={`${styles.creativeGroupLabel} ${toneClass(group.tone)}`}
-                >
-                  {display(group.label)}
-                </span>
-                <span className={styles.creativeGroupCount}>
-                  {display(group.count)}
-                </span>
-                <span className={styles.creativeGroupNote}>
-                  {display(group.note)}
-                </span>
-              </header>
-              {group.rows.map((row) => (
-                <CreativeCard key={row.id} row={row} />
-              ))}
-            </section>
-          ))
-        : decisions.map((row) => <CreativeCard key={row.id} row={row} />)}
+      {hasGroupedDecisions && visibleGroups.length === 0 ? (
+        <LaneEmpty lane={`creatives-${lane}`} reason={copy.laneServedNoRows} />
+      ) : hasGroupedDecisions ? (
+        visibleGroups.map((group) => (
+          <section
+            className={styles.creativeGroup}
+            data-meta-exact-creative-group={group.id}
+            key={group.id}
+          >
+            <header className={styles.creativeGroupHeader}>
+              <span
+                className={`${styles.creativeGroupLabel} ${toneClass(group.tone)}`}
+              >
+                {display(group.label)}
+              </span>
+              <span className={styles.creativeGroupCount}>
+                {display(group.count)}
+              </span>
+              <span className={styles.creativeGroupNote}>
+                {display(group.note)}
+              </span>
+            </header>
+            {group.rows.map((row) => (
+              <CreativeCard key={row.id} row={row} />
+            ))}
+          </section>
+        ))
+      ) : (
+        decisions.map((row) => <CreativeCard key={row.id} row={row} />)
+      )}
       <div className={styles.creativeFootnote}>
         <p data-meta-exact-creative-footnote>{display(footnote)}</p>
         <span {...controlProps(onOpenCreativeStudio)}>
@@ -3817,6 +3838,7 @@ export function MetaDecisionCenterExact({
               decisions={viewModel.creativeDecisions ?? []}
               footnote={viewModel.creativeFootnote}
               groups={viewModel.creativeGroups}
+              lane={activeLane}
               notice={viewModel.creativesNotice}
               onOpenCreativeStudio={onOpenCreativeStudio}
               posture={viewModel.creativePosture ?? []}

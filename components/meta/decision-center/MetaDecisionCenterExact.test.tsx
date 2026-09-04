@@ -875,7 +875,8 @@ describe("MetaDecisionCenterExact branches and callbacks", () => {
   it("splits the creative queue by the served state and prints each group's counts", () => {
     render(
       <MetaDecisionCenterExact
-        defaultScope="creatives"
+        lane="needsres"
+        scope="creatives"
         viewModel={{
           creativeGroups: [
             {
@@ -920,7 +921,7 @@ describe("MetaDecisionCenterExact branches and callbacks", () => {
       Array.from(
         document.querySelectorAll("[data-meta-exact-creative-group]"),
       ).map((node) => node.getAttribute("data-meta-exact-creative-group")),
-    ).toEqual(["blocked", "monitor"]);
+    ).toEqual(["blocked"]);
     expect(screen.getByText("2 shown · 80 served")).toBeTruthy();
     expect(
       document
@@ -930,12 +931,11 @@ describe("MetaDecisionCenterExact branches and callbacks", () => {
     expect(
       screen.getByText("Exact Ad-grain decision evidence is unavailable"),
     ).toBeTruthy();
-    // No callback was served for either row, so neither review control is
+    // No callback was served for the row, so its review control is not
     // live. The SERVED action label still renders — it is decision
     // information, and moving it off the button did not withhold it.
     for (const [rowId, servedAction] of [
       ["row-blocked", "Evidence pending"],
-      ["row-monitor", "Watch"],
     ] as const) {
       const row = document.querySelector(
         `[data-meta-exact-creative-row="${rowId}"]`,
@@ -950,6 +950,57 @@ describe("MetaDecisionCenterExact branches and callbacks", () => {
       expect(review?.textContent).toBe("Review evidence");
       expect(review?.disabled).toBe(true);
     }
+  });
+
+  it("filters each creative summary route to its matching served state", () => {
+    const viewModel: MetaDecisionCenterExactViewModel = {
+      creativeGroups: [
+        {
+          id: "act",
+          label: "Act",
+          rows: [{ id: "act-row", name: "Act row" }],
+        },
+        {
+          id: "blocked",
+          label: "Blocked",
+          rows: [{ id: "blocked-row", name: "Blocked row" }],
+        },
+        {
+          id: "monitor",
+          label: "Monitor",
+          rows: [{ id: "monitor-row", name: "Monitor row" }],
+        },
+      ],
+    };
+    const rendered = render(
+      <MetaDecisionCenterExact
+        lane="action"
+        scope="creatives"
+        viewModel={viewModel}
+      />,
+    );
+    const renderedGroups = () =>
+      Array.from(
+        document.querySelectorAll("[data-meta-exact-creative-group]"),
+      ).map((node) => node.getAttribute("data-meta-exact-creative-group"));
+
+    expect(renderedGroups()).toEqual(["act"]);
+    rendered.rerender(
+      <MetaDecisionCenterExact
+        lane="needsres"
+        scope="creatives"
+        viewModel={viewModel}
+      />,
+    );
+    expect(renderedGroups()).toEqual(["blocked"]);
+    rendered.rerender(
+      <MetaDecisionCenterExact
+        lane="watching"
+        scope="creatives"
+        viewModel={viewModel}
+      />,
+    );
+    expect(renderedGroups()).toEqual(["monitor"]);
   });
 
   // The window pills are gone. The shell topbar picker owns the window and

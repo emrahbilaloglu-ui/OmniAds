@@ -1,19 +1,19 @@
 {
- "manifestHash": "af53dd49f4c75cab85493b6887114f826d456a4ae80e2fe2993d83bd006b02d6",
+ "manifestHash": "adfa4853142c7d3c29ed143eafd2364fc008415ec911335f799bbbbeebc645cc",
  "hashAlgorithm": "sha256",
  "hashBasis": "sha256 over UTF-8 bytes of JSON.stringify(artifact, null, 1) of the artifact WITHOUT its embedded hash fields (the artifact object before {<hashField>, hashAlgorithm, hashBasis} are prepended)",
  "contract": "adsecute.d077.release-candidate-manifest.v3",
- "generatedAtUtc": "2026-09-04T10:56:47.074Z",
+ "generatedAtUtc": "2026-09-04T11:21:27.776Z",
  "branch": "codex/meta-disabled-readiness-20260829",
- "head": "cac442aa1af568f9db8fdd07870b9b594fed815f",
+ "head": "647a2ca6eff88aa05d96103de6651bf97d5e4c80",
  "baseMain": "babf158e150fd33057117b39b175da044ac62d2e",
  "originMain": "babf158e150fd33057117b39b175da044ac62d2e",
  "remoteDivergence": {
-  "aheadOfOriginMain": 5,
+  "aheadOfOriginMain": 6,
   "behindOriginMain": 0
  },
  "selfExclusion": "this manifest's own path (docs/audits/generated/d077-release-candidate-manifest-2026-08-30.json) is EXCLUDED from its entry list: a manifest cannot recursively pin its own final bytes; its external SHA-256 is reported in the final response and by Codex's own hashing",
- "gitPorcelainEntryCount": 1,
+ "gitPorcelainEntryCount": 4,
  "releaseDiffEntryCountIncludingSelf": 520,
  "expandedOnDiskCandidateFileCountIncludingSelf": 520,
  "pinnedNonSelfFileCount": 519,
@@ -262,13 +262,13 @@
    "path": "app/api/meta/account-pulse/route.test.ts",
    "git": "M",
    "class": "tests_only",
-   "sha256": "e98b328ed3b767a2babb9204a3e7b8c40de020891ad3f1035f373eee372a3924"
+   "sha256": "4698f627838dd6b582061905d7005d3bdbaf6084ae0bd18ea98919a1a9dae0d5"
   },
   {
    "path": "app/api/meta/account-pulse/route.ts",
    "git": "M",
    "class": "runtime",
-   "sha256": "ac6174890954e67784e7bd791aa55ffb172ac63cd7e413dac3a5a1380bfcfe3b"
+   "sha256": "28f49adae7dfdb3b11e7e532ec23cd3a93849de0e33a30cbb7d6b559a59cebd0"
   },
   {
    "path": "app/api/meta/automation/budget-activation-behaviour.test.ts",
@@ -664,13 +664,13 @@
    "path": "components/meta/decision-center/MetaDecisionCenterExact.test.tsx",
    "git": "M",
    "class": "tests_only",
-   "sha256": "3aa51926c77516edf64bdcaf4645ba3d9229654226d86ec5645f53689ac952be"
+   "sha256": "405bb99423bf4e721e043b00e76eaece1ad4681d444eeb84e71e7d6cb043885d"
   },
   {
    "path": "components/meta/decision-center/MetaDecisionCenterExact.tsx",
    "git": "M",
    "class": "runtime",
-   "sha256": "3ebfb8ad74b15bb821b7de77ae65c01cf46f3e9a0983f42ca27f84fe8ba82682"
+   "sha256": "e2b2b883e493e7c215ca3adf5434d7ec90863d5b0ad5c6ac7049185124ed72f5"
   },
   {
    "path": "components/meta/decision-center/needs-resolution-lane.test.ts",

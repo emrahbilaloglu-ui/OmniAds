@@ -1,19 +1,19 @@
 {
- "manifestHash": "caabc91a416d997479ecb08c1f2419c6c52a374ccf1d769b9670194f8f2a91dd",
+ "manifestHash": "bc5dfc968d7779ba34e185bda19dc822929ac22d04349fdb73f9c8ad3ac47aa1",
  "hashAlgorithm": "sha256",
  "hashBasis": "sha256 over UTF-8 bytes of JSON.stringify(artifact, null, 1) of the artifact WITHOUT its embedded hash fields (the artifact object before {<hashField>, hashAlgorithm, hashBasis} are prepended)",
  "contract": "adsecute.d077.release-candidate-manifest.v3",
- "generatedAtUtc": "2026-09-04T17:29:15.327Z",
+ "generatedAtUtc": "2026-09-04T17:52:33.304Z",
  "branch": "codex/meta-disabled-readiness-20260829",
- "head": "d0d66cfc1afe09eec656d91d1b661ab893a73f4b",
+ "head": "c44775452c4c216228558727ca38946f03f44cec",
  "baseMain": "babf158e150fd33057117b39b175da044ac62d2e",
  "originMain": "babf158e150fd33057117b39b175da044ac62d2e",
  "remoteDivergence": {
-  "aheadOfOriginMain": 0,
+  "aheadOfOriginMain": 1,
   "behindOriginMain": 0
  },
  "selfExclusion": "this manifest's own path (docs/audits/generated/d077-release-candidate-manifest-2026-08-30.json) is EXCLUDED from its entry list: a manifest cannot recursively pin its own final bytes; its external SHA-256 is reported in the final response and by Codex's own hashing",
- "gitPorcelainEntryCount": 11,
+ "gitPorcelainEntryCount": 1,
  "releaseDiffEntryCountIncludingSelf": 522,
  "expandedOnDiskCandidateFileCountIncludingSelf": 522,
  "pinnedNonSelfFileCount": 521,
@@ -634,7 +634,7 @@
    "path": "components/meta/decision-center/decision-payload-coverage.test.ts",
    "git": "M",
    "class": "tests_only",
-   "sha256": "bbe4b559e33321df179d3e4106487ba33cdd89905b2e05ddeb05daa269006878"
+   "sha256": "e5ae7a861d2502ce87823f32f151b942891b1a8786e12510278f9828e2262bca"
   },
   {
    "path": "components/meta/decision-center/inspector-evidence.test.tsx",

@@ -97,15 +97,29 @@ jobs:
           npm run creative:v2:safety
 
   d080_evidence:
-    name: d080-evidence
+    name: d080-evidence-${{ matrix.group }}
     runs-on: ubuntu-latest
     # The frozen-evidence verifier deliberately re-hashes a large package for
     # 372 adversarial tests. On the clean PR runner the file itself took 31m43s;
     # leaving it in a file-sharded worker concentrated that cost in one shard
-    # and caused the 45-minute job bound to cancel unrelated tests. Give this
-    # one measured workload its own bounded runner instead. It remains a single
-    # sequential test file and every assertion still runs exactly once.
+    # and caused the 45-minute job bound to cancel unrelated tests. Four named
+    # suite ranges split the measured verification load without splitting test
+    # bodies. A collection check proves their union is all 372 tests with no
+    # overlap; every assertion still runs exactly once.
     timeout-minutes: 50
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        include:
+          - group: c3-c4
+            pattern: '^(?:C3\.|C4\.|ownership, schema contract and units|the frozen artifact verifies itself)'
+          - group: c5
+            pattern: '^C5(?:\.| baseline)'
+          - group: c6
+            pattern: '^C6\.'
+          - group: c7-c10
+            pattern: '^(?:C7\.|C8\.|C9\.|C10\b)'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -121,7 +135,7 @@ jobs:
 
       - name: D080 frozen-evidence contract
         run: |
-          npm run test -- scripts/audits/d080-meta-budget-edit-evidence.test.ts --no-file-parallelism --maxWorkers=1
+          npm run test -- scripts/audits/d080-meta-budget-edit-evidence.test.ts --no-file-parallelism --maxWorkers=1 -t '${{ matrix.pattern }}'
 
   # Preserve one stable required check and one release dependency. This job is
   # green only when every matrix shard (including the safety gate on shard 1)

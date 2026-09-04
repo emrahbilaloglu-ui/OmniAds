@@ -95,7 +95,7 @@ const STATE_HISTORY_REFERENCE_LEDGER: ReadonlyArray<{
   // "live_rows census of meta_entity_state_history" names the table in its
   // refusal message — a diagnostic string, not a new reader.
   { file: "lib/meta/state-history-compaction.ts", category: "compaction-d077", count: 10 },
-  { file: "lib/meta/state-history-compaction-executor.ts", category: "compaction-d077", count: 6 },
+  { file: "lib/meta/state-history-compaction-executor.ts", category: "compaction-d077", count: 7 },
   { file: "lib/meta/briefing-filter.ts", category: "comment-only", count: 1 },
   { file: "lib/meta/current-evidence-gate.ts", category: "comment-only", count: 1 },
   { file: "lib/sync/staged-worker-predicate.ts", category: "comment-only", count: 1 },
@@ -138,6 +138,7 @@ const STATE_HISTORY_REFERENCE_LEDGER: ReadonlyArray<{
   { file: "lib/meta/decisions-os-presentation.test.ts", category: "test", count: 2 },
   { file: "lib/meta/decisions-workspace-read-model.test.ts", category: "test", count: 2 },
   { file: "lib/meta/history-external-change-levels.test.ts", category: "test", count: 3 },
+  { file: "lib/meta/__tests__/state-history-compaction-observation-order.test.ts", category: "test", count: 1 },
   // PRE-DEPLOY AUDIT 2026-09-03 — the provider-family collateral-admission
   // slice (installMetaTableOverBudget() fixture + its 4 dependent tests)
   // added 7 more literal references, 11 -> 18. All fixture/assertion

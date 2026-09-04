@@ -476,3 +476,19 @@ it (the `it.each` collateral-admission cases, the same-provider-still-refused
 case, the unknown-label-still-refused case, and the old-ambiguous-label-still-
 refused case). All are fixture data or assertion strings; none open a query or
 a database handle.
+
+## Addendum — 2026-09-04 D077 observation-order compaction correction
+
+`lib/meta/state-history-compaction-executor.ts` 6 → 7 — COMPACTION-D077
+
+The executor now checks that a predecessor run still has at least one physical
+state row before using it as a delta baseline. The added literal is the
+`EXISTS` query that performs that fail-closed check; it remains part of the
+already-classified D077 planner/executor family.
+
+`lib/meta/__tests__/state-history-compaction-observation-order.test.ts` (new,
+1) — TEST
+
+The regression fixture pins that predecessor-presence query while proving that
+capture order cannot erase distinct transitions observed in a different order.
+It opens no production connection.

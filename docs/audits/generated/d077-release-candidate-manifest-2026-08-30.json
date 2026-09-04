@@ -1,19 +1,19 @@
 {
- "manifestHash": "5426ecaafba891a890f5da87da1bf1b9281076c522816b407fe1caad35274a59",
+ "manifestHash": "9823c7779a18e7d8277730e835454089fc3abb4d3773f94773ee73171aa06ef6",
  "hashAlgorithm": "sha256",
  "hashBasis": "sha256 over UTF-8 bytes of JSON.stringify(artifact, null, 1) of the artifact WITHOUT its embedded hash fields (the artifact object before {<hashField>, hashAlgorithm, hashBasis} are prepended)",
  "contract": "adsecute.d077.release-candidate-manifest.v3",
- "generatedAtUtc": "2026-09-04T03:56:38.388Z",
+ "generatedAtUtc": "2026-09-04T04:06:04.394Z",
  "branch": "codex/meta-disabled-readiness-20260829",
- "head": "84ec7686d6a56e1687a37daefc4067ddffdcb5fd",
+ "head": "c5cd1550d6b38526dcd89ec7c90f190052992517",
  "baseMain": "babf158e150fd33057117b39b175da044ac62d2e",
  "originMain": "babf158e150fd33057117b39b175da044ac62d2e",
  "remoteDivergence": {
-  "aheadOfOriginMain": 10,
+  "aheadOfOriginMain": 11,
   "behindOriginMain": 0
  },
  "selfExclusion": "this manifest's own path (docs/audits/generated/d077-release-candidate-manifest-2026-08-30.json) is EXCLUDED from its entry list: a manifest cannot recursively pin its own final bytes; its external SHA-256 is reported in the final response and by Codex's own hashing",
- "gitPorcelainEntryCount": 9,
+ "gitPorcelainEntryCount": 2,
  "releaseDiffEntryCountIncludingSelf": 512,
  "expandedOnDiskCandidateFileCountIncludingSelf": 512,
  "pinnedNonSelfFileCount": 511,
@@ -760,7 +760,7 @@
    "path": "docs/audits/D075_STATE_HISTORY_CONSUMER_SWEEP_2026-08-30.md",
    "git": "A",
    "class": "docs",
-   "sha256": "d6842e6a2c677a9a1e098b16ff7af0ed1b15cb0743254b197048345699671502"
+   "sha256": "9c2957b169e75d73e542ee5f1b61db8931911fc879239bbe3b5d134d2e346cac"
   },
   {
    "path": "docs/audits/D077_PRODUCTION_RECOVERY_PREFLIGHT_2026-08-30.md",
@@ -1646,7 +1646,7 @@
   },
   {
    "path": "lib/meta/__tests__/state-history-compaction-observation-order.test.ts",
-   "git": "??",
+   "git": "A",
    "class": "tests_only",
    "sha256": "f871ccc94cfbd39a5b7d8182b39917f010785540d5ccdb1bcb293f7af27bca16"
   },
@@ -1666,7 +1666,7 @@
    "path": "lib/meta/__tests__/state-history-consumer-closure.test.ts",
    "git": "A",
    "class": "tests_only",
-   "sha256": "5ea297cbfd6e0deabf798b7f8894b37aff621eded1b9f57f27c3bb57f4359f73"
+   "sha256": "21b6226a076d8ac994fba407d40fc5ea0b96001b229e5d725c9049efb5a929e1"
   },
   {
    "path": "lib/meta/account-context.test.ts",

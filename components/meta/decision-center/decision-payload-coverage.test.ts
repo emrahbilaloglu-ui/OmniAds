@@ -4729,11 +4729,12 @@ describe("Meta Decision payload · every claim, proven against the running code"
     }
   // This hook probes 706 varying leaves across every served scenario and
   // renders the real adapters/page for each mutation. The clean two-core CI
-  // runner measured the completed hook at 358,465ms; the former 300s bound
-  // therefore reported a liveness failure after the work had already exceeded
-  // its limit, not an assertion failure. Keep a finite, measured 420s bound
-  // local to this hook; no probe or assertion is skipped.
-  }, 420_000);
+  // runner first measured the completed hook at 358,465ms, then a loaded
+  // 2026-09-04 runner completed its probe work in 484,342ms and hit the old
+  // 420s hook bound before assertions could run. That is a liveness failure,
+  // not an assertion failure. Keep a finite 600s bound local to this hook; no
+  // probe or assertion is skipped.
+  }, 600_000);
 
   it("builds a payload that carries every served field", () => {
     // The proof rests entirely on the fixture populating the field under test.

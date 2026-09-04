@@ -1,19 +1,19 @@
 {
- "manifestHash": "adfa4853142c7d3c29ed143eafd2364fc008415ec911335f799bbbbeebc645cc",
+ "manifestHash": "32601b0ca597fa8f027ca7ce9ced5e333fb571cd7594866ca13ed08ecc5dd96f",
  "hashAlgorithm": "sha256",
  "hashBasis": "sha256 over UTF-8 bytes of JSON.stringify(artifact, null, 1) of the artifact WITHOUT its embedded hash fields (the artifact object before {<hashField>, hashAlgorithm, hashBasis} are prepended)",
  "contract": "adsecute.d077.release-candidate-manifest.v3",
- "generatedAtUtc": "2026-09-04T11:21:27.776Z",
+ "generatedAtUtc": "2026-09-04T11:40:57.364Z",
  "branch": "codex/meta-disabled-readiness-20260829",
- "head": "647a2ca6eff88aa05d96103de6651bf97d5e4c80",
+ "head": "22e936fb13d0f725afa5c36147cebef31f343454",
  "baseMain": "babf158e150fd33057117b39b175da044ac62d2e",
  "originMain": "babf158e150fd33057117b39b175da044ac62d2e",
  "remoteDivergence": {
-  "aheadOfOriginMain": 6,
+  "aheadOfOriginMain": 7,
   "behindOriginMain": 0
  },
  "selfExclusion": "this manifest's own path (docs/audits/generated/d077-release-candidate-manifest-2026-08-30.json) is EXCLUDED from its entry list: a manifest cannot recursively pin its own final bytes; its external SHA-256 is reported in the final response and by Codex's own hashing",
- "gitPorcelainEntryCount": 4,
+ "gitPorcelainEntryCount": 5,
  "releaseDiffEntryCountIncludingSelf": 520,
  "expandedOnDiskCandidateFileCountIncludingSelf": 520,
  "pinnedNonSelfFileCount": 519,
@@ -634,7 +634,7 @@
    "path": "components/meta/decision-center/decision-payload-coverage.test.ts",
    "git": "M",
    "class": "tests_only",
-   "sha256": "af44b3733f255da810ed430451ba8d2292422b1db60d70a4ea62901773a065eb"
+   "sha256": "a83d89a3b13bb8c59ba6e3e997b3dec193c0ab9d3454d4072d3178a298cc53db"
   },
   {
    "path": "components/meta/decision-center/inspector-evidence.test.tsx",
@@ -670,7 +670,7 @@
    "path": "components/meta/decision-center/MetaDecisionCenterExact.tsx",
    "git": "M",
    "class": "runtime",
-   "sha256": "e2b2b883e493e7c215ca3adf5434d7ec90863d5b0ad5c6ac7049185124ed72f5"
+   "sha256": "680689e5d76aaa2a28e296febe2a8b06571bdef5f729d90580283df27faceffe"
   },
   {
    "path": "components/meta/decision-center/needs-resolution-lane.test.ts",
@@ -730,13 +730,13 @@
    "path": "components/meta/redesign/MetaPlatformPage.test.tsx",
    "git": "M",
    "class": "tests_only",
-   "sha256": "eaaf4c412baaf706d5754d1e12e53de91eb0b16acb70c3e94e2a9f7a3ef61ff1"
+   "sha256": "3444e1cac397c29b6a83d24fa3dff72a2be25dc707049bb2c837f6ee195e0e7a"
   },
   {
    "path": "components/meta/redesign/MetaPlatformPage.tsx",
    "git": "M",
    "class": "runtime",
-   "sha256": "d931f2df69b10468db5d8d519b533dca9d654dea034ae79e34e74486b1a1b3f3"
+   "sha256": "883c12511d7f0eaee6e06191883e53e5029beaa330ee951196e5dbf806d722fc"
   },
   {
    "path": "components/meta/redesign/MetaPlatformPage.wiring.test.tsx",

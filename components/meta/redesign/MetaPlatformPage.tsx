@@ -49,6 +49,7 @@ import {
   type MetaNativeAdPauseAuthorization,
 } from "@/components/meta/redesign/meta-native-ad-pause";
 import {
+  creativeGroupIdForLane,
   MetaDecisionCenterExact,
   type MetaDecisionCenterExactDisplayValue,
   type MetaDecisionCenterExactInspectorViewModel,
@@ -1399,7 +1400,18 @@ function mobileQueueRows(
   lane: MetaLaneView,
 ): MetaMobileQueueRowModel[] {
   if (scope === "creatives") {
-    return (viewModel.creativeDecisions ?? []).map((row) => ({
+    const selectedGroupId = creativeGroupIdForLane(
+      exactLaneForMetaLane(lane),
+    );
+    const creativeRows =
+      viewModel.creativeGroups === undefined
+        ? (viewModel.creativeDecisions ?? [])
+        : viewModel.creativeGroups
+            .filter(
+              (group) => selectedGroupId === null || group.id === selectedGroupId,
+            )
+            .flatMap((group) => group.rows);
+    return creativeRows.map((row) => ({
       id: row.id,
       name: row.name,
       meta: row.kindShort,
@@ -1969,6 +1981,7 @@ function MetaMobileDecisionsScreen({
 }) {
   const [inventoryOpen, setInventoryOpen] = useState(false);
   const counts = viewModel.counts ?? {};
+  const creativeLaneCounts = viewModel.operatorSummary?.scopeCounts?.creatives;
   const identity = viewModel.identity ?? {};
   const actCount = loading || error ? "—" : mobileDisplay(counts.action);
   const rows = mobileQueueRows(viewModel, scope, lane);
@@ -2185,7 +2198,34 @@ function MetaMobileDecisionsScreen({
                 </button>
               ))}
             </nav>
-          ) : null}
+          ) : (
+            <nav
+              className="ad-mobile-tabs"
+              aria-label="Creative decision lane"
+            >
+              {(
+                [
+                  ["action", "Action", creativeLaneCounts?.action],
+                  [
+                    "needsres",
+                    "Needs Resolution",
+                    creativeLaneCounts?.needsResolution,
+                  ],
+                  ["watching", "Watching", creativeLaneCounts?.watching],
+                ] as const
+              ).map(([key, label, count]) => (
+                <button
+                  key={key}
+                  type="button"
+                  aria-pressed={lane === key}
+                  data-active={lane === key ? "true" : "false"}
+                  onClick={() => onLaneChange(key)}
+                >
+                  {label} {mobileDisplay(count)}
+                </button>
+              ))}
+            </nav>
+          )}
 
           {rows.map((row) => (
             <MetaMobileQueueRow key={row.id} {...row} />

@@ -66,6 +66,16 @@ describe("D088 C3 — no fabricated authority survives on an authoritative path"
     expect(code).not.toMatch(/share\.entity_minor \/ share\.account_minor/);
   });
 
+  it("selects each retained budget owner by observation time", () => {
+    const code = readFileSync("lib/meta/budget-proposal-server-readers.ts", "utf8");
+    expect(code).toContain(
+      "ORDER BY entity_type, entity_id, observed_at DESC, captured_at DESC,",
+    );
+    expect(code).not.toContain(
+      "ORDER BY entity_type, entity_id, captured_at DESC, created_at DESC, id DESC",
+    );
+  });
+
   it("the policy comes from EXPLICIT persisted keys, never derived caps", () => {
     const code = readFileSync("lib/meta/budget-proposal-server-readers.ts", "utf8");
     expect(code).toContain("guardrails.budgetMinHoursBetweenChanges === null");

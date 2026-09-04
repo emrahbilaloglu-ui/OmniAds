@@ -211,7 +211,8 @@ export async function readMeasuredBudgetHistory(input: {
         WHERE business_id = $1 AND provider_account_id = $2
           AND entity_type IN ('campaign', 'adset')
           AND captured_at <= $5::timestamptz
-        ORDER BY entity_type, entity_id, captured_at DESC, created_at DESC, id DESC
+        ORDER BY entity_type, entity_id, observed_at DESC, captured_at DESC,
+                 created_at DESC, id DESC
      ), present AS (
        SELECT * FROM latest WHERE presence = 'present'
      ), owners AS (

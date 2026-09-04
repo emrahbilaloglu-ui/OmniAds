@@ -1,19 +1,19 @@
 {
- "manifestHash": "9823c7779a18e7d8277730e835454089fc3abb4d3773f94773ee73171aa06ef6",
+ "manifestHash": "6fec3374f1c673dfedfd2bf0ac8d58b285dcf8b9c244885582edfe8922c948a1",
  "hashAlgorithm": "sha256",
  "hashBasis": "sha256 over UTF-8 bytes of JSON.stringify(artifact, null, 1) of the artifact WITHOUT its embedded hash fields (the artifact object before {<hashField>, hashAlgorithm, hashBasis} are prepended)",
  "contract": "adsecute.d077.release-candidate-manifest.v3",
- "generatedAtUtc": "2026-09-04T04:06:04.394Z",
+ "generatedAtUtc": "2026-09-04T04:07:46.926Z",
  "branch": "codex/meta-disabled-readiness-20260829",
- "head": "c5cd1550d6b38526dcd89ec7c90f190052992517",
+ "head": "70107dfcadec44fc4aab56c3527ad2aafa231aba",
  "baseMain": "babf158e150fd33057117b39b175da044ac62d2e",
  "originMain": "babf158e150fd33057117b39b175da044ac62d2e",
  "remoteDivergence": {
-  "aheadOfOriginMain": 11,
+  "aheadOfOriginMain": 12,
   "behindOriginMain": 0
  },
  "selfExclusion": "this manifest's own path (docs/audits/generated/d077-release-candidate-manifest-2026-08-30.json) is EXCLUDED from its entry list: a manifest cannot recursively pin its own final bytes; its external SHA-256 is reported in the final response and by Codex's own hashing",
- "gitPorcelainEntryCount": 2,
+ "gitPorcelainEntryCount": 6,
  "releaseDiffEntryCountIncludingSelf": 512,
  "expandedOnDiskCandidateFileCountIncludingSelf": 512,
  "pinnedNonSelfFileCount": 511,
@@ -268,7 +268,7 @@
    "path": "app/api/meta/automation/budget-activation-route.test.ts",
    "git": "A",
    "class": "tests_only",
-   "sha256": "8b39867f8fc76441cf13831c9cde52f0746573022417a5f45bcec60d9e3e031e"
+   "sha256": "68ad6cc8f4d83169bdbc3635abf965e2da795fc35f7ef64331fe685e77a800bc"
   },
   {
    "path": "app/api/meta/automation/budget-preparation-route.test.ts",
@@ -760,7 +760,7 @@
    "path": "docs/audits/D075_STATE_HISTORY_CONSUMER_SWEEP_2026-08-30.md",
    "git": "A",
    "class": "docs",
-   "sha256": "9c2957b169e75d73e542ee5f1b61db8931911fc879239bbe3b5d134d2e346cac"
+   "sha256": "a9d36054368511b39700769aecab0d1adac6d2ce63efc496009e3cf67483cce0"
   },
   {
    "path": "docs/audits/D077_PRODUCTION_RECOVERY_PREFLIGHT_2026-08-30.md",
@@ -1666,7 +1666,7 @@
    "path": "lib/meta/__tests__/state-history-consumer-closure.test.ts",
    "git": "A",
    "class": "tests_only",
-   "sha256": "21b6226a076d8ac994fba407d40fc5ea0b96001b229e5d725c9049efb5a929e1"
+   "sha256": "3c12abc8faac502b8a96c366e05b812021b22d33b632f8badf6ad1dc1954a8a2"
   },
   {
    "path": "lib/meta/account-context.test.ts",
@@ -1786,7 +1786,7 @@
    "path": "lib/meta/budget-activation-readiness-server.ts",
    "git": "A",
    "class": "runtime",
-   "sha256": "04e6e5fda01e4af96d5bbf477d586f3cb8f50af30180fdd60f0b70112b61c3e4"
+   "sha256": "069d5635f803119f7ca17bfc6610affc0b388358b6db98fab695e81ab0c13c35"
   },
   {
    "path": "lib/meta/budget-activation.ts",
@@ -1924,7 +1924,7 @@
    "path": "lib/meta/budget-no-fabricated-defaults.test.ts",
    "git": "A",
    "class": "tests_only",
-   "sha256": "3dd928c6724349e255ed3149a2bf9c678bbc468799a07d70209c7c0ddddfa78e"
+   "sha256": "efa721767c8d351bfcef855f8f44e0db7fdd9b621b9bcd5ad30c318bff0c87b5"
   },
   {
    "path": "lib/meta/budget-observation-projection.ts",
@@ -1990,7 +1990,7 @@
    "path": "lib/meta/budget-proposal-server-readers.ts",
    "git": "A",
    "class": "runtime",
-   "sha256": "b878673e35d220871b752d018929ccfa1977ff25268ea51c356249e52d729ae6"
+   "sha256": "ba00555237402191a0458a9d7b50595aa52dd6c03aa16912c24210d03efcb02b"
   },
   {
    "path": "lib/meta/budget-proposal-server-runtime.test.ts",

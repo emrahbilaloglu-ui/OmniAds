@@ -430,8 +430,10 @@ concentration a budget write is checked against.
 It satisfies the D075 serving corollaries:
 
 - **latest-per-entity** — `DISTINCT ON (entity_type, entity_id) … ORDER BY
-  entity_type, entity_id, captured_at DESC, created_at DESC, id DESC`, the
-  exact deterministic winner order;
+  entity_type, entity_id, observed_at DESC, captured_at DESC, created_at DESC,
+  id DESC`, the exact deterministic winner order. A late-arriving backfill
+  therefore cannot replace a newer observation merely because it was captured
+  later;
 - **absence-aware** — `WHERE presence = 'present'`, so an entity whose winning
   row is `absent_unconfirmed` is excluded as absence, never resurrected from an
   older `present` row;

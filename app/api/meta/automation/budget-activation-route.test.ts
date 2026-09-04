@@ -63,6 +63,12 @@ describe("D088 C1 — the activation route", () => {
     // C2: the schema proof is COLUMNS and CONSTRAINTS, not a table-name check.
     expect(READINESS_SERVER).toContain("information_schema.columns");
     expect(READINESS_SERVER).toContain("pg_constraint");
+    expect(READINESS_SERVER).toContain(
+      "conname = 'meta_automation_proposals_action_budget_check'",
+    );
+    expect(READINESS_SERVER).toContain(
+      "pg_get_constraintdef(oid) LIKE '%proposed_action%'",
+    );
     expect(READINESS_SERVER).toContain("meta_budget_write_journal_occurrence");
     expect(READINESS_SERVER).toContain("readBudgetReadiness");
   });

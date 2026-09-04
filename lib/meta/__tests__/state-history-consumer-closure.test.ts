@@ -153,7 +153,8 @@ const STATE_HISTORY_REFERENCE_LEDGER: ReadonlyArray<{
     this table is `readMeasuredBudgetHistory`, which reconstructs the
     owner-deduplicated retained budget population for the prospective account
     concentration. It is latest-per-entity (`DISTINCT ON (entity_type,
-    entity_id) … ORDER BY captured_at DESC, created_at DESC, id DESC`),
+    entity_id) … ORDER BY observed_at DESC, captured_at DESC,
+    created_at DESC, id DESC`),
     cutoff-bounded (`captured_at <= now()`), and presence-guarded (`presence =
     'present'`), so an absent winner is excluded rather than resurrected — the
     D075 serving corollary. It never serves entity CONTENT to a surface; it

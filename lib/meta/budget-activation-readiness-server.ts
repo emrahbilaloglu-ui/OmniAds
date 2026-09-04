@@ -63,7 +63,9 @@ export async function readBudgetActivationServerRead(input: {
          (SELECT count(*) FROM pg_constraint
            WHERE conrelid = 'meta_automation_proposals'::regclass
              AND contype = 'c'
-             AND pg_get_constraintdef(oid) LIKE '%budget%')           AS action_constraint,
+             AND conname = 'meta_automation_proposals_action_budget_check'
+             AND pg_get_constraintdef(oid) LIKE '%proposed_action%'
+             AND pg_get_constraintdef(oid) LIKE '%''budget''%')       AS action_constraint,
          (SELECT count(*) FROM pg_indexes
            WHERE schemaname='public'
              AND indexname='meta_budget_write_journal_occurrence')    AS occurrence_index`,

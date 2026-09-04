@@ -58,6 +58,10 @@ export interface MetaDecisionCenterExactChipViewModel {
 
 export interface MetaDecisionCenterExactKpisViewModel {
   spend?: {
+    /** Legacy fully-rendered label. Current payloads carry `date` instead. */
+    label?: MetaDecisionCenterExactDisplayValue;
+    /** Locale-neutral exact day this value describes; never assumed to be today. */
+    date?: MetaDecisionCenterExactDisplayValue;
     value?: MetaDecisionCenterExactDisplayValue;
     delta?: MetaDecisionCenterExactDisplayValue;
     detail?: MetaDecisionCenterExactDisplayValue;
@@ -81,10 +85,40 @@ export interface MetaDecisionCenterExactKpisViewModel {
   campaignRoles?: {
     coverage?: MetaDecisionCenterExactDisplayValue;
     percentage?: MetaDecisionCenterExactDisplayValue;
+    /** Server-fact presentation: resolved/unresolved coverage, not a manual label. */
+    detail?: MetaDecisionCenterExactDisplayValue;
+    /** Locale-neutral server state. The client translates it; it does not infer it. */
+    status?: "no_active" | "unresolved" | "resolved" | "unavailable";
+    unresolvedCount?: MetaDecisionCenterExactDisplayValue;
   };
   mode?: {
     value?: MetaDecisionCenterExactDisplayValue;
     chips?: readonly MetaDecisionCenterExactChipViewModel[];
+  };
+}
+
+export interface MetaDecisionCenterExactOperatorSummaryViewModel {
+  /** Totals across both server-owned scopes, not a UI reclassification. */
+  action?: MetaDecisionCenterExactDisplayValue;
+  needsResolution?: MetaDecisionCenterExactDisplayValue;
+  watching?: MetaDecisionCenterExactDisplayValue;
+  creatives?: MetaDecisionCenterExactDisplayValue;
+  /** Scope containing the first served row for each summary route. */
+  actionScope?: MetaDecisionCenterExactScope;
+  needsResolutionScope?: MetaDecisionCenterExactScope;
+  watchingScope?: MetaDecisionCenterExactScope;
+  /** Per-scope server counts used when one combined CTA cannot show every row. */
+  scopeCounts?: {
+    structure?: {
+      action?: MetaDecisionCenterExactDisplayValue;
+      needsResolution?: MetaDecisionCenterExactDisplayValue;
+      watching?: MetaDecisionCenterExactDisplayValue;
+    };
+    creatives?: {
+      action?: MetaDecisionCenterExactDisplayValue;
+      needsResolution?: MetaDecisionCenterExactDisplayValue;
+      watching?: MetaDecisionCenterExactDisplayValue;
+    };
   };
 }
 
@@ -159,6 +193,8 @@ export interface MetaDecisionCenterExactNeedsResolutionRowViewModel {
   decisionTone?: MetaDecisionCenterExactTone;
   /** Why this row cannot move, in the server's words. */
   blocker?: MetaDecisionCenterExactDisplayValue;
+  /** Exact number of server-owned readiness checks still open. */
+  blockerCount?: number | null;
   blockerTone?: MetaDecisionCenterExactTone;
   /** The server's next step, when it stated one. */
   resolution?: MetaDecisionCenterExactDisplayValue;
@@ -616,6 +652,7 @@ export interface MetaDecisionCenterExactViewModel {
   identity?: MetaDecisionCenterExactIdentityViewModel;
   activeWindow?: MetaDecisionCenterExactWindow | null;
   counts?: MetaDecisionCenterExactCountsViewModel;
+  operatorSummary?: MetaDecisionCenterExactOperatorSummaryViewModel;
   kpis?: MetaDecisionCenterExactKpisViewModel;
   actionRows?: readonly MetaDecisionCenterExactActionRowViewModel[];
   /** Rows the server classified `blocked`. @see MetaDecisionCenterExactLane */
@@ -782,6 +819,27 @@ function display(value: MetaDecisionCenterExactDisplayValue): string {
   return value.trim() || EM_DASH;
 }
 
+/**
+ * A count only when the server actually served one.
+ *
+ * The operating summary must never turn an absent count into zero: zero means
+ * the queue was read and proved empty, while an em dash means the read did not
+ * establish a count. Formatted integer strings are accepted because the exact
+ * view model intentionally supports both display strings and numbers.
+ */
+function servedCount(
+  value: MetaDecisionCenterExactDisplayValue,
+): number | null {
+  if (typeof value === "number") {
+    return Number.isSafeInteger(value) && value >= 0 ? value : null;
+  }
+  if (typeof value !== "string") return null;
+  const normalized = value.trim().replaceAll(",", "");
+  if (!/^\d+$/.test(normalized)) return null;
+  const parsed = Number(normalized);
+  return Number.isSafeInteger(parsed) ? parsed : null;
+}
+
 function nonBlankDisplay(value: MetaDecisionCenterExactDisplayValue): boolean {
   return typeof value === "string" && value.trim().length > 0;
 }
@@ -795,6 +853,70 @@ function meaningfulDisplay(
     value.trim().length > 0 &&
     value.trim() !== EM_DASH
   );
+}
+
+/**
+ * The disclosure stays compact, but its closed state must never hide why a
+ * budget decision is blocked. Every reason below is carried by the server
+ * panel; this helper only chooses which served status sentences to expose.
+ */
+function budgetDecisionReadinessSummary(
+  evidence?: MetaBudgetDecisionEvidenceByDirection | null,
+  dryRun?: MetaBudgetDryRunPanel | null,
+): {
+  text: string;
+  state: "blocked" | "unavailable" | "review_only" | "unknown";
+} {
+  const blockingStates: string[] = [];
+  let hasBlockedState = false;
+  let hasUnavailableState = false;
+
+  for (const [label, panel] of [
+    ["Increase", evidence?.increase],
+    ["Decrease", evidence?.decrease],
+  ] as const) {
+    if (!panel) continue;
+    if (panel.status === "unavailable") {
+      hasUnavailableState = true;
+      blockingStates.push(
+        `${label} unavailable · ${panel.executionReadiness.why}`,
+      );
+      continue;
+    }
+    if (panel.authority === "blocked") {
+      hasBlockedState = true;
+      blockingStates.push(
+        `${label} blocked · ${panel.primaryBlocker?.reason ?? panel.executionReadiness.why}`,
+      );
+    }
+  }
+
+  if (dryRun?.status === "unavailable") {
+    hasUnavailableState = true;
+    blockingStates.push(`Dry run unavailable · ${dryRun.headline}`);
+  } else if (dryRun?.required.blockers[0]) {
+    hasBlockedState = true;
+    blockingStates.push(`Dry run blocked · ${dryRun.required.blockers[0].why}`);
+  }
+
+  if (blockingStates.length > 0) {
+    return {
+      text: blockingStates.join(" · "),
+      state: hasBlockedState
+        ? "blocked"
+        : hasUnavailableState
+          ? "unavailable"
+          : "unknown",
+    };
+  }
+  if (dryRun) return { text: dryRun.headline, state: "review_only" };
+  if (evidence) {
+    return {
+      text: evidence.increase.executionReadiness.why,
+      state: "review_only",
+    };
+  }
+  return { text: EM_DASH, state: "unknown" };
 }
 
 function toneClass(
@@ -937,7 +1059,9 @@ function QueueStaleDemoted({
   if (!demoted) return null;
   return (
     <span className={styles.staleDemoted} data-el="stale-demoted">
-      {meaningfulDisplay(reason) ? display(reason) : copy.confidenceCappedStillServed}
+      {meaningfulDisplay(reason)
+        ? display(reason)
+        : copy.confidenceCappedStillServed}
     </span>
   );
 }
@@ -1001,7 +1125,13 @@ function ExactKpiBand({
   return (
     <div className={styles.kpiGrid} data-meta-exact-section="kpis">
       <article className={styles.kpiCard}>
-        <p className={styles.kpiLabel}>{copy.spendToday}</p>
+        <p className={styles.kpiLabel}>
+          {display(
+            nonBlankDisplay(kpis?.spend?.date)
+              ? `${language === "tr" ? "Harcama" : "Spend"} · ${String(kpis!.spend!.date)}`
+              : (kpis?.spend?.label ?? copy.spendToday),
+          )}
+        </p>
         <p className={styles.kpiValue}>
           {display(kpis?.spend?.value)}{" "}
           <span className={styles.spendDelta}>
@@ -1082,7 +1212,28 @@ function ExactKpiBand({
           </span>
         </p>
         <p className={styles.roleInference}>
-          {language === "tr" ? "Otomatik sınıflandırma" : "Automatic inference"}
+          {display(
+            kpis?.campaignRoles?.status === "no_active"
+              ? language === "tr"
+                ? "Otomatik çıkarım · aktif kampanya yok"
+                : "Automatic inference · no active campaigns"
+              : kpis?.campaignRoles?.status === "unresolved"
+                ? language === "tr"
+                  ? `Otomatik çıkarım · ${display(kpis.campaignRoles.unresolvedCount)} çözümlenmedi`
+                  : `Automatic inference · ${display(kpis.campaignRoles.unresolvedCount)} unresolved`
+                : kpis?.campaignRoles?.status === "resolved"
+                  ? language === "tr"
+                    ? "Otomatik çıkarım · tüm aktif kampanyalar çözüldü"
+                    : "Automatic inference · all active campaigns resolved"
+                  : kpis?.campaignRoles?.status === "unavailable"
+                    ? language === "tr"
+                      ? "Otomatik çıkarım kullanılamıyor · kesin aksiyonlar engelli"
+                      : "Automatic inference unavailable · hard actions remain blocked"
+                    : (kpis?.campaignRoles?.detail ??
+                      (language === "tr"
+                        ? "Otomatik sınıflandırma"
+                        : "Automatic inference")),
+          )}
         </p>
       </article>
 
@@ -1101,6 +1252,209 @@ function ExactKpiBand({
         </div>
       </article>
     </div>
+  );
+}
+
+/**
+ * The operator's starting point.
+ *
+ * Every number and lane remains server-owned. This component does not infer a
+ * buyer action, promote a blocked decision or reinterpret confidence; it only
+ * turns the already-served queue counts into a readable route into that queue.
+ */
+function OperatorDecisionSummary({
+  counts,
+  summary,
+  onSelectLane,
+  onSelectScope,
+}: {
+  counts?: MetaDecisionCenterExactCountsViewModel;
+  summary?: MetaDecisionCenterExactOperatorSummaryViewModel;
+  onSelectLane: (lane: MetaDecisionCenterExactLane) => void;
+  onSelectScope: (scope: MetaDecisionCenterExactScope) => void;
+}) {
+  const language = useZeroBaseLanguage();
+  const action = servedCount(summary?.action ?? counts?.action);
+  const needsResolution = servedCount(
+    summary?.needsResolution ?? counts?.needsres,
+  );
+  const watching = servedCount(summary?.watching ?? counts?.watching);
+
+  const routeButtons = ({
+    lane,
+    total,
+    fallbackScope,
+    genericLabel,
+    structureLabel,
+    creativeLabel,
+    structureCount,
+    creativeCount,
+  }: {
+    lane: MetaDecisionCenterExactLane;
+    total: number | null;
+    fallbackScope: MetaDecisionCenterExactScope;
+    genericLabel: string;
+    structureLabel: string;
+    creativeLabel: string;
+    structureCount: MetaDecisionCenterExactDisplayValue;
+    creativeCount: MetaDecisionCenterExactDisplayValue;
+  }) => {
+    if (total === null || total <= 0) return null;
+
+    const perScope = (
+      [
+        {
+          scope: "structure" as const,
+          count: servedCount(structureCount),
+          label: structureLabel,
+        },
+        {
+          scope: "creatives" as const,
+          count: servedCount(creativeCount),
+          label: creativeLabel,
+        },
+      ] as const
+    ).flatMap((item) =>
+      item.count !== null && item.count > 0
+        ? [{ ...item, count: item.count }]
+        : [],
+    );
+
+    if (perScope.length > 1) {
+      return perScope.map((item) => (
+        <button
+          key={`${lane}-${item.scope}`}
+          type="button"
+          onClick={() => openLane(lane, item.scope)}
+        >
+          {item.label} ({item.count})
+        </button>
+      ));
+    }
+
+    return (
+      <button
+        type="button"
+        onClick={() => openLane(lane, perScope[0]?.scope ?? fallbackScope)}
+      >
+        {genericLabel}
+      </button>
+    );
+  };
+
+  const headline =
+    action !== null && action > 0
+      ? language === "tr"
+        ? `${action} karar şimdi operatör incelemesi bekliyor.`
+        : `${action} decision${action === 1 ? "" : "s"} need operator review now.`
+      : needsResolution !== null && needsResolution > 0
+        ? language === "tr"
+          ? `Şu anda uygulanmaya hazır değişiklik yok. ${needsResolution} kararın kanıt eksiği çözülmeli.`
+          : `No immediate Meta change is ready. ${needsResolution} decision${needsResolution === 1 ? "" : "s"} need evidence resolved.`
+        : action === 0 &&
+            needsResolution === 0 &&
+            watching !== null &&
+            watching > 0
+          ? language === "tr"
+            ? `Şu anda değişiklik önerilmiyor. ${watching} karar izleniyor.`
+            : `No immediate Meta change is recommended. ${watching} decision${watching === 1 ? " is" : "s are"} being watched.`
+          : action === 0 && needsResolution === 0 && watching === 0
+            ? language === "tr"
+              ? "Bu anlık görüntü için Meta değişikliği önerilmiyor."
+              : "No Meta change is recommended for this snapshot."
+            : language === "tr"
+              ? "Güncel öneri özeti doğrulanamadı."
+              : "The current recommendation summary could not be verified.";
+
+  const openLane = (
+    lane: MetaDecisionCenterExactLane,
+    scope: MetaDecisionCenterExactScope,
+  ) => {
+    onSelectScope(scope);
+    onSelectLane(lane);
+  };
+
+  return (
+    <section
+      className={styles.operatorSummary}
+      data-meta-exact-operator-summary
+      aria-labelledby="meta-operator-summary-title"
+    >
+      <div className={styles.operatorSummaryCopy}>
+        <p className={styles.operatorSummaryEyebrow}>
+          {language === "tr"
+            ? "Adsecute şimdi ne öneriyor?"
+            : "What Adsecute recommends now"}
+        </p>
+        <h2 id="meta-operator-summary-title">{headline}</h2>
+        <p>
+          {language === "tr"
+            ? "Kampanya rolü otomatik belirlenir; çözülemeyen roller yeni kanıt gelene kadar güvenli biçimde engellenir."
+            : "Campaign role is inferred automatically; unresolved roles stay safely blocked until fresh evidence resolves them."}
+        </p>
+        <div className={styles.operatorSummaryActions}>
+          {action !== null && action > 0
+            ? routeButtons({
+                lane: "action",
+                total: action,
+                fallbackScope: summary?.actionScope ?? "structure",
+                genericLabel:
+                  language === "tr"
+                    ? "Şimdi yapılacakları incele"
+                    : "Review Action Now",
+                structureLabel:
+                  language === "tr"
+                    ? "Yapı aksiyonlarını incele"
+                    : "Review structure actions",
+                creativeLabel:
+                  language === "tr"
+                    ? "Kreatif aksiyonlarını incele"
+                    : "Review creative actions",
+                structureCount: summary?.scopeCounts?.structure?.action,
+                creativeCount: summary?.scopeCounts?.creatives?.action,
+              })
+            : needsResolution !== null && needsResolution > 0
+              ? routeButtons({
+                  lane: "needsres",
+                  total: needsResolution,
+                  fallbackScope: summary?.needsResolutionScope ?? "structure",
+                  genericLabel:
+                    language === "tr" ? "Engelleri çöz" : "Resolve blockers",
+                  structureLabel:
+                    language === "tr"
+                      ? "Yapı engellerini çöz"
+                      : "Resolve structure blockers",
+                  creativeLabel:
+                    language === "tr"
+                      ? "Kreatif engellerini çöz"
+                      : "Resolve creative blockers",
+                  structureCount:
+                    summary?.scopeCounts?.structure?.needsResolution,
+                  creativeCount:
+                    summary?.scopeCounts?.creatives?.needsResolution,
+                })
+              : watching !== null && watching > 0
+                ? routeButtons({
+                    lane: "watching",
+                    total: watching,
+                    fallbackScope: summary?.watchingScope ?? "structure",
+                    genericLabel:
+                      language === "tr" ? "İzlenenleri gör" : "Review watching",
+                    structureLabel:
+                      language === "tr"
+                        ? "Yapı izleme listesini incele"
+                        : "Review structure watchlist",
+                    creativeLabel:
+                      language === "tr"
+                        ? "Kreatif izleme listesini incele"
+                        : "Review creative watchlist",
+                    structureCount: summary?.scopeCounts?.structure?.watching,
+                    creativeCount: summary?.scopeCounts?.creatives?.watching,
+                  })
+                : null}
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -1224,11 +1578,7 @@ function LevelFilter({
         {LEVEL_OPTIONS.map((option) => {
           const unavailable = !served.includes(option.id);
           return (
-            <option
-              disabled={unavailable}
-              key={option.id}
-              value={option.id}
-            >
+            <option disabled={unavailable} key={option.id} value={option.id}>
               {copy[option.labelKey]}
               {unavailable
                 ? ` — ${
@@ -1271,8 +1621,7 @@ function ShareViewControl() {
   >({ kind: "idle" });
 
   const share = async () => {
-    const url =
-      typeof window === "undefined" ? "" : window.location.href;
+    const url = typeof window === "undefined" ? "" : window.location.href;
     if (!url) return;
     try {
       await navigator.clipboard.writeText(url);
@@ -1317,15 +1666,13 @@ function ShareViewControl() {
 }
 
 /** A lane that served no rows, said rather than drawn as blankness. */
-function LaneEmpty({
-  reason,
-  lane,
-}: {
-  reason: string;
-  lane: string;
-}) {
+function LaneEmpty({ reason, lane }: { reason: string; lane: string }) {
   return (
-    <p className={styles.laneEmpty} data-meta-exact-lane-empty={lane} role="status">
+    <p
+      className={styles.laneEmpty}
+      data-meta-exact-lane-empty={lane}
+      role="status"
+    >
       {reason}
     </p>
   );
@@ -1457,6 +1804,7 @@ function NeedsResolutionLane({
   onLoadMore?: () => void;
 }) {
   const copy = useCopy();
+  const language = useZeroBaseLanguage();
   const page = rows.slice(0, shown);
   if (rows.length === 0) {
     return (
@@ -1516,12 +1864,21 @@ function NeedsResolutionLane({
             lane: the row is here because `node.lane === "blocked"`, and the
             operator's next question is what is holding it.
           */}
-          <span
-            className={`${styles.blockerChip} ${toneClass(row.blockerTone ?? "warning")}`}
-            data-el="blocker-chip"
-          >
-            {display(row.blocker)}
-          </span>
+          <div className={styles.blockerSummary}>
+            <span
+              className={`${styles.blockerChip} ${toneClass(row.blockerTone ?? "warning")}`}
+              data-el="blocker-chip"
+            >
+              {display(row.blocker)}
+            </span>
+            {typeof row.blockerCount === "number" && row.blockerCount > 1 ? (
+              <span className={styles.blockerCount}>
+                {language === "tr"
+                  ? `${row.blockerCount} güvenlik kontrolü açık · tüm ayrıntılar için kanıtı aç`
+                  : `${row.blockerCount} safety checks open · open evidence for full details`}
+              </span>
+            ) : null}
+          </div>
           {meaningfulDisplay(row.resolution) ? (
             <p
               className={styles.needsResolutionStep}
@@ -2080,10 +2437,20 @@ function SourceProvenancePanel({
   );
 }
 
+function creativeGroupIdForLane(
+  lane: MetaDecisionCenterExactLane,
+): "act" | "blocked" | "monitor" | null {
+  if (lane === "action") return "act";
+  if (lane === "needsres") return "blocked";
+  if (lane === "watching") return "monitor";
+  return null;
+}
+
 function CreativesScope({
   posture,
   decisions,
   groups,
+  lane,
   provenance,
   notice,
   footnote,
@@ -2092,12 +2459,19 @@ function CreativesScope({
   posture: readonly MetaDecisionCenterExactCreativePostureViewModel[];
   decisions: readonly MetaDecisionCenterExactCreativeDecisionViewModel[];
   groups?: readonly MetaDecisionCenterExactCreativeGroupViewModel[];
+  lane: MetaDecisionCenterExactLane;
   provenance?: MetaDecisionCenterExactSourceProvenanceViewModel | null;
   notice?: MetaDecisionCenterExactDisplayValue;
   footnote?: MetaDecisionCenterExactDisplayValue;
   onOpenCreativeStudio?: () => void;
 }) {
+  const copy = useCopy();
   const servedGroups = (groups ?? []).filter((group) => group.rows.length > 0);
+  const selectedGroupId = creativeGroupIdForLane(lane);
+  const visibleGroups = selectedGroupId
+    ? servedGroups.filter((group) => group.id === selectedGroupId)
+    : servedGroups;
+  const hasGroupedDecisions = groups !== undefined;
   return (
     <>
       <div className={styles.postureGrid} data-meta-exact-creative-posture>
@@ -2112,37 +2486,42 @@ function CreativesScope({
           </div>
         ))}
       </div>
+      {hasGroupedDecisions && visibleGroups.length === 0 ? (
+        <LaneEmpty lane={`creatives-${lane}`} reason={copy.laneServedNoRows} />
+      ) : hasGroupedDecisions ? (
+        visibleGroups.map((group) => (
+          <section
+            className={styles.creativeGroup}
+            data-meta-exact-creative-group={group.id}
+            key={group.id}
+          >
+            <header className={styles.creativeGroupHeader}>
+              <span
+                className={`${styles.creativeGroupLabel} ${toneClass(group.tone)}`}
+              >
+                {display(group.label)}
+              </span>
+              <span className={styles.creativeGroupCount}>
+                {display(group.count)}
+              </span>
+              <span className={styles.creativeGroupNote}>
+                {display(group.note)}
+              </span>
+            </header>
+            {group.rows.map((row) => (
+              <CreativeCard key={row.id} row={row} />
+            ))}
+          </section>
+        ))
+      ) : (
+        decisions.map((row) => <CreativeCard key={row.id} row={row} />)
+      )}
       <SourceProvenancePanel
+        defaultOpen={false}
         model={provenance}
         notice={notice}
         scope="creatives"
       />
-      {servedGroups.length > 0
-        ? servedGroups.map((group) => (
-            <section
-              className={styles.creativeGroup}
-              data-meta-exact-creative-group={group.id}
-              key={group.id}
-            >
-              <header className={styles.creativeGroupHeader}>
-                <span
-                  className={`${styles.creativeGroupLabel} ${toneClass(group.tone)}`}
-                >
-                  {display(group.label)}
-                </span>
-                <span className={styles.creativeGroupCount}>
-                  {display(group.count)}
-                </span>
-                <span className={styles.creativeGroupNote}>
-                  {display(group.note)}
-                </span>
-              </header>
-              {group.rows.map((row) => (
-                <CreativeCard key={row.id} row={row} />
-              ))}
-            </section>
-          ))
-        : decisions.map((row) => <CreativeCard key={row.id} row={row} />)}
       <div className={styles.creativeFootnote}>
         <p data-meta-exact-creative-footnote>{display(footnote)}</p>
         <span {...controlProps(onOpenCreativeStudio)}>
@@ -2215,7 +2594,10 @@ function WorkflowMenu({
   );
 
   return (
-    <div className={styles.workflowActions} data-meta-exact-workflow-menu={open ? "open" : "closed"}>
+    <div
+      className={styles.workflowActions}
+      data-meta-exact-workflow-menu={open ? "open" : "closed"}
+    >
       <button
         aria-disabled={refused ? true : undefined}
         aria-expanded={open}
@@ -2311,7 +2693,10 @@ function WorkflowMenu({
               {copy.assignToMemberId}
               <input
                 onChange={(event) =>
-                  setValues((v) => ({ ...v, assigneeUserId: event.target.value }))
+                  setValues((v) => ({
+                    ...v,
+                    assigneeUserId: event.target.value,
+                  }))
                 }
                 required
                 value={values.assigneeUserId}
@@ -2402,9 +2787,7 @@ function WorkflowConflictDialog({
         <button
           aria-disabled={conflict.keepRefusedReason ? true : undefined}
           data-ctl="live:META-WF-11 keep"
-          onClick={
-            conflict.keepRefusedReason ? undefined : conflict.onKeepMine
-          }
+          onClick={conflict.keepRefusedReason ? undefined : conflict.onKeepMine}
           type="button"
         >
           {copy.keepMineReapplyAgainstVersion} {conflict.currentVersion}
@@ -2418,7 +2801,10 @@ function WorkflowConflictDialog({
         </button>
       </span>
       {conflict.keepRefusedReason ? (
-        <p className={styles.inspectorMeta} data-meta-exact-conflict-keep-refused>
+        <p
+          className={styles.inspectorMeta}
+          data-meta-exact-conflict-keep-refused
+        >
           {conflict.keepRefusedReason}
         </p>
       ) : null}
@@ -2434,6 +2820,7 @@ function EvidenceInspector({
   onClose?: () => void;
 }) {
   const copy = useCopy();
+  const language = useZeroBaseLanguage();
   const reasons = (model?.reasons ?? []).filter(meaningfulDisplay);
   const evidence = (model?.evidence ?? []).filter(
     (item) => meaningfulDisplay(item.label) && meaningfulDisplay(item.value),
@@ -2443,6 +2830,12 @@ function EvidenceInspector({
   const hasTargetComparison = meaningfulDisplay(model?.targetComparison);
   const hasMoneyDetail = meaningfulDisplay(model?.moneyDetail);
   const hasBlockers = meaningfulDisplay(model?.blockers);
+  const blockerItems = hasBlockers
+    ? display(model?.blockers)
+        .split(" · ")
+        .map((item) => item.trim())
+        .filter(Boolean)
+    : [];
   const hasAdvisories = meaningfulDisplay(model?.advisories);
   const hasProvenance = meaningfulDisplay(model?.provenance);
   /*
@@ -2459,7 +2852,9 @@ function EvidenceInspector({
       data-meta-exact-inspector
     >
       <div className={styles.inspectorHeader}>
-        <span className={styles.inspectorEyebrow}>{copy.evidenceInspector}</span>
+        <span className={styles.inspectorEyebrow}>
+          {copy.evidenceInspector}
+        </span>
         <span className={`${styles.inspectorDecision} ${inspectorTone}`}>
           {display(model?.decisionLabel)}
         </span>
@@ -2481,7 +2876,9 @@ function EvidenceInspector({
           <p className={styles.inspectorMeta}>{display(model?.entityMeta)}</p>
         </div>
         <div className={styles.contractCard}>
-          <p className={styles.inspectorSectionLabel}>{copy.decisionContract}</p>
+          <p className={styles.inspectorSectionLabel}>
+            {copy.decisionContract}
+          </p>
           <p className={styles.contractCopy}>
             {copy.serverVerdict}: <b>{display(model?.serverVerdict)}</b>
             {hasContractDetail ? `. ${display(model?.contractDetail)}` : null}
@@ -2558,11 +2955,19 @@ function EvidenceInspector({
         {hasBlockers ? (
           <div>
             <p className={styles.blockersHeading}>{copy.blockers}</p>
-            <p
-              className={`${styles.blockersCopy} ${toneClass(model?.blockerTone)}`}
+            <ul
+              className={styles.inspectorBlockerList}
+              data-meta-exact-blockers
             >
-              {display(model?.blockers)}
-            </p>
+              {blockerItems.map((blocker, index) => (
+                <li
+                  className={`${styles.blockersCopy} ${toneClass(model?.blockerTone)}`}
+                  key={`inspector-blocker-${index}`}
+                >
+                  {blocker}
+                </li>
+              ))}
+            </ul>
           </div>
         ) : null}
         {hasAdvisories ? (
@@ -2591,13 +2996,17 @@ function EvidenceInspector({
             </div>
             <div>
               <dt>{copy.evidenceWindow}</dt>
-              <dd data-el="evidence-window">{display(model?.evidenceWindow)}</dd>
+              <dd data-el="evidence-window">
+                {display(model?.evidenceWindow)}
+              </dd>
             </div>
           </dl>
         ) : null}
         {(model?.provenanceGaps ?? []).filter(meaningfulDisplay).length > 0 ? (
           <div>
-            <p className={styles.blockersHeading}>{copy.notServedAtThisGrain}</p>
+            <p className={styles.blockersHeading}>
+              {copy.notServedAtThisGrain}
+            </p>
             <p className={styles.provenanceGap} data-el="provenance-gap">
               {(model?.provenanceGaps ?? [])
                 .filter(meaningfulDisplay)
@@ -2612,7 +3021,10 @@ function EvidenceInspector({
           band: what an operator can do with THIS row without executing it.
         */}
         {model?.workflow ? (
-          <div data-meta-exact-workflow data-workflow-state={model.workflow.state}>
+          <div
+            data-meta-exact-workflow
+            data-workflow-state={model.workflow.state}
+          >
             <p className={styles.inspectorSectionLabel}>{copy.workflow}</p>
             {model.workflow.unavailableReason ? (
               /*
@@ -2653,7 +3065,9 @@ function EvidenceInspector({
         {model?.stickyBar ? (
           <div className={styles.stickyBar} data-meta-exact-sticky-bar>
             <button
-              aria-disabled={model.manualAction?.refusalReason ? true : undefined}
+              aria-disabled={
+                model.manualAction?.refusalReason ? true : undefined
+              }
               className={styles.manualActionButton}
               data-ctl="gated:META-WRITE-01"
               onClick={
@@ -2677,7 +3091,9 @@ function EvidenceInspector({
         {model?.manualAction ? (
           <p className={styles.rowAction}>
             <button
-              aria-disabled={model.manualAction.refusalReason ? true : undefined}
+              aria-disabled={
+                model.manualAction.refusalReason ? true : undefined
+              }
               className={styles.manualActionButton}
               data-ctl="gated:META-WRITE-01 open-manual"
               onClick={
@@ -2847,15 +3263,16 @@ export function MetaDecisionCenterExact({
   ].filter((value): value is string => Boolean(value));
   const laneEmptyReason =
     activeFilters.length > 0
-      ? copy.noRowMatchesFilters.replace(
-          "{filters}",
-          activeFilters.join(" · "),
-        )
+      ? copy.noRowMatchesFilters.replace("{filters}", activeFilters.join(" · "))
       : copy.laneServedNoRows;
   const activeWindow =
     viewModel.activeWindow === undefined ? "28d" : viewModel.activeWindow;
   const counts = viewModel.counts;
   const identity = viewModel.identity;
+  const budgetReadinessSummary = budgetDecisionReadinessSummary(
+    viewModel.budgetEvidence,
+    viewModel.budgetDryRun,
+  );
   // The reference resolves the two-column grid for the Action state, and that
   // is where the inspector always sits. Watching gets it too, but only once a
   // row has actually been reviewed: its "Review" button had nowhere to put the
@@ -2871,8 +3288,38 @@ export function MetaDecisionCenterExact({
       ((activeLane === "watching" || activeLane === "needsres") &&
         viewModel.inspector != null));
 
+  const creativeLaneItems = [
+    {
+      id: "action",
+      label: copy.laneActionNow,
+      count: viewModel.operatorSummary?.scopeCounts?.creatives?.action,
+    },
+    {
+      id: "needsres",
+      label: copy.laneNeedsResolution,
+      count: viewModel.operatorSummary?.scopeCounts?.creatives?.needsResolution,
+    },
+    {
+      id: "watching",
+      label: copy.laneWatching,
+      count: viewModel.operatorSummary?.scopeCounts?.creatives?.watching,
+    },
+  ] as const;
+  const activeCreativeLane =
+    activeLane === "action" ||
+    activeLane === "needsres" ||
+    activeLane === "watching"
+      ? activeLane
+      : "action";
+
   function selectScope(nextScope: MetaDecisionCenterExactScope) {
     if (scope === undefined) setInternalScope(nextScope);
+    if (
+      nextScope === "creatives" &&
+      creativeGroupIdForLane(activeLane) === null
+    ) {
+      selectLane("action");
+    }
     onScopeChange?.(nextScope);
   }
 
@@ -2949,6 +3396,13 @@ export function MetaDecisionCenterExact({
       <ExactKpiBand
         kpis={viewModel.kpis}
         activeWindow={activeWindow ?? EM_DASH}
+      />
+
+      <OperatorDecisionSummary
+        counts={counts}
+        summary={viewModel.operatorSummary}
+        onSelectLane={selectLane}
+        onSelectScope={selectScope}
       />
 
       <div className={styles.scopeRow}>
@@ -3090,11 +3544,57 @@ export function MetaDecisionCenterExact({
          * and the term is also what the deep link restores. So the control
          * comes along instead.
          *
-         * The lane pills and the sort do NOT come along: the lanes are the
-         * structure lanes and the sort is applied to structure rows only, so
-         * rendering either here would be a control that changes nothing.
+         * Sort does NOT come along: it is applied to structure rows only. The
+         * three decision-bearing lane controls DO come along because the
+         * server also groups creatives as Act, Blocked and Monitor. Without
+         * these controls, a lane retained while switching scopes became an
+         * invisible filter with no way to reach the other creative groups.
          */
         <div className={styles.laneToolbar} data-meta-exact-creative-toolbar>
+          <span
+            aria-label={`${copy.decisionLanes} · ${copy.creatives}`}
+            className={styles.laneGroup}
+            data-meta-exact-creative-lane-toolbar
+            onKeyDown={(event) => {
+              const index = creativeLaneItems.findIndex(
+                (item) => item.id === activeCreativeLane,
+              );
+              if (index < 0) return;
+              const step =
+                event.key === "ArrowRight" || event.key === "ArrowDown"
+                  ? 1
+                  : event.key === "ArrowLeft" || event.key === "ArrowUp"
+                    ? -1
+                    : 0;
+              if (step === 0) return;
+              event.preventDefault();
+              selectLane(
+                creativeLaneItems[
+                  (index + step + creativeLaneItems.length) %
+                    creativeLaneItems.length
+                ]!.id,
+              );
+            }}
+            role="radiogroup"
+          >
+            {creativeLaneItems.map((item) => (
+              <button
+                aria-checked={activeCreativeLane === item.id}
+                className={`${styles.laneOption} ${
+                  activeCreativeLane === item.id ? styles.laneOptionActive : ""
+                }`}
+                data-meta-exact-creative-lane={item.id}
+                key={item.id}
+                onClick={() => selectLane(item.id)}
+                role="radio"
+                tabIndex={activeCreativeLane === item.id ? 0 : -1}
+                type="button"
+              >
+                {item.label}
+                <span>{display(item.count)}</span>
+              </button>
+            ))}
+          </span>
           <span className={styles.toolbarSpacer} />
           {/*
             The level filter comes along for the same reason the search box
@@ -3121,180 +3621,11 @@ export function MetaDecisionCenterExact({
         </div>
       )}
 
-      {/*
-        The advisory strip: what this account holds that no lane decides about.
-
-        `live:META-DEC-13 open` contracts an inactive-assets strip whose detail
-        is read-only, and the Archive lane IS that detail — every row in it is
-        an inactive campaign, ad set or withheld Ad decision, and none of them
-        carries an action. The control opens the lane rather than a second
-        panel that would say the same thing twice.
-      */}
-      {/*
-        D078 R4 (correction 2): account-coverage panel — every ASSIGNED
-        identity with its selection state, so a deselected-but-spending
-        account is an explicit fact rather than an invisible one. All
-        evidence — id/name, state, currency, TIMEZONE, own-window spend,
-        fact freshness, latest generation and produced/authorized counts,
-        and the operator policy implication — is VISIBLE text (no
-        hover-only facts). Display-only: no control, no scope switch, no
-        write affordance. Tri-state: null = the read FAILED (warning; never
-        assume one/no account); [] = a successful read proved zero
-        (anomalous, said so); undefined = legacy payload (nothing).
-      */}
-      {viewModel.assignedAccountStates === null ? (
-        <p
-          className={styles.inactiveStrip}
-          data-meta-exact-account-coverage
-          data-testid="assigned-account-coverage-unavailable"
-          role="alert"
-        >
-          Assigned-account coverage unavailable — the account-state read
-          failed. Do not assume there is only one account or no historical
-          account for this business.
-        </p>
-      ) : null}
-      {viewModel.assignedAccountStates &&
-      viewModel.assignedAccountStates.length === 0 ? (
-        <p
-          className={styles.inactiveStrip}
-          data-meta-exact-account-coverage
-          data-testid="assigned-account-coverage-empty"
-        >
-          Account-state read succeeded and found ZERO assigned Meta
-          identities — anomalous for an active Meta workspace; verify the
-          account assignment before trusting any decision surface here.
-        </p>
-      ) : null}
-      {viewModel.assignedAccountStates &&
-      viewModel.assignedAccountStates.length > 0 ? (
-        <section
-          className={styles.inactiveStrip}
-          data-meta-exact-account-coverage
-          data-testid="assigned-account-coverage"
-        >
-          <strong>Assigned accounts</strong>
-          {viewModel.assignedAccountStates.map((state) => (
-            <div
-              key={state.providerAccountId}
-              data-account-coverage-id={state.providerAccountId}
-              data-account-selection-state={state.selectionState}
-              style={{ display: "grid", gap: 2, margin: "6px 0" }}
-            >
-              <span>
-                {state.accountName
-                  ? `${state.accountName} | ${state.providerAccountId}`
-                  : state.providerAccountId}{" "}
-                —{" "}
-                {state.selectionState === "selected"
-                  ? "selected · serving"
-                  : "deselected · read-only history"}
-              </span>
-              <span data-account-coverage-facts>
-                {[
-                  state.accountCurrency ? `currency ${state.accountCurrency}` : null,
-                  state.accountTimezone ? `timezone ${state.accountTimezone}` : null,
-                  state.spend14d !== null
-                    ? `spend 14d ${state.spend14d.toLocaleString("en-US", { maximumFractionDigits: 0 })}${state.accountCurrency ? ` ${state.accountCurrency}` : ""}`
-                    : "spend 14d unavailable",
-                  state.latestFactDate
-                    ? `facts to ${state.latestFactDate}`
-                    : "fact freshness unavailable",
-                  state.latestDecisionAsOf
-                    ? `latest decisions ${state.latestDecisionAsOf}`
-                    : "no produced decision generation",
-                  state.latestDecisionRows !== null
-                    ? `${state.latestDecisionRows} decision rows` +
-                      (state.latestDecisionAuthorizedRows
-                        ? ` (${state.latestDecisionAuthorizedRows} authorized)`
-                        : "") +
-                      (state.selectionState === "deselected_historical" &&
-                      state.latestDecisionRows > 0
-                        ? " — unserved"
-                        : "")
-                    : null,
-                ]
-                  .filter(Boolean)
-                  .join(" · ")}
-              </span>
-              <span data-account-coverage-policy>{state.policy}</span>
-            </div>
-          ))}
-        </section>
-      ) : null}
-      {activeScope === "structure" ? (
-        <p className={styles.inactiveStrip} data-meta-exact-inactive-strip>
-          <span>
-            {copy.inactiveAssets} {display(counts?.archive)} —{" "}
-            {copy.outsideDecisionLanesAdvisory}
-          </span>
-          <button
-            className={styles.inactiveStripOpen}
-            data-ctl="live:META-DEC-13 open"
-            onClick={() => selectLane("archive")}
-            type="button"
-          >
-            {copy.openInactiveAssetsDetail}
-          </button>
-          {adsManagerHref ? (
-            <a
-              className={styles.adsManagerLink}
-              data-meta-exact-ads-manager-link
-              href={adsManagerHref}
-              rel="noopener noreferrer"
-              target="_blank"
-            >
-              {copy.openMetaAdsManager}
-              <span className={styles.adsManagerNote}>
-                {copy.opensMetaNothingExecuted}
-              </span>
-            </a>
-          ) : null}
-        </p>
-      ) : null}
-
       <div
         className={`${styles.workspace} ${showInspector ? styles.workspaceWithInspector : ""}`}
         data-meta-exact-workspace
       >
         <div className={styles.queue}>
-          {/*
-           * The Structures scope states its own source, in every lane.
-           *
-           * It used to state none at all: the same read model and the same
-           * capabilities envelope back both scopes, but only Creatives said so,
-           * while Structures is the scope that draws the action buttons
-           * `providerWriteLinkage` and `responseAttribution` govern. Rendered
-           * outside the lane branches on purpose — the source is a property of
-           * the account and the snapshot, not of which lane happens to be
-           * selected, and a panel that vanished on the Archive tab would be a
-           * disclosure the operator could lose by clicking.
-           *
-           * @see structureProvenance in meta-decision-center-exact-adapter.ts
-           */}
-          {activeScope === "structure" ? (
-            <SourceProvenancePanel
-              defaultOpen={false}
-              model={viewModel.structureProvenance}
-              scope="structure"
-            />
-          ) : null}
-          {/*
-            The server's own budget-decision gate verdict, rendered verbatim.
-            It is account-scoped rather than lane-scoped, so it is not hidden
-            behind a scope: a blocker that only appears in one tab is a blocker
-            an operator can miss. The surface evaluates no gate of its own and
-            never enables an action from this.
-          */}
-          <BudgetDecisionEvidencePanel
-            evidence={viewModel.budgetEvidence ?? null}
-          />
-          {/*
-            D085 — the server-owned budget dry run, beside the evidence panel
-            and under the same account scope. It renders verbatim and offers no
-            enabled control.
-          */}
-          <BudgetDryRunPanel panel={viewModel.budgetDryRun ?? null} />
           {activeScope === "structure" && activeLane === "action" ? (
             <ActionLane
               emptyReason={laneEmptyReason}
@@ -3335,11 +3666,48 @@ export function MetaDecisionCenterExact({
               decisions={viewModel.creativeDecisions ?? []}
               footnote={viewModel.creativeFootnote}
               groups={viewModel.creativeGroups}
+              lane={activeCreativeLane}
               notice={viewModel.creativesNotice}
               onOpenCreativeStudio={onOpenCreativeStudio}
               posture={viewModel.creativePosture ?? []}
               provenance={viewModel.sourceProvenance}
             />
+          ) : null}
+          {/*
+           * Supporting evidence follows the decision queue. The reference
+           * surface opens with actionable rows; source and budget diagnostics
+           * remain available without standing between the operator and the
+           * decision they came here to review.
+           *
+           * @see structureProvenance in meta-decision-center-exact-adapter.ts
+           */}
+          {activeScope === "structure" ? (
+            <SourceProvenancePanel
+              defaultOpen={false}
+              model={viewModel.structureProvenance}
+              scope="structure"
+            />
+          ) : null}
+          {viewModel.budgetEvidence || viewModel.budgetDryRun ? (
+            <details className={styles.technicalDisclosure}>
+              <summary>
+                <span
+                  className={styles.technicalDisclosureSummary}
+                  data-readiness-state={budgetReadinessSummary.state}
+                >
+                  <span>Budget decision readiness</span>
+                  <small data-meta-exact-budget-readiness-summary>
+                    {budgetReadinessSummary.text}
+                  </small>
+                </span>
+              </summary>
+              <div className={styles.technicalDisclosureBody}>
+                <BudgetDecisionEvidencePanel
+                  evidence={viewModel.budgetEvidence ?? null}
+                />
+                <BudgetDryRunPanel panel={viewModel.budgetDryRun ?? null} />
+              </div>
+            </details>
           ) : null}
         </div>
         {showInspector ? (
@@ -3366,6 +3734,171 @@ export function MetaDecisionCenterExact({
           />
         ) : null}
       </div>
+
+      {/*
+        Supporting account coverage follows the decisions. These facts remain
+        available for audit, but they must not displace the queue from the
+        first viewport.
+
+        D078 R4 (correction 2): every assigned identity keeps its selection
+        state, currency, timezone, own-window spend, fact freshness, latest
+        generation, decision counts and policy visible inside this disclosure.
+      */}
+      {viewModel.assignedAccountStates === null ? (
+        <p
+          className={styles.inactiveStrip}
+          data-meta-exact-account-coverage
+          data-testid="assigned-account-coverage-unavailable"
+          role="alert"
+        >
+          Assigned-account coverage unavailable — the account-state read failed.
+          Do not assume there is only one account or no historical account for
+          this business.
+        </p>
+      ) : null}
+      {viewModel.assignedAccountStates &&
+      viewModel.assignedAccountStates.length === 0 ? (
+        <p
+          className={styles.inactiveStrip}
+          data-meta-exact-account-coverage
+          data-testid="assigned-account-coverage-empty"
+        >
+          Account-state read succeeded and found ZERO assigned Meta identities —
+          anomalous for an active Meta workspace; verify the account assignment
+          before trusting any decision surface here.
+        </p>
+      ) : null}
+      {viewModel.assignedAccountStates &&
+      viewModel.assignedAccountStates.length > 0 ? (
+        <details
+          className={`${styles.inactiveStrip} ${styles.accountCoverageDisclosure}`}
+          data-meta-exact-account-coverage
+          data-testid="assigned-account-coverage"
+        >
+          <summary className={styles.accountCoverageSummary}>
+            <strong>
+              {language === "tr"
+                ? `${viewModel.assignedAccountStates.length} atanmış Meta hesabı`
+                : `${viewModel.assignedAccountStates.length} assigned Meta account${viewModel.assignedAccountStates.length === 1 ? "" : "s"}`}
+            </strong>
+            <span>
+              {(() => {
+                const deselected =
+                  viewModel.assignedAccountStates?.filter(
+                    (state) => state.selectionState === "deselected_historical",
+                  ) ?? [];
+                const deselectedWithSpend = deselected.filter(
+                  (state) => state.spend14d !== null && state.spend14d > 0,
+                );
+                const deselectedWithoutSpendProof = deselected.filter(
+                  (state) => state.spend14d === null,
+                );
+                if (deselectedWithSpend.length > 0) {
+                  return language === "tr"
+                    ? `Uyarı: Seçili olmayan ${deselectedWithSpend.length} hesapta son 14 gün harcaması var; bu hesaplar salt okunur ve sunulan kararların dışında.`
+                    : `Warning: ${deselectedWithSpend.length} deselected account${deselectedWithSpend.length === 1 ? " has" : "s have"} recorded 14-day spend; ${deselectedWithSpend.length === 1 ? "it is" : "they are"} read-only and excluded from served decisions.`;
+                }
+                if (deselectedWithoutSpendProof.length > 0) {
+                  return language === "tr"
+                    ? `Uyarı: Seçili olmayan ${deselectedWithoutSpendProof.length} hesabın son 14 gün harcaması doğrulanamadı; karar kapsamına güvenmeden önce ayrıntıları inceleyin.`
+                    : `Warning: ${deselectedWithoutSpendProof.length} deselected account${deselectedWithoutSpendProof.length === 1 ? " has" : "s have"} no verified 14-day spend; review details before trusting the decision scope.`;
+                }
+                const selected = viewModel.assignedAccountStates?.find(
+                  (state) => state.selectionState === "selected",
+                );
+                return selected?.latestFactDate
+                  ? language === "tr"
+                    ? `Seçili hesap verileri ${selected.latestFactDate} tarihine kadar`
+                    : `Selected account data through ${selected.latestFactDate}`
+                  : language === "tr"
+                    ? "Hesap kapsamı ayrıntılarını açın"
+                    : "Open account coverage details";
+              })()}
+            </span>
+          </summary>
+          <strong>Assigned accounts</strong>
+          {viewModel.assignedAccountStates.map((state) => (
+            <div
+              key={state.providerAccountId}
+              data-account-coverage-id={state.providerAccountId}
+              data-account-selection-state={state.selectionState}
+              style={{ display: "grid", gap: 2, margin: "6px 0" }}
+            >
+              <span>
+                {state.accountName
+                  ? `${state.accountName} | ${state.providerAccountId}`
+                  : state.providerAccountId}{" "}
+                —{" "}
+                {state.selectionState === "selected"
+                  ? "selected · serving"
+                  : "deselected · read-only history"}
+              </span>
+              <span data-account-coverage-facts>
+                {[
+                  state.accountCurrency
+                    ? `currency ${state.accountCurrency}`
+                    : null,
+                  state.accountTimezone
+                    ? `timezone ${state.accountTimezone}`
+                    : null,
+                  state.spend14d !== null
+                    ? `spend 14d ${state.spend14d.toLocaleString("en-US", { maximumFractionDigits: 0 })}${state.accountCurrency ? ` ${state.accountCurrency}` : ""}`
+                    : "spend 14d unavailable",
+                  state.latestFactDate
+                    ? `facts to ${state.latestFactDate}`
+                    : "fact freshness unavailable",
+                  state.latestDecisionAsOf
+                    ? `latest decisions ${state.latestDecisionAsOf}`
+                    : "no produced decision generation",
+                  state.latestDecisionRows !== null
+                    ? `${state.latestDecisionRows} decision rows` +
+                      (state.latestDecisionAuthorizedRows
+                        ? ` (${state.latestDecisionAuthorizedRows} authorized)`
+                        : "") +
+                      (state.selectionState === "deselected_historical" &&
+                      state.latestDecisionRows > 0
+                        ? " — unserved"
+                        : "")
+                    : null,
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
+              </span>
+              <span data-account-coverage-policy>{state.policy}</span>
+            </div>
+          ))}
+        </details>
+      ) : null}
+      {activeScope === "structure" ? (
+        <p className={styles.inactiveStrip} data-meta-exact-inactive-strip>
+          <span>
+            {copy.inactiveAssets} {display(counts?.archive)} —{" "}
+            {copy.outsideDecisionLanesAdvisory}
+          </span>
+          <button
+            className={styles.inactiveStripOpen}
+            data-ctl="live:META-DEC-13 open"
+            onClick={() => selectLane("archive")}
+            type="button"
+          >
+            {copy.openInactiveAssetsDetail}
+          </button>
+          {adsManagerHref ? (
+            <a
+              className={styles.adsManagerLink}
+              data-meta-exact-ads-manager-link
+              href={adsManagerHref}
+              rel="noopener noreferrer"
+              target="_blank"
+            >
+              {copy.openMetaAdsManager}
+              <span className={styles.adsManagerNote}>
+                {copy.opensMetaNothingExecuted}
+              </span>
+            </a>
+          ) : null}
+        </p>
+      ) : null}
     </section>
   );
 }

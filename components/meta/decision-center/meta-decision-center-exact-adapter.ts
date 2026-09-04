@@ -581,6 +581,34 @@ function structureNodesByRecommendationId(
   return nodes;
 }
 
+function structureEntityKeyForRecommendation(
+  recommendation: MetaRecommendation,
+): string | null {
+  if (recommendation.level === "campaign") {
+    return `campaign:${nonBlank(recommendation.campaignId) ?? recommendation.id}`;
+  }
+  if (recommendation.level === "adset") {
+    return `adset:${nonBlank(recommendation.adsetId) ?? recommendation.id}`;
+  }
+  return null;
+}
+
+function structureNodesByEntityKey(
+  workspace: MetaDecisionsWorkspacePayload,
+): Map<string, MetaOsStructureNode> {
+  const nodes = new Map<string, MetaOsStructureNode>();
+  for (const group of workspace.os?.structure?.groups ?? []) {
+    for (const node of [group.campaign, ...group.adsets]) {
+      const providerEntityId =
+        nonBlank(node.providerEntityId) ??
+        (node.level === "campaign" ? nonBlank(node.campaignId) : null);
+      if (!providerEntityId) continue;
+      nodes.set(`${node.level}:${providerEntityId}`, node);
+    }
+  }
+  return nodes;
+}
+
 /**
  * Every canonical envelope the payload carries, as a LOOKUP TABLE.
  *
@@ -710,7 +738,9 @@ function actionRows(input: {
        * text.
        */
       staleDemoted: (node?.confidence ?? recommendation.confidence) === "low",
-      staleDemotedReason: nonBlank(recommendation.confidenceReason),
+      staleDemotedReason: nonBlank(recommendation.confidenceReason)
+        ? operatorFactLabel(recommendation.confidenceReason!)
+        : null,
       ...(node && input.callbacks.onStructurePrimary
         ? {
             onPrimary: () =>
@@ -740,31 +770,88 @@ function actionRows(input: {
  * row whose OS node was not served is NOT blocked — it is a row with no
  * projection, which the notice states rather than this function guessing.
  */
-function isServerBlocked(node: MetaOsStructureNode | null | undefined): boolean {
-  return node?.lane === "blocked";
+interface ProjectedStructureRecommendations {
+  action: MetaRecommendation[];
+  blocked: MetaRecommendation[];
+  watching: MetaRecommendation[];
+  nonSales: MetaRecommendation[];
+  /** Legacy rows the OS did not project, grouped by their served fallback. */
+  unprojected: {
+    action: number;
+    watching: number;
+    nonSales: number;
+  };
 }
 
 /**
- * A lane's recommendations, split by the server's own classification.
+ * Route every structure recommendation by the server-owned OS lane.
  *
- * Blocked rows used to stay in whichever legacy lane they arrived in, so a
- * decision the engine had explicitly refused authority for was drawn under
- * "Action Now" beside decisions that could actually be executed. The split is
- * presentation only — every row is still served, still counted, and still
- * carries the same verdict bytes.
+ * The legacy payload has three source arrays, but the OS is the authoritative
+ * classifier and can legitimately move any campaign/ad-set recommendation to
+ * Act, Blocked or Monitor. In particular, an active recommendation sourced
+ * from `nonSales` is an Act node. Keeping it on an informational card hid a
+ * real action from both the headline and its destination lane.
+ *
+ * The OS also chooses one recommendation per physical entity. Alternatives
+ * explicitly counted as suppressed by that node are omitted from the queue;
+ * drawing them beside the chosen node produced contradictory duplicate cards
+ * for the same campaign in the real Grandmix payload. Account-level legacy
+ * advice and other rows the OS genuinely did not project keep their original
+ * lane and remain visible.
  */
-function splitByServerLane(
-  recommendations: readonly MetaRecommendation[],
-  nodes: ReadonlyMap<string, MetaOsStructureNode>,
-): { open: MetaRecommendation[]; blocked: MetaRecommendation[] } {
-  const open: MetaRecommendation[] = [];
-  const blocked: MetaRecommendation[] = [];
-  for (const recommendation of recommendations) {
-    (isServerBlocked(nodes.get(recommendation.id)) ? blocked : open).push(
-      recommendation,
-    );
-  }
-  return { open, blocked };
+function projectStructureRecommendations(input: {
+  action: readonly MetaRecommendation[];
+  watching: readonly MetaRecommendation[];
+  nonSales: readonly MetaRecommendation[];
+  nodesByRecommendationId: ReadonlyMap<string, MetaOsStructureNode>;
+  nodesByEntityKey: ReadonlyMap<string, MetaOsStructureNode>;
+}): ProjectedStructureRecommendations {
+  const result: ProjectedStructureRecommendations = {
+    action: [],
+    blocked: [],
+    watching: [],
+    nonSales: [],
+    unprojected: { action: 0, watching: 0, nonSales: 0 },
+  };
+  const seen = new Set<string>();
+
+  const append = (
+    recommendation: MetaRecommendation,
+    fallback: "action" | "watching" | "nonSales",
+  ) => {
+    if (seen.has(recommendation.id)) return;
+    seen.add(recommendation.id);
+
+    const node = input.nodesByRecommendationId.get(recommendation.id);
+    if (node) {
+      if (node.lane === "act") result.action.push(recommendation);
+      else if (node.lane === "blocked") result.blocked.push(recommendation);
+      else result.watching.push(recommendation);
+      return;
+    }
+
+    const entityKey = structureEntityKeyForRecommendation(recommendation);
+    const selectedNode = entityKey
+      ? input.nodesByEntityKey.get(entityKey)
+      : undefined;
+    if (
+      selectedNode &&
+      selectedNode.suppressedAlternativeCount > 0 &&
+      nonBlank(selectedNode.sourceRecommendationId) !== recommendation.id
+    ) {
+      return;
+    }
+
+    result[fallback].push(recommendation);
+    result.unprojected[fallback] += 1;
+  };
+
+  for (const recommendation of input.action) append(recommendation, "action");
+  for (const recommendation of input.watching)
+    append(recommendation, "watching");
+  for (const recommendation of input.nonSales)
+    append(recommendation, "nonSales");
+  return result;
 }
 
 /**
@@ -835,11 +922,12 @@ function needsResolutionRows(input: {
             EM_DASH),
       decisionTone: decisionTone(recommendation.decisionLabel),
       blocker:
-        blockerParts.length > 0
-          ? blockerParts.map(operatorFactLabel).join(" · ")
-          : // The node's own assessment is the server's short form of the same
-            // fact ("Decision Blocked"); `whyNow` carries the long one.
-            (nonBlank(node?.assessment) ?? "Authority withheld"),
+        nonBlank(readiness?.reason) ??
+        // The node's own assessment is the server's short form of the same
+        // fact ("Decision Blocked"); `whyNow` carries the long one.
+        nonBlank(node?.assessment) ??
+        "Authority withheld",
+      blockerCount: blockerParts.length,
       blockerTone: "warning",
       resolution:
         nonBlank(node?.action?.scopeNote) ??
@@ -850,7 +938,9 @@ function needsResolutionRows(input: {
       confidence: titleToken(confidence),
       confidenceTone: confidenceTone(confidence),
       staleDemoted: confidence === "low",
-      staleDemotedReason: nonBlank(recommendation.confidenceReason),
+      staleDemotedReason: nonBlank(recommendation.confidenceReason)
+        ? operatorFactLabel(recommendation.confidenceReason!)
+        : null,
       ...(input.callbacks.onStructureMenu
         ? { onOpen: () => input.callbacks.onStructureMenu?.(recommendation) }
         : {}),
@@ -2317,9 +2407,11 @@ function inspector(input: {
       ? null
       : briefHref
         ? { href: briefHref, label: "Create a brief from this decision" }
-        : { refusalReason: briefGate.ok
-            ? "This route family has no brief workspace to open."
-            : briefGate.reason },
+        : {
+            refusalReason: briefGate.ok
+              ? "This route family has no brief workspace to open."
+              : briefGate.reason,
+          },
   };
 }
 
@@ -2396,7 +2488,11 @@ function decisionPipelineTone(
   workspace: MetaDecisionsWorkspacePayload,
 ): MetaDecisionCenterExactTone {
   const health = workspace.system?.pipelineHealth;
-  if (!health || health.overall === "unavailable" || health.overall === "blocked") {
+  if (
+    !health ||
+    health.overall === "unavailable" ||
+    health.overall === "blocked"
+  ) {
     return "negative";
   }
   return health.overall === "healthy" && health.executionReady
@@ -2422,12 +2518,7 @@ function decisionPipelineFacts(
         "unavailable (legacy payload)",
         tone,
       ),
-      fact(
-        "pipeline-execution-ready",
-        "Pipeline execution ready",
-        "no",
-        tone,
-      ),
+      fact("pipeline-execution-ready", "Pipeline execution ready", "no", tone),
     ];
   }
   const offender = health.admission.offender;
@@ -2436,16 +2527,8 @@ function decisionPipelineFacts(
   const bytes = (value: number) =>
     `${Math.trunc(value).toLocaleString("en-US")} bytes`;
   return [
-    fact(
-      "pipeline-contract",
-      "Pipeline contract",
-      health.contractVersion,
-    ),
-    fact(
-      "pipeline-evaluated",
-      "Pipeline evaluated at",
-      health.evaluatedAt,
-    ),
+    fact("pipeline-contract", "Pipeline contract", health.contractVersion),
+    fact("pipeline-evaluated", "Pipeline evaluated at", health.evaluatedAt),
     fact("pipeline-health", "Decision pipeline", health.overall, tone),
     fact(
       "pipeline-execution-ready",
@@ -2460,7 +2543,11 @@ function decisionPipelineFacts(
       tone,
     ),
     fact("pipeline-sync-status", "Sync activity", health.syncActivity.status),
-    fact("pipeline-sync-latest", "Latest successful sync", health.syncActivity.latestAt),
+    fact(
+      "pipeline-sync-latest",
+      "Latest successful sync",
+      health.syncActivity.latestAt,
+    ),
     fact(
       "pipeline-sync-age",
       "Successful sync age",
@@ -2471,37 +2558,99 @@ function decisionPipelineFacts(
       "Maximum sync age",
       `${health.syncActivity.maxAgeMinutes} minutes`,
     ),
-    fact("pipeline-sync-job-status", "Latest sync job status", health.syncActivity.latestJobStatus),
-    fact("pipeline-sync-run-status", "Latest sync run status", health.syncActivity.latestRunStatus),
-    fact("pipeline-sync-reason", "Sync status reason", health.syncActivity.reason),
-    fact("pipeline-warehouse-status", "Warehouse cutoff", health.warehouse.status),
-    fact("pipeline-warehouse-latest", "Latest finalized Ad day", health.warehouse.latestFinalizedDate),
-    fact("pipeline-warehouse-expected", "Expected finalized Ad day", health.warehouse.expectedFinalizedDate),
+    fact(
+      "pipeline-sync-job-status",
+      "Latest sync job status",
+      health.syncActivity.latestJobStatus,
+    ),
+    fact(
+      "pipeline-sync-run-status",
+      "Latest sync run status",
+      health.syncActivity.latestRunStatus,
+    ),
+    fact(
+      "pipeline-sync-reason",
+      "Sync status reason",
+      health.syncActivity.reason,
+    ),
+    fact(
+      "pipeline-warehouse-status",
+      "Warehouse cutoff",
+      health.warehouse.status,
+    ),
+    fact(
+      "pipeline-warehouse-latest",
+      "Latest finalized Ad day",
+      health.warehouse.latestFinalizedDate,
+    ),
+    fact(
+      "pipeline-warehouse-expected",
+      "Expected finalized Ad day",
+      health.warehouse.expectedFinalizedDate,
+    ),
     fact(
       "pipeline-warehouse-lag",
       "Warehouse lag",
-      health.warehouse.lagDays === null ? null : `${health.warehouse.lagDays} days`,
+      health.warehouse.lagDays === null
+        ? null
+        : `${health.warehouse.lagDays} days`,
     ),
-    fact("pipeline-account-timezone", "Provider account timezone", health.warehouse.accountTimeZone),
-    fact("pipeline-warehouse-reason", "Warehouse status reason", health.warehouse.reason),
-    fact("pipeline-admission-status", "Sync admission", health.admission.status),
+    fact(
+      "pipeline-account-timezone",
+      "Provider account timezone",
+      health.warehouse.accountTimeZone,
+    ),
+    fact(
+      "pipeline-warehouse-reason",
+      "Warehouse status reason",
+      health.warehouse.reason,
+    ),
+    fact(
+      "pipeline-admission-status",
+      "Sync admission",
+      health.admission.status,
+    ),
     fact(
       "pipeline-admission-allowed",
       "Sync admission allowed",
       health.admission.allowed ? "yes" : "no",
     ),
-    fact("pipeline-admission-reason", "Admission reason", health.admission.reason),
+    fact(
+      "pipeline-admission-reason",
+      "Admission reason",
+      health.admission.reason,
+    ),
     fact(
       "pipeline-admission-evaluated",
       "Admission evaluated at",
       health.admission.evaluatedAt,
     ),
     fact("pipeline-admission-table", "Admission offender", offender?.table),
-    fact("pipeline-admission-bytes", "Offender physical size", offender ? bytes(offender.bytes) : null),
-    fact("pipeline-admission-budget", "Offender budget", offender ? bytes(offender.budget) : null),
-    fact("pipeline-admission-over", "Over budget by", offender ? bytes(offender.overByBytes) : null),
-    fact("pipeline-generation-status", "Decision generation", health.decisionGeneration.status),
-    fact("pipeline-generation-computed", "Decision computed at", health.decisionGeneration.computedAt),
+    fact(
+      "pipeline-admission-bytes",
+      "Offender physical size",
+      offender ? bytes(offender.bytes) : null,
+    ),
+    fact(
+      "pipeline-admission-budget",
+      "Offender budget",
+      offender ? bytes(offender.budget) : null,
+    ),
+    fact(
+      "pipeline-admission-over",
+      "Over budget by",
+      offender ? bytes(offender.overByBytes) : null,
+    ),
+    fact(
+      "pipeline-generation-status",
+      "Decision generation",
+      health.decisionGeneration.status,
+    ),
+    fact(
+      "pipeline-generation-computed",
+      "Decision computed at",
+      health.decisionGeneration.computedAt,
+    ),
     fact(
       "pipeline-generation-age",
       "Decision generation age",
@@ -2512,12 +2661,32 @@ function decisionPipelineFacts(
       "Maximum decision age",
       `${health.decisionGeneration.maxAgeHours} hours`,
     ),
-    fact("pipeline-generation-engine", "Decision engine", health.decisionGeneration.engineVersion),
-    fact("pipeline-generation-reason", "Decision generation reason", health.decisionGeneration.reason),
-    fact("pipeline-manifest-status", "Generation manifest", health.manifest.status),
-    fact("pipeline-manifest-authority", "Manifest authority", health.manifest.authority),
+    fact(
+      "pipeline-generation-engine",
+      "Decision engine",
+      health.decisionGeneration.engineVersion,
+    ),
+    fact(
+      "pipeline-generation-reason",
+      "Decision generation reason",
+      health.decisionGeneration.reason,
+    ),
+    fact(
+      "pipeline-manifest-status",
+      "Generation manifest",
+      health.manifest.status,
+    ),
+    fact(
+      "pipeline-manifest-authority",
+      "Manifest authority",
+      health.manifest.authority,
+    ),
     fact("pipeline-manifest-job", "Manifest job run", health.manifest.jobRunId),
-    fact("pipeline-manifest-hash", "Manifest hash", health.manifest.manifestHash),
+    fact(
+      "pipeline-manifest-hash",
+      "Manifest hash",
+      health.manifest.manifestHash,
+    ),
     fact(
       "pipeline-manifest-expected",
       "Manifest expected Ads",
@@ -2525,7 +2694,11 @@ function decisionPipelineFacts(
         ? null
         : formatNumber(health.manifest.expectedAdCount),
     ),
-    fact("pipeline-manifest-reason", "Manifest status reason", health.manifest.reason),
+    fact(
+      "pipeline-manifest-reason",
+      "Manifest status reason",
+      health.manifest.reason,
+    ),
   ];
 }
 
@@ -2890,7 +3063,9 @@ function commercialAnchorFacts(
     fact(
       "anchor-target-cpa",
       "Target CPA",
-      lineage.targetCpa === null ? null : formatMoney(lineage.targetCpa, currency),
+      lineage.targetCpa === null
+        ? null
+        : formatMoney(lineage.targetCpa, currency),
     ),
     fact(
       "anchor-aov",
@@ -3004,10 +3179,10 @@ function sourceProvenance(input: {
       : health === "degraded" ||
           pipelineTone === "warning" ||
           (authority !== null && authority !== "native_ad")
-      ? "warning"
-      : health === "healthy"
-        ? "positive"
-        : "neutral";
+        ? "warning"
+        : health === "healthy"
+          ? "positive"
+          : "neutral";
 
   /*
    * Paired against the DERIVED eligible pre-cap, NOT `sourcePreCapCount`, and
@@ -3254,30 +3429,22 @@ function structureProvenance(
       ? "negative"
       : sourceStatus !== null && sourceStatus !== "available"
         ? "negative"
-      : pipelineTone === "warning"
-        ? "warning"
-      : writeBearingGap === true
-        ? "warning"
-        : sourceStatus === "available" && writeBearingGap === false
-          ? "positive"
-          : "neutral";
+        : pipelineTone === "warning"
+          ? "warning"
+          : writeBearingGap === true
+            ? "warning"
+            : sourceStatus === "available" && writeBearingGap === false
+              ? "positive"
+              : "neutral";
 
   /*
-   * Paired against the served census, which is the population these lanes are
-   * a view OF — the same census the scope pill counts. `os.structure`'s three
-   * lane counts are computed by the presentation builder over one array of
-   * campaign and ad-set nodes, and `act | blocked | monitor` is the whole of
-   * `MetaOsDecisionLane`, so their sum is that array's length exactly. If any
-   * one of the three was not served the sum is not asserted at all.
-   *
-   * THE TWO ARE EQUAL ON A HEALTHY ACCOUNT and that is the point, not a bug:
-   * the presentation builder seeds its nodes FROM `structureInventory` and then
-   * lets a live recommendation override the node of the same id, so agreement
-   * means every censused entity reached the lanes. Measured 2026-08-19 against
-   * the dev server: Grandmix 1,230 · 1,230 and IwaStore 174 · 174. A payload
-   * that served a census without the node set — or a node set the census does
-   * not cover — is exactly the divergence this pairing exists to surface, and
-   * the operator sees it as two different numbers rather than not at all.
+   * Pair the number of recommendation-backed structure decisions against the
+   * served inventory census. The presentation hierarchy also contains plain
+   * inventory and, when only an ad-set recommendation exists, a synthetic
+   * campaign parent. Those nodes make the tree navigable but do not represent
+   * additional decisions, so `structureDecisionNodeCount` excludes them by
+   * source recommendation identity. If the identity or any fallback aggregate
+   * was not served, the count remains unavailable instead of guessing.
    */
   const decisionNodeCount = structureDecisionNodeCount(structure);
   const censusCount = finite(workspace.lanes?.structureInventory?.length);
@@ -3337,15 +3504,19 @@ function structureProvenance(
         "Carrying a decision",
         decisionNodeCount === null ? null : formatNumber(decisionNodeCount),
       ),
-      fact("structure-act", "Lane · act", servedCount(structure?.actCount)),
+      fact(
+        "structure-act",
+        "Structure nodes · act",
+        servedCount(structure?.actCount),
+      ),
       fact(
         "structure-blocked",
-        "Lane · blocked",
+        "Structure nodes · blocked",
         servedCount(structure?.blockedCount),
       ),
       fact(
         "structure-monitor",
-        "Lane · monitor",
+        "Structure nodes · monitor",
         servedCount(structure?.monitorCount),
       ),
       fact(
@@ -3397,12 +3568,55 @@ function structureProvenance(
 function structureDecisionNodeCount(
   structure: MetaDecisionsWorkspacePayload["os"]["structure"] | undefined,
 ): number | null {
-  if (!structure) return null;
-  const act = finite(structure.actCount);
-  const blocked = finite(structure.blockedCount);
-  const monitor = finite(structure.monitorCount);
+  const { act, blocked, monitor } = structureDecisionLaneCounts(structure);
   if (act === null || blocked === null || monitor === null) return null;
   return act + blocked + monitor;
+}
+
+/**
+ * Decision totals exclude inventory-only and synthetic grouping nodes.
+ *
+ * Current payloads explicitly carry `sourceRecommendationId` on every node.
+ * A synthetic campaign can inherit an ad set's lane so the hierarchy remains
+ * readable, but it is not a second recommendation. Older serialized payloads
+ * that predate the identity field fall back to their served aggregate counts
+ * instead of being silently rewritten as zero.
+ */
+function structureDecisionLaneCounts(
+  structure: MetaDecisionsWorkspacePayload["os"]["structure"] | undefined,
+): { act: number | null; blocked: number | null; monitor: number | null } {
+  if (!structure) return { act: null, blocked: null, monitor: null };
+
+  const nodes = structure.groups.flatMap((group) => [
+    group.campaign,
+    ...group.adsets,
+  ]);
+  const carriesSourceIdentity =
+    nodes.length > 0 &&
+    nodes.every((node) =>
+      Object.prototype.hasOwnProperty.call(node, "sourceRecommendationId"),
+    );
+  if (!carriesSourceIdentity) {
+    return {
+      act: finite(structure.actCount),
+      blocked: finite(structure.blockedCount),
+      monitor: finite(structure.monitorCount),
+    };
+  }
+
+  const decisions = new Map<string, MetaOsStructureNode>();
+  for (const node of nodes) {
+    const recommendationId = nonBlank(node.sourceRecommendationId);
+    if (recommendationId && !decisions.has(recommendationId)) {
+      decisions.set(recommendationId, node);
+    }
+  }
+  const decisionNodes = [...decisions.values()];
+  return {
+    act: decisionNodes.filter((node) => node.lane === "act").length,
+    blocked: decisionNodes.filter((node) => node.lane === "blocked").length,
+    monitor: decisionNodes.filter((node) => node.lane === "monitor").length,
+  };
 }
 
 /**
@@ -3431,30 +3645,35 @@ export function buildMetaDecisionCenterExactViewModel(
   const servedWatchingRecommendations =
     overrides.watching ?? workspace.lanes.watching;
   const healthy = overrides.healthy ?? workspace.lanes.healthy;
-  const nonSales = overrides.nonSales ?? workspace.lanes.nonSales;
+  const servedNonSalesRecommendations =
+    overrides.nonSales ?? workspace.lanes.nonSales;
   const archived = overrides.archive ?? defaultArchiveItems(workspace);
   const creativeDecisions =
     overrides.creatives ?? workspace.os?.ads?.items ?? [];
   const canonicalDecisions =
     overrides.canonicalDecisions ?? defaultCanonicalDecisions(workspace);
   const nodes = structureNodesByRecommendationId(workspace);
+  const nodesByEntityKey = structureNodesByEntityKey(workspace);
   /*
-   * The three server lanes, applied to the two legacy arrays that can carry a
-   * blocked row.
+   * The three server lanes, applied across every legacy source array.
    *
-   * `healthy`, `nonSales` and `archive` are not split: healthy rows carry no
-   * decision, non-sales is an out-of-scope statement rather than a queue lane,
-   * and the archive is inactive assets. Only Action Now and Watching promise
-   * something about a decision the engine made, and only they can therefore
-   * mis-promise it.
+   * `nonSales` is a source cohort, not final authority: the server can promote
+   * an active row from it into Act or Monitor. `healthy` carries no decision
+   * and Archive is inactive inventory, so neither participates.
    */
-  const actionSplit = splitByServerLane(servedActionRecommendations, nodes);
-  const watchingSplit = splitByServerLane(servedWatchingRecommendations, nodes);
-  const actionRecommendations = actionSplit.open;
-  const watchingRecommendations = watchingSplit.open;
-  const blockedRecommendations = [...actionSplit.blocked, ...watchingSplit.blocked];
+  const projected = projectStructureRecommendations({
+    action: servedActionRecommendations,
+    watching: servedWatchingRecommendations,
+    nonSales: servedNonSalesRecommendations,
+    nodesByRecommendationId: nodes,
+    nodesByEntityKey,
+  });
+  const actionRecommendations = projected.action;
+  const watchingRecommendations = projected.watching;
+  const blockedRecommendations = projected.blocked;
+  const nonSalesRecommendations = projected.nonSales;
   /*
-   * The same split over the UNFILTERED served arrays, for the counters only.
+   * The same projection over the UNFILTERED served arrays, for counters only.
    *
    * The rows above may be a filtered override — the page narrows them by search
    * and level — and a lane counter that moved with a search term would report
@@ -3463,8 +3682,66 @@ export function buildMetaDecisionCenterExactViewModel(
    * served array is the same arithmetic the server would do, on the same
    * population, with nothing filtered out of it.
    */
-  const servedActionSplit = splitByServerLane(workspace.lanes.actionNow, nodes);
-  const servedWatchingSplit = splitByServerLane(workspace.lanes.watching, nodes);
+  const servedProjection = projectStructureRecommendations({
+    action: workspace.lanes.actionNow,
+    watching: workspace.lanes.watching,
+    nonSales: workspace.lanes.nonSales,
+    nodesByRecommendationId: nodes,
+    nodesByEntityKey,
+  });
+  const sourceCountRemainder = (
+    count: number,
+    rows: readonly MetaRecommendation[],
+  ) => Math.max(0, count - rows.length);
+  const unseenActionCount = sourceCountRemainder(
+    workspace.lanes.counts.actionNow,
+    workspace.lanes.actionNow,
+  );
+  const unseenWatchingCount = sourceCountRemainder(
+    workspace.lanes.counts.watching,
+    workspace.lanes.watching,
+  );
+  const unseenNonSalesCount = sourceCountRemainder(
+    workspace.lanes.counts.nonSales,
+    workspace.lanes.nonSales,
+  );
+  const osStructureDecisionCounts = structureDecisionLaneCounts(
+    workspace.os?.structure,
+  );
+  const osStructureActionCount = osStructureDecisionCounts.act;
+  const osStructureBlockedCount = osStructureDecisionCounts.blocked;
+  const hasAuthoritativeOsActionAndBlockedCounts =
+    osStructureActionCount !== null && osStructureBlockedCount !== null;
+  const structureActionCount = hasAuthoritativeOsActionAndBlockedCounts
+    ? osStructureActionCount! +
+      servedProjection.unprojected.action +
+      unseenActionCount
+    : servedProjection.action.length + unseenActionCount;
+  const structureNeedsResolutionCount = hasAuthoritativeOsActionAndBlockedCounts
+    ? osStructureBlockedCount!
+    : servedProjection.blocked.length;
+  /*
+   * `os.structure.monitorCount` is an inventory count, not a decision count:
+   * the OS deliberately places structure entities with no recommendation in
+   * Monitor so the full account remains inspectable. The buyer-facing summary
+   * must count only recommendation-backed rows or it can announce hundreds of
+   * "watched decisions" above an empty Watching queue. `servedProjection` is
+   * the same unfiltered recommendation population used to build that queue;
+   * the source remainder preserves a server-reported pre-page total without
+   * promoting plain inventory into a decision.
+   */
+  const structureWatchingCount =
+    servedProjection.watching.length + unseenWatchingCount;
+  const structureNonSalesCount =
+    servedProjection.nonSales.length + unseenNonSalesCount;
+  const creativeActionCount = finite(workspace.os?.ads?.actCount);
+  const creativeNeedsResolutionCount = finite(workspace.os?.ads?.blockedCount);
+  const creativeWatchingCount = finite(workspace.os?.ads?.monitorCount);
+  const combinedLaneCount = (
+    structureCount: number,
+    creativeCount: number | null,
+  ): number | typeof EM_DASH =>
+    creativeCount === null ? EM_DASH : structureCount + creativeCount;
   const canonical = canonicalDecisionsByKey(canonicalDecisions);
   const snapshotAsOf =
     nonBlank(workspace.decisionReadModel.source.snapshotAsOf) ??
@@ -3515,6 +3792,43 @@ export function buildMetaDecisionCenterExactViewModel(
       timeLabel: utcTime(workspace.decisionReadModel.source.computedAt),
     },
     activeWindow: activeWindow(workspace.window),
+    operatorSummary: {
+      action: combinedLaneCount(structureActionCount, creativeActionCount),
+      needsResolution: combinedLaneCount(
+        structureNeedsResolutionCount,
+        creativeNeedsResolutionCount,
+      ),
+      watching: combinedLaneCount(
+        structureWatchingCount,
+        creativeWatchingCount,
+      ),
+      creatives: finite(workspace.os?.ads?.items?.length) ?? EM_DASH,
+      actionScope:
+        structureActionCount > 0 || creativeActionCount === null
+          ? "structure"
+          : "creatives",
+      needsResolutionScope:
+        structureNeedsResolutionCount > 0 ||
+        creativeNeedsResolutionCount === null
+          ? "structure"
+          : "creatives",
+      watchingScope:
+        structureWatchingCount > 0 || creativeWatchingCount === null
+          ? "structure"
+          : "creatives",
+      scopeCounts: {
+        structure: {
+          action: structureActionCount,
+          needsResolution: structureNeedsResolutionCount,
+          watching: structureWatchingCount,
+        },
+        creatives: {
+          action: creativeActionCount ?? EM_DASH,
+          needsResolution: creativeNeedsResolutionCount ?? EM_DASH,
+          watching: creativeWatchingCount ?? EM_DASH,
+        },
+      },
+    },
     counts: {
       /*
        * The scope counter counts the SCOPE, not the first lane inside it.
@@ -3566,18 +3880,11 @@ export function buildMetaDecisionCenterExactViewModel(
        * past the cap is neither moved nor drawn — which is correct: it was not
        * visible in either lane to begin with.
        */
-      action: Math.max(
-        0,
-        workspace.lanes.counts.actionNow - servedActionSplit.blocked.length,
-      ),
-      needsres:
-        servedActionSplit.blocked.length + servedWatchingSplit.blocked.length,
-      watching: Math.max(
-        0,
-        workspace.lanes.counts.watching - servedWatchingSplit.blocked.length,
-      ),
+      action: structureActionCount,
+      needsres: structureNeedsResolutionCount,
+      watching: structureWatchingCount,
       healthy: workspace.lanes.counts.healthy,
-      nonsales: workspace.lanes.counts.nonSales,
+      nonsales: structureNonSalesCount,
       // The lane total, over BOTH grains the lane now holds. Deliberately read
       // off the workspace rather than the rendered rows, so a search term
       // narrows the table without appearing to shrink the account — the same
@@ -3592,6 +3899,7 @@ export function buildMetaDecisionCenterExactViewModel(
     },
     kpis: {
       spend: {
+        date: workspace.endDate,
         value: formatMoney(pacing.spendToday, fallbackCurrency),
         delta: percentageDelta(pacing.spendToday, pacing.avg7dSpend),
         detail:
@@ -3647,6 +3955,16 @@ export function buildMetaDecisionCenterExactViewModel(
                   100,
               )}%`
             : EM_DASH,
+        status: campaignRoleCoverage
+          ? campaignRoleCoverage.activeCampaigns === 0
+            ? "no_active"
+            : campaignRoleCoverage.unresolvedCampaigns > 0
+              ? "unresolved"
+              : "resolved"
+          : "unavailable",
+        unresolvedCount: campaignRoleCoverage
+          ? formatNumber(campaignRoleCoverage.unresolvedCampaigns)
+          : EM_DASH,
       },
       mode: {
         value: nonBlank(workspace.pulse.operatingMode) ?? EM_DASH,
@@ -3696,8 +4014,8 @@ export function buildMetaDecisionCenterExactViewModel(
     }),
     healthyGroups: healthyGroups(healthy, fallbackCurrency),
     nonSales:
-      nonSales.length > 0
-        ? nonSales.map((recommendation) =>
+      nonSalesRecommendations.length > 0
+        ? nonSalesRecommendations.map((recommendation) =>
             nonSalesCard(recommendation, fallbackCurrency),
           )
         : [nonSalesCard(null, fallbackCurrency)],
@@ -3735,7 +4053,7 @@ export function buildMetaDecisionCenterExactViewModel(
         // find it and drew em dashes.
         ...blockedRecommendations,
         ...watchingRecommendations,
-        ...nonSales,
+        ...nonSalesRecommendations,
       ],
       creativeDecisions,
       nodes,

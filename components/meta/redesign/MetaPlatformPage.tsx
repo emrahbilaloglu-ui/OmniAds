@@ -609,6 +609,15 @@ function exactLaneForMetaLane(lane: MetaLaneView): MetaDecisionCenterExactLane {
   return lane === "nonSales" ? "nonsales" : lane;
 }
 
+function mobileCreativeGroupIdForLane(
+  lane: MetaLaneView,
+): "act" | "blocked" | "monitor" | null {
+  if (lane === "action") return "act";
+  if (lane === "needsres") return "blocked";
+  if (lane === "watching") return "monitor";
+  return null;
+}
+
 function metaLaneForExactLane(lane: MetaDecisionCenterExactLane): MetaLaneView {
   return lane === "nonsales" ? "nonSales" : lane;
 }
@@ -1399,7 +1408,16 @@ function mobileQueueRows(
   lane: MetaLaneView,
 ): MetaMobileQueueRowModel[] {
   if (scope === "creatives") {
-    return (viewModel.creativeDecisions ?? []).map((row) => ({
+    const selectedGroupId = mobileCreativeGroupIdForLane(lane);
+    const creativeRows =
+      viewModel.creativeGroups === undefined
+        ? (viewModel.creativeDecisions ?? [])
+        : viewModel.creativeGroups
+            .filter(
+              (group) => selectedGroupId === null || group.id === selectedGroupId,
+            )
+            .flatMap((group) => group.rows);
+    return creativeRows.map((row) => ({
       id: row.id,
       name: row.name,
       meta: row.kindShort,
@@ -1969,6 +1987,7 @@ function MetaMobileDecisionsScreen({
 }) {
   const [inventoryOpen, setInventoryOpen] = useState(false);
   const counts = viewModel.counts ?? {};
+  const creativeLaneCounts = viewModel.operatorSummary?.scopeCounts?.creatives;
   const identity = viewModel.identity ?? {};
   const actCount = loading || error ? "—" : mobileDisplay(counts.action);
   const rows = mobileQueueRows(viewModel, scope, lane);
@@ -2185,7 +2204,34 @@ function MetaMobileDecisionsScreen({
                 </button>
               ))}
             </nav>
-          ) : null}
+          ) : (
+            <nav
+              className="ad-mobile-tabs"
+              aria-label="Creative decision lane"
+            >
+              {(
+                [
+                  ["action", "Action", creativeLaneCounts?.action],
+                  [
+                    "needsres",
+                    "Needs Resolution",
+                    creativeLaneCounts?.needsResolution,
+                  ],
+                  ["watching", "Watching", creativeLaneCounts?.watching],
+                ] as const
+              ).map(([key, label, count]) => (
+                <button
+                  key={key}
+                  type="button"
+                  aria-pressed={lane === key}
+                  data-active={lane === key ? "true" : "false"}
+                  onClick={() => onLaneChange(key)}
+                >
+                  {label} {mobileDisplay(count)}
+                </button>
+              ))}
+            </nav>
+          )}
 
           {rows.map((row) => (
             <MetaMobileQueueRow key={row.id} {...row} />
@@ -3122,64 +3168,88 @@ function MetaWorkspacePostureBanners({
         workspaceBannerPriority(left) - workspaceBannerPriority(right),
     );
   if (visibleBanners.length === 0) return null;
+
+  const renderBanner = (banner: MetaWorkspaceBanner, primary: boolean) => {
+    const tone = workspaceBannerToneClass(banner);
+    const detail = workspaceBannerDetail(banner);
+    const destination = workspaceBannerDestination(
+      banner,
+      historyHref,
+      pathname,
+    );
+    return (
+      <div
+        key={banner.id}
+        className={cn(
+          "meta-posture-banner",
+          `meta-posture-banner--${tone}`,
+          primary && "meta-posture-banner--primary",
+        )}
+        data-banner-id={banner.id}
+        data-banner-blocking={banner.blocking ? "true" : "false"}
+        data-banner-scope={banner.scope ?? "workspace"}
+        role={banner.blocking || tone === "danger" ? "alert" : "status"}
+      >
+        <span className="meta-posture-banner__mark" aria-hidden="true" />
+        <span className="meta-posture-banner__title">{banner.title}</span>
+        <span className="meta-posture-banner__detail" title={detail}>
+          {detail}
+        </span>
+        <span className="meta-posture-banner__spacer" aria-hidden="true" />
+        {destination ? (
+          <a
+            className="meta-posture-banner__button"
+            href={destination.href}
+          >
+            {destination.label}
+          </a>
+        ) : null}
+        {banner.id === "tracking_write_gate" ? (
+          <>
+            <button
+              type="button"
+              className="meta-posture-banner__button"
+              onClick={onOpenTrackingDetails}
+            >
+              View details
+            </button>
+            <button
+              type="button"
+              className="meta-posture-banner__button meta-posture-banner__button--ghost"
+              onClick={onDismissTracking}
+            >
+              Hide banner
+            </button>
+          </>
+        ) : null}
+      </div>
+    );
+  };
+
+  const blockingBanners = visibleBanners.filter(
+    (banner) => banner.blocking || workspaceBannerToneClass(banner) === "danger",
+  );
+  const expandedBanners =
+    blockingBanners.length > 0 ? blockingBanners : visibleBanners.slice(0, 1);
+  const expandedIds = new Set(expandedBanners.map((banner) => banner.id));
+  const informationalBanners = visibleBanners.filter(
+    (banner) => !expandedIds.has(banner.id),
+  );
   return (
     <div className="meta-posture-banners" data-testid="meta-posture-banners">
-      {visibleBanners.map((banner) => {
-        const tone = workspaceBannerToneClass(banner);
-        return (
-          <div
-            key={banner.id}
-            className={cn(
-              "meta-posture-banner",
-              `meta-posture-banner--${tone}`,
-            )}
-            data-banner-id={banner.id}
-            data-banner-blocking={banner.blocking ? "true" : "false"}
-            data-banner-scope={banner.scope ?? "workspace"}
-            role={banner.blocking || tone === "danger" ? "alert" : "status"}
-          >
-            <span className="meta-posture-banner__mark" aria-hidden="true" />
-            <span className="meta-posture-banner__title">{banner.title}</span>
-            <span className="meta-posture-banner__detail">
-              {workspaceBannerDetail(banner)}
-            </span>
-            <span className="meta-posture-banner__spacer" aria-hidden="true" />
-            {(() => {
-              const destination = workspaceBannerDestination(
-                banner,
-                historyHref,
-                pathname,
-              );
-              return destination ? (
-                <a
-                  className="meta-posture-banner__button"
-                  href={destination.href}
-                >
-                  {destination.label}
-                </a>
-              ) : null;
-            })()}
-            {banner.id === "tracking_write_gate" ? (
-              <>
-                <button
-                  type="button"
-                  className="meta-posture-banner__button"
-                  onClick={onOpenTrackingDetails}
-                >
-                  View details
-                </button>
-                <button
-                  type="button"
-                  className="meta-posture-banner__button meta-posture-banner__button--ghost"
-                  onClick={onDismissTracking}
-                >
-                  Hide banner
-                </button>
-              </>
-            ) : null}
+      <p className="meta-posture-banners__eyebrow">Current operating status</p>
+      {expandedBanners.map((banner, index) => renderBanner(banner, index === 0))}
+      {informationalBanners.length > 0 ? (
+        <details className="meta-posture-banners__details">
+          <summary>
+            {informationalBanners.length} additional data note
+            {informationalBanners.length === 1 ? "" : "s"}
+          </summary>
+          <div className="meta-posture-banners__detail-list">
+            {informationalBanners.map((banner) => renderBanner(banner, false))}
           </div>
-        );
-      })}
+        </details>
+      ) : null}
     </div>
   );
 }

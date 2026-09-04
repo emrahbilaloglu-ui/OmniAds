@@ -27,7 +27,11 @@ const OBSERVED_AT = "2026-08-18T09:00:00.000Z";
 
 /** Every section read, and every one of them proven. */
 const SECTIONS = {
-  businessControl: { status: "complete", errorCode: null, observedAt: OBSERVED_AT },
+  businessControl: {
+    status: "complete",
+    errorCode: null,
+    observedAt: OBSERVED_AT,
+  },
   rules: { status: "complete", errorCode: null, observedAt: OBSERVED_AT },
   activity: { status: "complete", errorCode: null, observedAt: OBSERVED_AT },
   promotionRecords: {
@@ -35,7 +39,11 @@ const SECTIONS = {
     errorCode: null,
     observedAt: OBSERVED_AT,
   },
-  decisionModes: { status: "complete", errorCode: null, observedAt: OBSERVED_AT },
+  decisionModes: {
+    status: "complete",
+    errorCode: null,
+    observedAt: OBSERVED_AT,
+  },
   anchors: { status: "complete", errorCode: null, observedAt: OBSERVED_AT },
   readiness: { status: "complete", errorCode: null, observedAt: OBSERVED_AT },
 } as const;
@@ -188,7 +196,9 @@ function queueModel(
 
 function renderWithQueue(
   proposals: AutomationProposalsModel,
-  extra?: { viewer?: React.ComponentProps<typeof MetaAutomationView>["viewer"] },
+  extra?: {
+    viewer?: React.ComponentProps<typeof MetaAutomationView>["viewer"];
+  },
 ) {
   return renderToStaticMarkup(
     <MetaAutomationView
@@ -325,10 +335,11 @@ describe("Dashboard v2 exact Automation presentation", () => {
     const html = render();
 
     expect(html).toContain('data-screen-label="Automation"');
-    expect(html).toContain("Meta · Supervision control plane");
+    expect(html).toContain("Meta · Automation control");
     expect(html).toContain(">Automation</h1>");
     /*
       7 canonical cards
+      + 1 current automatic-execution state card (desktop)
       + 2 D077 state-history recovery-readiness sections (desktop + mobile)
       + 2 D086 budget-readiness sections (desktop + mobile)
 
@@ -337,7 +348,7 @@ describe("Dashboard v2 exact Automation presentation", () => {
       its own sections and was corrected in the D078 acceptance pass; this one is
       updated in the same slice that adds the sections it counts.
     */
-    expect(html.match(/<article/g)).toHaveLength(13);
+    expect(html.match(/<article/g)).toHaveLength(14);
     // ...and the D086 sections are display-only on both surfaces.
     expect(html.match(/data-testid="budget-readiness"/g)).toHaveLength(2);
     /*
@@ -346,15 +357,22 @@ describe("Dashboard v2 exact Automation presentation", () => {
       is unavailable here because this fixture supplies no server model — which
       is what an unconfigured account must look like.
     */
-    expect(html.match(/data-testid="budget-write-readiness-unavailable"/g)).toHaveLength(2);
+    expect(
+      html.match(/data-testid="budget-write-readiness-unavailable"/g),
+    ).toHaveLength(2);
     expect(html).toContain("Automatic execution — master switch");
-    expect(html).toContain("Kill switch");
+    expect(html).toContain("Emergency stops");
     expect(html).toContain("Guardrails");
     expect(html).toContain("Readiness");
     expect(html).toContain("Needs your confirmation");
     expect(html).toContain("Rules");
     expect(html).toContain("Autonomy ladder");
     expect(html).toContain("Activity ledger");
+    expect(html).toContain("Advanced automation settings");
+    expect(html).toMatch(
+      /<details[^>]*><summary><span>Advanced automation settings<\/span>/,
+    );
+    expect(html).toMatch(/<summary>Readiness details<\/summary>/);
     /**
      * The design file's own copy here reads "Global writes" and "blocks every
      * provider write instantly", and both are false of the control.
@@ -388,11 +406,31 @@ describe("Dashboard v2 exact Automation presentation", () => {
     expect(html).not.toContain("Retry read");
   });
 
+  it("labels the raw setting as the master switch when effective execution is blocked", () => {
+    const html = render({
+      ...payload,
+      businessControl: {
+        ...payload.businessControl,
+        autoExecutionEnabled: true,
+      },
+      execution: {
+        autoExecutionAllowed: false,
+        writeEndpointsBlocked: true,
+        blockedReasons: ["business_kill_switch"],
+      },
+    });
+
+    expect(html).toContain('data-business-master-switch="on"');
+    expect(html).toContain("Business master switch is ON");
+    expect(html).toContain("effective automatic execution is blocked");
+    expect(html).not.toContain("Automatic execution is ON");
+  });
+
   it("maps only supported persisted summary fields and leaves unsupported values blank", () => {
     const html = render();
 
     expect(html).toMatch(
-      /data-field="global-writes"[^>]*data-read-only="true"[^>]*>ENABLED/,
+      /data-field="global-writes"[^>]*data-read-only="true"[^>]*>NOT ENGAGED/,
     );
     /*
      * The business row lost `data-read-only` when WP13's Stop control landed
@@ -401,7 +439,7 @@ describe("Dashboard v2 exact Automation presentation", () => {
      * product cannot stop Meta writes. The global row keeps the marker — that
      * switch is deployment-owned and this screen can never move it.
      */
-    expect(html).toMatch(/data-field="business-writes"[^>]*>STOPPED/);
+    expect(html).toMatch(/data-field="business-writes"[^>]*>ENGAGED/);
     expect(html).not.toMatch(
       /data-field="business-writes"[^>]*data-read-only="true"/,
     );
@@ -435,7 +473,7 @@ describe("Dashboard v2 exact Automation presentation", () => {
     });
 
     // The global read is the subject and still comes through.
-    expect(html).toMatch(/data-field="global-writes"[^>]*>STOPPED/);
+    expect(html).toMatch(/data-field="global-writes"[^>]*>ENGAGED/);
 
     // A defaulted control row is not an absent one. These defaults are what the
     // server enforces for a business nobody has configured:
@@ -445,8 +483,8 @@ describe("Dashboard v2 exact Automation presentation", () => {
     // provider. Printing an em dash beside a 15% ceiling and a 3-action cap
     // told the operator no limit was in force while one governed every write.
     // The fixture's business control is engaged, so the served answer is
-    // STOPPED — the point is that a served answer appears at all.
-    expect(html).toMatch(/data-field="business-writes"[^>]*>STOPPED/);
+    // ENGAGED — the point is that a served answer appears at all.
+    expect(html).toMatch(/data-field="business-writes"[^>]*>ENGAGED/);
     expect(html).not.toMatch(/data-field="readiness-tier">—/);
     expect(html).toContain("+15% max");
 
@@ -528,11 +566,13 @@ describe("Dashboard v2 exact Automation presentation", () => {
     // A queue that was actually read and is actually empty gets no retry —
     // there is nothing to recover from — so the canonical geometry loses one
     // control and keeps "+ New rule" beside the Stop.
-    const proven = renderWithQueue(queueModel({
-      readCompleteness: "complete",
-      count: "0",
-      rows: [],
-    }));
+    const proven = renderWithQueue(
+      queueModel({
+        readCompleteness: "complete",
+        count: "0",
+        rows: [],
+      }),
+    );
     // Two, plus the twelve AUTO-03 segments, which do not depend on the queue.
     expect(proven.match(/<button/g)).toHaveLength(14);
     expect(proven).not.toContain('data-control="retry-queue"');
@@ -553,11 +593,13 @@ describe("Dashboard v2 exact Automation presentation", () => {
         onRetryRead={() => {}}
       />,
     );
-    const inert = renderWithQueue(queueModel({
-      readCompleteness: "unavailable",
-      count: "—",
-      rows: [],
-    }));
+    const inert = renderWithQueue(
+      queueModel({
+        readCompleteness: "unavailable",
+        count: "—",
+        rows: [],
+      }),
+    );
 
     expect(live).toMatch(
       /<button[^>]*data-control="retry-queue"(?![^>]*disabled)/,
@@ -635,7 +677,9 @@ describe("Dashboard v2 exact Automation presentation", () => {
       "could not be written to the activity ledger",
     );
     // The two clauses that are still true are untouched.
-    expect(unreadLedger).toContain("approving executes inside the guardrails above");
+    expect(unreadLedger).toContain(
+      "approving executes inside the guardrails above",
+    );
     expect(unreadLedger).toContain("expired proposals");
   });
 
@@ -728,7 +772,8 @@ describe("Dashboard v2 exact Automation presentation", () => {
       // `withRules()` carries three rules. Two are unlocked and were live
       // before this change; the third is the enforced guard and was already
       // locked. All three must be inert for a refused viewer.
-      const toggles = html.match(/<button[^>]*aria-pressed="[a-z]+"[^>]*>/g) ?? [];
+      const toggles =
+        html.match(/<button[^>]*aria-pressed="[a-z]+"[^>]*>/g) ?? [];
       expect(toggles).toHaveLength(3);
       for (const toggle of toggles) expect(toggle).toContain('disabled=""');
       // The server's own sentence, stated before the click rather than after.
@@ -830,7 +875,8 @@ describe("Dashboard v2 exact Automation presentation", () => {
         onRetryRead={() => {}}
       />,
     );
-    const notice = html.match(/<p[^>]*data-field="read-error"[\s\S]*?<\/p>/)?.[0] ?? "";
+    const notice =
+      html.match(/<p[^>]*data-field="read-error"[\s\S]*?<\/p>/)?.[0] ?? "";
 
     expect(notice).toContain('data-control="retry-read"');
     expect(notice).toContain(">Retry</button>");
@@ -848,7 +894,8 @@ describe("Dashboard v2 exact Automation presentation", () => {
         readError="automation_control_plane_unavailable"
       />,
     );
-    const notice = html.match(/<p[^>]*data-field="read-error"[\s\S]*?<\/p>/)?.[0] ?? "";
+    const notice =
+      html.match(/<p[^>]*data-field="read-error"[\s\S]*?<\/p>/)?.[0] ?? "";
 
     expect(notice).toContain('data-control="retry-read"');
     expect(notice).toContain('disabled=""');
@@ -885,12 +932,12 @@ describe("Dashboard v2 exact Automation presentation", () => {
     });
 
     expect(html).not.toMatch(/data-field="business-writes"[^>]*>ENABLED/);
+    expect(html).toMatch(/data-field="business-writes"[^>]*>NOT CONFIGURED/);
     expect(html).toMatch(
-      /data-field="business-writes"[^>]*>BLOCKED · NOT CONFIGURED/,
+      /data-tone="stopped"[^>]*data-field="business-writes"/,
     );
-    expect(html).toMatch(/data-tone="stopped"[^>]*data-field="business-writes"/);
     // The global row keeps its own truth: the env switch is independent.
-    expect(html).toMatch(/data-field="global-writes"[^>]*>ENABLED/);
+    expect(html).toMatch(/data-field="global-writes"[^>]*>NOT ENGAGED/);
   });
 
   it("withholds every control fact when the control read failed, and names the failure", () => {
@@ -914,7 +961,9 @@ describe("Dashboard v2 exact Automation presentation", () => {
     expect(html).toMatch(/data-field="readiness-tier">—/);
     expect(html).not.toContain("Tier 1 — Supervised");
     expect(html).toMatch(/guardrail-budget-change[\s\S]*?<strong>—<\/strong>/);
-    expect(html).toMatch(/guardrail-actions-per-day[\s\S]*?<strong>—<\/strong>/);
+    expect(html).toMatch(
+      /guardrail-actions-per-day[\s\S]*?<strong>—<\/strong>/,
+    );
     expect(html).not.toContain("+15% max");
     expect(html).not.toContain(">3</strong>");
 
@@ -936,7 +985,7 @@ describe("Dashboard v2 exact Automation presentation", () => {
 
     // The global switch is read from the environment, not the control table,
     // so it is still a served fact and stays stated.
-    expect(html).toMatch(/data-field="global-writes"[^>]*>ENABLED/);
+    expect(html).toMatch(/data-field="global-writes"[^>]*>NOT ENGAGED/);
   });
 
   // Same law, absent flag: a payload that never proved the control read is not
@@ -970,7 +1019,10 @@ describe("Dashboard v2 exact Automation presentation", () => {
     const legacyWithoutProvenance = render({
       ...payload,
       activityLedger: [],
-      readCompleteness: { promotionRecords: "complete", businessControl: "complete" },
+      readCompleteness: {
+        promotionRecords: "complete",
+        businessControl: "complete",
+      },
     });
     const emptyRow = (html: string) =>
       html.match(/<tr[^>]*data-testid="ledger-empty"[\s\S]*?<\/tr>/)?.[0] ?? "";
@@ -1030,20 +1082,20 @@ describe("Dashboard v2 exact Automation presentation", () => {
     expect(noneAssigned).toContain(
       "No Meta ad account is assigned to this business",
     );
-    expect(unavailable).toContain(
-      "Meta account assignments could not be read",
-    );
+    expect(unavailable).toContain("Meta account assignments could not be read");
     expect(unavailable).not.toContain(
       "No Meta ad account is assigned to this business",
     );
   });
 
   it("renders a real proposal in the canonical row shape with all three controls", () => {
-    const html = renderWithQueue(queueModel({
-      readCompleteness: "complete",
-      count: "1",
-      rows: [queuedRow],
-    }));
+    const html = renderWithQueue(
+      queueModel({
+        readCompleteness: "complete",
+        count: "1",
+        rows: [queuedRow],
+      }),
+    );
 
     expect(html).toContain(
       'data-proposal-id="11111111-1111-4111-8111-111111111111"',
@@ -1063,11 +1115,13 @@ describe("Dashboard v2 exact Automation presentation", () => {
   it("leaves every control inert when no handler is bound", () => {
     // A server render has no action handler. The controls must be visibly
     // unavailable rather than look armed and do nothing on click.
-    const html = renderWithQueue(queueModel({
-      readCompleteness: "complete",
-      count: "1",
-      rows: [queuedRow],
-    }));
+    const html = renderWithQueue(
+      queueModel({
+        readCompleteness: "complete",
+        count: "1",
+        rows: [queuedRow],
+      }),
+    );
 
     expect(html.match(/data-control="[a-z-]+"[^>]*disabled=""/g)).toHaveLength(
       3,
@@ -1158,16 +1212,20 @@ describe("Dashboard v2 exact Automation presentation", () => {
   });
 
   it("distinguishes a proven empty queue from an unproven read", () => {
-    const proven = renderWithQueue(queueModel({
-      readCompleteness: "complete",
-      count: "0",
-      rows: [],
-    }));
-    const unproven = renderWithQueue(queueModel({
-      readCompleteness: "unavailable",
-      count: "—",
-      rows: [],
-    }));
+    const proven = renderWithQueue(
+      queueModel({
+        readCompleteness: "complete",
+        count: "0",
+        rows: [],
+      }),
+    );
+    const unproven = renderWithQueue(
+      queueModel({
+        readCompleteness: "unavailable",
+        count: "—",
+        rows: [],
+      }),
+    );
 
     expect(proven).toContain('data-field="confirmation-count">0<');
     expect(proven).toContain('data-testid="confirmation-empty"');
@@ -1177,11 +1235,13 @@ describe("Dashboard v2 exact Automation presentation", () => {
 
   it("keeps the queue off the read-only mobile surface", () => {
     const mobile = mobileMarkup(
-      renderWithQueue(queueModel({
-        readCompleteness: "complete",
-        count: "1",
-        rows: [queuedRow],
-      })),
+      renderWithQueue(
+        queueModel({
+          readCompleteness: "complete",
+          count: "1",
+          rows: [queuedRow],
+        }),
+      ),
     );
 
     expect(mobile).not.toContain("Approve");
@@ -1347,7 +1407,10 @@ describe("Dashboard v2 exact Automation presentation", () => {
     });
     const unproven = render({
       ...payload,
-      readCompleteness: { ...PROVEN_READS, cleanApprovalStreaks: "unavailable" },
+      readCompleteness: {
+        ...PROVEN_READS,
+        cleanApprovalStreaks: "unavailable",
+      },
       decisionTypeModes: [
         persistedPause,
         ...payload.decisionTypeModes.filter(
@@ -1403,10 +1466,12 @@ describe("Dashboard v2 exact Automation presentation", () => {
 
     // The global switch is deployment-owned; this screen may only report it.
     const html = render();
-    expect(html).toMatch(/data-field="global-writes"[^>]*data-read-only="true"/);
+    expect(html).toMatch(
+      /data-field="global-writes"[^>]*data-read-only="true"/,
+    );
     expect(html).toContain('data-field="business-writes-control"');
 
-    // The default fixture is STOPPED, so the one control offered is the lift —
+    // The default fixture is ENGAGED, so the one control offered is the lift —
     // and it carries no refusal, at any gate setting.
     expect(html).toContain('data-ctl="gated:AUTO-02 release"');
     expect(html).not.toContain("data-stop-engage-refused");
@@ -1507,7 +1572,9 @@ describe("Dashboard v2 exact Automation presentation", () => {
     expect(source).toMatch(
       /fetch\(`\/api\/meta\/automation\/proposals\?\$\{query\.toString\(\)\}`, \{\s*method: "POST"/,
     );
-    expect(source).toMatch(/fetch\(`\/api\/meta\/automation\?\$\{[^`]*`, \{\s*method: "POST"/);
+    expect(source).toMatch(
+      /fetch\(`\/api\/meta\/automation\?\$\{[^`]*`, \{\s*method: "POST"/,
+    );
   });
 
   it("renders persisted rules in the design's column order with real 28-day counts", () => {
@@ -1561,7 +1628,8 @@ describe("Dashboard v2 exact Automation presentation", () => {
   it("marks a disabled rule without removing its row", () => {
     const html = render(withRules());
     const disabledRow =
-      html.match(/<tr[^>]*data-rule-id="rule_suggest"[\s\S]*?<\/tr>/)?.[0] ?? "";
+      html.match(/<tr[^>]*data-rule-id="rule_suggest"[\s\S]*?<\/tr>/)?.[0] ??
+      "";
 
     expect(disabledRow).toContain('data-active="false"');
     expect(disabledRow).toContain('data-on="false"');
@@ -1646,7 +1714,9 @@ describe("Dashboard v2 exact Automation presentation", () => {
     expect(authorized).not.toMatch(
       /<button[^>]*newRule[^>]*disabled=""[^>]*>\+ New rule/,
     );
-    expect(unproven).toMatch(/<button[^>]*disabled=""[^>]*>\+ New rule<\/button>/);
+    expect(unproven).toMatch(
+      /<button[^>]*disabled=""[^>]*>\+ New rule<\/button>/,
+    );
     // Collapsed by default: the default DOM is exactly the design's.
     expect(authorized).not.toContain('data-testid="rule-composer"');
   });

@@ -20,10 +20,17 @@ const ADAPTER = readFileSync(
 );
 
 describe("the scope counters count their scope", () => {
-  const block = ADAPTER.slice(
-    ADAPTER.indexOf("counts: {"),
-    ADAPTER.indexOf("      action: Math.max("),
+  const countsStart = ADAPTER.indexOf("\n    counts: {\n      /*");
+  const countsEnd = ADAPTER.indexOf(
+    "\n      action: structureActionCount,",
+    countsStart,
   );
+
+  if (countsStart === -1 || countsEnd <= countsStart) {
+    throw new Error("Unable to locate the top-level scope counts block");
+  }
+
+  const block = ADAPTER.slice(countsStart, countsEnd);
 
   it("counts creatives from the served population, not the act lane", () => {
     expect(block).toContain("workspace.os?.ads?.items?.length");
@@ -40,30 +47,39 @@ describe("the scope counters count their scope", () => {
   });
 
   /**
-   * The lane counters still start from the server's own totals.
-   *
-   * This law is about the SCOPE pills and is not licence to recount a lane from
-   * whatever the table happens to be drawing. What the Needs Resolution lane
-   * changed is only WHERE a row is counted: each counter is still
-   * `workspace.lanes.counts.*`, with the blocked rows the queue actually moved
-   * subtracted from it and added to the new lane. The sum is unchanged, and —
-   * the property that matters — the split is taken over the payload's served
-   * arrays rather than the filtered overrides, so a search term still cannot
-   * make a lane counter fall.
+   * The OS is authoritative for Act/Blocked, while Watching counts only
+   * recommendation-backed rows. `os.structure.monitorCount` includes ordinary
+   * inventory with no decision and therefore cannot be presented as a count
+   * of watched decisions.
    */
-  it("leaves the lane counters starting from the server's own totals", () => {
-    expect(ADAPTER).toContain("workspace.lanes.counts.actionNow - servedActionSplit.blocked.length");
-    expect(ADAPTER).toContain("workspace.lanes.counts.watching - servedWatchingSplit.blocked.length");
+  it("counts recommendation-backed OS verdicts without calling grouping or Monitor inventory a decision", () => {
+    expect(ADAPTER).toContain(
+      "const osStructureDecisionCounts = structureDecisionLaneCounts(",
+    );
+    expect(ADAPTER).toContain("sourceRecommendationId");
+    expect(ADAPTER).toContain(
+      "const decisions = new Map<string, MetaOsStructureNode>()",
+    );
+    expect(ADAPTER).not.toContain("workspace.os?.structure?.monitorCount");
+    expect(ADAPTER).toMatch(
+      /const structureWatchingCount\s*=\s*servedProjection\.watching\.length\s*\+\s*unseenWatchingCount/,
+    );
   });
 
-  it("splits the counters over the served arrays, never the filtered overrides", () => {
+  it("projects counters over the served arrays, never filtered overrides", () => {
     // `overrides.actionNow` is the page's search/level-filtered array. If the
-    // counters were split over it, every keystroke would shrink the account.
-    expect(ADAPTER).toContain(
-      "const servedActionSplit = splitByServerLane(workspace.lanes.actionNow, nodes);",
+    // counters were projected over it, every keystroke would shrink the
+    // account.
+    const start = ADAPTER.indexOf(
+      "const servedProjection = projectStructureRecommendations({",
     );
-    expect(ADAPTER).toContain(
-      "const servedWatchingSplit = splitByServerLane(workspace.lanes.watching, nodes);",
-    );
+    const end = ADAPTER.indexOf("\n  });", start);
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    const servedProjection = ADAPTER.slice(start, end);
+    expect(servedProjection).toContain("action: workspace.lanes.actionNow");
+    expect(servedProjection).toContain("watching: workspace.lanes.watching");
+    expect(servedProjection).toContain("nonSales: workspace.lanes.nonSales");
+    expect(servedProjection).not.toContain("overrides.");
   });
 });

@@ -390,19 +390,43 @@ describe("the counters stay the server's totals", () => {
 });
 
 describe("a blocked row is drawn without an action", () => {
-  it("carries the server's blocker and next step, and no primary callback", () => {
+  it("carries the server's concise reason, blocker count and next step without an action", () => {
+    const recommendation = metaRec({
+      id: "rec_b",
+      title: "Held campaign",
+      confidence: "low",
+      confidenceReason: "automatic_campaign_context_review_only",
+      automationReadiness: {
+        contractVersion: "meta-automation-readiness.v1",
+        tier: "manual_review",
+        autoExecuteEligible: false,
+        operatorReviewRequired: true,
+        decisionLabel: "diagnose",
+        blockers: ["missing_executor", "missing_live_preflight"],
+        missingEvidence: ["commercial_target"],
+        requiredEvidence: ["commercial_target"],
+        reason: "Resolve source freshness before acting.",
+      },
+    });
     const model = build(
       workspace({
-        actionNow: [metaRec({ id: "rec_b", title: "Held campaign" })],
+        actionNow: [recommendation],
         nodes: [node("rec_b", "blocked")],
       }),
     );
 
     const row = model.needsResolutionRows?.[0];
     expect(row?.id).toBe("rec_b");
-    expect(row?.blocker).toBeTruthy();
+    expect(row?.blocker).toBe("Resolve source freshness before acting.");
+    expect(row?.blockerCount).toBe(3);
     expect(row?.resolution).toBe(
       "Restore commercial target provenance before this can move.",
+    );
+    expect(row?.staleDemotedReason).toBe(
+      "Automatic campaign context review only",
+    );
+    expect(JSON.stringify(row)).not.toContain(
+      "automatic_campaign_context_review_only",
     );
     // `authority_blocker IS NOT NULL` implies `authorized_action IS NULL`, so
     // there is nothing here for a control to invoke.

@@ -652,7 +652,7 @@ describe("MetaPlatformPage", () => {
     expect(html).toContain("Policy delivery block");
     expect(html).toContain('data-screen-label="Meta Decision Center"');
     expect(html).toContain('data-meta-exact-section="kpis"');
-    expect(html).toContain("Spend · today");
+    expect(html).toContain("Spend · 2026-05-07");
     expect(html).toContain("ROAS · 28d");
     expect(html).toContain("$401");
     expect(html).toContain("+15%");
@@ -1039,16 +1039,34 @@ describe("MetaPlatformPage", () => {
     ]);
     state.exactScope = "creatives";
 
-    const html = renderToStaticMarkup(
+    state.search = "window=28d&scope=creatives";
+    const actionHtml = renderToStaticMarkup(
+      <MetaPlatformPage businessId="biz_1" businessName="TheSwaf" />,
+    );
+    state.search =
+      "window=28d&scope=creatives&area=monitor&segment=needs_resolution";
+    const blockedHtml = renderToStaticMarkup(
+      <MetaPlatformPage businessId="biz_1" businessName="TheSwaf" />,
+    );
+    state.search = "window=28d&scope=creatives&area=monitor";
+    const monitorHtml = renderToStaticMarkup(
       <MetaPlatformPage businessId="biz_1" businessName="TheSwaf" />,
     );
 
-    // All three served rows render; none of them was in the ranked section.
-    for (const id of ["os_ad_1", "os_ad_pending_1", "os_ad_monitor_1"]) {
-      expect(html).toContain(`data-meta-exact-creative-row="${id}"`);
-    }
+    // Every served row remains reachable in its own lane; section ranking does
+    // not hide it and the lane controls no longer open the same flat list.
+    expect(actionHtml).toContain('data-meta-exact-creative-row="os_ad_1"');
+    expect(actionHtml).not.toContain(
+      'data-meta-exact-creative-row="os_ad_pending_1"',
+    );
+    expect(blockedHtml).toContain(
+      'data-meta-exact-creative-row="os_ad_pending_1"',
+    );
+    expect(monitorHtml).toContain(
+      'data-meta-exact-creative-row="os_ad_monitor_1"',
+    );
     const pending = exactArticleHtml(
-      html,
+      blockedHtml,
       'data-meta-exact-creative-row="os_ad_pending_1"',
     );
     expect(pending).toContain("Live Ad Without A Decision");
@@ -1087,17 +1105,17 @@ describe("MetaPlatformPage", () => {
     expect(pending).not.toContain("Pause");
     expect(pending).not.toContain("Resume");
 
-    // The three served states are three groups, not one flat list.
-    for (const group of ["act", "blocked", "monitor"]) {
-      expect(html).toContain(`data-meta-exact-creative-group="${group}"`);
-    }
+    // The three served states are three routes, not one flat list.
+    expect(actionHtml).toContain('data-meta-exact-creative-group="act"');
+    expect(blockedHtml).toContain('data-meta-exact-creative-group="blocked"');
+    expect(monitorHtml).toContain('data-meta-exact-creative-group="monitor"');
     // The closing sentence names what THIS account was served — no more, and
     // certainly not a hand-written three-verb vocabulary.
-    expect(html).toContain("Ad-level calls served for this account");
-    expect(html).toContain("Evidence pending");
-    expect(html).toContain("Watch");
-    expect(html).not.toContain("only three ad-level calls");
-    expect(html).not.toContain("scale winner");
+    expect(actionHtml).toContain("Ad-level calls served for this account");
+    expect(actionHtml).toContain("Evidence pending");
+    expect(actionHtml).toContain("Watch");
+    expect(actionHtml).not.toContain("only three ad-level calls");
+    expect(actionHtml).not.toContain("scale winner");
   });
 
   it("renders native decisions Ad-first when creative grouping is unavailable", () => {
@@ -1337,7 +1355,7 @@ describe("MetaPlatformPage", () => {
 
     expect(html).toContain('data-testid="meta-anomaly-error"');
     expect(html).toContain("snapshot 2026-05-07");
-    expect(html).toContain("Spend · today");
+    expect(html).toContain("Spend · 2026-05-07");
     expect(html).toContain("$401");
     expect(html).toContain("anomaly scan failed");
     expect(html).not.toContain('data-testid="meta-briefing-error"');
@@ -3404,6 +3422,81 @@ describe("mobile decision surface parity", () => {
     ).toContain("<MetaMobileCreativeEvidenceScreen");
   });
 
+  it("filters mobile creative rows by the selected decision lane", () => {
+    state.decisionReadModel = emptyCanonicalDecisionReadModel();
+    state.osPresentation = exactOsPresentation([
+      exactNativeAdDecision({
+        id: "act-row",
+        decisionId: "mdd_act",
+        adId: "120000000000000011",
+        adName: "Act creative",
+        creativeId: "creative_act",
+        creativeName: "Act creative",
+        lane: "act",
+      }),
+      exactNativeAdDecision({
+        id: "blocked-row",
+        decisionId: "mdd_blocked",
+        adId: "120000000000000012",
+        adName: "Blocked creative",
+        creativeId: "creative_blocked",
+        creativeName: "Blocked creative",
+        lane: "blocked",
+        blockers: [
+          {
+            code: "campaign_role_untrusted",
+            label: "Campaign role is not trusted for action",
+          },
+        ],
+      }),
+      exactNativeAdDecision({
+        id: "monitor-row",
+        decisionId: "mdd_monitor",
+        adId: "120000000000000013",
+        adName: "Monitor creative",
+        creativeId: "creative_monitor",
+        creativeName: "Monitor creative",
+        lane: "monitor",
+      }),
+    ]);
+    state.exactScope = "creatives";
+
+    state.search = "window=28d&scope=creatives";
+    const actionMobile = mobileHtml(
+      renderToStaticMarkup(
+        <MetaPlatformPage businessId="biz_1" businessName="TheSwaf" />,
+      ),
+    );
+    expect(actionMobile).toContain('aria-label="Creative decision lane"');
+    expect(actionMobile).toContain("Action 1");
+    expect(actionMobile).toContain("Needs Resolution 1");
+    expect(actionMobile).toContain("Watching 1");
+    expect(actionMobile).toContain('data-mobile-row-id="act-row"');
+    expect(actionMobile).not.toContain('data-mobile-row-id="blocked-row"');
+    expect(actionMobile).not.toContain('data-mobile-row-id="monitor-row"');
+
+    state.search =
+      "window=28d&scope=creatives&area=monitor&segment=needs_resolution";
+    const blockedMobile = mobileHtml(
+      renderToStaticMarkup(
+        <MetaPlatformPage businessId="biz_1" businessName="TheSwaf" />,
+      ),
+    );
+    expect(blockedMobile).not.toContain('data-mobile-row-id="act-row"');
+    expect(blockedMobile).toContain('data-mobile-row-id="blocked-row"');
+    expect(blockedMobile).not.toContain('data-mobile-row-id="monitor-row"');
+
+    state.search = "window=28d&scope=creatives&area=monitor";
+    const monitorMobile = mobileHtml(
+      renderToStaticMarkup(
+        <MetaPlatformPage businessId="biz_1" businessName="TheSwaf" />,
+      ),
+    );
+    expect(monitorMobile).not.toContain('data-mobile-row-id="act-row"');
+    expect(monitorMobile).not.toContain('data-mobile-row-id="blocked-row"');
+    expect(monitorMobile).toContain('data-mobile-row-id="monitor-row"');
+  });
+
   it("carries the same scope and lane chips the desktop carries", () => {
     state.lanePayload = metaLanePayload({
       counts: {
@@ -3524,6 +3617,47 @@ describe("workspace posture banners", () => {
     expect(html).toContain('href="/platforms/meta/automation"');
     expect(html).toContain("System Status");
     expect(html).toContain("Hiding this banner does not unlock writes");
+  });
+
+  it("keeps every blocking or danger banner outside the collapsed informational notes", () => {
+    state.workspaceBanners = [
+      {
+        id: "informational_note",
+        tone: "info",
+        title: "Informational note.",
+        detail: "This note does not block decisions.",
+        blocking: false,
+      },
+      {
+        id: "pipeline_blocker",
+        tone: "warning",
+        title: "Pipeline is not ready.",
+        detail: "Decision generation must recover.",
+        blocking: true,
+      },
+      {
+        id: "danger_without_blocking_flag",
+        tone: "danger",
+        title: "Critical provider failure.",
+        detail: "Provider state cannot be verified.",
+        blocking: false,
+      },
+    ];
+
+    const html = renderToStaticMarkup(
+      <MetaPlatformPage businessId="biz_1" businessName="TheSwaf" />,
+    );
+    const detailsIndex = html.indexOf(
+      '<details class="meta-posture-banners__details">',
+    );
+
+    expect(detailsIndex).toBeGreaterThan(-1);
+    expect(html.lastIndexOf("Pipeline is not ready.")).toBeLessThan(detailsIndex);
+    expect(html.lastIndexOf("Critical provider failure.")).toBeLessThan(
+      detailsIndex,
+    );
+    expect(html.lastIndexOf("Informational note.")).toBeGreaterThan(detailsIndex);
+    expect(html).toContain("1 additional data note");
   });
 
   it("downgrades write controls to evidence review when the server marks the viewer read-only", () => {

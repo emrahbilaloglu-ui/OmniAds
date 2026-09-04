@@ -1,6 +1,6 @@
 // D078 R4 (correction 2) rendered proof: the Decision Center's
 // account-coverage panel makes every ASSIGNED account state explicit with
-// ALL required evidence VISIBLE — id/name, selection state, currency,
+// ALL required evidence AVAILABLE in an operator-openable disclosure — id/name, selection state, currency,
 // timezone, own-window spend, fact freshness, latest generation with
 // produced/authorized counts, and the operator policy implication as plain
 // text (never hover-only). Tri-state: `null` (read FAILED) renders a
@@ -19,9 +19,8 @@ vi.mock("@/lib/zero-base/language", () => ({
   useZeroBaseLanguage: () => "en",
 }));
 
-const { MetaDecisionCenterExact } = await import(
-  "@/components/meta/decision-center/MetaDecisionCenterExact"
-);
+const { MetaDecisionCenterExact } =
+  await import("@/components/meta/decision-center/MetaDecisionCenterExact");
 
 const STATES = [
   {
@@ -55,14 +54,19 @@ const STATES = [
 ];
 
 describe("Decision Center · assigned-account coverage panel (D078 R4, correction 2)", () => {
-  it("renders every required account fact and the policy as VISIBLE text, per account", () => {
+  it("keeps every required account fact and policy in one operator-openable disclosure", () => {
     const html = renderToStaticMarkup(
       <MetaDecisionCenterExact viewModel={{ assignedAccountStates: STATES }} />,
     );
     const panel = html.match(
-      /<section[^>]*data-testid="assigned-account-coverage"[\s\S]*?<\/section>/,
+      /<details[^>]*data-testid="assigned-account-coverage"[\s\S]*?<\/details>/,
     )?.[0];
     expect(panel).toBeTruthy();
+    expect(panel).not.toMatch(/^<details[^>]*\sopen(?:=|\s|>)/);
+    expect(panel).toContain("2 assigned Meta accounts");
+    expect(panel).toContain(
+      "Warning: 1 deselected account has recorded 14-day spend; it is read-only and excluded from served decisions.",
+    );
     // Identity + state.
     expect(panel).toContain("TheSwaf-Main | act_main");
     expect(panel).toContain("selected · serving");

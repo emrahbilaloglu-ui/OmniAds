@@ -10,7 +10,12 @@
   width: 100%;
   min-width: 0;
   color: #0e1526;
-  font-family: var(--font-instrument-sans), "Instrument Sans", -apple-system, "Segoe UI", sans-serif;
+  font-family:
+    var(--font-instrument-sans),
+    "Instrument Sans",
+    -apple-system,
+    "Segoe UI",
+    sans-serif;
   font-size: 16px;
   line-height: normal;
   -webkit-font-smoothing: auto;
@@ -64,9 +69,6 @@
   gap: 8px;
   flex-wrap: wrap;
 }
-
-
-
 
 .snapshotButton,
 .newCampaignButton {
@@ -215,6 +217,103 @@
   background: var(--tone-bg);
   color: var(--tone-fg);
   font-weight: 600;
+}
+
+.operatorSummary {
+  padding: 10px 14px;
+  border: 1px solid #e4e8f0;
+  border-left: 4px solid #2a5fe2;
+  border-radius: 14px;
+  background: #fff;
+  color: #0e1526;
+}
+
+.operatorSummaryCopy {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 16px;
+  min-width: 0;
+}
+
+.operatorSummaryEyebrow {
+  grid-column: 1;
+  margin: 0;
+  color: #2a5fe2;
+  font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.operatorSummary h2 {
+  grid-column: 1;
+  max-width: 760px;
+  margin: 4px 0 0;
+  color: #0e1526;
+  font-family: var(--font-space-grotesk), "Space Grotesk", sans-serif;
+  font-size: 15px;
+  line-height: 1.35;
+}
+
+.operatorSummaryCopy > p:not(.operatorSummaryEyebrow) {
+  grid-column: 1;
+  max-width: 760px;
+  margin: 4px 0 0;
+  color: #555d6d;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.operatorSummaryActions {
+  display: flex;
+  grid-column: 2;
+  grid-row: 1 / 4;
+  gap: 6px;
+  margin: 0;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.operatorSummaryActions button {
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid #d9e1ef;
+  border-radius: 8px;
+  background: #f7f9fc;
+  color: #45526b;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.operatorSummaryActions button:first-child {
+  border-color: #2a5fe2;
+  background: #2a5fe2;
+  color: #fff;
+}
+
+.operatorSummaryActions button:hover {
+  background: #edf2fb;
+}
+
+.operatorSummaryActions button:first-child:hover {
+  background: #1e4fd6;
+}
+
+@media (max-width: 1180px) {
+  .operatorSummaryCopy {
+    grid-template-columns: 1fr;
+  }
+
+  .operatorSummaryActions {
+    grid-column: 1;
+    grid-row: auto;
+    justify-content: flex-start;
+    margin-top: 8px;
+  }
 }
 
 .scopeRow {
@@ -427,6 +526,19 @@
   border-radius: 14px;
   background: #fff;
   flex-wrap: wrap;
+}
+
+/*
+ * Keep the reference row readable beside the evidence rail. Flex shrink used
+ * to reduce the entity and money columns to only a few characters once the
+ * inspector opened. The rail is useful only if the decision beside it can
+ * still be read.
+ */
+.workspaceWithInspector .actionCard:not(.needsResolutionCard) {
+  display: grid;
+  grid-template-columns:
+    minmax(150px, 1.4fr) auto minmax(110px, 1fr) auto auto
+    auto;
 }
 
 .actionCard:hover,
@@ -1322,6 +1434,13 @@
   font-weight: 600;
 }
 
+.inspectorBlockerList {
+  display: grid;
+  gap: 5px;
+  margin: 0;
+  padding-left: 18px;
+}
+
 .evidenceRow {
   display: flex;
   align-items: center;
@@ -1897,6 +2016,17 @@
  * to press.
  */
 .needsResolutionCard {
+  display: grid;
+  grid-template-columns: minmax(180px, 1.4fr) auto minmax(120px, 0.9fr) auto;
+}
+
+.blockerSummary {
+  display: flex;
+  grid-column: 1 / -1;
+  min-width: 0;
+  max-width: none;
+  align-items: center;
+  gap: 4px;
   flex-wrap: wrap;
 }
 
@@ -1914,12 +2044,31 @@
   line-height: 18px;
 }
 
+.blockerCount {
+  color: #68707f;
+  font-size: 12px;
+  line-height: 16px;
+}
+
 .needsResolutionStep {
+  grid-column: 1 / -1;
   flex-basis: 100%;
   margin: 0;
   color: #555d6d;
   font-size: 12px;
   line-height: 16px;
+}
+
+@media (max-width: 720px) {
+  .needsResolutionCard {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .needsResolutionCard .actionIdentity,
+  .needsResolutionCard .blockerSummary,
+  .needsResolutionCard .needsResolutionStep {
+    grid-column: 1 / -1;
+  }
 }
 
 /*
@@ -2097,6 +2246,81 @@
   color: #555d6d;
   font-size: 12px;
   line-height: 16px;
+}
+
+.accountCoverageDisclosure {
+  display: block;
+}
+
+.accountCoverageSummary {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  cursor: pointer;
+  list-style-position: inside;
+}
+
+.accountCoverageSummary span {
+  color: #68707f;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.accountCoverageDisclosure[open] .accountCoverageSummary {
+  margin-bottom: 10px;
+}
+
+.technicalDisclosure {
+  border: 1px solid #e4e8f0;
+  border-radius: 12px;
+  background: #fbfcfe;
+  color: #45526b;
+}
+
+.technicalDisclosure > summary {
+  cursor: pointer;
+  padding: 11px 14px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.technicalDisclosureSummary {
+  display: inline-grid;
+  gap: 3px;
+  max-width: calc(100% - 24px);
+  vertical-align: top;
+}
+
+.technicalDisclosureSummary small {
+  color: #68707f;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.45;
+}
+
+.technicalDisclosureSummary[data-readiness-state="blocked"] small {
+  color: #b42318;
+  font-weight: 650;
+}
+
+.technicalDisclosureSummary[data-readiness-state="unavailable"] small {
+  color: #98600d;
+  font-weight: 650;
+}
+
+.technicalDisclosureBody {
+  display: grid;
+  gap: 8px;
+  padding: 0 10px 10px;
+}
+
+@media (max-width: 640px) {
+  .accountCoverageSummary {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 4px;
+  }
 }
 
 .inactiveStripOpen {

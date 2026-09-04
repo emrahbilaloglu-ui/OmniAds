@@ -4439,19 +4439,65 @@
   }
 
   .ad-final .meta-posture-banners {
-    display: flex;
-    flex-direction: column;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 6px;
+    margin: 8px 16px 4px;
+  }
+
+  .ad-final .meta-posture-banners__eyebrow {
+    display: none;
   }
 
   .ad-final .meta-posture-banner {
     display: flex;
     align-items: center;
     gap: 10px;
+    min-height: 34px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 6px 12px;
+    font-size: 12px;
+    line-height: 1.35;
+  }
+
+  .ad-final .meta-posture-banner--primary {
     min-height: 38px;
-    border-bottom: 1px solid var(--border);
-    padding: 8px 14px;
+    padding: 7px 12px;
+  }
+
+  .ad-final .meta-posture-banner--primary .meta-posture-banner__title {
     font-size: 12.5px;
-    line-height: 1.45;
+  }
+
+  .ad-final .meta-posture-banner--primary .meta-posture-banner__detail {
+    color: var(--ink-2);
+    font-size: 12px;
+  }
+
+  .ad-final .meta-posture-banners__details {
+    min-width: 0;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface);
+  }
+
+  .ad-final .meta-posture-banners__details[open] {
+    grid-column: 1 / -1;
+  }
+
+  .ad-final .meta-posture-banners__details > summary {
+    cursor: pointer;
+    padding: 7px 11px;
+    color: var(--ink-2);
+    font-size: 12px;
+    font-weight: 650;
+  }
+
+  .ad-final .meta-posture-banners__detail-list {
+    display: grid;
+    gap: 6px;
+    padding: 0 8px 8px;
   }
 
   .ad-final .meta-posture-banner--danger {
@@ -4493,7 +4539,11 @@
   }
 
   .ad-final .meta-posture-banner__detail {
+    min-width: 0;
+    overflow: hidden;
     color: var(--ink-2);
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .ad-final .meta-posture-banner__spacer {
@@ -4519,6 +4569,12 @@
 
   .ad-final .meta-posture-banner__button:hover {
     background: rgba(255, 255, 255, 0.5);
+  }
+
+  @media (max-width: 760px) {
+    .ad-final .meta-posture-banners {
+      grid-template-columns: minmax(0, 1fr);
+    }
   }
 
   .ad-final .dcard {

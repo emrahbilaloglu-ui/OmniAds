@@ -27,6 +27,9 @@ const accessMocks = vi.hoisted(() => ({
 const gateMocks = vi.hoisted(() => ({
   readMetaGateRefusal: vi.fn(),
 }));
+const authMocks = vi.hoisted(() => ({
+  getSessionFromCookies: vi.fn(),
+}));
 
 vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }));
 vi.mock("@/lib/meta/state-history-compaction-readiness", () => ({
@@ -47,6 +50,9 @@ vi.mock("@/lib/zero-base/provider-scope-server", () => ({
 }));
 vi.mock("@/lib/meta/release-gate-guard", () => ({
   readMetaGateRefusal: gateMocks.readMetaGateRefusal,
+}));
+vi.mock("@/lib/auth", () => ({
+  getSessionFromCookies: authMocks.getSessionFromCookies,
 }));
 vi.mock("./automation-view", () => ({
   default: (props: Record<string, unknown>) => (
@@ -75,6 +81,7 @@ function pageProps(businessId?: string, providerAccountId?: string) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  authMocks.getSessionFromCookies.mockResolvedValue(null);
   accessMocks.requireBusinessPageContext.mockResolvedValue({
     kind: "ok",
     context: { role: "admin", reviewerReadOnly: false },
@@ -120,6 +127,24 @@ describe("legacy Meta automation page (canonical route body)", () => {
       readinessMocks.readStateHistoryCompactionReadiness,
     ).not.toHaveBeenCalled();
     expect(element.props.stateHistoryReadiness).toBeNull();
+  });
+
+  it("uses the authorized session business on the normal query-free sidebar route", async () => {
+    authMocks.getSessionFromCookies.mockResolvedValueOnce({
+      activeBusinessId: BUSINESS_ID,
+    });
+    const element = await LegacyMetaAutomationPage(pageProps());
+
+    expect(accessMocks.requireBusinessPageContext).toHaveBeenCalledWith({
+      businessId: BUSINESS_ID,
+    });
+    expect(element.props.businessId).toBe(BUSINESS_ID);
+    expect(element.props.providerAccountId).toBe("act_resolved");
+    expect(element.props.stateHistoryReadiness).toEqual(READINESS_FIXTURE);
+    expect(readinessMocks.readBudgetWriteSurfaceReadiness).toHaveBeenCalledWith({
+      businessId: BUSINESS_ID,
+      providerAccountId: "act_resolved",
+    });
   });
 
   it("fails closed to null when access is denied — the read never runs", async () => {

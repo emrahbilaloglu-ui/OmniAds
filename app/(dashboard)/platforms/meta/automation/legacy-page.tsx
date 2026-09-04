@@ -47,6 +47,7 @@ import AutomationView from "./automation-view";
 import { buildAutomationViewerEnvelope } from "./viewer-envelope";
 import type { AutomationViewerEnvelope } from "./viewer-envelope";
 import { requireBusinessPageContext } from "@/lib/access/require-business-page-context";
+import { getSessionFromCookies } from "@/lib/auth";
 import { readLaunchpadWriteAuthority } from "@/app/api/launchpad/meta/demo-write-authority";
 import { resolveProviderAccountId } from "@/lib/zero-base/provider-scope-server";
 import { getDb } from "@/lib/db";
@@ -71,7 +72,20 @@ export default async function LegacyMetaAutomationPage(
   props: LegacyAutomationPageProps,
 ) {
   const raw = (await props.searchParams) ?? {};
-  const businessId = firstValue(raw.businessId);
+  const requestedBusinessId = firstValue(raw.businessId);
+  /*
+    The normal v2 sidebar links to `/platforms/meta/automation` without query
+    parameters. The client can recover the active business later for the
+    control-plane cards, but server-only readiness and authorization have
+    already rendered by then and cannot recover on their own. Resolve the
+    session's active business here when the URL did not name one, then run the
+    exact same authorization below. A query value still wins only after that
+    authorization; neither source is trusted directly.
+  */
+  const activeBusinessId = requestedBusinessId
+    ? null
+    : (await getSessionFromCookies().catch(() => null))?.activeBusinessId ?? null;
+  const businessId = requestedBusinessId ?? activeBusinessId;
 
   // Server-AUTHORIZED scope, passed to `AutomationView` only together and
   // only on success — see the file header for exactly why `undefined` (not

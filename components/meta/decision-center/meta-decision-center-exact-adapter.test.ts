@@ -20,9 +20,7 @@ import {
   projectBudgetDecisionEvidencePanel,
   type MetaBudgetDecisionEvidenceByDirection,
 } from "@/lib/meta/budget-decision-evidence-panel";
-import {
-  evaluateBudgetDecisionGates,
-} from "@/lib/meta/budget-decision-gates";
+import { evaluateBudgetDecisionGates } from "@/lib/meta/budget-decision-gates";
 import { buildWorkspaceBudgetGateInput } from "@/lib/meta/budget-decision-workspace-adapter";
 import {
   makeAnchorTargetPack,
@@ -239,10 +237,13 @@ function fullOs(
         highestUrgency: node.urgency,
         urgentAdsetCount: 0,
       })),
-      actCount: nodes.length,
-      blockedCount: 0,
-      monitorCount: 0,
-      suppressedAlternativeCount: 0,
+      actCount: nodes.filter((node) => node.lane === "act").length,
+      blockedCount: nodes.filter((node) => node.lane === "blocked").length,
+      monitorCount: nodes.filter((node) => node.lane === "monitor").length,
+      suppressedAlternativeCount: nodes.reduce(
+        (total, node) => total + node.suppressedAlternativeCount,
+        0,
+      ),
     },
     ads: {
       items: creatives,
@@ -408,9 +409,7 @@ function workspaceFixture(
       ...(input.commercialAnchor
         ? { commercialAnchor: input.commercialAnchor }
         : {}),
-      ...(input.budgetEvidence
-        ? { budgetEvidence: input.budgetEvidence }
-        : {}),
+      ...(input.budgetEvidence ? { budgetEvidence: input.budgetEvidence } : {}),
     },
     viewer: null,
     banners: [],
@@ -2940,6 +2939,250 @@ describe("served structure inventory", () => {
     expect(withoutCensus.counts?.action).toBe(7);
   });
 
+  it("builds the operator summary across structure and creative server lanes", () => {
+    const workspace = workspaceFixture({
+      counts: { actionNow: 0, watching: 0 },
+      os: fullOs({ creatives: [creativeFixture()] }),
+    });
+
+    const model = buildMetaDecisionCenterExactViewModel({ workspace });
+
+    // Lane-toolbar counts remain scoped to the structure table.
+    expect(model.counts?.action).toBe(0);
+    // The top-level answer covers both scopes, so a creative action cannot be
+    // hidden behind a false "no change" headline.
+    expect(model.operatorSummary).toMatchObject({
+      action: 1,
+      needsResolution: 0,
+      watching: 0,
+      creatives: 1,
+      actionScope: "creatives",
+      scopeCounts: {
+        structure: { action: 0, needsResolution: 0, watching: 0 },
+        creatives: { action: 1, needsResolution: 0, watching: 0 },
+      },
+    });
+  });
+
+  it("does not count recommendation-free Monitor inventory as watched decisions", () => {
+    const recommendation = metaRec({
+      id: "watching_recommendation",
+      level: "campaign",
+      campaignId: "cmp_watching",
+      decisionState: "watch",
+    });
+    const workspace = workspaceFixture({
+      watching: [recommendation],
+      os: fullOs({
+        nodes: [
+          structureNodeFixture({
+            id: "campaign:cmp_watching",
+            sourceRecommendationId: recommendation.id,
+            providerEntityId: "cmp_watching",
+            campaignId: "cmp_watching",
+            lane: "monitor",
+          }),
+          structureNodeFixture({
+            id: "campaign:cmp_inventory_only",
+            sourceRecommendationId: null,
+            providerEntityId: "cmp_inventory_only",
+            campaignId: "cmp_inventory_only",
+            lane: "monitor",
+          }),
+        ],
+      }),
+    });
+
+    const model = buildMetaDecisionCenterExactViewModel({ workspace });
+
+    expect(workspace.os?.structure?.monitorCount).toBe(2);
+    expect(model.watchingRows?.map((row) => row.id)).toEqual([
+      recommendation.id,
+    ]);
+    expect(model.operatorSummary).toMatchObject({
+      watching: 1,
+      scopeCounts: {
+        structure: { watching: 1 },
+      },
+    });
+  });
+
+  it("does not count a synthetic campaign parent as a second decision", () => {
+    const recommendation = metaRec({
+      id: "adset_action",
+      level: "adset",
+      campaignId: "cmp_parent",
+      campaignName: "Parent campaign",
+      adsetId: "set_child",
+      adsetName: "Child ad set",
+      decisionState: "act",
+    });
+    const child = structureNodeFixture({
+      id: "adset:set_child",
+      sourceRecommendationId: recommendation.id,
+      level: "adset",
+      providerEntityId: "set_child",
+      campaignId: "cmp_parent",
+      campaignName: "Parent campaign",
+      name: "Child ad set",
+      lane: "act",
+    });
+    const syntheticParent = structureNodeFixture({
+      id: "campaign:cmp_parent",
+      sourceRecommendationId: null,
+      level: "campaign",
+      providerEntityId: "cmp_parent",
+      campaignId: "cmp_parent",
+      campaignName: "Parent campaign",
+      name: "Parent campaign",
+      lane: "act",
+    });
+    const os = fullOs();
+    os.structure = {
+      groups: [
+        {
+          id: "campaign:cmp_parent",
+          campaign: syntheticParent,
+          adsets: [child],
+          highestPriority: child.priority,
+          highestUrgency: child.urgency,
+          urgentAdsetCount: 1,
+        },
+      ],
+      actCount: 2,
+      blockedCount: 0,
+      monitorCount: 0,
+      suppressedAlternativeCount: 0,
+    };
+    const workspace = workspaceFixture({
+      actionNow: [recommendation],
+      os,
+    });
+
+    const model = buildMetaDecisionCenterExactViewModel({ workspace });
+
+    expect(model.actionRows).toHaveLength(1);
+    expect(model.counts?.action).toBe(1);
+    expect(model.operatorSummary).toMatchObject({
+      action: 1,
+      scopeCounts: { structure: { action: 1 } },
+    });
+    const coverage = new Map(
+      model.structureProvenance?.coverage?.map((fact) => [fact.id, fact.value]),
+    );
+    expect(coverage.get("structure-act")).toBe("2");
+    expect(coverage.get("structure-decisions")).toBe("1");
+  });
+
+  it("routes an active non-sales source row into the server-owned Action lane", () => {
+    const recommendation = metaRec({
+      id: "non_sales_act",
+      level: "campaign",
+      campaignId: "cmp_non_sales",
+      campaignName: "Server-routed campaign",
+      decisionState: "act",
+    });
+    const workspace = workspaceFixture({
+      nonSales: [recommendation],
+      os: fullOs({
+        nodes: [
+          structureNodeFixture({
+            id: "campaign:cmp_non_sales",
+            sourceRecommendationId: recommendation.id,
+            providerEntityId: "cmp_non_sales",
+            campaignId: "cmp_non_sales",
+            campaignName: "Server-routed campaign",
+            name: "Server-routed campaign",
+            lane: "act",
+          }),
+        ],
+      }),
+    });
+
+    const model = buildMetaDecisionCenterExactViewModel({ workspace });
+
+    expect(model.operatorSummary).toMatchObject({
+      action: 1,
+      needsResolution: 0,
+      watching: 0,
+      actionScope: "structure",
+    });
+    expect(model.counts).toMatchObject({
+      action: 1,
+      needsres: 0,
+      watching: 0,
+      nonsales: 0,
+    });
+    expect(model.actionRows?.map((row) => row.id)).toEqual([recommendation.id]);
+    expect(model.nonSales?.map((card) => card.id)).not.toContain(
+      recommendation.id,
+    );
+  });
+
+  it("does not draw server-suppressed alternatives as duplicate entity decisions", () => {
+    const selected = metaRec({
+      id: "selected_campaign_decision",
+      level: "campaign",
+      campaignId: "cmp_shared",
+      campaignName: "Shared campaign",
+    });
+    const suppressed = metaRec({
+      id: "suppressed_campaign_decision",
+      level: "campaign",
+      campaignId: "cmp_shared",
+      campaignName: "Shared campaign",
+    });
+    const workspace = workspaceFixture({
+      watching: [suppressed, selected],
+      os: fullOs({
+        nodes: [
+          structureNodeFixture({
+            id: "campaign:cmp_shared",
+            sourceRecommendationId: selected.id,
+            providerEntityId: "cmp_shared",
+            campaignId: "cmp_shared",
+            campaignName: "Shared campaign",
+            name: "Shared campaign",
+            lane: "blocked",
+            suppressedAlternativeCount: 1,
+          }),
+        ],
+      }),
+    });
+
+    const model = buildMetaDecisionCenterExactViewModel({ workspace });
+
+    expect(model.needsResolutionRows?.map((row) => row.id)).toEqual([
+      selected.id,
+    ]);
+    expect(model.watchingRows).toEqual([]);
+    expect(model.operatorSummary).toMatchObject({
+      action: 0,
+      needsResolution: 1,
+      watching: 0,
+    });
+  });
+
+  it("carries locale-neutral spend and campaign-role facts", () => {
+    const workspace = workspaceFixture();
+    workspace.pulse.campaignRoleCoverage = {
+      activeCampaigns: 5,
+      classifiedCampaigns: 4,
+      unresolvedCampaigns: 1,
+      latestUpdatedAt: null,
+    };
+
+    const model = buildMetaDecisionCenterExactViewModel({ workspace });
+
+    expect(model.kpis?.spend).toMatchObject({ date: "2026-08-17" });
+    expect(model.kpis?.spend).not.toHaveProperty("label");
+    expect(model.kpis?.campaignRoles).toMatchObject({
+      status: "unresolved",
+      unresolvedCount: "1",
+    });
+    expect(model.kpis?.campaignRoles).not.toHaveProperty("detail");
+  });
+
   it("leaves lane membership and the archive lane exactly where the server put them", () => {
     const archived: MetaArchivedEntity = {
       id: "camp_2",
@@ -3201,9 +3444,12 @@ describe("the exact adapter forwards the budget-evidence directions", () => {
               readState: "not_attempted",
               readStateWhy: "no history read",
               lastChangeAtMs: null,
-              changesForEntityToday: null, changesInAccountToday: null,
-              changesInBusinessToday: null, changesInFleetToday: null,
-              accountChangesToday: null, fleetChangesToday: null,
+              changesForEntityToday: null,
+              changesInAccountToday: null,
+              changesInBusinessToday: null,
+              changesInFleetToday: null,
+              accountChangesToday: null,
+              fleetChangesToday: null,
               countSemantics: "prospective_including_candidate",
             },
             knownBindings: [],
@@ -3213,7 +3459,8 @@ describe("the exact adapter forwards the budget-evidence directions", () => {
     return {
       contractVersion: "meta-budget-decision-evidence-directional.v3",
       directionToAction: { increase: "scale", decrease: "cut" },
-      directionToActionWhy: "an increase is a scale decision and a decrease is a cut decision",
+      directionToActionWhy:
+        "an increase is a scale decision and a decrease is a cut decision",
       directionSelected: null,
       directionSelectedWhy: "no proposal direction has been selected",
       increase: build("increase"),
@@ -3230,8 +3477,13 @@ describe("the exact adapter forwards the budget-evidence directions", () => {
     for (const direction of ["increase", "decrease"] as const) {
       const panel = model.budgetEvidence![direction];
       const primary = panel.primaryBlocker!;
-      const owning = panel.sections.find((s) => s.blockerCodes.includes(primary.code));
-      expect(owning, `${direction}: ${primary.code} is in no section`).toBeTruthy();
+      const owning = panel.sections.find((s) =>
+        s.blockerCodes.includes(primary.code),
+      );
+      expect(
+        owning,
+        `${direction}: ${primary.code} is in no section`,
+      ).toBeTruthy();
       expect(owning!.reasons).toContain(primary.reason);
     }
   });
@@ -3244,14 +3496,24 @@ describe("the exact adapter forwards the budget-evidence directions", () => {
     expect(model.budgetEvidence!.directionSelected).toBeNull();
     // An increase faces the conversion floor and the binding test; a decrease
     // faces neither, so their blocker sets must not be identical.
-    const increaseCodes = model.budgetEvidence!.increase.sections.flatMap((s) => s.blockerCodes);
-    const decreaseCodes = model.budgetEvidence!.decrease.sections.flatMap((s) => s.blockerCodes);
-    expect(increaseCodes).toContain("evidence_conversions_below_increase_floor");
-    expect(decreaseCodes).not.toContain("evidence_conversions_below_increase_floor");
+    const increaseCodes = model.budgetEvidence!.increase.sections.flatMap(
+      (s) => s.blockerCodes,
+    );
+    const decreaseCodes = model.budgetEvidence!.decrease.sections.flatMap(
+      (s) => s.blockerCodes,
+    );
+    expect(increaseCodes).toContain(
+      "evidence_conversions_below_increase_floor",
+    );
+    expect(decreaseCodes).not.toContain(
+      "evidence_conversions_below_increase_floor",
+    );
   });
 
   it("passes null when the server sent nothing, never an empty clear panel", () => {
-    const model = buildMetaDecisionCenterExactViewModel({ workspace: workspaceFixture({}) });
+    const model = buildMetaDecisionCenterExactViewModel({
+      workspace: workspaceFixture({}),
+    });
     expect(model.budgetEvidence).toBeNull();
   });
 });

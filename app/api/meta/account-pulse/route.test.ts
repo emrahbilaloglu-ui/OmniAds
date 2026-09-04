@@ -237,6 +237,20 @@ describe("GET /api/meta/account-pulse", () => {
     });
   });
 
+  it("keeps campaign-role coverage unavailable when the context read fails", async () => {
+    vi.mocked(campaignContext.readCampaignContextMap).mockRejectedValueOnce(
+      new Error("campaign context unavailable"),
+    );
+
+    const response = await GET(
+      new NextRequest("http://localhost/api/meta/account-pulse?businessId=biz_1&window=28d"),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.campaignRoleCoverage).toBeNull();
+  });
+
   it("returns today spend and 7 day daily average for the pulse comparison tile", async () => {
     vi.mocked(campaigns.getMetaCampaignsForRange).mockImplementation(async (input) => {
       if (input.startDate === "2026-05-17" && input.endDate === "2026-05-17") {

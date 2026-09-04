@@ -79,9 +79,8 @@ vi.mock("@/lib/api/meta", () => ({
 // live posture is pinned here; the demo and unverified branches are covered in
 // app/api/meta/history/accounts/demo-posture-parity.test.ts.
 vi.mock("@/lib/meta/business-data-posture", async (importOriginal) => {
-  const actual = await importOriginal<
-    typeof import("@/lib/meta/business-data-posture")
-  >();
+  const actual =
+    await importOriginal<typeof import("@/lib/meta/business-data-posture")>();
   return {
     ...actual,
     readMetaBusinessDataPosture: vi.fn(async () => "live" as const),
@@ -1421,6 +1420,63 @@ describe("GET /api/meta/decisions-workspace", () => {
     });
   });
 
+  it("names a decision-generation failure without misdirecting the operator to sync recovery", async () => {
+    const degraded = {
+      ...healthyPipelineHealth(),
+      overall: "degraded" as const,
+      executionReady: false,
+      blockers: ["decision_generation_stale" as const],
+      decisionGeneration: {
+        ...healthyPipelineHealth().decisionGeneration,
+        status: "stale" as const,
+        reason: "Exact decision generation is stale.",
+      },
+    };
+    pipelineHealthMock.buildMetaDecisionPipelineHealth.mockReturnValue(
+      degraded,
+    );
+    assignmentsMock.getProviderAccountAssignments.mockResolvedValue({
+      id: "assignment_1",
+      business_id: "biz_1",
+      provider: "meta",
+      account_ids: ["act_1"],
+      created_at: "2026-07-01T00:00:00.000Z",
+      updated_at: "2026-07-01T00:00:00.000Z",
+    });
+    metaApiMock.resolveMetaCredentials.mockResolvedValue({
+      businessId: "biz_1",
+      accessToken: "test-token",
+      accountIds: ["act_1"],
+      currency: "USD",
+      accountProfiles: {},
+    });
+    metaApiMock.fetchMetaActiveAdConfigsReceipt.mockResolvedValue({
+      complete: true,
+      termination: "complete",
+      rows: [],
+    });
+    stubWorkspaceHttpUpstreams();
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/meta/decisions-workspace?businessId=biz_1&providerAccountId=act_1",
+      ),
+    );
+    const body = await response.json();
+    const banner = body.banners.find(
+      (item: { id: string }) => item.id === "meta_decision_pipeline_health",
+    );
+
+    expect(response.status).toBe(200);
+    expect(banner).toMatchObject({
+      title: "Decision generation is not current — decisions are review-only.",
+      blocking: true,
+    });
+    expect(banner.detail).toContain("Meta facts are verified through");
+    expect(banner.detail).toContain("Exact decision generation is stale.");
+    expect(banner.title).not.toContain("data sync");
+  });
+
   it.each(["stale", "unknown"] as const)(
     "does not warn when commercial targets are configured with %s freshness",
     async (freshness) => {
@@ -1770,12 +1826,23 @@ describe("GET /api/meta/decisions-workspace", () => {
 describe("GET /api/meta/decisions-workspace budget evidence panel", () => {
   async function servePayload() {
     vi.stubEnv("META_DECISIONS_UPSTREAM_TRANSPORT", "in_process");
-    upstreamRouteMock.accountPulseGet.mockResolvedValue(jsonResponse(metaPulse()));
-    upstreamRouteMock.laneClassificationGet.mockResolvedValue(jsonResponse(metaLanePayload()));
-    vi.stubGlobal("fetch", vi.fn(() => { throw new Error("HTTP self-fetch must not run"); }));
+    upstreamRouteMock.accountPulseGet.mockResolvedValue(
+      jsonResponse(metaPulse()),
+    );
+    upstreamRouteMock.laneClassificationGet.mockResolvedValue(
+      jsonResponse(metaLanePayload()),
+    );
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => {
+        throw new Error("HTTP self-fetch must not run");
+      }),
+    );
     const response = await GET(
-      new NextRequest("http://localhost/api/meta/decisions-workspace?businessId=biz_1",
-        { headers: { cookie: "session=test-session" } }),
+      new NextRequest(
+        "http://localhost/api/meta/decisions-workspace?businessId=biz_1",
+        { headers: { cookie: "session=test-session" } },
+      ),
     );
     expect(response.status).toBe(200);
     return response.json();
@@ -1787,32 +1854,56 @@ describe("GET /api/meta/decisions-workspace budget evidence panel", () => {
     vi.unstubAllGlobals();
     accessMock.requireBusinessAccess.mockResolvedValue({
       session: {
-        sessionId: "sess_1", activeBusinessId: "biz_1", expiresAt: "2026-09-08T00:00:00.000Z",
-        user: { id: "user_1", name: "Operator", email: "operator@example.com", avatar: null, language: "en" },
+        sessionId: "sess_1",
+        activeBusinessId: "biz_1",
+        expiresAt: "2026-09-08T00:00:00.000Z",
+        user: {
+          id: "user_1",
+          name: "Operator",
+          email: "operator@example.com",
+          avatar: null,
+          language: "en",
+        },
       },
       membership: {
-        id: "mem_1", userId: "user_1", businessId: "biz_1",
-        role: "collaborator", status: "active", joinedAt: "2026-07-08T00:00:00.000Z",
+        id: "mem_1",
+        userId: "user_1",
+        businessId: "biz_1",
+        role: "collaborator",
+        status: "active",
+        joinedAt: "2026-07-08T00:00:00.000Z",
       },
     });
     reviewerMock.isReviewerEmail.mockReturnValue(false);
     assignmentsMock.getProviderAccountAssignments.mockResolvedValue(null);
     metaApiMock.resolveMetaCredentials.mockResolvedValue(null);
     metaApiMock.fetchMetaActiveAdConfigsReceipt.mockResolvedValue({
-      complete: false, termination: "request_failed", rows: [],
+      complete: false,
+      termination: "request_failed",
+      rows: [],
     });
-    readModelMock.buildUnavailableMetaDecisionsWorkspaceReadModel.mockReturnValue({
-      contractVersion: "meta-decisions-workspace.read.v1",
-      status: "unavailable",
-      scope: { businessId: "biz_1", providerAccountId: null },
-      unavailable: { code: "provider_account_required", message: "n/a" },
-    });
+    readModelMock.buildUnavailableMetaDecisionsWorkspaceReadModel.mockReturnValue(
+      {
+        contractVersion: "meta-decisions-workspace.read.v1",
+        status: "unavailable",
+        scope: { businessId: "biz_1", providerAccountId: null },
+        unavailable: { code: "provider_account_required", message: "n/a" },
+      },
+    );
     commercialTargetsMock.readMetaCommercialTargets.mockResolvedValue({
-      source: "none", targetRoas: null, breakEvenRoas: null, targetCpa: null,
-      breakEvenCpa: null, riskPosture: "balanced", freshness: "unknown", updatedAt: null,
+      source: "none",
+      targetRoas: null,
+      breakEvenRoas: null,
+      targetCpa: null,
+      breakEvenCpa: null,
+      riskPosture: "balanced",
+      freshness: "unknown",
+      updatedAt: null,
     });
     commercialTargetsMock.hasMetaHardActionAnchor.mockReturnValue(false);
-    dbMock.getDb.mockImplementation(() => { throw new Error("db unavailable in this unit test"); });
+    dbMock.getDb.mockImplementation(() => {
+      throw new Error("db unavailable in this unit test");
+    });
   });
 
   it("publishes BOTH review-only directions and selects neither", () => {
@@ -1820,9 +1911,14 @@ describe("GET /api/meta/decisions-workspace budget evidence panel", () => {
     // where nothing had been selected.
     return servePayload().then((payload) => {
       const evidence = payload.system.budgetEvidence;
-      expect(evidence.contractVersion).toBe("meta-budget-decision-evidence-directional.v3");
+      expect(evidence.contractVersion).toBe(
+        "meta-budget-decision-evidence-directional.v3",
+      );
       // The server owns the direction-to-action mapping the client used to hold.
-      expect(evidence.directionToAction).toEqual({ increase: "scale", decrease: "cut" });
+      expect(evidence.directionToAction).toEqual({
+        increase: "scale",
+        decrease: "cut",
+      });
       expect(evidence.directionToActionWhy).toContain("refresh");
       expect(evidence.directionSelected).toBeNull();
       expect(evidence.directionSelectedWhy).toContain("no proposal direction");
@@ -1835,10 +1931,18 @@ describe("GET /api/meta/decisions-workspace budget evidence panel", () => {
     const payload = await servePayload();
     for (const direction of ["increase", "decrease"] as const) {
       const panel = payload.system.budgetEvidence[direction];
-      expect(panel.contractVersion, direction).toBe("meta-budget-decision-evidence-panel.v4");
-      expect(panel.sections.map((s: { section: string }) => s.section)).toEqual([
-        "input_integrity", "commercial_target", "evidence_floor", "change_safety", "execution_capability",
-      ]);
+      expect(panel.contractVersion, direction).toBe(
+        "meta-budget-decision-evidence-panel.v4",
+      );
+      expect(panel.sections.map((s: { section: string }) => s.section)).toEqual(
+        [
+          "input_integrity",
+          "commercial_target",
+          "evidence_floor",
+          "change_safety",
+          "execution_capability",
+        ],
+      );
     }
   });
 
@@ -1858,8 +1962,12 @@ describe("GET /api/meta/decisions-workspace budget evidence panel", () => {
       expect(panel.authority, direction).toBe("blocked");
       expect(panel.primaryBlocker, direction).not.toBeNull();
       const owning = panel.sections.find((s: { blockerCodes: string[] }) =>
-        s.blockerCodes.includes(panel.primaryBlocker.code));
-      expect(owning, `${direction}: the primary blocker is in no section`).toBeTruthy();
+        s.blockerCodes.includes(panel.primaryBlocker.code),
+      );
+      expect(
+        owning,
+        `${direction}: the primary blocker is in no section`,
+      ).toBeTruthy();
       expect(owning.reasons).toContain(panel.primaryBlocker.reason);
     }
   });
@@ -1870,7 +1978,9 @@ describe("GET /api/meta/decisions-workspace budget evidence panel", () => {
     const payload = await servePayload();
     for (const direction of ["increase", "decrease"] as const) {
       const panel = payload.system.budgetEvidence[direction];
-      const codes = panel.sections.flatMap((s: { blockerCodes: string[] }) => s.blockerCodes);
+      const codes = panel.sections.flatMap(
+        (s: { blockerCodes: string[] }) => s.blockerCodes,
+      );
       expect(codes, direction).toContain("change_safety_history_unavailable");
     }
   });
@@ -1878,7 +1988,11 @@ describe("GET /api/meta/decisions-workspace budget evidence panel", () => {
   it("does not report any section clear while the account is blocked", async () => {
     const payload = await servePayload();
     const panel = payload.system.budgetEvidence.increase;
-    expect(panel.sections.some((s: { blockerCodes: string[] }) => s.blockerCodes.length > 0)).toBe(true);
+    expect(
+      panel.sections.some(
+        (s: { blockerCodes: string[] }) => s.blockerCodes.length > 0,
+      ),
+    ).toBe(true);
   });
 });
 

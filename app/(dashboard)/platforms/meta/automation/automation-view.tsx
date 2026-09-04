@@ -48,7 +48,10 @@ import {
 } from "./viewer-envelope";
 import type { StateHistoryCompactionReadiness } from "@/lib/meta/state-history-compaction-readiness";
 import type { BudgetWriteReadinessModel } from "@/lib/meta/budget-write-readiness";
-import { BUDGET_ACTIVATION_CONFIRMATION_PHRASE } from "@/lib/meta/budget-activation";
+import {
+  BUDGET_ACTIVATION_CONFIRMATION_PHRASE,
+  type BudgetActivationCondition,
+} from "@/lib/meta/budget-activation";
 import {
   parseBudgetAutomationConfig,
   type BudgetAutomationConfigInput,
@@ -148,13 +151,58 @@ const MODE_LABELS: Record<MetaAutomationDecisionMode, string> = {
 };
 
 /** The ladder's three rungs, in the order the server declares them. */
-const AUTONOMY_MODES: readonly MetaAutomationDecisionMode[] = ["manual", "semi_auto", "auto"];
+const AUTONOMY_MODES: readonly MetaAutomationDecisionMode[] = [
+  "manual",
+  "semi_auto",
+  "auto",
+];
 
 /** What each rung says ON the segment; `MODE_LABELS` is its accessible name. */
 const MODE_SEGMENT_LABELS: Record<MetaAutomationDecisionMode, string> = {
   manual: "Tier 1",
   semi_auto: "Tier 2",
   auto: "Tier 3",
+};
+
+const ACTIVATION_BLOCKER_LABELS: Record<BudgetActivationCondition, string> = {
+  control_row_absent: "Save this business's automation guardrails.",
+  global_gate_closed: "The production live-write capability is still closed.",
+  business_stop_engaged: "Release the business emergency stop.",
+  budget_mode_not_auto: "Set Budget to Tier 3 — Auto-execute.",
+  dry_run_guardrail_engaged: "Turn off dry-run-only in the saved guardrails.",
+  canonical_fact_retention_not_ready:
+    "Historical canonical-decision retention is not yet proven.",
+  profile_retention_not_ready:
+    "Performance-profile retention is not yet proven.",
+  automatic_role_retention_not_ready:
+    "Automatic campaign-role history is not yet proven.",
+  account_scope_not_exact: "Select and verify exactly one Meta ad account.",
+  journal_schema_not_ready: "The execution journal is not ready.",
+  unresolved_reconciliation: "Resolve the in-progress provider reconciliation.",
+  open_claim: "Wait for or clear the open execution claim.",
+};
+
+function activationBlockerLabel(code: string): string {
+  if (code === "enabling_actor_absent") {
+    return "The enabling admin no longer has active authority.";
+  }
+  return (
+    ACTIVATION_BLOCKER_LABELS[code as BudgetActivationCondition] ??
+    code.replaceAll("_", " ").replace(/^./, (letter) => letter.toUpperCase())
+  );
+}
+
+const PREPARATION_FIELD_LABELS: Record<
+  (typeof BUDGET_PREPARATION_FIELDS)[number],
+  string
+> = {
+  dryRunOnly: "dry-run choice",
+  budgetMinHoursBetweenChanges: "minimum hours between changes",
+  budgetMaxChangesPer7d: "maximum changes per 7 days",
+  budgetMaxAccountConcentrationPct: "maximum account concentration",
+  maxBudgetIncreasePct: "maximum single increase",
+  perActionSpendCeilingMinor: "per-action spend ceiling",
+  perActionSpendCeilingCurrency: "spend-ceiling currency",
 };
 
 /**
@@ -169,7 +217,8 @@ function currentModeFor(
   decisionType: MetaAutomationDecisionType,
 ): MetaAutomationDecisionMode | null {
   const item = (payload?.decisionTypeModes ?? []).find(
-    (entry) => entry.decisionType === decisionType && entry.source === "persisted",
+    (entry) =>
+      entry.decisionType === decisionType && entry.source === "persisted",
   );
   return item?.mode ?? null;
 }
@@ -202,10 +251,18 @@ type SectionKey =
   | "anchors"
   | "readiness";
 
-type SectionState = "complete" | "unavailable" | "migration_required" | "unproven";
+type SectionState =
+  "complete" | "unavailable" | "migration_required" | "unproven";
 
 const LEGACY_COMPLETENESS_KEY: Partial<
-  Record<SectionKey, "rules" | "activityLedger" | "promotionRecords" | "businessControl" | "cleanApprovalStreaks">
+  Record<
+    SectionKey,
+    | "rules"
+    | "activityLedger"
+    | "promotionRecords"
+    | "businessControl"
+    | "cleanApprovalStreaks"
+  >
 > = {
   businessControl: "businessControl",
   rules: "rules",
@@ -345,8 +402,8 @@ function statusForGlobalKillSwitch(
     return { label: UNKNOWN, tone: "unknown" };
   }
   return payload.globalKillSwitch.engaged
-    ? { label: "STOPPED", tone: "stopped" }
-    : { label: "ENABLED", tone: "enabled" };
+    ? { label: "ENGAGED", tone: "stopped" }
+    : { label: "NOT ENGAGED", tone: "enabled" };
 }
 
 function statusForBusinessKillSwitch(
@@ -355,11 +412,11 @@ function statusForBusinessKillSwitch(
   if (!hasServedBusinessControl(payload)) {
     return { label: UNKNOWN, tone: "unknown" };
   }
-  // An engaged stop reads STOPPED regardless of provenance — a stop is a
+  // An engaged stop reads ENGAGED regardless of provenance — a stop is a
   // stop, and softening it because the row is a default would weaken the
   // fail-closed direction.
   if (payload!.businessControl.killSwitchEngaged) {
-    return { label: "STOPPED", tone: "stopped" };
+    return { label: "ENGAGED", tone: "stopped" };
   }
   // A successful read of a MISSING control row degrades to defaults, and the
   // write boundary refuses every Meta write for that business with
@@ -367,9 +424,9 @@ function statusForBusinessKillSwitch(
   // a green ENABLED here claimed a write-enablement the server does not
   // grant; the pill states the effective posture instead.
   if (payload!.businessControl.source !== "persisted") {
-    return { label: "BLOCKED · NOT CONFIGURED", tone: "stopped" };
+    return { label: "NOT CONFIGURED", tone: "stopped" };
   }
-  return { label: "ENABLED", tone: "enabled" };
+  return { label: "NOT ENGAGED", tone: "enabled" };
 }
 
 function readinessFor(payload: AutomationPayload | null) {
@@ -587,7 +644,9 @@ function ledgerResultFor(
     return { label: `Receipt ${result.receiptId}`, tone: result.status };
   }
   const label = LEDGER_RESULT_LABELS[result.status];
-  return label ? { label, tone: result.status } : { label: UNKNOWN, tone: "unknown" };
+  return label
+    ? { label, tone: result.status }
+    : { label: UNKNOWN, tone: "unknown" };
 }
 
 function formatLedgerTime(value: string) {
@@ -773,9 +832,7 @@ function AutomationRuleComposer({
           <select
             value={triggerKind}
             onChange={(event) =>
-              setTriggerKind(
-                event.target.value as typeof triggerKind,
-              )
+              setTriggerKind(event.target.value as typeof triggerKind)
             }
           >
             {COMPOSER_TRIGGER_KINDS.map((option) => (
@@ -1023,6 +1080,11 @@ export function MetaAutomationView({
   const [modificationNote, setModificationNote] = useState("");
   const globalStatus = statusForGlobalKillSwitch(payload);
   const businessStatus = statusForBusinessKillSwitch(payload);
+  const businessMasterSwitchState = hasServedBusinessControl(payload)
+    ? payload!.businessControl.autoExecutionEnabled
+      ? "ON"
+      : "OFF"
+    : UNKNOWN;
 
   /**
    * The Stop's own state, and the mutation that changes it.
@@ -1173,9 +1235,10 @@ export function MetaAutomationView({
           }
           // Re-read rather than trust the request. The control state on screen
           // must be the state the database holds, and only a read proves that.
-          const next = await readAutomation({ businessId, providerAccountId }).catch(
-            () => null,
-          );
+          const next = await readAutomation({
+            businessId,
+            providerAccountId,
+          }).catch(() => null);
           // Hands the re-read payload to the same channel the rules editor uses
           // to publish one, so the page owns the state and this body still owns
           // none of it.
@@ -1203,7 +1266,13 @@ export function MetaAutomationView({
         })
         .finally(() => setStopPending(false));
     },
-    [businessId, providerAccountId, stopPending, viewer.canMutate, onRulesChanged],
+    [
+      businessId,
+      providerAccountId,
+      stopPending,
+      viewer.canMutate,
+      onRulesChanged,
+    ],
   );
   /**
    * AUTO-03 — record the autonomy mode for one action kind.
@@ -1223,7 +1292,10 @@ export function MetaAutomationView({
   const [modeSaved, setModeSaved] = useState<Record<string, string>>({});
 
   const onModeChange = useCallback(
-    (decisionType: MetaAutomationDecisionType, mode: MetaAutomationDecisionMode) => {
+    (
+      decisionType: MetaAutomationDecisionType,
+      mode: MetaAutomationDecisionMode,
+    ) => {
       if (!businessId || !providerAccountId || modePending) return;
       if (!viewer.canMutate) return;
       setModePending(decisionType);
@@ -1256,9 +1328,10 @@ export function MetaAutomationView({
             }));
             return;
           }
-          const next = await readAutomation({ businessId, providerAccountId }).catch(
-            () => null,
-          );
+          const next = await readAutomation({
+            businessId,
+            providerAccountId,
+          }).catch(() => null);
           if (!next) {
             setModeError((previous) => ({
               ...previous,
@@ -1287,12 +1360,19 @@ export function MetaAutomationView({
         .catch(() => {
           setModeError((previous) => ({
             ...previous,
-            [decisionType]: "The automation control plane could not be reached.",
+            [decisionType]:
+              "The automation control plane could not be reached.",
           }));
         })
         .finally(() => setModePending(null));
     },
-    [businessId, providerAccountId, modePending, viewer.canMutate, onRulesChanged],
+    [
+      businessId,
+      providerAccountId,
+      modePending,
+      viewer.canMutate,
+      onRulesChanged,
+    ],
   );
 
   const guardrails = guardrailsFor(payload, liveWritesRefusalReason);
@@ -1371,8 +1451,7 @@ export function MetaAutomationView({
    * + New rule / toggle controls the moment an account resolved, and learned
    * about the refusal from a 403 after the click.
    */
-  const canMutate =
-    Boolean(businessId) && accountResolved && viewer.canMutate;
+  const canMutate = Boolean(businessId) && accountResolved && viewer.canMutate;
 
   const rules = buildAutomationRulesViewModel({
     payload,
@@ -1434,9 +1513,58 @@ export function MetaAutomationView({
         data-testid="automation-exact-desktop"
       >
         <div>
-          <p className={styles.eyebrow}>Meta · Supervision control plane</p>
+          <p className={styles.eyebrow}>Meta · Automation control</p>
           <h1 className={styles.title}>Automation</h1>
         </div>
+
+        <article
+          className={styles.operatingState}
+          data-testid="automation-operating-state"
+          data-business-master-switch={businessMasterSwitchState.toLowerCase()}
+        >
+          <div>
+            <p className={styles.operatingStateEyebrow}>
+              Business-wide setting
+            </p>
+            <h2>Business master switch is {businessMasterSwitchState}</h2>
+            <p>
+              {businessMasterSwitchState === "OFF"
+                ? "No Meta change can run automatically for this business. You can finish configuration, historical backtests and readiness checks without turning it on."
+                : businessMasterSwitchState === "ON"
+                  ? payload?.execution.autoExecutionAllowed
+                    ? "The business master switch is on and the business-level safety gates currently allow automatic execution. The exact account activation and every proposal preflight must still pass before Meta can change."
+                    : "The business master switch is on, but effective automatic execution is blocked by the current safety state. Review the blockers below; no Meta change can run automatically while they remain."
+                  : "The server could not prove the business master-switch setting. Writes remain fail-closed until the control state can be read."}
+            </p>
+            {budgetWriteReadiness ? (
+              <a
+                className={styles.operatingStateLink}
+                href="#automatic-execution-control"
+              >
+                Review setup and execution controls
+              </a>
+            ) : null}
+          </div>
+          <dl>
+            <div>
+              <dt>Readiness</dt>
+              <dd>{readiness}</dd>
+            </div>
+            <div>
+              <dt>Pending approvals</dt>
+              <dd>{proposals.count}</dd>
+            </div>
+            <div>
+              <dt>Activation blockers</dt>
+              <dd>
+                {budgetWriteReadiness
+                  ? budgetWriteReadiness.execution.activationReadyBlockers
+                      .length
+                  : UNKNOWN}
+              </dd>
+            </div>
+          </dl>
+        </article>
 
         {/*
           The failure state's own recovery. The read this re-runs is the one
@@ -1478,7 +1606,7 @@ export function MetaAutomationView({
 
         <div className={styles.summaryGrid}>
           <article className={styles.killCard}>
-            <p className={styles.cardKickerDark}>Kill switch</p>
+            <p className={styles.cardKickerDark}>Emergency stops</p>
             <div className={styles.killRow}>
               {/*
                 Was "Global writes". The switch behind it is
@@ -1489,7 +1617,7 @@ export function MetaAutomationView({
                 have, and an operator reaching for it in an incident would have
                 believed Google Ads had stopped too.
               */}
-              <span>Meta writes · all businesses</span>
+              <span>All-business Meta stop</span>
               <span
                 className={styles.statusPill}
                 data-tone={globalStatus.tone}
@@ -1500,7 +1628,7 @@ export function MetaAutomationView({
               </span>
             </div>
             <div className={styles.killRow}>
-              <span>Meta writes · this business</span>
+              <span>This-business Meta stop</span>
               <span
                 className={styles.statusPill}
                 data-tone={businessStatus.tone}
@@ -1545,9 +1673,13 @@ export function MetaAutomationView({
                 ? `${payload.sections.businessControl.status} at ${payload.sections.businessControl.observedAt}`
                 : "not served by this payload"}
               . A confirmation older than{" "}
-              {Math.round(STOP_PREFLIGHT_MAX_AGE_MS / 60000)} minutes is refused.
+              {Math.round(STOP_PREFLIGHT_MAX_AGE_MS / 60000)} minutes is
+              refused.
             </p>
-            <div className={styles.killRow} data-field="business-writes-control">
+            <div
+              className={styles.killRow}
+              data-field="business-writes-control"
+            >
               {stopEngaged ? (
                 <button
                   type="button"
@@ -1565,19 +1697,30 @@ export function MetaAutomationView({
                    * "reachable from the keyboard" law measures it.
                    */
                   aria-disabled={
-                    Boolean(stopCeremony.blocker) || !viewer.canMutate || stopPending
+                    Boolean(stopCeremony.blocker) ||
+                    !viewer.canMutate ||
+                    stopPending
                       ? true
                       : undefined
                   }
                   data-stop-refused={
-                    Boolean(stopCeremony.blocker) || !viewer.canMutate ? "" : undefined
+                    Boolean(stopCeremony.blocker) || !viewer.canMutate
+                      ? ""
+                      : undefined
                   }
                   title={
                     stopCeremony.blocker?.message ??
-                    (viewer.canMutate ? undefined : (viewer.reason ?? undefined))
+                    (viewer.canMutate
+                      ? undefined
+                      : (viewer.reason ?? undefined))
                   }
                   onClick={() => {
-                    if (stopCeremony.blocker || !viewer.canMutate || stopPending) return;
+                    if (
+                      stopCeremony.blocker ||
+                      !viewer.canMutate ||
+                      stopPending
+                    )
+                      return;
                     setStopTyped("");
                     setStopAborted(null);
                     setStopConfirm("release");
@@ -1604,7 +1747,9 @@ export function MetaAutomationView({
                    */
                   data-ctl="gated:AUTO-01A engage"
                   data-stop-trigger=""
-                  data-stop-engage-refused={stopEngageRefusalReason ? "" : undefined}
+                  data-stop-engage-refused={
+                    stopEngageRefusalReason ? "" : undefined
+                  }
                   // `aria-disabled` rather than `disabled` — see the release
                   // trigger above for why the control must stay focusable.
                   aria-disabled={
@@ -1661,7 +1806,9 @@ export function MetaAutomationView({
                 onSubmit={(event) => {
                   event.preventDefault();
                   const direction = stopConfirm;
-                  if (stopTyped.trim().toUpperCase() !== stopPhraseFor(direction))
+                  if (
+                    stopTyped.trim().toUpperCase() !== stopPhraseFor(direction)
+                  )
                     return;
                   /*
                    * Re-resolved at SUBMIT, against the payload as it is now and
@@ -1684,7 +1831,10 @@ export function MetaAutomationView({
                       isReviewer: viewer.reviewerReadOnly,
                       demo: viewer.demo,
                     },
-                    currentlyEngaged: sectionIsComplete(payload, "businessControl")
+                    currentlyEngaged: sectionIsComplete(
+                      payload,
+                      "businessControl",
+                    )
                       ? stopEngaged
                       : null,
                     gateClosedReason: stopEngageRefusalReason ?? null,
@@ -1737,11 +1887,14 @@ export function MetaAutomationView({
                   <button
                     data-stop-confirm-submit=""
                     disabled={
-                      stopTyped.trim().toUpperCase() !== stopPhraseFor(stopConfirm)
+                      stopTyped.trim().toUpperCase() !==
+                      stopPhraseFor(stopConfirm)
                     }
                     type="submit"
                   >
-                    {stopConfirm === "engage" ? "Stop Meta automation" : "Resume"}
+                    {stopConfirm === "engage"
+                      ? "Stop Meta automation"
+                      : "Resume"}
                   </button>
                   <button
                     data-stop-confirm-cancel=""
@@ -1784,8 +1937,14 @@ export function MetaAutomationView({
                 {stopAborted}
               </p>
             ) : null}
-            {stopEngageRefusalReason && !stopEngaged && !stopCeremony.blocker ? (
-              <p className={styles.killNote} data-field="stop-engage-refusal" role="note">
+            {stopEngageRefusalReason &&
+            !stopEngaged &&
+            !stopCeremony.blocker ? (
+              <p
+                className={styles.killNote}
+                data-field="stop-engage-refusal"
+                role="note"
+              >
                 {stopEngageRefusalReason}
               </p>
             ) : null}
@@ -1803,12 +1962,20 @@ export function MetaAutomationView({
                 {stopOutcome.statusMessage}
               </p>
             ) : stopOutcome?.statusMessage ? (
-              <p className={styles.killNote} data-stop-unconfirmed="" role="status">
+              <p
+                className={styles.killNote}
+                data-stop-unconfirmed=""
+                role="status"
+              >
                 {stopOutcome.statusMessage}
               </p>
             ) : null}
             {stopError ? (
-              <p className={styles.killNote} data-field="stop-error" role="status">
+              <p
+                className={styles.killNote}
+                data-field="stop-error"
+                role="status"
+              >
                 {stopError}
               </p>
             ) : null}
@@ -1862,7 +2029,10 @@ export function MetaAutomationView({
                 // set here" there asserts nobody configured a guardrail, when
                 // what actually happened is that the server could not find out
                 // — the opposite claim, beside four em dashes.
-                <span data-field="guardrail-source"> · defaults, not set here</span>
+                <span data-field="guardrail-source">
+                  {" "}
+                  · defaults, not set here
+                </span>
               ) : null}
             </p>
             {/*
@@ -1875,16 +2045,16 @@ export function MetaAutomationView({
               right document but the wrong place is not the same marker.
             */}
             <div data-collection="guardrails">
-            {guardrails.map((guardrail) => (
-              <div
-                className={styles.guardrailRow}
-                data-field={`guardrail-${guardrail.key}`}
-                key={guardrail.key}
-              >
-                <span>{guardrail.label}</span>
-                <strong>{guardrail.value}</strong>
-              </div>
-            ))}
+              {guardrails.map((guardrail) => (
+                <div
+                  className={styles.guardrailRow}
+                  data-field={`guardrail-${guardrail.key}`}
+                  key={guardrail.key}
+                >
+                  <span>{guardrail.label}</span>
+                  <strong>{guardrail.value}</strong>
+                </div>
+              ))}
             </div>
           </article>
 
@@ -1930,10 +2100,7 @@ export function MetaAutomationView({
           {proposals.rows.length > 0 ? (
             proposals.rows.map((row) => (
               <div key={row.id}>
-                <div
-                  className={styles.proposalRow}
-                  data-proposal-id={row.id}
-                >
+                <div className={styles.proposalRow} data-proposal-id={row.id}>
                   <span className={styles.proposalAction} data-tone={row.tone}>
                     {row.action}
                   </span>
@@ -2195,186 +2362,211 @@ export function MetaAutomationView({
           </p>
         </article>
 
-        <div className={styles.rulesAutonomyGrid}>
-          <article className={styles.rulesCard}>
-            <div className={styles.sectionHeader}>
-              <h2>Rules</h2>
-              <span className={styles.sectionHint}>
-                deterministic triggers · anchored to the Commercial Truth pack
-              </span>
-              <button
-                type="button"
-                className={styles.newRule}
-                disabled={!rules.canCreate || composerOpen}
-                aria-disabled={!rules.canCreate || composerOpen}
-                aria-expanded={composerOpen}
-                onClick={
-                  rules.canCreate ? () => setComposerOpen(true) : undefined
-                }
-              >
-                + New rule
-              </button>
-            </div>
-            <div className={styles.tableScroll}>
-              <table className={styles.rulesTable}>
-                <thead>
-                  <tr>
-                    <th>Rule</th>
-                    <th>Then</th>
-                    <th>Mode</th>
-                    <th>Fired · 28d</th>
-                    <th>Active</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rules.rows && rules.rows.length > 0 ? (
-                    rules.rows.map((row) => (
-                      <AutomationRuleRow
-                        key={row.id}
-                        row={row}
-                        busy={pendingRuleId === row.id}
-                        canMutate={canMutate}
-                        onToggle={() => void toggleRule(row)}
-                      />
-                    ))
-                  ) : (
-                    // "No rules exist" and "the rules could not be read" are
-                    // different facts, and the adapter has already separated
-                    // them. Collapsing both into an em dash told an operator
-                    // who had just created a rule the same thing it told one
-                    // whose read had failed. Same rule as `0×` on the Fired
-                    // column: a proven zero is a fact and is stated as one.
-                    <tr
-                      className={styles.rulesEmpty}
-                      data-testid="rules-empty"
-                      data-proven-empty={rules.isProvenEmpty ? "true" : "false"}
-                    >
-                      <td colSpan={5}>
-                        {rules.isProvenEmpty ? "No rules yet" : UNKNOWN}
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-            {composerOpen ? (
-              <AutomationRuleComposer
-                busy={composerBusy}
-                error={ruleError}
-                onCancel={() => {
-                  setComposerOpen(false);
-                  setRuleError(null);
-                }}
-                onSubmit={(draft) => void createRule(draft)}
-              />
-            ) : ruleError ? (
-              <p className={styles.ruleError} role="status">
-                {ruleError}
-              </p>
-            ) : null}
-            <p className={styles.sectionFootnote}>
-              rules never write directly — they raise proposals into the
-              confirmation queue (or hard-block, for guards)
-            </p>
-          </article>
-
-          <article className={styles.autonomyCard}>
-            <div className={styles.sectionHeaderCompact}>
-              <h2>Autonomy ladder</h2>
-              <span className={styles.sectionHint}>per action kind</span>
-            </div>
-            {autonomy.map((item) => (
-              <div
-                className={styles.autonomyRow}
-                data-decision-type={item.decisionType ?? "launch"}
-                key={item.kind}
-              >
-                <div className={styles.autonomyTopline}>
-                  <span className={styles.autonomyKind}>{item.kind}</span>
-                  <span className={styles.autonomyTier} data-tone={item.tone}>
-                    {item.tier}
+        <details className={styles.advancedAutomation}>
+          <summary>
+            <span>Advanced automation settings</span>
+            <small>Rules, autonomy tiers and activity history</small>
+          </summary>
+          <div className={styles.advancedAutomationBody}>
+            <div className={styles.rulesAutonomyGrid}>
+              <article className={styles.rulesCard}>
+                <div className={styles.sectionHeader}>
+                  <h2>Rules</h2>
+                  <span className={styles.sectionHint}>
+                    deterministic triggers · anchored to the Commercial Truth
+                    pack
                   </span>
+                  <button
+                    type="button"
+                    className={styles.newRule}
+                    disabled={!rules.canCreate || composerOpen}
+                    aria-disabled={!rules.canCreate || composerOpen}
+                    aria-expanded={composerOpen}
+                    onClick={
+                      rules.canCreate ? () => setComposerOpen(true) : undefined
+                    }
+                  >
+                    + New rule
+                  </button>
                 </div>
-                {/*
+                <div className={styles.tableScroll}>
+                  <table className={styles.rulesTable}>
+                    <thead>
+                      <tr>
+                        <th>Rule</th>
+                        <th>Then</th>
+                        <th>Mode</th>
+                        <th>Fired · 28d</th>
+                        <th>Active</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {rules.rows && rules.rows.length > 0 ? (
+                        rules.rows.map((row) => (
+                          <AutomationRuleRow
+                            key={row.id}
+                            row={row}
+                            busy={pendingRuleId === row.id}
+                            canMutate={canMutate}
+                            onToggle={() => void toggleRule(row)}
+                          />
+                        ))
+                      ) : (
+                        // "No rules exist" and "the rules could not be read" are
+                        // different facts, and the adapter has already separated
+                        // them. Collapsing both into an em dash told an operator
+                        // who had just created a rule the same thing it told one
+                        // whose read had failed. Same rule as `0×` on the Fired
+                        // column: a proven zero is a fact and is stated as one.
+                        <tr
+                          className={styles.rulesEmpty}
+                          data-testid="rules-empty"
+                          data-proven-empty={
+                            rules.isProvenEmpty ? "true" : "false"
+                          }
+                        >
+                          <td colSpan={5}>
+                            {rules.isProvenEmpty ? "No rules yet" : UNKNOWN}
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+                {composerOpen ? (
+                  <AutomationRuleComposer
+                    busy={composerBusy}
+                    error={ruleError}
+                    onCancel={() => {
+                      setComposerOpen(false);
+                      setRuleError(null);
+                    }}
+                    onSubmit={(draft) => void createRule(draft)}
+                  />
+                ) : ruleError ? (
+                  <p className={styles.ruleError} role="status">
+                    {ruleError}
+                  </p>
+                ) : null}
+                <p className={styles.sectionFootnote}>
+                  rules never write directly — they raise proposals into the
+                  confirmation queue (or hard-block, for guards)
+                </p>
+              </article>
+
+              <article className={styles.autonomyCard}>
+                <div className={styles.sectionHeaderCompact}>
+                  <h2>Autonomy ladder</h2>
+                  <span className={styles.sectionHint}>per action kind</span>
+                </div>
+                {autonomy.map((item) => (
+                  <div
+                    className={styles.autonomyRow}
+                    data-decision-type={item.decisionType ?? "launch"}
+                    key={item.kind}
+                  >
+                    <div className={styles.autonomyTopline}>
+                      <span className={styles.autonomyKind}>{item.kind}</span>
+                      <span
+                        className={styles.autonomyTier}
+                        data-tone={item.tone}
+                      >
+                        {item.tier}
+                      </span>
+                    </div>
+                    {/*
                   AUTO-03 — the mode itself, as a control rather than a caption.
                   The launch row is deliberately excluded: it has no server
                   decision type, and new spend never automates by design, so a
                   control there would offer a choice the product does not have.
                 */}
-                {item.decisionType ? (
-                  <div
-                    className={styles.modeGroup}
-                    role="radiogroup"
-                    aria-label={`Autonomy mode — ${item.kind}`}
-                    data-ctl="gated:AUTO-03 mode"
-                    data-mode-refused={viewer.canMutate ? undefined : ""}
-                  >
-                    {AUTONOMY_MODES.map((mode) => {
-                      const current = currentModeFor(payload, item.decisionType!);
-                      const refused = !viewer.canMutate;
-                      return (
-                        <button
-                          key={mode}
-                          type="button"
-                          className={styles.modeSegment}
-                          role="radio"
-                          aria-checked={current === mode}
-                          data-mode={mode}
-                          disabled={refused || modePending === item.decisionType}
-                          title={refused ? (viewer.reason ?? undefined) : undefined}
-                          /*
-                           * Short on screen, full to a reader. Three segments
-                           * carrying "Tier 2 · Backtest" wrap the row at the
-                           * card's width and stop being one scannable control;
-                           * the tier chip beside them already spells the
-                           * current one out, and the accessible name carries
-                           * the whole thing for anyone not reading the chip.
-                           */
-                          aria-label={MODE_LABELS[mode]}
-                          onClick={() => onModeChange(item.decisionType!, mode)}
-                        >
-                          {MODE_SEGMENT_LABELS[mode]}
-                        </button>
-                      );
-                    })}
+                    {item.decisionType ? (
+                      <div
+                        className={styles.modeGroup}
+                        role="radiogroup"
+                        aria-label={`Autonomy mode — ${item.kind}`}
+                        data-ctl="gated:AUTO-03 mode"
+                        data-mode-refused={viewer.canMutate ? undefined : ""}
+                      >
+                        {AUTONOMY_MODES.map((mode) => {
+                          const current = currentModeFor(
+                            payload,
+                            item.decisionType!,
+                          );
+                          const refused = !viewer.canMutate;
+                          return (
+                            <button
+                              key={mode}
+                              type="button"
+                              className={styles.modeSegment}
+                              role="radio"
+                              aria-checked={current === mode}
+                              data-mode={mode}
+                              disabled={
+                                refused || modePending === item.decisionType
+                              }
+                              title={
+                                refused
+                                  ? (viewer.reason ?? undefined)
+                                  : undefined
+                              }
+                              /*
+                               * Short on screen, full to a reader. Three segments
+                               * carrying "Tier 2 · Backtest" wrap the row at the
+                               * card's width and stop being one scannable control;
+                               * the tier chip beside them already spells the
+                               * current one out, and the accessible name carries
+                               * the whole thing for anyone not reading the chip.
+                               */
+                              aria-label={MODE_LABELS[mode]}
+                              onClick={() =>
+                                onModeChange(item.decisionType!, mode)
+                              }
+                            >
+                              {MODE_SEGMENT_LABELS[mode]}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    ) : null}
+                    {item.decisionType && modeError[item.decisionType] ? (
+                      <p
+                        className={styles.autonomyNext}
+                        data-field={`mode-error-${item.decisionType}`}
+                        role="status"
+                      >
+                        {modeError[item.decisionType]}
+                      </p>
+                    ) : null}
+                    {item.decisionType && modeSaved[item.decisionType] ? (
+                      <p
+                        className={styles.autonomyNext}
+                        data-field={`mode-saved-${item.decisionType}`}
+                        role="status"
+                      >
+                        {modeSaved[item.decisionType]}
+                      </p>
+                    ) : null}
+                    <div className={styles.progressRow}>
+                      <span className={styles.progressTrack}>
+                        <span
+                          className={styles.progressFill}
+                          data-tone={item.progressTone}
+                          style={{ width: item.progressWidth }}
+                        />
+                      </span>
+                      <span className={styles.progressValue}>
+                        {item.progress}
+                      </span>
+                    </div>
+                    <p className={styles.autonomyNext}>{item.next}</p>
                   </div>
-                ) : null}
-                {item.decisionType && modeError[item.decisionType] ? (
-                  <p
-                    className={styles.autonomyNext}
-                    data-field={`mode-error-${item.decisionType}`}
-                    role="status"
-                  >
-                    {modeError[item.decisionType]}
-                  </p>
-                ) : null}
-                {item.decisionType && modeSaved[item.decisionType] ? (
-                  <p
-                    className={styles.autonomyNext}
-                    data-field={`mode-saved-${item.decisionType}`}
-                    role="status"
-                  >
-                    {modeSaved[item.decisionType]}
-                  </p>
-                ) : null}
-                <div className={styles.progressRow}>
-                  <span className={styles.progressTrack}>
-                    <span
-                      className={styles.progressFill}
-                      data-tone={item.progressTone}
-                      style={{ width: item.progressWidth }}
-                    />
-                  </span>
-                  <span className={styles.progressValue}>{item.progress}</span>
-                </div>
-                <p className={styles.autonomyNext}>{item.next}</p>
-              </div>
-            ))}
-            <p className={styles.sectionFootnote}>
-              promotion reviews weekly on clean-approval streaks · any error
-              demotes instantly
-            </p>
-            {/*
+                ))}
+                <p className={styles.sectionFootnote}>
+                  promotion reviews weekly on clean-approval streaks · any error
+                  demotes instantly
+                </p>
+                {/*
               What recording a mode does and does not do.
               `setMetaAutomationDecisionTypeMode` writes a row in our own
               control plane; it is not a Meta write and it does not by itself
@@ -2383,83 +2575,99 @@ export function MetaAutomationView({
               "this now changes things on Meta", which is the one thing it
               must never be mistaken for.
             */}
-            <p className={styles.sectionFootnote} data-field="mode-posture">
-              {liveWritesRefusalReason
-                ? `Setting a tier records the intent in this workspace. It is not a Meta write, and it does not enable auto-execution: ${liveWritesRefusalReason}`
-                : "Setting a tier records the intent in this workspace. It is not a Meta write; execution still runs through the confirmation queue."}
-            </p>
-          </article>
-        </div>
+                <p className={styles.sectionFootnote} data-field="mode-posture">
+                  {liveWritesRefusalReason
+                    ? `Setting a tier records the intent in this workspace. It is not a Meta write, and it does not enable auto-execution: ${liveWritesRefusalReason}`
+                    : "Setting a tier records the intent in this workspace. It is not a Meta write; execution still runs through the confirmation queue."}
+                </p>
+              </article>
+            </div>
 
-        <article className={styles.ledgerCard}>
-          <div className={styles.ledgerHeader}>
-            <h2>Activity ledger</h2>
-          </div>
-          <div className={styles.tableScroll}>
-            <table className={styles.ledgerTable}>
-              <thead>
-                <tr>
-                  <th>Time</th>
-                  <th>Actor</th>
-                  <th>Action</th>
-                  <th>Entity</th>
-                  <th>Result</th>
-                </tr>
-              </thead>
-              <tbody>
-                {ledger.length > 0 ? (
-                  ledger.map((item) => {
-                    const result = ledgerResultFor(item);
-                    return (
-                      <tr data-ledger-id={item.id} key={item.id}>
-                        <td className={styles.ledgerTime}>
-                          {formatLedgerTime(item.createdAt)}
-                        </td>
-                        <td data-field="ledger-actor">{ledgerActorFor(item)}</td>
-                        <td className={styles.ledgerAction}>
-                          {item.message.trim() || item.activityType}
-                        </td>
-                        <td data-field="ledger-entity">
-                          {ledgerEntityFor(item)}
-                        </td>
-                        <td>
-                          <span
-                            className={styles.ledgerResult}
-                            data-field="ledger-result"
-                            data-tone={result.tone}
-                          >
-                            {result.label}
-                          </span>
+            <article className={styles.ledgerCard}>
+              <div className={styles.ledgerHeader}>
+                <h2>Activity ledger</h2>
+              </div>
+              <div className={styles.tableScroll}>
+                <table className={styles.ledgerTable}>
+                  <thead>
+                    <tr>
+                      <th>Time</th>
+                      <th>Actor</th>
+                      <th>Action</th>
+                      <th>Entity</th>
+                      <th>Result</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {ledger.length > 0 ? (
+                      ledger.map((item) => {
+                        const result = ledgerResultFor(item);
+                        return (
+                          <tr data-ledger-id={item.id} key={item.id}>
+                            <td className={styles.ledgerTime}>
+                              {formatLedgerTime(item.createdAt)}
+                            </td>
+                            <td data-field="ledger-actor">
+                              {ledgerActorFor(item)}
+                            </td>
+                            <td className={styles.ledgerAction}>
+                              {item.message.trim() || item.activityType}
+                            </td>
+                            <td data-field="ledger-entity">
+                              {ledgerEntityFor(item)}
+                            </td>
+                            <td>
+                              <span
+                                className={styles.ledgerResult}
+                                data-field="ledger-result"
+                                data-tone={result.tone}
+                              >
+                                {result.label}
+                              </span>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    ) : (
+                      // "This workspace has never acted" and "the activity read
+                      // failed" are different facts and only one of them may be
+                      // stated. Same `data-proven-empty` pattern the rules table
+                      // uses two sections up, for the same reason.
+                      <tr
+                        className={styles.ledgerEmpty}
+                        data-testid="ledger-empty"
+                        data-proven-empty={
+                          ledgerIsProvenEmpty ? "true" : "false"
+                        }
+                      >
+                        <td colSpan={5}>
+                          {ledgerIsProvenEmpty ? "No activity yet" : UNKNOWN}
                         </td>
                       </tr>
-                    );
-                  })
-                ) : (
-                  // "This workspace has never acted" and "the activity read
-                  // failed" are different facts and only one of them may be
-                  // stated. Same `data-proven-empty` pattern the rules table
-                  // uses two sections up, for the same reason.
-                  <tr
-                    className={styles.ledgerEmpty}
-                    data-testid="ledger-empty"
-                    data-proven-empty={ledgerIsProvenEmpty ? "true" : "false"}
-                  >
-                    <td colSpan={5}>
-                      {ledgerIsProvenEmpty ? "No activity yet" : UNKNOWN}
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </article>
           </div>
-        </article>
+        </details>
 
-        <StateHistoryRecoverySection readiness={stateHistoryReadiness} />
-        <BudgetReadinessSection readiness={budgetReadiness} />
+        <details className={styles.systemDiagnostics}>
+          <summary>System diagnostics</summary>
+          <p>
+            Storage admission and proposal construction evidence for recovery
+            work. These diagnostics do not enable automation.
+          </p>
+          <div className={styles.systemDiagnosticsBody}>
+            <StateHistoryRecoverySection readiness={stateHistoryReadiness} />
+            <BudgetReadinessSection readiness={budgetReadiness} />
+          </div>
+        </details>
         <BudgetWriteReadinessSection
           readiness={budgetWriteReadiness}
           authorization={buildBudgetMasterSwitchAuthorization({
-            viewer, surface: "desktop",
+            viewer,
+            surface: "desktop",
           })}
           onActivationChanged={onBudgetActivationChanged}
         />
@@ -2499,15 +2707,25 @@ export function MetaAutomationView({
             <dd>{providerAccountId || UNKNOWN}</dd>
           </div>
         </dl>
-        <StateHistoryRecoverySection readiness={stateHistoryReadiness} />
-        <BudgetReadinessSection readiness={budgetReadiness} />
-        {/* The mobile pane declares itself read-only; it carries no form. */}
-        <BudgetWriteReadinessSection
-          readiness={budgetWriteReadiness}
-          authorization={buildBudgetMasterSwitchAuthorization({
-            viewer, surface: "mobile_read_only",
-          })}
-        />
+        <details className={styles.systemDiagnostics}>
+          <summary>Readiness details</summary>
+          <p>
+            Historical evidence, storage health and budget execution readiness.
+            This mobile view remains read-only.
+          </p>
+          <div className={styles.systemDiagnosticsBody}>
+            <StateHistoryRecoverySection readiness={stateHistoryReadiness} />
+            <BudgetReadinessSection readiness={budgetReadiness} />
+            {/* The mobile pane declares itself read-only; it carries no form. */}
+            <BudgetWriteReadinessSection
+              readiness={budgetWriteReadiness}
+              authorization={buildBudgetMasterSwitchAuthorization({
+                viewer,
+                surface: "mobile_read_only",
+              })}
+            />
+          </div>
+        </details>
       </section>
     </div>
   );
@@ -2555,15 +2773,13 @@ function parseHolds(value: unknown): MetaAutomationProposalHoldCounts | null {
 }
 
 function parseProposalQueue(body: unknown): ProposalQueueRead {
-  const payload = body as
-    | {
-        ok?: boolean;
-        readCompleteness?: { proposals?: string };
-        sections?: { proposals?: { status?: string } };
-        holds?: unknown;
-        proposals?: MetaAutomationProposal[];
-      }
-    | null;
+  const payload = body as {
+    ok?: boolean;
+    readCompleteness?: { proposals?: string };
+    sections?: { proposals?: { status?: string } };
+    holds?: unknown;
+    proposals?: MetaAutomationProposal[];
+  } | null;
   // The server has always sent this beside the queue and this function used to
   // throw it away, so a queue holding a live dispatch (`claimed`) or an
   // unreconciled provider outcome (`reconcile`) arrived here as an empty array
@@ -2689,7 +2905,9 @@ export function BudgetReadinessSection({
         gap: 6,
       }}
     >
-      <h2 style={{ fontSize: 14, margin: 0 }}>Decision-input retention readiness</h2>
+      <h2 style={{ fontSize: 14, margin: 0 }}>
+        Decision-input retention readiness
+      </h2>
       {readiness === null ? (
         <p data-testid="budget-readiness-unavailable" style={{ margin: 0 }}>
           Readiness read unavailable — no server fact to display.
@@ -2702,30 +2920,49 @@ export function BudgetReadinessSection({
               data-testid={`budget-readiness-${dimension.key}`}
               data-status={dimension.status}
               data-blocker={dimension.blocker ?? ""}
-              data-truncated={dimension.coverage === null ? "unknown" : String(dimension.coverage.truncated)}
+              data-truncated={
+                dimension.coverage === null
+                  ? "unknown"
+                  : String(dimension.coverage.truncated)
+              }
               data-complete-run-attested={
                 dimension.coverage?.universe
                   ? String(dimension.coverage.universe.completeRunAttested)
                   : "not-applicable"
               }
-              data-conflicts={dimension.coverage === null ? "unknown" : String(dimension.coverage.conflicts)}
+              data-conflicts={
+                dimension.coverage === null
+                  ? "unknown"
+                  : String(dimension.coverage.conflicts)
+              }
               style={{ margin: 0, display: "grid", gap: 2 }}
             >
               <div>
                 <dt style={{ fontWeight: 600, display: "inline" }}>Status: </dt>
-                <dd data-field="status" style={{ display: "inline", margin: 0 }}>
+                <dd
+                  data-field="status"
+                  style={{ display: "inline", margin: 0 }}
+                >
                   {dimension.status}
                 </dd>
               </div>
               <div>
-                <dt style={{ fontWeight: 600, display: "inline" }}>Evidence: </dt>
-                <dd data-field="evidence" style={{ display: "inline", margin: 0 }}>
+                <dt style={{ fontWeight: 600, display: "inline" }}>
+                  Evidence:{" "}
+                </dt>
+                <dd
+                  data-field="evidence"
+                  style={{ display: "inline", margin: 0 }}
+                >
                   {dimension.evidence}
                 </dd>
               </div>
               <div>
                 <dt style={{ fontWeight: 600, display: "inline" }}>Source: </dt>
-                <dd data-field="source" style={{ display: "inline", margin: 0 }}>
+                <dd
+                  data-field="source"
+                  style={{ display: "inline", margin: 0 }}
+                >
                   {dimension.source}
                 </dd>
               </div>
@@ -2742,35 +2979,69 @@ export function BudgetReadinessSection({
                 truncated or conflicted measurement looked like a plain count.
               */}
               <div>
-                <dt style={{ fontWeight: 600, display: "inline" }}>Qualifying: </dt>
-                <dd data-field="qualifying" style={{ display: "inline", margin: 0 }}>
-                  {dimension.coverage === null ? "unknown" : dimension.coverage.qualifying}
+                <dt style={{ fontWeight: 600, display: "inline" }}>
+                  Qualifying:{" "}
+                </dt>
+                <dd
+                  data-field="qualifying"
+                  style={{ display: "inline", margin: 0 }}
+                >
+                  {dimension.coverage === null
+                    ? "unknown"
+                    : dimension.coverage.qualifying}
                 </dd>
               </div>
               <div>
-                <dt style={{ fontWeight: 600, display: "inline" }}>Examined: </dt>
-                <dd data-field="examined" style={{ display: "inline", margin: 0 }}>
-                  {dimension.coverage === null ? "unknown" : dimension.coverage.examined}
+                <dt style={{ fontWeight: 600, display: "inline" }}>
+                  Examined:{" "}
+                </dt>
+                <dd
+                  data-field="examined"
+                  style={{ display: "inline", margin: 0 }}
+                >
+                  {dimension.coverage === null
+                    ? "unknown"
+                    : dimension.coverage.examined}
                 </dd>
               </div>
               <div>
-                <dt style={{ fontWeight: 600, display: "inline" }}>Population: </dt>
-                <dd data-field="population" style={{ display: "inline", margin: 0 }}>
-                  {dimension.coverage === null || dimension.coverage.population === null
+                <dt style={{ fontWeight: 600, display: "inline" }}>
+                  Population:{" "}
+                </dt>
+                <dd
+                  data-field="population"
+                  style={{ display: "inline", margin: 0 }}
+                >
+                  {dimension.coverage === null ||
+                  dimension.coverage.population === null
                     ? "unknown"
                     : dimension.coverage.population}
                 </dd>
               </div>
               <div>
-                <dt style={{ fontWeight: 600, display: "inline" }}>Truncated: </dt>
-                <dd data-field="truncated" style={{ display: "inline", margin: 0 }}>
-                  {dimension.coverage === null ? "unknown" : String(dimension.coverage.truncated)}
+                <dt style={{ fontWeight: 600, display: "inline" }}>
+                  Truncated:{" "}
+                </dt>
+                <dd
+                  data-field="truncated"
+                  style={{ display: "inline", margin: 0 }}
+                >
+                  {dimension.coverage === null
+                    ? "unknown"
+                    : String(dimension.coverage.truncated)}
                 </dd>
               </div>
               <div>
-                <dt style={{ fontWeight: 600, display: "inline" }}>Conflicts: </dt>
-                <dd data-field="conflicts" style={{ display: "inline", margin: 0 }}>
-                  {dimension.coverage === null ? "unknown" : dimension.coverage.conflicts}
+                <dt style={{ fontWeight: 600, display: "inline" }}>
+                  Conflicts:{" "}
+                </dt>
+                <dd
+                  data-field="conflicts"
+                  style={{ display: "inline", margin: 0 }}
+                >
+                  {dimension.coverage === null
+                    ? "unknown"
+                    : dimension.coverage.conflicts}
                 </dd>
               </div>
               {/*
@@ -2784,26 +3055,46 @@ export function BudgetReadinessSection({
               {dimension.coverage?.universe ? (
                 <>
                   <div>
-                    <dt style={{ fontWeight: 600, display: "inline" }}>Retained rows: </dt>
-                    <dd data-field="retained-rows" style={{ display: "inline", margin: 0 }}>
+                    <dt style={{ fontWeight: 600, display: "inline" }}>
+                      Retained rows:{" "}
+                    </dt>
+                    <dd
+                      data-field="retained-rows"
+                      style={{ display: "inline", margin: 0 }}
+                    >
                       {dimension.coverage.universe.retainedRows}
                     </dd>
                   </div>
                   <div>
-                    <dt style={{ fontWeight: 600, display: "inline" }}>Applicable owners: </dt>
-                    <dd data-field="applicable" style={{ display: "inline", margin: 0 }}>
+                    <dt style={{ fontWeight: 600, display: "inline" }}>
+                      Applicable owners:{" "}
+                    </dt>
+                    <dd
+                      data-field="applicable"
+                      style={{ display: "inline", margin: 0 }}
+                    >
                       {dimension.coverage.universe.applicable}
                     </dd>
                   </div>
                   <div>
-                    <dt style={{ fontWeight: 600, display: "inline" }}>Proven non-owner: </dt>
-                    <dd data-field="proven-non-applicable" style={{ display: "inline", margin: 0 }}>
+                    <dt style={{ fontWeight: 600, display: "inline" }}>
+                      Proven non-owner:{" "}
+                    </dt>
+                    <dd
+                      data-field="proven-non-applicable"
+                      style={{ display: "inline", margin: 0 }}
+                    >
                       {dimension.coverage.universe.provenNonApplicable}
                     </dd>
                   </div>
                   <div>
-                    <dt style={{ fontWeight: 600, display: "inline" }}>Owner uncaptured: </dt>
-                    <dd data-field="owner-unknown" style={{ display: "inline", margin: 0 }}>
+                    <dt style={{ fontWeight: 600, display: "inline" }}>
+                      Owner uncaptured:{" "}
+                    </dt>
+                    <dd
+                      data-field="owner-unknown"
+                      style={{ display: "inline", margin: 0 }}
+                    >
                       {dimension.coverage.universe.ownerUnknown}
                     </dd>
                   </div>
@@ -2811,7 +3102,10 @@ export function BudgetReadinessSection({
                     <dt style={{ fontWeight: 600, display: "inline" }}>
                       Applicable owner missing from evidence:{" "}
                     </dt>
-                    <dd data-field="uncovered-applicable" style={{ display: "inline", margin: 0 }}>
+                    <dd
+                      data-field="uncovered-applicable"
+                      style={{ display: "inline", margin: 0 }}
+                    >
                       {dimension.coverage.universe.uncoveredApplicable}
                     </dd>
                   </div>
@@ -2819,48 +3113,85 @@ export function BudgetReadinessSection({
                     <dt style={{ fontWeight: 600, display: "inline" }}>
                       Hierarchy contradictions:{" "}
                     </dt>
-                    <dd data-field="hierarchy-contradictions" style={{ display: "inline", margin: 0 }}>
+                    <dd
+                      data-field="hierarchy-contradictions"
+                      style={{ display: "inline", margin: 0 }}
+                    >
                       {dimension.coverage.universe.hierarchyContradictions}
                     </dd>
                   </div>
                   <div>
-                    <dt style={{ fontWeight: 600, display: "inline" }}>Complete run attested: </dt>
-                    <dd data-field="complete-run-attested" style={{ display: "inline", margin: 0 }}>
+                    <dt style={{ fontWeight: 600, display: "inline" }}>
+                      Complete run attested:{" "}
+                    </dt>
+                    <dd
+                      data-field="complete-run-attested"
+                      style={{ display: "inline", margin: 0 }}
+                    >
                       {String(dimension.coverage.universe.completeRunAttested)}
                     </dd>
                   </div>
                   <div>
-                    <dt style={{ fontWeight: 600, display: "inline" }}>Campaigns expected/observed: </dt>
-                    <dd data-field="campaigns-expected-observed" style={{ display: "inline", margin: 0 }}>
+                    <dt style={{ fontWeight: 600, display: "inline" }}>
+                      Campaigns expected/observed:{" "}
+                    </dt>
+                    <dd
+                      data-field="campaigns-expected-observed"
+                      style={{ display: "inline", margin: 0 }}
+                    >
                       {`${dimension.coverage.universe.expectedCampaigns ?? "unknown"} / ${
-                        dimension.coverage.universe.observedCampaigns}`}
+                        dimension.coverage.universe.observedCampaigns
+                      }`}
                     </dd>
                   </div>
                   <div>
-                    <dt style={{ fontWeight: 600, display: "inline" }}>Sync cohort: </dt>
-                    <dd data-field="cohort-id" style={{ display: "inline", margin: 0 }}>
+                    <dt style={{ fontWeight: 600, display: "inline" }}>
+                      Sync cohort:{" "}
+                    </dt>
+                    <dd
+                      data-field="cohort-id"
+                      style={{ display: "inline", margin: 0 }}
+                    >
                       {dimension.coverage.universe.cohortId ?? "unbound"}
                     </dd>
                   </div>
                   <div>
-                    <dt style={{ fontWeight: 600, display: "inline" }}>Manifest members (campaign/ad set): </dt>
-                    <dd data-field="manifest-members" style={{ display: "inline", margin: 0 }}>
+                    <dt style={{ fontWeight: 600, display: "inline" }}>
+                      Manifest members (campaign/ad set):{" "}
+                    </dt>
+                    <dd
+                      data-field="manifest-members"
+                      style={{ display: "inline", margin: 0 }}
+                    >
                       {`${dimension.coverage.universe.manifestCampaignMembers ?? "unknown"} / ${
-                        dimension.coverage.universe.manifestAdsetMembers ?? "unknown"}`}
+                        dimension.coverage.universe.manifestAdsetMembers ??
+                        "unknown"
+                      }`}
                     </dd>
                   </div>
                   <div>
-                    <dt style={{ fontWeight: 600, display: "inline" }}>Ad sets expected/observed: </dt>
-                    <dd data-field="adsets-expected-observed" style={{ display: "inline", margin: 0 }}>
+                    <dt style={{ fontWeight: 600, display: "inline" }}>
+                      Ad sets expected/observed:{" "}
+                    </dt>
+                    <dd
+                      data-field="adsets-expected-observed"
+                      style={{ display: "inline", margin: 0 }}
+                    >
                       {`${dimension.coverage.universe.expectedAdsets ?? "unknown"} / ${
-                        dimension.coverage.universe.observedAdsets}`}
+                        dimension.coverage.universe.observedAdsets
+                      }`}
                     </dd>
                   </div>
                 </>
               ) : null}
               <div>
-                <dt style={{ fontWeight: 600, display: "inline" }}>Blocker: </dt>
-                <dd data-field="blocker" style={{ display: "inline", margin: 0 }}>
+                <dt style={{ fontWeight: 600, display: "inline" }}>
+                  Blocker:{" "}
+                </dt>
+                <dd
+                  data-field="blocker"
+                  style={{ display: "inline", margin: 0 }}
+                >
                   {dimension.blocker ?? "none"}
                 </dd>
               </div>
@@ -2869,7 +3200,10 @@ export function BudgetReadinessSection({
                   <dt style={{ fontWeight: 600, display: "inline" }}>
                     Needed, in order:{" "}
                   </dt>
-                  <dd data-field="preconditions" style={{ display: "inline", margin: 0 }}>
+                  <dd
+                    data-field="preconditions"
+                    style={{ display: "inline", margin: 0 }}
+                  >
                     {dimension.preconditions.join("; ")}
                   </dd>
                 </div>
@@ -3048,9 +3382,9 @@ export default function MetaAutomationPage({
    * to choose from and Automation stays a dead end. Same reasoning, and the
    * same server-reauthorized model, as Launchpad's own account control.
    */
-  const [providerAccounts, setProviderAccounts] = useState<MetaHistoryAccount[]>(
-    [],
-  );
+  const [providerAccounts, setProviderAccounts] = useState<
+    MetaHistoryAccount[]
+  >([]);
   const [providerAccountsLoading, setProviderAccountsLoading] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const [queue, setQueue] = useState<ProposalQueueRead>(UNAVAILABLE_QUEUE);
@@ -3502,7 +3836,9 @@ export function BudgetWriteReadinessSection({
   };
   const [activationPhrase, setActivationPhrase] = useState("");
   const [activationBusy, setActivationBusy] = useState(false);
-  const [activationMessage, setActivationMessage] = useState<string | null>(null);
+  const [activationMessage, setActivationMessage] = useState<string | null>(
+    null,
+  );
 
   const submitActivation = async (enabled: boolean) => {
     if (!readiness) return;
@@ -3525,22 +3861,23 @@ export function BudgetWriteReadinessSection({
         }),
       });
       const payload = (await response.json().catch(() => null)) as {
-        ok?: boolean; error?: { code?: string; message?: string };
+        ok?: boolean;
+        error?: { code?: string; message?: string };
         blockers?: string[];
       } | null;
       if (payload?.ok) {
         setActivationMessage(
           enabled
-            ? "Automatic execution enabled for this account. Budget is the only "
-              + "decision type with an automatic executor, and it also needs Tier 3."
+            ? "Automatic execution enabled for this account. Budget is the only " +
+                "decision type with an automatic executor, and it also needs Tier 3."
             : "Automatic execution disabled for this business.",
         );
         setActivationPhrase("");
         onActivationChanged?.();
       } else {
         setActivationMessage(
-          `${payload?.error?.code ?? "refused"}`
-          + `${payload?.blockers?.length ? `: ${payload.blockers.join("; ")}` : ""}`,
+          `${payload?.error?.code ?? "refused"}` +
+            `${payload?.blockers?.length ? `: ${payload.blockers.join("; ")}` : ""}`,
         );
       }
     } catch {
@@ -3553,6 +3890,7 @@ export function BudgetWriteReadinessSection({
   if (!readiness) {
     return (
       <article
+        id="automatic-execution-control"
         data-testid="budget-write-readiness-unavailable"
         data-display-only="true"
         style={{
@@ -3563,7 +3901,7 @@ export function BudgetWriteReadinessSection({
         }}
       >
         <h3 style={{ margin: 0, fontSize: 14 }}>
-          Automatic execution — master switch (budget writes)
+          Automatic execution — master switch
         </h3>
         <p style={{ margin: "6px 0 0" }}>
           Automatic-execution state unavailable. Unavailable is not
@@ -3579,8 +3917,9 @@ export function BudgetWriteReadinessSection({
     The dry-run guardrail is not carried on this model, so it is reported as
     UNKNOWN rather than guessed. Unknown is not "off".
   */
-  const dryRunBlockerPresent =
-    execution.activationReadyBlockers.includes("dry_run_guardrail_engaged");
+  const dryRunBlockerPresent = execution.activationReadyBlockers.includes(
+    "dry_run_guardrail_engaged",
+  );
   const dryRunFactValue = dryRunBlockerPresent ? "engaged" : "not_reported";
   const dryRunFactLabel = dryRunBlockerPresent
     ? "Engaged — every write stays inside the building"
@@ -3591,13 +3930,14 @@ export function BudgetWriteReadinessSection({
     should expect.
   */
   const effectiveWriteAbility =
-    execution.capabilityPrepared
-    && execution.executionEnabled
-    && !dryRunBlockerPresent
-    && execution.activationReadyBlockers.length === 0
-    && execution.activatedProviderAccountId === readiness.providerAccountId;
+    execution.capabilityPrepared &&
+    execution.executionEnabled &&
+    !dryRunBlockerPresent &&
+    execution.activationReadyBlockers.length === 0 &&
+    execution.activatedProviderAccountId === readiness.providerAccountId;
   return (
     <article
+      id="automatic-execution-control"
       data-testid="budget-write-readiness"
       data-display-only="true"
       data-execution-enabled={String(execution.executionEnabled)}
@@ -3610,7 +3950,7 @@ export function BudgetWriteReadinessSection({
       }}
     >
       <h3 style={{ margin: 0, fontSize: 14 }}>
-        Automatic execution — master switch (budget writes)
+        Automatic execution — master switch
       </h3>
       {/*
         PRE-DEPLOY AUDIT: say what this control actually flips.
@@ -3649,19 +3989,27 @@ export function BudgetWriteReadinessSection({
       <dl
         data-field="master-switch-facts"
         style={{
-          display: "grid", gridTemplateColumns: "auto 1fr",
-          gap: "2px 12px", margin: "8px 0 0",
+          display: "grid",
+          gridTemplateColumns: "auto 1fr",
+          gap: "2px 12px",
+          margin: "8px 0 0",
         }}
       >
         <dt>Environment capability</dt>
-        <dd data-field="environment-capability" data-value={String(execution.capabilityPrepared)}>
+        <dd
+          data-field="environment-capability"
+          data-value={String(execution.capabilityPrepared)}
+        >
           {execution.capabilityPrepared
             ? "Transport prepared in this build"
             : "Transport not prepared in this build"}
         </dd>
 
         <dt>Business master switch</dt>
-        <dd data-field="business-master-switch" data-value={String(execution.executionEnabled)}>
+        <dd
+          data-field="business-master-switch"
+          data-value={String(execution.executionEnabled)}
+        >
           {/*
             A control row that could not be read, or that does not exist, is
             OFF here. It is never rendered as enabled and never inferred.
@@ -3675,9 +4023,12 @@ export function BudgetWriteReadinessSection({
         </dd>
 
         <dt>Activation readiness</dt>
-        <dd data-field="activation-readiness" data-value={
-          execution.activationReadyBlockers.length === 0 ? "ready" : "blocked"
-        }>
+        <dd
+          data-field="activation-readiness"
+          data-value={
+            execution.activationReadyBlockers.length === 0 ? "ready" : "blocked"
+          }
+        >
           {execution.activationReadyBlockers.length === 0
             ? "No blockers reported"
             : `${execution.activationReadyBlockers.length} blocker(s)`}
@@ -3689,7 +4040,10 @@ export function BudgetWriteReadinessSection({
         </dd>
 
         <dt>Effective write ability</dt>
-        <dd data-field="effective-write" data-value={String(effectiveWriteAbility)}>
+        <dd
+          data-field="effective-write"
+          data-value={String(effectiveWriteAbility)}
+        >
           {effectiveWriteAbility
             ? "This account can execute automatic budget writes"
             : "No automatic budget write can execute for this account"}
@@ -3708,8 +4062,9 @@ export function BudgetWriteReadinessSection({
         data-field="activated-account"
         data-activated-account={execution.activatedProviderAccountId ?? "none"}
         data-activated-here={String(
-          execution.activatedProviderAccountId !== null
-          && execution.activatedProviderAccountId === readiness.providerAccountId,
+          execution.activatedProviderAccountId !== null &&
+            execution.activatedProviderAccountId ===
+              readiness.providerAccountId,
         )}
       >
         {execution.activatedProviderAccountId === null
@@ -3737,14 +4092,18 @@ export function BudgetWriteReadinessSection({
           <dt>Before</dt>
           <dd data-field="before-amount-minor">{proposal.beforeAmountMinor}</dd>
           <dt>Proposed</dt>
-          <dd data-field="intended-amount-minor">{proposal.intendedAmountMinor}</dd>
+          <dd data-field="intended-amount-minor">
+            {proposal.intendedAmountMinor}
+          </dd>
           <dt>Currency</dt>
           <dd data-field="currency">
             {proposal.currency} (exponent {proposal.currencyExponent})
           </dd>
           <dt>Change</dt>
           <dd data-field="change-percent">
-            {proposal.changePercent === null ? "unknown" : `${proposal.changePercent}%`}
+            {proposal.changePercent === null
+              ? "unknown"
+              : `${proposal.changePercent}%`}
           </dd>
           <dt>Evidence as of</dt>
           <dd data-field="evidence-as-of">{proposal.evidenceAsOf}</dd>
@@ -3761,11 +4120,15 @@ export function BudgetWriteReadinessSection({
             {execution.rollbackEligible ? "eligible" : "not eligible"}
           </dd>
           <dt>Proposal</dt>
-          <dd data-field="proposal-state">{execution.proposalState ?? "none"}</dd>
+          <dd data-field="proposal-state">
+            {execution.proposalState ?? "none"}
+          </dd>
           <dt>Claim</dt>
           <dd data-field="claim-state">{execution.claimState ?? "none"}</dd>
           <dt>Reconcile</dt>
-          <dd data-field="reconcile-state">{execution.reconcileState ?? "none"}</dd>
+          <dd data-field="reconcile-state">
+            {execution.reconcileState ?? "none"}
+          </dd>
         </dl>
       ) : (
         <p style={{ margin: "8px 0 0" }} data-field="unavailable-reason">
@@ -3773,10 +4136,14 @@ export function BudgetWriteReadinessSection({
         </p>
       )}
 
-      <p style={{ margin: "8px 0 0" }} data-field="preflight-blockers">
+      <p
+        style={{ margin: "8px 0 0" }}
+        data-field="preflight-blockers"
+        data-blockers={execution.preflightBlockers.join(",")}
+      >
         {execution.preflightBlockers.length === 0
-          ? "none"
-          : execution.preflightBlockers.join("; ")}
+          ? "No proposal safety blockers are reported."
+          : execution.preflightBlockers.map(activationBlockerLabel).join("; ")}
       </p>
       {/*
         PRE-DEPLOY AUDIT — the controls exist only for a viewer who may use them.
@@ -3799,7 +4166,12 @@ export function BudgetWriteReadinessSection({
             event.preventDefault();
             void submitActivation(true);
           }}
-          style={{ margin: "10px 0 0", display: "flex", gap: 8, flexWrap: "wrap" }}
+          style={{
+            margin: "10px 0 0",
+            display: "flex",
+            gap: 8,
+            flexWrap: "wrap",
+          }}
         >
           <input
             type="text"
@@ -3809,31 +4181,51 @@ export function BudgetWriteReadinessSection({
             onChange={(event) => setActivationPhrase(event.target.value)}
             placeholder={BUDGET_ACTIVATION_CONFIRMATION_PHRASE}
             aria-label="Confirmation phrase"
-            disabled={activationBusy || execution.executionEnabled
-              || execution.activationReadyBlockers.length > 0}
+            disabled={
+              activationBusy ||
+              execution.executionEnabled ||
+              execution.activationReadyBlockers.length > 0
+            }
             style={{
-              padding: "6px 10px", borderRadius: 8,
-              border: "1px solid var(--border, #e5e7eb)", minWidth: 280,
+              padding: "6px 10px",
+              borderRadius: 8,
+              border: "1px solid var(--border, #e5e7eb)",
+              minWidth: 280,
             }}
           />
           <button
             type="submit"
             data-testid="budget-activation-enable"
             data-enabled={String(
-              execution.activationReadyBlockers.length === 0
-              && !execution.executionEnabled && !activationBusy,
+              execution.activationReadyBlockers.length === 0 &&
+                !execution.executionEnabled &&
+                !activationBusy,
             )}
-            disabled={activationBusy || execution.executionEnabled
-              || execution.activationReadyBlockers.length > 0}
-            aria-disabled={activationBusy || execution.executionEnabled
-              || execution.activationReadyBlockers.length > 0}
+            disabled={
+              activationBusy ||
+              execution.executionEnabled ||
+              execution.activationReadyBlockers.length > 0
+            }
+            aria-disabled={
+              activationBusy ||
+              execution.executionEnabled ||
+              execution.activationReadyBlockers.length > 0
+            }
             style={{
-              padding: "6px 12px", borderRadius: 8,
-              border: "1px solid var(--border, #e5e7eb)", background: "transparent",
-              cursor: execution.executionEnabled
-                || execution.activationReadyBlockers.length > 0 ? "not-allowed" : "pointer",
-              opacity: execution.executionEnabled
-                || execution.activationReadyBlockers.length > 0 ? 0.55 : 1,
+              padding: "6px 12px",
+              borderRadius: 8,
+              border: "1px solid var(--border, #e5e7eb)",
+              background: "transparent",
+              cursor:
+                execution.executionEnabled ||
+                execution.activationReadyBlockers.length > 0
+                  ? "not-allowed"
+                  : "pointer",
+              opacity:
+                execution.executionEnabled ||
+                execution.activationReadyBlockers.length > 0
+                  ? 0.55
+                  : 1,
             }}
           >
             Enable automatic execution (budget)
@@ -3843,10 +4235,14 @@ export function BudgetWriteReadinessSection({
             type="button"
             data-testid="budget-activation-disable"
             disabled={activationBusy}
-            onClick={() => { void submitActivation(false); }}
+            onClick={() => {
+              void submitActivation(false);
+            }}
             style={{
-              padding: "6px 12px", borderRadius: 8,
-              border: "1px solid var(--border, #e5e7eb)", background: "transparent",
+              padding: "6px 12px",
+              borderRadius: 8,
+              border: "1px solid var(--border, #e5e7eb)",
+              background: "transparent",
               cursor: "pointer",
             }}
           >
@@ -3907,12 +4303,31 @@ export function BudgetWriteReadinessSection({
           {activationMessage}
         </p>
       ) : null}
-      <p style={{ margin: "8px 0 0" }} data-field="activation-ready-blockers">
-        {execution.activationReadyBlockers.length === 0
-          ? "none"
-          : execution.activationReadyBlockers.join("; ")}
-      </p>
-      <ul style={{ margin: "6px 0 0", paddingLeft: 18 }} data-field="activation-blockers">
+      <div style={{ margin: "8px 0 0" }} data-field="activation-ready-blockers">
+        {execution.activationReadyBlockers.length === 0 ? (
+          <p style={{ margin: 0 }}>
+            All activation requirements are satisfied.
+          </p>
+        ) : (
+          <details>
+            <summary>
+              Show {execution.activationReadyBlockers.length} activation
+              requirements
+            </summary>
+            <ul style={{ margin: "6px 0 0", paddingLeft: 18 }}>
+              {execution.activationReadyBlockers.map((blocker) => (
+                <li key={blocker} data-blocker-code={blocker}>
+                  {activationBlockerLabel(blocker)}
+                </li>
+              ))}
+            </ul>
+          </details>
+        )}
+      </div>
+      <ul
+        style={{ margin: "6px 0 0", paddingLeft: 18 }}
+        data-field="activation-blockers"
+      >
         {execution.activationBlockers.map((blocker) => (
           <li key={blocker.code} data-blocker={blocker.code}>
             {blocker.why}
@@ -3949,7 +4364,9 @@ export function BudgetWriteReadinessSection({
  *    the bound account, and the warning states that before the button.
  */
 function PreparationFact({
-  label, field, render,
+  label,
+  field,
+  render,
 }: {
   label: string;
   field: PreparationField<unknown> | undefined;
@@ -3999,13 +4416,18 @@ function preparedFieldText(
  * parser must refuse to accept a value nobody picked. The empty string is
  * that refusal, surfaced as "Choose…" in the `<select>` below.
  */
-function preparedDryRunOnly(preparation: BudgetPreparationView | null): DryRunTriState {
+function preparedDryRunOnly(
+  preparation: BudgetPreparationView | null,
+): DryRunTriState {
   if (preparation?.dryRunOnly.state !== "persisted") return "";
   return preparation.dryRunOnly.value ? "true" : "false";
 }
 
 function BudgetPreparationForm({
-  businessId, providerAccountId, preparation, onSaved,
+  businessId,
+  providerAccountId,
+  preparation,
+  onSaved,
 }: {
   businessId: string;
   providerAccountId: string;
@@ -4027,18 +4449,24 @@ function BudgetPreparationForm({
   */
   const fieldsLocked = !preparation || preparation.rowRead === false;
 
-  const [dryRunOnly, setDryRunOnly] = useState<DryRunTriState>(preparedDryRunOnly(preparation));
+  const [dryRunOnly, setDryRunOnly] = useState<DryRunTriState>(
+    preparedDryRunOnly(preparation),
+  );
   const [minHours, setMinHours] = useState(
-    preparedFieldText(preparation, "budgetMinHoursBetweenChanges"));
+    preparedFieldText(preparation, "budgetMinHoursBetweenChanges"),
+  );
   const [maxChanges, setMaxChanges] = useState(
-    preparedFieldText(preparation, "budgetMaxChangesPer7d"));
+    preparedFieldText(preparation, "budgetMaxChangesPer7d"),
+  );
   const [maxConcentration, setMaxConcentration] = useState(
     preparedFieldText(preparation, "budgetMaxAccountConcentrationPct"),
   );
   const [maxIncrease, setMaxIncrease] = useState(
-    preparedFieldText(preparation, "maxBudgetIncreasePct"));
+    preparedFieldText(preparation, "maxBudgetIncreasePct"),
+  );
   const [ceilingMinor, setCeilingMinor] = useState(
-    preparedFieldText(preparation, "perActionSpendCeilingMinor"));
+    preparedFieldText(preparation, "perActionSpendCeilingMinor"),
+  );
   const [ceilingCurrency, setCeilingCurrency] = useState(
     preparedFieldText(preparation, "perActionSpendCeilingCurrency"),
   );
@@ -4070,10 +4498,16 @@ function BudgetPreparationForm({
     setDryRunOnly(preparedDryRunOnly(preparation));
     setMinHours(preparedFieldText(preparation, "budgetMinHoursBetweenChanges"));
     setMaxChanges(preparedFieldText(preparation, "budgetMaxChangesPer7d"));
-    setMaxConcentration(preparedFieldText(preparation, "budgetMaxAccountConcentrationPct"));
+    setMaxConcentration(
+      preparedFieldText(preparation, "budgetMaxAccountConcentrationPct"),
+    );
     setMaxIncrease(preparedFieldText(preparation, "maxBudgetIncreasePct"));
-    setCeilingMinor(preparedFieldText(preparation, "perActionSpendCeilingMinor"));
-    setCeilingCurrency(preparedFieldText(preparation, "perActionSpendCeilingCurrency"));
+    setCeilingMinor(
+      preparedFieldText(preparation, "perActionSpendCeilingMinor"),
+    );
+    setCeilingCurrency(
+      preparedFieldText(preparation, "perActionSpendCeilingCurrency"),
+    );
   }, [fieldsLocked, preparation]);
 
   /*
@@ -4105,6 +4539,12 @@ function BudgetPreparationForm({
   };
   const parsed = parseBudgetAutomationConfig(candidate);
   const missing = preparation ? unpreparedFields(preparation) : [];
+  const missingLabels = missing.map(
+    (key) =>
+      PREPARATION_FIELD_LABELS[
+        key as (typeof BUDGET_PREPARATION_FIELDS)[number]
+      ] ?? key,
+  );
   const saveEnabled = parsed.ok && !busy && !fieldsLocked;
 
   const submit = async () => {
@@ -4125,7 +4565,9 @@ function BudgetPreparationForm({
         }),
       });
       const payload = (await response.json().catch(() => null)) as {
-        ok?: boolean; saved?: boolean; autoExecutionEnabled?: boolean;
+        ok?: boolean;
+        saved?: boolean;
+        autoExecutionEnabled?: boolean;
         error?: { code?: string; message?: string };
       } | null;
       if (payload?.ok) {
@@ -4136,7 +4578,9 @@ function BudgetPreparationForm({
         // than this component's optimism.
         onSaved?.();
       } else {
-        setMessage(`${payload?.error?.code ?? "refused"}: ${payload?.error?.message ?? ""}`.trim());
+        setMessage(
+          `${payload?.error?.code ?? "refused"}: ${payload?.error?.message ?? ""}`.trim(),
+        );
       }
     } catch {
       setMessage("The preparation request could not be sent.");
@@ -4162,7 +4606,10 @@ function BudgetPreparationForm({
       data-row-read={String(preparation?.rowRead ?? false)}
       data-row-exists={String(preparation?.rowExists ?? false)}
       data-fields-locked={String(fieldsLocked)}
-      onSubmit={(event) => { event.preventDefault(); void submit(); }}
+      onSubmit={(event) => {
+        event.preventDefault();
+        void submit();
+      }}
       style={{
         margin: "12px 0 0",
         paddingTop: 10,
@@ -4181,10 +4628,11 @@ function BudgetPreparationForm({
         data-field="preparation-warning"
         style={{ margin: "6px 0 0", fontSize: 12 }}
       >
-        Saving this configuration <strong>forces automatic execution OFF</strong> for
-        this business and <strong>clears any activated account binding</strong>.
-        It is the preparation step: after saving, activation readiness is
-        recomputed and the enable ceremony above must be performed again.
+        Saving this configuration{" "}
+        <strong>forces automatic execution OFF</strong> for this business and{" "}
+        <strong>clears any activated account binding</strong>. It is the
+        preparation step: after saving, activation readiness is recomputed and
+        the enable ceremony above must be performed again.
       </p>
       {/*
         PRE-DEPLOY AUDIT — fail-closed banner, for BOTH ways this form can
@@ -4196,10 +4644,15 @@ function BudgetPreparationForm({
         merely enforced.
       */}
       {fieldsLocked ? (
-        <p data-field="preparation-unreadable" style={{ margin: "6px 0 0", fontSize: 12 }}>
+        <p
+          data-field="preparation-unreadable"
+          style={{ margin: "6px 0 0", fontSize: 12 }}
+        >
           The stored configuration could not be read
-          {!preparation ? " — no preparation state is available for this account yet"
-            : ""}. Every field below is locked rather than shown editable-but-empty:
+          {!preparation
+            ? " — no preparation state is available for this account yet"
+            : ""}
+          . Every field below is locked rather than shown editable-but-empty:
           unknown is not &ldquo;unset&rdquo;, and saving over it would overwrite
           values nobody has seen.
         </p>
@@ -4210,8 +4663,8 @@ function BudgetPreparationForm({
           data-missing={missing.join(",")}
           style={{ margin: "6px 0 0", fontSize: 12 }}
         >
-          Not yet prepared: {missing.join(", ")}. Activation readiness cannot be
-          satisfied until each carries a value.
+          Not yet prepared: {missingLabels.join(", ")}. Activation readiness
+          cannot be satisfied until each carries a value.
         </p>
       ) : null}
 
@@ -4234,7 +4687,9 @@ function BudgetPreparationForm({
           <select
             data-testid="preparation-dry-run-only"
             value={dryRunOnly}
-            onChange={(event) => setDryRunOnly(event.target.value as DryRunTriState)}
+            onChange={(event) =>
+              setDryRunOnly(event.target.value as DryRunTriState)
+            }
             disabled={busy || fieldsLocked}
             style={inputStyle}
           >
@@ -4244,23 +4699,54 @@ function BudgetPreparationForm({
               unmade choice, not a value that already reads as "true".
             */}
             <option value="">Choose…</option>
-            <option value="true">true — every write stays inside the building</option>
-            <option value="false">false — required before activation readiness</option>
+            <option value="true">
+              true — every write stays inside the building
+            </option>
+            <option value="false">
+              false — required before activation readiness
+            </option>
           </select>
         </label>
 
-        {([
-          ["budgetMinHoursBetweenChanges", "Min hours between changes", minHours, setMinHours,
-            "preparation-min-hours"],
-          ["budgetMaxChangesPer7d", "Max changes per 7 days", maxChanges, setMaxChanges,
-            "preparation-max-changes"],
-          ["budgetMaxAccountConcentrationPct", "Max account concentration (%)",
-            maxConcentration, setMaxConcentration, "preparation-max-concentration"],
-          ["maxBudgetIncreasePct", "Max single increase (%)", maxIncrease, setMaxIncrease,
-            "preparation-max-increase"],
-          ["perActionSpendCeilingMinor", "Per-action spend ceiling (minor units, blank clears)",
-            ceilingMinor, setCeilingMinor, "preparation-ceiling-minor"],
-        ] as const).map(([key, label, value, setValue, testId]) => (
+        {(
+          [
+            [
+              "budgetMinHoursBetweenChanges",
+              "Min hours between changes",
+              minHours,
+              setMinHours,
+              "preparation-min-hours",
+            ],
+            [
+              "budgetMaxChangesPer7d",
+              "Max changes per 7 days",
+              maxChanges,
+              setMaxChanges,
+              "preparation-max-changes",
+            ],
+            [
+              "budgetMaxAccountConcentrationPct",
+              "Max account concentration (%)",
+              maxConcentration,
+              setMaxConcentration,
+              "preparation-max-concentration",
+            ],
+            [
+              "maxBudgetIncreasePct",
+              "Max single increase (%)",
+              maxIncrease,
+              setMaxIncrease,
+              "preparation-max-increase",
+            ],
+            [
+              "perActionSpendCeilingMinor",
+              "Per-action spend ceiling (minor units, blank clears)",
+              ceilingMinor,
+              setCeilingMinor,
+              "preparation-ceiling-minor",
+            ],
+          ] as const
+        ).map(([key, label, value, setValue, testId]) => (
           <label key={key} style={{ display: "grid", gap: 4, fontSize: 12 }}>
             {label}
             <PreparationFact
@@ -4314,7 +4800,9 @@ function BudgetPreparationForm({
           data-rejection={parsed.rejection}
           style={{ margin: "8px 0 0", fontSize: 12 }}
         >
-          {parsed.rejection}: {parsed.message}
+          {parsed.rejection === "dry_run_only_not_boolean"
+            ? "Choose whether this setup should remain dry-run only."
+            : parsed.message}
         </p>
       ) : null}
 
@@ -4340,7 +4828,10 @@ function BudgetPreparationForm({
         Save preparation (keeps automation OFF)
       </button>
       {message ? (
-        <p data-field="preparation-response" style={{ margin: "6px 0 0", fontSize: 12 }}>
+        <p
+          data-field="preparation-response"
+          style={{ margin: "6px 0 0", fontSize: 12 }}
+        >
           {message}
         </p>
       ) : null}

@@ -1059,6 +1059,67 @@ async function readDecisionDigest(input: {
   }
 }
 
+function pipelineHealthBanner(
+  health: MetaDecisionPipelineHealth,
+): MetaOsWorkspaceBanner {
+  const dataThrough = health.warehouse.latestFinalizedDate;
+  const syncHealthy =
+    health.syncActivity.status === "fresh" &&
+    health.warehouse.status === "fresh" &&
+    health.admission.allowed;
+  const generationHealthy =
+    health.decisionGeneration.status === "fresh" &&
+    health.manifest.status === "fresh";
+
+  const details = [
+    syncHealthy && dataThrough
+      ? `Meta facts are verified through ${dataThrough}.`
+      : !syncHealthy && dataThrough
+        ? `Verified Meta data ends on ${dataThrough}.`
+        : null,
+    health.syncActivity.status !== "fresh"
+      ? (health.syncActivity.reason ??
+        "Recent Meta sync activity is not fresh.")
+      : null,
+    health.warehouse.status !== "fresh"
+      ? (health.warehouse.reason ??
+        "The finalized Meta warehouse cutoff is not current.")
+      : null,
+    !health.admission.allowed
+      ? health.admission.offender
+        ? "A storage safety limit stopped new Meta observations."
+        : "The sync admission gate is closed."
+      : null,
+    health.decisionGeneration.status !== "fresh"
+      ? (health.decisionGeneration.reason ??
+        "The exact-Ad decision generation is not current.")
+      : null,
+    health.manifest.status !== "fresh"
+      ? (health.manifest.reason ??
+        "The native exact-Ad generation manifest is invalid.")
+      : null,
+    "No current decision can execute until the stated pipeline checks recover.",
+  ].filter((value): value is string => Boolean(value));
+
+  return {
+    id: "meta_decision_pipeline_health",
+    tone: health.overall === "blocked" ? "danger" : "warning",
+    title: !syncHealthy
+      ? health.admission.allowed
+        ? "Meta data is not current — decisions are review-only."
+        : "Meta data sync is stopped — current decisions are unavailable."
+      : !generationHealthy && health.manifest.status !== "fresh"
+        ? "Decision generation manifest is invalid — decisions are review-only."
+        : "Decision generation is not current — decisions are review-only.",
+    detail: details.join(" "),
+    blocking: true,
+    action: {
+      label: "Open recovery status",
+      href: "/platforms/meta/automation",
+    },
+  };
+}
+
 function workspaceBanners(input: {
   pulse: MetaPulsePayload;
   lanes: MetaLanePayload;
@@ -1148,20 +1209,7 @@ function workspaceBanners(input: {
     });
   }
   if (!input.pipelineHealth.executionReady) {
-    const offender = input.pipelineHealth.admission.offender;
-    banners.push({
-      id: "meta_decision_pipeline_health",
-      tone:
-        input.pipelineHealth.overall === "blocked" ? "danger" : "warning",
-      title:
-        input.pipelineHealth.overall === "blocked"
-          ? "Meta decision pipeline is admission-blocked."
-          : "Meta decision pipeline is not current.",
-      detail: offender
-        ? `${offender.table} is ${offender.overByBytes.toLocaleString("en-US")} bytes over its ${offender.budget.toLocaleString("en-US")}-byte budget. Sync activity, warehouse cutoff, decision generation and manifest are separately blocked evidence.`
-        : `Blocked evidence: ${input.pipelineHealth.blockers.join(", ") || "pipeline health unavailable"}.`,
-      blocking: true,
-    });
+    banners.push(pipelineHealthBanner(input.pipelineHealth));
   }
   const nonFreshExactDecisions =
     input.decisionReadModel.queue?.adCandidates?.items.filter((decision) => {
@@ -1221,7 +1269,6 @@ function workspaceBanners(input: {
   }
   return banners;
 }
-
 
 /**
  * Collects the persisted first-authority-gate blocker of every canonical
@@ -1585,37 +1632,48 @@ export async function GET(request: NextRequest) {
         originMs: requestEvaluatedAt.getTime(),
         // Per-action truth, carried verbatim. `refresh` travels for display and
         // is never consulted for a budget direction.
-        profile: commercialAnchorProfile.readFailed || !commercialAnchorProfile.eligibility
-          ? null
-          : {
-              byAction: {
-                scale: {
-                  eligible: commercialAnchorProfile.eligibility.scale,
-                  code: commercialAnchorProfile.eligibility.codes?.scale ?? null,
-                  reason:
-                    commercialAnchorProfile.eligibility.reasons?.scale ??
-                    commercialAnchorProfile.eligibility.reason ?? null,
+        profile:
+          commercialAnchorProfile.readFailed ||
+          !commercialAnchorProfile.eligibility
+            ? null
+            : {
+                byAction: {
+                  scale: {
+                    eligible: commercialAnchorProfile.eligibility.scale,
+                    code:
+                      commercialAnchorProfile.eligibility.codes?.scale ?? null,
+                    reason:
+                      commercialAnchorProfile.eligibility.reasons?.scale ??
+                      commercialAnchorProfile.eligibility.reason ??
+                      null,
+                  },
+                  cut: {
+                    eligible: commercialAnchorProfile.eligibility.cut,
+                    code:
+                      commercialAnchorProfile.eligibility.codes?.cut ?? null,
+                    reason:
+                      commercialAnchorProfile.eligibility.reasons?.cut ??
+                      commercialAnchorProfile.eligibility.reason ??
+                      null,
+                  },
+                  refresh: {
+                    eligible: commercialAnchorProfile.eligibility.refresh,
+                    code:
+                      commercialAnchorProfile.eligibility.codes?.refresh ??
+                      null,
+                    reason:
+                      commercialAnchorProfile.eligibility.reasons?.refresh ??
+                      commercialAnchorProfile.eligibility.reason ??
+                      null,
+                  },
                 },
-                cut: {
-                  eligible: commercialAnchorProfile.eligibility.cut,
-                  code: commercialAnchorProfile.eligibility.codes?.cut ?? null,
-                  reason:
-                    commercialAnchorProfile.eligibility.reasons?.cut ??
-                    commercialAnchorProfile.eligibility.reason ?? null,
-                },
-                refresh: {
-                  eligible: commercialAnchorProfile.eligibility.refresh,
-                  code: commercialAnchorProfile.eligibility.codes?.refresh ?? null,
-                  reason:
-                    commercialAnchorProfile.eligibility.reasons?.refresh ??
-                    commercialAnchorProfile.eligibility.reason ?? null,
-                },
+                // The whole explanation, not a single field of it.
+                anchorExplanation:
+                  (commercialAnchorProfile.eligibility
+                    .anchor as unknown as Record<string, unknown> | null) ??
+                  null,
+                contractVersion: ACCOUNT_DECISION_PROFILE_CONTRACT,
               },
-              // The whole explanation, not a single field of it.
-              anchorExplanation:
-                (commercialAnchorProfile.eligibility.anchor as unknown as Record<string, unknown> | null) ?? null,
-              contractVersion: ACCOUNT_DECISION_PROFILE_CONTRACT,
-            },
         // Stated, not inferred: a read that succeeded but produced no
         // eligibility output is NOT a read failure.
         profileSourceStatus: commercialAnchorProfile.readFailed
@@ -1667,7 +1725,9 @@ export async function GET(request: NextRequest) {
           fleetChangesToday: null,
           countSemantics: "prospective_including_candidate",
         },
-        knownBindings: providerAccountId ? [{ businessId, providerAccountId }] : [],
+        knownBindings: providerAccountId
+          ? [{ businessId, providerAccountId }]
+          : [],
       });
     const budgetEvidenceByDirection = {
       contractVersion: "meta-budget-decision-evidence-directional.v3" as const,
@@ -1704,12 +1764,20 @@ export async function GET(request: NextRequest) {
     const dryRunWriteSafety: DryRunInput["writeSafety"] = {};
     for (const step of WRITE_SAFETY_STEPS) dryRunWriteSafety[step] = "missing";
     dryRunWriteSafety.exact_business_access = "satisfied";
-    dryRunWriteSafety.exact_physical_provider_account = providerAccountId ? "satisfied" : "missing";
+    dryRunWriteSafety.exact_physical_provider_account = providerAccountId
+      ? "satisfied"
+      : "missing";
     dryRunWriteSafety.explicit_action_origin = "satisfied";
 
     const budgetDryRun = buildBudgetProposalDryRun({
       contractVersion: META_BUDGET_PROPOSAL_DRY_RUN_CONTRACT,
-      decision: { id: null, hash: null, version: null, decidedAt: null, maxAgeSeconds: 86_400 },
+      decision: {
+        id: null,
+        hash: null,
+        version: null,
+        decidedAt: null,
+        maxAgeSeconds: 86_400,
+      },
       scope: {
         businessId,
         business: businessId,
@@ -1729,9 +1797,14 @@ export async function GET(request: NextRequest) {
       currencyRegistryVersion: null,
       unitConfidence: "unknown",
       role: {
-        role: null, source: null, resolverVersion: null, confidence: null, asOf: null,
+        role: null,
+        source: null,
+        resolverVersion: null,
+        confidence: null,
+        asOf: null,
         accountScoped: true,
-        businessId, providerAccountId: providerAccountId ?? null,
+        businessId,
+        providerAccountId: providerAccountId ?? null,
         resolved: false,
         why: "automatic role authority has no retained qualifying rows; unresolved stays unresolved",
       },
@@ -1745,14 +1818,18 @@ export async function GET(request: NextRequest) {
         scheduleEnd: null,
         observedAt: null,
         capturedAt: null,
-        lineage: "the canonical budget-fact contract is defined; its additive columns are not applied in production",
+        lineage:
+          "the canonical budget-fact contract is defined; its additive columns are not applied in production",
         availabilityWhy:
           "no canonical budget fact is resolved for an account-scoped panel: no concrete entity is selected",
       },
       commercial: {
         profileContractVersion: "adsecute.account-decision-profile.v1",
-        businessId, providerAccountId: providerAccountId ?? null,
-        sourceStatus: commercialTargetRead.readFailed ? "read_failed" : "output_not_retained",
+        businessId,
+        providerAccountId: providerAccountId ?? null,
+        sourceStatus: commercialTargetRead.readFailed
+          ? "read_failed"
+          : "output_not_retained",
         selectedAction: null,
         eligible: null,
         code: null,
@@ -1824,8 +1901,14 @@ export async function GET(request: NextRequest) {
       dryRun: budgetDryRun,
       observedFacts: [
         { label: "Business", value: businessId },
-        { label: "Provider account", value: providerAccountId ?? "none selected" },
-        { label: "Entity", value: "none selected — this panel is account-scoped" },
+        {
+          label: "Provider account",
+          value: providerAccountId ?? "none selected",
+        },
+        {
+          label: "Entity",
+          value: "none selected — this panel is account-scoped",
+        },
         /*
           PRE-DEPLOY AUDIT: the `Automation: off` row was a constant served
           inside a section captioned as observed facts. It stayed "off" after
@@ -1836,7 +1919,9 @@ export async function GET(request: NextRequest) {
           measures it.
         */
       ],
-      writeSafetyMissing: WRITE_SAFETY_STEPS.filter((s) => dryRunWriteSafety[s] === "missing"),
+      writeSafetyMissing: WRITE_SAFETY_STEPS.filter(
+        (s) => dryRunWriteSafety[s] === "missing",
+      ),
     });
 
     const targetHardActionEligibility = {
@@ -1903,8 +1988,7 @@ export async function GET(request: NextRequest) {
         killSwitchEngaged: executionGovernance.killSwitchEngaged,
         killSwitchReason: executionGovernance.killSwitchReason,
         governanceVerified: executionGovernance.verified,
-        businessControlsConfigured:
-          executionGovernance.controlsConfigured,
+        businessControlsConfigured: executionGovernance.controlsConfigured,
         executionGovernanceState: executionGovernance.killSwitchEngaged
           ? "kill_switched"
           : executionGovernance.verified &&

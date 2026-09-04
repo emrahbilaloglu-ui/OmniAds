@@ -147,7 +147,7 @@ describe("preparation form (interaction) — dry-run is a tri-state, not a fabri
     expect(dryRunSelect(container).value).toBe("true");
   });
 
-  it("refuses to submit while dryRunOnly is unmade, with the server's own rejection code", async () => {
+  it("refuses to submit while dryRunOnly is unmade, with a readable explanation", async () => {
     const fetchSpy = mockFetch();
     const { container } = render(
       <BudgetWriteReadinessSection
@@ -155,7 +155,12 @@ describe("preparation form (interaction) — dry-run is a tri-state, not a fabri
         authorization={ADMIN_DESKTOP}
       />,
     );
-    expect(container.textContent).toContain("dry_run_only_not_boolean");
+    expect(container.textContent).toContain(
+      "Choose whether this setup should remain dry-run only.",
+    );
+    expect(
+      container.querySelector('[data-rejection="dry_run_only_not_boolean"]'),
+    ).toBeTruthy();
     fireEvent.submit(preparationForm(container));
     // Nothing async to await: the guard is synchronous, and the assertion
     // below would fail immediately if it were not.

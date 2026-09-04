@@ -1,26 +1,26 @@
 {
- "manifestHash": "6fec3374f1c673dfedfd2bf0ac8d58b285dcf8b9c244885582edfe8922c948a1",
+ "manifestHash": "57a62b7afc8622851bf5cb4b031412d5f897af1298fb99345a58e3f0bdf5edde",
  "hashAlgorithm": "sha256",
  "hashBasis": "sha256 over UTF-8 bytes of JSON.stringify(artifact, null, 1) of the artifact WITHOUT its embedded hash fields (the artifact object before {<hashField>, hashAlgorithm, hashBasis} are prepended)",
  "contract": "adsecute.d077.release-candidate-manifest.v3",
- "generatedAtUtc": "2026-09-04T04:07:46.926Z",
+ "generatedAtUtc": "2026-09-04T14:41:12.903Z",
  "branch": "codex/meta-disabled-readiness-20260829",
- "head": "70107dfcadec44fc4aab56c3527ad2aafa231aba",
+ "head": "7d24811ce8909e86b07b55e48f7918b3a3653410",
  "baseMain": "babf158e150fd33057117b39b175da044ac62d2e",
  "originMain": "babf158e150fd33057117b39b175da044ac62d2e",
  "remoteDivergence": {
-  "aheadOfOriginMain": 12,
+  "aheadOfOriginMain": 13,
   "behindOriginMain": 0
  },
  "selfExclusion": "this manifest's own path (docs/audits/generated/d077-release-candidate-manifest-2026-08-30.json) is EXCLUDED from its entry list: a manifest cannot recursively pin its own final bytes; its external SHA-256 is reported in the final response and by Codex's own hashing",
  "gitPorcelainEntryCount": 6,
- "releaseDiffEntryCountIncludingSelf": 512,
- "expandedOnDiskCandidateFileCountIncludingSelf": 512,
- "pinnedNonSelfFileCount": 511,
+ "releaseDiffEntryCountIncludingSelf": 521,
+ "expandedOnDiskCandidateFileCountIncludingSelf": 521,
+ "pinnedNonSelfFileCount": 520,
  "historicalContext": "pre-task freeze was 217 porcelain entries / 265 files — historical context only, NOT the final tree",
  "classCounts": {
-  "tests_only": 186,
-  "runtime": 171,
+  "tests_only": 192,
+  "runtime": 174,
   "runtime_deletion": 2,
   "deploy_config": 1,
   "docs": 39,
@@ -73,6 +73,12 @@
    "sha256": "91c1a888b8d8c45586363bb6f212a72d4c926c27837bafbdcd2de354962995b5"
   },
   {
+   "path": ".github/workflows/zero-base-production-rollout.yml",
+   "git": "M",
+   "class": "runtime",
+   "sha256": "20c931ba668856e942695c4e19b9982708bdec419fad02369595e51dd4e3f741"
+  },
+  {
    "path": ".gitignore",
    "git": "M",
    "class": "runtime",
@@ -88,7 +94,13 @@
    "path": "app/(dashboard)/platforms/meta/automation/automation-view.tsx",
    "git": "M",
    "class": "runtime",
-   "sha256": "558dfcfb32daf040d8f7c1adc056d729860e3575e004451a908f28166d2d8519"
+   "sha256": "cc869f3bc335a1763ffcf2d59d44a5e9e3af18c023c39e9f9992d3d5779e9062"
+  },
+  {
+   "path": "app/(dashboard)/platforms/meta/automation/automation.module.css",
+   "git": "M",
+   "class": "runtime",
+   "sha256": "d259b937e87864edd1512f4366f688b98cb7297d118745c634f218341095a397"
   },
   {
    "path": "app/(dashboard)/platforms/meta/automation/budget-master-switch-mutation-controls.test.tsx",
@@ -100,7 +112,7 @@
    "path": "app/(dashboard)/platforms/meta/automation/budget-preparation-form-interaction.test.tsx",
    "git": "A",
    "class": "tests_only",
-   "sha256": "6d506ef15faccc8948fca494e184bd5b46e216cc425c8e0b6b1bd81287dc5e0b"
+   "sha256": "e653f193bbd0b0e66bb80b10e398b39d88be210fb34187406a0fa4cdc3d1fa7b"
   },
   {
    "path": "app/(dashboard)/platforms/meta/automation/budget-preparation-form.test.tsx",
@@ -118,25 +130,25 @@
    "path": "app/(dashboard)/platforms/meta/automation/budget-write-readiness-section.test.tsx",
    "git": "A",
    "class": "tests_only",
-   "sha256": "97e771fbe8e705ceb1f6a2918bcd47cfe7634d3b876df70f43421f3f778f3158"
+   "sha256": "b5f13fd772b125827a751a0a552c2ffbd21372fa89915cb8b2328bb1c5cd6c94"
   },
   {
    "path": "app/(dashboard)/platforms/meta/automation/legacy-page.test.tsx",
    "git": "A",
    "class": "tests_only",
-   "sha256": "600861b541f7a02db35187a54627dd3804a5f968a10e6a6fd3e8aec9332b6a87"
+   "sha256": "9dfa63682dd74f1914f9dc2fcfa639bdf5ae636469ff4c5e51146797e18f953e"
   },
   {
    "path": "app/(dashboard)/platforms/meta/automation/legacy-page.tsx",
    "git": "M",
    "class": "runtime",
-   "sha256": "83aaa00ce37ce896cf7d2830a6d3e3f1520b07f568733da147eb11d15a8b32a7"
+   "sha256": "4d36909b5fa5cb611e1e61d5bbfc98fe7130c6d389d68c5fc51e72e5164e37a9"
   },
   {
    "path": "app/(dashboard)/platforms/meta/automation/page.test.tsx",
    "git": "M",
    "class": "tests_only",
-   "sha256": "4ed571f95efd25b18f1d5792f539559e094471b1f759d4e24737ceecee9dfd97"
+   "sha256": "cba3246707fadabc2482bc7d66f73f9860b8af704ee02b87fbf5e4459652c99b"
   },
   {
    "path": "app/(dashboard)/platforms/meta/automation/state-history-recovery-section.test.tsx",
@@ -250,13 +262,13 @@
    "path": "app/api/meta/account-pulse/route.test.ts",
    "git": "M",
    "class": "tests_only",
-   "sha256": "e98b328ed3b767a2babb9204a3e7b8c40de020891ad3f1035f373eee372a3924"
+   "sha256": "4698f627838dd6b582061905d7005d3bdbaf6084ae0bd18ea98919a1a9dae0d5"
   },
   {
    "path": "app/api/meta/account-pulse/route.ts",
    "git": "M",
    "class": "runtime",
-   "sha256": "ac6174890954e67784e7bd791aa55ffb172ac63cd7e413dac3a5a1380bfcfe3b"
+   "sha256": "28f49adae7dfdb3b11e7e532ec23cd3a93849de0e33a30cbb7d6b559a59cebd0"
   },
   {
    "path": "app/api/meta/automation/budget-activation-behaviour.test.ts",
@@ -334,13 +346,13 @@
    "path": "app/api/meta/decisions-workspace/route.test.ts",
    "git": "M",
    "class": "tests_only",
-   "sha256": "b538c6c0f92f040c5b844532b79f46158f5ee4b7bfdcac6877a72d42bed990a9"
+   "sha256": "3be12014fe8a08bb9f7ca40a1766d199426286e2adba5618a1fa3fd1d4cf201e"
   },
   {
    "path": "app/api/meta/decisions-workspace/route.ts",
    "git": "M",
    "class": "runtime",
-   "sha256": "89593eeee2be31829d7c13d1b666b10cda860e107c395fcfb26c8fa511d4d8f3"
+   "sha256": "21cc90f79af13cf9bf978d12827c8ee7af5495c5878b009e4599ab932fb41a81"
   },
   {
    "path": "app/api/meta/history/accounts/route.test.ts",
@@ -407,6 +419,12 @@
    "git": "M",
    "class": "runtime",
    "sha256": "a117f1556967f2916b46bb2dfcb70351729d7b980038fd0010106e91f9b2b582"
+  },
+  {
+   "path": "app/globals.css",
+   "git": "M",
+   "class": "runtime",
+   "sha256": "9a60d8017a8fa37fa43eb71dc7901202359240628fa8b1b4950168af839cf2be"
   },
   {
    "path": "components/commercial-truth/commercial-truth-exact-adapter.test.ts",
@@ -580,7 +598,7 @@
    "path": "components/meta/decision-center/account-coverage-strip.test.tsx",
    "git": "A",
    "class": "tests_only",
-   "sha256": "6a19ae46ca2981388c3f52599bf5905da515d1bf7e3e90c958fac18669de9363"
+   "sha256": "d079754480a5ad2c6e231ebbbe8e51c19c928e18f7e8412b078fcc79f1530108"
   },
   {
    "path": "components/meta/decision-center/assigned-account-tri-state-adapter.test.tsx",
@@ -616,37 +634,55 @@
    "path": "components/meta/decision-center/decision-payload-coverage.test.ts",
    "git": "M",
    "class": "tests_only",
-   "sha256": "80e254f24c512d552a544811a3411da6fa86e75a08e2426ff2ae23aa8d3628b9"
+   "sha256": "bbe4b559e33321df179d3e4106487ba33cdd89905b2e05ddeb05daa269006878"
+  },
+  {
+   "path": "components/meta/decision-center/inspector-evidence.test.tsx",
+   "git": "M",
+   "class": "tests_only",
+   "sha256": "854d96862234236200d456b7cdf1effb7da62b4be5fba3b4f7cc5f67326af199"
   },
   {
    "path": "components/meta/decision-center/meta-decision-center-exact-adapter.test.ts",
    "git": "M",
    "class": "tests_only",
-   "sha256": "0cffb3a03b20575186094d2c869ba93cc724d8c6ab32f09be4186c8fc9840307"
+   "sha256": "60aa9222fe77f53a99816e7cf10f86bc78133c742b59f5a12e52655b41bd135a"
   },
   {
    "path": "components/meta/decision-center/meta-decision-center-exact-adapter.ts",
    "git": "M",
    "class": "runtime",
-   "sha256": "ba29f6632fe138895deeb00b81a5939aed9fe8d10dc2f22d655ef7ed94d8b4dd"
+   "sha256": "88e6fcb75ef8ae487226850beb28b744d946d366b153bedc6ae92e0a4dfb99fa"
   },
   {
    "path": "components/meta/decision-center/MetaDecisionCenterExact.module.css",
    "git": "M",
    "class": "runtime",
-   "sha256": "2beec068364608632e77d425849bc25490f885c73026443337040f5592f8ed98"
+   "sha256": "2e09313384b8d96720af82943656828926835fda7dec580b7e2dc0c8cc02ecbb"
   },
   {
    "path": "components/meta/decision-center/MetaDecisionCenterExact.test.tsx",
    "git": "M",
    "class": "tests_only",
-   "sha256": "d4154c26adf2c9854eee67f37c6692f18b0648ac2fd41cba4eb2ee26c7a16471"
+   "sha256": "c09a73fb952c139a3f2bf7121e82b9feda61ae17f48c5b975d56614061d145cd"
   },
   {
    "path": "components/meta/decision-center/MetaDecisionCenterExact.tsx",
    "git": "M",
    "class": "runtime",
-   "sha256": "21718f493beb5202e3df54cc7d9bf89e4276d28f3264077cf5280f7e010b1170"
+   "sha256": "f9b1d66df405df003f74dc7b6b3341ff63e22c3d91a59916c734e225938c20df"
+  },
+  {
+   "path": "components/meta/decision-center/needs-resolution-lane.test.ts",
+   "git": "M",
+   "class": "tests_only",
+   "sha256": "1e70ba39313918fbc27294ac51ba117bca0fc93654d6e99a6759e647d4ef6a82"
+  },
+  {
+   "path": "components/meta/decision-center/scope-counter.test.ts",
+   "git": "M",
+   "class": "tests_only",
+   "sha256": "6a49905e85339061a01157eb8d00f84692122a5933ef7b11df325c57107eb9f2"
   },
   {
    "path": "components/meta/decision-center/served-field-probe.ts",
@@ -658,7 +694,7 @@
    "path": "components/meta/decision-center/stale-fresh-cta-boundary.test.tsx",
    "git": "A",
    "class": "tests_only",
-   "sha256": "a567e3cf95eb7e9f2e741fb8867cd1ecbd688063e070ba2778e0f1d7c7b3aed5"
+   "sha256": "d3b5a2590a4ec81e1d793323d9a43229fb656d2dde812ce546968411287a00d3"
   },
   {
    "path": "components/meta/redesign/meta-native-ad-pause.test.ts",
@@ -694,19 +730,25 @@
    "path": "components/meta/redesign/MetaPlatformPage.test.tsx",
    "git": "M",
    "class": "tests_only",
-   "sha256": "bb679337f5add370d94dcde76123c3d1312be40409d1bed2e8f2ff84b74a2f56"
+   "sha256": "3444e1cac397c29b6a83d24fa3dff72a2be25dc707049bb2c837f6ee195e0e7a"
   },
   {
    "path": "components/meta/redesign/MetaPlatformPage.tsx",
    "git": "M",
    "class": "runtime",
-   "sha256": "1e778a53d18f453342f2285c7b24f4cfc0537d4e688180f8fece09e2a4c50ff1"
+   "sha256": "b61c210894df684bc6c3849709e9a98d7adc14b8d6832691828281a2aea5a191"
   },
   {
    "path": "components/meta/redesign/MetaPlatformPage.wiring.test.tsx",
    "git": "M",
    "class": "tests_only",
    "sha256": "ef5fd752ad5f9f620a0e6b22c327de1101feb9fe97e2de6d233655c558e74bd6"
+  },
+  {
+   "path": "components/meta/redesign/mobile-blocked-parity.test.tsx",
+   "git": "M",
+   "class": "tests_only",
+   "sha256": "fbbc47e8790d6602a6e0941709901382e8d270937ce32cfc88b13f0739902de3"
   },
   {
    "path": "components/meta/redesign/mobile-budget-evidence-projection.test.tsx",
@@ -910,7 +952,7 @@
    "path": "docs/audits/generated/d077-release-deploy-approval-packet-2026-08-30.json",
    "git": "A",
    "class": "generated_evidence",
-   "sha256": "fb425898d30332882a42c266a31f7831b197aed4e3f828f6af3259502c19bb8d"
+   "sha256": "0914d2a4456a7cb054ee32a3dabfbfd1f3f22de330a5af03ebde7a4e0e7e2c0b"
   },
   {
    "path": "docs/audits/generated/d078-hard-action-recompute-2026-08-30.json",
@@ -1252,7 +1294,7 @@
    "path": "docs/creative-decision-center/DECISION_LOG.md",
    "git": "M",
    "class": "docs",
-   "sha256": "ecaa4f7369f070dee1673af7e7482a2d24b2aefb11e7d5f39151bc403b5ac05e"
+   "sha256": "4080e226b8f66a94e065a9749f83e35ad1cfd41612c786ce1fe1ee7f22d1888f"
   },
   {
    "path": "docs/creative-decision-center/generated/h11b-context-lifecycle-bundle-2026-07-13-to-2026-08-22.json",
@@ -1417,6 +1459,12 @@
    "sha256": "ec7a90782378c2c45d9365d24be611f79cf6c09a09ac85ed68830d640374528e"
   },
   {
+   "path": "lib/creative-decision-engine/__tests__/jobs/ad-operator-response-job.test.ts",
+   "git": "M",
+   "class": "tests_only",
+   "sha256": "75ae2aeb994c0e7f7980f136917024be1976b3dc5c706de6ef6a1bd2b447a706"
+  },
+  {
    "path": "lib/creative-decision-engine/__tests__/jobs/calibration-job.test.ts",
    "git": "M",
    "class": "tests_only",
@@ -1534,7 +1582,7 @@
    "path": "lib/creative-decision-engine/jobs/ad-operator-response-job.ts",
    "git": "M",
    "class": "runtime",
-   "sha256": "318f150bb7ffa0f8be40f0afbd55705e83ce144831030c4965704801df912c2f"
+   "sha256": "a14bd8b1f88e9f203bdfd11d091e1e7c7401714323962d606e0fd93a91010d0a"
   },
   {
    "path": "lib/creative-decision-engine/jobs/calibration-job.ts",
@@ -2101,10 +2149,16 @@
    "sha256": "27bc3e25ebc214abf130ca196e277b60b57469616c42496902f9ef0ba3b15278"
   },
   {
+   "path": "lib/meta/budget-write-readiness.test.ts",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "aea3c67ebb9e16e8f7a4d558478a8c63b05e1990618966af975f9e294859a83d"
+  },
+  {
    "path": "lib/meta/budget-write-readiness.ts",
    "git": "A",
    "class": "runtime",
-   "sha256": "a41aa28b38e708a07f07c327a14397751d8142bd6722b6db1e8f3f8353fd6e0e"
+   "sha256": "c723d7afdfcd242fb2a1b09bc6b945dc81cf10497a2268b4a78cf38a25876a3a"
   },
   {
    "path": "lib/meta/budget-write-request.ts",
@@ -2506,7 +2560,7 @@
    "path": "lib/sync/db-growth-fence.ts",
    "git": "M",
    "class": "runtime",
-   "sha256": "a15fb84bf1b6983e587b0119bb6d926e39cc250de4a1d29a7c4dedddbf711e09"
+   "sha256": "4cf011faf6c48a5ebda29a14c06d268343158d0072083d3014010b8a209dc5e9"
   },
   {
    "path": "lib/sync/state-history-effective-size.test.ts",

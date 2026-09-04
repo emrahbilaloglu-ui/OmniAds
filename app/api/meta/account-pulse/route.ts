@@ -752,6 +752,9 @@ export async function GET(request: NextRequest) {
   const d7Rows = (d7.rows ?? []).filter((row) => isInBriefing(row, statusFilter));
   const d14Rows = (d14.rows ?? []).filter((row) => isInBriefing(row, statusFilter));
   const d28Rows = (d28.rows ?? []).filter((row) => isInBriefing(row, statusFilter));
+  // A failed context read proves nothing about whether active campaigns
+  // exist. Keep the coverage unavailable so the Decision Center cannot
+  // translate a read failure into the factual claim "no active".
   const campaignRoleCoverage = compactOsWorkspace
     ? null
     : await readAutomaticCampaignRoleCoverage({
@@ -764,12 +767,7 @@ export async function GET(request: NextRequest) {
           effective_status?: unknown;
           effectiveStatus?: unknown;
         }>,
-      }).catch(() => ({
-        activeCampaigns: 0,
-        classifiedCampaigns: 0,
-        unresolvedCampaigns: 0,
-        latestUpdatedAt: null,
-      }));
+      }).catch(() => null);
 
   const fastWarehouse = await fastWarehousePromise;
   const currentTotals = fastWarehouse

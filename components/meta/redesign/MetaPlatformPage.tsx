@@ -49,7 +49,6 @@ import {
   type MetaNativeAdPauseAuthorization,
 } from "@/components/meta/redesign/meta-native-ad-pause";
 import {
-  creativeGroupIdForLane,
   MetaDecisionCenterExact,
   type MetaDecisionCenterExactDisplayValue,
   type MetaDecisionCenterExactInspectorViewModel,
@@ -608,6 +607,15 @@ function parseMetaWindow(value: string | null): MetaWindowKey {
 
 function exactLaneForMetaLane(lane: MetaLaneView): MetaDecisionCenterExactLane {
   return lane === "nonSales" ? "nonsales" : lane;
+}
+
+function mobileCreativeGroupIdForLane(
+  lane: MetaLaneView,
+): "act" | "blocked" | "monitor" | null {
+  if (lane === "action") return "act";
+  if (lane === "needsres") return "blocked";
+  if (lane === "watching") return "monitor";
+  return null;
 }
 
 function metaLaneForExactLane(lane: MetaDecisionCenterExactLane): MetaLaneView {
@@ -1400,9 +1408,7 @@ function mobileQueueRows(
   lane: MetaLaneView,
 ): MetaMobileQueueRowModel[] {
   if (scope === "creatives") {
-    const selectedGroupId = creativeGroupIdForLane(
-      exactLaneForMetaLane(lane),
-    );
+    const selectedGroupId = mobileCreativeGroupIdForLane(lane);
     const creativeRows =
       viewModel.creativeGroups === undefined
         ? (viewModel.creativeDecisions ?? [])

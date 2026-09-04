@@ -365,27 +365,37 @@ describe("stale/fresh mutation-CTA boundary — static presentation→adapter→
       } as never,
       now: NOW,
     });
-    const html = renderToStaticMarkup(
+    const blockedHtml = renderToStaticMarkup(
       <MetaDecisionCenterExact
+        lane="needsres"
         viewModel={viewModel}
-        defaultScope="creatives"
+        scope="creatives"
+      />,
+    );
+    const actionHtml = renderToStaticMarkup(
+      <MetaDecisionCenterExact
+        lane="action"
+        viewModel={viewModel}
+        scope="creatives"
       />,
     );
 
-    // Both rows render their evidence.
-    expect(html).toContain("120000000000000042");
-    expect(html).toContain("120000000000000043");
+    // Each row renders in the lane served by the decision state.
+    expect(blockedHtml).toContain("120000000000000042");
+    expect(blockedHtml).not.toContain("120000000000000043");
+    expect(actionHtml).toContain("120000000000000043");
+    expect(actionHtml).not.toContain("120000000000000042");
 
     // The stale row: review-only Refresh Decision; no enabled Cut control
     // anywhere in its card.
-    const staleCard = html.match(
+    const staleCard = blockedHtml.match(
       /<[^>]*data-decision-id="stale-cut"[\s\S]*?(?=data-decision-id="|$)/,
-    )?.[0] ?? html;
+    )?.[0] ?? blockedHtml;
     expect(staleCard).toContain("Refresh Decision");
     expect(staleCard).not.toMatch(/<button[^>]*(?<!disabled[^>]*)>\s*Cut\s*</);
 
     // The fresh row: the supervised Cut with explicit live-preflight copy.
-    expect(html).toContain("Cut");
-    expect(html).toMatch(/live preflight/i);
+    expect(actionHtml).toContain("Cut");
+    expect(actionHtml).toMatch(/live preflight/i);
   });
 });

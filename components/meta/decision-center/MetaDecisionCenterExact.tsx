@@ -2459,7 +2459,7 @@ function SourceProvenancePanel({
   );
 }
 
-export function creativeGroupIdForLane(
+function creativeGroupIdForLane(
   lane: MetaDecisionCenterExactLane,
 ): "act" | "blocked" | "monitor" | null {
   if (lane === "action") return "act";

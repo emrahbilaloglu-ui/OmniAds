@@ -58,8 +58,10 @@ export interface MetaDecisionCenterExactChipViewModel {
 
 export interface MetaDecisionCenterExactKpisViewModel {
   spend?: {
-    /** The exact day this value describes; never assumed to be today. */
+    /** Legacy fully-rendered label. Current payloads carry `date` instead. */
     label?: MetaDecisionCenterExactDisplayValue;
+    /** Locale-neutral exact day this value describes; never assumed to be today. */
+    date?: MetaDecisionCenterExactDisplayValue;
     value?: MetaDecisionCenterExactDisplayValue;
     delta?: MetaDecisionCenterExactDisplayValue;
     detail?: MetaDecisionCenterExactDisplayValue;
@@ -85,11 +87,26 @@ export interface MetaDecisionCenterExactKpisViewModel {
     percentage?: MetaDecisionCenterExactDisplayValue;
     /** Server-fact presentation: resolved/unresolved coverage, not a manual label. */
     detail?: MetaDecisionCenterExactDisplayValue;
+    /** Locale-neutral server state. The client translates it; it does not infer it. */
+    status?: "no_active" | "unresolved" | "resolved" | "unavailable";
+    unresolvedCount?: MetaDecisionCenterExactDisplayValue;
   };
   mode?: {
     value?: MetaDecisionCenterExactDisplayValue;
     chips?: readonly MetaDecisionCenterExactChipViewModel[];
   };
+}
+
+export interface MetaDecisionCenterExactOperatorSummaryViewModel {
+  /** Totals across both server-owned scopes, not a UI reclassification. */
+  action?: MetaDecisionCenterExactDisplayValue;
+  needsResolution?: MetaDecisionCenterExactDisplayValue;
+  watching?: MetaDecisionCenterExactDisplayValue;
+  creatives?: MetaDecisionCenterExactDisplayValue;
+  /** Scope containing the first served row for each summary route. */
+  actionScope?: MetaDecisionCenterExactScope;
+  needsResolutionScope?: MetaDecisionCenterExactScope;
+  watchingScope?: MetaDecisionCenterExactScope;
 }
 
 export interface MetaDecisionCenterExactCountsViewModel {
@@ -622,6 +639,7 @@ export interface MetaDecisionCenterExactViewModel {
   identity?: MetaDecisionCenterExactIdentityViewModel;
   activeWindow?: MetaDecisionCenterExactWindow | null;
   counts?: MetaDecisionCenterExactCountsViewModel;
+  operatorSummary?: MetaDecisionCenterExactOperatorSummaryViewModel;
   kpis?: MetaDecisionCenterExactKpisViewModel;
   actionRows?: readonly MetaDecisionCenterExactActionRowViewModel[];
   /** Rows the server classified `blocked`. @see MetaDecisionCenterExactLane */
@@ -1031,7 +1049,11 @@ function ExactKpiBand({
     <div className={styles.kpiGrid} data-meta-exact-section="kpis">
       <article className={styles.kpiCard}>
         <p className={styles.kpiLabel}>
-          {display(kpis?.spend?.label ?? copy.spendToday)}
+          {display(
+            nonBlankDisplay(kpis?.spend?.date)
+              ? `${language === "tr" ? "Harcama" : "Spend"} · ${String(kpis!.spend!.date)}`
+              : (kpis?.spend?.label ?? copy.spendToday),
+          )}
         </p>
         <p className={styles.kpiValue}>
           {display(kpis?.spend?.value)}{" "}
@@ -1114,10 +1136,26 @@ function ExactKpiBand({
         </p>
         <p className={styles.roleInference}>
           {display(
-            kpis?.campaignRoles?.detail ??
-              (language === "tr"
-                ? "Otomatik sınıflandırma"
-                : "Automatic inference"),
+            kpis?.campaignRoles?.status === "no_active"
+              ? language === "tr"
+                ? "Otomatik çıkarım · aktif kampanya yok"
+                : "Automatic inference · no active campaigns"
+              : kpis?.campaignRoles?.status === "unresolved"
+                ? language === "tr"
+                  ? `Otomatik çıkarım · ${display(kpis.campaignRoles.unresolvedCount)} çözümlenmedi`
+                  : `Automatic inference · ${display(kpis.campaignRoles.unresolvedCount)} unresolved`
+                : kpis?.campaignRoles?.status === "resolved"
+                  ? language === "tr"
+                    ? "Otomatik çıkarım · tüm aktif kampanyalar çözüldü"
+                    : "Automatic inference · all active campaigns resolved"
+                  : kpis?.campaignRoles?.status === "unavailable"
+                    ? language === "tr"
+                      ? "Otomatik çıkarım kullanılamıyor · kesin aksiyonlar engelli"
+                      : "Automatic inference unavailable · hard actions remain blocked"
+                    : (kpis?.campaignRoles?.detail ??
+                      (language === "tr"
+                        ? "Otomatik sınıflandırma"
+                        : "Automatic inference")),
           )}
         </p>
       </article>
@@ -1149,18 +1187,22 @@ function ExactKpiBand({
  */
 function OperatorDecisionSummary({
   counts,
+  summary,
   onSelectLane,
   onSelectScope,
 }: {
   counts?: MetaDecisionCenterExactCountsViewModel;
+  summary?: MetaDecisionCenterExactOperatorSummaryViewModel;
   onSelectLane: (lane: MetaDecisionCenterExactLane) => void;
   onSelectScope: (scope: MetaDecisionCenterExactScope) => void;
 }) {
   const language = useZeroBaseLanguage();
-  const action = servedCount(counts?.action);
-  const needsResolution = servedCount(counts?.needsres);
-  const watching = servedCount(counts?.watching);
-  const creatives = servedCount(counts?.creatives);
+  const action = servedCount(summary?.action ?? counts?.action);
+  const needsResolution = servedCount(
+    summary?.needsResolution ?? counts?.needsres,
+  );
+  const watching = servedCount(summary?.watching ?? counts?.watching);
+  const creatives = servedCount(summary?.creatives ?? counts?.creatives);
 
   const headline =
     action !== null && action > 0
@@ -1186,8 +1228,11 @@ function OperatorDecisionSummary({
               ? "Güncel öneri özeti doğrulanamadı."
               : "The current recommendation summary could not be verified.";
 
-  const openLane = (lane: MetaDecisionCenterExactLane) => {
-    onSelectScope("structure");
+  const openLane = (
+    lane: MetaDecisionCenterExactLane,
+    scope: MetaDecisionCenterExactScope,
+  ) => {
+    onSelectScope(scope);
     onSelectLane(lane);
   };
 
@@ -1211,19 +1256,37 @@ function OperatorDecisionSummary({
         </p>
         <div className={styles.operatorSummaryActions}>
           {action !== null && action > 0 ? (
-            <button type="button" onClick={() => openLane("action")}>
+            <button
+              type="button"
+              onClick={() =>
+                openLane("action", summary?.actionScope ?? "structure")
+              }
+            >
               {language === "tr"
                 ? "Şimdi yapılacakları incele"
                 : "Review Action Now"}
             </button>
           ) : null}
           {needsResolution !== null && needsResolution > 0 ? (
-            <button type="button" onClick={() => openLane("needsres")}>
+            <button
+              type="button"
+              onClick={() =>
+                openLane(
+                  "needsres",
+                  summary?.needsResolutionScope ?? "structure",
+                )
+              }
+            >
               {language === "tr" ? "Engelleri çöz" : "Resolve blockers"}
             </button>
           ) : null}
           {watching !== null && watching > 0 ? (
-            <button type="button" onClick={() => openLane("watching")}>
+            <button
+              type="button"
+              onClick={() =>
+                openLane("watching", summary?.watchingScope ?? "structure")
+              }
+            >
               {language === "tr" ? "İzlenenleri gör" : "Review watching"}
             </button>
           ) : null}
@@ -1239,21 +1302,21 @@ function OperatorDecisionSummary({
       <dl className={styles.operatorSummaryCounts}>
         <div>
           <dt>{language === "tr" ? "Şimdi yapılacak" : "Action now"}</dt>
-          <dd>{display(counts?.action)}</dd>
+          <dd>{display(summary?.action ?? counts?.action)}</dd>
         </div>
         <div>
           <dt>{language === "tr" ? "Çözüm gerekiyor" : "Needs resolution"}</dt>
-          <dd>{display(counts?.needsres)}</dd>
+          <dd>{display(summary?.needsResolution ?? counts?.needsres)}</dd>
         </div>
         <div>
           <dt>{language === "tr" ? "İzleniyor" : "Watching"}</dt>
-          <dd>{display(counts?.watching)}</dd>
+          <dd>{display(summary?.watching ?? counts?.watching)}</dd>
         </div>
         <div>
           <dt>
             {language === "tr" ? "Kreatif kararlar" : "Creative decisions"}
           </dt>
-          <dd>{display(counts?.creatives)}</dd>
+          <dd>{display(summary?.creatives ?? counts?.creatives)}</dd>
         </div>
       </dl>
     </section>
@@ -3148,6 +3211,7 @@ export function MetaDecisionCenterExact({
 
       <OperatorDecisionSummary
         counts={counts}
+        summary={viewModel.operatorSummary}
         onSelectLane={selectLane}
         onSelectScope={selectScope}
       />
@@ -3386,6 +3450,26 @@ export function MetaDecisionCenterExact({
             </strong>
             <span>
               {(() => {
+                const deselected =
+                  viewModel.assignedAccountStates?.filter(
+                    (state) => state.selectionState === "deselected_historical",
+                  ) ?? [];
+                const deselectedWithSpend = deselected.filter(
+                  (state) => state.spend14d !== null && state.spend14d > 0,
+                );
+                const deselectedWithoutSpendProof = deselected.filter(
+                  (state) => state.spend14d === null,
+                );
+                if (deselectedWithSpend.length > 0) {
+                  return language === "tr"
+                    ? `Uyarı: Seçili olmayan ${deselectedWithSpend.length} hesapta son 14 gün harcaması var; bu hesaplar salt okunur ve sunulan kararların dışında.`
+                    : `Warning: ${deselectedWithSpend.length} deselected account${deselectedWithSpend.length === 1 ? " has" : "s have"} recorded 14-day spend; ${deselectedWithSpend.length === 1 ? "it is" : "they are"} read-only and excluded from served decisions.`;
+                }
+                if (deselectedWithoutSpendProof.length > 0) {
+                  return language === "tr"
+                    ? `Uyarı: Seçili olmayan ${deselectedWithoutSpendProof.length} hesabın son 14 gün harcaması doğrulanamadı; karar kapsamına güvenmeden önce ayrıntıları inceleyin.`
+                    : `Warning: ${deselectedWithoutSpendProof.length} deselected account${deselectedWithoutSpendProof.length === 1 ? " has" : "s have"} no verified 14-day spend; review details before trusting the decision scope.`;
+                }
                 const selected = viewModel.assignedAccountStates?.find(
                   (state) => state.selectionState === "selected",
                 );

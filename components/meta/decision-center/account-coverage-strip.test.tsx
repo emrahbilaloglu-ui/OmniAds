@@ -19,9 +19,8 @@ vi.mock("@/lib/zero-base/language", () => ({
   useZeroBaseLanguage: () => "en",
 }));
 
-const { MetaDecisionCenterExact } = await import(
-  "@/components/meta/decision-center/MetaDecisionCenterExact"
-);
+const { MetaDecisionCenterExact } =
+  await import("@/components/meta/decision-center/MetaDecisionCenterExact");
 
 const STATES = [
   {
@@ -65,6 +64,9 @@ describe("Decision Center · assigned-account coverage panel (D078 R4, correctio
     expect(panel).toBeTruthy();
     expect(panel).not.toMatch(/^<details[^>]*\sopen(?:=|\s|>)/);
     expect(panel).toContain("2 assigned Meta accounts");
+    expect(panel).toContain(
+      "Warning: 1 deselected account has recorded 14-day spend; it is read-only and excluded from served decisions.",
+    );
     // Identity + state.
     expect(panel).toContain("TheSwaf-Main | act_main");
     expect(panel).toContain("selected · serving");

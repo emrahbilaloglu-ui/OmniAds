@@ -22,7 +22,7 @@ const ADAPTER = readFileSync(
 describe("the scope counters count their scope", () => {
   const block = ADAPTER.slice(
     ADAPTER.indexOf("counts: {"),
-    ADAPTER.indexOf("      action: Math.max("),
+    ADAPTER.indexOf("      action: structureActionCount,"),
   );
 
   it("counts creatives from the served population, not the act lane", () => {
@@ -52,8 +52,12 @@ describe("the scope counters count their scope", () => {
    * make a lane counter fall.
    */
   it("leaves the lane counters starting from the server's own totals", () => {
-    expect(ADAPTER).toContain("workspace.lanes.counts.actionNow - servedActionSplit.blocked.length");
-    expect(ADAPTER).toContain("workspace.lanes.counts.watching - servedWatchingSplit.blocked.length");
+    expect(ADAPTER).toMatch(
+      /workspace\.lanes\.counts\.actionNow\s*-\s*servedActionSplit\.blocked\.length/,
+    );
+    expect(ADAPTER).toMatch(
+      /workspace\.lanes\.counts\.watching\s*-\s*servedWatchingSplit\.blocked\.length/,
+    );
   });
 
   it("splits the counters over the served arrays, never the filtered overrides", () => {

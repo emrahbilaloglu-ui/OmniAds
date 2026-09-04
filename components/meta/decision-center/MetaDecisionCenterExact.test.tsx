@@ -20,6 +20,7 @@ import type {
   MetaBudgetDecisionEvidenceByDirection,
   MetaBudgetDecisionEvidencePanel,
 } from "@/lib/meta/budget-decision-evidence-panel";
+import { ZeroBaseCopyProvider } from "@/components/zero-base/i18n/copy-provider";
 
 afterEach(cleanup);
 
@@ -356,6 +357,68 @@ describe("MetaDecisionCenterExact canonical desktop anatomy", () => {
     ).toBeTruthy();
     expect(screen.getByRole("option", { name: "Sort: Priority" })).toBeTruthy();
     expect(screen.getByRole("option", { name: "Sort: Age" })).toBeTruthy();
+  });
+
+  it("localizes the exact spend date and automatic campaign-role state", () => {
+    const viewModel = exactViewModel();
+    viewModel.kpis = {
+      ...viewModel.kpis,
+      spend: {
+        ...viewModel.kpis?.spend,
+        date: "2026-09-03",
+      },
+      campaignRoles: {
+        coverage: "5/5",
+        percentage: "100%",
+        status: "resolved",
+        unresolvedCount: "0",
+      },
+    };
+
+    render(
+      <ZeroBaseCopyProvider language="tr">
+        <MetaDecisionCenterExact viewModel={viewModel} />
+      </ZeroBaseCopyProvider>,
+    );
+
+    expect(screen.getByText("Harcama · 2026-09-03")).toBeTruthy();
+    expect(
+      screen.getByText("Otomatik çıkarım · tüm aktif kampanyalar çözüldü"),
+    ).toBeTruthy();
+    expect(screen.queryByText("Spend · 2026-09-03")).toBeNull();
+  });
+
+  it("routes a creative-only action summary to the creative Action lane", () => {
+    const viewModel = exactViewModel({
+      counts: {
+        structure: "0",
+        creatives: "1",
+        action: "0",
+        needsres: "0",
+        watching: "0",
+      },
+      operatorSummary: {
+        action: "1",
+        needsResolution: "0",
+        watching: "0",
+        creatives: "1",
+        actionScope: "creatives",
+      },
+    });
+    renderExact({ viewModel });
+
+    expect(
+      screen.getByText("1 decision need operator review now."),
+    ).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Review Action Now" }));
+    expect(
+      document
+        .querySelector('[data-meta-exact-scope="creatives"]')
+        ?.getAttribute("aria-pressed"),
+    ).toBe("true");
+    expect(
+      document.querySelector("[data-meta-exact-creative-toolbar]"),
+    ).toBeTruthy();
   });
 
   it("shows the canonical default inline inspector without a row-selection dependency", () => {

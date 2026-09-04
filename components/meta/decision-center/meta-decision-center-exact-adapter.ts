@@ -842,7 +842,8 @@ function needsResolutionRows(input: {
         nonBlank(readiness?.reason) ??
         // The node's own assessment is the server's short form of the same
         // fact ("Decision Blocked"); `whyNow` carries the long one.
-        (nonBlank(node?.assessment) ?? "Authority withheld"),
+        nonBlank(node?.assessment) ??
+        "Authority withheld",
       blockerCount: blockerParts.length,
       blockerTone: "warning",
       resolution:
@@ -3562,6 +3563,24 @@ export function buildMetaDecisionCenterExactViewModel(
     workspace.lanes.watching,
     nodes,
   );
+  const structureActionCount = Math.max(
+    0,
+    workspace.lanes.counts.actionNow - servedActionSplit.blocked.length,
+  );
+  const structureNeedsResolutionCount =
+    servedActionSplit.blocked.length + servedWatchingSplit.blocked.length;
+  const structureWatchingCount = Math.max(
+    0,
+    workspace.lanes.counts.watching - servedWatchingSplit.blocked.length,
+  );
+  const creativeActionCount = finite(workspace.os?.ads?.actCount);
+  const creativeNeedsResolutionCount = finite(workspace.os?.ads?.blockedCount);
+  const creativeWatchingCount = finite(workspace.os?.ads?.monitorCount);
+  const combinedLaneCount = (
+    structureCount: number,
+    creativeCount: number | null,
+  ): number | typeof EM_DASH =>
+    creativeCount === null ? EM_DASH : structureCount + creativeCount;
   const canonical = canonicalDecisionsByKey(canonicalDecisions);
   const snapshotAsOf =
     nonBlank(workspace.decisionReadModel.source.snapshotAsOf) ??
@@ -3612,6 +3631,31 @@ export function buildMetaDecisionCenterExactViewModel(
       timeLabel: utcTime(workspace.decisionReadModel.source.computedAt),
     },
     activeWindow: activeWindow(workspace.window),
+    operatorSummary: {
+      action: combinedLaneCount(structureActionCount, creativeActionCount),
+      needsResolution: combinedLaneCount(
+        structureNeedsResolutionCount,
+        creativeNeedsResolutionCount,
+      ),
+      watching: combinedLaneCount(
+        structureWatchingCount,
+        creativeWatchingCount,
+      ),
+      creatives: finite(workspace.os?.ads?.items?.length) ?? EM_DASH,
+      actionScope:
+        structureActionCount > 0 || creativeActionCount === null
+          ? "structure"
+          : "creatives",
+      needsResolutionScope:
+        structureNeedsResolutionCount > 0 ||
+        creativeNeedsResolutionCount === null
+          ? "structure"
+          : "creatives",
+      watchingScope:
+        structureWatchingCount > 0 || creativeWatchingCount === null
+          ? "structure"
+          : "creatives",
+    },
     counts: {
       /*
        * The scope counter counts the SCOPE, not the first lane inside it.
@@ -3663,16 +3707,9 @@ export function buildMetaDecisionCenterExactViewModel(
        * past the cap is neither moved nor drawn — which is correct: it was not
        * visible in either lane to begin with.
        */
-      action: Math.max(
-        0,
-        workspace.lanes.counts.actionNow - servedActionSplit.blocked.length,
-      ),
-      needsres:
-        servedActionSplit.blocked.length + servedWatchingSplit.blocked.length,
-      watching: Math.max(
-        0,
-        workspace.lanes.counts.watching - servedWatchingSplit.blocked.length,
-      ),
+      action: structureActionCount,
+      needsres: structureNeedsResolutionCount,
+      watching: structureWatchingCount,
       healthy: workspace.lanes.counts.healthy,
       nonsales: workspace.lanes.counts.nonSales,
       // The lane total, over BOTH grains the lane now holds. Deliberately read
@@ -3689,7 +3726,7 @@ export function buildMetaDecisionCenterExactViewModel(
     },
     kpis: {
       spend: {
-        label: `Spend · ${workspace.endDate}`,
+        date: workspace.endDate,
         value: formatMoney(pacing.spendToday, fallbackCurrency),
         delta: percentageDelta(pacing.spendToday, pacing.avg7dSpend),
         detail:
@@ -3745,13 +3782,16 @@ export function buildMetaDecisionCenterExactViewModel(
                   100,
               )}%`
             : EM_DASH,
-        detail: campaignRoleCoverage
+        status: campaignRoleCoverage
           ? campaignRoleCoverage.activeCampaigns === 0
-            ? "Automatic inference · no active campaigns"
+            ? "no_active"
             : campaignRoleCoverage.unresolvedCampaigns > 0
-              ? `Automatic inference · ${formatNumber(campaignRoleCoverage.unresolvedCampaigns)} unresolved`
-              : "Automatic inference · all active campaigns resolved"
-          : "Automatic inference unavailable · hard actions remain blocked",
+              ? "unresolved"
+              : "resolved"
+          : "unavailable",
+        unresolvedCount: campaignRoleCoverage
+          ? formatNumber(campaignRoleCoverage.unresolvedCampaigns)
+          : EM_DASH,
       },
       mode: {
         value: nonBlank(workspace.pulse.operatingMode) ?? EM_DASH,

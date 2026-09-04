@@ -20,9 +20,7 @@ import {
   projectBudgetDecisionEvidencePanel,
   type MetaBudgetDecisionEvidenceByDirection,
 } from "@/lib/meta/budget-decision-evidence-panel";
-import {
-  evaluateBudgetDecisionGates,
-} from "@/lib/meta/budget-decision-gates";
+import { evaluateBudgetDecisionGates } from "@/lib/meta/budget-decision-gates";
 import { buildWorkspaceBudgetGateInput } from "@/lib/meta/budget-decision-workspace-adapter";
 import {
   makeAnchorTargetPack,
@@ -408,9 +406,7 @@ function workspaceFixture(
       ...(input.commercialAnchor
         ? { commercialAnchor: input.commercialAnchor }
         : {}),
-      ...(input.budgetEvidence
-        ? { budgetEvidence: input.budgetEvidence }
-        : {}),
+      ...(input.budgetEvidence ? { budgetEvidence: input.budgetEvidence } : {}),
     },
     viewer: null,
     banners: [],
@@ -2940,6 +2936,47 @@ describe("served structure inventory", () => {
     expect(withoutCensus.counts?.action).toBe(7);
   });
 
+  it("builds the operator summary across structure and creative server lanes", () => {
+    const workspace = workspaceFixture({
+      counts: { actionNow: 0, watching: 0 },
+      os: fullOs({ creatives: [creativeFixture()] }),
+    });
+
+    const model = buildMetaDecisionCenterExactViewModel({ workspace });
+
+    // Lane-toolbar counts remain scoped to the structure table.
+    expect(model.counts?.action).toBe(0);
+    // The top-level answer covers both scopes, so a creative action cannot be
+    // hidden behind a false "no change" headline.
+    expect(model.operatorSummary).toMatchObject({
+      action: 1,
+      needsResolution: 0,
+      watching: 0,
+      creatives: 1,
+      actionScope: "creatives",
+    });
+  });
+
+  it("carries locale-neutral spend and campaign-role facts", () => {
+    const workspace = workspaceFixture();
+    workspace.pulse.campaignRoleCoverage = {
+      activeCampaigns: 5,
+      classifiedCampaigns: 4,
+      unresolvedCampaigns: 1,
+      latestUpdatedAt: null,
+    };
+
+    const model = buildMetaDecisionCenterExactViewModel({ workspace });
+
+    expect(model.kpis?.spend).toMatchObject({ date: "2026-08-17" });
+    expect(model.kpis?.spend).not.toHaveProperty("label");
+    expect(model.kpis?.campaignRoles).toMatchObject({
+      status: "unresolved",
+      unresolvedCount: "1",
+    });
+    expect(model.kpis?.campaignRoles).not.toHaveProperty("detail");
+  });
+
   it("leaves lane membership and the archive lane exactly where the server put them", () => {
     const archived: MetaArchivedEntity = {
       id: "camp_2",
@@ -3201,9 +3238,12 @@ describe("the exact adapter forwards the budget-evidence directions", () => {
               readState: "not_attempted",
               readStateWhy: "no history read",
               lastChangeAtMs: null,
-              changesForEntityToday: null, changesInAccountToday: null,
-              changesInBusinessToday: null, changesInFleetToday: null,
-              accountChangesToday: null, fleetChangesToday: null,
+              changesForEntityToday: null,
+              changesInAccountToday: null,
+              changesInBusinessToday: null,
+              changesInFleetToday: null,
+              accountChangesToday: null,
+              fleetChangesToday: null,
               countSemantics: "prospective_including_candidate",
             },
             knownBindings: [],
@@ -3213,7 +3253,8 @@ describe("the exact adapter forwards the budget-evidence directions", () => {
     return {
       contractVersion: "meta-budget-decision-evidence-directional.v3",
       directionToAction: { increase: "scale", decrease: "cut" },
-      directionToActionWhy: "an increase is a scale decision and a decrease is a cut decision",
+      directionToActionWhy:
+        "an increase is a scale decision and a decrease is a cut decision",
       directionSelected: null,
       directionSelectedWhy: "no proposal direction has been selected",
       increase: build("increase"),
@@ -3230,8 +3271,13 @@ describe("the exact adapter forwards the budget-evidence directions", () => {
     for (const direction of ["increase", "decrease"] as const) {
       const panel = model.budgetEvidence![direction];
       const primary = panel.primaryBlocker!;
-      const owning = panel.sections.find((s) => s.blockerCodes.includes(primary.code));
-      expect(owning, `${direction}: ${primary.code} is in no section`).toBeTruthy();
+      const owning = panel.sections.find((s) =>
+        s.blockerCodes.includes(primary.code),
+      );
+      expect(
+        owning,
+        `${direction}: ${primary.code} is in no section`,
+      ).toBeTruthy();
       expect(owning!.reasons).toContain(primary.reason);
     }
   });
@@ -3244,14 +3290,24 @@ describe("the exact adapter forwards the budget-evidence directions", () => {
     expect(model.budgetEvidence!.directionSelected).toBeNull();
     // An increase faces the conversion floor and the binding test; a decrease
     // faces neither, so their blocker sets must not be identical.
-    const increaseCodes = model.budgetEvidence!.increase.sections.flatMap((s) => s.blockerCodes);
-    const decreaseCodes = model.budgetEvidence!.decrease.sections.flatMap((s) => s.blockerCodes);
-    expect(increaseCodes).toContain("evidence_conversions_below_increase_floor");
-    expect(decreaseCodes).not.toContain("evidence_conversions_below_increase_floor");
+    const increaseCodes = model.budgetEvidence!.increase.sections.flatMap(
+      (s) => s.blockerCodes,
+    );
+    const decreaseCodes = model.budgetEvidence!.decrease.sections.flatMap(
+      (s) => s.blockerCodes,
+    );
+    expect(increaseCodes).toContain(
+      "evidence_conversions_below_increase_floor",
+    );
+    expect(decreaseCodes).not.toContain(
+      "evidence_conversions_below_increase_floor",
+    );
   });
 
   it("passes null when the server sent nothing, never an empty clear panel", () => {
-    const model = buildMetaDecisionCenterExactViewModel({ workspace: workspaceFixture({}) });
+    const model = buildMetaDecisionCenterExactViewModel({
+      workspace: workspaceFixture({}),
+    });
     expect(model.budgetEvidence).toBeNull();
   });
 });

@@ -3438,21 +3438,13 @@ function structureProvenance(
               : "neutral";
 
   /*
-   * Paired against the served census, which is the population these lanes are
-   * a view OF — the same census the scope pill counts. `os.structure`'s three
-   * lane counts are computed by the presentation builder over one array of
-   * campaign and ad-set nodes, and `act | blocked | monitor` is the whole of
-   * `MetaOsDecisionLane`, so their sum is that array's length exactly. If any
-   * one of the three was not served the sum is not asserted at all.
-   *
-   * THE TWO ARE EQUAL ON A HEALTHY ACCOUNT and that is the point, not a bug:
-   * the presentation builder seeds its nodes FROM `structureInventory` and then
-   * lets a live recommendation override the node of the same id, so agreement
-   * means every censused entity reached the lanes. Measured 2026-08-19 against
-   * the dev server: Grandmix 1,230 · 1,230 and IwaStore 174 · 174. A payload
-   * that served a census without the node set — or a node set the census does
-   * not cover — is exactly the divergence this pairing exists to surface, and
-   * the operator sees it as two different numbers rather than not at all.
+   * Pair the number of recommendation-backed structure decisions against the
+   * served inventory census. The presentation hierarchy also contains plain
+   * inventory and, when only an ad-set recommendation exists, a synthetic
+   * campaign parent. Those nodes make the tree navigable but do not represent
+   * additional decisions, so `structureDecisionNodeCount` excludes them by
+   * source recommendation identity. If the identity or any fallback aggregate
+   * was not served, the count remains unavailable instead of guessing.
    */
   const decisionNodeCount = structureDecisionNodeCount(structure);
   const censusCount = finite(workspace.lanes?.structureInventory?.length);
@@ -3512,15 +3504,19 @@ function structureProvenance(
         "Carrying a decision",
         decisionNodeCount === null ? null : formatNumber(decisionNodeCount),
       ),
-      fact("structure-act", "Lane · act", servedCount(structure?.actCount)),
+      fact(
+        "structure-act",
+        "Structure nodes · act",
+        servedCount(structure?.actCount),
+      ),
       fact(
         "structure-blocked",
-        "Lane · blocked",
+        "Structure nodes · blocked",
         servedCount(structure?.blockedCount),
       ),
       fact(
         "structure-monitor",
-        "Lane · monitor",
+        "Structure nodes · monitor",
         servedCount(structure?.monitorCount),
       ),
       fact(
@@ -3572,12 +3568,55 @@ function structureProvenance(
 function structureDecisionNodeCount(
   structure: MetaDecisionsWorkspacePayload["os"]["structure"] | undefined,
 ): number | null {
-  if (!structure) return null;
-  const act = finite(structure.actCount);
-  const blocked = finite(structure.blockedCount);
-  const monitor = finite(structure.monitorCount);
+  const { act, blocked, monitor } = structureDecisionLaneCounts(structure);
   if (act === null || blocked === null || monitor === null) return null;
   return act + blocked + monitor;
+}
+
+/**
+ * Decision totals exclude inventory-only and synthetic grouping nodes.
+ *
+ * Current payloads explicitly carry `sourceRecommendationId` on every node.
+ * A synthetic campaign can inherit an ad set's lane so the hierarchy remains
+ * readable, but it is not a second recommendation. Older serialized payloads
+ * that predate the identity field fall back to their served aggregate counts
+ * instead of being silently rewritten as zero.
+ */
+function structureDecisionLaneCounts(
+  structure: MetaDecisionsWorkspacePayload["os"]["structure"] | undefined,
+): { act: number | null; blocked: number | null; monitor: number | null } {
+  if (!structure) return { act: null, blocked: null, monitor: null };
+
+  const nodes = structure.groups.flatMap((group) => [
+    group.campaign,
+    ...group.adsets,
+  ]);
+  const carriesSourceIdentity =
+    nodes.length > 0 &&
+    nodes.every((node) =>
+      Object.prototype.hasOwnProperty.call(node, "sourceRecommendationId"),
+    );
+  if (!carriesSourceIdentity) {
+    return {
+      act: finite(structure.actCount),
+      blocked: finite(structure.blockedCount),
+      monitor: finite(structure.monitorCount),
+    };
+  }
+
+  const decisions = new Map<string, MetaOsStructureNode>();
+  for (const node of nodes) {
+    const recommendationId = nonBlank(node.sourceRecommendationId);
+    if (recommendationId && !decisions.has(recommendationId)) {
+      decisions.set(recommendationId, node);
+    }
+  }
+  const decisionNodes = [...decisions.values()];
+  return {
+    act: decisionNodes.filter((node) => node.lane === "act").length,
+    blocked: decisionNodes.filter((node) => node.lane === "blocked").length,
+    monitor: decisionNodes.filter((node) => node.lane === "monitor").length,
+  };
 }
 
 /**
@@ -3666,8 +3705,11 @@ export function buildMetaDecisionCenterExactViewModel(
     workspace.lanes.counts.nonSales,
     workspace.lanes.nonSales,
   );
-  const osStructureActionCount = finite(workspace.os?.structure?.actCount);
-  const osStructureBlockedCount = finite(workspace.os?.structure?.blockedCount);
+  const osStructureDecisionCounts = structureDecisionLaneCounts(
+    workspace.os?.structure,
+  );
+  const osStructureActionCount = osStructureDecisionCounts.act;
+  const osStructureBlockedCount = osStructureDecisionCounts.blocked;
   const hasAuthoritativeOsActionAndBlockedCounts =
     osStructureActionCount !== null && osStructureBlockedCount !== null;
   const structureActionCount = hasAuthoritativeOsActionAndBlockedCounts

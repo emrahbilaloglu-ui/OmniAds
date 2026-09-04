@@ -3007,6 +3007,73 @@ describe("served structure inventory", () => {
     });
   });
 
+  it("does not count a synthetic campaign parent as a second decision", () => {
+    const recommendation = metaRec({
+      id: "adset_action",
+      level: "adset",
+      campaignId: "cmp_parent",
+      campaignName: "Parent campaign",
+      adsetId: "set_child",
+      adsetName: "Child ad set",
+      decisionState: "act",
+    });
+    const child = structureNodeFixture({
+      id: "adset:set_child",
+      sourceRecommendationId: recommendation.id,
+      level: "adset",
+      providerEntityId: "set_child",
+      campaignId: "cmp_parent",
+      campaignName: "Parent campaign",
+      name: "Child ad set",
+      lane: "act",
+    });
+    const syntheticParent = structureNodeFixture({
+      id: "campaign:cmp_parent",
+      sourceRecommendationId: null,
+      level: "campaign",
+      providerEntityId: "cmp_parent",
+      campaignId: "cmp_parent",
+      campaignName: "Parent campaign",
+      name: "Parent campaign",
+      lane: "act",
+    });
+    const os = fullOs();
+    os.structure = {
+      groups: [
+        {
+          id: "campaign:cmp_parent",
+          campaign: syntheticParent,
+          adsets: [child],
+          highestPriority: child.priority,
+          highestUrgency: child.urgency,
+          urgentAdsetCount: 1,
+        },
+      ],
+      actCount: 2,
+      blockedCount: 0,
+      monitorCount: 0,
+      suppressedAlternativeCount: 0,
+    };
+    const workspace = workspaceFixture({
+      actionNow: [recommendation],
+      os,
+    });
+
+    const model = buildMetaDecisionCenterExactViewModel({ workspace });
+
+    expect(model.actionRows).toHaveLength(1);
+    expect(model.counts?.action).toBe(1);
+    expect(model.operatorSummary).toMatchObject({
+      action: 1,
+      scopeCounts: { structure: { action: 1 } },
+    });
+    const coverage = new Map(
+      model.structureProvenance?.coverage?.map((fact) => [fact.id, fact.value]),
+    );
+    expect(coverage.get("structure-act")).toBe("2");
+    expect(coverage.get("structure-decisions")).toBe("1");
+  });
+
   it("routes an active non-sales source row into the server-owned Action lane", () => {
     const recommendation = metaRec({
       id: "non_sales_act",

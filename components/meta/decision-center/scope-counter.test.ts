@@ -52,9 +52,14 @@ describe("the scope counters count their scope", () => {
    * inventory with no decision and therefore cannot be presented as a count
    * of watched decisions.
    */
-  it("uses OS verdict totals without calling Monitor inventory a decision", () => {
-    expect(ADAPTER).toContain("workspace.os?.structure?.actCount");
-    expect(ADAPTER).toContain("workspace.os?.structure?.blockedCount");
+  it("counts recommendation-backed OS verdicts without calling grouping or Monitor inventory a decision", () => {
+    expect(ADAPTER).toContain(
+      "const osStructureDecisionCounts = structureDecisionLaneCounts(",
+    );
+    expect(ADAPTER).toContain("sourceRecommendationId");
+    expect(ADAPTER).toContain(
+      "const decisions = new Map<string, MetaOsStructureNode>()",
+    );
     expect(ADAPTER).not.toContain("workspace.os?.structure?.monitorCount");
     expect(ADAPTER).toMatch(
       /const structureWatchingCount\s*=\s*servedProjection\.watching\.length\s*\+\s*unseenWatchingCount/,

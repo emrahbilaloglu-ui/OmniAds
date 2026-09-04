@@ -389,6 +389,38 @@ describe("MetaDecisionCenterExact canonical desktop anatomy", () => {
     expect(screen.queryByText("Spend · 2026-09-03")).toBeNull();
   });
 
+  it("localizes the collapsed account-coverage summary", () => {
+    const viewModel = exactViewModel({
+      assignedAccountStates: [
+        {
+          providerAccountId: "act_1",
+          accountName: "Hesap",
+          selectionState: "selected",
+          accountCurrency: "TRY",
+          accountTimezone: "Europe/Istanbul",
+          latestFactDate: "2026-09-03",
+          spend14d: 100,
+          latestDecisionAsOf: "2026-09-03",
+          latestDecisionRows: 2,
+          latestDecisionAuthorizedRows: 0,
+          policy: "Salt okunur kapsam kanıtı.",
+        },
+      ],
+    });
+
+    render(
+      <ZeroBaseCopyProvider language="tr">
+        <MetaDecisionCenterExact viewModel={viewModel} />
+      </ZeroBaseCopyProvider>,
+    );
+
+    expect(screen.getByText("1 atanmış Meta hesabı")).toBeTruthy();
+    expect(
+      screen.getByText("Seçili hesap verileri 2026-09-03 tarihine kadar"),
+    ).toBeTruthy();
+    expect(screen.queryByText(/Selected account data through/)).toBeNull();
+  });
+
   it("routes a creative-only action summary to the creative Action lane", () => {
     const viewModel = exactViewModel({
       counts: {
@@ -1070,6 +1102,54 @@ describe("MetaDecisionCenterExact branches and callbacks", () => {
     ).toBeTruthy();
     expect(
       document.querySelector('[data-meta-exact-creative-group="monitor"]'),
+    ).toBeNull();
+  });
+
+  it("normalizes a structure-only lane when entering Creatives", () => {
+    render(
+      <MetaDecisionCenterExact
+        defaultLane="healthy"
+        viewModel={{
+          operatorSummary: {
+            scopeCounts: {
+              creatives: { action: 1, needsResolution: 1, watching: 1 },
+            },
+          },
+          creativeGroups: [
+            {
+              id: "act",
+              label: "Act",
+              rows: [{ id: "act-row", name: "Act row" }],
+            },
+            {
+              id: "blocked",
+              label: "Blocked",
+              rows: [{ id: "blocked-row", name: "Blocked row" }],
+            },
+            {
+              id: "monitor",
+              label: "Monitor",
+              rows: [{ id: "monitor-row", name: "Monitor row" }],
+            },
+          ],
+        }}
+      />,
+    );
+
+    fireEvent.click(
+      document.querySelector('[data-meta-exact-scope="creatives"]')!,
+    );
+
+    const actionRadio = document.querySelector(
+      '[data-meta-exact-creative-lane="action"]',
+    );
+    expect(actionRadio).toHaveAttribute("aria-checked", "true");
+    expect(actionRadio).toHaveAttribute("tabindex", "0");
+    expect(
+      document.querySelector('[data-meta-exact-creative-group="act"]'),
+    ).toBeTruthy();
+    expect(
+      document.querySelector('[data-meta-exact-creative-group="blocked"]'),
     ).toBeNull();
   });
 

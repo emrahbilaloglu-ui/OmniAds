@@ -3305,9 +3305,21 @@ export function MetaDecisionCenterExact({
       count: viewModel.operatorSummary?.scopeCounts?.creatives?.watching,
     },
   ] as const;
+  const activeCreativeLane =
+    activeLane === "action" ||
+    activeLane === "needsres" ||
+    activeLane === "watching"
+      ? activeLane
+      : "action";
 
   function selectScope(nextScope: MetaDecisionCenterExactScope) {
     if (scope === undefined) setInternalScope(nextScope);
+    if (
+      nextScope === "creatives" &&
+      creativeGroupIdForLane(activeLane) === null
+    ) {
+      selectLane("action");
+    }
     onScopeChange?.(nextScope);
   }
 
@@ -3545,7 +3557,7 @@ export function MetaDecisionCenterExact({
             data-meta-exact-creative-lane-toolbar
             onKeyDown={(event) => {
               const index = creativeLaneItems.findIndex(
-                (item) => item.id === activeLane,
+                (item) => item.id === activeCreativeLane,
               );
               if (index < 0) return;
               const step =
@@ -3567,15 +3579,15 @@ export function MetaDecisionCenterExact({
           >
             {creativeLaneItems.map((item) => (
               <button
-                aria-checked={activeLane === item.id}
+                aria-checked={activeCreativeLane === item.id}
                 className={`${styles.laneOption} ${
-                  activeLane === item.id ? styles.laneOptionActive : ""
+                  activeCreativeLane === item.id ? styles.laneOptionActive : ""
                 }`}
                 data-meta-exact-creative-lane={item.id}
                 key={item.id}
                 onClick={() => selectLane(item.id)}
                 role="radio"
-                tabIndex={activeLane === item.id ? 0 : -1}
+                tabIndex={activeCreativeLane === item.id ? 0 : -1}
                 type="button"
               >
                 {item.label}
@@ -3654,7 +3666,7 @@ export function MetaDecisionCenterExact({
               decisions={viewModel.creativeDecisions ?? []}
               footnote={viewModel.creativeFootnote}
               groups={viewModel.creativeGroups}
-              lane={activeLane}
+              lane={activeCreativeLane}
               notice={viewModel.creativesNotice}
               onOpenCreativeStudio={onOpenCreativeStudio}
               posture={viewModel.creativePosture ?? []}
@@ -3765,8 +3777,9 @@ export function MetaDecisionCenterExact({
         >
           <summary className={styles.accountCoverageSummary}>
             <strong>
-              {viewModel.assignedAccountStates.length} assigned Meta account
-              {viewModel.assignedAccountStates.length === 1 ? "" : "s"}
+              {language === "tr"
+                ? `${viewModel.assignedAccountStates.length} atanmış Meta hesabı`
+                : `${viewModel.assignedAccountStates.length} assigned Meta account${viewModel.assignedAccountStates.length === 1 ? "" : "s"}`}
             </strong>
             <span>
               {(() => {
@@ -3794,8 +3807,12 @@ export function MetaDecisionCenterExact({
                   (state) => state.selectionState === "selected",
                 );
                 return selected?.latestFactDate
-                  ? `Selected account data through ${selected.latestFactDate}`
-                  : "Open account coverage details";
+                  ? language === "tr"
+                    ? `Seçili hesap verileri ${selected.latestFactDate} tarihine kadar`
+                    : `Selected account data through ${selected.latestFactDate}`
+                  : language === "tr"
+                    ? "Hesap kapsamı ayrıntılarını açın"
+                    : "Open account coverage details";
               })()}
             </span>
           </summary>

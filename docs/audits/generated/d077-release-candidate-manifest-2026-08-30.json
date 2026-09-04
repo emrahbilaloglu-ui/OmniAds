@@ -1,19 +1,19 @@
 {
- "manifestHash": "d8050a906dea0ac04e577d587848c0a82268e5290b11e175d92010f7ffeea750",
+ "manifestHash": "57a62b7afc8622851bf5cb4b031412d5f897af1298fb99345a58e3f0bdf5edde",
  "hashAlgorithm": "sha256",
  "hashBasis": "sha256 over UTF-8 bytes of JSON.stringify(artifact, null, 1) of the artifact WITHOUT its embedded hash fields (the artifact object before {<hashField>, hashAlgorithm, hashBasis} are prepended)",
  "contract": "adsecute.d077.release-candidate-manifest.v3",
- "generatedAtUtc": "2026-09-04T13:46:40.453Z",
+ "generatedAtUtc": "2026-09-04T14:41:12.903Z",
  "branch": "codex/meta-disabled-readiness-20260829",
- "head": "2f4f909be941f6f5d68f307c4b898ed547307eaa",
+ "head": "7d24811ce8909e86b07b55e48f7918b3a3653410",
  "baseMain": "babf158e150fd33057117b39b175da044ac62d2e",
  "originMain": "babf158e150fd33057117b39b175da044ac62d2e",
  "remoteDivergence": {
-  "aheadOfOriginMain": 11,
+  "aheadOfOriginMain": 13,
   "behindOriginMain": 0
  },
  "selfExclusion": "this manifest's own path (docs/audits/generated/d077-release-candidate-manifest-2026-08-30.json) is EXCLUDED from its entry list: a manifest cannot recursively pin its own final bytes; its external SHA-256 is reported in the final response and by Codex's own hashing",
- "gitPorcelainEntryCount": 7,
+ "gitPorcelainEntryCount": 6,
  "releaseDiffEntryCountIncludingSelf": 521,
  "expandedOnDiskCandidateFileCountIncludingSelf": 521,
  "pinnedNonSelfFileCount": 520,
@@ -646,13 +646,13 @@
    "path": "components/meta/decision-center/meta-decision-center-exact-adapter.test.ts",
    "git": "M",
    "class": "tests_only",
-   "sha256": "da69cb8235ba220320f161174772283738a3ff8c74b6bb3b7d48fe683f2d99fd"
+   "sha256": "60aa9222fe77f53a99816e7cf10f86bc78133c742b59f5a12e52655b41bd135a"
   },
   {
    "path": "components/meta/decision-center/meta-decision-center-exact-adapter.ts",
    "git": "M",
    "class": "runtime",
-   "sha256": "88129a2221d76c10de2fa396f8851ffca304e54d291cb9dd772a176504e5acfd"
+   "sha256": "88e6fcb75ef8ae487226850beb28b744d946d366b153bedc6ae92e0a4dfb99fa"
   },
   {
    "path": "components/meta/decision-center/MetaDecisionCenterExact.module.css",
@@ -664,13 +664,13 @@
    "path": "components/meta/decision-center/MetaDecisionCenterExact.test.tsx",
    "git": "M",
    "class": "tests_only",
-   "sha256": "bb66b8943708e03cfebd045ad7676775b0aa7dc505230180b038a156510776ce"
+   "sha256": "c09a73fb952c139a3f2bf7121e82b9feda61ae17f48c5b975d56614061d145cd"
   },
   {
    "path": "components/meta/decision-center/MetaDecisionCenterExact.tsx",
    "git": "M",
    "class": "runtime",
-   "sha256": "f0af464535e6b5466e59a9eff3af96a1494895ac48d28bac1945c9bf49cc5901"
+   "sha256": "f9b1d66df405df003f74dc7b6b3341ff63e22c3d91a59916c734e225938c20df"
   },
   {
    "path": "components/meta/decision-center/needs-resolution-lane.test.ts",
@@ -682,7 +682,7 @@
    "path": "components/meta/decision-center/scope-counter.test.ts",
    "git": "M",
    "class": "tests_only",
-   "sha256": "5c5f5959a1d156c1b120144a8dd68257e3b785549031271353eff45814875e32"
+   "sha256": "6a49905e85339061a01157eb8d00f84692122a5933ef7b11df325c57107eb9f2"
   },
   {
    "path": "components/meta/decision-center/served-field-probe.ts",

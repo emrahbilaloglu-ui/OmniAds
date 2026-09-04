@@ -152,6 +152,8 @@ export interface MetaDecisionCenterExactAdapterInput {
   now?: Date | string | number;
   /** Undefined selects the first server Action Now row; null suppresses the inspector. */
   selection?: MetaDecisionCenterExactAdapterSelection;
+  /** Structure lane whose first served row owns the resting evidence inspector. */
+  defaultSelectionLane?: "action" | "needsres" | "watching";
 }
 
 function nonBlank(value: string | null | undefined): string | null {
@@ -169,6 +171,17 @@ function titleToken(value: string | null | undefined): string {
   return normalized
     .replaceAll("_", " ")
     .replace(/\b\w/g, (character) => character.toUpperCase());
+}
+
+/**
+ * Keep the header on the compact V2 provenance line while retaining the exact
+ * build id in the evidence panel. Short semantic/test versions remain
+ * untouched; only long release identifiers are reduced to their leading
+ * version token.
+ */
+function compactEngineVersion(value: string): string {
+  if (value.length <= 20) return value;
+  return value.match(/^v?\d+(?:\.\d+){0,2}/)?.[0] ?? `${value.slice(0, 17)}…`;
 }
 
 function currencyCode(value: string | null | undefined): string | null {
@@ -476,11 +489,19 @@ function entityName(recommendation: MetaRecommendation): string {
   );
 }
 
+function automaticRoleChip(recommendation: MetaRecommendation): string | null {
+  const context = recommendation.campaignContext;
+  if (!context) return null;
+  return context.source === "system_inferred" &&
+    context.trustedForAction === true &&
+    context.kind
+    ? `Auto · ${titleToken(context.kind)}`
+    : "Auto · Unresolved";
+}
+
 function structureChips(recommendation: MetaRecommendation): string[] {
   const candidates = [
-    recommendation.campaignContext?.kind
-      ? titleToken(recommendation.campaignContext.kind)
-      : null,
+    automaticRoleChip(recommendation),
     nonBlank(recommendation.entityConfiguration?.status),
     nonBlank(recommendation.entityConfiguration?.optimizationGoal),
     nonBlank(recommendation.rowPresentation?.blockerLabel),
@@ -910,6 +931,9 @@ function needsResolutionRows(input: {
       id: recommendation.id,
       name: entityName(recommendation),
       level: structureLevel(recommendation.level),
+      chips: [automaticRoleChip(recommendation)].filter(
+        (value): value is string => Boolean(value),
+      ),
       selected: recommendation.id === input.selectedRecommendationId,
       ...(relation
         ? { lineage: relation.label, lineageRole: relation.role }
@@ -2298,9 +2322,17 @@ function creativeInspector(input: {
 function resolveSelection(input: {
   selection: MetaDecisionCenterExactAdapterSelection | undefined;
   actionRecommendations: readonly MetaRecommendation[];
+  blockedRecommendations: readonly MetaRecommendation[];
+  watchingRecommendations: readonly MetaRecommendation[];
+  defaultSelectionLane?: "action" | "needsres" | "watching";
 }): MetaDecisionCenterExactAdapterSelection {
   if (input.selection !== undefined) return input.selection;
-  const first = input.actionRecommendations[0];
+  const first =
+    input.defaultSelectionLane === "needsres"
+      ? input.blockedRecommendations[0]
+      : input.defaultSelectionLane === "watching"
+        ? input.watchingRecommendations[0]
+        : input.actionRecommendations[0];
   return first ? { kind: "structure", recommendationId: first.id } : null;
 }
 
@@ -3752,12 +3784,16 @@ export function buildMetaDecisionCenterExactViewModel(
     nonBlank(workspace.os?.source?.engineVersion) ??
     nonBlank(workspace.system.engineVersion);
   const snapshotHealth = workspace.system.snapshotHealth;
+  const snapshotEngineVersion = nonBlank(snapshotHealth?.engineVersion);
   const campaignRoleCoverage = workspace.pulse.campaignRoleCoverage;
   const pacing = workspace.pulse.pacing;
   const syncAge = relativeAge(workspace.pulse.lastSyncAt, input.now);
   const selection = resolveSelection({
     selection: input.selection,
     actionRecommendations,
+    blockedRecommendations,
+    watchingRecommendations,
+    defaultSelectionLane: input.defaultSelectionLane,
   });
   const selectedRecommendationId =
     selection?.kind === "structure" ? selection.recommendationId : null;
@@ -3787,7 +3823,7 @@ export function buildMetaDecisionCenterExactViewModel(
         ? `snapshot ${snapshotAsOf}`
         : `snapshot ${EM_DASH}`,
       engineLabel: engineVersion
-        ? `engine ${engineVersion}`
+        ? `engine ${compactEngineVersion(engineVersion)}`
         : `engine ${EM_DASH}`,
       timeLabel: utcTime(workspace.decisionReadModel.source.computedAt),
     },
@@ -3935,8 +3971,8 @@ export function buildMetaDecisionCenterExactViewModel(
           : EM_DASH,
         detail:
           [
-            nonBlank(snapshotHealth?.engineVersion)
-              ? `recommendation engine ${snapshotHealth!.engineVersion}`
+            snapshotEngineVersion
+              ? `recommendation engine ${compactEngineVersion(snapshotEngineVersion)}`
               : null,
             syncAge ? `synced ${syncAge}` : null,
           ]
@@ -3962,8 +3998,16 @@ export function buildMetaDecisionCenterExactViewModel(
               ? "unresolved"
               : "resolved"
           : "unavailable",
+        activeCount: campaignRoleCoverage
+          ? formatNumber(campaignRoleCoverage.activeCampaigns)
+          : EM_DASH,
         unresolvedCount: campaignRoleCoverage
           ? formatNumber(campaignRoleCoverage.unresolvedCampaigns)
+          : EM_DASH,
+        actionAuthoritativeCount: campaignRoleCoverage
+          ? finite(campaignRoleCoverage.actionAuthoritativeCampaigns) === null
+            ? EM_DASH
+            : formatNumber(campaignRoleCoverage.actionAuthoritativeCampaigns!)
           : EM_DASH,
       },
       mode: {

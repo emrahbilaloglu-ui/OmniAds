@@ -1,25 +1,25 @@
 {
- "manifestHash": "4f83a0143f88a5a91ac23ae9718fcc12084576372b60fc4af48b273f666eb85d",
+ "manifestHash": "2f93055ea6457a66c812b34a4e0a95955a30153ac710bbee11ae11430fd517d7",
  "hashAlgorithm": "sha256",
  "hashBasis": "sha256 over UTF-8 bytes of JSON.stringify(artifact, null, 1) of the artifact WITHOUT its embedded hash fields (the artifact object before {<hashField>, hashAlgorithm, hashBasis} are prepended)",
  "contract": "adsecute.d077.release-candidate-manifest.v3",
- "generatedAtUtc": "2026-09-04T14:41:12.903Z",
+ "generatedAtUtc": "2026-09-04T18:25:21.463Z",
  "branch": "codex/meta-disabled-readiness-20260829",
- "head": "7d24811ce8909e86b07b55e48f7918b3a3653410",
+ "head": "7bd9ba91613427703722ad8eb1b8f9269d7d6f1f",
  "baseMain": "babf158e150fd33057117b39b175da044ac62d2e",
  "originMain": "babf158e150fd33057117b39b175da044ac62d2e",
  "remoteDivergence": {
-  "aheadOfOriginMain": 13,
+  "aheadOfOriginMain": 2,
   "behindOriginMain": 0
  },
  "selfExclusion": "this manifest's own path (docs/audits/generated/d077-release-candidate-manifest-2026-08-30.json) is EXCLUDED from its entry list: a manifest cannot recursively pin its own final bytes; its external SHA-256 is reported in the final response and by Codex's own hashing",
- "gitPorcelainEntryCount": 6,
- "releaseDiffEntryCountIncludingSelf": 521,
- "expandedOnDiskCandidateFileCountIncludingSelf": 521,
- "pinnedNonSelfFileCount": 520,
+ "gitPorcelainEntryCount": 2,
+ "releaseDiffEntryCountIncludingSelf": 522,
+ "expandedOnDiskCandidateFileCountIncludingSelf": 522,
+ "pinnedNonSelfFileCount": 521,
  "historicalContext": "pre-task freeze was 217 porcelain entries / 265 files — historical context only, NOT the final tree",
  "classCounts": {
-  "tests_only": 192,
+  "tests_only": 193,
   "runtime": 174,
   "runtime_deletion": 2,
   "deploy_config": 1,
@@ -262,13 +262,13 @@
    "path": "app/api/meta/account-pulse/route.test.ts",
    "git": "M",
    "class": "tests_only",
-   "sha256": "4698f627838dd6b582061905d7005d3bdbaf6084ae0bd18ea98919a1a9dae0d5"
+   "sha256": "93c8e71b66e45abec305488b9892b4aee7962ddf704467dc3c8bcfa938afe862"
   },
   {
    "path": "app/api/meta/account-pulse/route.ts",
    "git": "M",
    "class": "runtime",
-   "sha256": "28f49adae7dfdb3b11e7e532ec23cd3a93849de0e33a30cbb7d6b559a59cebd0"
+   "sha256": "e3e9831daed927698647c7a24a1f9c7a78f4147407cd9e5db7c89c71e3192d6e"
   },
   {
    "path": "app/api/meta/automation/budget-activation-behaviour.test.ts",
@@ -634,7 +634,7 @@
    "path": "components/meta/decision-center/decision-payload-coverage.test.ts",
    "git": "M",
    "class": "tests_only",
-   "sha256": "bbe4b559e33321df179d3e4106487ba33cdd89905b2e05ddeb05daa269006878"
+   "sha256": "e5ae7a861d2502ce87823f32f151b942891b1a8786e12510278f9828e2262bca"
   },
   {
    "path": "components/meta/decision-center/inspector-evidence.test.tsx",
@@ -646,37 +646,43 @@
    "path": "components/meta/decision-center/meta-decision-center-exact-adapter.test.ts",
    "git": "M",
    "class": "tests_only",
-   "sha256": "60aa9222fe77f53a99816e7cf10f86bc78133c742b59f5a12e52655b41bd135a"
+   "sha256": "275135f64d297d4a82d710279a7c3986df7ad474a6655ade43baa304c5a1ec49"
   },
   {
    "path": "components/meta/decision-center/meta-decision-center-exact-adapter.ts",
    "git": "M",
    "class": "runtime",
-   "sha256": "88e6fcb75ef8ae487226850beb28b744d946d366b153bedc6ae92e0a4dfb99fa"
+   "sha256": "05db1dbe374200a14946626ea92e7ff908b930654ba8c51de13979ba8a63c3ea"
   },
   {
    "path": "components/meta/decision-center/MetaDecisionCenterExact.module.css",
    "git": "M",
    "class": "runtime",
-   "sha256": "2e09313384b8d96720af82943656828926835fda7dec580b7e2dc0c8cc02ecbb"
+   "sha256": "9e3628f426193afe21d7e3dd86f55f288fec762fe799cb100f2423369fd33f12"
   },
   {
    "path": "components/meta/decision-center/MetaDecisionCenterExact.test.tsx",
    "git": "M",
    "class": "tests_only",
-   "sha256": "c09a73fb952c139a3f2bf7121e82b9feda61ae17f48c5b975d56614061d145cd"
+   "sha256": "4833a3c0e83a15ffa89adf1350115683fbb6ca0c4da040d994df4b8c91764fc8"
   },
   {
    "path": "components/meta/decision-center/MetaDecisionCenterExact.tsx",
    "git": "M",
    "class": "runtime",
-   "sha256": "f9b1d66df405df003f74dc7b6b3341ff63e22c3d91a59916c734e225938c20df"
+   "sha256": "64306d0a28d4bb2e265fd70ce7f4279a479a476897773a914920d58be10f6b7e"
   },
   {
    "path": "components/meta/decision-center/needs-resolution-lane.test.ts",
    "git": "M",
    "class": "tests_only",
    "sha256": "1e70ba39313918fbc27294ac51ba117bca0fc93654d6e99a6759e647d4ef6a82"
+  },
+  {
+   "path": "components/meta/decision-center/queue-row-relations.test.tsx",
+   "git": "M",
+   "class": "tests_only",
+   "sha256": "4aad3ea7faa08125eb1bb4c2e940b9d7c179b34d8ad37abdec00ac47110337e5"
   },
   {
    "path": "components/meta/decision-center/scope-counter.test.ts",
@@ -736,7 +742,7 @@
    "path": "components/meta/redesign/MetaPlatformPage.tsx",
    "git": "M",
    "class": "runtime",
-   "sha256": "b61c210894df684bc6c3849709e9a98d7adc14b8d6832691828281a2aea5a191"
+   "sha256": "6ec5066c1de9019ba79d6ab77964546ed36a8a9d81cd57a05fa47060e4f4f4e8"
   },
   {
    "path": "components/meta/redesign/MetaPlatformPage.wiring.test.tsx",
@@ -760,7 +766,7 @@
    "path": "components/meta/redesign/types.ts",
    "git": "M",
    "class": "runtime",
-   "sha256": "330144fb18ddcce3f7ae77a397da7713d1320516b9fb2ea2c9110856e5578f38"
+   "sha256": "ef911bc7b11bc99e592dfb9ce746be9c4c1615e31e49126dfc2fd3c447e7bf30"
   },
   {
    "path": "components/zero-base/meta/decisions/mutation-ceremony-panel.tsx",
@@ -952,7 +958,7 @@
    "path": "docs/audits/generated/d077-release-deploy-approval-packet-2026-08-30.json",
    "git": "A",
    "class": "generated_evidence",
-   "sha256": "0914d2a4456a7cb054ee32a3dabfbfd1f3f22de330a5af03ebde7a4e0e7e2c0b"
+   "sha256": "7a1c62626baf6d86cdc2be00657e1da91fe0d7657cc381556c6df0262b6d9085"
   },
   {
    "path": "docs/audits/generated/d078-hard-action-recompute-2026-08-30.json",

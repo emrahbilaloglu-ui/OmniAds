@@ -269,31 +269,27 @@ describe("MetaDecisionCenterExact canonical desktop anatomy", () => {
   it("renders the header, KPIs and controls before the decision-first workspace", () => {
     renderExact();
 
-    // Header, KPI band, operator summary, scope row and lane toolbar lead
-    // directly into the decision workspace. Supporting inactive/account facts
-    // follow the queue so they cannot displace decisions from the first view.
-    expect(root().children).toHaveLength(7);
+    // Header, KPI band, scope row and lane toolbar lead directly into the
+    // decision workspace, matching the accepted V2 panel hierarchy.
+    expect(root().children).toHaveLength(6);
     expect(root().children[0]?.textContent).toContain("Decision Center");
     expect(root().children[1]?.getAttribute("data-meta-exact-section")).toBe(
       "kpis",
     );
     expect(root().children[1]?.children).toHaveLength(5);
+    expect(root().children[2]?.textContent).toContain("Campaigns & Ad sets");
     expect(
-      root().children[2]?.hasAttribute("data-meta-exact-operator-summary"),
+      root().children[3]?.hasAttribute("data-meta-exact-lane-toolbar"),
     ).toBe(true);
-    expect(root().children[2]?.textContent).toContain(
-      "What Adsecute recommends now",
-    );
-    expect(root().children[3]?.textContent).toContain("Campaigns & Ad sets");
-    expect(
-      root().children[4]?.hasAttribute("data-meta-exact-lane-toolbar"),
-    ).toBe(true);
-    expect(root().children[5]?.hasAttribute("data-meta-exact-workspace")).toBe(
+    expect(root().children[4]?.hasAttribute("data-meta-exact-workspace")).toBe(
       true,
     );
     expect(
-      root().children[6]?.hasAttribute("data-meta-exact-inactive-strip"),
+      root().children[5]?.hasAttribute("data-meta-exact-inactive-strip"),
     ).toBe(true);
+    expect(
+      document.querySelector("[data-meta-exact-operator-summary]"),
+    ).toBeNull();
 
     expect(
       Array.from(document.querySelectorAll("[data-meta-exact-scope]")).map(
@@ -372,7 +368,9 @@ describe("MetaDecisionCenterExact canonical desktop anatomy", () => {
         coverage: "5/5",
         percentage: "100%",
         status: "resolved",
+        activeCount: "5",
         unresolvedCount: "0",
+        actionAuthoritativeCount: "0",
       },
     };
 
@@ -384,7 +382,9 @@ describe("MetaDecisionCenterExact canonical desktop anatomy", () => {
 
     expect(screen.getByText("Harcama · 2026-09-03")).toBeTruthy();
     expect(
-      screen.getByText("Otomatik çıkarım · tüm aktif kampanyalar çözüldü"),
+      screen.getByText(
+        "Otomatik çıkarım · tümü sınıflandırıldı · yetki 0/5",
+      ),
     ).toBeTruthy();
     expect(screen.queryByText("Spend · 2026-09-03")).toBeNull();
   });
@@ -421,7 +421,7 @@ describe("MetaDecisionCenterExact canonical desktop anatomy", () => {
     expect(screen.queryByText(/Selected account data through/)).toBeNull();
   });
 
-  it("routes a creative-only action summary to the creative Action lane", () => {
+  it("keeps a creative-only action directly reachable from the V2 scope control", () => {
     const viewModel = exactViewModel({
       counts: {
         structure: "0",
@@ -440,10 +440,9 @@ describe("MetaDecisionCenterExact canonical desktop anatomy", () => {
     });
     renderExact({ viewModel });
 
-    expect(
-      screen.getByText("1 decision need operator review now."),
-    ).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Review Action Now" }));
+    fireEvent.click(
+      document.querySelector('[data-meta-exact-scope="creatives"]')!,
+    );
     expect(
       document
         .querySelector('[data-meta-exact-scope="creatives"]')
@@ -454,7 +453,7 @@ describe("MetaDecisionCenterExact canonical desktop anatomy", () => {
     ).toBeTruthy();
   });
 
-  it("exposes both contributing scopes when a combined action count spans them", () => {
+  it("exposes each scope's server counts without a duplicate summary panel", () => {
     const onLaneChange = vi.fn();
     const onScopeChange = vi.fn();
     const viewModel = exactViewModel({
@@ -474,19 +473,17 @@ describe("MetaDecisionCenterExact canonical desktop anatomy", () => {
     renderExact({ viewModel, onLaneChange, onScopeChange });
 
     expect(
-      screen.queryByRole("button", { name: "Review Action Now" }),
+      document.querySelector("[data-meta-exact-operator-summary]"),
     ).toBeNull();
     fireEvent.click(
-      screen.getByRole("button", { name: "Review structure actions (2)" }),
-    );
-    expect(onScopeChange).toHaveBeenLastCalledWith("structure");
-    expect(onLaneChange).toHaveBeenLastCalledWith("action");
-
-    fireEvent.click(
-      screen.getByRole("button", { name: "Review creative actions (1)" }),
+      document.querySelector('[data-meta-exact-scope="creatives"]')!,
     );
     expect(onScopeChange).toHaveBeenLastCalledWith("creatives");
-    expect(onLaneChange).toHaveBeenLastCalledWith("action");
+    expect(
+      document.querySelector('[data-meta-exact-creative-lane="action"]')
+        ?.textContent,
+    ).toContain("1");
+    expect(onLaneChange).not.toHaveBeenCalled();
   });
 
   it("shows the canonical default inline inspector without a row-selection dependency", () => {
@@ -559,7 +556,7 @@ describe("MetaDecisionCenterExact canonical desktop anatomy", () => {
 });
 
 describe("MetaDecisionCenterExact branches and callbacks", () => {
-  it("starts with a server-count summary and routes the operator to the useful queue", () => {
+  it("routes directly from the compact lane controls without an extra summary card", () => {
     const onLaneChange = vi.fn();
     const onScopeChange = vi.fn();
     render(
@@ -582,32 +579,55 @@ describe("MetaDecisionCenterExact branches and callbacks", () => {
       />,
     );
 
-    const summary = document.querySelector(
-      "[data-meta-exact-operator-summary]",
-    );
-    expect(summary?.textContent).toContain(
-      "No immediate Meta change is ready. 12 decisions need evidence resolved.",
-    );
-    expect(
-      within(summary as HTMLElement).queryByRole("button", {
-        name: "Review Action Now",
-      }),
-    ).toBeNull();
-
     fireEvent.click(
-      within(summary as HTMLElement).getByRole("button", {
-        name: "Resolve blockers",
-      }),
+      document.querySelector('[data-meta-exact-lane="needsres"]')!,
     );
-    expect(onScopeChange).toHaveBeenLastCalledWith("structure");
     expect(onLaneChange).toHaveBeenLastCalledWith("needsres");
-    // Lower-priority routes stay in the scope/lane controls directly below;
-    // the summary carries only the single most urgent recommendation family.
+    expect(onScopeChange).not.toHaveBeenCalled();
+  });
+
+  it("keeps blocked rows compact and moves the full next step into the inspector path", () => {
+    const viewModel = exactViewModel({
+      needsResolutionRows: [
+        {
+          id: "blocked-a",
+          name: "Blocked Alpha",
+          level: "Campaign",
+          chips: ["Auto · Main"],
+          selected: true,
+          decisionLabel: "Hold",
+          decisionTone: "warning",
+          blocker: "Automatic campaign-role authority is not validated",
+          blockerCount: 3,
+          blockerTone: "warning",
+          resolution: "Validate the automatic resolver before execution.",
+          money: "$420 · ROAS 2.10",
+          confidence: "Low",
+          confidenceTone: "warning",
+          staleDemoted: true,
+          staleDemotedReason: "Confidence capped by server evidence",
+        },
+      ],
+    });
+    renderExact({ lane: "needsres", viewModel });
+
+    const row = document.querySelector<HTMLElement>(
+      '[data-meta-exact-needsres-row="blocked-a"]',
+    );
+    expect(row).toBeTruthy();
+    expect(row?.textContent).toContain("Auto · Main");
+    expect(row?.textContent).toContain("Low confidence · capped");
+    expect(row?.textContent).toContain("3 checks");
+    expect(row?.textContent).not.toContain(
+      "Validate the automatic resolver before execution.",
+    );
     expect(
-      within(summary as HTMLElement).queryByRole("button", {
-        name: "Open creative decisions",
-      }),
+      row?.querySelector("[data-el='blocker-chip']")?.parentElement?.title,
+    ).toContain("Validate the automatic resolver before execution.");
+    expect(
+      row?.querySelector("[data-meta-exact-needsres-step]"),
     ).toBeNull();
+    expect(document.querySelector("[data-meta-exact-inspector]")).toBeTruthy();
   });
 
   it("renders watching, healthy, non-sales and archive branches in lane order", () => {

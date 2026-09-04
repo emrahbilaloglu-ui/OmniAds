@@ -1479,6 +1479,10 @@ const COVERAGE: Record<string, Coverage> = {
     S.KPI,
     "the automatic campaign-role tile's numerator and its percentage",
   ),
+  "MetaCampaignRoleCoverage.actionAuthoritativeCampaigns": W(
+    S.KPI,
+    "the automatic-inference detail line's authority numerator, kept separate from classification coverage",
+  ),
   "MetaCampaignRoleCoverage.unresolvedCampaigns": W(
     S.KPI,
     "the automatic-inference detail line, explicitly identifying unresolved campaigns without a manual label workflow",
@@ -3370,17 +3374,18 @@ describe("Meta Decision payload · served-field coverage matrix", () => {
      * with nothing said.
      */
     /*
-      PRE-DEPLOY AUDIT: 647 -> 756 leaves, 54 -> 63 interfaces, 620 -> 706
+      PRE-DEPLOY AUDIT: 647 -> 757 leaves, 54 -> 63 interfaces, 620 -> 707
       varying. The increase is the two served branches the walk could not enter
       at all before — `system.budgetEvidence` and `system.budgetDryRun`, whose
       contracts lived in unopened files — plus the canonical decision ACTION,
-      whose union type stopped the walk at its alias. Every new leaf was NAMED
+      whose union type stopped the walk at its alias — and the independent
+      automatic-role authority numerator. Every new leaf was NAMED
       by "classifies every served field" before these numbers moved, which is
       the order the paragraph above requires.
     */
-    expect(fields.length).toBe(756);
+    expect(fields.length).toBe(757);
     expect(new Set(fields.map((field) => field.iface)).size).toBe(62);
-    expect(fields.filter((field) => field.varies).length).toBe(706);
+    expect(fields.filter((field) => field.varies).length).toBe(707);
     expect(fields.some((field) => field.key.endsWith(".metrics.cpa"))).toBe(
       true,
     );
@@ -3894,7 +3899,7 @@ const ELEMENT_PROOF_BY_SURFACE: Record<string, [number, number]> = {
   // the provenance band is one band, not a table of rows.
   INSPECTOR: [2, 14],
   INVENTORY: [0, 14],
-  KPI: [0, 21],
+  KPI: [0, 22],
   // PRE-DEPLOY AUDIT — 6 -> 59: the budget evidence, gate and dry-run panels
   // render here. Element-level stays 0 by construction (see
   // SURFACES_WITHOUT_ELEMENT_IDS), not by omission.
@@ -3924,7 +3929,7 @@ const DOM_PROOF_BY_SURFACE: Record<string, [number, number]> = {
   // evidence window's 'Served action' row, not the queue button's tone.
   ACTION: [9, 0],
   HEADER: [10, 0],
-  KPI: [21, 0],
+  KPI: [22, 0],
   PILLS: [8, 0],
   // Partly: the inspector's own facts render, the ones it only shows for a
   // selected creative do not; the Creatives queue and the source panel sit
@@ -3965,7 +3970,7 @@ const DOM_PROOF_BY_SURFACE: Record<string, [number, number]> = {
 // PRE-DEPLOY AUDIT — [120, 248] -> [159, 249]. The budget panels render in
 // the default markup, so 39 of their claims are proven in the DOM rather than
 // in a view model; one more sits behind a control.
-const DOM_PROOF_TOTALS: [number, number] = [163, 248];
+const DOM_PROOF_TOTALS: [number, number] = [164, 248];
 
 /** Claims on leaves the contract pins to one value, which cannot be varied. */
 // PRE-DEPLOY AUDIT — 7 -> 20. Thirteen more claims sit on leaves the budget
@@ -4736,7 +4741,7 @@ describe("Meta Decision payload · every claim, proven against the running code"
         dom,
       });
     }
-    // This hook probes 706 varying leaves across every served scenario and
+    // This hook probes 707 varying leaves across every served scenario and
     // renders the real adapters/page for each mutation. The clean two-core CI
     // runner first measured the completed hook at 358,465ms, then a loaded
     // 2026-09-04 runner completed its probe work in 484,342ms and hit the old
@@ -4757,8 +4762,8 @@ describe("Meta Decision payload · every claim, proven against the running code"
     expect(outcomes.size).toBe(fields.filter((field) => field.varies).length);
     // Exact, for the reason the walk's own size is exact: a probe that stopped
     // probing would satisfy every "nothing changed" assertion in the file.
-    // PRE-DEPLOY AUDIT: 620 -> 706, tracking the walk's own varying-leaf pin.
-    expect(outcomes.size).toBe(706);
+    // PRE-DEPLOY AUDIT: 620 -> 707, tracking the walk's own varying-leaf pin.
+    expect(outcomes.size).toBe(707);
     // And the baseline surfaces are not empty, or "nothing changed" would be
     // true of everything.
     for (const [surface, text] of Object.entries(baseline)) {
@@ -4984,7 +4989,7 @@ describe("Meta Decision payload · every claim, proven against the running code"
     const withoutElement = rendered.filter(([, value]) => !value.element);
 
     /*
-     * PRE-DEPLOY AUDIT — 375/194/181 -> 431/195/236. The added rendered
+     * PRE-DEPLOY AUDIT — 375/194/181 -> 432/195/237. The added rendered
      * claims are principally the budget evidence, gate and dry-run leaves;
      * the server-owned structure lane is now also wired to the lane surface.
      * Most of these claims are recorded at the SURFACE strength only. That moves the
@@ -4995,9 +5000,9 @@ describe("Meta Decision payload · every claim, proven against the running code"
      * strongest proof available there, so the honest thing is to let the
      * ratio move and say why.
      */
-    expect(rendered.length).toBe(431);
+    expect(rendered.length).toBe(432);
     expect(withElement.length).toBe(195);
-    expect(withoutElement.length).toBe(236);
+    expect(withoutElement.length).toBe(237);
 
     /*
      * AND WHICH ENTRIES, not merely how many.
@@ -6101,6 +6106,7 @@ describe("Meta Decision payload · the named starting points", () => {
       "MetaBudgetDryRunPanel.simulated.title",
       "MetaBudgetDryRunPanel.status",
       "MetaBudgetDryRunPanel.unavailableReason",
+      "MetaCampaignRoleCoverage.actionAuthoritativeCampaigns",
       "MetaCampaignRoleCoverage.unresolvedCampaigns",
       "MetaCanonicalDecision.sourceDecision.computedAt",
       // D073's pipeline-health envelope: the exact decision-generation clock,

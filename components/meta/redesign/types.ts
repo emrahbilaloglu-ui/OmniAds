@@ -85,6 +85,8 @@ export interface MetaCampaignRoleCoverage {
   activeCampaigns: number;
   classifiedCampaigns: number;
   unresolvedCampaigns: number;
+  /** Automatic roles that passed source, confidence, and resolver authority. */
+  actionAuthoritativeCampaigns?: number;
   latestUpdatedAt: string | null;
 }
 

@@ -221,6 +221,7 @@ describe("GET /api/meta/account-pulse", () => {
       activeCampaigns: 1,
       classifiedCampaigns: 1,
       unresolvedCampaigns: 0,
+      actionAuthoritativeCampaigns: 1,
     });
     expect(payload).not.toHaveProperty("labelCoverage");
     expect(payload.targetAnchor.configured).toBe(true);

@@ -3288,6 +3288,24 @@ export function MetaDecisionCenterExact({
       ((activeLane === "watching" || activeLane === "needsres") &&
         viewModel.inspector != null));
 
+  const creativeLaneItems = [
+    {
+      id: "action",
+      label: copy.laneActionNow,
+      count: viewModel.operatorSummary?.scopeCounts?.creatives?.action,
+    },
+    {
+      id: "needsres",
+      label: copy.laneNeedsResolution,
+      count: viewModel.operatorSummary?.scopeCounts?.creatives?.needsResolution,
+    },
+    {
+      id: "watching",
+      label: copy.laneWatching,
+      count: viewModel.operatorSummary?.scopeCounts?.creatives?.watching,
+    },
+  ] as const;
+
   function selectScope(nextScope: MetaDecisionCenterExactScope) {
     if (scope === undefined) setInternalScope(nextScope);
     onScopeChange?.(nextScope);
@@ -3525,31 +3543,29 @@ export function MetaDecisionCenterExact({
             aria-label={`${copy.decisionLanes} · ${copy.creatives}`}
             className={styles.laneGroup}
             data-meta-exact-creative-lane-toolbar
+            onKeyDown={(event) => {
+              const index = creativeLaneItems.findIndex(
+                (item) => item.id === activeLane,
+              );
+              if (index < 0) return;
+              const step =
+                event.key === "ArrowRight" || event.key === "ArrowDown"
+                  ? 1
+                  : event.key === "ArrowLeft" || event.key === "ArrowUp"
+                    ? -1
+                    : 0;
+              if (step === 0) return;
+              event.preventDefault();
+              selectLane(
+                creativeLaneItems[
+                  (index + step + creativeLaneItems.length) %
+                    creativeLaneItems.length
+                ]!.id,
+              );
+            }}
             role="radiogroup"
           >
-            {(
-              [
-                {
-                  id: "action",
-                  label: copy.laneActionNow,
-                  count:
-                    viewModel.operatorSummary?.scopeCounts?.creatives?.action,
-                },
-                {
-                  id: "needsres",
-                  label: copy.laneNeedsResolution,
-                  count:
-                    viewModel.operatorSummary?.scopeCounts?.creatives
-                      ?.needsResolution,
-                },
-                {
-                  id: "watching",
-                  label: copy.laneWatching,
-                  count:
-                    viewModel.operatorSummary?.scopeCounts?.creatives?.watching,
-                },
-              ] as const
-            ).map((item) => (
+            {creativeLaneItems.map((item) => (
               <button
                 aria-checked={activeLane === item.id}
                 className={`${styles.laneOption} ${

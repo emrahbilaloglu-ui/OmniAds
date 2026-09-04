@@ -1049,6 +1049,19 @@ describe("MetaDecisionCenterExact branches and callbacks", () => {
       document.querySelector('[data-meta-exact-creative-group="monitor"]'),
     ).toBeTruthy();
 
+    fireEvent.keyDown(creativeLaneToolbar!, { key: "ArrowRight" });
+    expect(
+      document.querySelector('[data-meta-exact-creative-lane="action"]'),
+    ).toHaveAttribute("aria-checked", "true");
+    expect(
+      document.querySelector('[data-meta-exact-creative-group="act"]'),
+    ).toBeTruthy();
+
+    fireEvent.keyDown(creativeLaneToolbar!, { key: "ArrowLeft" });
+    expect(
+      document.querySelector('[data-meta-exact-creative-lane="watching"]'),
+    ).toHaveAttribute("aria-checked", "true");
+
     fireEvent.click(
       document.querySelector('[data-meta-exact-creative-lane="action"]')!,
     );

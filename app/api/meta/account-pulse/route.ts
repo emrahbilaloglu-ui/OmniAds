@@ -308,6 +308,7 @@ async function readAutomaticCampaignRoleCoverage(input: {
       activeCampaigns: 0,
       classifiedCampaigns: 0,
       unresolvedCampaigns: 0,
+      actionAuthoritativeCampaigns: 0,
       latestUpdatedAt: null,
     };
   }
@@ -322,10 +323,14 @@ async function readAutomaticCampaignRoleCoverage(input: {
     ([campaignId, entry]) => activeSet.has(campaignId) && entry.kind !== null,
   );
   const classifiedIds = new Set(classified.map(([campaignId]) => campaignId));
+  const actionAuthoritativeCampaigns = classified.filter(
+    ([, entry]) => entry.contextTrust === "high",
+  ).length;
   return {
     activeCampaigns: activeIds.length,
     classifiedCampaigns: classifiedIds.size,
     unresolvedCampaigns: Math.max(0, activeIds.length - classifiedIds.size),
+    actionAuthoritativeCampaigns,
     latestUpdatedAt: latestTimestamp(
       classified.map(([, entry]) => entry.provenance.sourceUpdatedAt),
     ),

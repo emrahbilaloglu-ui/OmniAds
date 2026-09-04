@@ -1,5 +1,5 @@
 {
- "packetHash": "4ea42c9dfb38f398a1be82750a240c86b0d34d909541bafa2e00c8752c8abb5d",
+ "packetHash": "e81e72d732d8db2912d3e922f9232f908ad4d23fc134c11514aa0d38eb81b959",
  "hashAlgorithm": "sha256",
  "hashBasis": "sha256 over UTF-8 bytes of JSON.stringify(artifact, null, 1) of the artifact WITHOUT its embedded hash fields (the artifact object before {<hashField>, hashAlgorithm, hashBasis} are prepended)",
  "contract": "adsecute.d077.release-deploy-approval-packet.v2",
@@ -31,9 +31,9 @@
    "path": "docs/audits/generated/d077-release-candidate-manifest-2026-08-30.json",
    "generationOrderContract": "the manifest is generated LAST by this same inspected generator (phase2), after this packet and every other pinned file is final; it excludes its own path and pins this packet's exact bytes. Its entry counts must equal expectedFinalTree below (asserted at generation).",
    "expectedFinalTree": {
-    "pinnedNonSelfFileCount": 520,
+    "pinnedNonSelfFileCount": 521,
     "classCounts": {
-     "tests_only": 192,
+     "tests_only": 193,
      "runtime": 174,
      "runtime_deletion": 2,
      "deploy_config": 1,

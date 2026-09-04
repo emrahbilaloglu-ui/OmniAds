@@ -4354,7 +4354,10 @@ export function MetaPlatformPage({
 
   const selectScope = (next: MetaDecisionCenterExactScope) => {
     setActiveScope(next);
+    setDrillItem(null);
+    setInspectorDismissed(false);
     const params = currentUrlParams();
+    params.delete("entity");
     if (next === "creatives") params.set("scope", "creatives");
     else params.delete("scope");
     replaceMetaParams(params);
@@ -4362,7 +4365,10 @@ export function MetaPlatformPage({
 
   const selectLane = (next: MetaLaneView) => {
     setActiveLane(next);
+    setDrillItem(null);
+    setInspectorDismissed(false);
     const params = currentUrlParams();
+    params.delete("entity");
     params.delete("lane");
     if (next === "action") {
       params.delete("area");
@@ -5037,6 +5043,13 @@ export function MetaPlatformPage({
               inspectorDismissed
               ? null
               : undefined,
+        defaultSelectionLane:
+          activeScope === "structure" &&
+          (activeLane === "action" ||
+            activeLane === "needsres" ||
+            activeLane === "watching")
+            ? activeLane
+            : "action",
         overrides: {
           actionNow: exactActionRows,
           watching: exactWatchingRows,
@@ -5675,10 +5688,10 @@ export function MetaPlatformPage({
             lane={exactLaneForMetaLane(activeLane)}
             scope={activeScope}
             onScopeChange={selectScope}
-            // Action Now keeps the reference's resting two-column state. Watching
-            // opens the column only after Review picked a row, so the button has
-            // somewhere to put the evidence instead of doing nothing.
-            inspectorOpen={activeLane !== "watching" || drillItem !== null}
+            // Every decision-bearing structure lane keeps the reference's
+            // selected-row + evidence-rail resting state. Closing the rail is
+            // still explicit and remains closed until the operator changes lane.
+            inspectorOpen={!inspectorDismissed}
             onLaneChange={(lane) => selectLane(metaLaneForExactLane(lane))}
             onRunSnapshot={
               providerAccountId && !refreshingSnapshot && !isViewerReadOnly

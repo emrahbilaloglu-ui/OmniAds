@@ -85,11 +85,14 @@ export interface MetaDecisionCenterExactKpisViewModel {
   campaignRoles?: {
     coverage?: MetaDecisionCenterExactDisplayValue;
     percentage?: MetaDecisionCenterExactDisplayValue;
-    /** Server-fact presentation: resolved/unresolved coverage, not a manual label. */
+    /** Server-fact presentation: classified/unresolved coverage, not a manual label. */
     detail?: MetaDecisionCenterExactDisplayValue;
     /** Locale-neutral server state. The client translates it; it does not infer it. */
     status?: "no_active" | "unresolved" | "resolved" | "unavailable";
+    activeCount?: MetaDecisionCenterExactDisplayValue;
     unresolvedCount?: MetaDecisionCenterExactDisplayValue;
+    /** Automatic roles that passed the independent action-authority gate. */
+    actionAuthoritativeCount?: MetaDecisionCenterExactDisplayValue;
   };
   mode?: {
     value?: MetaDecisionCenterExactDisplayValue;
@@ -188,6 +191,8 @@ export interface MetaDecisionCenterExactNeedsResolutionRowViewModel {
   lineage?: MetaDecisionCenterExactDisplayValue;
   lineageRole?: "parent" | "child";
   selected?: boolean;
+  /** Automatic role/context facts; never a manual Test/Main/Mixed label. */
+  chips?: readonly MetaDecisionCenterExactDisplayValue[];
   /** The served verdict, still printed: blocked is about authority, not truth. */
   decisionLabel?: MetaDecisionCenterExactDisplayValue;
   decisionTone?: MetaDecisionCenterExactTone;
@@ -819,27 +824,6 @@ function display(value: MetaDecisionCenterExactDisplayValue): string {
   return value.trim() || EM_DASH;
 }
 
-/**
- * A count only when the server actually served one.
- *
- * The operating summary must never turn an absent count into zero: zero means
- * the queue was read and proved empty, while an em dash means the read did not
- * establish a count. Formatted integer strings are accepted because the exact
- * view model intentionally supports both display strings and numbers.
- */
-function servedCount(
-  value: MetaDecisionCenterExactDisplayValue,
-): number | null {
-  if (typeof value === "number") {
-    return Number.isSafeInteger(value) && value >= 0 ? value : null;
-  }
-  if (typeof value !== "string") return null;
-  const normalized = value.trim().replaceAll(",", "");
-  if (!/^\d+$/.test(normalized)) return null;
-  const parsed = Number(normalized);
-  return Number.isSafeInteger(parsed) ? parsed : null;
-}
-
 function nonBlankDisplay(value: MetaDecisionCenterExactDisplayValue): boolean {
   return typeof value === "string" && value.trim().length > 0;
 }
@@ -853,6 +837,15 @@ function meaningfulDisplay(
     value.trim().length > 0 &&
     value.trim() !== EM_DASH
   );
+}
+
+function positiveDisplayCount(
+  value: MetaDecisionCenterExactDisplayValue,
+): boolean {
+  if (typeof value === "number") return Number.isFinite(value) && value > 0;
+  if (typeof value !== "string") return false;
+  const normalized = value.trim().replaceAll(",", "");
+  return /^\d+$/.test(normalized) && Number(normalized) > 0;
 }
 
 /**
@@ -1096,14 +1089,22 @@ function QueueLineage({
 /**
  * The row the inspector is describing, said in more than colour.
  *
- * A tinted card and a ring are invisible to a colour-blind operator and to a
- * screen reader alike, so the state is also a word on the card and an
- * `aria-current` on the row.
+ * The selected fill/ring gives the visual cue; `aria-current` and this clipped
+ * word carry the same state to assistive technology without adding another
+ * badge that changes the accepted V2 card geometry.
  */
 function QueueSelectedMarker({ selected }: { selected?: boolean }) {
   const copy = useCopy();
   if (!selected) return null;
-  return <span className={styles.selectedMarker}>{copy.inspecting}</span>;
+  return (
+    <span
+      aria-label={copy.inspecting}
+      className={styles.selectedMarker}
+      title={copy.inspecting}
+    >
+      {copy.inspecting}
+    </span>
+  );
 }
 
 function ExactKpiBand({
@@ -1219,12 +1220,12 @@ function ExactKpiBand({
                 : "Automatic inference · no active campaigns"
               : kpis?.campaignRoles?.status === "unresolved"
                 ? language === "tr"
-                  ? `Otomatik çıkarım · ${display(kpis.campaignRoles.unresolvedCount)} çözümlenmedi`
-                  : `Automatic inference · ${display(kpis.campaignRoles.unresolvedCount)} unresolved`
+                  ? `Otomatik çıkarım · ${display(kpis.campaignRoles.unresolvedCount)} çözümlenmedi · yetki ${display(kpis.campaignRoles.actionAuthoritativeCount)}/${display(kpis.campaignRoles.activeCount)}`
+                  : `Automatic inference · ${display(kpis.campaignRoles.unresolvedCount)} unresolved · authority ${display(kpis.campaignRoles.actionAuthoritativeCount)}/${display(kpis.campaignRoles.activeCount)}`
                 : kpis?.campaignRoles?.status === "resolved"
                   ? language === "tr"
-                    ? "Otomatik çıkarım · tüm aktif kampanyalar çözüldü"
-                    : "Automatic inference · all active campaigns resolved"
+                    ? `Otomatik çıkarım · tümü sınıflandırıldı · yetki ${display(kpis.campaignRoles.actionAuthoritativeCount)}/${display(kpis.campaignRoles.activeCount)}`
+                    : `Automatic inference · all classified · authority ${display(kpis.campaignRoles.actionAuthoritativeCount)}/${display(kpis.campaignRoles.activeCount)}`
                   : kpis?.campaignRoles?.status === "unavailable"
                     ? language === "tr"
                       ? "Otomatik çıkarım kullanılamıyor · kesin aksiyonlar engelli"
@@ -1252,209 +1253,6 @@ function ExactKpiBand({
         </div>
       </article>
     </div>
-  );
-}
-
-/**
- * The operator's starting point.
- *
- * Every number and lane remains server-owned. This component does not infer a
- * buyer action, promote a blocked decision or reinterpret confidence; it only
- * turns the already-served queue counts into a readable route into that queue.
- */
-function OperatorDecisionSummary({
-  counts,
-  summary,
-  onSelectLane,
-  onSelectScope,
-}: {
-  counts?: MetaDecisionCenterExactCountsViewModel;
-  summary?: MetaDecisionCenterExactOperatorSummaryViewModel;
-  onSelectLane: (lane: MetaDecisionCenterExactLane) => void;
-  onSelectScope: (scope: MetaDecisionCenterExactScope) => void;
-}) {
-  const language = useZeroBaseLanguage();
-  const action = servedCount(summary?.action ?? counts?.action);
-  const needsResolution = servedCount(
-    summary?.needsResolution ?? counts?.needsres,
-  );
-  const watching = servedCount(summary?.watching ?? counts?.watching);
-
-  const routeButtons = ({
-    lane,
-    total,
-    fallbackScope,
-    genericLabel,
-    structureLabel,
-    creativeLabel,
-    structureCount,
-    creativeCount,
-  }: {
-    lane: MetaDecisionCenterExactLane;
-    total: number | null;
-    fallbackScope: MetaDecisionCenterExactScope;
-    genericLabel: string;
-    structureLabel: string;
-    creativeLabel: string;
-    structureCount: MetaDecisionCenterExactDisplayValue;
-    creativeCount: MetaDecisionCenterExactDisplayValue;
-  }) => {
-    if (total === null || total <= 0) return null;
-
-    const perScope = (
-      [
-        {
-          scope: "structure" as const,
-          count: servedCount(structureCount),
-          label: structureLabel,
-        },
-        {
-          scope: "creatives" as const,
-          count: servedCount(creativeCount),
-          label: creativeLabel,
-        },
-      ] as const
-    ).flatMap((item) =>
-      item.count !== null && item.count > 0
-        ? [{ ...item, count: item.count }]
-        : [],
-    );
-
-    if (perScope.length > 1) {
-      return perScope.map((item) => (
-        <button
-          key={`${lane}-${item.scope}`}
-          type="button"
-          onClick={() => openLane(lane, item.scope)}
-        >
-          {item.label} ({item.count})
-        </button>
-      ));
-    }
-
-    return (
-      <button
-        type="button"
-        onClick={() => openLane(lane, perScope[0]?.scope ?? fallbackScope)}
-      >
-        {genericLabel}
-      </button>
-    );
-  };
-
-  const headline =
-    action !== null && action > 0
-      ? language === "tr"
-        ? `${action} karar şimdi operatör incelemesi bekliyor.`
-        : `${action} decision${action === 1 ? "" : "s"} need operator review now.`
-      : needsResolution !== null && needsResolution > 0
-        ? language === "tr"
-          ? `Şu anda uygulanmaya hazır değişiklik yok. ${needsResolution} kararın kanıt eksiği çözülmeli.`
-          : `No immediate Meta change is ready. ${needsResolution} decision${needsResolution === 1 ? "" : "s"} need evidence resolved.`
-        : action === 0 &&
-            needsResolution === 0 &&
-            watching !== null &&
-            watching > 0
-          ? language === "tr"
-            ? `Şu anda değişiklik önerilmiyor. ${watching} karar izleniyor.`
-            : `No immediate Meta change is recommended. ${watching} decision${watching === 1 ? " is" : "s are"} being watched.`
-          : action === 0 && needsResolution === 0 && watching === 0
-            ? language === "tr"
-              ? "Bu anlık görüntü için Meta değişikliği önerilmiyor."
-              : "No Meta change is recommended for this snapshot."
-            : language === "tr"
-              ? "Güncel öneri özeti doğrulanamadı."
-              : "The current recommendation summary could not be verified.";
-
-  const openLane = (
-    lane: MetaDecisionCenterExactLane,
-    scope: MetaDecisionCenterExactScope,
-  ) => {
-    onSelectScope(scope);
-    onSelectLane(lane);
-  };
-
-  return (
-    <section
-      className={styles.operatorSummary}
-      data-meta-exact-operator-summary
-      aria-labelledby="meta-operator-summary-title"
-    >
-      <div className={styles.operatorSummaryCopy}>
-        <p className={styles.operatorSummaryEyebrow}>
-          {language === "tr"
-            ? "Adsecute şimdi ne öneriyor?"
-            : "What Adsecute recommends now"}
-        </p>
-        <h2 id="meta-operator-summary-title">{headline}</h2>
-        <p>
-          {language === "tr"
-            ? "Kampanya rolü otomatik belirlenir; çözülemeyen roller yeni kanıt gelene kadar güvenli biçimde engellenir."
-            : "Campaign role is inferred automatically; unresolved roles stay safely blocked until fresh evidence resolves them."}
-        </p>
-        <div className={styles.operatorSummaryActions}>
-          {action !== null && action > 0
-            ? routeButtons({
-                lane: "action",
-                total: action,
-                fallbackScope: summary?.actionScope ?? "structure",
-                genericLabel:
-                  language === "tr"
-                    ? "Şimdi yapılacakları incele"
-                    : "Review Action Now",
-                structureLabel:
-                  language === "tr"
-                    ? "Yapı aksiyonlarını incele"
-                    : "Review structure actions",
-                creativeLabel:
-                  language === "tr"
-                    ? "Kreatif aksiyonlarını incele"
-                    : "Review creative actions",
-                structureCount: summary?.scopeCounts?.structure?.action,
-                creativeCount: summary?.scopeCounts?.creatives?.action,
-              })
-            : needsResolution !== null && needsResolution > 0
-              ? routeButtons({
-                  lane: "needsres",
-                  total: needsResolution,
-                  fallbackScope: summary?.needsResolutionScope ?? "structure",
-                  genericLabel:
-                    language === "tr" ? "Engelleri çöz" : "Resolve blockers",
-                  structureLabel:
-                    language === "tr"
-                      ? "Yapı engellerini çöz"
-                      : "Resolve structure blockers",
-                  creativeLabel:
-                    language === "tr"
-                      ? "Kreatif engellerini çöz"
-                      : "Resolve creative blockers",
-                  structureCount:
-                    summary?.scopeCounts?.structure?.needsResolution,
-                  creativeCount:
-                    summary?.scopeCounts?.creatives?.needsResolution,
-                })
-              : watching !== null && watching > 0
-                ? routeButtons({
-                    lane: "watching",
-                    total: watching,
-                    fallbackScope: summary?.watchingScope ?? "structure",
-                    genericLabel:
-                      language === "tr" ? "İzlenenleri gör" : "Review watching",
-                    structureLabel:
-                      language === "tr"
-                        ? "Yapı izleme listesini incele"
-                        : "Review structure watchlist",
-                    creativeLabel:
-                      language === "tr"
-                        ? "Kreatif izleme listesini incele"
-                        : "Review creative watchlist",
-                    structureCount: summary?.scopeCounts?.structure?.watching,
-                    creativeCount: summary?.scopeCounts?.creatives?.watching,
-                  })
-                : null}
-        </div>
-      </div>
-    </section>
   );
 }
 
@@ -1558,7 +1356,6 @@ function LevelFilter({
     levels.length === 0 ? "all" : levels.length === 1 ? levels[0]! : "multiple";
   return (
     <label className={styles.levelFilter} data-meta-exact-level-filter={value}>
-      <span className={styles.levelFilterLabel}>{copy.level}</span>
       <select
         aria-label={copy.filterByLevel}
         data-ctl="live:META-DEC-02 level"
@@ -1838,12 +1635,16 @@ function NeedsResolutionLane({
             </div>
             <QueueLineage lineage={row.lineage} role={row.lineageRole} />
             <div className={styles.rowChips}>
+              {(row.chips ?? []).map((chip, index) => (
+                <span
+                  className={styles.rowChip}
+                  key={`${row.id}-chip-${index}`}
+                >
+                  {display(chip)}
+                </span>
+              ))}
               <QueueWorkflowChip chip={row.workflowChip} />
             </div>
-            <QueueStaleDemoted
-              demoted={row.staleDemoted}
-              reason={row.staleDemotedReason}
-            />
           </div>
           <span
             className={`${styles.decisionLabel} ${toneClass(row.decisionTone)}`}
@@ -1856,37 +1657,50 @@ function NeedsResolutionLane({
           </div>
           <span
             className={`${styles.confidencePill} ${toneClass(row.confidenceTone)}`}
+            title={
+              row.staleDemoted && meaningfulDisplay(row.staleDemotedReason)
+                ? display(row.staleDemotedReason)
+                : undefined
+            }
           >
             {display(row.confidence)} {copy.confidence.toLowerCase()}
+            {row.staleDemoted
+              ? language === "tr"
+                ? " · sınırlandı"
+                : " · capped"
+              : ""}
           </span>
           {/*
             The blocker, in the server's words. This is the whole point of the
             lane: the row is here because `node.lane === "blocked"`, and the
             operator's next question is what is holding it.
           */}
-          <div className={styles.blockerSummary}>
+          <div
+            aria-label={
+              meaningfulDisplay(row.resolution)
+                ? `${display(row.blocker)}. ${display(row.resolution)}`
+                : display(row.blocker)
+            }
+            className={styles.blockerSummary}
+            title={
+              meaningfulDisplay(row.resolution)
+                ? `${display(row.blocker)} · ${display(row.resolution)}`
+                : display(row.blocker)
+            }
+          >
             <span
               className={`${styles.blockerChip} ${toneClass(row.blockerTone ?? "warning")}`}
               data-el="blocker-chip"
             >
-              {display(row.blocker)}
+              {typeof row.blockerCount === "number" && row.blockerCount > 0
+                ? language === "tr"
+                  ? `${row.blockerCount} kontrolü incele`
+                  : `Review ${row.blockerCount} check${row.blockerCount === 1 ? "" : "s"}`
+                : language === "tr"
+                  ? "Kanıtı incele"
+                  : "Review evidence"}
             </span>
-            {typeof row.blockerCount === "number" && row.blockerCount > 1 ? (
-              <span className={styles.blockerCount}>
-                {language === "tr"
-                  ? `${row.blockerCount} güvenlik kontrolü açık · tüm ayrıntılar için kanıtı aç`
-                  : `${row.blockerCount} safety checks open · open evidence for full details`}
-              </span>
-            ) : null}
           </div>
-          {meaningfulDisplay(row.resolution) ? (
-            <p
-              className={styles.needsResolutionStep}
-              data-meta-exact-needsres-step={row.id}
-            >
-              {display(row.resolution)}
-            </p>
-          ) : null}
         </article>
       ))}
       <LanePaging
@@ -3273,20 +3087,16 @@ export function MetaDecisionCenterExact({
     viewModel.budgetEvidence,
     viewModel.budgetDryRun,
   );
-  // The reference resolves the two-column grid for the Action state, and that
-  // is where the inspector always sits. Watching gets it too, but only once a
-  // row has actually been reviewed: its "Review" button had nowhere to put the
-  // evidence on desktop, so pressing it changed nothing at all.
+  // The reference opens the evidence rail beside the selected queue row. Each
+  // decision-bearing structure lane now has a default selection, so switching
+  // lanes keeps that same readable two-column resting state.
   const showInspector =
     inspectorOpen &&
     activeScope === "structure" &&
     (activeLane === "action" ||
-      // Needs Resolution rows open the same inspector — the evidence is the
-      // whole reason to open a blocked row — but only once one has been chosen,
-      // for the same reason Watching waits: an empty two-column grid on a lane
-      // nobody has clicked is a panel of em dashes.
-      ((activeLane === "watching" || activeLane === "needsres") &&
-        viewModel.inspector != null));
+      activeLane === "watching" ||
+      activeLane === "needsres") &&
+    viewModel.inspector != null;
 
   const creativeLaneItems = [
     {
@@ -3398,13 +3208,6 @@ export function MetaDecisionCenterExact({
         activeWindow={activeWindow ?? EM_DASH}
       />
 
-      <OperatorDecisionSummary
-        counts={counts}
-        summary={viewModel.operatorSummary}
-        onSelectLane={selectLane}
-        onSelectScope={selectScope}
-      />
-
       <div className={styles.scopeRow}>
         <span className={styles.scopeControl}>
           <span
@@ -3497,9 +3300,11 @@ export function MetaDecisionCenterExact({
               </button>
             ))}
           </span>
-          <span className={styles.deferredPill}>
-            {copy.deferred} {display(counts?.deferred)}
-          </span>
+          {positiveDisplayCount(counts?.deferred) ? (
+            <span className={styles.deferredPill}>
+              {copy.deferred} {display(counts?.deferred)}
+            </span>
+          ) : null}
           <span className={styles.toolbarSpacer} />
           <LevelFilter
             levels={levels}

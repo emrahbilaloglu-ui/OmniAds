@@ -2964,6 +2964,57 @@ describe("served structure inventory", () => {
     });
   });
 
+  it("selects the first served row in the active decision lane for the evidence rail", () => {
+    const action = metaRec({
+      id: "rec_action_default",
+      campaignName: "Action default",
+    });
+    const blocked = metaRec({
+      id: "rec_blocked_default",
+      campaignName: "Blocked default",
+    });
+    const watching = metaRec({
+      id: "rec_watching_default",
+      campaignName: "Watching default",
+      decisionState: "watch",
+    });
+    const workspace = workspaceFixture({
+      actionNow: [action, blocked],
+      watching: [watching],
+      os: fullOs({
+        nodes: [
+          structureNodeFixture({
+            sourceRecommendationId: action.id,
+            lane: "act",
+          }),
+          structureNodeFixture({
+            sourceRecommendationId: blocked.id,
+            lane: "blocked",
+          }),
+          structureNodeFixture({
+            sourceRecommendationId: watching.id,
+            lane: "monitor",
+          }),
+        ],
+      }),
+    });
+
+    const blockedModel = buildMetaDecisionCenterExactViewModel({
+      workspace,
+      defaultSelectionLane: "needsres",
+    });
+    expect(blockedModel.needsResolutionRows?.[0]?.selected).toBe(true);
+    expect(blockedModel.actionRows?.[0]?.selected).toBe(false);
+    expect(blockedModel.inspector?.entityName).toBe("Blocked default");
+
+    const watchingModel = buildMetaDecisionCenterExactViewModel({
+      workspace,
+      defaultSelectionLane: "watching",
+    });
+    expect(watchingModel.watchingRows?.[0]?.selected).toBe(true);
+    expect(watchingModel.inspector?.entityName).toBe("Watching default");
+  });
+
   it("does not count recommendation-free Monitor inventory as watched decisions", () => {
     const recommendation = metaRec({
       id: "watching_recommendation",

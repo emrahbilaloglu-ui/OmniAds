@@ -445,7 +445,7 @@ describe("the row the inspector is describing looks like it", () => {
 
     const first = actionRow("rec_campaign");
     expect(first.getAttribute("aria-current")).toBe("true");
-    expect(first.textContent).toContain("Inspecting");
+    expect(within(first).getByLabelText("Inspecting")).toBeTruthy();
     expect(actionRow("rec_adset").getAttribute("aria-current")).toBeNull();
     // ...and it is the same row the panel is actually describing.
     expect(viewModel.inspector?.entityName).toBe("Parent Campaign");
@@ -470,7 +470,9 @@ describe("the row the inspector is describing looks like it", () => {
     });
 
     expect(watchingRow("rec_adset").getAttribute("aria-current")).toBe("true");
-    expect(watchingRow("rec_adset").textContent).toContain("Inspecting");
+    expect(
+      within(watchingRow("rec_adset")).getByLabelText("Inspecting"),
+    ).toBeTruthy();
     expect(watchingRow("rec_campaign").getAttribute("aria-current")).toBeNull();
   });
 
@@ -478,7 +480,7 @@ describe("the row the inspector is describing looks like it", () => {
     renderQueue({ actionNow: [campaignRec(), adsetRec()], selection: null });
 
     expect(document.querySelectorAll("[data-meta-exact-selected]")).toHaveLength(0);
-    expect(document.body.textContent).not.toContain("Inspecting");
+    expect(screen.queryByLabelText("Inspecting")).toBeNull();
   });
 
   it("says selected in words, not only in colour", () => {
@@ -489,7 +491,7 @@ describe("the row the inspector is describing looks like it", () => {
     const row = actionRow("rec_campaign");
 
     expect(row.getAttribute("aria-current")).toBe("true");
-    expect(within(row).getByText("Inspecting")).toBeTruthy();
+    expect(within(row).getByLabelText("Inspecting")).toBeTruthy();
   });
 
   it("marks no queue row when the selection is not one of these rows", () => {

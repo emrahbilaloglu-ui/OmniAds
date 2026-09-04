@@ -219,103 +219,6 @@
   font-weight: 600;
 }
 
-.operatorSummary {
-  padding: 10px 14px;
-  border: 1px solid #e4e8f0;
-  border-left: 4px solid #2a5fe2;
-  border-radius: 14px;
-  background: #fff;
-  color: #0e1526;
-}
-
-.operatorSummaryCopy {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  column-gap: 16px;
-  min-width: 0;
-}
-
-.operatorSummaryEyebrow {
-  grid-column: 1;
-  margin: 0;
-  color: #2a5fe2;
-  font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-}
-
-.operatorSummary h2 {
-  grid-column: 1;
-  max-width: 760px;
-  margin: 4px 0 0;
-  color: #0e1526;
-  font-family: var(--font-space-grotesk), "Space Grotesk", sans-serif;
-  font-size: 15px;
-  line-height: 1.35;
-}
-
-.operatorSummaryCopy > p:not(.operatorSummaryEyebrow) {
-  grid-column: 1;
-  max-width: 760px;
-  margin: 4px 0 0;
-  color: #555d6d;
-  font-size: 12px;
-  line-height: 1.4;
-}
-
-.operatorSummaryActions {
-  display: flex;
-  grid-column: 2;
-  grid-row: 1 / 4;
-  gap: 6px;
-  margin: 0;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-}
-
-.operatorSummaryActions button {
-  min-height: 30px;
-  padding: 0 10px;
-  border: 1px solid #d9e1ef;
-  border-radius: 8px;
-  background: #f7f9fc;
-  color: #45526b;
-  cursor: pointer;
-  font-size: 12px;
-  font-weight: 650;
-  white-space: nowrap;
-}
-
-.operatorSummaryActions button:first-child {
-  border-color: #2a5fe2;
-  background: #2a5fe2;
-  color: #fff;
-}
-
-.operatorSummaryActions button:hover {
-  background: #edf2fb;
-}
-
-.operatorSummaryActions button:first-child:hover {
-  background: #1e4fd6;
-}
-
-@media (max-width: 1180px) {
-  .operatorSummaryCopy {
-    grid-template-columns: 1fr;
-  }
-
-  .operatorSummaryActions {
-    grid-column: 1;
-    grid-row: auto;
-    justify-content: flex-start;
-    margin-top: 8px;
-  }
-}
-
 .scopeRow {
   display: flex;
   align-items: center;
@@ -372,16 +275,16 @@
 .laneToolbar {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   flex-wrap: wrap;
 }
 
 .laneOption {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
+  gap: 5px;
   height: 34px;
-  padding: 0 14px;
+  padding: 0 9px;
   border: 1px solid #e4e8f0;
   border-radius: 9999px;
   background: #fff;
@@ -392,7 +295,7 @@
 }
 
 .laneOption > span {
-  padding: 1px 7px;
+  padding: 1px 5px;
   border-radius: 9999px;
   background: #f1f4f9;
   color: #555d6d;
@@ -445,11 +348,13 @@
 }
 
 .laneToolbar select {
+  max-width: 140px;
   padding: 0 10px;
+  text-overflow: ellipsis;
 }
 
 .laneToolbar input {
-  width: 180px;
+  width: 170px;
   padding: 0 11px;
   outline: none;
   color: #0e1526;
@@ -1599,8 +1504,8 @@
 }
 
 /*
- * The selected row: a ring, a fill AND a word, because a colour-blind operator
- * gets nothing from the first two.
+ * The selected row: a ring and a fill. The component also emits a clipped
+ * textual marker plus `aria-current` for assistive technology.
  */
 .queueCardSelected {
   background: #f6f9ff;
@@ -1608,22 +1513,20 @@
 }
 
 .selectedMarker {
-  display: inline-flex;
-  align-items: center;
-  flex-shrink: 0;
-  padding: 2px 8px;
-  border: 1px solid #2a5fe2;
-  border-radius: 9999px;
-  background: #eaf0ff;
-  color: #1a3fa0;
-  font-size: 12px;
-  font-weight: 600;
-  vertical-align: middle;
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 /* The watching row lays its identity out inline rather than as a flex row. */
 .watchingIdentity .selectedMarker {
-  margin-left: 8px;
+  margin: -1px;
 }
 
 /*
@@ -1950,7 +1853,7 @@
 .laneGroup {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   flex-wrap: wrap;
 }
 
@@ -2017,23 +1920,25 @@
  */
 .needsResolutionCard {
   display: grid;
-  grid-template-columns: minmax(180px, 1.4fr) auto minmax(120px, 0.9fr) auto;
+  grid-template-columns:
+    minmax(170px, 1.4fr) auto minmax(112px, 0.9fr) auto
+    minmax(120px, 0.8fr);
 }
 
 .blockerSummary {
   display: flex;
-  grid-column: 1 / -1;
   min-width: 0;
-  max-width: none;
   align-items: center;
-  gap: 4px;
-  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
 }
 
 .blockerChip {
   display: inline-flex;
   align-items: center;
+  min-width: 0;
   min-height: 24px;
+  max-width: 150px;
   padding: 3px 10px;
   border: 1px solid var(--tone-border, #e4e8f0);
   border-radius: 9999px;
@@ -2042,21 +1947,9 @@
   font-size: 12px;
   font-weight: 600;
   line-height: 18px;
-}
-
-.blockerCount {
-  color: #68707f;
-  font-size: 12px;
-  line-height: 16px;
-}
-
-.needsResolutionStep {
-  grid-column: 1 / -1;
-  flex-basis: 100%;
-  margin: 0;
-  color: #555d6d;
-  font-size: 12px;
-  line-height: 16px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 @media (max-width: 720px) {
@@ -2065,9 +1958,12 @@
   }
 
   .needsResolutionCard .actionIdentity,
-  .needsResolutionCard .blockerSummary,
-  .needsResolutionCard .needsResolutionStep {
+  .needsResolutionCard .blockerSummary {
     grid-column: 1 / -1;
+  }
+
+  .needsResolutionCard .blockerSummary {
+    justify-content: flex-start;
   }
 }
 
@@ -2103,8 +1999,8 @@
   line-height: 16px;
 }
 
-.levelFilterLabel {
-  font-weight: 600;
+.levelFilter select {
+  width: 100px;
 }
 
 /* ------------------------------------------------------- inspector detail -- */

@@ -1,25 +1,25 @@
 {
- "manifestHash": "76169e1bdb146fd250454a8690c4366b0a4ece4f48a5f0241e9e8d7e36858c9f",
+ "manifestHash": "7e59fe8a4b96c008dc10cc665e6b913696b43ae9daf4b51f7fe5fd5fd83af9e7",
  "hashAlgorithm": "sha256",
  "hashBasis": "sha256 over UTF-8 bytes of JSON.stringify(artifact, null, 1) of the artifact WITHOUT its embedded hash fields (the artifact object before {<hashField>, hashAlgorithm, hashBasis} are prepended)",
  "contract": "adsecute.d077.release-candidate-manifest.v3",
- "generatedAtUtc": "2026-09-04T00:48:36.561Z",
+ "generatedAtUtc": "2026-09-04T01:02:00.180Z",
  "branch": "codex/meta-disabled-readiness-20260829",
- "head": "cedd121a2c50b9b3be758c09074c27f7cac696b5",
+ "head": "5c6f5f34dc06ae5c9b0f665c1628209da7ba34f4",
  "baseMain": "babf158e150fd33057117b39b175da044ac62d2e",
  "originMain": "babf158e150fd33057117b39b175da044ac62d2e",
  "remoteDivergence": {
-  "aheadOfOriginMain": 4,
+  "aheadOfOriginMain": 5,
   "behindOriginMain": 0
  },
  "selfExclusion": "this manifest's own path (docs/audits/generated/d077-release-candidate-manifest-2026-08-30.json) is EXCLUDED from its entry list: a manifest cannot recursively pin its own final bytes; its external SHA-256 is reported in the final response and by Codex's own hashing",
- "gitPorcelainEntryCount": 2,
- "releaseDiffEntryCountIncludingSelf": 510,
- "expandedOnDiskCandidateFileCountIncludingSelf": 510,
- "pinnedNonSelfFileCount": 509,
+ "gitPorcelainEntryCount": 3,
+ "releaseDiffEntryCountIncludingSelf": 511,
+ "expandedOnDiskCandidateFileCountIncludingSelf": 511,
+ "pinnedNonSelfFileCount": 510,
  "historicalContext": "pre-task freeze was 217 porcelain entries / 265 files — historical context only, NOT the final tree",
  "classCounts": {
-  "tests_only": 184,
+  "tests_only": 185,
   "runtime": 171,
   "runtime_deletion": 2,
   "deploy_config": 1,
@@ -910,7 +910,7 @@
    "path": "docs/audits/generated/d077-release-deploy-approval-packet-2026-08-30.json",
    "git": "A",
    "class": "generated_evidence",
-   "sha256": "a6e2a4328130bb9f57f0cfb78f3b3d6ea4be8523a5c31d07e8c557583cebb178"
+   "sha256": "fcf8b145bed8f5448fe7db1309185fea2ff3e4b38738266324f876f273207c90"
   },
   {
    "path": "docs/audits/generated/d078-hard-action-recompute-2026-08-30.json",
@@ -2375,6 +2375,12 @@
    "git": "A",
    "class": "runtime",
    "sha256": "52662bdb7d05d99a9e856dc7883c5374d7bda6e443b644bfad528bf184e99e19"
+  },
+  {
+   "path": "lib/meta/read-state-contract.test.ts",
+   "git": "M",
+   "class": "tests_only",
+   "sha256": "d39f9663a8f8c524f630c4f5168caaf7f4e9027c00d08c3db2beafb1e46e51b4"
   },
   {
    "path": "lib/meta/read-state-contract.ts",

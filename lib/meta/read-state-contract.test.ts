@@ -139,10 +139,10 @@ describe("the dictionary and the routes agree where they overlap", () => {
   /**
    * What this does and does not claim.
    *
-   * The Meta and Launchpad API surface emits **110 distinct** `code: "..."`
+   * The production Meta and Launchpad routes emit **54 distinct** `code: "..."`
    * values today. §9.1 names twenty as a floor ("En az"), not as the complete
-   * set, and most of the other ninety are narrow blocker or lineage codes that
-   * never reach an operator as a surface state. Asserting that all 110 must be
+   * set, and most of the other codes are narrow blocker or lineage codes that
+   * never reach an operator as a surface state. Asserting that all 54 must be
    * contracted would be asserting a rewrite nobody has agreed to, and would say
    * more about this test's ambition than about the product.
    *
@@ -156,7 +156,7 @@ describe("the dictionary and the routes agree where they overlap", () => {
    */
   function emittedCodes(): string[] {
     const raw = execSync(
-      `git grep -h -o -E 'code: "[a-z_]+"' -- 'app/api/meta/**' 'app/api/launchpad/**' || true`,
+      `git grep -h -o -E 'code: "[a-z_]+"' -- 'app/api/meta/**/route.ts' 'app/api/launchpad/**/route.ts' || true`,
       { encoding: "utf8" },
     );
     return [
@@ -182,8 +182,10 @@ describe("the dictionary and the routes agree where they overlap", () => {
 
   it("holds the uncontracted surface below its recorded ceiling", () => {
     /**
-     * 110 distinct codes emitted; the contracted set has grown, so the
-     * uncontracted remainder is 101. This ceiling is a **ratchet**,
+     * 54 distinct production-route codes emitted; six are contracted, so the
+     * uncontracted remainder is 48. Test fixtures are deliberately excluded:
+     * fixture-only response examples are not codes the application emits.
+     * This ceiling is a **ratchet**,
      * not a target: it fails when the uncontracted set grows, which forces the
      * question "does this new code need an operator sentence?" at the moment
      * someone adds it rather than when an operator meets it.
@@ -192,6 +194,6 @@ describe("the dictionary and the routes agree where they overlap", () => {
      * written into the same commit.
      */
     const uncontracted = emittedCodes().filter((code) => !isMetaFailureCode(code));
-    expect(uncontracted.length).toBeLessThanOrEqual(101);
+    expect(uncontracted.length).toBeLessThanOrEqual(48);
   });
 });

@@ -89,30 +89,63 @@ jobs:
 
       - name: Test
         run: |
-          npm run test -- --shard=${{ matrix.shard }}/${{ matrix.total }}
+          npm run test -- --shard=${{ matrix.shard }}/${{ matrix.total }} --exclude=scripts/audits/d080-meta-budget-edit-evidence.test.ts
 
       - name: Creative v2 safety gate
         if: matrix.shard == 1
         run: |
           npm run creative:v2:safety
 
+  d080_evidence:
+    name: d080-evidence
+    runs-on: ubuntu-latest
+    # The frozen-evidence verifier deliberately re-hashes a large package for
+    # 372 adversarial tests. On the clean PR runner the file itself took 31m43s;
+    # leaving it in a file-sharded worker concentrated that cost in one shard
+    # and caused the 45-minute job bound to cancel unrelated tests. Give this
+    # one measured workload its own bounded runner instead. It remains a single
+    # sequential test file and every assertion still runs exactly once.
+    timeout-minutes: 50
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: D080 frozen-evidence contract
+        run: |
+          npm run test -- scripts/audits/d080-meta-budget-edit-evidence.test.ts --no-file-parallelism --maxWorkers=1
+
   # Preserve one stable required check and one release dependency. This job is
   # green only when every matrix shard (including the safety gate on shard 1)
-  # is green; `always()` ensures a failed or cancelled shard cannot turn into a
-  # silently skipped release prerequisite.
+  # and the isolated D080 contract are green; `always()` ensures a failed or
+  # cancelled prerequisite cannot turn into a silently skipped release gate.
   test:
     if: always()
     needs:
       - test-shard
+      - d080_evidence
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - name: Require every test shard
         env:
           TEST_SHARD_RESULT: ${{ needs.test-shard.result }}
+          D080_EVIDENCE_RESULT: ${{ needs.d080_evidence.result }}
         run: |
           if [[ "${TEST_SHARD_RESULT}" != "success" ]]; then
             echo "One or more test shards did not succeed: ${TEST_SHARD_RESULT}"
+            exit 1
+          fi
+          if [[ "${D080_EVIDENCE_RESULT}" != "success" ]]; then
+            echo "D080 evidence contract did not succeed: ${D080_EVIDENCE_RESULT}"
             exit 1
           fi
 

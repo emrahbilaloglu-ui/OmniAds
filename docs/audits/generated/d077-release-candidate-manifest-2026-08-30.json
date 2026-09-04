@@ -1,19 +1,19 @@
 {
- "manifestHash": "0afdd5131af1b2050f89c08940d6910c82a039144946174f804e4466ab9991a2",
+ "manifestHash": "76169e1bdb146fd250454a8690c4366b0a4ece4f48a5f0241e9e8d7e36858c9f",
  "hashAlgorithm": "sha256",
  "hashBasis": "sha256 over UTF-8 bytes of JSON.stringify(artifact, null, 1) of the artifact WITHOUT its embedded hash fields (the artifact object before {<hashField>, hashAlgorithm, hashBasis} are prepended)",
  "contract": "adsecute.d077.release-candidate-manifest.v3",
- "generatedAtUtc": "2026-09-03T23:55:37.273Z",
+ "generatedAtUtc": "2026-09-04T00:48:36.561Z",
  "branch": "codex/meta-disabled-readiness-20260829",
- "head": "06dcd44db9fa2865faf2deff2cbe98f22f7b19d0",
+ "head": "cedd121a2c50b9b3be758c09074c27f7cac696b5",
  "baseMain": "babf158e150fd33057117b39b175da044ac62d2e",
  "originMain": "babf158e150fd33057117b39b175da044ac62d2e",
  "remoteDivergence": {
-  "aheadOfOriginMain": 3,
+  "aheadOfOriginMain": 4,
   "behindOriginMain": 0
  },
  "selfExclusion": "this manifest's own path (docs/audits/generated/d077-release-candidate-manifest-2026-08-30.json) is EXCLUDED from its entry list: a manifest cannot recursively pin its own final bytes; its external SHA-256 is reported in the final response and by Codex's own hashing",
- "gitPorcelainEntryCount": 35,
+ "gitPorcelainEntryCount": 2,
  "releaseDiffEntryCountIncludingSelf": 510,
  "expandedOnDiskCandidateFileCountIncludingSelf": 510,
  "pinnedNonSelfFileCount": 509,
@@ -70,7 +70,7 @@
    "path": ".github/workflows/ci.yml",
    "git": "M",
    "class": "runtime",
-   "sha256": "93e674ec7f627f24b37217fc0dcbda5ab3692f95bd38c187208abfd7aa759043"
+   "sha256": "5fa488c197cc23d4c9b7b8da1581bdddc7248b0ad32d1d6f89cd4cfc5b2d40f6"
   },
   {
    "path": ".gitignore",
@@ -2698,7 +2698,7 @@
    "path": "scripts/audits/d080-meta-budget-edit-evidence.test.ts",
    "git": "A",
    "class": "tests_only",
-   "sha256": "8db6e54bb663dc1716c0f811a22815e482a7398dd366f962c5e417388e7311ee"
+   "sha256": "279afe357bb5daed5f4377dd472a6b619c1a0e30cdd5a6f1f9a355b2e4256825"
   },
   {
    "path": "scripts/audits/d080-meta-budget-edit-evidence.ts",

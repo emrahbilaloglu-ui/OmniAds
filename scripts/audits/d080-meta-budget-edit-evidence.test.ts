@@ -12,7 +12,7 @@ import { join, resolve } from "node:path";
 
 import { createHash } from "node:crypto";
 
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import {
   ACCEPTED_CONFIDENCE_CLASSES,
@@ -136,11 +136,11 @@ import {
 
 // This file deliberately re-seals and independently verifies a large frozen
 // evidence package for every adversarial mutation. A clean two-core CI runner
-// measured one verification at roughly 9.8s and compound cases at 19-29s, so
-// the repository-wide 15s UI/unit-test liveness bound is not appropriate here.
-// Set a finite file-only bound before collection, then restore the worker
-// config at EOF; assertions and coverage are unchanged.
-vi.setConfig({ testTimeout: 120_000 });
+// measured one verification at roughly 9.8s and compound cases at 19-32s, so
+// the repository-wide 15s UI/unit-test liveness bound is not appropriate for
+// suites that perform several full verifications. Those suites declare their
+// finite timeout at collection time below; assertions and coverage are
+// unchanged.
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -1340,7 +1340,7 @@ describe("C5 baseline", () => {
   });
 });
 
-describe("C5.1 — artifact shape and provenance are enforced", () => {
+describe("C5.1 — artifact shape and provenance are enforced", { timeout: 120_000 }, () => {
   it("rejects an emptied clocks.perBinding", () => {
     const r = mutateAndVerify((a) => { a.clocks.perBinding = []; });
     expect(r.ok).toBe(false);
@@ -1420,7 +1420,7 @@ describe("C5.1 — artifact shape and provenance are enforced", () => {
   });
 });
 
-describe("C5.2 — exact invocation reconciliation", () => {
+describe("C5.2 — exact invocation reconciliation", { timeout: 120_000 }, () => {
   it("generates exactly 226 expected invocations for the pinned scope", () => {
     const expected = buildExpectedInvocations();
     expect(expected).toHaveLength(226);
@@ -1610,7 +1610,7 @@ describe("C5.4 — ledger status drives coverage and claims", () => {
   });
 });
 
-describe("C5.5 — aggregates are reconciled or honestly labelled", () => {
+describe("C5.5 — aggregates are reconciled or honestly labelled", { timeout: 120_000 }, () => {
   it("rejects an inflated unit aggregate sum", () => {
     const r = mutateAndVerify((a) => { a.unitEvidence.rows[0].compared = 999999999; });
     expect(r.ok).toBe(false);
@@ -1870,7 +1870,7 @@ describe("C6.2 — every invocation is bound to its materialised result", () => 
   }, 180_000);
 });
 
-describe("C6.3 — the complete nested contract and value domains", () => {
+describe("C6.3 — the complete nested contract and value domains", { timeout: 120_000 }, () => {
   it.each([...D080_REQUIRED_NESTED_OBJECTS])("rejects a deleted %s", (path) => {
     const r = attack((a) => {
       const parts = path.split(".");
@@ -1908,7 +1908,7 @@ describe("C6.3 — the complete nested contract and value domains", () => {
   });
 });
 
-describe("C6.4 — scope, clock and matrix exactness", () => {
+describe("C6.4 — scope, clock and matrix exactness", { timeout: 120_000 }, () => {
   it("rejects a duplicated clock source cell that preserves length", () => {
     const r = attack((a) => { a.clocks.perSource[3] = JSON.parse(JSON.stringify(a.clocks.perSource[0])); });
     expect(r.ok).toBe(false);
@@ -1981,7 +1981,7 @@ describe("C6.1E — readFailures is an exact multiset", () => {
 // C7 — the seven confirmed attacks, the real boundary, and the typed contract
 // ---------------------------------------------------------------------------
 
-describe("C7.4 — typed, dated and enumerated schema", () => {
+describe("C7.4 — typed, dated and enumerated schema", { timeout: 120_000 }, () => {
   it("rejects an unparseable retrieval timestamp", () => {
     const r = attack((a) => { a.provenance.retrievedAt = "not-a-timestamp"; });
     expect(r.ok).toBe(false);
@@ -2134,7 +2134,7 @@ describe("C7.2 — the execution boundary refuses before any query is issued", (
   });
 });
 
-describe("C7.1 — the execute/skip disposition contract", () => {
+describe("C7.1 — the execute/skip disposition contract", { timeout: 120_000 }, () => {
   const skipKeyed = () => {
     // No clocks and no canonical latest ⇒ every per-binding invocation skips.
     const dispositions = buildExpectedDispositions({ clocks: { perBinding: [] }, canonicalDecisions: { perBinding: [] } });
@@ -2205,7 +2205,7 @@ describe("C7.1 — the execute/skip disposition contract", () => {
    */
 });
 
-describe("C7.3 — every invocation has a truthful outcome receipt", () => {
+describe("C7.3 — every invocation has a truthful outcome receipt", { timeout: 120_000 }, () => {
   it("classifies all 226 receipts into the three explicit kinds", () => {
     const a = frozenClone();
     const kinds = a.invocationResults.receipts.reduce((m: any, r: any) => ((m[r.outcomeKind] = (m[r.outcomeKind] ?? 0) + 1), m), {});
@@ -3255,7 +3255,3 @@ describe("C10 — every stable dependency-cell field is bound to the ledger and 
     expect(broken.result.failures.join(" ")).toContain("dependency_cell_projection_mismatch");
   }, 300_000);
 });
-
-// Every test above captured the D080-specific timeout during collection. Reset
-// immediately so another file reusing this worker keeps the global 15s bound.
-vi.resetConfig();

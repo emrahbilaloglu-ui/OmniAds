@@ -770,7 +770,7 @@ describe("GET /api/meta/decisions-workspace", () => {
     });
   });
 
-  it("aligns downstream evidence reads to the latest account snapshot or native job attempt", async () => {
+  it("keeps metric dates separate while aligning decision evidence to the latest account snapshot or native job attempt", async () => {
     assignmentsMock.getProviderAccountAssignments.mockResolvedValue({
       id: "assignment_1",
       business_id: "biz_1",
@@ -785,7 +785,8 @@ describe("GET /api/meta/decisions-workspace", () => {
     });
     const fetchMock = vi.fn(async (url: string | URL | Request) => {
       const requestUrl = new URL(String(url));
-      expect(requestUrl.searchParams.get("endDate")).toBe("2026-07-10");
+      expect(requestUrl.searchParams.get("startDate")).toBe("2026-07-01");
+      expect(requestUrl.searchParams.get("endDate")).toBe("2026-07-07");
       if (requestUrl.pathname === "/api/meta/account-pulse")
         return jsonResponse(metaPulse());
       if (requestUrl.pathname === "/api/meta/lane-classify")
@@ -796,7 +797,7 @@ describe("GET /api/meta/decisions-workspace", () => {
 
     const response = await GET(
       new NextRequest(
-        "http://localhost/api/meta/decisions-workspace?businessId=biz_1&providerAccountId=act_1",
+        "http://localhost/api/meta/decisions-workspace?businessId=biz_1&providerAccountId=act_1&window=7d&startDate=2026-07-01&endDate=2026-07-07",
       ),
     );
 
@@ -808,6 +809,16 @@ describe("GET /api/meta/decisions-workspace", () => {
         /engine_v3_ad_decision_snapshots_daily[\s\S]*engine_v3_job_runs/,
       ),
       ["biz_1", "act_1"],
+    );
+    expect(
+      readModelMock.readMetaDecisionsWorkspaceReadModel,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({ asOfDate: "2026-07-10" }),
+    );
+    expect(
+      readModelMock.readMetaDecisionCampaignContextRows,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({ snapshotAsOf: "2026-07-10" }),
     );
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });

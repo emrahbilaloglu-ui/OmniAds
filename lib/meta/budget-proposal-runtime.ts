@@ -61,6 +61,17 @@ export const BUDGET_PROPOSAL_WITHHELD_REASONS = [
   "bid_strategy_not_writable",
   "bid_baseline_unreadable",
   "bid_baseline_changed",
+  /*
+    The two an AD-grain row can produce, and neither is a generic block.
+
+    An ad write is a decision-origin write: it must name the exact snapshot,
+    evaluation, engine version and decision hash the recommendation was made
+    under, and the ad must still carry the creative that decision was about.
+    A row missing the lineage and an ad whose creative was swapped are
+    different problems with different answers, and "blocked" would hide both.
+  */
+  "decision_lineage_absent",
+  "creative_identity_mismatch",
 ] as const;
 export type BudgetProposalWithheldReason =
   (typeof BUDGET_PROPOSAL_WITHHELD_REASONS)[number];

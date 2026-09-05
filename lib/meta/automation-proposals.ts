@@ -1234,6 +1234,14 @@ async function projectNativeAdPauseProposals(input: {
       WITH decisions AS (
         SELECT DISTINCT ON (d.ad_id)
                d.ad_id,
+               /*
+                 The snapshot row's own id, carried so the unattended executor
+                 can rebuild the decision-origin request this row came from.
+                 Without it the scheduled path could not name the decision it
+                 was acting on, and the decision-origin contract refuses a
+                 request that cannot.
+               */
+               d.id::text AS snapshot_id,
                d.creative_id,
                d.provider_account_id,
                d.evaluation_id::text AS rec_id,
@@ -1316,6 +1324,9 @@ async function projectNativeAdPauseProposals(input: {
                'decisionKey', 'ad:' || ad_id,
                'creativeId', creative_id,
                'decisionHash', decision_hash,
+               -- The decision-origin lineage an unattended write must present.
+               'snapshotId', snapshot_id,
+               'evaluationId', rec_id,
                'evidence', jsonb_build_object(
                  'roas', roas,
                  'spend', spend,

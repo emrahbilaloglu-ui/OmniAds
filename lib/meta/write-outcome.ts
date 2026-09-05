@@ -14,6 +14,11 @@
  * "the action log says success and here is its id" is a reading.
  */
 import type { TerminalOutcome } from "@/lib/zero-base/meta/mutation-ceremony";
+import {
+  hasSuccessfulMetaProviderMutationAttempt,
+  type MetaAdsWriteFailure,
+} from "@/lib/meta/ads-write";
+import type { DecisionOriginReconciliationOutcome } from "@/lib/meta/ads-action-log";
 
 export interface MetaWriteTerminalAnswer {
   outcome: TerminalOutcome;
@@ -75,4 +80,33 @@ export function metaWriteFailureAnswer(input: {
     };
   }
   return { outcome: "failed", durable: reference !== null, reference };
+}
+
+/**
+ * Which reconciliation outcome a failed decision-origin write parks under.
+ *
+ * Moved here from `ads-action-routes.ts` unchanged, because the unattended ad
+ * path has to make the SAME judgement and a second copy is a second place for
+ * "unknown" and "definitely failed" to drift apart. `null` means the failure is
+ * definite and terminalises normally; anything else means the provider may have
+ * applied the change and the row waits for a person.
+ */
+export function reconciliationOutcomeForProviderWriteFailure(
+  result: MetaAdsWriteFailure,
+  dryRun: boolean,
+): DecisionOriginReconciliationOutcome | null {
+  // A rehearsal never posted, so there is nothing whose outcome is unknown.
+  if (dryRun) return null;
+  if (
+    result.error.code === "provider_outcome_ambiguous"
+    || result.providerOutcome === "outcome_ambiguous"
+  ) {
+    return "provider_outcome_ambiguous";
+  }
+  if (hasSuccessfulMetaProviderMutationAttempt(result)) {
+    // Meta accepted it and the verification did not agree. That is not a
+    // failure to retry; it is a state nobody has established.
+    return "provider_response_succeeded_verification_failed";
+  }
+  return null;
 }

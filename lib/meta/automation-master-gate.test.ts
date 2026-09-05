@@ -110,24 +110,55 @@ describe("PRE-DEPLOY — every unattended Meta write is behind the master gate",
       .filter((entry) => entry.calls.length > 0);
 
     /*
-      Three modules, and only three.
+      Four modules, and only four.
 
       `budget-proposal-server-readers.ts` holds `updateEntityBudget`;
-      `scheduled-status-runtime.ts` holds the status primitives the sweep
-      drives for a queued pause or resume; `scheduled-bid-runtime.ts` holds
-      `updateAdsetBidAmount` for a queued cap change, which is the family that
-      had a queue action, a database CHECK and no executor at all.
+      `scheduled-status-runtime.ts` holds the status primitives for a queued
+      campaign or ad-set pause or resume; `scheduled-bid-runtime.ts` holds
+      `updateAdsetBidAmount` for a queued cap change; and
+      `scheduled-ad-status-runtime.ts` holds `pauseAd`/`resumeAd` for the
+      AD-grain rows the native chain raises — the grain the sweep used to
+      exclude because it could not drive a decision-origin write.
 
       Each is reached only after the sweep's gate chain, and each is named here
-      so a FOURTH writer appearing in this closure fails loudly rather than
+      so a FIFTH writer appearing in this closure fails loudly rather than
       arriving unannounced. Adding one is meant to be a deliberate edit of this
-      list, which is what the next case then holds it to.
+      list, which is what the two cases below then hold it to.
     */
     expect(writers.map((entry) => entry.file)).toEqual([
       "lib/meta/budget-proposal-server-readers.ts",
+      "lib/meta/scheduled-ad-status-runtime.ts",
       "lib/meta/scheduled-bid-runtime.ts",
       "lib/meta/scheduled-status-runtime.ts",
     ]);
+  });
+
+  it("the ad writer carries the gate AND the decision-origin lifecycle", () => {
+    /*
+      The ad grain has a second obligation the other three do not: an
+      unattended ad write is a decision-origin write, and a decision-origin
+      write that cannot name its snapshot, evaluation, engine version and
+      decision hash is not one. Both obligations are asserted from the source.
+    */
+    const code = stripComments(
+      readFileSync("lib/meta/scheduled-ad-status-runtime.ts", "utf8"));
+    // The shared chain.
+    expect(code).toContain("evaluateScheduledAuthority(");
+    expect(code).toContain("beforeMutationAttempt");
+    expect(code).toContain("throw new Error(verdict.refusal)");
+    expect(code).toContain("readMetaWritePosture(");
+    expect(code).toContain("control_state_unavailable");
+    expect(code).toContain("manual_confirmation_absent");
+    // The decision-origin lifecycle, not the status one.
+    expect(code).toContain("createDecisionOriginMetaAdsActionLog(");
+    expect(code).toContain("runServerDecisionOriginAdActionPreflight(");
+    expect(code).toContain("completeDecisionOriginMetaAdsActionLog(");
+    expect(code).toContain("markDecisionOriginActionReconciliationRequired(");
+    // And it refuses rather than inventing what it cannot prove.
+    expect(code).toContain("decision_lineage_absent");
+    expect(code).toContain("creative_identity_mismatch");
+    // It never reaches the operator's HTTP handler.
+    expect(code).not.toContain("handleMetaAdStatusAction");
   });
 
   it("the bid writer carries the same gate the status writer does", () => {

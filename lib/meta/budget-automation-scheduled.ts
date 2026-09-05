@@ -22,6 +22,8 @@ import {
 import { createBudgetProposalServerRuntime } from "@/lib/meta/budget-proposal-server-runtime";
 import { createScheduledStatusRuntime } from "@/lib/meta/scheduled-status-runtime";
 import { createScheduledBidRuntime } from "@/lib/meta/scheduled-bid-runtime";
+import { createScheduledAdStatusRuntime }
+  from "@/lib/meta/scheduled-ad-status-runtime";
 import { createBudgetServerReaders } from "@/lib/meta/budget-proposal-server-readers";
 import { buildMetaBudgetWriteContextForProposal } from "@/lib/meta/budget-proposal-write-context";
 import {
@@ -342,11 +344,18 @@ export async function runMetaBudgetAutomationSweepIfDue(
         WHERE business_id = $1::uuid
           AND provider_account_id = $2
           AND proposed_action = ANY($4::text[])
-          -- Ad-grain rows are operator-approved. Their write records an
-          -- immutable per-attempt event and re-proves the creative identity
-          -- through a path this sweep does not drive; claiming one here would
-          -- terminally fail a row an operator could still act on.
-          AND scope_type IN ('campaign', 'adset')
+          /*
+            Ad rows are in scope now, and they run a different lifecycle.
+
+            They used to be excluded because an ad write is a decision-origin
+            write -- its claim, post-claim preflight, reconciliation markers
+            and terminal receipt are not the ones a campaign or ad-set status
+            write uses -- and this sweep could not drive that. It can now:
+            scheduled-ad-status-runtime.ts runs exactly that lifecycle under
+            scheduled authority, so excluding the grain would leave thousands
+            of authorized native decisions a day with no unattended path.
+          */
+          AND scope_type IN ('campaign', 'adset', 'ad')
           AND status = 'pending'
           AND expires_at > now()
         ORDER BY created_at
@@ -423,12 +432,28 @@ export async function runMetaBudgetAutomationSweepIfDue(
       readGates: statusGates,
       readMode: statusMode,
     });
+    /*
+      The ad-grain arm. Same gates, a different lifecycle.
+
+      A campaign or ad-set status write and an ad status write are not the same
+      act: the second carries a creative identity and a decision-origin receipt
+      contract. Sending an ad row through the status runtime would terminally
+      fail a row an operator could still act on, which is why it withholds one
+      -- so the grain gets the executor that matches it.
+    */
+    const adRuntime = createScheduledAdStatusRuntime({
+      ctx: writeContext,
+      readGates: statusGates,
+      readMode: statusMode,
+    });
     const runtimeFor = (proposal: MetaAutomationProposal) =>
       proposal.proposedAction === "budget"
         ? budgetRuntime
         : proposal.proposedAction === "bid"
           ? bidRuntime
-          : statusRuntime;
+          : proposal.scopeType === "ad"
+            ? adRuntime
+            : statusRuntime;
 
     const claimedProposals = new Map<string, MetaAutomationProposal>();
     reports.push(await runBudgetAutomationSweep({

@@ -1,7 +1,10 @@
 import { resolveMetaAccountAuthority } from "@/lib/meta/account-context";
 import { NextRequest, NextResponse } from "next/server";
 import { requireBusinessAccess } from "@/lib/access";
-import { metaWriteTerminalAnswer } from "@/lib/meta/write-outcome";
+import {
+  metaWriteTerminalAnswer,
+  reconciliationOutcomeForProviderWriteFailure,
+} from "@/lib/meta/write-outcome";
 import { getIntegration } from "@/lib/integrations";
 import {
   metaWriteBlockedResponse,
@@ -1223,20 +1226,6 @@ function manualTerminalReconciliationMetadata(
       ? { providerMutationSucceeded: true as const }
       : {}),
   };
-}
-
-function reconciliationOutcomeForProviderWriteFailure(
-  result: MetaAdsWriteFailure,
-  dryRun: boolean,
-): DecisionOriginReconciliationOutcome | null {
-  if (dryRun) return null;
-  if (isProviderOutcomeAmbiguous(result)) {
-    return "provider_outcome_ambiguous";
-  }
-  if (hasSuccessfulMetaProviderMutationAttempt(result)) {
-    return "provider_response_succeeded_verification_failed";
-  }
-  return null;
 }
 
 function reconciliationResponseMetadata(input: {

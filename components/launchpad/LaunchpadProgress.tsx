@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import { Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -41,11 +42,22 @@ export function LaunchpadProgress({
   mode = "new_campaign",
   loading,
   result,
+  activation,
   onDone,
 }: {
   mode?: "new_campaign" | "add_to_existing" | "manage_existing";
   loading: boolean;
   result: LaunchpadProgressResult | null;
+  /**
+   * The activation control, for a receipt that can actually be activated.
+   *
+   * Supplied by the mount rather than built here: this component knows what
+   * the route answered, and only the page knows the business, the viewer and
+   * the intent's standing approval. When the receipt is not activatable the
+   * slot is ignored and the flat sentence below stands, because for that
+   * receipt the sentence is still true.
+   */
+  activation?: ReactNode;
   onDone: () => void;
 }) {
   const steps = result?.steps ?? [];
@@ -82,6 +94,21 @@ export function LaunchpadProgress({
     result && !result.ok && mode === "new_campaign" && !inFlight && !validationBlocked && hasCreatedEvidence,
   );
   const hasProviderLinks = steps.some((step) => Boolean(step.adsManagerUrl));
+  /**
+   * Can this receipt be activated at all?
+   *
+   * Only a launch that recorded an intent and finished with entities in the
+   * account can be turned on — `activateLaunchIntent` refuses anything else
+   * with `intent_not_succeeded`. A silent failure did not prove that anything
+   * exists, so the flat sentence below is still the truth for it, and swapping
+   * in a control there would offer to activate an outcome nobody can name.
+   */
+  const activatable = Boolean(
+    activation &&
+      result?.launchIntentId &&
+      (result.launchIntentStatus === "succeeded" ||
+        result.launchIntentStatus === "partially_succeeded"),
+  );
 
   return (
     <section className="space-y-5" data-testid="launchpad-progress">
@@ -254,10 +281,14 @@ export function LaunchpadProgress({
         </p>
       ) : null}
 
-      <div className="border-y border-[var(--warn-bd)] bg-[var(--warn-bg)] px-3 py-3 text-[11.5px] leading-relaxed text-[var(--muted)]">
-        <span className="font-semibold text-[var(--warn)]">Publish ACTIVE · Proposed/contract required.</span>{" "}
-        Everything created above remains PAUSED. No activation, undo, rollback, or retry control is available in this receipt.
-      </div>
+      {activatable ? (
+        activation
+      ) : (
+        <div className="border-y border-[var(--warn-bd)] bg-[var(--warn-bg)] px-3 py-3 text-[11.5px] leading-relaxed text-[var(--muted)]">
+          <span className="font-semibold text-[var(--warn)]">Publish ACTIVE · Proposed/contract required.</span>{" "}
+          Everything created above remains PAUSED. No activation, undo, rollback, or retry control is available in this receipt.
+        </div>
+      )}
 
       <div className="flex justify-end">
         <button type="button" className="btn btn--primary" onClick={onDone} disabled={loading}>

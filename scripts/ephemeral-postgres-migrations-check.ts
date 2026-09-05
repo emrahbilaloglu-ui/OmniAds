@@ -1391,6 +1391,38 @@ async function assertStructureSnapshotRuns(
   } else {
     log("structure snapshot runs are keyed per business, account, day and slot");
   }
+
+  /*
+    `source_max_date` must be NULLABLE, and that is not a formality.
+
+    It records the newest source day a run actually READ. A run that could not
+    read one has no honest value to write, and a NOT NULL column would force it
+    to invent one — which is exactly the defect this column was added to end:
+    the requested snapshot date was being stored as though it were an
+    observation, so a slot whose sources had not moved looked freshly covered.
+  */
+  const { rows: sourceColumn } = await client.query<{
+    is_nullable: string;
+    data_type: string;
+  }>(
+    `SELECT is_nullable, data_type
+       FROM information_schema.columns
+      WHERE table_schema = 'public'
+        AND table_name = 'meta_structure_snapshot_runs'
+        AND column_name = 'source_max_date'`,
+  );
+  const source = sourceColumn[0];
+  if (!source) {
+    failures.push("meta_structure_snapshot_runs.source_max_date is missing");
+  } else if (source.is_nullable !== "YES") {
+    failures.push(
+      "source_max_date is NOT NULL, so a run that read nothing would have to invent a date",
+    );
+  } else if (source.data_type !== "date") {
+    failures.push(`source_max_date is ${source.data_type}, not date`);
+  } else {
+    log("a snapshot run may record no source date rather than inventing one");
+  }
 }
 
 async function assertSchema(databaseUrl: string): Promise<string[]> {
@@ -3012,6 +3044,64 @@ async function main() {
       databaseUrl,
       path.join("scripts", "ephemeral-postgres-bid-queue-seam-child.ts"),
       "bid queue DB seam check",
+    );
+
+    /*
+      The two economic chains, end to end, through the REAL producers.
+
+      Both were previously proved only by seams that minted their own
+      `target_value`, and that is what hid the defect: the bid projection
+      persisted a payload the candidate query could never select, so no
+      snapshot-produced bid intent had ever become a queue row. This child
+      seeds facts and calls the shipped snapshot, the shipped candidate
+      readers and the shipped producers, so a payload mismatch fails here
+      instead of being invisible until an operator notices an empty queue.
+    */
+    await runChildScript(
+      repoRoot,
+      databaseUrl,
+      path.join(
+        "scripts",
+        "ephemeral-postgres-economics-bid-chain-seam-child.ts",
+      ),
+      "economics and bid chain DB seam check",
+    );
+
+    /*
+      The card-level Apply, on real storage.
+
+      Its key derivation is a claim about a stored JSON blob surviving the read
+      path, and the defect it pins was not a data question at all: the ceremony
+      sent a display identity where the server demands
+      `campaign|adset|ad:<id>`, so every Apply on a decision card was refused
+      before anything could be written.
+    */
+    await runChildScript(
+      repoRoot,
+      databaseUrl,
+      path.join(
+        "scripts",
+        "ephemeral-postgres-decision-card-apply-seam-child.ts",
+      ),
+      "decision card apply DB seam check",
+    );
+
+    /*
+      Shopify order-window coverage.
+
+      The freshness clock took MAX(latest_successful_sync_at) across every sync
+      target, so a returns pass that finished an hour ago vouched for orders
+      last read five days ago. Only a real database can show that the coverage
+      proof reads the recorded windows rather than the presence of rows.
+    */
+    await runChildScript(
+      repoRoot,
+      databaseUrl,
+      path.join(
+        "scripts",
+        "ephemeral-postgres-shopify-aov-coverage-seam-child.ts",
+      ),
+      "Shopify order coverage DB seam check",
     );
 
     // The null-versus-zero contract rests on a claim about the SCHEMA — that a

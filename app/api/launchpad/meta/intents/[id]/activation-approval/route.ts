@@ -13,11 +13,13 @@
  * that CHECK is what keeps the two apart.
  *
  * Almost nothing here comes from the request. The payload fingerprint, the
- * operation, the destination and the creative are read from the live intent and
- * its receipt, so an approval can only ever name what this launch actually
- * produced. What the operator supplies is what is genuinely theirs: the scope,
- * the copy they reviewed, and how long it stands.
+ * operation, the destination, the creative and the copy hash are read from the
+ * live intent and its receipt, so an approval can only ever name what this
+ * launch actually produced. What the operator supplies is what is genuinely
+ * theirs: the scope, the asset version they reviewed, and how long it stands.
  */
+import { createHash } from "node:crypto";
+
 import { NextRequest, NextResponse } from "next/server";
 
 import {
@@ -55,7 +57,6 @@ type ApprovalBody = {
   manualConfirmation?: string;
   approvedScope?: string;
   approvedAssetVersion?: string;
-  approvedCopyHash?: string;
   ttlHours?: number;
   /** Pass true to withdraw a standing approval. Nothing else is then read. */
   revoke?: boolean;
@@ -176,7 +177,7 @@ export async function POST(
         approvedAt.getTime() + ttlHours * 60 * 60 * 1000,
       ).toISOString(),
       approvedAssetVersion: body?.approvedAssetVersion?.trim() || "v1",
-      approvedCopyHash: body?.approvedCopyHash?.trim() ?? "",
+      approvedCopyHash: intentCopyHash(intent),
       policyVersion: ACTIVATION_POLICY_VERSION,
     });
     if (!built.ok) {
@@ -199,7 +200,17 @@ export async function POST(
   }
 }
 
-/** The creative the launch used, from its own request payload. */
+/**
+ * The creative the launch used, from its own request payload.
+ *
+ * The shipped Launchpad payload has never had a top-level `creativeId` or a
+ * `reuseCreative` object: both shapes normalize to `creatives[]` and
+ * `creativeIds[]` (`lib/launchpad/meta.ts`). Reading only the two absent keys
+ * returned null for every real intent, and `buildActivationApproval` refuses a
+ * null creative with `activation_approval_asset_mismatch` — so the approval
+ * control could not have succeeded once. The two original keys are still read
+ * first, because a stored payload written by an older build may carry them.
+ */
 function readCreativeId(intent: { requestPayload: unknown }): string | null {
   const payload = intent.requestPayload as Record<string, unknown> | null;
   const direct = payload?.creativeId;
@@ -208,7 +219,81 @@ function readCreativeId(intent: { requestPayload: unknown }): string | null {
   if (typeof reuse?.creativeId === "string" && reuse.creativeId.trim()) {
     return reuse.creativeId.trim();
   }
+  const first = readApprovedCreatives(payload)[0];
+  if (first) return first.creativeId;
+  const ids = payload?.creativeIds;
+  if (Array.isArray(ids)) {
+    for (const id of ids) {
+      if (typeof id === "string" && id.trim()) return id.trim();
+    }
+  }
   return null;
+}
+
+/**
+ * The creative set this launch actually asked for, canonicalised.
+ *
+ * One entry per creative, each carrying the id and the name the operator gave
+ * it — `nameOverride` on an add-to-existing ref, the `names` map the same
+ * request may carry instead, or the ref's own name. Sorted by id so two
+ * requests that differ only in the order the creatives were selected hash the
+ * same.
+ */
+function readApprovedCreatives(
+  payload: Record<string, unknown> | null,
+): Array<{ creativeId: string; name: string | null }> {
+  const refs = Array.isArray(payload?.creatives) ? payload!.creatives : [];
+  const names =
+    payload?.names && typeof payload.names === "object" && !Array.isArray(payload.names)
+      ? (payload.names as Record<string, unknown>)
+      : {};
+  const read = (value: unknown): string | null =>
+    typeof value === "string" && value.trim() ? value.trim() : null;
+  return refs
+    .map((item) => {
+      if (typeof item === "string") {
+        const creativeId = item.trim();
+        return creativeId
+          ? { creativeId, name: read(names[creativeId]) }
+          : null;
+      }
+      if (!item || typeof item !== "object") return null;
+      const record = item as Record<string, unknown>;
+      const creativeId = read(record.creativeId) ?? read(record.id);
+      if (!creativeId) return null;
+      return {
+        creativeId,
+        name:
+          read(record.nameOverride) ??
+          read(names[creativeId]) ??
+          read(record.name),
+      };
+    })
+    .filter((entry): entry is { creativeId: string; name: string | null } =>
+      Boolean(entry),
+    )
+    .sort((left, right) => left.creativeId.localeCompare(right.creativeId));
+}
+
+/**
+ * The copy hash, derived here rather than taken from the request.
+ *
+ * Nothing in this repository produces a copy hash — the Launchpad payload
+ * references creatives by id and carries no ad copy at all — so the field the
+ * body used to supply was either empty, which `buildActivationApproval`
+ * refuses, or a value the browser invented, which binds an approval to nothing.
+ * A binding a caller can choose is not a binding. This one is computed from the
+ * intent's own creative set, so an approval names the creatives and names this
+ * launch actually asked for, and an intent edited afterwards hashes
+ * differently.
+ */
+function intentCopyHash(intent: { requestPayload: unknown }): string {
+  const entries = readApprovedCreatives(
+    intent.requestPayload as Record<string, unknown> | null,
+  );
+  return createHash("sha256")
+    .update(JSON.stringify({ contract: "meta.launch-approved-copy.v1", entries }))
+    .digest("hex");
 }
 
 function refusalMessage(code: string): string {

@@ -67,6 +67,7 @@ import {
   type LaunchpadProgressResult,
 } from "@/components/launchpad/LaunchpadProgress";
 import { LaunchpadManageExistingReview } from "@/components/launchpad/LaunchpadManageExistingReview";
+import { LaunchpadActivationPanel } from "@/components/launchpad/LaunchpadActivationPanel";
 import { normalizeCurrencyCode } from "@/components/creatives/money";
 import {
   DEFAULT_ATTRIBUTION_PRESET_ID,
@@ -1111,11 +1112,127 @@ export default function MetaLaunchpadPage({
   const [launchLoading, setLaunchLoading] = useState(false);
   const [launchResult, setLaunchResult] =
     useState<LaunchpadProgressResult | null>(null);
+  /**
+   * The launched intent, re-read after the receipt.
+   *
+   * The launch response says what was created; it says nothing about whether a
+   * standing activation approval exists, because approving is a separate write
+   * that may have happened on another day. The activation panel must show the
+   * approval that is actually stored — an absent one means operator-only — so
+   * it is read from the intent rather than assumed from this response.
+   */
+  const [activationIntent, setActivationIntent] = useState<{
+    id: string;
+    operation: "new_campaign" | "add_to_existing";
+    status: string;
+    activationApproval: unknown;
+    activationReceipt: unknown;
+  } | null>(null);
   const [sourceDraftId, setSourceDraftId] = useState<string | null>(null);
   const [draftValidations, setDraftValidations] = useState<
     Record<string, LaunchpadDraftValidation | undefined>
   >({});
   const [expectedCpa, setExpectedCpa] = useState<number | null>(null);
+  /**
+   * Why the stored approval is not stated, when it could not be read.
+   *
+   * A failed intent read is not an intent without an approval, and the panel
+   * must not turn one into the other.
+   */
+  const [activationIntentUnavailable, setActivationIntentUnavailable] = useState<
+    string | null
+  >(null);
+  const launchIntentId = launchResult?.launchIntentId?.trim() ?? "";
+  const launchIntentActivatable =
+    launchResult?.launchIntentStatus === "succeeded" ||
+    launchResult?.launchIntentStatus === "partially_succeeded";
+
+  /**
+   * Re-read the intent the launch just wrote.
+   *
+   * The launch response carries the created identities and nothing about
+   * activation: the standing approval and the last activation receipt are
+   * columns on the intent, written by separate calls that may have happened on
+   * another day entirely. Reading them here is what lets the panel show the
+   * approval that actually exists rather than one inferred from this response,
+   * and it is re-read after every approval write so the panel never shows a
+   * state the server has already replaced.
+   */
+  const refreshActivationIntent = useCallback(async () => {
+    if (!launchIntentId) return;
+    if (!businessId || !providerAccountId) {
+      /*
+        No scope, no read — and therefore no statement about the approval. The
+        panel is told why rather than being left to render "operator only",
+        which would assert something about an authorization nothing has looked
+        at.
+      */
+      setActivationIntent(null);
+      setActivationIntentUnavailable(
+        "The launch record cannot be re-read without a resolved account, so its stored activation approval is not stated here.",
+      );
+      return;
+    }
+    try {
+      const response = await fetch(
+        `/api/launchpad/meta/intents/${encodeURIComponent(launchIntentId)}` +
+          `?businessId=${encodeURIComponent(businessId)}` +
+          `&providerAccountId=${encodeURIComponent(providerAccountId)}`,
+      );
+      const body = (await response.json().catch(() => null)) as {
+        ok?: boolean;
+        intent?: {
+          id?: string;
+          operation?: string;
+          status?: string;
+          activationApproval?: unknown;
+          activationReceipt?: unknown;
+        };
+        error?: { message?: string };
+      } | null;
+      const intent = body?.ok === true ? body.intent : null;
+      if (!intent?.id) {
+        setActivationIntent(null);
+        setActivationIntentUnavailable(
+          body?.error?.message ??
+            "The launch record could not be re-read, so its stored activation approval is not stated here.",
+        );
+        return;
+      }
+      setActivationIntent({
+        id: intent.id,
+        operation:
+          intent.operation === "add_to_existing"
+            ? "add_to_existing"
+            : "new_campaign",
+        status: intent.status ?? "",
+        activationApproval: intent.activationApproval ?? null,
+        activationReceipt: intent.activationReceipt ?? null,
+      });
+      setActivationIntentUnavailable(null);
+    } catch (error) {
+      setActivationIntent(null);
+      setActivationIntentUnavailable(
+        error instanceof Error
+          ? `${error.message} — the stored activation approval is not stated here.`
+          : "The launch record could not be re-read, so its stored activation approval is not stated here.",
+      );
+    }
+  }, [businessId, launchIntentId, providerAccountId]);
+
+  useEffect(() => {
+    if (!launchIntentId || !launchIntentActivatable) {
+      setActivationIntent(null);
+      setActivationIntentUnavailable(null);
+      return;
+    }
+    // Unknown until the read answers. A pending read is not an absent approval,
+    // and the panel must not say "operator only" while it is still looking.
+    setActivationIntentUnavailable(
+      "The stored activation approval is still being read.",
+    );
+    void refreshActivationIntent();
+  }, [launchIntentActivatable, launchIntentId, refreshActivationIntent]);
 
   /**
    * One read for the whole surface.
@@ -2710,6 +2827,45 @@ export default function MetaLaunchpadPage({
                       mode={mode}
                       loading={launchLoading}
                       result={launchResult}
+                      activation={
+                        launchIntentId && launchIntentActivatable ? (
+                          <LaunchpadActivationPanel
+                            businessId={businessId}
+                            intentId={launchIntentId}
+                            intentStatus={launchResult?.launchIntentStatus ?? null}
+                            /*
+                              The intent's own operation when it has been read,
+                              and the wizard mode otherwise. `manage_existing`
+                              never writes an intent, so it cannot reach here.
+                            */
+                            operation={
+                              activationIntent?.operation ??
+                              (mode === "add_to_existing"
+                                ? "add_to_existing"
+                                : "new_campaign")
+                            }
+                            approval={activationIntent?.activationApproval ?? null}
+                            approvalUnavailableReason={activationIntentUnavailable}
+                            activationReceipt={
+                              activationIntent?.activationReceipt ?? null
+                            }
+                            canMutate={viewer.canMutate && executionEnabled}
+                            refusalReason={
+                              // The same ladder the create control uses: the
+                              // viewer's own refusal first, then the release
+                              // gate, which is a deployment fact and applies to
+                              // everyone. The route enforces both regardless.
+                              writeRefusalReason ??
+                              (!executionEnabled
+                                ? META_GATE_REFUSAL_REASONS.launchpadExecution
+                                : null)
+                            }
+                            onResult={() => {
+                              void refreshActivationIntent();
+                            }}
+                          />
+                        ) : null
+                      }
                       onDone={resetWizard}
                     />
                   ) : null}

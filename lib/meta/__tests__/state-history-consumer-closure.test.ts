@@ -188,6 +188,16 @@ const STATE_HISTORY_REFERENCE_LEDGER: ReadonlyArray<{
   { file: "lib/meta/intent-projection-context.ts", category: "content-reader", count: 2 },
   { file: "lib/meta/intent-projection-context.test.ts", category: "test", count: 2 },
   { file: "scripts/ephemeral-postgres-intent-projection-seam-child.ts", category: "harness", count: 2 },
+  /*
+    OPERATOR-READINESS 2026-09-05 — the end-to-end economics seam.
+
+    It seeds the retained budget truth the sizing policies reason from, with the
+    observation-run foreign keys that table requires, and then calls the REAL
+    snapshot rather than restating any of its arithmetic. Two literals, both in
+    the fixture: the observation run and the state rows themselves. It issues no
+    production query of its own.
+  */
+  { file: "scripts/ephemeral-postgres-economics-bid-chain-seam-child.ts", category: "harness", count: 2 },
 ];
 const LEDGER = new Map(
   STATE_HISTORY_REFERENCE_LEDGER.map((entry) => [entry.file, entry]),

@@ -26,6 +26,7 @@ import {
   type BudgetSizingOutcome,
 } from "@/lib/meta/budget-sizing-policy";
 import type { MetaRecommendation } from "@/lib/meta/recommendations";
+import { decisionLabelForMetaRec } from "@/lib/meta/rec-label-mapping";
 
 /** The per-entity facts the sizing policy needs, gathered by the caller. */
 export interface BudgetIntentEntityContext {
@@ -85,7 +86,17 @@ export function projectBudgetIntents(
     if (!context) return rec;
 
     const outcome: BudgetSizingOutcome = sizeBudgetChange({
-      decisionLabel: rec.decisionLabel ?? null,
+      /*
+        The label the shared mapper derives, not the one the row happens to
+        carry.
+
+        Producers set `decisionLabel` only sometimes; on a raw scale or cut
+        recommendation it is undefined, and `?? null` handed the sizing policy a
+        null it refuses before any band is read. Every eligible candidate was
+        therefore withheld for want of a label the recommendation's own type
+        already determines.
+      */
+      decisionLabel: decisionLabelForMetaRec(rec),
       roleAuthoritySatisfied: context.roleAuthoritySatisfied,
       budgetUniverse: context.budgetUniverse,
       isBudgetMixed: context.isBudgetMixed,

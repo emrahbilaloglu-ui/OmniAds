@@ -362,7 +362,18 @@ async function fetchAnomalyInputs(input: { businessId: string; snapshotDate: str
         revenue,
         impressions,
         daily_budget,
-        purchases
+        /*
+          The warehouse counts purchases in conversions.
+
+          There is no purchases column on this table and never was, so this
+          SELECT raised 42703 on every run -- and the caller swallows a failed
+          detection into an empty list (snapshot.ts catches it into []). The
+          symptom was not an error anywhere: it was that no Meta account ever
+          produced a single anomaly, of any type. delivery_stall among them,
+          which is why the bid path could never find the delivery evidence a
+          cap raise requires.
+        */
+        conversions AS purchases
       FROM meta_campaign_daily
       WHERE business_id = ${input.businessId}
         AND date BETWEEN ${start28}::date AND ${input.snapshotDate}::date

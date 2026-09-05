@@ -78,6 +78,29 @@ describe("a sized bid becomes an amount the card can apply", () => {
     expect(target).toHaveProperty("bidAmountMinor");
   });
 
+  it("writes every key the queue producer selects on", () => {
+    /*
+      The payload and the query that has to find it, checked against each other.
+
+      `TYPED_BID_CANDIDATE_SQL` filters on `kind`, `authorityStatus`,
+      `blockerCodes`, `proposedMinorUnits`, `currency` and `currencyExponent`,
+      and the projection wrote none of them, so no snapshot-produced intent
+      could ever become a queue row. Naming each predicate here means the day
+      one of them stops being written is the day this fails, rather than the day
+      an operator notices the queue is empty.
+    */
+    const result = project({});
+    const target = result.recommendations[0]!.targetValue as Record<string, unknown>;
+    expect(target.kind).toBe("bid_intent");
+    expect(target.authorityStatus).toBe("authorised");
+    expect(target.blockerCodes).toEqual([]);
+    expect(target.proposedMinorUnits).toBe(1320);
+    expect(target.currency).toBe("USD");
+    expect(target.currencyExponent).toBe(2);
+    // The apply path's field is unchanged and still names the same amount.
+    expect(target.bidAmountMinor).toBe(1320);
+  });
+
   it("carries the reason, not just the percentage", () => {
     const result = project({});
     const target = result.recommendations[0]!.targetValue as { rationale?: string[] };

@@ -529,3 +529,16 @@ The same query against a genuinely migrated throwaway database, seeded with a
 CBO campaign, an ad set beneath it and a separate ABO ad set. It is what caught
 the double-count above: the account total read 550,000 instead of 300,000 until
 ownership was matched to the entity's own grain.
+
+## Addendum — 2026-09-05 end-to-end economics and bid chain seam
+
+`scripts/ephemeral-postgres-economics-bid-chain-seam-child.ts` (new, 2) — HARNESS
+
+The seam that proves both economic chains through the shipped producers rather
+than through a hand-written payload. Its two literals are fixture inserts: one
+`meta_entity_observation_runs` row per entity type, and the
+`meta_entity_state_history` rows those runs carry, because that table's
+composite foreign key requires the run to exist first. It issues no production
+query over this table — it seeds facts, calls `runMetaSnapshotForBusiness` and
+asserts on what the real readers produced.
+

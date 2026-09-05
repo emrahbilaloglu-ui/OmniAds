@@ -144,6 +144,28 @@ export function projectBidIntents(
       ...rec,
       targetValue: {
         contractVersion: META_BID_INTENT_CONTRACT_VERSION,
+        /*
+          The keys the queue producer selects on, written from the validated
+          intent rather than restated here.
+
+          `TYPED_BID_CANDIDATE_SQL` has always required `kind`, an authorised
+          `authorityStatus`, an empty `blockerCodes`, a positive
+          `proposedMinorUnits`, a `currency` and a `currencyExponent`, and this
+          projection has never written a single one of them. No snapshot-produced
+          bid intent could therefore ever become a queue row: the whole arm was
+          dark, and the tests that passed did so because they minted the payload
+          themselves instead of taking the one the snapshot writes.
+
+          Every value comes off `validated.intent`. A literal "authorised" here
+          would make a withheld intent look approvable, which is precisely the
+          thing the producer's predicate exists to prevent.
+        */
+        kind: validated.intent.kind,
+        authorityStatus: validated.intent.authorityStatus,
+        blockerCodes: validated.intent.blockerCodes,
+        proposedMinorUnits: validated.intent.proposedMinorUnits,
+        currency: validated.intent.currency,
+        currencyExponent: validated.intent.currencyExponent,
         direction: validated.intent.direction,
         percent: validated.intent.percent,
         /*

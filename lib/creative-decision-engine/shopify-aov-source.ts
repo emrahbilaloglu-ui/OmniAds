@@ -137,15 +137,25 @@ function withheld(
  */
 async function readWindowCurrencies(input: {
   businessId: string;
+  providerAccountId: string;
   from: string;
   to: string;
 }): Promise<string[] | null> {
   const sql = getDb();
   try {
+    /*
+      Bound to the SELECTED store.
+
+      The revenue this evidence is built from is read for one provider account;
+      scoping the currency by business alone let a second store's orders decide
+      whether this one's window was "mixed". Two stores in two currencies is a
+      perfectly ordinary arrangement and it is not a defect in either.
+    */
     const rows = (await sql`
       SELECT DISTINCT UPPER(BTRIM(currency_code)) AS currency
       FROM shopify_orders
       WHERE business_id = ${input.businessId}
+        AND provider_account_id = ${input.providerAccountId}
         AND COALESCE(order_created_date_local, order_created_at::date)
               BETWEEN ${input.from}::date AND ${input.to}::date
         AND currency_code IS NOT NULL
@@ -159,9 +169,19 @@ async function readWindowCurrencies(input: {
   }
 }
 
-/** The most recent order this store has recorded inside the window. */
+/**
+ * The most recent order this store recorded inside the window.
+ *
+ * This is a fact about SALES, not about syncing, and conflating the two was
+ * the defect: a store synced an hour ago with forty orders in the window but
+ * none in the last three days is perfectly current, and reading its newest
+ * sale as its sync clock reported it stale. It is kept because it is the
+ * honest `observedAt` for the evidence — when the newest fact in the window
+ * happened — and it no longer decides freshness.
+ */
 async function readObservedAt(input: {
   businessId: string;
+  providerAccountId: string;
   from: string;
   to: string;
 }): Promise<string | null> {
@@ -171,10 +191,43 @@ async function readObservedAt(input: {
       SELECT MAX(order_created_at) AS observed_at
       FROM shopify_orders
       WHERE business_id = ${input.businessId}
+        AND provider_account_id = ${input.providerAccountId}
         AND COALESCE(order_created_date_local, order_created_at::date)
               BETWEEN ${input.from}::date AND ${input.to}::date
     `) as Array<{ observed_at: string | Date | null }>;
     const value = rows[0]?.observed_at ?? null;
+    if (!value) return null;
+    return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * When this store last completed a successful sync.
+ *
+ * The real freshness evidence, from the state the sync itself writes.
+ * `latest_successful_sync_at` is a statement about our own pipeline; the
+ * newest order is a statement about the merchant's customers. Only the first
+ * can say whether the window we are about to read is complete.
+ *
+ * `null` means no successful sync is recorded for this store, which is
+ * `unavailable` rather than `stale` — we have not looked successfully, as
+ * distinct from having looked and found old data.
+ */
+async function readLastSuccessfulSyncAt(input: {
+  businessId: string;
+  providerAccountId: string;
+}): Promise<string | null> {
+  const sql = getDb();
+  try {
+    const rows = (await sql`
+      SELECT MAX(latest_successful_sync_at) AS synced_at
+      FROM shopify_sync_state
+      WHERE business_id = ${input.businessId}
+        AND provider_account_id = ${input.providerAccountId}
+    `) as Array<{ synced_at: string | Date | null }>;
+    const value = rows[0]?.synced_at ?? null;
     if (!value) return null;
     return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
   } catch {
@@ -198,6 +251,8 @@ export interface ResolveObservedShopifyAovInput {
     readAggregate?: typeof getShopifyRevenueLedgerAggregate;
     readCurrencies?: typeof readWindowCurrencies;
     readObservedAt?: typeof readObservedAt;
+    /** When this store last completed a sync. The real freshness evidence. */
+    readSyncedAt?: typeof readLastSuccessfulSyncAt;
     schemaReady?: () => Promise<boolean>;
   };
 }
@@ -212,6 +267,7 @@ export async function resolveObservedShopifyAov(
   const readAggregate = deps.readAggregate ?? getShopifyRevenueLedgerAggregate;
   const readCurrencies = deps.readCurrencies ?? readWindowCurrencies;
   const readWindowObservedAt = deps.readObservedAt ?? readObservedAt;
+  const readSyncedAt = deps.readSyncedAt ?? readLastSuccessfulSyncAt;
   const schemaReady =
     deps.schemaReady ??
     (async () =>
@@ -270,6 +326,7 @@ export async function resolveObservedShopifyAov(
   const orderCount = Number(aggregate.purchases ?? 0);
   const observedAt = await readWindowObservedAt({
     businessId: input.businessId,
+    providerAccountId,
     from,
     to,
   });
@@ -282,14 +339,30 @@ export async function resolveObservedShopifyAov(
     observedAt,
   };
 
-  if (observedAt) {
-    const ageHours = (now.getTime() - new Date(observedAt).getTime()) / 3_600_000;
-    if (
-      Number.isFinite(ageHours) &&
-      ageHours > OBSERVED_SHOPIFY_AOV_MAX_SYNC_AGE_HOURS
-    ) {
-      return withheld("stale", base, knowledgeAsOf);
-    }
+  /*
+    Freshness is a fact about OUR sync, not about the merchant's last sale.
+
+    Reading `MAX(order_created_at)` as a sync clock reported a store that
+    synced an hour ago as stale whenever it happened not to have sold anything
+    for two days — which is an ordinary week for plenty of shops, and exactly
+    the case where a 28-day average order value is still perfectly good
+    evidence.
+
+    Two distinct absences: no successful sync recorded at all is `unavailable`
+    (we have not looked successfully), and a successful sync too long ago is
+    `stale` (we looked, and what we hold has aged).
+  */
+  const lastSyncedAt = await readSyncedAt({
+    businessId: input.businessId,
+    providerAccountId,
+  });
+  if (!lastSyncedAt) return withheld("unavailable", base, knowledgeAsOf);
+  const syncAgeHours = (now.getTime() - new Date(lastSyncedAt).getTime()) / 3_600_000;
+  if (
+    !Number.isFinite(syncAgeHours)
+    || syncAgeHours > OBSERVED_SHOPIFY_AOV_MAX_SYNC_AGE_HOURS
+  ) {
+    return withheld("stale", base, knowledgeAsOf);
   }
 
   if (base.orderCount <= 0) {
@@ -298,7 +371,9 @@ export async function resolveObservedShopifyAov(
     return withheld("observed_zero_orders", base, knowledgeAsOf);
   }
 
-  const currencies = await readCurrencies({ businessId: input.businessId, from, to });
+  const currencies = await readCurrencies({
+    businessId: input.businessId, providerAccountId, from, to,
+  });
   if (currencies === null || currencies.length === 0) {
     return withheld("currency_absent", base, knowledgeAsOf);
   }

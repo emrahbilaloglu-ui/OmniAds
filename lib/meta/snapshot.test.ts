@@ -58,6 +58,16 @@ vi.mock("@/lib/meta/decision-stability", async (importOriginal) => {
 });
 
 vi.mock("@/lib/meta/anomalies", () => ({
+  // The projection of the delivery_stall detector the bid policy reads. Real,
+  // not stubbed: it is a pure filter over whatever the detector returned, and
+  // stubbing it would hide the very wiring these suites now exercise.
+  deliveryConstrainedAdsetIdsFrom: (anomalies: Array<{ type?: string; scopeType?: string; severity?: string; scopeId?: string }>) =>
+    new Set(
+      (anomalies ?? [])
+        .filter((a) => a?.type === "delivery_stall" && a?.scopeType === "adset"
+          && (a?.severity === "high" || a?.severity === "medium"))
+        .map((a) => a.scopeId as string),
+    ),
   detectAnomaliesForBusiness: vi.fn(),
 }));
 

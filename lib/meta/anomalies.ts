@@ -753,6 +753,33 @@ function detectCpmSpikes(input: {
   return anomalies;
 }
 
+/**
+ * The ad sets whose delivery is measurably limited, from anomalies already found.
+ *
+ * A bid cap may only be RAISED when delivery is actually constrained —
+ * otherwise a higher cap just pays more for the same result. The sizing policy
+ * has always required that evidence and the snapshot always passed an empty
+ * set, so no cap increase could ever be produced.
+ *
+ * This is a projection of the EXISTING `delivery_stall` detector, not a second
+ * opinion about delivery: one detector, one definition, and the card and the
+ * bid intent cite the same fact. Medium and high only — a low-severity stall is
+ * visible in the product and is not evidence enough to spend more per result.
+ */
+export function deliveryConstrainedAdsetIdsFrom(
+  anomalies: readonly MetaAnomaly[],
+): Set<string> {
+  return new Set(
+    anomalies
+      .filter((anomaly) =>
+        anomaly.type === "delivery_stall"
+        && anomaly.scopeType === "adset"
+        && (anomaly.severity === "high" || anomaly.severity === "medium")
+        && anomaly.scopeId.trim().length > 0)
+      .map((anomaly) => anomaly.scopeId),
+  );
+}
+
 export async function detectAnomaliesForBusiness(input: DetectAnomaliesInput): Promise<MetaAnomaly[]> {
   void input.calibrationContext;
   const snapshotDate = normalizeDate(input.snapshotDate);

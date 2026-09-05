@@ -24,7 +24,11 @@ function deps(overrides: Partial<Parameters<typeof resolveObservedShopifyAov>[0]
     readAggregate: async () =>
       ({ purchases: 41, revenue: 2378, averageOrderValue: 58 }) as never,
     readCurrencies: async () => ["USD"],
+    // The newest SALE in the window. A fact about the merchant's customers.
     readObservedAt: async () => "2026-09-04T18:00:00.000Z",
+    // When OUR sync last completed. The freshness evidence, and a different
+    // question from the one above.
+    readSyncedAt: async () => "2026-09-05T08:30:00.000Z",
     ...overrides,
   };
 }
@@ -174,11 +178,46 @@ describe("observed Shopify AOV", () => {
     expect(absent.status).toBe("currency_absent");
   });
 
-  it("treats a store that stopped syncing as stale, not as current", async () => {
+  it("treats a store that stopped SYNCING as stale", async () => {
+    // The sync clock, not the newest sale. This one really has not been read
+    // successfully in four days.
     const evidence = await resolve({
-      deps: deps({ readObservedAt: async () => "2026-09-01T00:00:00.000Z" }),
+      deps: deps({ readSyncedAt: async () => "2026-09-01T00:00:00.000Z" }),
     });
     expect(evidence.status).toBe("stale");
+  });
+
+  it("does NOT call a freshly synced store stale for want of recent sales", async () => {
+    /*
+      The defect this replaces. Freshness was measured from
+      `MAX(order_created_at)`, so a store synced half an hour ago with forty
+      orders in the 28-day window but nothing in the last three days was
+      reported stale — which is an ordinary week for plenty of shops, and
+      exactly the case where a 28-day average order value is still good
+      evidence.
+    */
+    const evidence = await resolve({
+      deps: deps({
+        readSyncedAt: async () => "2026-09-05T08:30:00.000Z",
+        readObservedAt: async () => "2026-09-02T10:00:00.000Z",
+        readAggregate: async () =>
+          ({ purchases: 40, revenue: 2320, averageOrderValue: 58 }) as never,
+      }),
+    });
+    expect(evidence.status).toBe("observed");
+    expect(evidence.orderCount).toBe(40);
+    expect(observedShopifyAovIsUsable(evidence)).toBe(true);
+    // The newest sale is still reported as what it is — when the newest fact
+    // in the window happened — it just no longer decides freshness.
+    expect(evidence.observedAt).toBe("2026-09-02T10:00:00.000Z");
+  });
+
+  it("separates 'never synced successfully' from 'synced too long ago'", async () => {
+    // Two different absences, and only one of them is about age.
+    const neverSynced = await resolve({
+      deps: deps({ readSyncedAt: async () => null }),
+    });
+    expect(neverSynced.status).toBe("unavailable");
   });
 
   it("carries the exponent its minor units were minted with", async () => {

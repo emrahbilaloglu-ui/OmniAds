@@ -1939,6 +1939,18 @@ describe("native ad calibration producer and SQL contract", () => {
     const result = await runAdCalibrationJob(
       { businessId: BUSINESS_ID, asOf: AS_OF },
       {
+      /*
+        The store was NEVER CONSULTED for these cases, which is what
+        `undefined` means in the authority contract.
+
+        This block is about the calibration SQL contract and its persisted
+        generation hashes. Returning `null` would say "we asked the store and
+        it had nothing", which is a different fact, enters the generation
+        content, and changes every pinned hash here for a reason that has
+        nothing to do with what these cases measure. The store's own wiring is
+        proven in `shopify-anchor-wiring` and in the ephemeral-database seam.
+      */
+      resolveObservedAov: async () => undefined,
         db,
         transaction: async (operation) => operation(),
         businessGuard: async () => null,
@@ -2104,6 +2116,18 @@ describe("native ad calibration producer and SQL contract", () => {
     const result = await runAdCalibrationJob(
       { businessId: BUSINESS_ID, asOf: AS_OF },
       {
+      /*
+        The store was NEVER CONSULTED for these cases, which is what
+        `undefined` means in the authority contract.
+
+        This block is about the calibration SQL contract and its persisted
+        generation hashes. Returning `null` would say "we asked the store and
+        it had nothing", which is a different fact, enters the generation
+        content, and changes every pinned hash here for a reason that has
+        nothing to do with what these cases measure. The store's own wiring is
+        proven in `shopify-anchor-wiring` and in the ephemeral-database seam.
+      */
+      resolveObservedAov: async () => undefined,
         db,
         transaction: async (operation) => operation(),
         businessGuard: async () => null,
@@ -2232,6 +2256,18 @@ describe("native ad calibration producer and SQL contract", () => {
     const result = await runAdCalibrationJob(
       { businessId: BUSINESS_ID, asOf: AS_OF },
       {
+      /*
+        The store was NEVER CONSULTED for these cases, which is what
+        `undefined` means in the authority contract.
+
+        This block is about the calibration SQL contract and its persisted
+        generation hashes. Returning `null` would say "we asked the store and
+        it had nothing", which is a different fact, enters the generation
+        content, and changes every pinned hash here for a reason that has
+        nothing to do with what these cases measure. The store's own wiring is
+        proven in `shopify-anchor-wiring` and in the ephemeral-database seam.
+      */
+      resolveObservedAov: async () => undefined,
         db,
         transaction: async (operation) => operation(),
         businessGuard: async () => null,
@@ -2279,6 +2315,18 @@ describe("native ad calibration producer and SQL contract", () => {
     const result = await runAdCalibrationJob(
       { businessId: BUSINESS_ID, asOf: AS_OF },
       {
+      /*
+        The store was NEVER CONSULTED for these cases, which is what
+        `undefined` means in the authority contract.
+
+        This block is about the calibration SQL contract and its persisted
+        generation hashes. Returning `null` would say "we asked the store and
+        it had nothing", which is a different fact, enters the generation
+        content, and changes every pinned hash here for a reason that has
+        nothing to do with what these cases measure. The store's own wiring is
+        proven in `shopify-anchor-wiring` and in the ephemeral-database seam.
+      */
+      resolveObservedAov: async () => undefined,
         db,
         transaction: async (operation) => operation(),
         businessGuard: async () => null,
@@ -2324,6 +2372,18 @@ describe("native ad calibration producer and SQL contract", () => {
     const result = await runAdCalibrationJob(
       { businessId: BUSINESS_ID, asOf: "2026-07-11" },
       {
+      /*
+        The store was NEVER CONSULTED for these cases, which is what
+        `undefined` means in the authority contract.
+
+        This block is about the calibration SQL contract and its persisted
+        generation hashes. Returning `null` would say "we asked the store and
+        it had nothing", which is a different fact, enters the generation
+        content, and changes every pinned hash here for a reason that has
+        nothing to do with what these cases measure. The store's own wiring is
+        proven in `shopify-anchor-wiring` and in the ephemeral-database seam.
+      */
+      resolveObservedAov: async () => undefined,
         db,
         transaction: async (operation) => operation(),
         businessGuard: async () => null,
@@ -2376,6 +2436,11 @@ describe.runIf(postgresAvailable)(
         );
         expect(providerBindings.rows).toEqual([
           {
+            // The account's own currency travels with the binding now, so the
+            // caller can resolve a store benchmark in the SAME currency. No
+            // conversion is ever performed, which is why it has to be read
+            // here rather than assumed later.
+            account_currency: "USD",
             provider_account_ref_id: PROVIDER_ACCOUNT_REF_ID,
             provider_account_id: PROVIDER_ACCOUNT_ID,
           },

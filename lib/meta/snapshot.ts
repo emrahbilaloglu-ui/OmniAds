@@ -21,6 +21,7 @@ import {
   stabilizeMetaRecommendations,
 } from "@/lib/meta/decision-stability";
 import {
+  deliveryConstrainedAdsetIdsFrom,
   detectAnomaliesForBusiness,
   type MetaAnomaly,
   type MetaAnomalySeverity,
@@ -67,6 +68,10 @@ import {
 } from "@/lib/meta/recommendations";
 import { resolveMetaFunnelCohort } from "@/lib/meta/funnel-cohort";
 import { resolveMinorUnitExponent } from "@/lib/currency/iso-4217-minor-units";
+import {
+  observedShopifyAovIsUsable,
+  resolveObservedShopifyAov,
+} from "@/lib/creative-decision-engine/shopify-aov-source";
 import {
   getMetaAutomationControlPlane,
 } from "@/lib/meta/automation-control-plane";
@@ -815,6 +820,8 @@ async function attachSizedIntents(input: {
   accountCurrency: string | null;
   contexts: { byCampaignId: Record<string, MetaCalibrationContext> };
   adsetCalibrationContextByAdsetId: Record<string, MetaCalibrationContext>;
+  /** Ad sets whose delivery is measurably limited, from this run's anomalies. */
+  deliveryConstrainedAdsetIds?: Set<string>;
 }): Promise<MetaRecommendation[]> {
   if (!input.providerAccountId) return input.recommendations;
 
@@ -836,22 +843,44 @@ async function attachSizedIntents(input: {
   /*
     The CPA benchmark a bid cap is measured against, in minor units.
 
-    Its order is the plan's: an explicitly configured target CPA first, then
-    the operator's own average-order-value assumption divided by the target
-    ROAS. Nothing further is derived here — the Shopify-observed average order
-    value reaches the native producer through its own authority, and reading it
-    a second way in a second place is how two numbers with one name appear.
+    The plan's order, and the whole point of it: an explicitly configured
+    target CPA first, then the operator's own average-order-value assumption
+    divided by the target ROAS, then the STORE's observed average order value
+    divided by the same target. ROAS stays the only required commercial target;
+    the last rung is what makes that true, because a business with only a
+    target ROAS and real Shopify sales gets a benchmark without anybody being
+    asked for a CPA or an AOV.
 
-    A currency with no known exponent gives no benchmark, because a number
-    whose scale is unknown is not a number.
+    The store's own reader owns every refusal — a thin sample, a mixed
+    currency, an unavailable sync — and yields nothing rather than a guess.
+    Nothing here converts currencies: a benchmark in another currency is not a
+    benchmark for this account. A currency with no ISO exponent gives no
+    benchmark either, because a number whose scale is unknown is not a number.
   */
   const exponent = resolveMinorUnitExponent(input.accountCurrency);
+  const currencyExponent =
+    exponent.status === "resolved" ? exponent.exponent : null;
+  const observedAov = targets.targetCpa || targets.aovAssumption
+    ? null
+    : await resolveObservedShopifyAov({
+      businessId: input.businessId,
+      accountCurrency: input.accountCurrency,
+      currencyExponent,
+    }).catch(() => null);
+  const observedAovMajor =
+    observedAov && observedShopifyAovIsUsable(observedAov)
+    && currencyExponent !== null
+      ? observedAov.aovMinor / 10 ** currencyExponent
+      : null;
+
   const majorSpendUnit = targets.targetCpa
     ?? (targets.aovAssumption && targets.targetRoas
       ? targets.aovAssumption / targets.targetRoas
-      : null);
-  const spendUnitMinor = exponent.status === "resolved" && majorSpendUnit
-    ? Math.round(majorSpendUnit * 10 ** exponent.exponent)
+      : observedAovMajor && targets.targetRoas
+        ? observedAovMajor / targets.targetRoas
+        : null);
+  const spendUnitMinor = currencyExponent !== null && majorSpendUnit
+    ? Math.round(majorSpendUnit * 10 ** currencyExponent)
     : null;
 
   /*
@@ -873,7 +902,19 @@ async function attachSizedIntents(input: {
   const cohortByEntityId = new Map<string, string>();
   const maturityByEntityId = new Map<string, boolean>();
   const calibrationSampleByEntityId = new Map<string, number | null>();
-  const lossBudget = metaLossBudgetMaturity({ targets: input.commercialTargets });
+  /*
+    Maturity measured against the SAME benchmark the sizing uses.
+
+    `metaLossBudgetMaturity` derives its spend threshold from a CPA baseline,
+    and for a business with only a target ROAS every configured source of one
+    is null — so maturity was never satisfied and nothing was ever sized,
+    whatever the store's sales said. Handing it the derived benchmark closes
+    that: one number, used for both the gate and the rungs.
+  */
+  const lossBudget = metaLossBudgetMaturity({
+    targets: input.commercialTargets,
+    accountCpaBaseline: majorSpendUnit,
+  });
   for (const campaign of input.campaigns) {
     cohortByEntityId.set(campaign.id, resolveMetaFunnelCohort({
       optimizationGoal: campaign.optimizationGoal,
@@ -919,12 +960,15 @@ async function attachSizedIntents(input: {
     maturityByEntityId,
     calibrationSampleByEntityId,
     /*
-      Delivery constraint is what makes RAISING a cap sensible; without it,
-      raising one only spends more for the same result. Nothing here measures
-      it yet, so no raise is proposed — which is the safe direction to be
-      wrong in, and the sizing policy says so by name.
+      Delivery constraint is what makes RAISING a cap sensible; without it, a
+      higher cap only pays more for the same result.
+
+      It comes from this run's own `delivery_stall` anomalies, so the card and
+      the bid intent cite one fact rather than two opinions. An absent set is
+      still "no ad set qualified", which withholds every raise — the safe
+      direction, and what the policy says by name.
     */
-    deliveryConstrainedAdsetIds: new Set<string>(),
+    deliveryConstrainedAdsetIds: input.deliveryConstrainedAdsetIds ?? new Set<string>(),
   }).catch(() => null);
   if (!contexts) return input.recommendations;
 
@@ -1066,6 +1110,15 @@ async function buildAdsetCalibrationContexts(input: {
 async function buildSnapshotRecommendations(input: {
   businessId: string;
   snapshotDate: string;
+  /**
+   * Ad sets whose delivery is measurably limited, from this run's own
+   * anomalies.
+   *
+   * The bid policy only raises a cap when delivery is constrained, and this is
+   * the evidence. Empty means no ad set qualified — which is a real answer and
+   * not the unconditional placeholder it used to be.
+   */
+  deliveryConstrainedAdsetIds?: Set<string>;
   /**
    * The ONE physical provider account this generation is for.
    *
@@ -1267,6 +1320,7 @@ async function buildSnapshotRecommendations(input: {
     proposes nothing rather than proposing on assumed values.
   */
   const guardedRecommendations = await attachSizedIntents({
+    deliveryConstrainedAdsetIds: input.deliveryConstrainedAdsetIds,
     recommendations: labelGuarded,
     businessId: input.businessId,
     providerAccountId: accountId,
@@ -1469,6 +1523,45 @@ export async function runMetaSnapshotForBusiness(
     snapshotDate: normalizedSnapshotDate,
   });
 
+  /*
+    Anomalies are detected BEFORE the per-account loop, and written after it.
+
+    The detection has to come first because the bid sizing policy needs one of
+    its results: a cap may only be RAISED when delivery is measurably
+    constrained, and the only evidence of that in this product is the
+    `delivery_stall` anomaly. The snapshot used to pass an empty set
+    unconditionally, so no cap increase could ever be produced however well the
+    ad set qualified.
+
+    The WRITE still happens once, after every account — the detector is
+    business-wide and its resolve pass has no account predicate, which is why
+    it was outside the loop to begin with. Only the reading moved.
+
+    The two profile numbers below are what the newer detectors need, from what
+    this business has already configured. Neither runs without them: "spent
+    this much with no purchases" and "spent the budget by mid-morning" are both
+    claims about a threshold, and a threshold this module chose for itself
+    would be a universal rule wearing a profile's clothes.
+  */
+  const anomalyTargets = await readMetaCommercialTargets(businessId, {
+    asOf: normalizedSnapshotDate,
+  }).catch(() => null);
+  const lossBudget = metaLossBudgetMaturity({ targets: anomalyTargets });
+  const businessZone = (await getDb()`
+    SELECT timezone FROM businesses WHERE id = ${businessId}::uuid LIMIT 1
+  `.catch(() => null)) as Array<{ timezone: string | null }> | null;
+
+  const anomalies = await detectAnomaliesForBusiness({
+    businessId,
+    snapshotDate: normalizedSnapshotDate,
+    calibrationContext: null,
+    profile: {
+      lossBudgetSpend: lossBudget?.spendThreshold ?? null,
+      timezone: businessZone?.[0]?.timezone ?? null,
+    },
+  }).catch(() => [] as MetaAnomaly[]);
+  const deliveryConstrainedAdsetIds = deliveryConstrainedAdsetIdsFrom(anomalies);
+
   const perAccount = await Promise.allSettled(
     generationAccounts.map(async (accountId) => {
       const { recommendations: rawRecommendations, lineage: accountLineage } =
@@ -1476,6 +1569,7 @@ export async function runMetaSnapshotForBusiness(
           businessId,
           snapshotDate: normalizedSnapshotDate,
           providerAccountId: accountId,
+          deliveryConstrainedAdsetIds,
         });
       // CDC discipline: act-boundary state flips must hold two consecutive
       // snapshots before publishing. Memory-read failure degrades to
@@ -1571,32 +1665,6 @@ export async function runMetaSnapshotForBusiness(
    * business-wide and its resolve pass has no account predicate, so it belongs
    * outside the loop — see the note above.
    */
-  /*
-    The two profile numbers the newer detectors need, read from what this
-    business has already configured.
-
-    Neither detector runs without them, which is the point: "spent this much
-    with no purchases" and "spent the budget by mid-morning" are both claims
-    about a threshold, and a threshold this module chose for itself would be a
-    universal rule wearing a profile's clothes.
-  */
-  const anomalyTargets = await readMetaCommercialTargets(businessId, {
-    asOf: normalizedSnapshotDate,
-  }).catch(() => null);
-  const lossBudget = metaLossBudgetMaturity({ targets: anomalyTargets });
-  const businessZone = (await getDb()`
-    SELECT timezone FROM businesses WHERE id = ${businessId}::uuid LIMIT 1
-  `.catch(() => null)) as Array<{ timezone: string | null }> | null;
-
-  const anomalies = await detectAnomaliesForBusiness({
-    businessId,
-    snapshotDate: normalizedSnapshotDate,
-    calibrationContext: null,
-    profile: {
-      lossBudgetSpend: lossBudget?.spendThreshold ?? null,
-      timezone: businessZone?.[0]?.timezone ?? null,
-    },
-  });
   await upsertSnapshotRows({
     businessId,
     snapshotDate: normalizedSnapshotDate,

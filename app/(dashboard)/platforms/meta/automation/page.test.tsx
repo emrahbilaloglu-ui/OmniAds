@@ -562,8 +562,12 @@ describe("Dashboard v2 exact Automation presentation", () => {
      * plane could only be read back through the API. The launch row is
      * excluded on purpose — new spend has no decision type and never
      * automates, so a control there would offer a choice that does not exist.
+     *
+     * Sixteen now: the guardrails card gained a Save. The ROAS floor and the
+     * quiet window were persisted, server-enforced and unsettable from any
+     * screen, so in practice they belonged to whoever last edited the row.
      */
-    expect(html.match(/<button/g)).toHaveLength(15);
+    expect(html.match(/<button/g)).toHaveLength(16);
     expect(html.match(/data-ctl="gated:AUTO-03 mode"/g)).toHaveLength(4);
     expect(html).toContain('data-field="business-writes-control"');
     expect(html).toContain('data-control="retry-queue"');
@@ -578,8 +582,9 @@ describe("Dashboard v2 exact Automation presentation", () => {
         rows: [],
       }),
     );
-    // Two, plus the twelve AUTO-03 segments, which do not depend on the queue.
-    expect(proven.match(/<button/g)).toHaveLength(14);
+    // Three, plus the twelve AUTO-03 segments, which do not depend on the
+    // queue: "+ New rule", the Stop, and the guardrails Save.
+    expect(proven.match(/<button/g)).toHaveLength(15);
     expect(proven).not.toContain('data-control="retry-queue"');
   });
 
@@ -1572,11 +1577,20 @@ describe("Dashboard v2 exact Automation presentation", () => {
      * the activated account on every path, so the site that was added to let
      * an operator PREPARE cannot be the site that ENABLES. The two actions are
      * named separately below so a rename cannot merge them.
+     *
+     * SIX, and why the sixth is safe. `set_guardrail_policy` only ever
+     * TIGHTENS or clears two limits — the ROAS floor below which a pause may
+     * be proposed, and the quiet window during which an alert may not
+     * interrupt. It enables nothing, binds no account, and reaches no
+     * provider. It was added because both values were persisted,
+     * server-enforced and unsettable from any screen, which made them belong
+     * to whoever last edited the row rather than to the operator.
      */
-    expect(source.match(/method: "POST"/g)).toHaveLength(5);
+    expect(source.match(/method: "POST"/g)).toHaveLength(6);
     expect(source).toContain('action: "set_decision_type_mode"');
     expect(source).toContain('action: "set_budget_auto_execution"');
     expect(source).toContain('action: "save_budget_automation_config"');
+    expect(source).toContain('action: "set_guardrail_policy"');
     expect(source).toMatch(
       /fetch\(`\/api\/meta\/automation\/proposals\?\$\{query\.toString\(\)\}`, \{\s*method: "POST"/,
     );
@@ -1749,5 +1763,74 @@ describe("Dashboard v2 exact Automation presentation", () => {
       /@media \(max-width: 1023px\)[\s\S]*?\.mobileSurface \{[\s\S]*?display: grid/,
     );
     expect(css).toContain("@media (min-width: 1024px)");
+  });
+});
+
+describe("the guardrails an operator could read and not set", () => {
+  /*
+    `minRoasFloor` decides whether a pause is proposed at all, and quiet hours
+    decide when an alert may interrupt someone. Both are persisted, both are
+    enforced on the server, and neither had a control anywhere — which in
+    practice made them belong to whoever last edited the row directly. The
+    route has accepted `set_guardrail_policy` all along; nothing sent it.
+  */
+  function withGuardrails(
+    guardrails: Partial<MetaAutomationControlPlane["businessControl"]["guardrails"]>,
+    viewer?: React.ComponentProps<typeof MetaAutomationView>["viewer"],
+  ) {
+    return renderToStaticMarkup(
+      <MetaAutomationView
+        payload={{
+          ...payload,
+          businessControl: {
+            ...payload.businessControl,
+            guardrails: { ...payload.businessControl.guardrails, ...guardrails },
+          },
+        }}
+        providerAccountId="act_1"
+        viewer={viewer}
+      />,
+    );
+  }
+
+  it("seeds each control from what is stored", () => {
+    const html = withGuardrails({
+      minRoasFloor: 1.4,
+      quietHours: { start: "22:00", end: "07:00", timezone: "Europe/Istanbul" },
+    });
+    expect(html).toContain('data-testid="guardrail-policy-form"');
+    expect(html).toContain('value="1.4"');
+    expect(html).toContain('value="22:00"');
+    expect(html).toContain('value="Europe/Istanbul"');
+  });
+
+  it("leaves the controls empty when nothing is stored, and says blank clears", () => {
+    // An operator who wants automation to consider every losing entity should
+    // not have to invent a number to say so.
+    const html = withGuardrails({ minRoasFloor: null, quietHours: null });
+    expect(html).toContain("Blank clears");
+    expect(html).toContain('data-testid="guardrail-roas-floor"');
+  });
+
+  it("keeps the read-only rows the card always had", () => {
+    const html = withGuardrails({ minRoasFloor: 1.4 });
+    expect(html).toContain('data-field="guardrail-roas-floor"');
+    expect(html).toContain('data-field="guardrail-quiet-hours"');
+  });
+
+  it("offers no control to a viewer who may not mutate", () => {
+    const html = withGuardrails(
+      { minRoasFloor: 1.4 },
+      // The real envelope, built the way the page builds it: a reviewer is
+      // read-only whatever the release posture says.
+      buildAutomationViewerEnvelope({
+        role: "admin",
+        reviewerReadOnly: true,
+        writeAuthority: "live",
+      }),
+    );
+    expect(html).toContain('data-can-mutate="false"');
+    // Every input disabled, not merely styled as such.
+    expect(html).toMatch(/data-testid="guardrail-roas-floor"[^>]*disabled/);
   });
 });

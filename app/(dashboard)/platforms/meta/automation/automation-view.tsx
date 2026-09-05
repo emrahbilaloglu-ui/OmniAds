@@ -1386,6 +1386,24 @@ export function MetaAutomationView({
   );
 
   const guardrails = guardrailsFor(payload, liveWritesRefusalReason);
+  // The persisted values themselves, not the formatted rows above: the form
+  // has to seed from what is stored, and an unread control seeds from nothing.
+  const payloadGuardrails = hasServedBusinessControl(payload)
+    ? payload!.businessControl.guardrails
+    : null;
+  /*
+    The same channel every other mutation on this body uses.
+
+    This component owns none of the payload state — the page does — so a save
+    re-reads the control plane and publishes the result upward rather than
+    holding a second copy that could disagree with the one on screen.
+  */
+  const onGuardrailPolicySaved = useCallback(async () => {
+    if (!businessId || !providerAccountId) return;
+    const next = await readAutomation({ businessId, providerAccountId })
+      .catch(() => null);
+    if (next) onRulesChanged?.(next);
+  }, [businessId, providerAccountId, onRulesChanged]);
   const autonomy = autonomyFor(payload);
   const readiness = readinessFor(payload);
   const promotionCount = promotionCountFor(payload);
@@ -2066,6 +2084,24 @@ export function MetaAutomationView({
                 </div>
               ))}
             </div>
+            {/*
+              Two of those rows were readable and unsettable.
+
+              The ROAS floor gates whether a pause is even proposed, and quiet
+              hours decide when an alert may interrupt someone — both persisted,
+              both server-enforced, and neither reachable from any screen. The
+              route has accepted `set_guardrail_policy` all along; nothing sent
+              it. A limit an operator cannot set is a limit that belongs to
+              whoever last edited the database.
+            */}
+            <GuardrailPolicyForm
+              businessId={businessId}
+              providerAccountId={providerAccountId}
+              canMutate={viewer.canMutate}
+              minRoasFloor={payloadGuardrails?.minRoasFloor ?? null}
+              quietHours={payloadGuardrails?.quietHours ?? null}
+              onSaved={onGuardrailPolicySaved}
+            />
           </article>
 
           <article className={styles.readinessCard}>
@@ -2829,6 +2865,215 @@ async function readProposalQueue(input: {
   );
   if (!response.ok) return UNAVAILABLE_QUEUE;
   return parseProposalQueue(await response.json().catch(() => null));
+}
+
+
+/**
+ * The two guardrails an operator could read and not set.
+ *
+ * `minRoasFloor` decides whether a pause is proposed at all, and quiet hours
+ * decide when an alert may interrupt someone. Both are persisted, both are
+ * enforced on the server, and until now neither had a control — so in practice
+ * they belonged to whoever last edited the row directly.
+ *
+ * Blank clears. That is the same shape the route already accepts (`null` to
+ * clear) and it keeps "no floor" expressible: an operator who wants automation
+ * to consider every losing entity should not have to invent a number to say so.
+ */
+function GuardrailPolicyForm({
+  businessId,
+  providerAccountId,
+  canMutate,
+  minRoasFloor,
+  quietHours,
+  onSaved,
+}: {
+  businessId: string | null;
+  providerAccountId: string | null;
+  canMutate: boolean;
+  minRoasFloor: number | null;
+  quietHours: { start: string; end: string; timezone: string } | null;
+  onSaved: () => void | Promise<void>;
+}) {
+  const [floor, setFloor] = useState(
+    minRoasFloor === null ? "" : String(minRoasFloor),
+  );
+  const [start, setStart] = useState(quietHours?.start ?? "");
+  const [end, setEnd] = useState(quietHours?.end ?? "");
+  const [zone, setZone] = useState(quietHours?.timezone ?? "");
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+
+  const ready = Boolean(businessId && providerAccountId && canMutate);
+  const trimmedFloor = floor.trim();
+  const parsedFloor = trimmedFloor === "" ? null : Number(trimmedFloor);
+  const floorValid = parsedFloor === null
+    || (Number.isFinite(parsedFloor) && parsedFloor > 0);
+  // A window needs all three or none of them: two thirds of a quiet window is
+  // not a window, and the route refuses it.
+  const windowParts = [start.trim(), end.trim(), zone.trim()];
+  const windowValid = windowParts.every((part) => part === "")
+    || windowParts.every((part) => part !== "");
+
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!ready || busy || !floorValid || !windowValid) return;
+    setBusy(true);
+    setMessage(null);
+    const query = new URLSearchParams({
+      businessId: businessId!,
+      providerAccountId: providerAccountId!,
+    });
+    try {
+      const response = await fetch(`/api/meta/automation?${query.toString()}`, {
+        method: "POST",
+        cache: "no-store",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "set_guardrail_policy",
+          minRoasFloor: parsedFloor,
+          quietHours: windowParts[0]
+            ? { start: windowParts[0], end: windowParts[1], timezone: windowParts[2] }
+            : null,
+          reason: "Set from the Automation guardrails card.",
+        }),
+      });
+      const body = (await response.json().catch(() => null)) as {
+        ok?: boolean; error?: { message?: string };
+      } | null;
+      if (!response.ok || body?.ok === false) {
+        setMessage(
+          body?.error?.message
+          ?? "The guardrail policy could not be saved, and nothing was changed.",
+        );
+        return;
+      }
+      setMessage("Saved.");
+      await onSaved();
+    } catch {
+      setMessage("The request did not reach the server; nothing was changed.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const inputStyle: React.CSSProperties = {
+    padding: "5px 8px",
+    borderRadius: 6,
+    border: "1px solid var(--border, #e5e7eb)",
+    width: "100%",
+    minWidth: 0,
+    boxSizing: "border-box",
+    fontSize: 12,
+  };
+
+  return (
+    <form
+      data-testid="guardrail-policy-form"
+      data-can-mutate={String(ready)}
+      onSubmit={submit}
+      style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid var(--border, #e5e7eb)" }}
+    >
+      <p style={{ margin: 0, fontSize: 12, fontWeight: 600 }}>
+        Set the pause floor and quiet hours
+      </p>
+      <p style={{ margin: "4px 0 0", fontSize: 11.5, opacity: 0.85 }}>
+        Blank clears. With no floor, automation may propose a pause for any
+        entity its evidence supports.
+      </p>
+      <div style={{ display: "grid", gap: 8, margin: "8px 0 0" }}>
+        <label style={{ display: "grid", gap: 3, fontSize: 11.5 }}>
+          Min ROAS floor (pause)
+          <input
+            type="text"
+            inputMode="decimal"
+            data-testid="guardrail-roas-floor"
+            value={floor}
+            onChange={(event) => setFloor(event.target.value)}
+            disabled={!ready || busy}
+            aria-label="Min ROAS floor"
+            aria-invalid={!floorValid}
+            style={inputStyle}
+          />
+        </label>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1.4fr", gap: 6 }}>
+          <label style={{ display: "grid", gap: 3, fontSize: 11.5 }}>
+            Quiet from
+            <input
+              type="text"
+              placeholder="22:00"
+              data-testid="guardrail-quiet-start"
+              value={start}
+              onChange={(event) => setStart(event.target.value)}
+              disabled={!ready || busy}
+              aria-label="Quiet hours start"
+              style={inputStyle}
+            />
+          </label>
+          <label style={{ display: "grid", gap: 3, fontSize: 11.5 }}>
+            until
+            <input
+              type="text"
+              placeholder="07:00"
+              data-testid="guardrail-quiet-end"
+              value={end}
+              onChange={(event) => setEnd(event.target.value)}
+              disabled={!ready || busy}
+              aria-label="Quiet hours end"
+              style={inputStyle}
+            />
+          </label>
+          <label style={{ display: "grid", gap: 3, fontSize: 11.5 }}>
+            in timezone
+            <input
+              type="text"
+              placeholder="Europe/Istanbul"
+              data-testid="guardrail-quiet-timezone"
+              value={zone}
+              onChange={(event) => setZone(event.target.value)}
+              disabled={!ready || busy}
+              aria-label="Quiet hours timezone"
+              style={inputStyle}
+            />
+          </label>
+        </div>
+      </div>
+      {!floorValid ? (
+        <p data-field="guardrail-floor-invalid" style={{ margin: "6px 0 0", fontSize: 11.5 }}>
+          A floor is a positive number, or blank to clear it.
+        </p>
+      ) : null}
+      {!windowValid ? (
+        <p data-field="guardrail-window-invalid" style={{ margin: "6px 0 0", fontSize: 11.5 }}>
+          A quiet window needs a start, an end and a timezone — or none of them.
+        </p>
+      ) : null}
+      <button
+        type="submit"
+        data-testid="guardrail-policy-save"
+        disabled={!ready || busy || !floorValid || !windowValid}
+        aria-disabled={!ready || busy || !floorValid || !windowValid}
+        style={{
+          margin: "8px 0 0",
+          padding: "6px 10px",
+          borderRadius: 6,
+          border: "1px solid var(--border, #e5e7eb)",
+          background: "transparent",
+          fontSize: 12,
+          cursor: ready && !busy ? "pointer" : "not-allowed",
+          opacity: ready && !busy && floorValid && windowValid ? 1 : 0.55,
+        }}
+      >
+        Save guardrail policy
+      </button>
+      {message ? (
+        <p data-field="guardrail-policy-message" style={{ margin: "6px 0 0", fontSize: 11.5 }}>
+          {message}
+        </p>
+      ) : null}
+    </form>
+  );
 }
 
 async function readAutomation(input: {

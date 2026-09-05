@@ -452,7 +452,7 @@ export function LaunchpadReview({
           />
           <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
           Create PAUSED changes Meta provider state and cannot begin delivery.
-          Activation in Adsecute is unavailable.
+          Publishing is a separate step you take afterwards, from the receipt.
         </label>
       </div>
 
@@ -605,17 +605,31 @@ export function LaunchpadReview({
         ) : null}
       </div>
 
-      <div className="border-y border-[var(--warn-bd)] bg-[var(--warn-bg)] px-3 py-3">
+      {/*
+        Activation, described as the separate step it is.
+
+        This panel used to say no activation executor was wired and list the
+        contract one "would" need — create paused, verify every child, run a
+        fresh preflight, order the writes. That executor exists now, and it
+        does those things, so the honest sentence is where the step happens
+        rather than that it cannot.
+
+        It is deliberately NOT a button here. This panel is shown before the
+        launch, and nothing exists to activate yet: activating belongs to the
+        receipt, once there are real identities to read back.
+      */}
+      <div className="border-y border-[var(--border)] bg-[var(--surface)] px-3 py-3">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="text-[12px] font-semibold text-[var(--warn)]">
-            Publish ACTIVE
+          <span className="text-[12px] font-semibold text-[var(--ink)]">
+            Everything is created paused
           </span>
-          <span className="chip chip--warn">Proposed/contract required</span>
         </div>
         <p className="mt-1 text-[11.5px] leading-relaxed text-[var(--muted)]">
-          No activation executor is wired here. The required future contract
-          creates PAUSED, verifies every child, runs fresh exposure preflight,
-          activates children first, and activates the campaign last.
+          Publishing is a separate, deliberate step you take from the receipt
+          once this launch has real identities to check. It activates the
+          campaign, then the ad set, then the ad, reading each one back before
+          the next — and stops at the first step that does not come back
+          active rather than reporting an ad as live under a paused parent.
         </p>
       </div>
 

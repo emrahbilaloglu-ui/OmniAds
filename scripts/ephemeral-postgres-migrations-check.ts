@@ -1288,6 +1288,51 @@ async function assertRoleAuthorityRetention(
   }
 }
 
+/**
+ * The activation approval, and the thing it must never become.
+ *
+ * `requested_status = 'PAUSED'` is what makes a launch intent unable to turn
+ * on what it created. If that CHECK ever loosened, creating and activating
+ * would collapse into one authorization and the approval column would be
+ * decoration. Both are asserted together for that reason.
+ */
+async function assertActivationApproval(
+  client: Client,
+  failures: string[],
+): Promise<void> {
+  const { rows } = await client.query<{ is_nullable: string; data_type: string }>(
+    `SELECT is_nullable, data_type
+       FROM information_schema.columns
+      WHERE table_schema = 'public'
+        AND table_name = 'meta_launch_intents'
+        AND column_name = 'activation_approval_json'`,
+  );
+  const column = rows[0];
+  if (!column) {
+    failures.push("meta_launch_intents.activation_approval_json is missing");
+  } else if (column.is_nullable !== "YES") {
+    // NULL means "operator only", which every existing row must keep.
+    failures.push("activation_approval_json is NOT NULL, so old rows cannot mean 'operator only'");
+  } else if (column.data_type !== "jsonb") {
+    failures.push(`activation_approval_json is ${column.data_type}, not jsonb`);
+  } else {
+    log("launch intents carry a nullable activation approval");
+  }
+
+  const { rows: checks } = await client.query<{ definition: string }>(
+    `SELECT pg_get_constraintdef(c.oid) AS definition
+       FROM pg_constraint c
+       JOIN pg_class t ON t.oid = c.conrelid
+      WHERE t.relname = 'meta_launch_intents' AND c.contype = 'c'`,
+  );
+  const all = checks.map((row) => row.definition).join(" ");
+  if (all.includes("requested_status") && all.includes("'PAUSED'")) {
+    log("a launch intent still may only create something paused");
+  } else {
+    failures.push("the PAUSED-only creation rule is gone; creating and activating have merged");
+  }
+}
+
 async function assertSchema(databaseUrl: string): Promise<string[]> {
   const client = new Client({ connectionString: databaseUrl });
   await client.connect();
@@ -1503,6 +1548,7 @@ async function assertSchema(databaseUrl: string): Promise<string[]> {
     await assertNativeSchemaCapabilities(client, failures);
     await assertProposalLineageWidening(client, failures);
     await assertRoleAuthorityRetention(client, failures);
+    await assertActivationApproval(client, failures);
 
     const { rows: tableRows } = await client.query<{ table_name: string }>(
       `SELECT table_name

@@ -12378,6 +12378,46 @@ export async function runMigrations(options?: {
         sql`CREATE INDEX IF NOT EXISTS idx_meta_ads_action_log_launch_intent
           ON meta_ads_action_log (launch_intent_id, requested_at ASC)
           WHERE launch_intent_id IS NOT NULL`,
+        /*
+          ── The activation approval, which creating an entity is not ──
+
+          `requested_status = 'PAUSED'` is not a relaxable default: an intent
+          may only ever CREATE something paused. That is deliberate, and it
+          means the intent carries no authority to turn what it created on.
+          Activation is a second, separate decision, and this column is where
+          it is recorded.
+
+          NULL is the meaningful default and the safe one: an intent with no
+          approval can be activated by an operator and by nobody else. The
+          scheduled path reads this column and refuses without it, so an
+          absent approval can never be read as a granted one.
+
+          The CHECK is only that it is an object. The binding shape — the
+          request fingerprint it must still match, the approved asset, scope
+          and destination, the approver, the expiry — is validated in one
+          module before dispatch, because half of it is a comparison against
+          the live intent rather than a property of the value.
+        */
+        sql`ALTER TABLE meta_launch_intents
+          ADD COLUMN IF NOT EXISTS activation_approval_json JSONB`,
+        sql`DO $$
+        BEGIN
+          IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint c
+            JOIN pg_class t ON t.oid = c.conrelid
+            JOIN pg_namespace n ON n.oid = t.relnamespace
+            WHERE n.nspname = current_schema()
+              AND t.relname = 'meta_launch_intents'
+              AND c.conname = 'meta_launch_intents_activation_approval_object'
+          ) THEN
+            ALTER TABLE meta_launch_intents
+              ADD CONSTRAINT meta_launch_intents_activation_approval_object
+              CHECK (
+                activation_approval_json IS NULL
+                OR jsonb_typeof(activation_approval_json) = 'object'
+              );
+          END IF;
+        END $$`,
       ]);
 
       /*

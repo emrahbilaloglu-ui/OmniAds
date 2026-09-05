@@ -91,6 +91,8 @@ export interface MetaLaunchIntent {
   validationReceipt: MetaLaunchIntentValidationReceipt | null;
   resultReceipt: MetaLaunchIntentResultReceipt | null;
   errorReceipt: MetaLaunchIntentErrorReceipt | null;
+  /** Unvalidated. See `validateActivationApproval`; NULL means operator-only. */
+  activationApproval: unknown;
   createdBy: string | null;
   createdAt: string;
   updatedAt: string;

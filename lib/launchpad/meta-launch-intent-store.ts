@@ -27,6 +27,15 @@ type MetaLaunchIntentDbRow = {
   validation_receipt_json: MetaLaunchIntentValidationReceipt | null;
   result_receipt_json: MetaLaunchIntentResultReceipt | null;
   error_receipt_json: MetaLaunchIntentErrorReceipt | null;
+  /**
+   * The separate authorization to turn on what this intent created.
+   *
+   * `unknown` rather than a shape: it is validated against the live intent in
+   * one module, and a type here would invite reading it as trustworthy simply
+   * because it parsed. NULL — the state every existing row is in — means an
+   * operator may activate and nothing else may.
+   */
+  activation_approval_json: unknown;
   created_by: string | null;
   created_at: string;
   updated_at: string;
@@ -81,6 +90,7 @@ function mapMetaLaunchIntent(row: MetaLaunchIntentDbRow): MetaLaunchIntent {
     validationReceipt: row.validation_receipt_json,
     resultReceipt: row.result_receipt_json,
     errorReceipt: row.error_receipt_json,
+    activationApproval: row.activation_approval_json ?? null,
     createdBy: row.created_by,
     createdAt: row.created_at,
     updatedAt: row.updated_at,

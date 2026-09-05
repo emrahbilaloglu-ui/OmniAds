@@ -2068,7 +2068,10 @@ export default function MetaLaunchpadPage({
     }
   }
 
-  async function runBulkStatusAction(action: "pause", rows: MetaCreativeRow[]) {
+  async function runBulkStatusAction(
+    action: "pause" | "resume",
+    rows: MetaCreativeRow[],
+  ) {
     // `bulk-ad-status` refuses a reviewer, a demo workspace and a
     // sub-collaborator role. State it here rather than letting the operator
     // watch a 403 arrive as a partial launch receipt. The code mirrors the one
@@ -2590,8 +2593,7 @@ export default function MetaLaunchpadPage({
                         description="Pause applies only to the exact selected Meta ad IDs. Campaign and ad-set structure remains unchanged."
                         rows={[
                           ["Selected ads", String(selectedCreativeIds.length)],
-                          ["Current action", "Pause"],
-                          ["ACTIVE publication", "Not available"],
+                          ["Available actions", "Pause · Activate"],
                         ]}
                       />
                     )

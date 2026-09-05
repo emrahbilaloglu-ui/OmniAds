@@ -27,6 +27,10 @@ function intent(overrides: Partial<MetaLaunchIntent> = {}): MetaLaunchIntent {
     operation: "new_campaign",
     idempotencyKey: "idem_1",
     requestedStatus: "PAUSED",
+    // No separate activation authorization: the fixture is a created-paused
+    // intent, which is what every intent is until somebody approves turning
+    // it on.
+    activationApproval: null,
     lineage: {
       sourceDecisionId: "decision_1",
       sourceDecisionSnapshotId: "snapshot_1",

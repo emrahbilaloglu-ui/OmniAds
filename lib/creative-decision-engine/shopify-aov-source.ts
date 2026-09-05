@@ -51,6 +51,27 @@ export const OBSERVED_SHOPIFY_AOV_MIN_ORDERS = 30;
 /** Beyond this, the store's numbers are not a current observation. */
 export const OBSERVED_SHOPIFY_AOV_MAX_SYNC_AGE_HOURS = 48;
 
+/**
+ * The sync targets that can speak for this evidence, and the two that cannot.
+ *
+ * `shopify_sync_state` holds four rows per store — orders and returns, each
+ * recent and historical — and the freshness clock used to be
+ * `MAX(latest_successful_sync_at)` across all of them. That let a returns pass
+ * that finished an hour ago vouch for orders last read five days ago.
+ *
+ * The returns pass cannot vouch for anything this module reads. It writes only
+ * `source_kind: 'return'` rows (`lib/shopify/commerce-sync.ts:588-600`), and
+ * the ledger's revenue and purchase counts are built from `order`,
+ * `adjustment` and `refund` rows alone (`lib/shopify/revenue-ledger.ts:92-123,
+ * 234-237`), all of which are written by the orders pass
+ * (`lib/shopify/commerce-sync.ts:464-551`). A returns row therefore proves
+ * nothing about the numbers the average order value divides.
+ */
+export const OBSERVED_SHOPIFY_AOV_ORDER_SYNC_TARGETS = [
+  "commerce_orders_recent",
+  "commerce_orders_historical",
+] as const;
+
 export type ObservedShopifyAovStatus =
   | "observed"
   /** Enough orders were counted, but fewer than the floor. */
@@ -61,6 +82,19 @@ export type ObservedShopifyAovStatus =
   | "unavailable"
   /** Connected, but the last successful sync is too old to speak for today. */
   | "stale"
+  /**
+   * The orders sync has never reached back as far as the window's first day,
+   * so there is no complete window to average over. Distinct from `stale`: the
+   * store may have synced twenty minutes ago and simply not have backfilled
+   * twenty-eight days yet.
+   */
+  | "orders_backfill_incomplete"
+  /**
+   * The window's first day is covered but the covered run does not continue
+   * unbroken to its last day, so the average would be taken over whichever
+   * fraction of the window happens to exist.
+   */
+  | "orders_coverage_gap"
   /** Connected with no IANA zone, so no store day can be closed. */
   | "timezone_absent"
   /** The window's rows carry more than one currency, or none. */
@@ -203,36 +237,195 @@ async function readObservedAt(input: {
   }
 }
 
+/** What one order sync target has recorded about itself. */
+export interface ShopifyOrderSyncTargetState {
+  latestSuccessfulSyncAt: string | null;
+  latestSyncWindowStart: string | null;
+  readyThroughDate: string | null;
+  historicalTargetStart: string | null;
+}
+
 /**
- * When this store last completed a successful sync.
+ * The two order targets, each in its own slot.
+ *
+ * Shaped this way so a returns row has nowhere to go. The old clock summed
+ * `MAX(latest_successful_sync_at)` over an unfiltered `sync_target`, so a
+ * returns pass could answer a question about orders; here the defect is not
+ * merely unwritten, it is unrepresentable.
+ */
+export interface ShopifyOrderSyncCoverage {
+  recent: ShopifyOrderSyncTargetState | null;
+  historical: ShopifyOrderSyncTargetState | null;
+}
+
+/*
+  DATE columns arrive as a `Date` at LOCAL midnight or as text depending on the
+  driver path, and reading local midnight with UTC components moves the day
+  backwards in every negative-offset zone. This mirrors `normalizeDate` in
+  `lib/shopify/sync-state.ts:10-23`, which is what wrote the column, so the
+  reader and the writer agree on which day a row names.
+*/
+function normalizeSyncStateDate(value: unknown): string | null {
+  if (!value) return null;
+  if (value instanceof Date) {
+    const year = value.getFullYear();
+    const month = String(value.getMonth() + 1).padStart(2, "0");
+    const day = String(value.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  }
+  const text = String(value).trim();
+  if (/^\d{4}-\d{2}-\d{2}/.test(text)) return text.slice(0, 10);
+  const parsed = new Date(text);
+  if (Number.isFinite(parsed.getTime())) return parsed.toISOString().slice(0, 10);
+  return null;
+}
+
+function normalizeSyncStateTimestamp(value: unknown): string | null {
+  if (!value) return null;
+  if (value instanceof Date) return value.toISOString();
+  const parsed = new Date(String(value));
+  return Number.isFinite(parsed.getTime()) ? parsed.toISOString() : null;
+}
+
+/**
+ * What the ORDER sync has actually covered for this store.
  *
  * The real freshness evidence, from the state the sync itself writes.
  * `latest_successful_sync_at` is a statement about our own pipeline; the
  * newest order is a statement about the merchant's customers. Only the first
- * can say whether the window we are about to read is complete.
+ * can say whether the window we are about to read is complete — and only when
+ * it is read from the targets that write the rows being read.
  *
- * `null` means no successful sync is recorded for this store, which is
- * `unavailable` rather than `stale` — we have not looked successfully, as
- * distinct from having looked and found old data.
+ * A missing row, or a `latestSuccessfulSyncAt` of `null`, means no successful
+ * orders sync is recorded, which is `unavailable` rather than `stale` — we have
+ * not looked successfully, as distinct from having looked and found old data.
  */
-async function readLastSuccessfulSyncAt(input: {
+export async function readOrderSyncCoverage(input: {
   businessId: string;
   providerAccountId: string;
-}): Promise<string | null> {
+}): Promise<ShopifyOrderSyncCoverage | null> {
   const sql = getDb();
   try {
     const rows = (await sql`
-      SELECT MAX(latest_successful_sync_at) AS synced_at
+      SELECT sync_target,
+             latest_successful_sync_at,
+             latest_sync_window_start,
+             ready_through_date,
+             historical_target_start
       FROM shopify_sync_state
       WHERE business_id = ${input.businessId}
         AND provider_account_id = ${input.providerAccountId}
-    `) as Array<{ synced_at: string | Date | null }>;
-    const value = rows[0]?.synced_at ?? null;
-    if (!value) return null;
-    return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
+        AND sync_target IN (
+          ${OBSERVED_SHOPIFY_AOV_ORDER_SYNC_TARGETS[0]},
+          ${OBSERVED_SHOPIFY_AOV_ORDER_SYNC_TARGETS[1]}
+        )
+    `) as Array<{
+      sync_target: string | null;
+      latest_successful_sync_at: string | Date | null;
+      latest_sync_window_start: string | Date | null;
+      ready_through_date: string | Date | null;
+      historical_target_start: string | Date | null;
+    }>;
+    const coverage: ShopifyOrderSyncCoverage = { recent: null, historical: null };
+    for (const row of rows) {
+      const state: ShopifyOrderSyncTargetState = {
+        latestSuccessfulSyncAt: normalizeSyncStateTimestamp(row.latest_successful_sync_at),
+        latestSyncWindowStart: normalizeSyncStateDate(row.latest_sync_window_start),
+        readyThroughDate: normalizeSyncStateDate(row.ready_through_date),
+        historicalTargetStart: normalizeSyncStateDate(row.historical_target_start),
+      };
+      if (row.sync_target === "commerce_orders_recent") coverage.recent = state;
+      if (row.sync_target === "commerce_orders_historical") coverage.historical = state;
+    }
+    return coverage;
   } catch {
     return null;
   }
+}
+
+export type ShopifyOrderWindowCoverageVerdict =
+  | { covered: true }
+  | { covered: false; reason: "orders_backfill_incomplete" | "orders_coverage_gap" };
+
+/**
+ * Whether the orders sync has covered every day of the window, unbroken.
+ *
+ * The defect this closes: nothing checked that the window being averaged was
+ * a window we had actually read. A store with a seven-day recent pass and a
+ * backfill that had only reached back two hundred days produced an average
+ * over whatever fraction of the twenty-eight days happened to exist, labelled
+ * it a twenty-eight day observation, and counted the partial order count
+ * against the thirty-order floor.
+ *
+ * The proof reads ONLY the windows the sync recorded — never whether order
+ * rows exist on a given day. That is deliberate and load-bearing: a store that
+ * is fully synced and simply sold nothing for a week is covered, which is the
+ * case the freshness fix was originally for, and a day-presence proof would
+ * re-break it.
+ *
+ * Which columns may bound a span:
+ *
+ * - `ready_through_date` ends every span. It is the only success-only date on
+ *   these rows (`lib/sync/shopify-sync.ts:886` for recent, `:750`/`:775` for
+ *   historical). `latest_sync_window_end` is written by running and failed
+ *   attempts too (`:365`, `:1056`) and so would let an attempt that never
+ *   finished claim coverage.
+ * - The historical span starts at `historical_target_start`, and the chunk
+ *   walk (`computeHistoricalChunk`, `shopify-sync.ts:135-147`) only ever moves
+ *   forward from it, so `[historical_target_start, ready_through_date]` is one
+ *   unbroken run.
+ * - The recent span starts at `latest_sync_window_start`, which is also written
+ *   on running and failed attempts. That is safe here because recent windows
+ *   only ever advance forward (`classifyShopifySyncWindow`, `:82-99`), so a
+ *   start belonging to a later attempt can only narrow the claimed span, never
+ *   widen it.
+ * - The recent row's own `historical_target_start` is NOT a span start: it is
+ *   COALESCE-frozen to the first recent run there ever was
+ *   (`lib/shopify/sync-state.ts:199`) and says nothing about continuity since.
+ */
+export function proveShopifyOrderWindowCovered(input: {
+  window: { from: string; to: string };
+  coverage: ShopifyOrderSyncCoverage;
+}): ShopifyOrderWindowCoverageVerdict {
+  const spans: Array<{ start: string; end: string }> = [];
+  const historical = input.coverage.historical;
+  if (historical?.historicalTargetStart && historical.readyThroughDate) {
+    spans.push({
+      start: historical.historicalTargetStart,
+      end: historical.readyThroughDate,
+    });
+  }
+  const recent = input.coverage.recent;
+  if (recent?.latestSyncWindowStart && recent.readyThroughDate) {
+    spans.push({ start: recent.latestSyncWindowStart, end: recent.readyThroughDate });
+  }
+
+  // ISO dates compare lexicographically, so no parsing is needed to order them.
+  const usable = spans
+    .filter((span) => span.start <= span.end)
+    .sort((a, b) => (a.start < b.start ? -1 : a.start > b.start ? 1 : 0));
+
+  const earliest = usable[0];
+  if (!earliest || earliest.start > input.window.from) {
+    // Never reached back this far. Not a gap in the middle and not an aged
+    // sync — a backfill that has not arrived yet.
+    return { covered: false, reason: "orders_backfill_incomplete" };
+  }
+
+  let reach = earliest.end;
+  for (const span of usable.slice(1)) {
+    if (reach >= input.window.to) break;
+    // Adjacent days are contiguous; a span starting two days after the current
+    // reach leaves a day nobody read.
+    if (span.start > addDaysToIsoDateUtc(reach, 1)) {
+      return { covered: false, reason: "orders_coverage_gap" };
+    }
+    if (span.end > reach) reach = span.end;
+  }
+  if (reach < input.window.to) {
+    return { covered: false, reason: "orders_coverage_gap" };
+  }
+  return { covered: true };
 }
 
 export interface ResolveObservedShopifyAovInput {
@@ -251,8 +444,8 @@ export interface ResolveObservedShopifyAovInput {
     readAggregate?: typeof getShopifyRevenueLedgerAggregate;
     readCurrencies?: typeof readWindowCurrencies;
     readObservedAt?: typeof readObservedAt;
-    /** When this store last completed a sync. The real freshness evidence. */
-    readSyncedAt?: typeof readLastSuccessfulSyncAt;
+    /** What the ORDER sync has covered. The real freshness evidence. */
+    readOrderSyncCoverage?: typeof readOrderSyncCoverage;
     schemaReady?: () => Promise<boolean>;
   };
 }
@@ -267,14 +460,36 @@ export async function resolveObservedShopifyAov(
   const readAggregate = deps.readAggregate ?? getShopifyRevenueLedgerAggregate;
   const readCurrencies = deps.readCurrencies ?? readWindowCurrencies;
   const readWindowObservedAt = deps.readObservedAt ?? readObservedAt;
-  const readSyncedAt = deps.readSyncedAt ?? readLastSuccessfulSyncAt;
+  const readCoverage = deps.readOrderSyncCoverage ?? readOrderSyncCoverage;
   const schemaReady =
     deps.schemaReady ??
     (async () =>
       Boolean(
         (
           await getDbSchemaReadiness({
-            tables: ["shopify_orders", "shopify_sales_events"],
+            /*
+              Every table this evidence actually depends on, not just the two it
+              names directly.
+
+              `shopify_order_transactions` is in the aggregate's own readiness
+              gate (`lib/shopify/revenue-ledger.ts:56-58`), and when it is
+              missing that reader answers with zeros rather than refusing
+              (`:60-85`). A store missing only that table therefore passed this
+              availability gate, came back with `purchases: 0`, and was reported
+              as having sold nothing — the exact "no data becomes no sales"
+              confusion this module's header forbids.
+
+              `shopify_sync_state` is load-bearing now that coverage is read
+              from it, so its absence must be named `unavailable` here rather
+              than swallowed by the reader's fail-closed catch and mistaken for
+              a store that never synced.
+            */
+            tables: [
+              "shopify_orders",
+              "shopify_sales_events",
+              "shopify_order_transactions",
+              "shopify_sync_state",
+            ],
           }).catch(() => null)
         )?.ready,
       ));
@@ -351,13 +566,22 @@ export async function resolveObservedShopifyAov(
     Two distinct absences: no successful sync recorded at all is `unavailable`
     (we have not looked successfully), and a successful sync too long ago is
     `stale` (we looked, and what we hold has aged).
+
+    The clock is `commerce_orders_recent` and nothing else. It is the
+    `updated_at`-driven pass (`lib/sync/shopify-sync.ts:449`), so it is also the
+    only mechanism by which a refund settled today against an old order
+    re-enters the window we are about to average. A historical chunk finishing,
+    or either returns pass finishing, says nothing about that.
   */
-  const lastSyncedAt = await readSyncedAt({
+  const coverage = await readCoverage({
     businessId: input.businessId,
     providerAccountId,
   });
-  if (!lastSyncedAt) return withheld("unavailable", base, knowledgeAsOf);
-  const syncAgeHours = (now.getTime() - new Date(lastSyncedAt).getTime()) / 3_600_000;
+  if (!coverage?.recent?.latestSuccessfulSyncAt) {
+    return withheld("unavailable", base, knowledgeAsOf);
+  }
+  const syncAgeHours =
+    (now.getTime() - new Date(coverage.recent.latestSuccessfulSyncAt).getTime()) / 3_600_000;
   if (
     !Number.isFinite(syncAgeHours)
     || syncAgeHours > OBSERVED_SHOPIFY_AOV_MAX_SYNC_AGE_HOURS
@@ -365,9 +589,25 @@ export async function resolveObservedShopifyAov(
     return withheld("stale", base, knowledgeAsOf);
   }
 
+  /*
+    A current sync is not a complete window.
+
+    Freshness says when we last read; coverage says how far back that reading
+    ever reached. Averaging twenty-eight days we only hold nineteen of is a
+    number about nineteen days wearing a twenty-eight day label, so an
+    unproven window is refused by name instead.
+  */
+  const coverageVerdict = proveShopifyOrderWindowCovered({ window, coverage });
+  if (!coverageVerdict.covered) {
+    return withheld(coverageVerdict.reason, base, knowledgeAsOf);
+  }
+
   if (base.orderCount <= 0) {
-    // Reached only after availability was established, so this really is the
-    // store saying it sold nothing rather than the product failing to look.
+    // Reached only after availability AND coverage were established, so this
+    // really is the store saying it sold nothing rather than the product
+    // failing to look, or looking at a window it never read. An uncovered
+    // window reports few or no orders too, and calling that
+    // `observed_zero_orders` is the same confusion in a different costume.
     return withheld("observed_zero_orders", base, knowledgeAsOf);
   }
 

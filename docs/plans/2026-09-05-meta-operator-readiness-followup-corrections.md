@@ -593,20 +593,25 @@ corrected.
 
 ## Gates
 
-| Gate | Result |
-|---|---|
-| `npx tsc --noEmit` | 0 |
-| `npm run lint` | 0 |
-| `scripts/verify-whitespace.sh` | PASS |
-| `npx vitest run` (full) | **17,448 passed**, 2 failed — both D077, out of scope |
-| `npm run test:migrations-from-zero` | **PASS**, exit 0, including the three newly registered seam children |
-| Mounted browser acceptance | Decision card Apply → provider double → History, at 1512 px; STOP refusal; 320 px accessibility |
+| Gate | Round two (`d1746f1df`) | Round three (`058a1c8f6`) |
+|---|---|---|
+| `npx tsc --noEmit` | 0 | 0 |
+| `npm run lint` | 0 | 0 |
+| `scripts/verify-whitespace.sh` | PASS | PASS |
+| `npx vitest run` (full) | 17,448 passed, 2 failed | **17,551 passed, 3 failed** |
+| `npm run test:migrations-from-zero` | PASS, exit 0 | **PASS, exit 0** |
+| Mounted browser acceptance | card Apply at 1512 px | **card Apply at 1280 and 390 px, 320 px accessibility, STOP and read-only cases** |
 
-The two D077 cases are the artifact-hash contract, failing since before this
-work. One of them now also lists this delivery's own new files, which is what
-that contract does: it pins a sha256 per file in the cumulative release diff and
-is regenerated at release time. §7 of the plan puts D077/D086 evidence-pack
-maintenance out of scope.
+The three remaining failures are all out of scope and none is a regression:
+
+- **Two D077 artifact-hash cases**, kept explicitly separate as instructed. The
+  contract pins a sha256 per file in the cumulative release diff and now lists
+  ~78 files from this delivery; it is regenerated at release time, and §7 of the
+  plan puts D077/D086 evidence-pack maintenance out of scope.
+- **One `generalized-pit-replay` case times out at 420 s under full-suite
+  parallel load.** The whole file passes alone in 201 s — verified this round.
+  Its sibling assertion, the frozen-package drift ledger, is a maintained list
+  and now records the eighth drifted file with the reason it drifted.
 
 ## Explicitly unresolved
 

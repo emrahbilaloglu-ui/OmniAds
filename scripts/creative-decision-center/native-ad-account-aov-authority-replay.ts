@@ -398,8 +398,14 @@ export interface ChallengerRow {
   selectedCellRoasRatioP25: number | null;
   selectedCellMatureAdCount: number | null;
   repairAuthoritySelected: boolean | null;
+  // See the note in d061-account-aov-closed-window-gate.ts: the replay is
+  // unchanged; the vocabulary it may observe grew by one.
   spendUnitAuthorityBasis:
-    "target_cpa" | "operator_aov" | "physical_account_purchase_aov_90d" | null;
+    | "target_cpa"
+    | "operator_aov"
+    | "observed_shopify_aov"
+    | "physical_account_purchase_aov_90d"
+    | null;
   spendUnitAuthorityStatus: string | null;
   accountAovEvidenceStatus: string | null;
   calibrationRowId: string | null;

@@ -120,9 +120,9 @@ const BLOCKER_COPY: Record<CommercialAnchorBlockerCode, string> = {
   shadow_only:
     "This account is in shadow mode, so no hard action is offered.",
   commercial_anchor_missing:
-    "No commercial anchor is configured. Set a Target CPA, or an average order value assumption together with a Target ROAS, in Commercial Truth.",
+    "No commercial anchor is available. Set a Target ROAS in Commercial Truth — the average order value is read from your Shopify orders, so no CPA or AOV needs to be typed.",
   commercial_anchor_sample_insufficient:
-    "The only available anchor is a Meta-attributed average order value whose 90-day purchase sample is too small to trust. Set an explicit Target CPA or average order value assumption instead of waiting for the sample to grow.",
+    "The only available anchor is a Meta-attributed average order value whose 90-day purchase sample is too small to trust. Connecting the Shopify store, or letting it accumulate orders, supplies the average order value directly; no CPA or AOV needs to be typed.",
   commercial_anchor_provenance_unverified:
     "The configured commercial target has no verifiable update timestamp, so it cannot carry threshold authority. Re-save it in Commercial Truth to stamp its provenance.",
   target_roas_missing:

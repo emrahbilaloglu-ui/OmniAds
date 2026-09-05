@@ -1,4 +1,5 @@
 import { resolveAccountDecisionProfile } from "./account-decision-profile";
+import { observedShopifyAovIsUsable } from "./shopify-aov-source";
 import type {
   BusinessTargetPack,
   CreativeDecisionDataSource,
@@ -576,6 +577,31 @@ function approximatelyEqual(
   );
 }
 
+/**
+ * The store observation this authority carries, in major units, when it is
+ * usable at all.
+ *
+ * `.v1` authorities have no such member and answer null here, so they validate
+ * exactly as they always did. Cutoff safety is NOT re-derived: the builder
+ * proved it against the cutoff it minted under, and this validator compares the
+ * authority against the target it was minted with.
+ */
+function observedShopifyAovMajorForAuthority(
+  authority: NativeAdSpendUnitAuthority,
+): number | null {
+  const evidence = authority.observedShopifyAovEvidence;
+  if (!evidence || !observedShopifyAovIsUsable(evidence)) return null;
+  if (evidence.currency !== authority.accountCurrency) return null;
+  const major = evidence.aovMinor / 10 ** evidence.currencyExponent;
+  return Number.isFinite(major) && major > 0 ? major : null;
+}
+
+function observedShopifyAovUsableForAuthority(
+  authority: NativeAdSpendUnitAuthority,
+): boolean {
+  return observedShopifyAovMajorForAuthority(authority) !== null;
+}
+
 function nativeSpendUnitAuthorityMatchesTarget(
   authority: NativeAdSpendUnitAuthority,
   target: ReturnType<typeof resolveNativeAdTargetAuthority>,
@@ -597,6 +623,23 @@ function nativeSpendUnitAuthorityMatchesTarget(
   ) {
     expectedBasis = "operator_aov";
     expectedBaseSpendUnit = target.operatorAovAssumption / target.targetRoas;
+  } else if (
+    observedShopifyAovUsableForAuthority(authority) &&
+    target.targetRoasAuthority &&
+    positiveFinite(target.targetRoas)
+  ) {
+    /*
+      The store observation, validated the same way it was built.
+
+      This branch and the builder's are two readings of one rule, and they are
+      only ever correct together: if one moved without the other, every authority
+      the job minted would fail this comparison and the whole profile would be
+      refused. That is why the basis union, the builder and this validator
+      change in the same commit.
+    */
+    expectedBasis = "observed_shopify_aov";
+    expectedBaseSpendUnit =
+      observedShopifyAovMajorForAuthority(authority)! / target.targetRoas;
   } else if (
     authority.accountAovEvidence.status === "ready" &&
     positiveFinite(authority.accountAovEvidence.meanAov) &&
@@ -628,9 +671,20 @@ function nativeSpendUnitAuthorityMatchesCell(
     evidence.legacySchemaRowCount,
     evidence.unsupportedSchemaRowCount,
   ];
+  /*
+    Both contract versions are read.
+
+    `.v2` adds `observedShopifyAovEvidence`; `.v1` rows predate the source and
+    carry no such member. Reading only one version would have made every row
+    written before or after the change unreadable, which is the migration this
+    product deliberately does not do — old snapshots stay readable and are not
+    backfilled.
+  */
   if (
-    authority.contractVersion !==
-      "engine-v3-native-ad-spend-unit-authority.v1" ||
+    (authority.contractVersion !==
+      "engine-v3-native-ad-spend-unit-authority.v1" &&
+      authority.contractVersion !==
+        "engine-v3-native-ad-spend-unit-authority.v2") ||
     authority.businessId !== cell.key.businessId ||
     authority.providerAccountRefId !== cell.key.providerAccountRefId ||
     authority.providerAccountId !== cell.key.providerAccountId ||

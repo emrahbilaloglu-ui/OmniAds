@@ -78,6 +78,15 @@ const FAIL_CLOSED_AUTHORITY = [
   // control state cannot be read, so it satisfies both halves.
   "rejectIfMetaWritesBlocked",
   "getMetaWriteBlockState",
+  /*
+    The same choke point, read for its whole answer.
+
+    `readMetaWritePosture` calls `getMetaWriteBlockState` and returns both the
+    block verdict AND whether the business is rehearsing. Routes moved to it so
+    the server, not the request body, decides whether a write reaches Meta —
+    the demo refusal is unchanged and still the first thing it reports.
+  */
+  "readMetaWritePosture",
 ];
 
 /**

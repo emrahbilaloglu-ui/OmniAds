@@ -22,7 +22,10 @@ import {
   resolveMetaLaunchWriteContext,
 } from "@/lib/launchpad/meta-validation";
 import { activateLaunchIntent } from "@/lib/meta/launch-intent-activation";
-import { getMetaWriteBlockState } from "@/lib/meta/automation-control-plane";
+import {
+  metaWriteBlockedResponse,
+  readMetaWritePosture,
+} from "@/lib/meta/automation-write-guard";
 import {
   jsonError,
   readJsonBody,
@@ -114,6 +117,25 @@ export async function POST(
     );
   }
 
+  /*
+    The posture, before anything is composed.
+
+    Activation is a status write like any other, so it answers to the same
+    capability, readiness tier, STOP and rehearsal the rest of the product
+    answers to. Rehearsal REFUSES here rather than downgrading: an activation
+    that did not activate is not a rehearsal an operator can read — the whole
+    value of the step is the effective status coming back ACTIVE.
+  */
+  const posture = await readMetaWritePosture({ businessId: access.businessId });
+  if (posture.blocked) return metaWriteBlockedResponse(posture);
+  if (posture.rehearsal) {
+    return jsonError(
+      409,
+      "dry_run_guardrail",
+      "This business is in rehearsal, so nothing was activated on Meta.",
+    );
+  }
+
   try {
     const result = await activateLaunchIntent({
       intent,
@@ -131,12 +153,13 @@ export async function POST(
         describe a posture that has since changed.
       */
       authorize: async () => {
-        const block = await getMetaWriteBlockState({
-          businessId: access.businessId,
-        }).catch(() => null);
-        // Unreadable is a refusal. "We could not check" is not "it is fine".
-        if (!block) return "write_block_state_unreadable";
-        return block.blocked ? block.reason ?? "kill_switch_engaged" : null;
+        const step = await readMetaWritePosture({ businessId: access.businessId });
+        if (step.blocked) return step.reason ?? "kill_switch_engaged";
+        // Rehearsal engaged between two steps stops the sequence where it is,
+        // rather than silently finishing a hierarchy the operator has just
+        // said should not reach Meta.
+        if (step.rehearsal) return "dry_run_guardrail";
+        return null;
       },
     });
 

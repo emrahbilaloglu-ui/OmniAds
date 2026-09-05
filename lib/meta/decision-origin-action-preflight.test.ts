@@ -70,11 +70,7 @@ describe("server decision-origin action preflight", () => {
     vi.mocked(
       actionLog.findDecisionOriginActionByIdempotency,
     ).mockResolvedValue(null);
-    vi.mocked(controlPlane.getMetaWriteBlockState).mockResolvedValue({
-      blocked: false,
-      reason: null,
-      message: null,
-    });
+    vi.mocked(controlPlane.getMetaWriteBlockState).mockResolvedValue({ blocked: false, reason: null, message: null, rehearsal: false });
     vi.mocked(
       pipelineHealth.readMetaDecisionPipelineOperationalHealth,
     ).mockResolvedValue({} as never);

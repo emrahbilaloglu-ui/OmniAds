@@ -3,7 +3,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireBusinessAccess } from "@/lib/access";
 import { metaWriteTerminalAnswer } from "@/lib/meta/write-outcome";
 import { getIntegration } from "@/lib/integrations";
-import { rejectIfMetaWritesBlocked } from "@/lib/meta/automation-write-guard";
+import {
+  metaWriteBlockedResponse,
+  readMetaWritePosture,
+} from "@/lib/meta/automation-write-guard";
 import { rejectIfReviewerReadOnly } from "@/lib/meta/reviewer-write-guard";
 import {
   DECISION_ORIGIN_PENDING_RECONCILIATION_CODE,
@@ -100,6 +103,14 @@ interface ActionBody {
   recId?: string;
   recIdOrigin?: string;
   dryRun?: unknown;
+  /**
+   * What the OPERATOR asked for, before the server's rehearsal posture applied.
+   *
+   * `dryRun` above is the effective decision and the server may raise it; this
+   * records the request as it arrived so a receipt never claims the operator
+   * chose a rehearsal the business chose for them.
+   */
+  dryRunRequested?: unknown;
 }
 
 function stringField(value: unknown) {
@@ -830,10 +841,31 @@ async function prepareAction(input: {
   const reviewerBlocked = rejectIfReviewerReadOnly(access, `ad_${input.action}`);
   if (reviewerBlocked) return { ok: false as const, response: reviewerBlocked };
 
-  const blocked = await rejectIfMetaWritesBlocked({
+  const posture = await readMetaWritePosture({
     businessId: access.membership.businessId,
   });
-  if (blocked) return { ok: false as const, response: blocked };
+  if (posture.blocked) {
+    return { ok: false as const, response: metaWriteBlockedResponse(posture) };
+  }
+  /*
+    THE SERVER'S REHEARSAL, applied to the request itself.
+
+    Every `dryRunFromBody(body)` in this file — twenty-odd call sites across the
+    status, duplicate and journal paths — read the flag the CLIENT sent. A
+    request that simply omitted it escaped the business's persisted rehearsal
+    guardrail and reached a provider POST.
+
+    Rather than patch twenty reads and hope none was missed, the server's
+    decision is applied ONCE, here, to this request's own parsed body: a
+    business in rehearsal makes `dryRun` true for every downstream reader by
+    construction. The direction is one-way — this can only turn rehearsal ON,
+    never off — and `dryRunRequested` keeps what the operator actually asked
+    for so a receipt can still tell the two apart.
+  */
+  if (input.body) input.body.dryRunRequested = input.body.dryRun === true;
+  if (posture.rehearsal && input.body && input.body.dryRun !== true) {
+    input.body.dryRun = true;
+  }
 
   const exactProviderAccountId =
     parsedDecisionOrigin.request?.providerAccountId ??

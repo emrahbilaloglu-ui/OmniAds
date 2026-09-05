@@ -288,9 +288,7 @@ describe("D088 C1 — the real runtime composition, mocked transport", () => {
     */
     vi.stubEnv(CAMPAIGN_CONTEXT_AUTHORITY_RESOLVER_VERSION_ENV,
       CAMPAIGN_CONTEXT_RESOLVER_VERSION);
-    vi.mocked(controlPlane.getMetaWriteBlockState).mockResolvedValue({
-      blocked: false, reason: null, message: null,
-    });
+    vi.mocked(controlPlane.getMetaWriteBlockState).mockResolvedValue({ blocked: false, reason: null, message: null, rehearsal: false });
   });
 
   it.each([["CBO campaign", CBO], ["ABO ad set", ABO]] as const)(

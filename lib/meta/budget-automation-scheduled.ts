@@ -24,6 +24,7 @@ import { createScheduledStatusRuntime } from "@/lib/meta/scheduled-status-runtim
 import { createBudgetServerReaders } from "@/lib/meta/budget-proposal-server-readers";
 import { buildMetaBudgetWriteContextForProposal } from "@/lib/meta/budget-proposal-write-context";
 import {
+  AUTOMATABLE_PROPOSAL_ACTIONS,
   claimScheduledMetaAutomationProposal,
   forceMetaAutomationProposalReconcile,
   markMetaAutomationProposalDispatchStarted,
@@ -45,29 +46,15 @@ export type BudgetAutomationJobResult =
   | { skipped: true; reason: string }
   | { skipped: false; businesses: number; reports: BudgetSweepReport[] };
 
+/*
+  Re-exported from the queue module, which is where it has to live: the atomic
+  claim counts these families and the sweep dispatches them, and two lists
+  would drift into a cap that bounds less than it says.
+*/
+export { AUTOMATABLE_PROPOSAL_ACTIONS };
+
 /** The system actor a scheduled execution is attributed to. */
 export const BUDGET_SWEEP_ACTOR = "meta_budget_automation_sweep" as const;
-
-/**
- * The queued actions unattended execution may take.
- *
- * `duplicate` and `launch` are absent: both create an entity, and creating one
- * without an operator is a different authorization than changing one that
- * already exists. Creative work reaches the provider through its launch intent
- * and its own activation approval, not through this sweep.
- *
- * `bid` is absent for a different reason: a bid write is an AMOUNT, and no
- * queue row can yet prove one. A budget row carries a server-built envelope
- * that re-fingerprints from its own fields; there is no such envelope for a
- * bid, so claiming one here could only mean inventing the number or reading it
- * back out of prose. It joins this list in the same change that gives it an
- * envelope, and not before.
- */
-export const AUTOMATABLE_PROPOSAL_ACTIONS = [
-  "budget",
-  "pause",
-  "resume",
-] as const;
 
 /**
  * `decided_by` on the proposal row is a plain text column, so the sweep names
@@ -300,7 +287,9 @@ export async function runMetaBudgetAutomationSweepIfDue(
          FROM meta_automation_proposals
         WHERE business_id = $1::uuid
           AND provider_account_id = $2
-          AND proposed_action = 'budget'
+          -- The same families the claim helper counts, so the early refusal and
+          -- the atomic reservation cannot disagree about what a slot is.
+          AND proposed_action = ANY($4::text[])
           AND (
             (status = 'approved'
               AND decided_at >= $3::timestamptz - interval '24 hours'
@@ -310,7 +299,8 @@ export async function runMetaBudgetAutomationSweepIfDue(
               AND COALESCE(decided_at, claimed_at, updated_at)
                 >= $3::timestamptz - interval '24 hours')
           )`,
-      [row.business_id, providerAccountId, nowIso],
+      [row.business_id, providerAccountId, nowIso,
+        [...AUTOMATABLE_PROPOSAL_ACTIONS]],
     ).catch(() => null)) as Array<{ used: number }> | null;
     const used = usageRows === null ? null : Number(usageRows[0]?.used);
     if (!Number.isSafeInteger(used) || (used ?? -1) < 0) {

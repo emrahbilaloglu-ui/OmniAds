@@ -16,6 +16,7 @@ const dbModule = await import("@/lib/db");
 const guardrailPolicy = await import("@/lib/meta/automation-guardrail-policy");
 
 import {
+  AUTOMATABLE_PROPOSAL_ACTIONS,
   META_AUTOMATION_PROPOSAL_OPEN_STATUSES,
   META_AUTOMATION_PROPOSAL_PRIMARY_CAPTION,
   META_AUTOMATION_PROPOSAL_TTL_HOURS,
@@ -96,6 +97,46 @@ describe("scheduled proposal claims reserve the daily cap atomically", () => {
     expect(calls[3]!.text).toContain("receipt_json->>'executionKind' = 'scheduled'");
     expect(calls.some(({ text }) => text.includes("SET status = 'claimed'")))
       .toBe(false);
+  });
+
+  it("counts EVERY automatic family against the cap, not only budget", async () => {
+    /*
+      The defect this pins. The count filtered `proposed_action = 'budget'`
+      while the same sweep also dispatched pause and resume, so a cap of three
+      permitted three budget writes AND three more pauses on the next tick.
+      An operator who set a cap to bound money-moving actions was bounding one
+      third of them.
+    */
+    const { tagged, calls } = recordingDb([
+      [], [{ business_id: BUSINESS_ID }], [], [{ used: 0 }], [],
+    ]);
+    vi.mocked(dbModule.getDb).mockReturnValue(tagged as never);
+
+    await claimScheduledMetaAutomationProposal({
+      businessId: BUSINESS_ID,
+      providerAccountId: "act_123",
+      proposalId: RULE_ID,
+      claimedBy: ACTOR_ID,
+      expectedEnablingActorUserId: ACTOR_ID,
+      expectedActivationControlVersion: ACTIVATION_VERSION,
+      dailyAutoActionCap: 3,
+      now: NOW,
+    });
+
+    const capCall = calls.find(({ text }) => text.includes("AS used"));
+    expect(capCall, "the cap count was never issued").toBeDefined();
+    // The families travel as a bound parameter, not as a literal, so the
+    // dispatch list and the count cannot drift apart.
+    expect(capCall!.text).toContain("proposed_action = ANY($4::text[])");
+    expect(capCall!.text).not.toContain("proposed_action = 'budget'");
+    expect(capCall!.values[3]).toEqual([...AUTOMATABLE_PROPOSAL_ACTIONS]);
+    // And the list is the one the sweep actually dispatches.
+    expect([...AUTOMATABLE_PROPOSAL_ACTIONS].sort())
+      .toEqual(["budget", "pause", "resume"]);
+    // Still account-scoped: one account's automatic actions never consume
+    // another's allowance.
+    expect(capCall!.values[0]).toBe(BUSINESS_ID);
+    expect(capCall!.values[1]).toBe("act_123");
   });
 
   it("fails closed before the cap count when stale leases cannot be classified", async () => {

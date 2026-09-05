@@ -54,7 +54,10 @@ import {
   hasInvalidMetaDryRunField,
   presentMetaActionContractFields,
 } from "@/lib/launchpad/meta-manual-authority";
-import { rejectIfMetaWritesBlocked } from "@/lib/meta/automation-write-guard";
+import {
+  metaWriteBlockedResponse,
+  readMetaWritePosture,
+} from "@/lib/meta/automation-write-guard";
 import { adsManagerUrl } from "@/lib/launchpad/meta";
 import {
   metaLaunchAccountBlockerHttpStatus,
@@ -852,8 +855,22 @@ export async function POST(request: NextRequest) {
     "launchpad_bulk_ad_status",
   );
   if (demoBlocked) return demoBlocked;
-  const blocked = await rejectIfMetaWritesBlocked({ businessId: access.businessId });
-  if (blocked) return blocked;
+  const posture = await readMetaWritePosture({ businessId: access.businessId });
+  if (posture.blocked) return metaWriteBlockedResponse(posture);
+  /*
+    THE SERVER'S REHEARSAL, applied to every item in the batch.
+
+    Each ad carries its own `dryRun`, and every one of them was the client's
+    word alone — a batch that omitted the flag reached real provider POSTs
+    while the business's persisted guardrail said rehearse. Raising it here,
+    once, makes every downstream read of `ad.dryRun` correct by construction.
+    One-way: this can only turn rehearsal on.
+  */
+  if (posture.rehearsal) {
+    for (const ad of ads) {
+      if (ad && typeof ad === "object") (ad as { dryRun?: unknown }).dryRun = true;
+    }
+  }
   if (action !== "pause" && action !== "resume") {
     return jsonError(400, "invalid_action", "action must be pause or resume.");
   }

@@ -16,7 +16,10 @@ import {
   preflightMetaLaunchCreatives,
   type MetaLaunchCreativePreflightCheck,
 } from "@/lib/meta/launch-write";
-import { rejectIfMetaWritesBlocked } from "@/lib/meta/automation-write-guard";
+import {
+  metaWriteBlockedResponse,
+  readMetaWritePosture,
+} from "@/lib/meta/automation-write-guard";
 import {
   adsManagerUrl,
   normalizeMetaLaunchPayload,
@@ -401,7 +404,26 @@ export async function POST(request: NextRequest) {
     requestFingerprint,
   });
 
-  const blocked = await rejectIfMetaWritesBlocked({ businessId: access.businessId });
+  /*
+    Rehearsal REFUSES a create, rather than pretending to do one.
+
+    Every other write family can rehearse: the primitive verifies the entity
+    and reports what it would have written. There is no such thing for a
+    create — `launch-write.ts` has no dry-run path, because a campaign that was
+    not created has no id to read back. So a business in rehearsal is refused
+    here, through the SAME receipt path a block already takes, instead of being
+    handed a receipt for entities that do not exist.
+  */
+  const posture = await readMetaWritePosture({ businessId: access.businessId });
+  const blocked = posture.blocked
+    ? metaWriteBlockedResponse(posture)
+    : posture.rehearsal
+      ? jsonError(
+        409,
+        "dry_run_guardrail",
+        "This business is in rehearsal, so nothing was created on Meta.",
+      )
+      : null;
   if (blocked) {
     const receipt = buildMetaLaunchIntentErrorReceipt({
       ...receiptBinding,

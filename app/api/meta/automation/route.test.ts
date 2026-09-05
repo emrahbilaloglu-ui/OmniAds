@@ -133,6 +133,7 @@ describe("GET /api/meta/automation", () => {
       blocked: true,
       reason: "business_kill_switch",
       message: "Owner paused automation.",
+      rehearsal: true,
     });
     vi.mocked(controlPlane.engageMetaAutomationKillSwitch).mockResolvedValue({
       businessId: BUSINESS_ID,

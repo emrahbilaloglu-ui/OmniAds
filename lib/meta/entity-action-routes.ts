@@ -7,7 +7,12 @@ import {
 } from "@/lib/meta/write-outcome";
 import { getDb } from "@/lib/db";
 import { getIntegration } from "@/lib/integrations";
-import { rejectIfMetaWritesBlocked } from "@/lib/meta/automation-write-guard";
+import {
+  metaWriteBlockedResponse,
+  metaWriteIsRehearsal,
+  readMetaWritePosture,
+  type MetaWritePosture,
+} from "@/lib/meta/automation-write-guard";
 import { rejectIfReviewerReadOnly } from "@/lib/meta/reviewer-write-guard";
 import {
   getMetaAccountContext,
@@ -532,10 +537,21 @@ async function prepareEntityAction(input: {
   const reviewerBlocked = rejectIfReviewerReadOnly(access, `${input.scopeType}_${input.action}`);
   if (reviewerBlocked) return { ok: false as const, response: reviewerBlocked };
 
-  const blocked = await rejectIfMetaWritesBlocked({
+  /*
+    The server's posture, read once and carried.
+
+    Previously this only asked "is it blocked" and threw the answer away. The
+    other half — whether the business is REHEARSING — never left this function,
+    so every handler below decided `dryRun` from the request body alone and a
+    request that omitted the flag reached a real provider POST while the
+    business's own guardrail said rehearse.
+  */
+  const posture = await readMetaWritePosture({
     businessId: access.membership.businessId,
   });
-  if (blocked) return { ok: false as const, response: blocked };
+  if (posture.blocked) {
+    return { ok: false as const, response: metaWriteBlockedResponse(posture) };
+  }
 
   const target = await resolveMetaEntityActionTarget({
     businessId: access.membership.businessId,
@@ -624,6 +640,47 @@ async function prepareEntityAction(input: {
     requestedBy: requestedByFromAccess(access),
     target,
     ctx: ctxResult.ctx,
+    posture,
+  };
+}
+
+/**
+ * Re-prove the posture immediately before the one provider POST.
+ *
+ * The checks above ran at the top of the request. Resolving the target,
+ * building the write context and running the preflight all take time, and in
+ * that time an operator can engage the STOP or an admin can turn the
+ * capability off. This hook runs after every adapter-side check and
+ * immediately before the request begins — the last point at which a re-read
+ * can prevent a write rather than describe one.
+ *
+ * A throw here means no request was made at all.
+ */
+function beforeEntityProviderPost(input: {
+  businessId: string;
+  /** What the first read decided, so a change of posture is visible as one. */
+  rehearsalAtEntry: boolean;
+}): () => Promise<void> {
+  return async () => {
+    const posture = await readMetaWritePosture({ businessId: input.businessId });
+    if (posture.blocked) {
+      throw Object.assign(
+        new Error(posture.message ?? "Meta writes were blocked before the request."),
+        { code: posture.reason ?? "kill_switch_engaged" },
+      );
+    }
+    /*
+      Rehearsal turned on between the entry check and here.
+
+      Refusing is the only honest answer: this call was composed as a live
+      write, and downgrading it now would send a dry run whose receipt claims
+      to be the operator's requested action.
+    */
+    if (posture.rehearsal && !input.rehearsalAtEntry) {
+      throw Object.assign(new Error("Rehearsal was engaged before this write."), {
+        code: "dry_run_guardrail",
+      });
+    }
   };
 }
 
@@ -666,6 +723,18 @@ async function handleMetaEntityStatusAction(
   });
   if (!prepared.ok) return prepared.response;
 
+  /*
+    THE SERVER decides whether this reaches Meta.
+
+    `dryRunFromBody` is what the client ASKED for; the persisted guardrail is
+    what the business COMMITTED to. Or-ing them means a request may always
+    rehearse and may never decline to.
+  */
+  const dryRun = metaWriteIsRehearsal({
+    posture: prepared.posture,
+    requestedDryRun: dryRunFromBody(body),
+  });
+
   const log = await createMetaAdsActionLog({
     businessId: prepared.businessId,
     adId: prepared.target.entityId,
@@ -679,7 +748,12 @@ async function handleMetaEntityStatusAction(
       endpoint: `/${prepared.target.entityId}`,
       scope_type: input.scopeType,
       body: { status: input.action === "pause" ? "PAUSED" : "ACTIVE" },
-      dry_run: dryRunFromBody(body),
+      dry_run: dryRun,
+      // What the client asked for, kept beside what the server decided, so a
+      // receipt can never be read as the operator having chosen a rehearsal
+      // they did not choose.
+      dry_run_requested: dryRunFromBody(body),
+      dry_run_source: prepared.posture.rehearsal ? "business_guardrail" : "request",
       rec_id_origin: recIdOriginFromBody(body),
       action_origin: META_ENTITY_MANUAL_ACTION_ORIGIN,
       manual_confirmation: META_ENTITY_MANUAL_CONFIRMATION,
@@ -688,23 +762,27 @@ async function handleMetaEntityStatusAction(
 
   const startedAt = Date.now();
   try {
-    const options = dryRunFromBody(body) ? { dryRun: true } : undefined;
+    /*
+      A rehearsal never posts, so it needs no pre-POST re-check; a live write
+      always does. Passing the hook unconditionally would make the dry-run
+      verification path read the control plane for nothing.
+    */
+    const options = dryRun
+      ? { dryRun: true }
+      : {
+        beforeMutationAttempt: beforeEntityProviderPost({
+          businessId: prepared.businessId,
+          rehearsalAtEntry: prepared.posture.rehearsal,
+        }),
+      };
     const result =
       input.scopeType === "campaign"
         ? input.action === "pause"
-          ? options
-            ? await pauseCampaign(prepared.ctx, prepared.target.entityId, options)
-            : await pauseCampaign(prepared.ctx, prepared.target.entityId)
-          : options
-            ? await resumeCampaign(prepared.ctx, prepared.target.entityId, options)
-            : await resumeCampaign(prepared.ctx, prepared.target.entityId)
+          ? await pauseCampaign(prepared.ctx, prepared.target.entityId, options)
+          : await resumeCampaign(prepared.ctx, prepared.target.entityId, options)
         : input.action === "pause"
-          ? options
-            ? await pauseAdset(prepared.ctx, prepared.target.entityId, options)
-            : await pauseAdset(prepared.ctx, prepared.target.entityId)
-          : options
-            ? await resumeAdset(prepared.ctx, prepared.target.entityId, options)
-            : await resumeAdset(prepared.ctx, prepared.target.entityId);
+          ? await pauseAdset(prepared.ctx, prepared.target.entityId, options)
+          : await resumeAdset(prepared.ctx, prepared.target.entityId, options);
 
     if (!result.ok) {
       await completeFailure({ logId: log.id, startedAt, result });
@@ -825,6 +903,13 @@ export async function handleMetaAdsetBidAction(
     );
   }
 
+  // Same rule as the status handler: the client may ask to rehearse and may
+  // not decline to. A bid cap is money too.
+  const dryRun = metaWriteIsRehearsal({
+    posture: prepared.posture,
+    requestedDryRun: dryRunFromBody(body),
+  });
+
   const log = await createMetaAdsActionLog({
     businessId: prepared.businessId,
     adId: prepared.target.entityId,
@@ -839,7 +924,9 @@ export async function handleMetaAdsetBidAction(
       scope_type: "adset",
       operation: "apply_bid",
       body: { bid_amount: bidAmountMinor, currency: bidCurrency },
-      dry_run: dryRunFromBody(body),
+      dry_run: dryRun,
+      dry_run_requested: dryRunFromBody(body),
+      dry_run_source: prepared.posture.rehearsal ? "business_guardrail" : "request",
       rec_id_origin: recIdOriginFromBody(body),
       action_origin: META_ENTITY_MANUAL_ACTION_ORIGIN,
       manual_confirmation: META_ENTITY_MANUAL_CONFIRMATION,
@@ -851,7 +938,14 @@ export async function handleMetaAdsetBidAction(
     const result = await updateAdsetBidAmount(prepared.ctx, {
       adsetId: prepared.target.entityId,
       bidAmountMinor,
-      ...(dryRunFromBody(body) ? { dryRun: true } : {}),
+      ...(dryRun
+        ? { dryRun: true }
+        : {
+          beforeMutationAttempt: beforeEntityProviderPost({
+            businessId: prepared.businessId,
+            rehearsalAtEntry: prepared.posture.rehearsal,
+          }),
+        }),
     });
     if (!result.ok) {
       await completeFailure({ logId: log.id, startedAt, result });

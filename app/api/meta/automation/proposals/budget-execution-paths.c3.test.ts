@@ -60,6 +60,28 @@ vi.mock("@/lib/meta/creatives-fetchers", () => ({
 }));
 vi.mock("@/lib/meta/automation-write-guard", () => ({
   rejectIfMetaWritesBlocked: vi.fn(async () => null),
+  // The shared posture every write family now reads. Unblocked and NOT
+  // rehearsing: these suites assert on real provider calls, and a rehearsing
+  // posture would turn every one of them into a dry run.
+  readMetaWritePosture: vi.fn(async () => ({
+    blocked: false, rehearsal: false, reason: null, message: null,
+  })),
+  metaWriteBlockedResponse: vi.fn((posture: { reason: string | null; message: string | null }) =>
+    // The real refusal envelope, so a caller reading `error.code` sees what the
+    // shipped helper actually answers with.
+    new Response(
+      JSON.stringify({
+        ok: false,
+        error: {
+          code: "kill_switch_engaged",
+          message: posture?.message ?? "Meta writes are disabled by kill switch.",
+          reason: posture?.reason ?? null,
+        },
+      }),
+      { status: 503, headers: { "content-type": "application/json" } },
+    )),
+  metaWriteIsRehearsal: (input: { posture: { rehearsal: boolean }; requestedDryRun: boolean }) =>
+    input.posture.rehearsal || input.requestedDryRun === true,
 }));
 vi.mock("@/lib/meta/reviewer-write-guard", () => ({
   rejectIfReviewerReadOnly: vi.fn(() => null),
@@ -77,9 +99,7 @@ vi.mock("@/lib/meta/automation-control-plane", async (importOriginal) => {
   return {
     ...actual,
     getMetaAutomationControlPlane: vi.fn(),
-    getMetaWriteBlockState: vi.fn(async () => ({
-      blocked: false, reason: null, message: null,
-    })),
+    getMetaWriteBlockState: vi.fn(async () => ({ blocked: false, reason: null, message: null, rehearsal: false })),
     readEffectiveMetaWriteGovernance: vi.fn(async () => ({
       verified: true, writeBlocked: false, killSwitchEngaged: false, blockReason: null,
     })),
@@ -793,9 +813,7 @@ describe("D088 C3 — the SCHEDULED path shares the one lifecycle", () => {
       },
       decisionTypeModes: [{ decisionType: "budget", mode: "auto" }],
     } as never);
-    vi.mocked(controlPlane.getMetaWriteBlockState).mockResolvedValue({
-      blocked: false, reason: null, message: null,
-    });
+    vi.mocked(controlPlane.getMetaWriteBlockState).mockResolvedValue({ blocked: false, reason: null, message: null, rehearsal: false });
     vi.mocked(store.readMetaAutomationProposal).mockResolvedValue(proposal() as never);
     vi.mocked(store.claimMetaAutomationProposal).mockResolvedValue({
       status: "claimed", claimToken: CLAIM,
@@ -859,6 +877,7 @@ describe("D088 C3 — the SCHEDULED path shares the one lifecycle", () => {
       reason: "automation_guard_rule",
       message: "Configured quiet hours block Meta writes now.",
       guardRule: null,
+      rehearsal: true,
     });
     vi.mocked(fetch)
       .mockResolvedValueOnce(node(CBO.current))

@@ -24,11 +24,7 @@ vi.mock("@/lib/meta/creatives-fetchers", () => ({
   fetchAssignedAccountIds: vi.fn(async () => []),
 }));
 vi.mock("@/lib/meta/automation-control-plane", () => ({
-  getMetaWriteBlockState: vi.fn(async () => ({
-    blocked: false,
-    reason: null,
-    message: null,
-  })),
+  getMetaWriteBlockState: vi.fn(async () => ({ blocked: false, reason: null, message: null, rehearsal: false })),
 }));
 
 const db = await import("@/lib/db");
@@ -83,11 +79,7 @@ beforeEach(() => {
     { id: BUSINESS_ID, name: "Grandmix" },
   ] as never);
   vi.mocked(assignments.fetchAssignedAccountIds).mockResolvedValue(["act_1"]);
-  vi.mocked(controlPlane.getMetaWriteBlockState).mockResolvedValue({
-    blocked: false,
-    reason: null,
-    message: null,
-  });
+  vi.mocked(controlPlane.getMetaWriteBlockState).mockResolvedValue({ blocked: false, reason: null, message: null, rehearsal: false });
 });
 
 /** 06:00 UTC — the slot the job runs in. */
@@ -318,6 +310,7 @@ describe("runMetaAutomationRuleEvaluationIfDue", () => {
       blocked: true,
       reason: "business_kill_switch",
       message: "Operator stop.",
+      rehearsal: true,
     });
 
     const result = await runMetaAutomationRuleEvaluationIfDue(DUE);
@@ -405,6 +398,7 @@ describe("the periodic evaluation is gated on stops, not on quiet hours", () => 
       reason: "automation_guard_rule",
       message: "Quiet hours are in effect.",
       guardRule: null,
+      rehearsal: true,
     });
 
     const result = await runMetaAutomationRuleEvaluationIfDue(
@@ -425,6 +419,7 @@ describe("the periodic evaluation is gated on stops, not on quiet hours", () => 
       blocked: true,
       reason: "business_kill_switch",
       message: "Automation is stopped for this business.",
+      rehearsal: true,
     });
 
     const result = await runMetaAutomationRuleEvaluationIfDue(

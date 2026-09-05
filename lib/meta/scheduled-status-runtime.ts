@@ -35,6 +35,7 @@ import {
   evaluateScheduledAuthority,
   type ScheduledAuthorityGates,
 } from "@/lib/meta/scheduled-action-execution";
+import { readMetaWritePosture } from "@/lib/meta/automation-write-guard";
 
 /** What the action log calls a write this sweep made. Never the manual origin. */
 export const SCHEDULED_ACTION_ORIGIN = "scheduled_automation_v1" as const;
@@ -123,7 +124,31 @@ export function createScheduledStatusRuntime(
     */
     const gates = await deps.readGates({ proposal }).catch(() => null);
     const mode = await deps.readMode({ proposal }).catch(() => null);
-    if (!gates || !mode) return withheld("control_state_unavailable");
+    /*
+      The SAME server posture every operator write answers to.
+
+      This runtime passed `killSwitchEngaged: false` as a literal, which meant
+      the unattended path — the one with nobody watching — was the only write
+      family that never consulted the shared gate. The capability, the
+      readiness tier, the STOP, the guard rules and quiet hours all live behind
+      this one read.
+    */
+    const posture = await readMetaWritePosture({
+      businessId: proposal.businessId,
+    }).catch(() => null);
+    if (!gates || !mode || !posture) return withheld("control_state_unavailable");
+    if (posture.blocked) {
+      return withheld(
+        posture.reason === "release_capability_closed"
+          ? "release_gate_closed"
+          : posture.reason === "readiness_tier_read_only"
+            ? "auto_execution_disabled"
+            : "kill_switch_engaged",
+      );
+    }
+    // Rehearsal downgrades an unattended write the same way it downgrades an
+    // operator one: it runs, verifies and journals, and never posts.
+    const rehearsing = posture.rehearsal || input.dryRunOnly === true;
     if (input.authorization.kind !== "scheduled") {
       // Manual approval has its own guarded path and its own true statements
       // about who confirmed. This runtime never speaks for an operator.
@@ -144,7 +169,7 @@ export function createScheduledStatusRuntime(
     });
     if (!first.authorized) return withheld(first.refusal);
 
-    const dryRun = input.dryRunOnly === true;
+    const dryRun = rehearsing;
     const targetStatus = proposal.proposedAction === "pause" ? "PAUSED" : "ACTIVE";
     const log = await createMetaAdsActionLog({
       businessId: proposal.businessId,
@@ -179,12 +204,19 @@ export function createScheduledStatusRuntime(
       handled inside the write primitive before any request is made.
     */
     const beforeMutationAttempt = async (): Promise<void> => {
-      const [currentGates, currentMode] = await Promise.all([
+      const [currentGates, currentMode, currentPosture] = await Promise.all([
         deps.readGates({ proposal }).catch(() => null),
         deps.readMode({ proposal }).catch(() => null),
+        readMetaWritePosture({ businessId: proposal.businessId }).catch(() => null),
       ]);
-      if (!currentGates || !currentMode) {
+      if (!currentGates || !currentMode || !currentPosture) {
         throw new Error("control_state_unavailable");
+      }
+      if (currentPosture.blocked) throw new Error("kill_switch_engaged");
+      // Rehearsal engaged between the claim and here: this call was composed as
+      // a live write, so it is refused rather than silently downgraded.
+      if (currentPosture.rehearsal && !rehearsing) {
+        throw new Error("dry_run_guardrail");
       }
       const verdict = evaluateScheduledAuthority({
         gates: currentGates,

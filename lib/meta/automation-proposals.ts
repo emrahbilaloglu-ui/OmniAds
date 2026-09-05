@@ -70,6 +70,28 @@ import {
 export type MetaAutomationProposalScope = "campaign" | "adset" | "ad";
 
 /**
+ * The queued actions unattended execution may take, and therefore the ones the
+ * daily cap must count.
+ *
+ * It lives here rather than beside the sweep because the atomic claim in this
+ * module has to count the SAME families the sweep dispatches. They were two
+ * different lists: the claim counted `proposed_action = 'budget'` while the
+ * sweep also executed pause and resume, so a cap of three permitted three
+ * budget writes AND three more pauses on every tick — the cap an operator set
+ * to bound money-moving actions bounded one third of them.
+ *
+ * `duplicate` and `launch` are absent: both create an entity, and creating one
+ * without an operator is a different authorization than changing one that
+ * already exists. `bid` is absent because no queue row can yet prove an
+ * amount; it joins the list in the change that gives it an envelope.
+ */
+export const AUTOMATABLE_PROPOSAL_ACTIONS = [
+  "budget",
+  "pause",
+  "resume",
+] as const;
+
+/**
  * What raised the row.
  *
  * The discriminator is stored rather than inferred, because the two shapes
@@ -1452,7 +1474,10 @@ export async function claimScheduledMetaAutomationProposal(input: {
          FROM meta_automation_proposals
         WHERE business_id = $1::uuid
           AND provider_account_id = $2
-          AND proposed_action = 'budget'
+          -- EVERY family this sweep can dispatch, not just budget. Counting one
+          -- of three meant the cap bounded a third of the automatic actions an
+          -- operator thought it bounded.
+          AND proposed_action = ANY($4::text[])
           AND (
             (status = 'approved'
               AND decided_at >= $3::timestamptz - interval '24 hours'
@@ -1462,7 +1487,8 @@ export async function claimScheduledMetaAutomationProposal(input: {
               AND COALESCE(decided_at, claimed_at, updated_at)
                 >= $3::timestamptz - interval '24 hours')
           )`,
-      [input.businessId, input.providerAccountId, now.toISOString()],
+      [input.businessId, input.providerAccountId, now.toISOString(),
+        [...AUTOMATABLE_PROPOSAL_ACTIONS]],
     );
     const used = Number(rows[0]?.used);
     if (!Number.isSafeInteger(used) || used < 0) {

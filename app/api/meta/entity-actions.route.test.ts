@@ -15,6 +15,28 @@ vi.mock("@/lib/integrations", () => ({
 
 vi.mock("@/lib/meta/automation-write-guard", () => ({
   rejectIfMetaWritesBlocked: vi.fn(),
+  // The shared posture every write family now reads. Unblocked and NOT
+  // rehearsing: these suites assert on real provider calls, and a rehearsing
+  // posture would turn every one of them into a dry run.
+  readMetaWritePosture: vi.fn(async () => ({
+    blocked: false, rehearsal: false, reason: null, message: null,
+  })),
+  metaWriteBlockedResponse: vi.fn((posture: { reason: string | null; message: string | null }) =>
+    // The real refusal envelope, so a caller reading `error.code` sees what the
+    // shipped helper actually answers with.
+    new Response(
+      JSON.stringify({
+        ok: false,
+        error: {
+          code: "kill_switch_engaged",
+          message: posture?.message ?? "Meta writes are disabled by kill switch.",
+          reason: posture?.reason ?? null,
+        },
+      }),
+      { status: 503, headers: { "content-type": "application/json" } },
+    )),
+  metaWriteIsRehearsal: (input: { posture: { rehearsal: boolean }; requestedDryRun: boolean }) =>
+    input.posture.rehearsal || input.requestedDryRun === true,
 }));
 
 vi.mock("@/lib/meta/account-context", () => ({
@@ -195,6 +217,10 @@ describe("Meta entity write routes", () => {
         connectionGeneration: "1:connected",
       },
       "cmp_1",
+      // The pre-POST re-check. Composing a write takes time, and an operator can
+      // engage the STOP or shut the capability in it; this hook is the last point
+      // at which a re-read can prevent the write rather than describe it.
+      expect.objectContaining({ beforeMutationAttempt: expect.any(Function) }),
     );
     expect(logs.createMetaAdsActionLog).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -335,6 +361,10 @@ describe("Meta entity write routes", () => {
         connectionGeneration: "1:connected",
       },
       "adset_1",
+      // The pre-POST re-check. Composing a write takes time, and an operator can
+      // engage the STOP or shut the capability in it; this hook is the last point
+      // at which a re-read can prevent the write rather than describe it.
+      expect.objectContaining({ beforeMutationAttempt: expect.any(Function) }),
     );
     expect(logs.createMetaAdsActionLog).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -447,6 +477,10 @@ describe("Meta entity write routes", () => {
         connectionGeneration: "1:connected",
       },
       "cmp_1",
+      // The pre-POST re-check. Composing a write takes time, and an operator can
+      // engage the STOP or shut the capability in it; this hook is the last point
+      // at which a re-read can prevent the write rather than describe it.
+      expect.objectContaining({ beforeMutationAttempt: expect.any(Function) }),
     );
     expect(logs.createMetaAdsActionLog).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -491,6 +525,10 @@ describe("Meta entity write routes", () => {
         connectionGeneration: "1:connected",
       },
       "adset_1",
+      // The pre-POST re-check. Composing a write takes time, and an operator can
+      // engage the STOP or shut the capability in it; this hook is the last point
+      // at which a re-read can prevent the write rather than describe it.
+      expect.objectContaining({ beforeMutationAttempt: expect.any(Function) }),
     );
     expect(logs.createMetaAdsActionLog).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -631,7 +669,13 @@ describe("Meta entity write routes", () => {
         // generation the token was read under. The native branch predates it.
         connectionGeneration: "1:connected",
       },
-      { adsetId: "adset_1", bidAmountMinor: 2200 },
+      // The bid write carries the same pre-POST re-check as a status write:
+      // a cap is money too.
+      expect.objectContaining({
+        adsetId: "adset_1",
+        bidAmountMinor: 2200,
+        beforeMutationAttempt: expect.any(Function),
+      }),
     );
     expect(logs.createMetaAdsActionLog).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -750,12 +794,18 @@ describe("Meta entity write routes", () => {
   });
 
   it("blocks entity writes before target lookup and action logging when the business kill switch is engaged", async () => {
-    vi.mocked(writeGuard.rejectIfMetaWritesBlocked).mockResolvedValueOnce(
-      NextResponse.json(
-        { ok: false, error: { code: "kill_switch_engaged" } },
-        { status: 503 },
-      ),
-    );
+    /*
+      The route reads the POSTURE now, not just a block verdict, because it
+      needs the other half of the answer — whether the business is rehearsing —
+      to decide `dryRun` on the server instead of trusting the request body.
+      A blocked posture still refuses at exactly the same point.
+    */
+    vi.mocked(writeGuard.readMetaWritePosture).mockResolvedValueOnce({
+      blocked: true,
+      rehearsal: true,
+      reason: "business_kill_switch",
+      message: "Meta writes are disabled by business kill switch.",
+    });
 
     const response = await campaignPause.POST(
       request({ businessId: "biz_1", recId: "rec_1" }),

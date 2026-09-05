@@ -22,7 +22,7 @@
  * before the request begins, which is the only place a re-read can still
  * prevent the write rather than describe it.
  */
-import { getMetaWriteBlockState } from "@/lib/meta/automation-control-plane";
+import { readMetaWritePosture } from "@/lib/meta/automation-write-guard";
 import { resolveEffectiveMetaModes } from "@/lib/meta/automation-control-plane";
 import type { MetaAutomationDecisionType } from "@/lib/meta/automation-control-plane";
 import type { MetaAutomationProposal } from "@/lib/meta/automation-proposals";
@@ -146,7 +146,9 @@ export function scheduledPreDispatchGuard(input: {
     const [gates, modes, block] = await Promise.all([
       input.readGates().catch(() => null),
       resolveEffectiveMetaModes(input.businessId).catch(() => null),
-      getMetaWriteBlockState({ businessId: input.businessId }).catch(() => null),
+      // The shared posture, so the capability and the readiness tier reach the
+      // unattended path too rather than only the STOP.
+      readMetaWritePosture({ businessId: input.businessId }).catch(() => null),
     ]);
     // An unreadable gate at the write boundary is a refusal. "We could not
     // check" and "it is fine" are different answers and only one of them may

@@ -28,6 +28,28 @@ vi.mock("@/lib/meta/ads-write", () => ({
 
 vi.mock("@/lib/meta/automation-write-guard", () => ({
   rejectIfMetaWritesBlocked: vi.fn(),
+  // The shared posture every write family now reads. Unblocked and NOT
+  // rehearsing: these suites assert on real provider calls, and a rehearsing
+  // posture would turn every one of them into a dry run.
+  readMetaWritePosture: vi.fn(async () => ({
+    blocked: false, rehearsal: false, reason: null, message: null,
+  })),
+  metaWriteBlockedResponse: vi.fn((posture: { reason: string | null; message: string | null }) =>
+    // The real refusal envelope, so a caller reading `error.code` sees what the
+    // shipped helper actually answers with.
+    new Response(
+      JSON.stringify({
+        ok: false,
+        error: {
+          code: "kill_switch_engaged",
+          message: posture?.message ?? "Meta writes are disabled by kill switch.",
+          reason: posture?.reason ?? null,
+        },
+      }),
+      { status: 503, headers: { "content-type": "application/json" } },
+    )),
+  metaWriteIsRehearsal: (input: { posture: { rehearsal: boolean }; requestedDryRun: boolean }) =>
+    input.posture.rehearsal || input.requestedDryRun === true,
 }));
 
 vi.mock("@/lib/launchpad/meta-validation", () => ({
@@ -955,12 +977,14 @@ describe("POST /api/launchpad/meta/add-to-existing", () => {
   });
 
   it("blocks add-to-existing writes before pending checks, validation, or Meta writes", async () => {
-    vi.mocked(writeGuard.rejectIfMetaWritesBlocked).mockResolvedValueOnce(
-      NextResponse.json(
-        { ok: false, error: { code: "kill_switch_engaged" } },
-        { status: 503 },
-      ),
-    );
+    vi.mocked(writeGuard.readMetaWritePosture).mockResolvedValueOnce({
+      // The route reads the whole posture now: blocked, plus whether the
+      // business is rehearsing. A blocked posture refuses at the same point.
+      blocked: true,
+      rehearsal: true,
+      reason: "business_kill_switch",
+      message: "Meta writes are disabled by kill switch.",
+    });
 
     const response = await POST(request(body()));
     const payload = await response.json();

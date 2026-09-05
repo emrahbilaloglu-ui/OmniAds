@@ -361,10 +361,33 @@ export interface MetaWriteBlockState {
     | "control_state_unavailable"
     /** An enforced guard rule refused this write. Additive; never removes a block. */
     | "automation_guard_rule"
+    /** The environment capability for live Meta writes is not open. */
+    | "release_capability_closed"
+    /** The business is deliberately parked in the read-only readiness tier. */
+    | "readiness_tier_read_only"
     | null;
   message: string | null;
   /** Set only when `reason === "automation_guard_rule"`. */
   guardRule?: { id: string; name: string } | null;
+  /**
+   * Whether this business is in rehearsal, and every write must stop before Meta.
+   *
+   * NOT a block, and the distinction is the whole point. A rehearsal write
+   * still happens — it reads the entity back, journals a receipt and tells the
+   * operator what would have been written — it just never posts. Refusing it
+   * outright would take away the one safe way to try a change; letting it
+   * through as a real write would be worse.
+   *
+   * The client's `dryRun` can only ADD to this. `guardrails.dryRunOnly` is a
+   * persisted posture and a request that omits the flag must not escape it,
+   * which is exactly what happened before: every entity and ad route read
+   * `dryRun` from the request body alone, so an operator request with the field
+   * omitted reached a provider POST while the business was in rehearsal.
+   *
+   * `true` whenever the posture could not be read, for the same reason every
+   * other unknown here fails closed.
+   */
+  rehearsal: boolean;
 }
 
 export interface MetaEffectiveWriteGovernance {
@@ -2221,6 +2244,7 @@ export async function getMetaWriteBlockState(input: {
       blocked: true,
       reason: "demo_business_read_only",
       message: "Meta writes are disabled for synthetic demo businesses.",
+      rehearsal: true,
     };
   }
   if (isGlobalMetaAdsWriteKillSwitchEngaged(env)) {
@@ -2228,6 +2252,7 @@ export async function getMetaWriteBlockState(input: {
       blocked: true,
       reason: "META_ADS_WRITE_KILL_SWITCH",
       message: "Meta writes are disabled by global kill switch.",
+      rehearsal: true,
     };
   }
 
@@ -2248,7 +2273,7 @@ export async function getMetaWriteBlockState(input: {
   */
   const isVitest = env.VITEST === "true" && env.NODE_ENV !== "production";
   if (isVitest && env.META_AUTOMATION_WRITE_GUARD_TEST_READS !== "1") {
-    return { blocked: false, reason: null, message: null };
+    return { blocked: false, reason: null, message: null, rehearsal: false };
   }
 
   let controlState: Awaited<ReturnType<typeof readBusinessControlState>>;
@@ -2260,6 +2285,7 @@ export async function getMetaWriteBlockState(input: {
       reason: "control_state_unavailable",
       message:
         "Meta writes are temporarily blocked because automation control state could not be verified.",
+      rehearsal: true,
     };
   }
   if (!controlState.businessFound) {
@@ -2268,6 +2294,7 @@ export async function getMetaWriteBlockState(input: {
       reason: "control_state_unavailable",
       message:
         "Meta writes are temporarily blocked because automation control state could not be verified.",
+      rehearsal: true,
     };
   }
   if (controlState.isDemoBusiness) {
@@ -2275,6 +2302,7 @@ export async function getMetaWriteBlockState(input: {
       blocked: true,
       reason: "demo_business_read_only",
       message: "Meta writes are disabled for synthetic demo businesses.",
+      rehearsal: true,
     };
   }
   if (!controlState.controlPersisted) {
@@ -2283,6 +2311,7 @@ export async function getMetaWriteBlockState(input: {
       reason: "control_state_unavailable",
       message:
         "Meta writes are blocked because this business has no persisted automation control state.",
+      rehearsal: true,
     };
   }
   const control = controlState.control;
@@ -2293,6 +2322,48 @@ export async function getMetaWriteBlockState(input: {
       message:
         control.killSwitchReason ||
         "Meta writes are disabled by business kill switch.",
+      rehearsal: true,
+    };
+  }
+
+  /*
+    THE ENVIRONMENT CAPABILITY, at the same choke point as everything else.
+
+    This gate was written, exported and never consulted by the server that
+    actually reaches Meta: `readMetaReleaseGates` decided what the SCREENS
+    offered, and the write path never asked. So a request built by hand, a
+    stale tab, or any caller that skipped the UI could reach a provider POST
+    with the capability shut — which is the one thing a release capability
+    exists to prevent.
+
+    It is a block rather than a rehearsal downgrade, because a closed
+    capability is not "try this safely", it is "this build may not write here".
+  */
+  if (readMetaReleaseGates(env).automationLiveWrites !== true) {
+    return {
+      blocked: true,
+      reason: "release_capability_closed",
+      message:
+        "Live Meta writes are not enabled in this environment, so nothing was sent.",
+      rehearsal: true,
+    };
+  }
+
+  /*
+    THE READ-ONLY TIER, which had two consumers and no enforcement.
+
+    `readiness_tier` is the operator's own statement about what this business
+    may do, and `read_only` means one thing. Until now the only place that
+    honoured it was the scheduled budget reader, so a business deliberately
+    parked in it could still be written to by hand.
+  */
+  if (control.readinessTier === "read_only") {
+    return {
+      blocked: true,
+      reason: "readiness_tier_read_only",
+      message:
+        "This business is set to read-only, so no Meta write was attempted.",
+      rehearsal: true,
     };
   }
 
@@ -2319,6 +2390,7 @@ export async function getMetaWriteBlockState(input: {
         reason: "control_state_unavailable",
         message:
           "Meta writes are temporarily blocked because automation guard rules could not be verified.",
+        rehearsal: true,
       };
     }
   }
@@ -2333,6 +2405,7 @@ export async function getMetaWriteBlockState(input: {
       reason: "automation_guard_rule",
       message: guardBlock.reason,
       guardRule: { id: guardBlock.ruleId, name: guardBlock.ruleName },
+      rehearsal: true,
     };
   }
 
@@ -2360,8 +2433,22 @@ export async function getMetaWriteBlockState(input: {
       reason: "automation_guard_rule",
       message: quietHoursBlock.reason,
       guardRule: null,
+      rehearsal: true,
     };
   }
 
-  return { blocked: false, reason: null, message: null };
+  /*
+    Not blocked — but possibly rehearsing.
+
+    `dryRunOnly` is a persisted guardrail and the plan makes it the ONE meaning
+    of rehearsal for every write family. `!== false` rather than `=== true`:
+    the shipped default is rehearsal, and a guardrail row that could not state
+    the field must not be read as permission to reach Meta.
+  */
+  return {
+    blocked: false,
+    reason: null,
+    message: null,
+    rehearsal: control.guardrails.dryRunOnly !== false,
+  };
 }

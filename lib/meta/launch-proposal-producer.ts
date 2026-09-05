@@ -2,10 +2,10 @@
  * The queue producer for a validated launch intent.
  *
  * `launch` became an allowed `proposed_action` — with a CHECK requiring the
- * intent id on the row — and nothing ever raised one. A launch intent that
- * passed validation sat in `ready` where only the Launchpad screen could see
- * it, so the confirmation queue, which is the place an operator actually works
- * from in the morning, never mentioned it.
+ * intent id on the row — and nothing ever raised one. A staged launch intent
+ * sat where only the Launchpad screen could see it, so the confirmation queue,
+ * which is the place an operator actually works from in the morning, never
+ * mentioned it.
  *
  * ## Why this producer creates nothing
  *
@@ -15,10 +15,11 @@
  * Launchpad by a person. Inventing one from a `scale` label would be this
  * module deciding what to advertise.
  *
- * So the row is a pointer, and the intent stays the authority. `launch` is
- * deliberately absent from `AUTOMATABLE_PROPOSAL_ACTIONS`: creating an entity
- * with nobody present is a different authorization than changing one that
- * already exists, and this row is for an operator to approve.
+ * So the row is a pointer and the intent stays the authority — whether an
+ * operator approves the row by hand or the sweep executes it under the creative
+ * standing mode, what runs is the payload that person staged, replayed
+ * unchanged. Every create is still PAUSED; turning it on is a separate row with
+ * a separate approval.
  */
 import { getDb } from "@/lib/db";
 import { resolveEffectiveMetaModes } from "@/lib/meta/automation-control-plane";
@@ -46,11 +47,27 @@ export interface ReadyLaunchIntentCandidate {
 }
 
 /**
- * Intents that are validated and not yet executed.
+ * Intents that are staged, resting, and not yet executed.
  *
- * `ready` is the only status that qualifies: `prepared` has not passed
- * validation, and everything after `executing` has already reached a provider.
- * Offering either would be offering an action that cannot be taken.
+ * `prepared` is the resting state, and the one the executor requires: both the
+ * manual and the scheduled arm enter through `prepareMetaLaunchIntentForExecution`,
+ * which refuses anything else. The producer used to select `ready` on the
+ * reasoning that `ready` meant "validated" — but `ready` is written by
+ * `recordMetaLaunchIntentValidation` and consumed by
+ * `markMetaLaunchIntentExecuting` inside ONE HTTP request. It is a
+ * millisecond-long transient in the middle of a create, not a state anything
+ * rests in, so the producer either found nothing at all or, worse, pointed at
+ * an intent mid-flight.
+ *
+ * `started_at IS NULL` is the second half of the same fact: an intent that has
+ * begun executing has a start time even if its status has moved on, and nothing
+ * may be offered twice.
+ *
+ * Decision lineage is required for the same reason. The Launchpad wizard writes
+ * a `prepared` intent and executes it in the same request; a STAGED intent —
+ * one a decision, a snapshot or a creative brief produced for later — is the
+ * only kind an operator has not already dealt with. Without this the queue
+ * would race the wizard for the operator's own in-flight launch.
  */
 export const READY_LAUNCH_INTENT_SQL = `
   SELECT i.id::text            AS intent_id,
@@ -63,7 +80,13 @@ export const READY_LAUNCH_INTENT_SQL = `
          )                     AS entity_label
     FROM meta_launch_intents i
    WHERE i.business_id = $1::uuid
-     AND i.status = 'ready'
+     AND i.status = 'prepared'
+     AND i.started_at IS NULL
+     AND (
+       i.source_decision_id IS NOT NULL
+       OR i.source_decision_snapshot_id IS NOT NULL
+       OR i.creative_brief_id IS NOT NULL
+     )
      AND NOT EXISTS (
        SELECT 1 FROM meta_automation_proposals decided
         WHERE decided.business_id = i.business_id
@@ -122,13 +145,24 @@ export async function projectMetaLaunchProposals(
 
   let projected = 0;
   for (const candidate of candidates) {
-    const id = await deps.insertProposal({
-      candidate,
-      actionLabel: proposalActionLabel(
-        LAUNCH_PROPOSAL_ACTION,
-        candidate.grain === "campaign" ? "campaign" : "ad",
-      ),
-    });
+    /*
+      One candidate's conflict is one candidate's problem.
+
+      The insert below can still raise — the open-slot index is arbitrated now,
+      but a concurrent snapshot, a lineage CHECK or a deleted intent can all
+      end an INSERT — and the snapshot's own catch is at the BATCH level. So an
+      unhandled throw here dropped every remaining candidate, and the failure
+      looked exactly like "the producer found nothing".
+    */
+    const id = await deps
+      .insertProposal({
+        candidate,
+        actionLabel: proposalActionLabel(
+          LAUNCH_PROPOSAL_ACTION,
+          candidate.grain === "campaign" ? "campaign" : "ad",
+        ),
+      })
+      .catch(() => null);
     if (id) projected += 1; else refuse("insert_conflicted");
   }
 
@@ -182,7 +216,18 @@ export async function insertLaunchProposalRow(input: {
        '${LAUNCH_PROPOSAL_ACTION}', $7, $8, NULLIF(BTRIM($9), ''), $10,
        $11::jsonb, NOW() + ($12 || ' hours')::interval, 'pending', $13::uuid
      )
-     ON CONFLICT (business_id, provider_account_id, decision_key, rec_type, snapshot_date)
+     /*
+       Arbitrated on the OPEN-SLOT index, not the projection one.
+
+       The projection index includes rec_type, which is NULL on every launch
+       row -- and NULL is distinct from NULL in a unique index, so that arbiter
+       could never fire and the second insert for one intent raised on
+       uq_meta_automation_proposals_open_slot instead. Naming that index's own
+       columns and predicate makes the duplicate what it always was: nothing to
+       do.
+     */
+     ON CONFLICT (business_id, provider_account_id, decision_key, proposed_action)
+       WHERE status IN ('pending', 'claimed', 'reconcile')
      DO NOTHING
      RETURNING id::text AS id`,
     [

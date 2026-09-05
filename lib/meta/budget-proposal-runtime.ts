@@ -72,6 +72,56 @@ export const BUDGET_PROPOSAL_WITHHELD_REASONS = [
   */
   "decision_lineage_absent",
   "creative_identity_mismatch",
+  /*
+    The facts only a CREATIVE row can produce, and each of them is a different
+    thing to have happened.
+
+    A launch row points at a launch intent and an activation row points at what
+    that launch created, so both can be refused for reasons no status or money
+    row has: the row names no intent, the intent could not be read, it is no
+    longer in the one state a create may start from, its stored payload no
+    longer hashes to the fingerprint the operator approved, or Launchpad's own
+    release gate — which is a separate environment gate from the Automation one
+    — is shut. Flattening any of them to `composition_blocked` would settle the
+    queue row `failed` while hiding which of the six it was, and five of the six
+    are things the operator can put right.
+  */
+  "launch_intent_absent",
+  "launch_intent_unreadable",
+  "launch_intent_not_prepared",
+  "launch_payload_changed",
+  "launchpad_execution_gated",
+  "launchpad_safety_step_missing",
+  "launch_write_context_unavailable",
+  /*
+    What `activateLaunchIntent` itself can answer, carried through verbatim.
+
+    These are `LaunchActivationRefusal` — the three plan refusals plus every
+    `ActivationApprovalRefusal`. They are listed rather than imported because
+    this vocabulary is the receipt's, not the approval module's; the activation
+    runtime assigns its refusal into this union directly, so a code added there
+    and forgotten here is a compile error rather than a silent `composition
+    blocked`. "Nobody approved this" and "somebody approved a different payload"
+    are the two an operator most needs to be able to tell apart.
+  */
+  "intent_not_succeeded",
+  "receipt_absent",
+  "no_activatable_entities",
+  "activation_approval_absent",
+  "activation_approval_malformed",
+  "activation_approval_contract_unknown",
+  "activation_approval_business_mismatch",
+  "activation_approval_account_mismatch",
+  "activation_approval_intent_mismatch",
+  "activation_approval_payload_changed",
+  "activation_approval_operation_mismatch",
+  "activation_approval_scope_mismatch",
+  "activation_approval_asset_mismatch",
+  "activation_approval_destination_mismatch",
+  "activation_approval_expired",
+  "activation_approval_revoked",
+  "activation_approval_approver_absent",
+  "activation_approval_policy_version_unbound",
 ] as const;
 export type BudgetProposalWithheldReason =
   (typeof BUDGET_PROPOSAL_WITHHELD_REASONS)[number];

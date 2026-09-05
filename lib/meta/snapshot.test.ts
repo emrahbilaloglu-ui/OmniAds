@@ -92,6 +92,16 @@ vi.mock("@/lib/meta/automation-proposals", () => ({
     expired: 0,
     ran: true,
   })),
+  /*
+    The launch and activation producers import these from the same module, and
+    a partial mock makes their import throw rather than their behaviour differ
+    — which is how one missing key took the whole suite down instead of one
+    case.
+  */
+  META_AUTOMATION_PROPOSAL_UNDECIDED_STATUSES: ["pending", "claimed"],
+  META_AUTOMATION_PROPOSAL_TTL_HOURS: 24,
+  META_AUTOMATION_PROPOSAL_PRIMARY_CAPTION: "Review before applying",
+  proposalActionLabel: () => "Create paused ad",
 }));
 
 // Budget proposal projection is another collaborator of the snapshot pipeline.

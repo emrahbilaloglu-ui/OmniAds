@@ -44,6 +44,10 @@ import {
   insertLaunchProposalRow,
   projectMetaLaunchProposals,
 } from "@/lib/meta/launch-proposal-producer";
+import {
+  insertActivationProposalRow,
+  projectMetaActivationProposals,
+} from "@/lib/meta/activation-proposal-producer";
 import { loadBudgetCompositionSourcesForCandidate }
   from "@/lib/meta/budget-proposal-source-loader";
 import { buildMetaEntityStateRows } from "@/lib/meta/engine-v1/state-rows";
@@ -113,8 +117,14 @@ export interface RunMetaSnapshotResult {
   budgetProposals?: { candidates: number; projected: number } | null;
   /** The bid producer's own result, reported separately for the same reason. */
   bidProposals?: { candidates: number; projected: number } | null;
-  /** The launch producer's, which counts validated intents rather than rows. */
+  /** The launch producer's, which counts staged intents rather than rows. */
   launchProposals?: { candidates: number; projected: number } | null;
+  /**
+   * The activation producer's — launches that created something and are not
+   * delivering. Counted separately from `launchProposals` because "we staged
+   * nothing today" and "nothing is waiting to be turned on" are different facts.
+   */
+  activationProposals?: { candidates: number; projected: number } | null;
   /**
    * The accounts THIS attempt generated for, so a caller can record completion
    * from what happened rather than from what exists.
@@ -131,6 +141,21 @@ export interface RunMetaSnapshotResult {
    * rather than discarding the ones that succeeded.
    */
   failedAccountIds?: string[];
+  /**
+   * The newest source day each account's generation actually read, or an
+   * absent key when the reading itself failed.
+   *
+   * The scheduler stores it as the slot's source cut-off. It used to store the
+   * date the scheduler had ASKED for, so the cut-off advanced every successful
+   * slot whether or not the warehouse had received a single new day. "We did
+   * not read" and "the source is empty" are different facts and the scheduler
+   * needs both: the first must leave the last real reading alone, the second
+   * is a reading of its own.
+   *
+   * Keyed the same way `succeededAccountIds` is, `""` for the unattributed
+   * batch.
+   */
+  sourceMaxDateByAccountId?: Record<string, string | null>;
   /** Set when the run refused before computing anything. */
   skippedReason?: "provider_account_not_assigned";
 }
@@ -1428,22 +1453,84 @@ async function readAssignedMetaAccountIds(businessId: string): Promise<string[]>
   }
 }
 
+/**
+ * The newest source day one account's generation actually read.
+ *
+ * `meta_structure_snapshot_runs.source_max_date` was being stamped with the
+ * date the scheduler ASKED for, so the cut-off advanced on every successful
+ * slot whether or not the warehouse had received a single new day — the one
+ * thing A5.4 forbids. This is the reading instead: the newest warehouse day at
+ * or before the day this run computed. A smaller value than last time is an
+ * honest reading, not an error, and no rows at all is NULL.
+ *
+ * Both tables, because the generation genuinely reads both. `GREATEST` ignores
+ * a NULL argument, and the account-scoped and business-scoped forms are
+ * written out separately rather than folded into one `OR $2 IS NULL`
+ * predicate: that form defeats the (business, account, date DESC) indexes and
+ * turns an index-only scan of two of the largest tables in the schema into a
+ * full one.
+ */
+async function readSnapshotSourceMaxDate(input: {
+  businessId: string;
+  providerAccountId: string | null;
+  throughDate: string;
+}): Promise<string | null> {
+  const sql = getDb();
+  const rows = (input.providerAccountId
+    ? await sql`
+        SELECT GREATEST(
+          (
+            SELECT MAX(date) FROM meta_campaign_daily
+            WHERE business_id = ${input.businessId}
+              AND provider_account_id = ${input.providerAccountId}
+              AND date <= ${input.throughDate}::date
+          ),
+          (
+            SELECT MAX(date) FROM meta_adset_daily
+            WHERE business_id = ${input.businessId}
+              AND provider_account_id = ${input.providerAccountId}
+              AND date <= ${input.throughDate}::date
+          )
+        )::text AS max_date
+      `
+    : await sql`
+        SELECT GREATEST(
+          (
+            SELECT MAX(date) FROM meta_campaign_daily
+            WHERE business_id = ${input.businessId}
+              AND date <= ${input.throughDate}::date
+          ),
+          (
+            SELECT MAX(date) FROM meta_adset_daily
+            WHERE business_id = ${input.businessId}
+              AND date <= ${input.throughDate}::date
+          )
+        )::text AS max_date
+      `) as Array<{ max_date: string | null }>;
+  return rows[0]?.max_date ?? null;
+}
+
 export async function runMetaSnapshotForBusiness(
   businessId: string,
   snapshotDate: string,
   /**
-   * Compute ONE assigned account instead of every one.
+   * Compute the NAMED assigned accounts instead of every one.
    *
    * A selected-account manual control passes its account, and gets exactly the
    * computation the surface reads back. Omitted orchestrates every currently
    * assigned account — still computing and persisting each independently, so
    * the whole-business entry point never creates pooled truth.
    *
-   * An account that is not currently assigned is refused rather than computed:
-   * a stale selection must not mint a snapshot for an account this workspace
-   * no longer has.
+   * It takes a list because a slot retry owes a list: one account of a
+   * business can succeed while two others fail in the same run, and expressing
+   * that as "one account or all of them" forced the retry to regenerate the
+   * account that had already succeeded.
+   *
+   * An account that is not currently assigned is refused rather than computed,
+   * and one unassigned member refuses the whole call: a stale selection must
+   * not mint a snapshot for an account this workspace no longer has.
    */
-  providerAccountId?: string | null,
+  providerAccountIds?: string | readonly string[] | null,
 ): Promise<RunMetaSnapshotResult> {
   const normalizedSnapshotDate = normalizeDate(snapshotDate);
   const calibration = await runMetaCalibrationForBusiness(
@@ -1496,8 +1583,16 @@ export async function runMetaSnapshotForBusiness(
    * reports which failed instead of throwing the whole run away.
    */
   const assignedAccounts = await readAssignedMetaAccountIds(businessId);
-  const requestedAccount = providerAccountId?.trim() || null;
-  if (requestedAccount && !assignedAccounts.includes(requestedAccount)) {
+  const requestedAccounts = (
+    typeof providerAccountIds === "string"
+      ? [providerAccountIds]
+      : (providerAccountIds ?? [])
+  )
+    .map((account) => account.trim())
+    .filter((account) => account.length > 0);
+  if (
+    requestedAccounts.some((account) => !assignedAccounts.includes(account))
+  ) {
     /*
      * A stale or revoked selection is refused, not computed. Generating a
      * snapshot for an account this workspace no longer has would mint decisions
@@ -1514,6 +1609,7 @@ export async function runMetaSnapshotForBusiness(
       budgetProposals: null,
       bidProposals: null,
       launchProposals: null,
+      activationProposals: null,
       failedAccountIds: [],
       skippedReason: "provider_account_not_assigned",
     };
@@ -1523,11 +1619,12 @@ export async function runMetaSnapshotForBusiness(
    * a fallback to pooling — with nothing assigned there is nothing to pool —
    * and it preserves the pre-change behaviour for a workspace mid-setup.
    */
-  const generationAccounts: Array<string | null> = requestedAccount
-    ? [requestedAccount]
-    : assignedAccounts.length > 0
-      ? assignedAccounts
-      : [null];
+  const generationAccounts: Array<string | null> =
+    requestedAccounts.length > 0
+      ? requestedAccounts
+      : assignedAccounts.length > 0
+        ? assignedAccounts
+        : [null];
 
   /*
    * Legacy NULL-lineage rows for this date are cleared ONCE, before the loop.
@@ -1659,7 +1756,29 @@ export async function runMetaSnapshotForBusiness(
         providerAccountId: accountId,
         rows,
       });
-      return { accountId, recommendations, rows: rows.length };
+      /*
+        What this account's generation saw of the source, read here and never
+        inferred from the request. A reading that itself fails reports nothing
+        rather than a value — "we did not read" must not overwrite the last
+        real observation — and it must not take the generation down with it,
+        since the rows above are already written and correct.
+      */
+      const sourceMaxDateRead = await readSnapshotSourceMaxDate({
+        businessId,
+        providerAccountId: accountId,
+        throughDate: normalizedSnapshotDate,
+      })
+        .then((maxDate) => ({ maxDate }))
+        .catch((error) => {
+          console.warn("[meta-snapshot] source_max_date_unread", {
+            businessId,
+            providerAccountId: accountId,
+            snapshotDate: normalizedSnapshotDate,
+            message: error instanceof Error ? error.message : String(error),
+          });
+          return null;
+        });
+      return { accountId, recommendations, rows: rows.length, sourceMaxDateRead };
     }),
   );
 
@@ -1680,6 +1799,13 @@ export async function runMetaSnapshotForBusiness(
   const recommendations = perAccount.flatMap((outcome) =>
     outcome.status === "fulfilled" ? outcome.value.recommendations : [],
   );
+  const sourceMaxDateByAccountId: Record<string, string | null> = {};
+  for (const outcome of perAccount) {
+    if (outcome.status !== "fulfilled") continue;
+    const reading = outcome.value.sourceMaxDateRead;
+    if (reading === null) continue;
+    sourceMaxDateByAccountId[outcome.value.accountId ?? ""] = reading.maxDate;
+  }
 
   /*
    * Anomalies, once, after every account has been written. Their detector is
@@ -1814,6 +1940,37 @@ export async function runMetaSnapshotForBusiness(
       return null;
     });
 
+  /*
+    And the activation producer, which is the other half of the same story.
+
+    A launch intent may only create PAUSED entities, so a successful launch is a
+    receipt for something nobody can see. Nothing raised a row for it, and the
+    Launchpad receipt has no activation control, so a created campaign could sit
+    switched off with nothing anywhere reminding the operator it was waiting.
+
+    The batch-level catch below each of these producers still stands, but a
+    single duplicate no longer needs it: both absorb a per-candidate conflict
+    inside the loop, so one clash cannot drop the candidates behind it.
+  */
+  const activationProposals = await projectMetaActivationProposals({
+    businessId,
+    snapshotDate: normalizedSnapshotDate,
+    insertProposal: async (insert) => insertActivationProposalRow({
+      candidate: insert.candidate,
+      snapshotDate: normalizedSnapshotDate,
+      actionLabel: insert.actionLabel,
+    }),
+  })
+    .then((result) => ({ candidates: result.candidates, projected: result.projected }))
+    .catch((error) => {
+      console.warn("[meta-snapshot] activation_proposal_projection_failed", {
+        businessId,
+        snapshotDate: normalizedSnapshotDate,
+        message: error instanceof Error ? error.message : String(error),
+      });
+      return null;
+    });
+
   return {
     businessId,
     snapshotDate: normalizedSnapshotDate,
@@ -1821,6 +1978,7 @@ export async function runMetaSnapshotForBusiness(
     budgetProposals,
     bidProposals,
     launchProposals,
+    activationProposals,
     recommendationsWritten: recommendations.length,
     failedAccountIds: failedAccounts
       .map((entry) => entry.accountId)
@@ -1839,9 +1997,30 @@ export async function runMetaSnapshotForBusiness(
       .map((outcome, index) => ({ outcome, accountId: generationAccounts[index] ?? "" }))
       .filter((entry) => entry.outcome.status === "fulfilled")
       .map((entry) => entry.accountId ?? ""),
+    sourceMaxDateByAccountId,
     anomaliesWritten: anomalies.length,
     proposals,
   };
+}
+
+/**
+ * The accounts a retry should name for one business, or null for all of them.
+ *
+ * `null` means "the whole business", which is what an unqualified run has
+ * always meant — and what the `""` unattributed pair must also resolve to,
+ * since a business with no assignment produces exactly one unscoped batch and
+ * naming `""` as an account would refuse the run outright.
+ */
+export function metaSnapshotRetryAccountsFor(
+  requested: ReadonlyArray<{ businessId: string; providerAccountId: string }> | null,
+  businessId: string,
+): string[] | null {
+  if (!requested) return null;
+  const accounts = requested
+    .filter((pair) => pair.businessId === businessId)
+    .map((pair) => pair.providerAccountId)
+    .filter((id): id is string => typeof id === "string" && id.length > 0);
+  return accounts.length > 0 ? accounts : null;
 }
 
 export async function runMetaSnapshotForAllBusinesses(
@@ -1874,14 +2053,15 @@ export async function runMetaSnapshotForAllBusinesses(
     : businesses;
   const settled = await Promise.allSettled(
     targeted.map((business) => {
-      const accounts = requested
-        ?.filter((pair) => pair.businessId === business.id)
-        .map((pair) => pair.providerAccountId)
-        .filter((id): id is string => typeof id === "string" && id.length > 0);
-      // One account named: compute exactly it. Several or none: the whole
-      // business, which is what an unqualified run has always meant.
-      return accounts && accounts.length === 1
-        ? runMetaSnapshotForBusiness(business.id, normalizedSnapshotDate, accounts[0])
+      const accounts = metaSnapshotRetryAccountsFor(requested, business.id);
+      // EVERY account this slot still owes for this business, in one run. The
+      // test used to be `accounts.length === 1`, which sent a business with
+      // two missing accounts down the unqualified path — and that regenerates
+      // every ASSIGNED account, including the one that already succeeded in
+      // this slot, at the cost of a full generation and a rewrite of truth
+      // that was already correct.
+      return accounts
+        ? runMetaSnapshotForBusiness(business.id, normalizedSnapshotDate, accounts)
         : runMetaSnapshotForBusiness(business.id, normalizedSnapshotDate);
     }),
   );

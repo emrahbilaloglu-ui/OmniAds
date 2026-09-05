@@ -32,7 +32,20 @@ const WIRED_GATES: Record<
   { server: string[]; offer: string[]; governs: string }
 > = {
   launchpadExecution: {
-    server: ["app/api/launchpad/meta/route-utils.ts"],
+    /*
+      Three enforcement points now, because the gate finally governs an
+      unattended path as well as an operator's.
+
+      The route-utils reader answers for a person pressing Launch; the two
+      scheduled runtimes answer for a sweep that has nobody watching, and they
+      read the same gate rather than a copy of it — a create with no operator
+      present is the write this flag exists to keep shut.
+    */
+    server: [
+      "app/api/launchpad/meta/route-utils.ts",
+      "lib/meta/scheduled-launch-runtime.ts",
+      "lib/meta/scheduled-activation-runtime.ts",
+    ],
     offer: ["app/c/[businessId]/meta/launchpad/page.tsx"],
     governs: "provider create calls issued from Launchpad",
   },

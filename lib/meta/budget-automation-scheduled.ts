@@ -12,7 +12,11 @@ import { getDb } from "@/lib/db";
 import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 import { readMetaReleaseGates } from "@/lib/meta/release-gates";
 import { resolveEffectiveMetaModes } from "@/lib/meta/automation-control-plane";
-import { decisionTypeForProposedAction } from "@/lib/meta/scheduled-action-execution";
+import {
+  decisionTypeForProposal,
+  decisionTypeForProposedAction,
+} from "@/lib/meta/scheduled-action-execution";
+import { missingSteps, writeFamily } from "@/lib/meta/write-safety-contract";
 import { readEffectiveMetaWriteGovernance } from "@/lib/meta/automation-control-plane";
 import {
   BUDGET_SWEEP_CONTRACT,
@@ -24,6 +28,9 @@ import { createScheduledStatusRuntime } from "@/lib/meta/scheduled-status-runtim
 import { createScheduledBidRuntime } from "@/lib/meta/scheduled-bid-runtime";
 import { createScheduledAdStatusRuntime }
   from "@/lib/meta/scheduled-ad-status-runtime";
+import { createScheduledLaunchRuntime } from "@/lib/meta/scheduled-launch-runtime";
+import { createScheduledActivationRuntime }
+  from "@/lib/meta/scheduled-activation-runtime";
 import { createBudgetServerReaders } from "@/lib/meta/budget-proposal-server-readers";
 import { buildMetaBudgetWriteContextForProposal } from "@/lib/meta/budget-proposal-write-context";
 import {
@@ -161,9 +168,38 @@ export async function runMetaBudgetAutomationSweepIfDue(
       });
       continue;
     }
-    const autoActions = AUTOMATABLE_PROPOSAL_ACTIONS.filter(
-      (action) => modes[decisionTypeForProposedAction(action)] === "auto",
-    );
+    /*
+      Launchpad's own gate, read once per business.
+
+      A closed `META_LAUNCHPAD_EXECUTION` — or a `launchpad_create` family still
+      declaring a missing safety step — must keep launch rows out of the PAGE,
+      not withhold them after the claim. A withheld outcome settles the row
+      `failed` (`budget-execution-lifecycle.ts`), so claiming and refusing would
+      destroy, every ten minutes, rows an operator could still have approved by
+      hand. The row stays pending and visible; only the unattended arm is shut.
+    */
+    const launchpadCreateOpen =
+      readMetaReleaseGates(process.env).launchpadExecution === true
+      && missingSteps(writeFamily("launchpad_create")).length === 0;
+    /*
+      Which action families this business has armed, resolved per action.
+
+      `launch` answers to the creative mode; `resume` cannot be resolved from
+      the verb at all — an ordinary un-pause is the pause family and an
+      activation is the creative one — so the page below carries both and each
+      claimed row is re-resolved by `decisionTypeForProposal`, which reads the
+      intent lineage rather than the verb.
+    */
+    const autoActions = AUTOMATABLE_PROPOSAL_ACTIONS.filter((action) => {
+      if (action === "launch" && !launchpadCreateOpen) return false;
+      if (action === "resume") {
+        // An activation row and an un-pause row share this verb, so the page
+        // admits it when EITHER family is armed and the runtime chosen per row
+        // re-proves the right one against its own standing mode.
+        return modes.pause === "auto" || modes.creative === "auto";
+      }
+      return modes[decisionTypeForProposedAction(action)] === "auto";
+    });
     if (autoActions.length === 0) continue;
 
     /*
@@ -178,7 +214,19 @@ export async function runMetaBudgetAutomationSweepIfDue(
       named cannot change the verdict; naming none would silently ask about
       whichever family the fail-closed default happened to pick. Each row is
       re-checked against its own family later, twice.
+
+      The probe carries a launch lineage when the only armed family is the
+      creative one. `resume` is the one action whose family cannot be read off
+      the verb — an un-pause is the pause family, an activation is the creative
+      one — so a bare `resume` probe would ask about pausing and answer
+      `auto_execution_disabled` for a business that armed exactly the family
+      these rows belong to. The value is never a real intent id and never
+      reaches a row; it exists only to make the question specific.
     */
+    const probeLaunchLineage = autoActions[0] === "resume"
+      && modes.pause !== "auto"
+      ? "creative-family-probe"
+      : null;
     const verdict = await createBudgetServerReaders({
       businessId: row.business_id,
       actorUserId: BUDGET_SWEEP_ACTOR,
@@ -188,6 +236,7 @@ export async function runMetaBudgetAutomationSweepIfDue(
         businessId: row.business_id,
         providerAccountId,
         proposedAction: autoActions[0],
+        launchIntentId: probeLaunchLineage,
       } as never,
     });
 
@@ -356,6 +405,30 @@ export async function runMetaBudgetAutomationSweepIfDue(
             of authorized native decisions a day with no unattended path.
           */
           AND scope_type IN ('campaign', 'adset', 'ad')
+          /*
+            An intent-lineage row is unattended-eligible only once somebody has
+            stored an activation approval for that intent.
+
+            A cheap pre-filter, and deliberately only that: the approval
+            validator at dispatch is the binding authority and re-checks the
+            fingerprint, the scope, the expiry and the revocation. What this
+            buys is that an operator-only activation -- which is every intent's
+            default, since the column starts NULL -- never enters the page at
+            all. If it did, the runtime would claim it and then withhold it,
+            and a withheld outcome settles the row as failed: the queue would
+            destroy, tick by tick, exactly the rows an operator still meant to
+            approve by hand.
+          */
+          AND (
+            launch_intent_id IS NULL
+            OR proposed_action <> 'resume'
+            OR EXISTS (
+              SELECT 1 FROM meta_launch_intents i
+               WHERE i.id = meta_automation_proposals.launch_intent_id
+                 AND i.business_id = meta_automation_proposals.business_id
+                 AND i.activation_approval_json IS NOT NULL
+            )
+          )
           AND status = 'pending'
           AND expires_at > now()
         ORDER BY created_at
@@ -405,13 +478,16 @@ export async function runMetaBudgetAutomationSweepIfDue(
       Re-read, not the `modes` above. The whole point of the boundary check is
       that the operator can change their mind in the seconds a claim and a
       composition take. A bid row resolves the `bid` mode, a pause row the
-      `pause` mode — the mapping is the proposal's own action.
+      `pause` mode — and the mapping is the proposal's own ROW, not its verb:
+      a `resume` that names a launch intent turns on what that launch created
+      and belongs to the creative family, so reading the verb here would let an
+      operator who armed unattended pausing dispatch an activation.
     */
     const statusMode = async ({ proposal }: { proposal: MetaAutomationProposal }) => {
       const current = await resolveEffectiveMetaModes(proposal.businessId)
         .catch(() => null);
       if (!current) return null;
-      return current[decisionTypeForProposedAction(proposal.proposedAction)];
+      return current[decisionTypeForProposal(proposal)];
     };
     const statusRuntime = createScheduledStatusRuntime({
       ctx: writeContext,
@@ -446,14 +522,44 @@ export async function runMetaBudgetAutomationSweepIfDue(
       readGates: statusGates,
       readMode: statusMode,
     });
+    /*
+      The Launchpad arms, which had no unattended path at all.
+
+      A `launch` row replays an intent an operator staged and confirmed; an
+      activation row turns on what that launch created, in order, behind a
+      stored approval. Both read the same gates and the same posture as the arms
+      above and add Launchpad's own release gate on top.
+    */
+    const launchRuntime = createScheduledLaunchRuntime({
+      readGates: statusGates,
+      readMode: statusMode,
+    });
+    const activationRuntime = createScheduledActivationRuntime({
+      readGates: statusGates,
+      readMode: statusMode,
+    });
+    /*
+      Routed by the ROW, and the lineage test comes FIRST.
+
+      An activation is raised as `resume` on a campaign or an ad, so both the
+      `scope_type === 'ad'` test and the status fall-through would otherwise
+      claim it — and either one would resume a single entity with no approval
+      check, no ordering and no route back to the intent. An ad reading ACTIVE
+      under a paused parent shows to nobody, which is precisely the outcome
+      those two runtimes would report as done.
+    */
     const runtimeFor = (proposal: MetaAutomationProposal) =>
-      proposal.proposedAction === "budget"
-        ? budgetRuntime
-        : proposal.proposedAction === "bid"
-          ? bidRuntime
-          : proposal.scopeType === "ad"
-            ? adRuntime
-            : statusRuntime;
+      proposal.proposedAction === "launch"
+        ? launchRuntime
+        : proposal.proposedAction === "resume" && proposal.launchIntentId
+          ? activationRuntime
+          : proposal.proposedAction === "budget"
+            ? budgetRuntime
+            : proposal.proposedAction === "bid"
+              ? bidRuntime
+              : proposal.scopeType === "ad"
+                ? adRuntime
+                : statusRuntime;
 
     const claimedProposals = new Map<string, MetaAutomationProposal>();
     reports.push(await runBudgetAutomationSweep({

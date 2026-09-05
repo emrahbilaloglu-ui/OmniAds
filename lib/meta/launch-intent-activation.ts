@@ -289,14 +289,44 @@ async function runActivation(
   return { ok: true, activation, receipt };
 }
 
-/** The creative the launch used, from its own request payload. */
+/**
+ * The creative the launch used, from its own request payload.
+ *
+ * The first two keys are the shapes this reader was written against and the
+ * shipped payload carries NEITHER: a launch stores its creatives under
+ * `creatives` (a list of refs, or of bare ids), and `creativeIds` on the
+ * older shape. So this returned null for every real intent, and the scheduled
+ * activation — whose approval names the creative it approved — refused every
+ * one of them as `activation_approval_asset_mismatch`, a sentence about an
+ * asset when the truth was that nobody had read it.
+ */
 function readCreativeId(intent: MetaLaunchIntent): string | null {
   const payload = intent.requestPayload as Record<string, unknown>;
-  const direct = payload?.creativeId;
-  if (typeof direct === "string" && direct.trim()) return direct.trim();
+  const read = (value: unknown): string | null =>
+    typeof value === "string" && value.trim() ? value.trim() : null;
+  const direct = read(payload?.creativeId);
+  if (direct) return direct;
   const reuse = payload?.reuseCreative as { creativeId?: unknown } | undefined;
-  if (typeof reuse?.creativeId === "string" && reuse.creativeId.trim()) {
-    return reuse.creativeId.trim();
+  const reused = read(reuse?.creativeId);
+  if (reused) return reused;
+  const refs = Array.isArray(payload?.creatives) ? payload.creatives : [];
+  for (const item of refs) {
+    if (typeof item === "string") {
+      const bare = read(item);
+      if (bare) return bare;
+      continue;
+    }
+    if (!item || typeof item !== "object") continue;
+    const record = item as Record<string, unknown>;
+    const fromRef = read(record.creativeId) ?? read(record.id);
+    if (fromRef) return fromRef;
+  }
+  const ids = payload?.creativeIds;
+  if (Array.isArray(ids)) {
+    for (const id of ids) {
+      const value = read(id);
+      if (value) return value;
+    }
   }
   return null;
 }

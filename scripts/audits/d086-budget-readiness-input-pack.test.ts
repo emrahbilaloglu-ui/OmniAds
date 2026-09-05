@@ -255,11 +255,29 @@ describe("D086 — honesty rules", () => {
     expect(published().preparedMigrations.applied).toBe(false);
     expect(published().preparedMigrations.statements).toBe(D086_ADDITIVE_MIGRATION_SQL.length);
     expect(published().preparedMigrations.sqlDigest).toBe(d086Digest(D086_ADDITIVE_MIGRATION_SQL));
-    // Not registered anywhere a deploy would run them.
+    // The PACK is not registered anywhere a deploy would run it.
     const migrations = readFileSync(d086TrustedPath("lib/migrations.ts"), "utf8");
     expect(migrations).not.toContain("D086_ADDITIVE_MIGRATION_SQL");
     expect(migrations).not.toContain("engine_v3_account_profile_output");
-    expect(migrations).not.toContain("engine_v3_campaign_role_authority");
+    /*
+      `engine_v3_campaign_role_authority` is the exception, and it is a
+      correction rather than a leak.
+
+      This pack described the table; nothing ever applied it, so in production
+      it did not exist. The budget proposal source loader reads it, that read
+      failed, the failure became `unknown`, and no budget proposal could be
+      produced at all — for a reason no surface could show. It is now created
+      by a real migration owned by the automation delivery.
+
+      The two definitions must not drift apart, so the audit checks they are
+      the same statement rather than checking the table is absent. The pack
+      itself is still unapplied: nothing here runs `D086_ADDITIVE_MIGRATION_SQL`.
+    */
+    const packDdl = D086_ADDITIVE_MIGRATION_SQL.find((statement) =>
+      statement.includes("engine_v3_campaign_role_authority"));
+    expect(packDdl, "the pack still describes the role authority table").toBeTruthy();
+    const normalise = (sql: string) => sql.replace(/\s+/g, " ").trim();
+    expect(normalise(migrations)).toContain(normalise(packDdl!));
   });
 
   it("every prepared statement is additive and idempotent", () => {

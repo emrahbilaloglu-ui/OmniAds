@@ -91,6 +91,70 @@ export interface MetaOsBudgetIntentPayload {
   createdBy: { module: string; contractVersion: string };
 }
 
+/**
+ * The bid branch's payload.
+ *
+ * Deliberately the budget payload's twin: same scope shape, same currency
+ * triple, same before/after/delta in minor units, same clocks, same rounding
+ * record, same rollback and read-back. A bid cap is a different control from a
+ * budget, but the questions a reader has to be able to answer about a proposed
+ * money change are the same ones — what it was, what it will be, in which
+ * currency, on what evidence, as of when, and how to undo it.
+ *
+ * The one field with no budget counterpart is `bidStrategyType`. A cap only
+ * exists on a cap strategy, and the strategy at write time is what decides
+ * whether the write is legal at all — so the intent records the strategy it
+ * was reasoned about, and the read-back asserts it did not change underneath.
+ */
+export interface MetaOsBidIntentPayload {
+  kind: "bid_intent";
+  /** `meta.bid-intent.v*`. */
+  contractVersion: string;
+  intentKey: string;
+  idempotencyKey: string;
+  scope: {
+    businessId: string;
+    providerAccountId: string;
+    /** A bid amount lives on an ad set. There is no campaign-grain bid write. */
+    entityGrain: "adset";
+    entityId: string;
+    parentCampaignId: string | null;
+  };
+  /** The strategy this intent was reasoned about, re-proved before the write. */
+  bidStrategyType: string;
+  direction: "increase" | "decrease";
+  percent: number;
+  currency: string;
+  currencyExponent: number;
+  currencyRegistry: { version: string; source: string };
+  currentMinorUnits: number;
+  proposedMinorUnits: number;
+  deltaMinorUnits: number;
+  rounding: { applied: boolean; rule: string; exactUnrounded: string };
+  originDate: string;
+  effectiveAsOf: string;
+  knowledgeAsOf: string;
+  evidenceWindow: { from: string; to: string };
+  authorityStatus: "authorised" | "blocked" | "not_determinable";
+  blockerCodes: string[];
+  executionState: "validated_only";
+  rollback: { priorMinorUnits: number; field: "bid_amount"; operation: "set" };
+  /**
+   * What a verified write must show.
+   *
+   * `bid_strategy_unchanged` is not decoration: writing a cap onto an ad set
+   * whose strategy changed since the decision would be setting a number that
+   * now means something else.
+   */
+  readback: {
+    field: "bid_amount";
+    expectedMinorUnits: number;
+    independentRead: true;
+    alsoAsserts: readonly ["bid_strategy_unchanged"];
+  };
+  createdBy: { module: string; contractVersion: string };
+}
+
 /** Fields every action carries, whichever branch it is. */
 interface MetaOsDecisionActionBase {
   code: string;
@@ -108,6 +172,7 @@ interface MetaOsDecisionActionBase {
  */
 export interface MetaOsLegacyDecisionAction extends MetaOsDecisionActionBase {
   budgetIntent?: never;
+  bidIntent?: never;
 }
 
 /**
@@ -121,11 +186,29 @@ export interface MetaOsBudgetDecisionAction extends MetaOsDecisionActionBase {
   providerMutation: null;
   targetLevel: "campaign" | "adset";
   budgetIntent: MetaOsBudgetIntentPayload;
+  bidIntent?: never;
+}
+
+/**
+ * The bid branch, constrained the same way the budget branch is.
+ *
+ * `intent: "review"` and `providerMutation: null` because a decision is a
+ * proposal: execution happens through the queue, under an authority the
+ * decision itself does not carry.
+ */
+export interface MetaOsBidDecisionAction extends MetaOsDecisionActionBase {
+  intent: "review";
+  providerMutation: null;
+  targetLevel: "adset";
+  bidIntent: MetaOsBidIntentPayload;
+  /** Never both: see `assertCanonicalDecisionAction`. */
+  budgetIntent?: never;
 }
 
 export type MetaOsDecisionAction =
   | MetaOsLegacyDecisionAction
-  | MetaOsBudgetDecisionAction;
+  | MetaOsBudgetDecisionAction
+  | MetaOsBidDecisionAction;
 
 /**
  * Runtime guard for the same rule, because a value deserialized from JSON has
@@ -133,10 +216,47 @@ export type MetaOsDecisionAction =
  */
 export function assertCanonicalDecisionAction(action: MetaOsDecisionAction): MetaOsDecisionAction {
   const budget = (action as MetaOsBudgetDecisionAction).budgetIntent;
-  if (budget === undefined) return action;
+  const bid = (action as MetaOsBidDecisionAction).bidIntent;
   const refuse = (why: string): never => {
     throw new Error(`D081 refuses this canonical decision action: ${why}`);
   };
+  /*
+    One action, one typed payload.
+
+    Two would make "what is being proposed here" a question with two answers,
+    and the queue projects a row per payload — so a double-payload action would
+    become two proposals for one decision.
+  */
+  if (budget !== undefined && bid !== undefined) {
+    refuse("an action carries both a budget and a bid payload");
+  }
+  if (bid !== undefined) {
+    if (bid.kind !== "bid_intent") {
+      refuse(`bid payload discriminator is ${JSON.stringify(bid.kind)}`);
+    }
+    if (action.intent !== "review") {
+      refuse(`a bid action must be served for review, not ${JSON.stringify(action.intent)}`);
+    }
+    if (action.providerMutation !== null) {
+      refuse(`a bid action must carry no provider mutation, found ${JSON.stringify(action.providerMutation)}`);
+    }
+    // There is no campaign-grain bid write, so a campaign-grain bid intent
+    // describes an endpoint that does not exist.
+    if (action.targetLevel !== "adset") {
+      refuse(`a bid amount lives on an ad set, not ${JSON.stringify(action.targetLevel)}`);
+    }
+    if (bid.scope.entityGrain !== "adset") {
+      refuse(`the payload grain ${JSON.stringify(bid.scope.entityGrain)} is not an ad set`);
+    }
+    if (bid.executionState !== "validated_only") {
+      refuse(`execution state ${JSON.stringify(bid.executionState)} is beyond this slice`);
+    }
+    if (!bid.readback.alsoAsserts.includes("bid_strategy_unchanged")) {
+      refuse("a bid read-back must also assert the strategy did not change");
+    }
+    return action;
+  }
+  if (budget === undefined) return action;
   if (budget.kind !== "budget_intent") refuse(`budget payload discriminator is ${JSON.stringify(budget.kind)}`);
   if (action.intent !== "review") refuse(`a budget action must be served for review, not ${JSON.stringify(action.intent)}`);
   if (action.providerMutation !== null) refuse(`a budget action must carry no provider mutation, found ${JSON.stringify(action.providerMutation)}`);

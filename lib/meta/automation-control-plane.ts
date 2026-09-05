@@ -61,6 +61,18 @@ export interface MetaAutomationGuardrails {
   budgetMinHoursBetweenChanges: number | null;
   budgetMaxChangesPer7d: number | null;
   budgetMaxAccountConcentrationPct: number | null;
+  /*
+    Which sizing policies this business's configuration is bound to.
+
+    A sizing policy is an operating decision — the bands, the ladder, the
+    damping — and a build that changed it must not silently start proposing
+    different amounts against a configuration nobody re-approved. The producer
+    refuses when the stamped version is not the one it implements, so an
+    unstamped business (every business today) proposes nothing until an
+    operator saves their automation configuration.
+  */
+  budgetSizingPolicyVersion: string | null;
+  bidSizingPolicyVersion: string | null;
   /**
    * The ROAS below which automation may propose a pause, as persisted for this
    * business. `null` when no operator has committed one — the screen then
@@ -450,6 +462,8 @@ export const DEFAULT_META_AUTOMATION_GUARDRAILS: MetaAutomationGuardrails = {
   budgetMinHoursBetweenChanges: null,
   budgetMaxChangesPer7d: null,
   budgetMaxAccountConcentrationPct: null,
+  budgetSizingPolicyVersion: null,
+  bidSizingPolicyVersion: null,
   // No seeded guardrail. An unset ROAS floor or quiet-hours window is a fact
   // about this business, and inventing one under the design's caption would be
   // worse than the em dash it replaces.
@@ -622,6 +636,16 @@ function normalizeGuardrails(
     budgetMaxChangesPer7d: toPositiveNumberOrNull(record.budgetMaxChangesPer7d),
     budgetMaxAccountConcentrationPct:
       toPositiveFiniteNumberOrNull(record.budgetMaxAccountConcentrationPct),
+    budgetSizingPolicyVersion:
+      typeof record.budgetSizingPolicyVersion === "string"
+      && record.budgetSizingPolicyVersion.trim().length > 0
+        ? record.budgetSizingPolicyVersion.trim()
+        : null,
+    bidSizingPolicyVersion:
+      typeof record.bidSizingPolicyVersion === "string"
+      && record.bidSizingPolicyVersion.trim().length > 0
+        ? record.bidSizingPolicyVersion.trim()
+        : null,
     dailyAutoActionCap:
       toPositiveNumberOrNull(record.dailyAutoActionCap) ??
       DEFAULT_META_AUTOMATION_GUARDRAILS.dailyAutoActionCap,

@@ -66,9 +66,18 @@ import {
   type MetaRecommendationsResponse,
 } from "@/lib/meta/recommendations";
 import { resolveMetaFunnelCohort } from "@/lib/meta/funnel-cohort";
+import { resolveMinorUnitExponent } from "@/lib/currency/iso-4217-minor-units";
+import {
+  getMetaAutomationControlPlane,
+} from "@/lib/meta/automation-control-plane";
+import { readIntentProjectionContexts } from "@/lib/meta/intent-projection-context";
+import { projectBudgetIntents } from "@/lib/meta/budget-intent-projection";
+import { projectBidIntents } from "@/lib/meta/bid-intent-projection";
+import { META_BUDGET_INTENT_CONTRACT_VERSION } from "@/lib/meta/budget-intent-contract";
 import type { MetaBidRegime, MetaCampaignRole } from "@/lib/meta/types";
 import {
   metaLossBudgetMaturity,
+  normalizeMetaCommercialTargets,
   readMetaCommercialTargets,
 } from "@/lib/meta/commercial-targets";
 import { enforceMetaCommercialActionAuthority } from "@/lib/meta/commercial-action-authority";
@@ -780,6 +789,208 @@ async function upsertSnapshotRows(input: {
   );
 }
 
+
+/**
+ * Give the decisions that earned one an exact amount to move.
+ *
+ * The two sizing policies are pure and were already tested; what was missing
+ * was a caller. Without one, `target_value` never carried a typed intent, so
+ * the budget candidate query matched nothing and an ad set on a cost cap far
+ * above its own CPA had no in-product way to move.
+ *
+ * It fails quietly and completely: an unreadable context proposes nothing and
+ * returns the recommendations untouched. A decision without an amount is still
+ * a decision worth showing; a decision with an amount nobody could verify is
+ * not.
+ */
+async function attachSizedIntents(input: {
+  recommendations: MetaRecommendation[];
+  businessId: string;
+  providerAccountId: string | null;
+  snapshotDate: string;
+  campaigns: MetaCampaignRow[];
+  adsets: readonly MetaAdSetData[];
+  campaignLabelsById: MetaCampaignLabelKindMap;
+  commercialTargets: Awaited<ReturnType<typeof readMetaCommercialTargets>> | null;
+  accountCurrency: string | null;
+  contexts: { byCampaignId: Record<string, MetaCalibrationContext> };
+  adsetCalibrationContextByAdsetId: Record<string, MetaCalibrationContext>;
+}): Promise<MetaRecommendation[]> {
+  if (!input.providerAccountId) return input.recommendations;
+
+  const targets = normalizeMetaCommercialTargets(input.commercialTargets);
+  /*
+    The guardrails the operator saved, including which sizing policy versions
+    their configuration is bound to.
+
+    An unstamped business proposes nothing: the sizing policies refuse on the
+    version themselves, and reading the control plane once here is cheaper
+    than discovering it per entity.
+  */
+  const control = await getMetaAutomationControlPlane({
+    businessId: input.businessId,
+    providerAccountId: input.providerAccountId,
+  }).catch(() => null);
+  if (!control) return input.recommendations;
+  const guardrails = control.businessControl.guardrails;
+  /*
+    The CPA benchmark a bid cap is measured against, in minor units.
+
+    Its order is the plan's: an explicitly configured target CPA first, then
+    the operator's own average-order-value assumption divided by the target
+    ROAS. Nothing further is derived here — the Shopify-observed average order
+    value reaches the native producer through its own authority, and reading it
+    a second way in a second place is how two numbers with one name appear.
+
+    A currency with no known exponent gives no benchmark, because a number
+    whose scale is unknown is not a number.
+  */
+  const exponent = resolveMinorUnitExponent(input.accountCurrency);
+  const majorSpendUnit = targets.targetCpa
+    ?? (targets.aovAssumption && targets.targetRoas
+      ? targets.aovAssumption / targets.targetRoas
+      : null);
+  const spendUnitMinor = exponent.status === "resolved" && majorSpendUnit
+    ? Math.round(majorSpendUnit * 10 ** exponent.exponent)
+    : null;
+
+  /*
+    The role gate, taken from the SAME map the label guard used.
+
+    A campaign carries a published role only when the context resolver
+    returned high trust from a system inference — the exact condition the
+    budget policy's role check is about. Re-deriving it here from other
+    evidence could disagree with the guard the operator already saw.
+  */
+  const roleAuthorityByCampaignId = new Map<string, boolean>();
+  for (const campaign of input.campaigns) {
+    roleAuthorityByCampaignId.set(
+      campaign.id,
+      input.campaignLabelsById.has(campaign.id),
+    );
+  }
+
+  const cohortByEntityId = new Map<string, string>();
+  const maturityByEntityId = new Map<string, boolean>();
+  const calibrationSampleByEntityId = new Map<string, number | null>();
+  const lossBudget = metaLossBudgetMaturity({ targets: input.commercialTargets });
+  for (const campaign of input.campaigns) {
+    cohortByEntityId.set(campaign.id, resolveMetaFunnelCohort({
+      optimizationGoal: campaign.optimizationGoal,
+      customEventType: campaign.customEventType,
+      objective: campaign.objective,
+    }));
+    maturityByEntityId.set(
+      campaign.id,
+      // Maturity is the loss budget actually spent: below it, an outcome is
+      // too small a sample to move money on.
+      lossBudget !== null && (campaign.spend ?? 0) >= lossBudget.spendThreshold,
+    );
+    calibrationSampleByEntityId.set(
+      campaign.id,
+      input.contexts.byCampaignId[campaign.id]?.thresholds?.minRequiredSample ?? null,
+    );
+  }
+  for (const adset of input.adsets) {
+    const adsetId = adset.id?.trim() || null;
+    if (!adsetId) continue;
+    const parentId = adset.campaignId?.trim() || null;
+    cohortByEntityId.set(
+      adsetId,
+      (parentId ? cohortByEntityId.get(parentId) : null) ?? "unknown",
+    );
+    const spend = adset.spend ?? 0;
+    maturityByEntityId.set(
+      adsetId,
+      lossBudget !== null && spend >= lossBudget.spendThreshold,
+    );
+    calibrationSampleByEntityId.set(
+      adsetId,
+      input.adsetCalibrationContextByAdsetId[adsetId]?.thresholds?.minRequiredSample ?? null,
+    );
+  }
+
+  const contexts = await readIntentProjectionContexts({
+    businessId: input.businessId,
+    providerAccountId: input.providerAccountId,
+    snapshotDate: input.snapshotDate,
+    cohortByEntityId,
+    roleAuthorityByCampaignId,
+    maturityByEntityId,
+    calibrationSampleByEntityId,
+    /*
+      Delivery constraint is what makes RAISING a cap sensible; without it,
+      raising one only spends more for the same result. Nothing here measures
+      it yet, so no raise is proposed — which is the safe direction to be
+      wrong in, and the sizing policy says so by name.
+    */
+    deliveryConstrainedAdsetIds: new Set<string>(),
+  }).catch(() => null);
+  if (!contexts) return input.recommendations;
+
+  const pausedEntityIds = new Set(
+    input.recommendations
+      .filter((rec) => rec.decisionLabel === "cut")
+      .map((rec) => (rec.level === "adset" ? rec.adsetId : rec.campaignId) ?? "")
+      .filter(Boolean),
+  );
+
+  const budget = projectBudgetIntents({
+    recommendations: input.recommendations,
+    targetRoas: targets.targetRoas,
+    breakEvenRoas: targets.breakEvenRoas,
+    accountCurrency: input.accountCurrency,
+    policy: {
+      maxBudgetIncreasePct: guardrails.maxBudgetIncreasePct,
+      perActionSpendCeilingMinor: guardrails.perActionSpendCeilingValid
+        ? guardrails.perActionSpendCeilingMinor
+        : null,
+      perActionSpendCeilingCurrency: guardrails.perActionSpendCeilingValid
+        ? guardrails.perActionSpendCeilingCurrency
+        : null,
+      budgetMinHoursBetweenChanges: guardrails.budgetMinHoursBetweenChanges,
+      budgetMaxChangesPer7d: guardrails.budgetMaxChangesPer7d,
+      budgetMaxAccountConcentrationPct: guardrails.budgetMaxAccountConcentrationPct,
+      budgetSizingPolicyVersion: guardrails.budgetSizingPolicyVersion,
+    },
+    contextByEntityId: contexts.budgetByEntityId,
+    pausedEntityIds,
+  });
+
+  const budgetChangedAdsetIds = new Set(
+    budget.recommendations
+      .filter((rec: MetaRecommendation) => rec.level === "adset"
+        && (rec.targetValue as { contractVersion?: string } | null)?.contractVersion
+          === META_BUDGET_INTENT_CONTRACT_VERSION)
+      .map((rec: MetaRecommendation) => rec.adsetId ?? "")
+      .filter(Boolean),
+  );
+
+  const bid = projectBidIntents({
+    recommendations: budget.recommendations,
+    businessId: input.businessId,
+    providerAccountId: input.providerAccountId,
+    spendUnitMinor,
+    accountCurrency: input.accountCurrency,
+    policy: {
+      budgetMinHoursBetweenChanges: guardrails.budgetMinHoursBetweenChanges,
+      budgetMaxChangesPer7d: guardrails.budgetMaxChangesPer7d,
+      bidSizingPolicyVersion: guardrails.bidSizingPolicyVersion,
+    },
+    contextByAdsetId: contexts.bidByAdsetId,
+    budgetChangedAdsetIds,
+    originDate: input.snapshotDate,
+    effectiveAsOf: input.snapshotDate,
+    knowledgeAsOf: new Date().toISOString(),
+    evidenceWindow: {
+      from: addDaysToISO(input.snapshotDate, -27),
+      to: input.snapshotDate,
+    },
+  });
+
+  return bid.recommendations;
+}
+
 async function buildCalibrationContexts(input: {
   businessId: string;
   snapshotDate: string;
@@ -1035,13 +1246,46 @@ async function buildSnapshotRecommendations(input: {
     campaignLabelsById,
   });
 
-  const guardedRecommendations = applyMetaCampaignLabelGuard({
+  const labelGuarded = applyMetaCampaignLabelGuard({
     recommendations: [...stateRows, ...campaignRecommendations, ...adsetRecommendations],
     campaignLabelsById,
     campaignContextById: campaignContextState.campaignContextById,
     automaticContextEnabled: campaignContextState.automaticContextEnabled,
     activeCampaignIds: campaignIds,
   }).recommendations;
+
+  /*
+    The sizing step, which had never had a caller.
+
+    Both policies were written and tested and neither ran: nothing wrote a
+    typed intent into `target_value`, so the budget candidate query matched
+    nothing and the ad-set card offered no bid. The decision was there; the
+    amount was not, and an amount is what makes a decision applicable.
+
+    It is attached HERE, after the label guard, because a recommendation the
+    guard withheld must not be given money to move. A failed context read
+    proposes nothing rather than proposing on assumed values.
+  */
+  const guardedRecommendations = await attachSizedIntents({
+    recommendations: labelGuarded,
+    businessId: input.businessId,
+    providerAccountId: accountId,
+    snapshotDate: endDate,
+    campaigns,
+    adsets: adsetRows.rows ?? [],
+    campaignLabelsById,
+    commercialTargets,
+    /*
+      The account's own currency, from the rows this run already read.
+
+      A budget or a bid is a number of minor units, which means nothing without
+      it — and no ceiling comparison is valid across two currencies. Absent, the
+      sizing contracts refuse rather than assume.
+    */
+    accountCurrency: campaigns.find((campaign) => campaign.currency)?.currency ?? null,
+    contexts,
+    adsetCalibrationContextByAdsetId,
+  });
   /*
    * The account lineage, built from the rows this run already read.
    *

@@ -229,6 +229,34 @@ function campaign(overrides: Partial<MetaCampaignRow> = {}) {
   } as unknown as MetaCampaignRow;
 }
 
+
+/**
+ * The snapshot's persisted rows, out of everything the run happened to query.
+ *
+ * `queryPayloads` records EVERY parameter the fake connection saw, and the
+ * snapshot now also reads guardrails and config history — whose parameters are
+ * plain strings, not JSON arrays of rows. Parsing them all and assuming JSON
+ * made this helper fail on a business id. It takes what parses as an array of
+ * rows and ignores the rest, which is what it was always trying to express.
+ */
+function persistedRows<T>(payloads: readonly unknown[]): T[] {
+  const rows: T[] = [];
+  for (const payload of payloads) {
+    if (Array.isArray(payload)) {
+      rows.push(...(payload as T[]));
+      continue;
+    }
+    if (typeof payload !== "string") continue;
+    try {
+      const parsed: unknown = JSON.parse(payload);
+      if (Array.isArray(parsed)) rows.push(...(parsed as T[]));
+    } catch {
+      // Not a row payload. A business id is not a defect.
+    }
+  }
+  return rows;
+}
+
 describe("meta snapshot job", () => {
   beforeEach(() => {
     vi.unstubAllEnvs();
@@ -605,9 +633,8 @@ describe("meta snapshot job", () => {
       state_reason: string | null;
       signal_quality: { stability?: { raw_decision_state: string; suppressed: boolean } };
     };
-    const firstRows = (firstRun.queryPayloads.flatMap((payload) =>
-      typeof payload === "string" ? (JSON.parse(payload) as PayloadRow[]) : (payload as PayloadRow[]),
-    ) ?? []).filter((row) => row?.kind === "recommendation");
+    const firstRows = persistedRows<PayloadRow>(firstRun.queryPayloads)
+      .filter((row) => row?.kind === "recommendation");
     expect(firstRows.length).toBeGreaterThan(0);
     // Every persisted recommendation carries stability memory.
     for (const row of firstRows) {
@@ -632,9 +659,8 @@ describe("meta snapshot job", () => {
     vi.mocked(db.getDb).mockReturnValue(secondRun.tag);
     await runMetaSnapshotForBusiness("biz_1", "2026-05-07");
 
-    const secondRows = (secondRun.queryPayloads.flatMap((payload) =>
-      typeof payload === "string" ? (JSON.parse(payload) as PayloadRow[]) : (payload as PayloadRow[]),
-    ) ?? []).filter((row) => row?.kind === "recommendation");
+    const secondRows = persistedRows<PayloadRow>(secondRun.queryPayloads)
+      .filter((row) => row?.kind === "recommendation");
     const held = secondRows.find(
       (row) =>
         row.scope_type === target.scope_type &&
@@ -743,10 +769,8 @@ describe("meta snapshot job", () => {
 
     await runMetaSnapshotForBusiness("biz_1", "2026-05-06");
 
-    const payloads = sql.queryPayloads
-      .filter(Boolean)
-      .map((payload) => JSON.parse(String(payload)) as Array<Record<string, unknown>>);
-    const anomalyPayload = payloads.flat().find((row) => row.kind === "anomaly");
+    const anomalyPayload = persistedRows<Record<string, unknown>>(sql.queryPayloads)
+      .find((row) => row.kind === "anomaly");
 
     expect(anomalyPayload).toMatchObject({
       kind: "anomaly",
@@ -766,7 +790,7 @@ describe("meta snapshot job", () => {
 
     const recommendationPayload = sql.queryPayloads
       .filter(Boolean)
-      .map((payload) => JSON.parse(String(payload)) as Array<Record<string, unknown>>)
+      .map((payload) => persistedRows<Record<string, unknown>>([payload]))
       .flat()
       .find((row) => row.kind === "recommendation" && !String(row.rec_type).endsWith("_state"));
 
@@ -794,7 +818,7 @@ describe("meta snapshot job", () => {
 
     const rows = sql.queryPayloads
       .filter(Boolean)
-      .map((payload) => JSON.parse(String(payload)) as Array<Record<string, unknown>>)
+      .map((payload) => persistedRows<Record<string, unknown>>([payload]))
       .flat();
 
     expect(rows.some((row) => row.rec_type === "scenario_k1_mixed_config_rebuild")).toBe(true);
@@ -843,7 +867,7 @@ describe("meta snapshot job", () => {
 
     const rows = sql.queryPayloads
       .filter(Boolean)
-      .map((payload) => JSON.parse(String(payload)) as Array<Record<string, unknown>>)
+      .map((payload) => persistedRows<Record<string, unknown>>([payload]))
       .flat();
     const stateRows = rows.filter((row) => String(row.rec_type).endsWith("_state"));
 
@@ -906,7 +930,7 @@ describe("meta snapshot job", () => {
 
     const rows = sql.queryPayloads
       .filter(Boolean)
-      .map((payload) => JSON.parse(String(payload)) as Array<Record<string, unknown>>)
+      .map((payload) => persistedRows<Record<string, unknown>>([payload]))
       .flat();
     const campaignStateRows = rows.filter((row) => row.scope_type === "campaign" && row.rec_type === "campaign_state");
     const adsetStateRows = rows.filter((row) => row.scope_type === "adset" && row.rec_type === "adset_state");
@@ -924,7 +948,7 @@ describe("meta snapshot job", () => {
 
     const rows = sql.queryPayloads
       .filter(Boolean)
-      .map((payload) => JSON.parse(String(payload)) as Array<Record<string, unknown>>)
+      .map((payload) => persistedRows<Record<string, unknown>>([payload]))
       .flat();
     const campaignRows = rows.filter((row) => row.scope_type === "campaign" && row.scope_id === "cmp_1");
     const recTypes = new Set(campaignRows.map((row) => row.rec_type));

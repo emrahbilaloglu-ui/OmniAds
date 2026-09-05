@@ -108,6 +108,10 @@ describe("GET /api/meta/automation", () => {
           budgetMinHoursBetweenChanges: null,
           budgetMaxChangesPer7d: null,
           budgetMaxAccountConcentrationPct: null,
+          // Unstamped: no sizing policy version is bound to this fixture, which
+          // is the state every business is in until an operator saves one.
+          budgetSizingPolicyVersion: null,
+          bidSizingPolicyVersion: null,
           minRoasFloor: null,
           quietHours: null,
         },
@@ -152,6 +156,10 @@ describe("GET /api/meta/automation", () => {
         budgetMinHoursBetweenChanges: null,
         budgetMaxChangesPer7d: null,
         budgetMaxAccountConcentrationPct: null,
+        // Unstamped: no sizing policy version is bound to this fixture, which
+        // is the state every business is in until an operator saves one.
+        budgetSizingPolicyVersion: null,
+        bidSizingPolicyVersion: null,
         minRoasFloor: null,
         quietHours: null,
       },
@@ -181,6 +189,10 @@ describe("GET /api/meta/automation", () => {
         budgetMinHoursBetweenChanges: null,
         budgetMaxChangesPer7d: null,
         budgetMaxAccountConcentrationPct: null,
+        // Unstamped: no sizing policy version is bound to this fixture, which
+        // is the state every business is in until an operator saves one.
+        budgetSizingPolicyVersion: null,
+        bidSizingPolicyVersion: null,
         minRoasFloor: null,
         quietHours: null,
       },

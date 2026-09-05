@@ -199,8 +199,37 @@ async function run(
   const { page, legacy } = shimFor(route);
   const props = pageProps(route, options.search);
   try {
-    const result = (await page(props)) as { type?: unknown } | null;
-    if (result && typeof result === "object" && result.type === legacy) return { kind: "legacy" };
+    const result = (await page(props)) as
+      { type?: unknown; props?: Record<string, unknown> } | null;
+    if (result && typeof result === "object" && result.type === legacy) {
+      return { kind: "legacy" };
+    }
+    /*
+      A shim may wrap the legacy body to supply server-computed props.
+
+      `/platforms/meta` does: the body takes two capability props that the
+      canonical route computes, and mounting it bare left them undefined, so
+      the rail's Decisions screen showed no manual action while the canonical
+      URL showed both. The rollback contract is that the PRESERVED BODY
+      renders, not that the shim's return value is identical to it — so a
+      wrapper is unwrapped once and its own output checked. A wrapper that
+      rendered anything else still fails.
+    */
+    if (result && typeof result === "object" && typeof result.type === "function") {
+      try {
+        const inner = (result.type as (props: unknown) => { type?: unknown } | null)(
+          result.props ?? {},
+        );
+        if (inner && typeof inner === "object" && inner.type === legacy) {
+          return { kind: "legacy" };
+        }
+      } catch {
+        // Some shims return a component that does its own work at render time
+        // (a chooser that redirects, for instance). Calling it here is only a
+        // probe: it cannot make an outcome, so a throw leaves the verdict
+        // exactly where it was before this probe existed.
+      }
+    }
     return { kind: "element" };
   } catch (error) {
     if (error instanceof RedirectSignal) return { kind: "redirect", destination: error.destination };

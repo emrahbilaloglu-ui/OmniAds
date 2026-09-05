@@ -39,6 +39,13 @@ const BUSINESS_SCOPED: Readonly<Record<string, string>> = {
   "meta-status": "integration-level connection state",
   "meta-sync-status": "integration-level sync state",
   "meta-creative-brief-capability": "schema capability, not account data",
+  /*
+    The morning brief is business-scoped ON PURPOSE, and the account is
+    resolved on the server rather than sent by the caller: a caller-supplied
+    account would let a member of one business ask about another's queue.
+    Putting the account in the key would invite exactly that.
+  */
+  "meta-daily-brief": "the server resolves the account; a caller must not name one",
 };
 
 interface KeyUse {

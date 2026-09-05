@@ -12631,7 +12631,12 @@ export async function runMigrations(options?: {
       ]);
 
       /*
-        ── Retained campaign-role authority (D081-B) ──
+        ── Retained campaign-role authority ──
+
+        (Not part of the read-only capability study that first described this
+        table; that slice deliberately added no migration, and its audit still
+        checks that it did not. This is the migration the study said would be
+        needed, written here where migrations live.)
 
         The budget proposal source loader reads this table to decide whether a
         campaign's Main/Test/Mixed role can authorise an account-scoped budget

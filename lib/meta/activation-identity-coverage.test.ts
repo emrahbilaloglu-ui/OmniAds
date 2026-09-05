@@ -115,12 +115,15 @@ const journal: ActivationJournal = {
   settle: async () => undefined,
 };
 
-async function activate() {
+async function activate(
+  authorize?: (target: ActivationTarget) => Promise<string | null>,
+) {
   return activateLaunchIntent({
     intent: intent(),
     ctx: {} as never,
     authorization: { kind: "operator", operatorUserId: OPERATOR },
     journal,
+    ...(authorize ? { authorize } : {}),
     persistReceipt: async (receipt) => { stored.push(receipt); },
   });
 }
@@ -135,7 +138,31 @@ beforeEach(() => {
   for (const id of ["camp_1", "set_1", "set_2", "ad_1", "ad_2"]) {
     provider.set(id, { status: "PAUSED", effective: "PAUSED" });
   }
-  const resume = async (_ctx: unknown, id: string) => {
+  /*
+    The double runs the pre-POST hook before it records a POST, exactly as the
+    real primitives do — hook last, request after. Cases that pass no gate get
+    an undefined hook and the same double they always had.
+  */
+  const resume = async (
+    _ctx: unknown,
+    id: string,
+    options?: { beforeMutationAttempt?: (baseline: unknown) => Promise<void> },
+  ) => {
+    if (options?.beforeMutationAttempt) {
+      try {
+        await options.beforeMutationAttempt({ adId: id });
+      } catch (error) {
+        const code = (error as { code?: unknown })?.code;
+        return {
+          ok: false,
+          providerMutationAttempted: false,
+          error: {
+            code: typeof code === "string" ? code : "before_mutation_attempt_failed",
+            message: "The pre-mutation hook refused.",
+          },
+        };
+      }
+    }
     posted.push(id);
     const refusal = refuses[id];
     if (refusal) {
@@ -401,5 +428,51 @@ describe("two ad sets and two ads, driven through the real activation", () => {
     expect(result.receipt.coverage).toEqual({
       planned: 5, on: 1, blocked: 0, ambiguous: 1, notAttempted: 3,
     });
+  });
+
+  it("halts every branch when the authority is refused at the provider boundary", async () => {
+    /*
+      A blocked ad set stops its own ad and leaves the sibling branch alone.
+      A withdrawn authority is not that: it is a statement about the whole run,
+      so the sibling ad set — independently approved, independently deliverable
+      — is not attempted either. The gate answers yes when the sequence asks and
+      no when the primitive asks, which is the window this exists for.
+    */
+    const asked = new Map<string, number>();
+    const result = await activate(async (target) => {
+      const seen = (asked.get(target.entityId) ?? 0) + 1;
+      asked.set(target.entityId, seen);
+      return target.entityId === "set_1" && seen > 1
+        ? "activation_approval_revoked"
+        : null;
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    // The campaign really is on. `set_2` is untouched, and so is every ad.
+    expect(posted).toEqual(["camp_1"]);
+    expect(result.activation.steps.map((step) => [step.entityId, step.outcome]))
+      .toEqual([
+        ["camp_1", "activated"],
+        ["set_1", "blocked"],
+        ["set_2", "not_attempted"],
+        ["ad_1", "not_attempted"],
+        ["ad_2", "not_attempted"],
+      ]);
+    expect(result.activation.blockedReason).toBe("activation_approval_revoked");
+    /*
+      Every identity is still accounted for, and `delivering` is false because
+      one of five is on — not because the run chose to take fewer steps.
+    */
+    expect(result.receipt.coverage).toEqual({
+      planned: 5, on: 1, blocked: 1, ambiguous: 0, notAttempted: 3,
+    });
+    expect(result.activation.delivering).toBe(false);
+    expect(result.activation.partial).toBe(true);
+    // One row per identity that reached the boundary, and no more.
+    expect(claimed).toEqual(["camp_1", "set_1"]);
+    expect(result.receipt.steps.map((step) => step.claimOutcome)).toEqual([
+      "activated", "authority_refused", null, null, null,
+    ]);
   });
 });

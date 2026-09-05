@@ -931,7 +931,30 @@ export async function handleMetaAdsetBidAction(
     providerAccountId: prepared.ctx.providerAccountId,
     adId: prepared.target.entityId,
     creativeId: null,
-    action: "launch_adset",
+    /*
+      The true verb.
+
+      This wrote `launch_adset` and carried the real operation down in
+      `payload_request.operation`, so Meta History's Writes journal titled a
+      verified cap change "Launch Adset | Broad prospecting" — a bid apply
+      presented to the operator as a launch. `bid` has always been legal here:
+      it is in `MetaAdsActionKind`, in the `meta_ads_action_log_action_check`
+      CHECK, and it is exactly what the unattended sweep writes
+      (`lib/meta/scheduled-bid-runtime.ts`), which is why the two origins of the
+      same write disagreed in the journal.
+
+      `operation: "apply_bid"` stays in the payload below, unchanged: every
+      reader that disambiguated the old spelling by it keeps working, and the
+      compatibility is proved in both directions rather than assumed, by two
+      seam-guarded tests that both exist:
+      `lib/meta/bid-history-verb-title.db.test.ts` runs the shipped title
+      expression over an old-shaped row and a new-shaped row, and
+      `lib/meta/bid-history-writes-journal.db.test.ts` reads both rows back
+      through `readMetaHistoryJournal` against the migrated schema, which is
+      what covers the join that decides whether a bid row reaches the journal
+      at all.
+    */
+    action: "bid",
     source: META_ENTITY_MANUAL_ACTION_ORIGIN,
     requestedBy: prepared.requestedBy,
     recIdOrigin: recIdOriginFromBody(body),

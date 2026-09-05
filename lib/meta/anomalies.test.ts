@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   anomalyMatchesStatusFilter,
   detectAnomaliesForBusiness,
+  detectAnomalyEvaluationForBusiness,
   readMetaAnomaliesForBusiness,
   severityFromMagnitude,
 } from "@/lib/meta/anomalies";
@@ -537,6 +538,35 @@ describe("meta anomalies", () => {
 
     const result = await readMetaAnomaliesForBusiness({ businessId: "biz_1" });
     expect(result.count).toBe(1);
+  });
+
+  it("detectAnomaliesForBusiness is exactly the evaluation's anomalies", async () => {
+    /*
+      The array-returning function is a projection of the evaluation, not a
+      second implementation. Anything that WRITES must take the evaluation,
+      because only it distinguishes "this family found nothing" from "this
+      family was never judged" — and the writer resolves open rows on that
+      distinction. A divergence here would let a caller pick the lossy shape
+      and get subtly different anomalies with it.
+    */
+    const rows = campaignRows({
+      spendByDay: () => 100,
+      revenueByDay: (age) => (age <= 6 ? 100 : 400),
+    });
+    vi.mocked(db.getDb).mockReturnValue(makeSqlMock({ campaignRows: rows }));
+    const evaluation = await detectAnomalyEvaluationForBusiness({
+      businessId: "biz_1",
+      snapshotDate: "2026-05-06",
+      now: new Date("2026-05-06T05:00:00.000Z"),
+    });
+    vi.mocked(db.getDb).mockReturnValue(makeSqlMock({ campaignRows: rows }));
+    const plain = await detectAnomaliesForBusiness({
+      businessId: "biz_1",
+      snapshotDate: "2026-05-06",
+      now: new Date("2026-05-06T05:00:00.000Z"),
+    });
+    expect(plain).toEqual(evaluation.anomalies);
+    expect(plain.length).toBeGreaterThan(0);
   });
 
   it("anomalyMatchesStatusFilter is fail-open on unknown status", () => {

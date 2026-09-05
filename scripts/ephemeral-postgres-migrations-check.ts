@@ -95,6 +95,15 @@ const REQUIRED_TABLES = [
   "meta_ads_duplicate_reconciliation_observations",
 ] as const;
 const REQUIRED_COLUMNS: ReadonlyArray<{ table: string; column: string }> = [
+  /*
+    The success-only retained bounds the Shopify order-coverage proof reads.
+
+    Without them `readOrderSyncCoverage`'s SELECT throws and its catch returns
+    null, which the seam child treats as a hard failure — this only makes the
+    diagnosis say which column is missing instead of "coverage unreadable".
+  */
+  { table: "shopify_sync_state", column: "latest_successful_sync_window_start" },
+  { table: "shopify_sync_state", column: "latest_successful_sync_window_end" },
   { table: "engine_v3_decision_snapshots_daily", column: "raw_label" },
   {
     table: "engine_v3_decision_snapshots_daily",
@@ -1083,6 +1092,63 @@ async function runChildScript(
       ADSECUTE_EPHEMERAL_DB_SEAM: "1",
     },
   });
+
+  const exitCode = await new Promise<number>((resolve, reject) => {
+    child.once("error", reject);
+    child.once("exit", (code) => resolve(code ?? 1));
+  });
+
+  if (exitCode !== 0) {
+    throw new Error(`${runLabel} exited with code ${exitCode}.`);
+  }
+  log(`${runLabel} exited clean.`);
+}
+
+/**
+ * The same thing, for a seam-guarded vitest file.
+ *
+ * A few claims are about SQL the application ships but no seam child owns — the
+ * Meta History title expression is one: it is extracted from
+ * `META_HISTORY_READ_SQL` at run time and executed by PostgreSQL over a VALUES
+ * list, so the test runs whatever the shipped expression currently says. That
+ * needs a connection and no schema, which makes a vitest file the right shape
+ * and `runChildScript` the wrong spawner — it invokes `node --import tsx`
+ * directly. The environment is identical, `ADSECUTE_EPHEMERAL_DB_SEAM=1`
+ * included, because outside a seam `DATABASE_URL` in this repository points at
+ * PRODUCTION and the file refuses to run without it.
+ */
+async function runChildVitest(
+  repoRoot: string,
+  databaseUrl: string,
+  testPath: string,
+  runLabel: string,
+): Promise<void> {
+  log(`running ${runLabel}...`);
+  const child = spawn(
+    process.execPath,
+    /*
+      The package's own JS entry, not `node_modules/.bin/vitest`.
+
+      That path is a POSIX shell wrapper; handing it to `process.execPath`
+      makes node parse `basedir=$(dirname ...)` as JavaScript and die with
+      "SyntaxError: missing ) after argument list" before the test is reached.
+    */
+    [path.join("node_modules", "vitest", "vitest.mjs"), "run", testPath],
+    {
+      cwd: repoRoot,
+      stdio: "inherit",
+      env: {
+        ...process.env,
+        DATABASE_URL: databaseUrl,
+        DATABASE_URL_UNPOOLED: databaseUrl,
+        PGHOST: "127.0.0.1",
+        PGDATABASE: EPHEMERAL_DB_NAME,
+        PGUSER: EPHEMERAL_DB_USER,
+        ENABLE_RUNTIME_MIGRATIONS: "1",
+        ADSECUTE_EPHEMERAL_DB_SEAM: "1",
+      },
+    },
+  );
 
   const exitCode = await new Promise<number>((resolve, reject) => {
     child.once("error", reject);
@@ -3168,6 +3234,12 @@ async function main() {
       from the intent it loaded at the start, so a revocation mid-sequence could
       not stop the next POST. Both are claims about persisted state across
       steps, which is why they are proved here rather than only in memory.
+
+      It now also drives the real resume primitives against an in-process
+      provider double and proves that a revocation committed during the journal
+      claim, or inside the primitive's own preflight, yields zero POSTs and a
+      settled failure row. Three awaits used to stand between the last authority
+      question and the request.
     */
     await runChildScript(
       repoRoot,
@@ -3176,7 +3248,7 @@ async function main() {
         "scripts",
         "ephemeral-postgres-activation-identity-seam-child.ts",
       ),
-      "activation identity and approval DB seam check",
+      "activation identity, approval and pre-POST boundary DB seam check",
     );
 
     /*
@@ -3188,6 +3260,13 @@ async function main() {
       and walks the whole chain through the shipped producers and routes,
       including the rerun that must duplicate neither the intent nor the
       provider entity.
+
+      It then runs the same chain with nobody at the queue: creative mode
+      `auto`, the account-bound scheduled authority, the real sweep, one PAUSED
+      provider entity and no activation. The staged intent carries
+      `launchpad_decision_staged_v1`, not a fabricated operator confirmation —
+      which is the whole reason the auto arm could not simply reuse the manual
+      authority.
     */
     await runChildScript(
       repoRoot,
@@ -3197,6 +3276,24 @@ async function main() {
         "ephemeral-postgres-decision-launch-chain-seam-child.ts",
       ),
       "decision to launch chain DB seam check",
+    );
+
+    /*
+      The Writes journal names the verb the write actually was.
+
+      A verified cost-cap change was journalled as `launch_adset` with the real
+      verb one level down in `payload_request.operation`, and the journal titles
+      a row from the action column — so an operator's receipt for a bid apply
+      read "Launch Adset". The route writes `bid` now, but every row already in
+      the table keeps the old shape forever, so the READER has to answer for
+      both spellings. The title expression is extracted from the shipped SQL and
+      executed by PostgreSQL, which is why this needs a database at all.
+    */
+    await runChildVitest(
+      repoRoot,
+      databaseUrl,
+      path.join("lib", "meta", "bid-history-verb-title.db.test.ts"),
+      "Meta History bid verb title DB seam check",
     );
 
     // The null-versus-zero contract rests on a claim about the SCHEMA — that a

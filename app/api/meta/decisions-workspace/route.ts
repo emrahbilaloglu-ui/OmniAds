@@ -71,7 +71,15 @@ import { projectBudgetDryRunPanel } from "@/lib/meta/budget-dry-run-panel";
 import { WRITE_SAFETY_STEPS } from "@/lib/meta/write-safety-contract";
 import { buildWorkspaceBudgetGateInput } from "@/lib/meta/budget-decision-workspace-adapter";
 import { resolveEngineV3Flags } from "@/lib/creative-decision-engine/feature-flags";
-import { WarehouseDataSource } from "@/lib/creative-decision-engine/data-source";
+import {
+  WarehouseDataSource,
+  type BusinessTargetPack,
+} from "@/lib/creative-decision-engine/data-source";
+import {
+  resolveObservedShopifyAov,
+  type ObservedShopifyAovEvidence,
+} from "@/lib/creative-decision-engine/shopify-aov-source";
+import { resolveMinorUnitExponent } from "@/lib/currency/iso-4217-minor-units";
 import {
   hasMetaHardActionAnchor,
   readMetaCommercialTargets,
@@ -708,6 +716,99 @@ function queueGroups(
   ];
 }
 
+/**
+ * The ad account's own currency, from the assignment this business holds.
+ *
+ * Selected rather than assumed, and read from `provider_accounts` rather than
+ * from a warehouse fact row, because this is the same column the retention
+ * producer reads (`readAccountCurrency` in `lib/meta/account-profile-output-producer.ts`)
+ * and the serve-time answer must be able to agree with the retained one.
+ *
+ * With no account named, the sole SELECTED Meta assignment answers and two or
+ * more answer nothing. That is the rule this repository already applies to
+ * account lineage (`accountForRecommendation` in `lib/meta/snapshot.ts`):
+ * "the business" and "one account" are the same fact only when there is one.
+ */
+async function readServeTimeAccountCurrency(input: {
+  businessId: string;
+  providerAccountId: string | null;
+}): Promise<string | null> {
+  const rows = await getDb().query<{ currency: string | null }>(
+    `SELECT pa.currency
+       FROM business_provider_accounts bpa
+       JOIN provider_accounts pa ON pa.id = bpa.provider_account_ref_id
+      WHERE bpa.business_id = $1
+        AND bpa.provider = 'meta'
+        AND ($2::text IS NULL OR bpa.provider_account_id = $2)
+        AND ($2::text IS NOT NULL OR bpa.is_selected = TRUE)
+      LIMIT 2`,
+    [input.businessId, input.providerAccountId],
+  );
+  if (rows.length !== 1) return null;
+  const currency = rows[0]?.currency;
+  return typeof currency === "string" && currency.trim() !== ""
+    ? currency.trim()
+    : null;
+}
+
+/**
+ * Store evidence for the serve-time anchor re-resolution.
+ *
+ * The order is the producer's, not a new one: a configured Target CPA or an
+ * operator AOV assumption sits ABOVE the store in `resolveSpendUnit`'s ladder,
+ * so when either exists the store is never consulted and this reads nothing.
+ * ROAS stays the only required commercial target; this is what makes that true
+ * on the served panel as well as in the retained row.
+ *
+ * Every refusal belongs to `resolveObservedShopifyAov` — a thin sample, a
+ * mixed or foreign currency, a stale or incompletely covered orders sync. This
+ * function converts no currency and invents no exponent: an account currency
+ * outside the ISO registry yields `null`, because a number whose scale is
+ * unknown is not a number.
+ */
+async function resolveServeTimeObservedShopifyAov(input: {
+  businessId: string;
+  providerAccountId: string | null;
+  targetPack: BusinessTargetPack | null;
+}): Promise<ObservedShopifyAovEvidence | null> {
+  if (input.targetPack?.targetCpa || input.targetPack?.operatorAovAssumption) {
+    return null;
+  }
+  const accountCurrency = await readServeTimeAccountCurrency({
+    businessId: input.businessId,
+    providerAccountId: input.providerAccountId,
+  }).catch(() => null);
+  const exponent = resolveMinorUnitExponent(accountCurrency);
+  return resolveObservedShopifyAov({
+    businessId: input.businessId,
+    accountCurrency,
+    currencyExponent: exponent.status === "resolved" ? exponent.exponent : null,
+  }).catch(() => null);
+}
+
+/**
+ * How many served rows carry a control the operator can actually press.
+ *
+ * The three `executable*` counters used to be read off `rec.actionKind`, and
+ * `actionKind` cannot produce them. Its only two writers in the tree are
+ * `serverActionKindForRec` (`lib/meta/rec-presentation.ts`), which returns
+ * `review_drill`, `route_launchpad_rebuild` or `route_launchpad_duplicate` and
+ * nothing else, and the literal `'review_drill'` in
+ * `lib/meta/decisions-os-presentation.ts`. So the census reported
+ * `{executableBid: 0, …, reviewOnly: <every row>}` on the very same response
+ * whose card carried `operatorApply {action:"bid", bidAmountMinor:1320}` —
+ * including in the postures where that amount was POSTed to the provider and
+ * confirmed by read-back.
+ *
+ * `operatorApply` is therefore what the census counts, because it is what the
+ * row actually offers. `actionKind` answers a DIFFERENT question — what the
+ * ENGINE authorizes — and that separation is deliberate and documented at
+ * `lib/meta/rec-presentation.ts:249-267`. It is not collapsed here: the three
+ * `execute_*` branches below are kept, unreached today, for the engine-
+ * authorized execution path that contract describes. When that path lands its
+ * rows will carry both, and the `operatorApply` test above will already have
+ * counted them, so the branches stay `else if` and cannot double-count.
+ */
 function actionStates(
   lanes: MetaLanePayload,
 ): MetaDecisionsWorkspacePayload["queue"]["actionStates"] {
@@ -720,7 +821,11 @@ function actionStates(
     MetaDecisionsWorkspacePayload["queue"]["actionStates"]
   >(
     (acc, rec) => {
-      if (rec.actionKind === "execute_pause") acc.executablePause += 1;
+      const operatorApply = rec.operatorApply ?? null;
+      if (operatorApply?.action === "bid") acc.executableBid += 1;
+      else if (operatorApply?.action === "pause") acc.executablePause += 1;
+      else if (operatorApply?.action === "resume") acc.executableResume += 1;
+      else if (rec.actionKind === "execute_pause") acc.executablePause += 1;
       else if (rec.actionKind === "execute_bid") acc.executableBid += 1;
       else if (rec.actionKind === "execute_resume") acc.executableResume += 1;
       else if (
@@ -1427,11 +1532,50 @@ export async function GET(request: NextRequest) {
    */
   const loadCommercialAnchorProfile = async () => {
     try {
+      // One instance, so the pack that decides whether the store is consulted
+      // is the same pack the profile then resolves against.
+      const dataSource = new WarehouseDataSource();
+      const targetPack = await dataSource
+        .getBusinessTargetPack({ businessId, asOf: decisionAsOfDate })
+        .catch(() => null);
       const profile = await resolveAccountDecisionProfile({
         businessId,
         asOf: decisionAsOfDate,
-        dataSource: new WarehouseDataSource(),
+        dataSource,
         flags: await resolveEngineV3Flags(businessId),
+        /*
+          THE STORE'S OWN AVERAGE ORDER VALUE, which this call used to omit.
+
+          `resolveAccountDecisionProfile` does no IO for this input by design:
+          it takes the store evidence from its caller. Every OTHER caller
+          supplies it — the retention producer resolves it
+          (`readAccountProfileRetentionInputs` in
+          `lib/meta/account-profile-output-producer.ts`) and the snapshot's own
+          benchmark resolution does the same (the `observedAov` block in
+          `lib/meta/snapshot.ts`) — and this one did not. The effect
+          was not a missing detail: with no store evidence the ladder in
+          `resolveSpendUnit` falls straight past the `observed_shopify_aov`
+          rung to `insufficient`, so the panel served
+          `status: "blocked_missing_owner_anchor"`,
+          `missingInputs: ["target_cpa", "operator_aov_assumption"]` and three
+          `commercial_anchor_missing` blockers on an account whose RETAINED
+          `engine_v3_account_profile_output` rows carried a resolved spend unit
+          of 26.36 (58.00 Shopify AOV ÷ 2.20 target ROAS) and cut/refresh
+          eligible. Two contradictory commercial verdicts in one response, and
+          the operator-facing half was the wrong one — it asked for a Target CPA
+          and an AOV that this product's rules declare optional.
+
+          The gate is the producer's, byte for byte: a configured target CPA or
+          operator AOV assumption short-circuits the read, because those rungs
+          come first in the ladder and the store is only consulted when neither
+          exists. Nothing here converts a currency, and a currency with no ISO
+          exponent yields no evidence.
+        */
+        observedShopifyAov: await resolveServeTimeObservedShopifyAov({
+          businessId,
+          providerAccountId,
+          targetPack,
+        }),
       });
       return {
         eligibility: profile.hardActionEligibility,
@@ -1445,11 +1589,16 @@ export async function GET(request: NextRequest) {
   // memoised anywhere, so it is cached per business/day exactly like the
   // decision read model, with the same in-test bypass so unit tests never
   // share state across cases.
+  //
+  // The account is part of the key because the store evidence above is only
+  // admissible in the AD ACCOUNT'S currency, so two accounts of one business
+  // can legitimately resolve different anchors. Keying without it would have
+  // served the first account's answer to the second.
   const commercialAnchorProfilePromise =
     process.env.VITEST === "true" || process.env.NODE_ENV === "test"
       ? loadCommercialAnchorProfile()
       : getCachedValue({
-          key: `meta-decisions-anchor-profile-v1:${businessId}:${decisionAsOfDate}`,
+          key: `meta-decisions-anchor-profile-v2:${businessId}:${providerAccountId ?? "none"}:${decisionAsOfDate}`,
           ttlMs: 60_000,
           staleWhileRevalidateMs: 240_000,
           loader: loadCommercialAnchorProfile,

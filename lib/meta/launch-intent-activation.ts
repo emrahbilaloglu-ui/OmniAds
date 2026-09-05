@@ -84,6 +84,16 @@ export type ActivationClaimOutcome =
   | "ambiguous"
   /** The provider refused, definitely and without effect. */
   | "refused"
+  /**
+   * The claim was written and the authority was withdrawn before the request.
+   *
+   * Distinct from `refused`, which means a provider was asked and said no. Here
+   * nothing was asked: the pre-POST hook re-read the authority at the provider
+   * boundary and stopped the write inside the primitive. The row settles as a
+   * definite non-write, so the no-blind-retry gate does not read it as an
+   * attempt whose outcome nobody knows.
+   */
+  | "authority_refused"
   /** A previous attempt on this entity is still unresolved. Nothing was sent. */
   | "unresolved_prior_attempt"
   /** The claim could not be written, so no call was made. */
@@ -325,6 +335,13 @@ function approvalVerdictFor(intent: MetaLaunchIntent, now: Date | undefined) {
  * does with any refused authority: the permission was withdrawn from the run,
  * not from one entity. Steps already completed keep their receipts — the
  * campaign really is on, and nothing here rolls a verified write back.
+ *
+ * It is asked TWICE per step, and the second time is the one that matters.
+ * `activateHierarchy` asks it before handing the write over; `activateOnce`
+ * then hands the identical function to the write primitive's own pre-POST hook,
+ * where nothing remains between the answer and the request. Without that second
+ * call a revocation committed during `journal.claim` or during the primitive's
+ * authority snapshot was ignored for exactly one POST.
  */
 function scheduledApprovalRecheck(
   input: Parameters<typeof activateLaunchIntent>[0],
@@ -472,6 +489,11 @@ async function runActivation(
  * own "may anything be written at all right now". Composing them here means the
  * hierarchy still sees one `authorize`, and neither can be skipped by a caller
  * that forgot to chain the other.
+ *
+ * The composed gate is also what goes into the write primitive's pre-POST hook,
+ * so both questions are re-asked at the provider boundary rather than only one
+ * of them. A caller that supplies neither gets no hook, and the primitives
+ * behave exactly as they always did.
  */
 function composeAuthorize(
   first: ((target: ActivationTarget) => Promise<string | null>) | null,
@@ -630,6 +652,11 @@ export const defaultActivationJournal: ActivationJournal = {
         ? "success"
         : input.outcome === "ambiguous"
           ? "silent_failure"
+          // Everything else — including a gate that refused inside the write
+          // primitive — is a DEFINITE non-write, so it settles as `failure`.
+          // The claim is terminalised either way: a row left `pending` for a
+          // request that was never built would say a call may be in flight and
+          // would block the next honest attempt on an untouched entity.
           : "failure",
       errorCode: input.outcome === "activated" ? null : input.reason ?? "activation_refused",
       errorMessage: input.outcome === "activated"
@@ -733,10 +760,25 @@ function providerDeps(input: {
       }
 
       const startedAt = Date.now();
-      const written = await activateOnce(input.ctx, target);
+      /*
+        THE LAST INSTANT.
+
+        `authorize` answered before the two awaits above — a read of the action
+        log and a durable write to it — and the write primitive underneath takes
+        its own atomic authority snapshot before the request. The same gate is
+        handed down into that primitive's pre-POST hook so it is asked once more
+        with nothing left between the answer and the POST.
+      */
+      const written = await activateOnce(input.ctx, target, input.authorize);
       claimsInFlight.set(key, {
         actionLogId: claim.id,
-        outcome: written.ok ? "activated" : written.ambiguous ? "ambiguous" : "refused",
+        outcome: written.ok
+          ? "activated"
+          : written.authorityRefused
+            ? "authority_refused"
+            : written.ambiguous
+              ? "ambiguous"
+              : "refused",
         startedAt,
         settled: false,
       });
@@ -800,17 +842,94 @@ function providerDeps(input: {
   };
 }
 
-/** The provider write itself, unchanged: one call, one grain, no read-back. */
+/**
+ * A refusal raised at the provider boundary, in the shape the primitives read.
+ *
+ * `metaFetchWriteOnce` turns a thrown object carrying a string `code` into the
+ * write failure's own error code and returns a null `mutationAttempt` — so the
+ * named reason survives all the way back here, and the record says plainly that
+ * no request was ever constructed.
+ */
+class ActivationAuthorityRefusal extends Error {
+  readonly code: string;
+  constructor(code: string) {
+    super(`Activation refused at the provider boundary: ${code}.`);
+    this.name = "ActivationAuthorityRefusal";
+    this.code = code;
+  }
+}
+
+/**
+ * The provider write, with the authority re-proved inside its own pre-POST hook.
+ *
+ * It used to call the three primitives with no options at all. That left the
+ * only authority question being asked one read and one durable write before the
+ * request — `journal.findUnresolved`, `journal.claim`, and then the primitive's
+ * own atomic authority snapshot — and an operator revoking inside any of those
+ * awaits had their withdrawal ignored for exactly one POST. One POST is a live
+ * campaign beginning to spend under a permission that no longer exists.
+ *
+ * All three primitives already carried the hook (`MetaEntityStatusWriteOptions`
+ * for the campaign and ad set, `MetaAdStatusWriteOptions` for the ad, which also
+ * hands over the baseline it bound). It runs after every adapter-side read,
+ * precondition and write-block check and immediately before the single POST, so
+ * a refusal here means the request was never built.
+ */
 async function activateOnce(
   ctx: MetaAdsWriteContext,
   target: ActivationTarget,
-): Promise<{ ok: boolean; ambiguous?: boolean; reason?: string | null }> {
+  /** The same gate `activateHierarchy` asked, asked again with nothing left after it. */
+  guard?: (target: ActivationTarget) => Promise<string | null>,
+): Promise<{
+  ok: boolean;
+  ambiguous?: boolean;
+  authorityRefused?: boolean;
+  reason?: string | null;
+}> {
+  /*
+    Held in a box rather than a bare local so the closure's write is visible
+    afterwards — and so the reason is read from what actually refused, not
+    guessed from the failure code the primitive happens to return.
+  */
+  const refusal: { code: string | null } = { code: null };
+  const beforeMutationAttempt = guard
+    ? async () => {
+      const reason = await guard(target).catch((error: unknown) =>
+        error instanceof Error ? error.message : "authorization_unreadable");
+      if (!reason) return;
+      refusal.code = reason;
+      throw new ActivationAuthorityRefusal(reason);
+    }
+    : undefined;
   const written = target.grain === "campaign"
-    ? await resumeCampaign(ctx, target.entityId)
+    ? await resumeCampaign(ctx, target.entityId, { beforeMutationAttempt })
     : target.grain === "adset"
-      ? await resumeAdset(ctx, target.entityId)
-      : await resumeAd(ctx, target.entityId);
+      ? await resumeAdset(ctx, target.entityId, { beforeMutationAttempt })
+      // The ad hook is handed the lineage the primitive bound for this write.
+      // Nothing here needs it: the gate's question is about the intent and the
+      // approval, both of which it re-reads itself.
+      : await resumeAd(ctx, target.entityId, {
+        beforeMutationAttempt: beforeMutationAttempt
+          ? () => beforeMutationAttempt()
+          : undefined,
+      });
   if (written.ok) return { ok: true };
+  /*
+    Our own refusal, reported as the authority fact it is.
+
+    It is read from the box rather than from `written.error.code` because only
+    the box can prove the failure is THIS gate's: a provider error that happened
+    to share a name would otherwise halt the run under a sentence about an
+    approval nobody withdrew.
+  */
+  if (refusal.code !== null) {
+    return {
+      ok: false,
+      ambiguous: false,
+      authorityRefused: true,
+      reason: refusal.code,
+    };
+  }
   const ambiguous =
     written.error?.code === "provider_outcome_ambiguous"
     || written.providerOutcome === "outcome_ambiguous";
@@ -834,6 +953,16 @@ function claimOutcomeForStep(
   provider: ActivationClaimOutcome,
 ): ActivationClaimOutcome {
   if (provider === "ambiguous") return "ambiguous";
+  /*
+    A gate that refused inside the primitive means no request was constructed.
+
+    The step's own verdict cannot know that — it sees a blocked step like any
+    other — so this fact comes from the call and overrides it. Recording it as
+    `refused` would say a provider was asked and declined, which is a different
+    sentence about the same entity, and one that reads as evidence the entity
+    was reachable.
+  */
+  if (provider === "authority_refused") return "authority_refused";
   if (step.outcome === "activated") return "activated";
   if (step.outcome === "ambiguous") return "ambiguous";
   /*

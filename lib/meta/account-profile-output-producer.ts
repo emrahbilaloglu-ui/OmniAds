@@ -31,6 +31,44 @@
  *   value evidence, and the account currency. A new day of sales changes this
  *   digest.
  *
+ * AND THE MEASURED SIDE IS ONE ACCOUNT'S. A business can hold several Meta ad
+ * accounts, and the warehouse readers default to all of them: the pooled
+ * `scope_id '*'` calibration row, a runtime fallback that aggregates the
+ * business, and a live Meta-attributed AOV that does the same. Read that way, a
+ * verdict stamped with ONE `provider_account_id` was actually computed from
+ * every account the business owns — so a sibling account's samples moved this
+ * account's identity, and an account with no evidence of its own was handed a
+ * benchmark it had never earned. Every measured read below therefore names the
+ * account. The configured side stays at business level, because a target ROAS
+ * and a calibration profile are one commercial policy for the business, not a
+ * per-account setting.
+ *
+ * AND THE MEASURED SIDE HAS TO BE THE DAY'S RETAINED READING, NOT A LIVE ONE.
+ * `lib/creative-decision-engine/jobs/calibration-job.ts` materialises one
+ * calibration scope per selected ad account beside the pooled one, so a scoped
+ * read is served from a row that is fixed for the day it speaks for — which is
+ * what makes the identity below stable enough to be re-derived hours later.
+ * When that scope has NOT been materialised the scoped readers still answer:
+ * the funnel pack comes back empty and the calibration comes back from a
+ * runtime aggregate recomputed on every read. Both are honest about this
+ * account and neither is usable as an identity — an empty pack is
+ * indistinguishable from a genuinely empty account, and a live aggregate moves
+ * the moment the account's own sync writes a row. So this module asks the
+ * warehouse which of the two it is holding and refuses BY NAME rather than
+ * stamping a verdict that a later reader would silently withhold.
+ *
+ * TWO READINGS STILL COME FROM THE LIVE AGGREGATE, AND THEY ARE NAMED HERE
+ * RATHER THAN CLAIMED AWAY. A materialised row is declined by
+ * `readCalibrationFromTable` when its own source freshness has aged past
+ * `STALE_TIER_WARNING_MAX_HOURS`, and when it carries no source freshness at
+ * all — which is what an account with nothing in the window gets. Both then
+ * fall back to the runtime aggregate for THIS account, so no borrowing occurs
+ * and no verdict rests on another account's samples; what can happen is that
+ * the day's identity moves when this account's own warehouse rows change before
+ * the next calibration pass. The pooled read has always behaved the same way,
+ * and closing it means giving the retained row a freshness contract of its own
+ * rather than widening this refusal.
+ *
  * Both are computed from ONE read of those facts, which is then pinned into the
  * data source the resolver runs against, so the digest and the verdict cannot
  * describe two different readings of the same account. `readAccountProfileRetentionIdentity`
@@ -43,6 +81,7 @@ import { createHash } from "node:crypto";
 import { getDb } from "@/lib/db";
 import {
   WarehouseDataSource,
+  type AccountScopeCalibrationMaterialisation,
   type BusinessTargetPack,
   type CreativeDecisionDataSource,
   type DecisionCalibrationProfileConfig,
@@ -61,7 +100,9 @@ import { resolveMinorUnitExponent } from "@/lib/currency/iso-4217-minor-units";
 import type {
   AccountCalibration,
   AccountFunnelCalibration,
+  CalibrationCampaignKind,
 } from "@/lib/creative-decision-engine/types";
+import type { MetaAttributedAovResult } from "@/lib/creative-decision-engine/meta-aov-calculator";
 import {
   D086_PROFILE_ACTIONS,
   D086_PROFILE_IDENTITY,
@@ -107,6 +148,44 @@ export interface AccountProfileRetentionInputs {
   accountCalibration: AccountCalibration;
   funnelCalibration: AccountFunnelCalibration;
   observedShopifyAov: ObservedShopifyAovEvidence | null;
+  /**
+   * Whether the measured facts above came from this account's OWN retained
+   * calibration scope, and so whether they are fixed for the day.
+   *
+   * `unprobed` is not a warehouse state: it is what an injected data source
+   * that does not model the precomputed table reports, and it means the
+   * question could not be put. Such a source answers the measured reads
+   * directly, so its facts are whatever it says they are and this module has
+   * nothing to check them against.
+   */
+  measuredScope: AccountProfileMeasuredScopeStatus;
+}
+
+/** {@link AccountScopeCalibrationMaterialisation}, plus "nobody could ask". */
+export type AccountProfileMeasuredScopeStatus =
+  | AccountScopeCalibrationMaterialisation
+  | "unprobed";
+
+/**
+ * The named hold a measured scope forces, or `null` when there is none.
+ *
+ * ONE PLACE, THREE CALLERS. The producer, the reader's expectation and the
+ * read-through step all have to agree: a verdict that would be refused when it
+ * is produced must not be offered as an expectation either, or the reader would
+ * hold the identity of a verdict that was never retained.
+ *
+ * `materialised` and `unprobed` pass. Everything else is a hold with the reason
+ * in its name, because "this account has never been measured" and "the measured
+ * facts are an empty pack" are different answers and only the second one is a
+ * measurement.
+ */
+export function accountProfileMeasuredScopeHold(
+  status: AccountProfileMeasuredScopeStatus,
+): string | null {
+  if (status === "materialised" || status === "unprobed") return null;
+  return status === "absent"
+    ? "account_calibration_scope_not_materialised"
+    : "account_calibration_scope_unreadable";
 }
 
 const digest = (value: unknown): string =>
@@ -163,15 +242,58 @@ export async function readAccountProfileRetentionInputs(
           objectiveFamily: "sales",
         }),
         resolveEngineV3Flags(scope.businessId),
+        /*
+          MEASURED, so scoped to the account this verdict is FOR.
+
+          Both readers default to the business's whole Meta footprint — the
+          precomputed `scope_id '*'` row, and a runtime aggregate over every
+          account the business owns. That default is right for a business-wide
+          surface and wrong here: the row this produces is keyed on one
+          `provider_account_id` and its fingerprints are what a later reader
+          checks the verdict against, so a business-wide reading lets a
+          SIBLING account's samples move this account's identity and hand it a
+          calibration it has no evidence for. Passing the account makes the
+          percentiles, the sample counts and the attributed AOV this account's
+          own; an account with none of its own gets zeroes and holds by name,
+          which is the honest answer.
+        */
         dataSource.getAccountCalibration({
           businessId: scope.businessId,
           asOf: scope.asOfDate,
+          providerAccountId: scope.providerAccountId,
         }),
         dataSource.getAccountFunnelCalibration({
           businessId: scope.businessId,
           asOf: scope.asOfDate,
+          providerAccountId: scope.providerAccountId,
         }),
       ]);
+    /*
+      WHICH OF THE TWO EMPTY ANSWERS THIS IS.
+
+      The two measured reads above cannot say. A scoped funnel read that finds
+      no materialised scope returns a pack with no formats in it, which is
+      byte-identical to the pack a genuinely empty account returns; and a scoped
+      calibration read that finds none falls through to a runtime aggregate,
+      which is this account's own numbers but recomputed on every read. Stamped
+      into `sourceFingerprint`, the first is a constant that can never move and
+      the second moves whenever this account's sync writes a row — so the
+      verdict retained at projection stops agreeing with the reader's
+      expectation hours later, and an account with plenty of evidence is
+      withheld for a reason that has nothing to do with its evidence.
+
+      So the warehouse is asked directly. A source that does not model the
+      precomputed table has no answer to give and says nothing; the production
+      source implements it.
+    */
+    const measuredScope: AccountProfileMeasuredScopeStatus =
+      dataSource.readAccountScopeCalibrationMaterialisation
+        ? await dataSource.readAccountScopeCalibrationMaterialisation({
+          businessId: scope.businessId,
+          asOf: scope.asOfDate,
+          providerAccountId: scope.providerAccountId,
+        })
+        : "unprobed";
     /*
       The store's evidence is consulted only when no configured unit exists,
       exactly as the snapshot's own benchmark resolution does it. ROAS stays
@@ -198,6 +320,7 @@ export async function readAccountProfileRetentionInputs(
       accountCalibration,
       funnelCalibration,
       observedShopifyAov,
+      measuredScope,
     };
   } catch {
     return null;
@@ -304,12 +427,22 @@ export function accountProfileRetentionIdentity(
  * `null` on an unreadable input, because an expectation nobody could compute is
  * not an agreement; `classifyRetainedProfile` answers
  * `profile_identity_agreement_unavailable` and the verdict stays review-only.
+ *
+ * `null` too when this account's own calibration scope has never been
+ * materialised. The identity would be computable — it just would not be an
+ * EXPECTATION: half of it would be a live aggregate that has moved since the
+ * verdict was retained, so offering it would report a stale disagreement as a
+ * commercial one. The producer refuses the same case by name, so no verdict
+ * exists for this expectation to be missing from.
  */
 export async function readAccountProfileRetentionIdentity(
   scope: AccountProfileRetentionScope,
 ): Promise<AccountProfileRetentionIdentity | null> {
   const inputs = await readAccountProfileRetentionInputs(scope);
-  return inputs ? accountProfileRetentionIdentity(inputs) : null;
+  if (!inputs) return null;
+  return accountProfileMeasuredScopeHold(inputs.measuredScope) === null
+    ? accountProfileRetentionIdentity(inputs)
+    : null;
 }
 
 /**
@@ -340,6 +473,49 @@ class PinnedInputDataSource extends WarehouseDataSource {
 
   override async getAccountFunnelCalibration(): Promise<AccountFunnelCalibration> {
     return this.pinned.funnelCalibration;
+  }
+
+  /*
+    THE READS THE RESOLVER MAKES THAT THIS MODULE DID NOT PIN.
+
+    `resolveAccountDecisionProfile` does not stop at the two pinned readers: it
+    also asks for the kind-segmented baselines and, when the pinned calibration
+    carries no attributed AOV, for a LIVE one. Left alone those three run at
+    the warehouse default — the whole business — so an account with no
+    purchases of its own was handed a sibling's average order value and the
+    canonical spend unit came out fully anchored on evidence this account does
+    not have. Each is re-scoped to the account the verdict is for; when the
+    account genuinely has none, the answer is empty rather than borrowed.
+  */
+  override async getAccountCalibrationAllKinds(input: {
+    businessId: string;
+    asOf: string;
+  }): Promise<Record<CalibrationCampaignKind, AccountCalibration | null>> {
+    return super.getAccountCalibrationAllKinds({
+      ...input,
+      providerAccountId: this.pinned.providerAccountId,
+    });
+  }
+
+  override async getAccountFunnelCalibrationAllKinds(input: {
+    businessId: string;
+    asOf: string;
+  }): Promise<Record<CalibrationCampaignKind, AccountFunnelCalibration | null>> {
+    return super.getAccountFunnelCalibrationAllKinds({
+      ...input,
+      providerAccountId: this.pinned.providerAccountId,
+    });
+  }
+
+  override async getMetaAttributedAov(input: {
+    businessId: string;
+    asOf: string;
+    windowDays?: number;
+  }): Promise<MetaAttributedAovResult> {
+    return super.getMetaAttributedAov({
+      ...input,
+      providerAccountId: this.pinned.providerAccountId,
+    });
   }
 }
 
@@ -405,6 +581,21 @@ export async function produceRetainedAccountProfileOutputs(
   const inputs = preRead ?? (await readAccountProfileRetentionInputs(scope));
   if (!inputs) {
     refusals.retention_inputs_unreadable = ["the profile inputs could not be read"];
+    return empty();
+  }
+  /*
+    A verdict is only worth retaining if a later reader can re-derive the facts
+    it was computed from. When this account's own calibration scope has not been
+    materialised, half of those facts is a live aggregate and the other half is
+    an empty pack that claims to be a measurement — so the row would be written,
+    and then withheld at approval as though the account's commercial truth had
+    moved. It is refused here instead, with the reason in the name.
+  */
+  const scopeHold = accountProfileMeasuredScopeHold(inputs.measuredScope);
+  if (scopeHold !== null) {
+    refusals[scopeHold] = [
+      `no retained calibration scope for ${scope.providerAccountId} on ${scope.asOfDate}`,
+    ];
     return empty();
   }
   const identity = accountProfileRetentionIdentity(inputs);
@@ -515,6 +706,8 @@ export async function ensureRetainedAccountProfileOutputs(
 ): Promise<AccountProfileRetentionIdentity | null> {
   const inputs = await readAccountProfileRetentionInputs(scope);
   if (!inputs) return null;
+  // The same hold the producer applies, before anything is probed or written.
+  if (accountProfileMeasuredScopeHold(inputs.measuredScope) !== null) return null;
   const identity = accountProfileRetentionIdentity(inputs);
 
   const existing = (await getDb()

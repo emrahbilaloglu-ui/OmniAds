@@ -148,6 +148,19 @@ export async function runClaimedProposalExecution(
     downstream read.
   */
   const withheld = outcome.receipt.withheld !== null;
+  /*
+    An ABSENT `providerMutationAttempted` is not a `false`.
+
+    `scheduled-activation-runtime.ts` deliberately publishes no value when its
+    own dispatch sent nothing but an earlier attempt on the SAME entity is still
+    unresolved: the receipt cannot say a mutation was attempted, and it must not
+    say one definitely was not, because this line decides whether the row parks
+    in `reconcile` and keeps the entity's one action slot. The `??` fallback to
+    the durable write-ahead marker is that case's answer and is load-bearing —
+    replacing it with `=== true` would release the slot for an entity whose
+    provider outcome nobody has established, which is exactly what
+    `META_AUTOMATION_PROPOSAL_OPEN_STATUSES` exists to prevent.
+  */
   const providerDispatchStarted = threw
     ? markerWritten
     : outcome.receipt.providerMutationAttempted ?? markerWritten;

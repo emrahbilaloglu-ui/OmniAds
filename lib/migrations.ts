@@ -66,6 +66,67 @@ let loggedMigrationSkip = false;
 const DEFAULT_MIGRATION_TIMEOUT_MS = 60_000;
 type MigrationBatchQuery = Promise<unknown>;
 const DESTRUCTIVE_COLUMN_DROP_LOCK_TIMEOUT_MS = 2_000;
+
+/**
+ * Give every pre-deploy `shopify_sync_state` row the proof the PREVIOUS
+ * release already granted it.
+ *
+ * `latest_successful_sync_window_start`/`_end` are added by this same migration
+ * and written only by the success paths in `lib/sync/shopify-sync.ts`, so on the
+ * deploy every row that already exists holds NULLs. Without this statement a
+ * store whose recent span is load-bearing — a historical backfill that has not
+ * yet walked up to the window's last day — stops producing an observed average
+ * order value, and with it the derived CPA benchmark, until its next successful
+ * recent-orders pass. That is the very refusal the column pair exists to
+ * remove, moved from "while a sync is running" to "until a sync runs", so it is
+ * closed here rather than left to heal by itself.
+ *
+ * The predicate is a pure RE-STATEMENT of what the release before this one
+ * already accepted as proof (`recentOrderSpanIsProven`, removed from
+ * `lib/creative-decision-engine/shopify-aov-source.ts` in the same change):
+ * the last recorded attempt is a success, and that attempt's own window end IS
+ * the success-only `ready_through_date` beside it. It therefore cannot grant
+ * coverage the previous release withheld — it can only stop this release from
+ * withdrawing coverage the previous one granted.
+ *
+ * The statuses are spelled out rather than imported from
+ * `OBSERVED_SHOPIFY_AOV_SUCCESSFUL_SYNC_STATUSES`. A migration is a frozen
+ * historical statement; if that constant later grows a value, this backfill
+ * must keep meaning what the old proof meant.
+ *
+ * The pair it writes is exactly what a success path would have written. Every
+ * success call site sets `latest_sync_window_start`/`_end` and the retained
+ * pair to the same two dates, with `ready_through_date` equal to that end — the
+ * recent orders pass (`shopify-sync.ts:887-916`), both historical chunks
+ * (`:752-780`, `:781-806`) and the recent returns pass on its success branch
+ * (`:946-980`). The values are therefore the same for all four sync targets,
+ * which is why this is not restricted to one of them.
+ *
+ * Safe on the rows it must not touch:
+ * - Both retained columns must be NULL, so a value a real pass wrote is never
+ *   overwritten, and a second run of this statement matches nothing. Idempotent
+ *   by construction rather than by a marker.
+ * - `latest_sync_status` must be a FINISHED status, so a row whose last attempt
+ *   is `running` or a provider failure reason gets nothing invented for it.
+ *   Those rows keep their NULLs and are refused exactly as the previous release
+ *   refused them.
+ * - The recent returns pass writes `ready_through_date` even when it failed
+ *   (`shopify-sync.ts:946-980`), which is a `ready_through_date` no pass
+ *   earned — but it writes `latest_sync_status = 'failed'` beside it, so that
+ *   row is excluded here too.
+ */
+export const SHOPIFY_SYNC_STATE_RETAINED_WINDOW_BACKFILL_SQL = `
+  UPDATE shopify_sync_state
+     SET latest_successful_sync_window_start = latest_sync_window_start,
+         latest_successful_sync_window_end = ready_through_date
+   WHERE latest_successful_sync_window_start IS NULL
+     AND latest_successful_sync_window_end IS NULL
+     AND latest_sync_window_start IS NOT NULL
+     AND ready_through_date IS NOT NULL
+     AND latest_sync_window_end = ready_through_date
+     AND latest_sync_window_start <= ready_through_date
+     AND lower(btrim(latest_sync_status)) IN ('succeeded', 'ready')
+`;
 const AUTHORITY_BLOCKER_CHECK_VALUES_SQL = DECISION_AUTHORITY_BLOCKERS.map(
   (value) => `'${value.replaceAll("'", "''")}'`,
 ).join(", ");
@@ -11371,6 +11432,8 @@ export async function runMigrations(options?: {
           latest_sync_status       TEXT,
           latest_sync_window_start DATE,
           latest_sync_window_end   DATE,
+          latest_successful_sync_window_start DATE,
+          latest_successful_sync_window_end   DATE,
           last_error               TEXT,
           updated_at               TIMESTAMPTZ NOT NULL DEFAULT now(),
           PRIMARY KEY (business_id, provider_account_id, sync_target)
@@ -11381,6 +11444,49 @@ export async function runMigrations(options?: {
         ),
         sql`ALTER TABLE shopify_sync_state
           ADD COLUMN IF NOT EXISTS cursor_value TEXT`.catch(() => {}),
+        /*
+          The window the LAST SUCCESSFUL pass actually covered.
+
+          `latest_sync_window_start` and `latest_sync_window_end` are written by
+          running, cancelled and failed attempts as well as successful ones, so
+          they say what was ATTEMPTED, not what was read. Coverage readers had
+          to withhold the whole recent span for the duration of any ordinary
+          running pass, because the only start on the row belonged to an attempt
+          that had proved nothing yet.
+
+          At run time these two are written ONLY from the success paths in
+          `lib/sync/shopify-sync.ts`, and COALESCE-preserved through every
+          unsuccessful attempt, so a still-valid proven window stays readable
+          while a refresh is in flight.
+
+          The one other writer is the backfill below, which is part of this same
+          migration. Every row that already exists on the deploy would otherwise
+          hold NULLs and lose coverage it had the day before, so the backfill
+          restates the proof the previous release granted those rows. It touches
+          only rows whose retained pair is NULL and whose last attempt finished.
+
+          Ordered, not a batch array: a batch ISSUES its statements
+          concurrently, and "add the column, then backfill it" is only a
+          migration if the add happens first.
+        */
+        orderedMigrationSteps([
+          () =>
+            sql`ALTER TABLE shopify_sync_state
+              ADD COLUMN IF NOT EXISTS latest_successful_sync_window_start DATE`.catch(
+              () => {},
+            ),
+          () =>
+            sql`ALTER TABLE shopify_sync_state
+              ADD COLUMN IF NOT EXISTS latest_successful_sync_window_end DATE`.catch(
+              () => {},
+            ),
+          // The pre-deploy rows, given the proof the PREVIOUS release already
+          // granted them. See the constant's own comment for the predicate.
+          () =>
+            sql
+              .query(SHOPIFY_SYNC_STATE_RETAINED_WINDOW_BACKFILL_SQL)
+              .catch(() => {}),
+        ]).catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_shopify_sync_state_business
           ON shopify_sync_state (business_id, updated_at DESC)`.catch(() => {}),
         sql`CREATE TABLE IF NOT EXISTS platform_overview_daily_summary (

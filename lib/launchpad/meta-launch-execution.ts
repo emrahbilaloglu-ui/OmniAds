@@ -64,6 +64,7 @@ import type {
   MetaAddToExistingCreativeStatus,
   MetaAddToExistingTargetValidation,
 } from "@/lib/launchpad/meta-validation";
+import { isMetaWriteBlockedCode } from "@/lib/meta/write-blocked-codes";
 import type { MetaLaunchpadManualAuthority } from "@/lib/launchpad/meta-manual-authority";
 
 /** The origin every Launchpad create carried before any other caller existed. */
@@ -266,7 +267,7 @@ function shouldHaltProviderMutationChain(result: MetaAdsWriteFailure) {
     // after it too. Walking the rest of the matrix would re-ask a closed gate
     // once per remaining target and creative, and answer the same each time.
     result.error.code === META_LAUNCH_PROVIDER_MUTATION_WITHHELD_CODE ||
-    result.error.code === "kill_switch_engaged" ||
+    isMetaWriteBlockedCode(result.error.code) ||
     result.error.code === "silent_failure" ||
     result.mutationAttempt != null ||
     isProviderOutcomeAmbiguous(result)
@@ -1369,7 +1370,7 @@ export async function runMetaAddToExistingCreate(
     return {
       ok: failedCount === 0 && !haltedReason,
       status:
-        haltedReason?.code === "kill_switch_engaged"
+        isMetaWriteBlockedCode(haltedReason?.code)
           ? 503
           // Nothing failed and nothing was sent, so this is not a bad gateway:
           // the boundary refused the rest of the matrix. Same 409 the

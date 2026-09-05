@@ -36,6 +36,26 @@
 // and the two ways a verdict fails — never produced, and superseded by
 // commercial truth that moved — are asserted as their own refusals.
 //
+// AND ONE MORE BUSINESS, WHOSE ONLY SUBJECT IS ACCOUNT SCOPE. The chain above
+// is a single business with a single ad account, where "this account's
+// evidence" and "this business's evidence" are numerically the same thing — so
+// it cannot see the defect where they are not. A second business here holds
+// four accounts: it produces one account's verdict, moves a DIFFERENT
+// account's samples, re-runs the whole calibration pass, and requires the first
+// account's eligibility, blocker code, spend unit and both fingerprints to be
+// byte-identical while the pooled scope visibly moves; it requires an account
+// with no measured evidence at all to hold with the resolver's own named code
+// rather than inherit a sibling's; it requires one more synced ad row NOT to
+// move the day's measured identity, and the next calibration pass to move it;
+// and it requires an account the pass has not covered to be refused by name
+// rather than have a verdict retained on a live aggregate.
+//
+// THE CALIBRATION PASS IS PART OF THE CHAIN NOW, for both businesses, because
+// it is the only writer of the scopes those reads land on. Every calibration
+// row this seam asserts against was written by the shipped
+// `runCalibrationJob`, at the scope it computed, and never at two scopes at
+// once.
+//
 // It re-implements NO formula. Every asserted number is either read back out of
 // the database or taken off a production return value. In particular the seam
 // never divides 58.00 by 2.20: the derived $26.36 benchmark is bound by what it
@@ -60,6 +80,8 @@ import { readMetaAutomationProposal } from "@/lib/meta/automation-proposals";
 import { BID_SIZING_POLICY_VERSION } from "@/lib/meta/bid-sizing-policy";
 import { BUDGET_SIZING_POLICY_VERSION } from "@/lib/meta/budget-sizing-policy";
 import { CAMPAIGN_CONTEXT_RESOLVER_VERSION } from "@/lib/creative-decision-engine/campaign-context/resolver";
+import { runCalibrationJob } from "@/lib/creative-decision-engine/jobs/calibration-job";
+import { WarehouseDataSource } from "@/lib/creative-decision-engine/data-source";
 import { META_BID_INTENT_CONTRACT_VERSION } from "@/lib/meta/bid-intent-contract";
 import { META_BUDGET_INTENT_CONTRACT_VERSION } from "@/lib/meta/budget-intent-contract";
 import {
@@ -125,6 +147,36 @@ const ABO_ADSET = "5000000000202";
 */
 const SWEEP_CAMPAIGN = "5000000000103";
 const SWEEP_ADSET = "5000000000203";
+
+/*
+  A SECOND business, whose only subject is account scope.
+
+  The chain above is one business with one ad account, so nothing in it can
+  say whether a verdict is that ACCOUNT's or the business's — with a single
+  account the two readings are numerically identical. This business holds
+  three: two that have measured evidence and one that has none. It is
+  deliberately kept apart from the chain business rather than bolted onto it,
+  because adding accounts there would change the concentration arithmetic,
+  the candidate set and the snapshot's own account loop, and the numbers
+  above would then be proving something else.
+
+  It gets no Meta connection, no automation controls, no campaign roles and
+  no snapshot run: the producer is called directly, which is the whole point.
+*/
+const SCOPE_BUSINESS = "d0000000-0000-4000-8000-000000000502";
+const SCOPE_ACCOUNT_A = "act_5000000000011";
+const SCOPE_ACCOUNT_B = "act_5000000000012";
+const SCOPE_ACCOUNT_C = "act_5000000000013";
+/*
+  A FOURTH account, assigned only after the calibration pass has run.
+
+  Accounts are assigned between passes, so an account whose own calibration
+  scope does not exist yet is an ordinary production state rather than a
+  contrived one. It is what separates "measured and empty" — account C, which
+  the pass covered and found nothing in — from "never measured", which is what
+  an empty funnel pack and a live aggregate would otherwise be reported as.
+*/
+const SCOPE_ACCOUNT_D = "act_5000000000014";
 
 /** The evidence window both the warehouse and the store fixture cover. */
 const WINDOW_DAYS = 28;
@@ -390,23 +442,27 @@ async function seedShopifyStore(syncAt: string) {
     reached. A window we never read cannot be averaged, however fresh the sync.
   */
   /*
-    `latest_sync_window_end` is written too, and it equals `ready_through_date`.
+    The SUCCESS window is a separate pair of columns, and it is the one the
+    coverage proof reads.
 
-    The coverage proof pairs the retained start with the retained SUCCESS end
-    and refuses `orders_coverage_unproven` when they disagree, because a
-    running or failed attempt overwrites the start and leaves the older success
-    end behind. A fixture that recorded only the start was claiming a span no
-    single pass had established, which is exactly the shape the proof exists to
-    reject.
+    `latest_sync_window_start`/`_end` are written before any work happens and
+    again on failure, so they describe an ATTEMPT; only
+    `latest_successful_sync_window_start`/`_end` are written by a pass that
+    finished. `proveShopifyOrderWindowCovered` therefore reads the success pair
+    and answers `orders_coverage_unproven` when it is absent — a store that may
+    well be covered, with no retained proof that it is. A fixture that recorded
+    only the attempt window was claiming a span no completed pass had
+    established, which is exactly the shape the proof exists to reject.
   */
   await sql.query(
     `INSERT INTO shopify_sync_state
        (business_id, provider_account_id, sync_target,
         latest_successful_sync_at, latest_sync_window_start,
-        latest_sync_window_end, ready_through_date,
+        latest_sync_window_end, latest_successful_sync_window_start,
+        latest_successful_sync_window_end, ready_through_date,
         latest_sync_status)
      VALUES ($1, $2, 'commerce_orders_recent', $3::timestamptz, $4::date,
-             $5::date, $5::date, 'succeeded')
+             $5::date, $4::date, $5::date, $5::date, 'succeeded')
      ON CONFLICT (business_id, provider_account_id, sync_target)
      DO UPDATE SET latest_successful_sync_at = EXCLUDED.latest_successful_sync_at`,
     [BUSINESS, SHOP, syncAt, addDays(AS_OF, -60), AS_OF],
@@ -1027,6 +1083,520 @@ async function seedBudgetState() {
   // budgets, which is a real observation and not an unreadable one.
 }
 
+/**
+ * The account-scope fixture: one business, three ad accounts, no store.
+ *
+ * ROAS is the only commercial target, exactly as the chain business has it, so
+ * the ONLY remaining source of a money-per-purchase unit is Meta's own
+ * attributed average order value — which is measured, per account, and is the
+ * rung the borrow used to happen on. With no Shopify store bound to this
+ * business, an account with no purchases of its own has no anchor at all, and
+ * whether it gets one is a direct statement about scope.
+ */
+async function seedAccountScopeAccount(account: string) {
+  const sql = getDb();
+  const rows = (await sql.query(
+    `INSERT INTO provider_accounts
+       (provider, external_account_id, account_name, currency, timezone)
+     VALUES ('meta', $1, $1, 'USD', 'UTC')
+     ON CONFLICT (provider, external_account_id)
+     DO UPDATE SET currency = EXCLUDED.currency
+     RETURNING id::text AS id`,
+    [account],
+  )) as Array<{ id: string }>;
+  await sql.query(
+    `INSERT INTO business_provider_accounts
+       (business_id, provider, provider_account_ref_id, provider_account_id,
+        position, is_selected)
+     VALUES ($1, 'meta', $2::uuid, $3, 0, TRUE)
+     ON CONFLICT (business_id, provider, provider_account_ref_id)
+     DO UPDATE SET is_selected = TRUE`,
+    [SCOPE_BUSINESS, rows[0]!.id, account],
+  );
+}
+
+/** Converter creatives for one account, through the production writer. */
+async function seedAccountScopeCreatives(input: {
+  account: string;
+  count: number;
+  offset: number;
+  spend: number;
+  revenue: number;
+}) {
+  const digits = input.account.replace(/\D/g, "");
+  const rows = [];
+  for (let index = 0; index < input.count; index += 1) {
+    const ordinal = input.offset + index;
+    rows.push({
+      businessId: SCOPE_BUSINESS,
+      providerAccountId: input.account,
+      accountTimezone: "UTC",
+      accountCurrency: "USD",
+      sourceSnapshotId: null,
+      date: AS_OF,
+      campaignId: `${digits}01`,
+      adsetId: `${digits}02`,
+      adId: `${digits}3${String(ordinal).padStart(3, "0")}`,
+      creativeId: `${digits}4${String(ordinal).padStart(3, "0")}`,
+      creativeName: `Converter ${ordinal}`,
+      headline: null,
+      primaryText: null,
+      destinationUrl: null,
+      thumbnailUrl: null,
+      assetType: "image",
+      objective: "OUTCOME_SALES",
+      optimizationGoal: "OFFSITE_CONVERSIONS",
+      effectiveStatus: "ACTIVE",
+      ...metricRow({
+        spend: input.spend, revenue: input.revenue, conversions: 1,
+        impressions: 400, clicks: 8, reach: 300,
+      }),
+    });
+  }
+  await upsertMetaCreativeDailyRows(rows);
+}
+
+/** The retained verdict for one account, read straight back out. */
+async function readAccountScopeVerdicts(account: string) {
+  return (await getDb().query(
+    `SELECT action, eligible, blocker_code, spend_unit::text AS spend_unit,
+            input_fingerprint, source_fingerprint
+       FROM engine_v3_account_profile_output
+      WHERE business_id = $1 AND provider_account_id = $2
+      ORDER BY action`,
+    [SCOPE_BUSINESS, account],
+  )) as Array<{
+    action: string;
+    eligible: boolean;
+    blocker_code: string | null;
+    spend_unit: string | null;
+    input_fingerprint: string;
+    source_fingerprint: string;
+  }>;
+}
+
+function renderVerdict(row: {
+  action: string;
+  eligible: boolean;
+  blocker_code: string | null;
+  spend_unit: string | null;
+  input_fingerprint: string;
+  source_fingerprint: string;
+}) {
+  return `${row.action} eligible=${row.eligible} blocker=${row.blocker_code}`
+    + ` spendUnit=${row.spend_unit} input=${row.input_fingerprint}`
+    + ` source=${row.source_fingerprint}`;
+}
+
+/**
+ * ONE ACCOUNT'S VERDICT IS ITS OWN, AND IT IS THE DAY'S.
+ *
+ * The retained row is keyed on `(business_id, provider_account_id, action)` and
+ * its two fingerprints are the identity every later reader re-derives and
+ * compares against — so what those fingerprints are computed FROM decides
+ * whether a mid-day target change moves the verdict, whether an unrelated
+ * account can move it, and whether an ordinary sync write can. The producer
+ * read the account calibration, the funnel calibration and the live
+ * Meta-attributed AOV at the warehouse default, which is the whole BUSINESS:
+ * `getAccountCalibration({businessId, asOf})` read the `scope_id '*'` row and
+ * fell back to a runtime aggregate over every account the business owns.
+ *
+ * Two things followed, and both are asserted here. A's verdict moved when a
+ * sibling account's samples moved, so a commercial decision about A could flip
+ * because of an account nobody was looking at. And an account with no measured
+ * evidence at all was handed its siblings' — the opposite of "enough evidence
+ * gives a decision, otherwise a named hold".
+ *
+ * NAMING THE ACCOUNT ON THOSE READS IS ONLY HALF OF IT, and the second half is
+ * asserted here too. A scoped read finds nothing unless the calibration pass
+ * has materialised that account's own scope, and "nothing" is answered as an
+ * empty funnel pack and a live aggregate — a measurement that never happened
+ * and a number that moves under the next sync write. So this phase runs the
+ * shipped calibration job, requires the scoped reads to land on rows it wrote
+ * for that account alone, requires the day's identity to survive one more
+ * synced ad row and to move on the next pass, and requires an account the pass
+ * has not covered to be refused with the reason in the name.
+ */
+async function assertAccountScopeIsolation() {
+  const sql = getDb();
+  await sql.query(
+    `INSERT INTO businesses (id, name, owner_id, timezone, currency, is_demo_business)
+     VALUES ($1::uuid, 'Account scope seam', $2::uuid, 'UTC', 'USD', FALSE)
+     ON CONFLICT (id) DO NOTHING`,
+    [SCOPE_BUSINESS, OWNER],
+  );
+  await sql.query(
+    `INSERT INTO memberships (user_id, business_id, role, status)
+     VALUES ($1::uuid, $2::uuid, 'admin', 'active')
+     ON CONFLICT DO NOTHING`,
+    [OWNER, SCOPE_BUSINESS],
+  );
+  // ROAS only, the same binding rule the chain business is seeded under.
+  await sql.query(
+    `INSERT INTO business_target_pack_history
+       (business_id, target_roas, break_even_roas, target_cpa, break_even_cpa,
+        aov_assumption, default_risk_posture, operation, effective_at, recorded_at)
+     VALUES ($1::uuid, 2.20, 1.80, NULL, NULL, NULL, 'balanced', 'upsert',
+             $2::timestamptz, $2::timestamptz)`,
+    [SCOPE_BUSINESS, `${AS_OF}T00:00:00.000Z`],
+  );
+  for (const account of [SCOPE_ACCOUNT_A, SCOPE_ACCOUNT_B, SCOPE_ACCOUNT_C]) {
+    await seedAccountScopeAccount(account);
+  }
+  /*
+    Genuinely different measured facts, and a third account with none.
+
+    A: thirty-two converters at $36.00 each — over the scale calibration floor,
+    so A is an account that CAN be commercially eligible.
+    B: six converters at $12.00 — a materially different average order value in
+    the same window, so pooling the two produces a number that is neither.
+    C: nothing at all.
+  */
+  await seedAccountScopeCreatives({
+    account: SCOPE_ACCOUNT_A, count: 32, offset: 0, spend: 10, revenue: 36,
+  });
+  await seedAccountScopeCreatives({
+    account: SCOPE_ACCOUNT_B, count: 6, offset: 0, spend: 10, revenue: 12,
+  });
+
+  /*
+    ONE SCOPE PER SELECTED ACCOUNT, WRITTEN BY THE SHIPPED JOB.
+
+    Before the job wrote them there was nothing at these scope ids at all, and
+    the scoped readers said so in the two ways that are indistinguishable from a
+    measurement: the funnel pack came back with no formats in it and the
+    kind-segmented calibration came back null, on EVERY account, for ever. The
+    pooled `'*'` row is written by the same pass and is untouched, so nothing
+    here is planted at two scopes to make a scoped read look answered.
+  */
+  const scopeRows = await materialiseCalibrationScopes(SCOPE_BUSINESS);
+  expectEqual(
+    scopeRows
+      .filter((row) => row.scope_type === "account")
+      .map((row) => row.scope_id)
+      .sort(),
+    ["*", SCOPE_ACCOUNT_A, SCOPE_ACCOUNT_B, SCOPE_ACCOUNT_C].sort(),
+    "every selected account has a calibration scope of its own, beside the pooled one",
+  );
+
+  /*
+    AND THE SCOPED READS FIND THEM, WITH DIFFERENT NUMBERS IN EACH.
+
+    Through the shipped `WarehouseDataSource`, on the same readers the producer
+    uses. A's own converter count, B's own converter count and the pooled count
+    are three different numbers here — 32, 6 and 38 — so a read that had
+    silently answered with the pooled row could not pass this, and neither could
+    one that answered `null` because nothing had been materialised.
+  */
+  const warehouse = new WarehouseDataSource();
+  const measured = async (account: string | null) => {
+    const scoped = account === null ? {} : { providerAccountId: account };
+    const kind = await warehouse.getAccountCalibrationByKind({
+      businessId: SCOPE_BUSINESS, asOf: AS_OF, campaignKind: "all", ...scoped,
+    });
+    const funnel = await warehouse.getAccountFunnelCalibration({
+      businessId: SCOPE_BUSINESS, asOf: AS_OF, ...scoped,
+    });
+    return {
+      matureCreativeCount: kind?.matureCreativeCount ?? null,
+      funnelFormats: Object.keys(funnel.byFormat).length,
+    };
+  };
+  const pooled = await measured(null);
+  const measuredA = await measured(SCOPE_ACCOUNT_A);
+  const measuredB = await measured(SCOPE_ACCOUNT_B);
+  console.log(
+    `[${LABEL}] measured evidence: pooled=${JSON.stringify(pooled)}`
+    + ` A=${JSON.stringify(measuredA)} B=${JSON.stringify(measuredB)}`,
+  );
+  expectEqual(
+    [pooled.matureCreativeCount, measuredA.matureCreativeCount, measuredB.matureCreativeCount],
+    [38, 32, 6],
+    "each scope carries its own converters, and the pooled one carries both",
+  );
+  expectEqual(
+    [pooled.funnelFormats, measuredA.funnelFormats, measuredB.funnelFormats],
+    [5, 5, 5],
+    "and a scoped funnel read returns this account's own per-format baselines",
+  );
+
+  for (const account of [SCOPE_ACCOUNT_A, SCOPE_ACCOUNT_B, SCOPE_ACCOUNT_C]) {
+    await produceRetainedAccountProfileOutputs({
+      businessId: SCOPE_BUSINESS, providerAccountId: account, asOfDate: AS_OF,
+    });
+  }
+
+  const before = await readAccountScopeVerdicts(SCOPE_ACCOUNT_A);
+  expectEqual(
+    before.map((row) => row.action), ["cut", "refresh", "scale"],
+    "account A retained one verdict per canonical action",
+  );
+  console.log(`[${LABEL}] account A before: ${before.map(renderVerdict).join(" | ")}`);
+  /*
+    A's OWN average order value over the target ROAS: 36.00 / 2.20.
+
+    The business-wide reading of the same fixture is 32.21 / 2.20 = 14.64 —
+    thirty-two creatives at 36.00 pooled with six at 12.00 — which is a number
+    that describes neither account and is what this row used to carry.
+  */
+  expectEqual(
+    Math.round(Number(before[0]!.spend_unit) * 100) / 100, 16.36,
+    "account A's spend unit is account A's own evidence",
+  );
+  expectEqual(
+    before.find((row) => row.action === "scale")!.eligible, true,
+    "account A clears the scale calibration floor on its own creatives",
+  );
+
+  /*
+    THE ACCOUNT WITH NO EVIDENCE OF ITS OWN.
+
+    Business-wide, C inherited A and B's pooled calibration whole: a spend unit
+    of 14.64, a mature creative count over the floor, and `eligible = true` on
+    every action for an account that has never run an ad. Scoped, it has no
+    anchor, and the resolver's own canonical code says so.
+  */
+  const scopeC = await readAccountScopeVerdicts(SCOPE_ACCOUNT_C);
+  console.log(`[${LABEL}] account C: ${scopeC.map(renderVerdict).join(" | ")}`);
+  expectEqual(
+    scopeC.map((row) => `${row.action}:${row.eligible}:${row.blocker_code}`),
+    [
+      "cut:false:commercial_anchor_missing",
+      "refresh:false:commercial_anchor_missing",
+      "scale:false:commercial_anchor_missing",
+    ],
+    "an account with no measured evidence holds by name instead of inheriting",
+  );
+  expectEqual(
+    scopeC.every((row) => row.spend_unit === null), true,
+    "and it is handed no spend unit at all",
+  );
+
+  /*
+    CHANGE ONLY B, AND RE-RUN THE WHOLE CALIBRATION PASS.
+
+    Forty more converters at $200.00 — an average order value an order of
+    magnitude away from anything A has. Business-wide this moves the pooled
+    number from 32.21 to 118.26, which moved A's spend unit to 53.75, changed
+    A's source fingerprint, and retained a SECOND set of rows for A that the
+    reader's re-derived expectation then pointed at. Nothing about A changed.
+
+    The job is re-run deliberately rather than skipped. Every scope is
+    recomputed from the moved warehouse: the pooled one and B's move, and A's
+    is recomputed from A's own unchanged rows and lands on the same numbers. If
+    A's verdict were still reading the pooled scope, a stale precomputed row
+    would hide it — re-running removes that excuse.
+  */
+  await seedAccountScopeCreatives({
+    account: SCOPE_ACCOUNT_B, count: 40, offset: 100, spend: 10, revenue: 200,
+  });
+  await materialiseCalibrationScopes(SCOPE_BUSINESS);
+  const pooledAfter = await measured(null);
+  const measuredAafter = await measured(SCOPE_ACCOUNT_A);
+  expectEqual(
+    pooledAfter.matureCreativeCount, 78,
+    "the pooled scope moved with B, which is what a business-wide reader would have read",
+  );
+  expectEqual(
+    measuredAafter.matureCreativeCount, 32,
+    "and A's own scope did not move at all",
+  );
+  await produceRetainedAccountProfileOutputs({
+    businessId: SCOPE_BUSINESS, providerAccountId: SCOPE_ACCOUNT_A, asOfDate: AS_OF,
+  });
+
+  const after = await readAccountScopeVerdicts(SCOPE_ACCOUNT_A);
+  console.log(`[${LABEL}] account A after B moved: ${after.map(renderVerdict).join(" | ")}`);
+  // Byte-identical, field by field, and no second identity beside it.
+  expectEqual(after.map(renderVerdict), before.map(renderVerdict),
+    "changing another account changes nothing about this account's verdict");
+  expectEqual(after.length, 3,
+    "and produces no second retained identity for it");
+
+  /*
+    B's own verdict DID move, which is what makes the assertion above a scope
+    claim rather than a claim that the producer ignores new evidence.
+  */
+  await produceRetainedAccountProfileOutputs({
+    businessId: SCOPE_BUSINESS, providerAccountId: SCOPE_ACCOUNT_B, asOfDate: AS_OF,
+  });
+  const scopeB = await readAccountScopeVerdicts(SCOPE_ACCOUNT_B);
+  if (scopeB.length !== 6) {
+    fail(
+      "account_b_verdict_did_not_move",
+      `expected B to retain a second identity after its own evidence moved, got ${scopeB.length} rows`,
+    );
+  }
+
+  /*
+    The reader's expectation, re-derived with the retained table untouched. It
+    is what `classifyRetainedProfile` compares A's row against, so if it drifted
+    with B the row would be refused as superseded and A's budget path would go
+    quiet for a reason that has nothing to do with A.
+  */
+  const identityA = await readAccountProfileRetentionIdentity({
+    businessId: SCOPE_BUSINESS, providerAccountId: SCOPE_ACCOUNT_A, asOfDate: AS_OF,
+  });
+  if (!identityA) fail("account_scope_identity_unreadable", SCOPE_ACCOUNT_A);
+  expectEqual(
+    identityA!.inputFingerprint, before[0]!.input_fingerprint,
+    "A's re-derived configured identity still names A's retained row",
+  );
+  expectEqual(
+    identityA!.sourceFingerprint, before[0]!.source_fingerprint,
+    "and its measured identity did not move with a sibling account",
+  );
+
+  /*
+    AND THE IDENTITY DOES NOT MOVE WHEN THIS ACCOUNT'S OWN SYNC WRITES A ROW.
+
+    This is the second half of "a verdict is retained for a DAY". The measured
+    reads used to be answered by a live aggregate over `meta_creative_daily`,
+    because no scope existed for this account to read: one ordinary warehouse
+    write through the shipped writer then moved `source_fingerprint`,
+    `classifyRetainedProfile` answered `retained_profile_source_mismatch`, and
+    the budget path withheld at approval a verdict it had projected minutes
+    earlier — for a change in the account's own sync, not in its commercial
+    truth. The scoped read now lands on the day's retained row and is as fixed
+    as the pooled read has always been.
+  */
+  await seedAccountScopeCreatives({
+    account: SCOPE_ACCOUNT_A, count: 1, offset: 900, spend: 10, revenue: 36,
+  });
+  const identityAfterSync = await readAccountProfileRetentionIdentity({
+    businessId: SCOPE_BUSINESS, providerAccountId: SCOPE_ACCOUNT_A, asOfDate: AS_OF,
+  });
+  console.log(
+    `[${LABEL}] account A identity after one synced ad row: `
+    + `${identityAfterSync?.sourceFingerprint.slice(0, 8)} `
+    + `(was ${identityA!.sourceFingerprint.slice(0, 8)})`,
+  );
+  expectEqual(
+    identityAfterSync?.sourceFingerprint, identityA!.sourceFingerprint,
+    "one more synced ad row does not move the day's measured identity",
+  );
+  await produceRetainedAccountProfileOutputs({
+    businessId: SCOPE_BUSINESS, providerAccountId: SCOPE_ACCOUNT_A, asOfDate: AS_OF,
+  });
+  expectEqual(
+    (await readAccountScopeVerdicts(SCOPE_ACCOUNT_A)).length, 3,
+    "and retains no second identity for the same day",
+  );
+
+  /*
+    FIXED FOR THE DAY IS NOT DEAF.
+
+    The next calibration pass re-measures the account and the identity moves,
+    which is the whole point of retaining a verdict per set of inputs: the new
+    reading is a new verdict, and the old row stops being the one a reader
+    agrees with.
+  */
+  await materialiseCalibrationScopes(SCOPE_BUSINESS);
+  const identityRecalibrated = await readAccountProfileRetentionIdentity({
+    businessId: SCOPE_BUSINESS, providerAccountId: SCOPE_ACCOUNT_A, asOfDate: AS_OF,
+  });
+  if (identityRecalibrated?.sourceFingerprint === identityA!.sourceFingerprint) {
+    fail(
+      "identity_ignored_recalibration",
+      "A's measured identity did not move after its own evidence was re-measured",
+    );
+  }
+
+  /*
+    AN ACCOUNT THE CALIBRATION PASS HAS NOT COVERED HOLDS BY NAME.
+
+    Accounts get assigned between calibration passes, and this is that moment.
+    The scoped readers still ANSWER for such an account — an empty funnel pack
+    and a live aggregate — and both are unusable as an identity: the first is
+    indistinguishable from a genuinely empty account, the second moves under the
+    next sync write. Retaining a verdict on them is how a fully evidenced
+    account ends up withheld at approval for a reason that has nothing to do
+    with its evidence, so the producer refuses with the reason in the name and
+    the reader offers no expectation to compare against.
+  */
+  await seedAccountScopeAccount(SCOPE_ACCOUNT_D);
+  const uncovered = await produceRetainedAccountProfileOutputs({
+    businessId: SCOPE_BUSINESS, providerAccountId: SCOPE_ACCOUNT_D, asOfDate: AS_OF,
+  });
+  console.log(
+    `[${LABEL}] account D before any calibration pass: produced=${uncovered.produced} `
+    + `refusals=${JSON.stringify(Object.keys(uncovered.refusals))}`,
+  );
+  expectEqual(
+    Object.keys(uncovered.refusals), ["account_calibration_scope_not_materialised"],
+    "an uncovered account is refused by name, not by silence",
+  );
+  expectEqual(uncovered.retained, [], "and nothing is retained for it");
+  expectEqual(
+    (await readAccountScopeVerdicts(SCOPE_ACCOUNT_D)).length, 0,
+    "so the table carries no verdict for an account nobody has measured",
+  );
+  expectEqual(
+    await readAccountProfileRetentionIdentity({
+      businessId: SCOPE_BUSINESS, providerAccountId: SCOPE_ACCOUNT_D, asOfDate: AS_OF,
+    }),
+    null,
+    "and a reader is offered no expectation to check a verdict against",
+  );
+
+  /*
+    And the hold lifts the moment the pass covers it — a hold, not a wall. D has
+    no evidence of its own, so what it then retains is the resolver's own
+    `commercial_anchor_missing`, exactly like C, rather than a sibling's anchor.
+  */
+  await materialiseCalibrationScopes(SCOPE_BUSINESS);
+  const covered = await produceRetainedAccountProfileOutputs({
+    businessId: SCOPE_BUSINESS, providerAccountId: SCOPE_ACCOUNT_D, asOfDate: AS_OF,
+  });
+  expectEqual(covered.refusals, {}, "the named hold lifts once the account is measured");
+  expectEqual(
+    (await readAccountScopeVerdicts(SCOPE_ACCOUNT_D))
+      .map((row) => `${row.action}:${row.eligible}:${row.blocker_code}`),
+    [
+      "cut:false:commercial_anchor_missing",
+      "refresh:false:commercial_anchor_missing",
+      "scale:false:commercial_anchor_missing",
+    ],
+    "and an account measured as empty holds with the resolver's own code",
+  );
+}
+
+/**
+ * The calibration scopes for one business, written by the SHIPPED job.
+ *
+ * `lib/creative-decision-engine/jobs/calibration-job.ts` is the only writer of
+ * `engine_v3_account_calibration_daily`, and this seam runs it rather than
+ * planting rows, so what the readers below find is exactly what production
+ * finds. It writes the pooled `('account', '*')` scope, one
+ * `('account', <provider account id>)` scope per SELECTED Meta account computed
+ * from that account's own rows, and one `('campaign', <id>)` scope per eligible
+ * campaign.
+ *
+ * NOTHING IN THIS SEAM EVER WRITES A CALIBRATION ROW AT TWO SCOPES. That is the
+ * shape a per-account read can be made to pass under while finding nothing in
+ * the real world, so every scoped read asserted here is answered by a row this
+ * job computed for that scope alone.
+ */
+async function materialiseCalibrationScopes(businessId: string) {
+  const job = await runCalibrationJob({ businessId, asOf: AS_OF });
+  if (job.status !== "success") {
+    fail("calibration_job_failed", `${businessId}: ${job.status} ${job.errorMessage ?? ""}`);
+  }
+  const rows = (await getDb().query(
+    `SELECT scope_type, scope_id, COUNT(*)::int AS rows
+       FROM engine_v3_account_calibration_daily
+      WHERE business_ref_id = $1::uuid
+      GROUP BY scope_type, scope_id
+      ORDER BY scope_type, scope_id`,
+    [businessId],
+  )) as Array<{ scope_type: string; scope_id: string; rows: number }>;
+  console.log(
+    `[${LABEL}] calibration scopes for ${businessId}: `
+    + rows.map((row) => `${row.scope_type}/${row.scope_id}=${row.rows}`).join(" "),
+  );
+  return rows;
+}
+
 type DecisionRow = {
   scope_type: string;
   scope_id: string;
@@ -1219,6 +1789,28 @@ async function main() {
   await seedCreativeFacts();
   await publishSlices();
   await seedBudgetState();
+
+  /*
+    THE DAILY CALIBRATION PASS, BEFORE ANYTHING READS A CALIBRATION.
+
+    The retained commercial verdict is stamped with a digest of the measured
+    facts it was computed from, and a later reader re-derives that digest to
+    decide whether the verdict still describes the account. That only works if
+    the measured read is FIXED for the day: without this job the account-scoped
+    read falls through to a live aggregate over `meta_creative_daily`, and one
+    ordinary sync write then moves the digest and withholds a verdict that had
+    nothing wrong with it. So the job runs here, exactly as a daily pass would,
+    and the numbers below are asserted against what it wrote.
+  */
+  const chainScopes = await materialiseCalibrationScopes(BUSINESS);
+  expectEqual(
+    chainScopes
+      .filter((row) => row.scope_type === "account")
+      .map((row) => row.scope_id)
+      .sort(),
+    ["*", ACCOUNT].sort(),
+    "the job materialised this account's own scope beside the pooled one",
+  );
 
   const run = await runMetaSnapshotForBusiness(BUSINESS, AS_OF);
   expectEqual(run.failedAccountIds, [], "every assigned account generated");
@@ -1466,6 +2058,14 @@ async function main() {
   expectEqual(
     scaleVerdict.source_fingerprint, identity!.sourceFingerprint,
     "and the measured ones",
+  );
+
+  // ── One account's verdict is its own ─────────────────────────────────────
+  const beforeAccountScope = provider.calls.length;
+  await assertAccountScopeIsolation();
+  expectEqual(
+    provider.since(beforeAccountScope), [],
+    "the account-scope phase reached the provider not at all",
   );
 
   // ── The connection, and the projected queue rows ─────────────────────────
@@ -1810,7 +2410,13 @@ async function main() {
     + "budget rows on it, refuses an absent and a superseded verdict by name, "
     + "executes one row through operator approval and the other through the "
     + "scheduled sweep with durable read-back receipts, loses both intents when "
-    + "the store's evidence is withdrawn, and makes exactly two provider writes.",
+    + "the store's evidence is withdrawn, keeps one account's retained verdict "
+    + "byte-identical while a sibling account's samples move and the pooled "
+    + "scope moves with them, holds an account with no evidence of its own by "
+    + "name, keeps the day's measured identity fixed across an ordinary sync "
+    + "write and moves it on the next calibration pass, refuses by name for an "
+    + "account that pass has not covered, and makes exactly two provider "
+    + "writes.",
   );
   resetDbClientCache();
 }

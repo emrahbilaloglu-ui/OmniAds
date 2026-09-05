@@ -96,10 +96,30 @@ export type ObservedShopifyAovStatus =
    */
   | "orders_coverage_gap"
   /**
-   * A recent-orders window is recorded, but the retained state cannot show
-   * that a SUCCESSFUL pass established it. Distinct from the two above: the
-   * store may well be fully covered, and the very next successful pass will
-   * say so — what is missing is the proof, not necessarily the coverage.
+   * The window is not covered, AND the recent row carries an attempt over days
+   * no successful pass has proven — so the missing days cannot be attributed
+   * to a backfill that has not arrived or to a hole nobody is working on.
+   *
+   * Read it as "refused, and the reason is not settled", never as "the store is
+   * probably fine". It is the same refusal as the two above with a weaker
+   * claim attached, and it is reached in two quite different situations:
+   *
+   * - The days really are unread, and an attempt happens to be recorded over
+   *   them. A store with a permanent hole in its backfill reports
+   *   `orders_coverage_gap` when nothing is in flight, and this instead the
+   *   moment any wider attempt is on the row — including an ordinary recurring
+   *   refresh, whose window ends on the store's today and so reaches past
+   *   yesterday's proven end. Verified on a real database: a store missing nine
+   *   days answers `orders_coverage_gap` quiet, `orders_coverage_unproven` with
+   *   a repair or a routine refresh running.
+   * - The days may well be read and only the proof is missing: a row with no
+   *   retained bounds whose last attempt did not finish. The next successful
+   *   pass records the bounds and settles it either way.
+   *
+   * What this status does NOT mean is that a covered store lost its coverage
+   * to a running pass. It cannot: the retained bounds outlive every
+   * unsuccessful attempt, so a store the last successful pass proved stays
+   * `observed` throughout a refresh and never reaches a refusal at all.
    */
   | "orders_coverage_unproven"
   /** Connected with no IANA zone, so no store day can be closed. */
@@ -253,9 +273,21 @@ async function readObservedAt(input: {
  * whatever the provider said — so the set of non-success values is open-ended
  * and a denylist would let the next new reason through as a success.
  *
- * `succeeded` is what the recent pass writes (`shopify-sync.ts:891`);
+ * `succeeded` is what the recent pass writes (`shopify-sync.ts:898`);
  * historical chunks write `ready` once they reach the target end and
  * `succeeded` before that (`:763`, `:788`).
+ *
+ * NOTHING IN THIS MODULE READS IT ANY MORE. Coverage used to be inferred from
+ * the row's recorded status; it is now read from the retained success bounds
+ * below, which the success paths write themselves, and the refusal is named by
+ * comparing window bounds rather than by inspecting a status. This is kept as
+ * the named definition of "a status that means the pass finished", which is
+ * still what `lib/sync/shopify-sync.ts` writes.
+ *
+ * The one place that list is still load-bearing spells it out rather than
+ * importing it: `SHOPIFY_SYNC_STATE_RETAINED_WINDOW_BACKFILL_SQL` in
+ * `lib/migrations.ts`, deliberately, because a migration must keep meaning what
+ * it meant on the day it ran even if this array later grows a value.
  */
 export const OBSERVED_SHOPIFY_AOV_SUCCESSFUL_SYNC_STATUSES = [
   "succeeded",
@@ -265,14 +297,32 @@ export const OBSERVED_SHOPIFY_AOV_SUCCESSFUL_SYNC_STATUSES = [
 /** What one order sync target has recorded about itself. */
 export interface ShopifyOrderSyncTargetState {
   latestSuccessfulSyncAt: string | null;
+  /**
+   * The window the last recorded ATTEMPT names. Written before any work
+   * happens and again on failure, so it describes intent, not coverage.
+   */
   latestSyncWindowStart: string | null;
   latestSyncWindowEnd: string | null;
+  /**
+   * The window the last SUCCESSFUL pass actually read, retained through every
+   * unsuccessful attempt (`lib/shopify/sync-state.ts` ON CONFLICT block).
+   *
+   * Both NULL is "not proven", never coverage. A row that predates these
+   * columns is NOT automatically in that state: the migration that adds them
+   * also backfills the pair on every row whose last recorded attempt finished
+   * over a window ending on its own `ready_through_date`
+   * (`SHOPIFY_SYNC_STATE_RETAINED_WINDOW_BACKFILL_SQL`), which is the same
+   * pairing the release before this one accepted as proof. What is left NULL
+   * is a row that has never had a successful pass, or a pre-deploy row whose
+   * last attempt was still running or had failed.
+   */
+  latestSuccessfulSyncWindowStart: string | null;
+  latestSuccessfulSyncWindowEnd: string | null;
   readyThroughDate: string | null;
   historicalTargetStart: string | null;
   /**
    * The outcome of the LAST attempt recorded on this row, which is not
    * necessarily the attempt that wrote the success-only columns beside it.
-   * Reading it is how the two are told apart.
    */
   latestSyncStatus: string | null;
 }
@@ -343,6 +393,8 @@ export async function readOrderSyncCoverage(input: {
              latest_successful_sync_at,
              latest_sync_window_start,
              latest_sync_window_end,
+             latest_successful_sync_window_start,
+             latest_successful_sync_window_end,
              latest_sync_status,
              ready_through_date,
              historical_target_start
@@ -358,6 +410,8 @@ export async function readOrderSyncCoverage(input: {
       latest_successful_sync_at: string | Date | null;
       latest_sync_window_start: string | Date | null;
       latest_sync_window_end: string | Date | null;
+      latest_successful_sync_window_start: string | Date | null;
+      latest_successful_sync_window_end: string | Date | null;
       latest_sync_status: string | null;
       ready_through_date: string | Date | null;
       historical_target_start: string | Date | null;
@@ -368,6 +422,12 @@ export async function readOrderSyncCoverage(input: {
         latestSuccessfulSyncAt: normalizeSyncStateTimestamp(row.latest_successful_sync_at),
         latestSyncWindowStart: normalizeSyncStateDate(row.latest_sync_window_start),
         latestSyncWindowEnd: normalizeSyncStateDate(row.latest_sync_window_end),
+        latestSuccessfulSyncWindowStart: normalizeSyncStateDate(
+          row.latest_successful_sync_window_start,
+        ),
+        latestSuccessfulSyncWindowEnd: normalizeSyncStateDate(
+          row.latest_successful_sync_window_end,
+        ),
         latestSyncStatus:
           typeof row.latest_sync_status === "string" && row.latest_sync_status.trim()
             ? row.latest_sync_status.trim()
@@ -395,47 +455,97 @@ export type ShopifyOrderWindowCoverageVerdict =
     };
 
 /**
- * Whether the recent row's two span bounds were established by ONE successful
- * pass.
+ * The days a SUCCESSFUL recent pass actually read, as that pass recorded them.
  *
- * This is the defect. `latest_sync_window_start` is written by running,
- * cancelled and failed attempts as well as successful ones
- * (`lib/sync/shopify-sync.ts:388`, `:415`, `:532`, `:1056`), while
- * `ready_through_date` and `latest_successful_sync_at` are success-only and
- * are COALESCE-preserved through an unsuccessful attempt
- * (`lib/shopify/sync-state.ts:201`, `:205`). The old proof combined them anyway,
- * on the reasoning that recent windows only advance forward so a later start
- * could only narrow the claimed span.
+ * Both halves come from `latest_successful_sync_window_start`/`_end`, which
+ * only the success paths write (`lib/sync/shopify-sync.ts:887-916` for recent,
+ * `:752-780`/`:781-806` for historical) and which the upsert COALESCE-preserves
+ * through every unsuccessful attempt (`lib/shopify/sync-state.ts` ON CONFLICT).
+ * That is the whole point: a start and an end that were established together,
+ * by one pass that finished, and that no later attempt can move.
  *
- * Recent windows do not only advance. Webhook repair expands the recent
- * window to cover the age of the event it received, up to thirty days
- * (`lib/shopify/webhooks.ts:183-191`), so the start moves BACKWARD. A store
- * with a seven-day success and then a thirty-day repair that is still running,
- * or that failed, therefore retained a thirty-day start beside a seven-day
- * success end — and the pair was read as twenty-eight days of proven coverage
- * for days nobody had read.
+ * What this replaces, and why the replacement is not weaker:
  *
- * Two independent conditions, because either alone is a single point of
- * failure:
+ * `latest_sync_window_start` is written by running, cancelled and failed
+ * attempts as well as successful ones (`shopify-sync.ts:388`, `:415`, `:532`,
+ * `:1089`). The proof used to pair that start with the success-only
+ * `ready_through_date`, and guarded the pairing by requiring the last recorded
+ * status to be a success and its end to equal `ready_through_date`. Both
+ * guards were necessary, because webhook repair expands the recent window
+ * BACKWARD to reach an old order, up to thirty days
+ * (`lib/shopify/webhooks.ts:183-191`) — a seven-day success followed by a
+ * thirty-day repair leaves a thirty-day start beside a seven-day receipt.
  *
- * - The last recorded attempt must itself be a success. Every writer that
- *   moves `latest_sync_window_start` also writes a status, so a start recorded
- *   beside a non-success status belongs to an attempt that proved nothing.
- * - That attempt's own end must be the retained success end. It is what the
- *   recent success path writes in a single upsert (`shopify-sync.ts:880-896`),
- *   so the two matching is what pairs the retained start to the retained
- *   receipt rather than to some later attempt.
+ * The guards worked and cost too much: an ORDINARY recurring pass writes
+ * `running` before it does anything, so every store lost its proven window for
+ * the duration of a routine refresh, and with it the derived CPA benchmark and
+ * every sizing decision that needs a money-per-purchase unit. Retaining the
+ * successful bounds removes the need to infer anything from an attempt: the
+ * expanded repair's window is not read at all, so it cannot be borrowed
+ * whether it is running, failed or finished.
+ *
+ * A NULL bound is not proven. It is never read as coverage, and the next
+ * successful pass records the proof.
+ *
+ * Rows written before these columns existed are not left in that state by the
+ * deploy. The migration that adds the columns backfills the pair from
+ * `latest_sync_window_start` and `ready_through_date` on exactly the rows the
+ * previous release's proof already accepted — last attempt a success, its own
+ * end equal to that `ready_through_date`
+ * (`SHOPIFY_SYNC_STATE_RETAINED_WINDOW_BACKFILL_SQL`). Had it not, every
+ * already-synced store whose recent span is load-bearing would have lost its
+ * observed AOV on the deploy and kept it lost until its next successful pass,
+ * which is the same refusal this change exists to remove. A pre-deploy row
+ * whose last attempt was running or failed is backfilled with nothing and is
+ * refused exactly as the previous release refused it.
  */
-function recentOrderSpanIsProven(state: ShopifyOrderSyncTargetState | null): boolean {
-  if (!state?.latestSyncWindowStart || !state.readyThroughDate) return false;
-  const status = state.latestSyncStatus?.trim().toLowerCase() ?? null;
-  if (
-    !status
-    || !(OBSERVED_SHOPIFY_AOV_SUCCESSFUL_SYNC_STATUSES as readonly string[]).includes(status)
-  ) {
-    return false;
+export function resolveRetainedRecentOrderSpan(
+  state: ShopifyOrderSyncTargetState | null,
+): { start: string; end: string } | null {
+  const start = state?.latestSuccessfulSyncWindowStart ?? null;
+  const end = state?.latestSuccessfulSyncWindowEnd ?? null;
+  // The receipt is required too. The bounds and `latest_successful_sync_at` are
+  // written by the same upsert, so bounds without a receipt are not a shape any
+  // success path produces.
+  if (!start || !end || !state?.latestSuccessfulSyncAt) return null;
+  if (start > end) return null;
+  return { start, end };
+}
+
+/**
+ * Whether the recent row is describing days it cannot prove it read.
+ *
+ * This only RENAMES a refusal; it can never turn a refusal into coverage, and
+ * on a covered store it is never consulted at all. Two shapes qualify:
+ *
+ * - An attempt is recorded whose window reaches outside the retained proven
+ *   span. The expanded webhook repair is the case this was written for, but an
+ *   ordinary recurring pass qualifies too, because its window ends on the
+ *   store's today while the last success proved only through yesterday. The
+ *   attempt's own window is not evidence either way; it is a reason to stop
+ *   short of `orders_backfill_incomplete` or `orders_coverage_gap`, both of
+ *   which assert something definite about days nobody is currently reading.
+ * - A row with no retained bounds at all, which still carries a
+ *   `ready_through_date` or a success receipt. On a database migrated by
+ *   `SHOPIFY_SYNC_STATE_RETAINED_WINDOW_BACKFILL_SQL` this is a row whose last
+ *   recorded attempt did not finish, or finished over a window whose end is not
+ *   the `ready_through_date` beside it — the backfill deliberately invents
+ *   nothing for either. The next successful pass records the bounds.
+ *
+ * Neither shape is a claim that the store is probably covered. A store with a
+ * permanent hole in its backfill lands in the first one for as long as any
+ * wider attempt sits on the row, and the hole is still a hole.
+ */
+function recentCoverageIsUnproven(state: ShopifyOrderSyncTargetState | null): boolean {
+  if (!state) return false;
+  const retained = resolveRetainedRecentOrderSpan(state);
+  const attemptStart = state.latestSyncWindowStart;
+  const attemptEnd = state.latestSyncWindowEnd ?? state.readyThroughDate;
+  if (!attemptStart || !attemptEnd) return false;
+  if (!retained) {
+    return Boolean(state.readyThroughDate || state.latestSuccessfulSyncAt);
   }
-  return state.latestSyncWindowEnd === state.readyThroughDate;
+  return attemptStart < retained.start || attemptEnd > retained.end;
 }
 
 /**
@@ -456,29 +566,38 @@ function recentOrderSpanIsProven(state: ShopifyOrderSyncTargetState | null): boo
  *
  * Which columns may bound a span:
  *
- * - `ready_through_date` ends every span. It is the only success-only date on
- *   these rows (`lib/sync/shopify-sync.ts:886` for recent, `:750`/`:775` for
- *   historical). `latest_sync_window_end` is written by running and failed
- *   attempts too (`:365`, `:1056`) and so would let an attempt that never
- *   finished claim coverage.
+ * - Only success-only columns may bound a span: `ready_through_date` and the
+ *   retained `latest_successful_sync_window_*` pair. `latest_sync_window_end`
+ *   is written by running, cancelled and failed attempts too
+ *   (`lib/sync/shopify-sync.ts:389`, `:416`, `:533`, `:1090`) and so would let
+ *   an attempt that never finished claim coverage.
  * - The historical span starts at `historical_target_start`, and the chunk
  *   walk (`computeHistoricalChunk`, `shopify-sync.ts:135-147`) only ever moves
  *   forward from it, so `[historical_target_start, ready_through_date]` is one
  *   unbroken run.
- * - The recent span starts at `latest_sync_window_start`, but only when
- *   `recentOrderSpanIsProven` can pair that start with the retained success
- *   end. An unsuccessful attempt overwrites the start and leaves the older
- *   success end in place, and a webhook repair's expanded window makes that
- *   pair wider than anything anyone read. See that function for the case.
+ * - The recent span is the RETAINED successful window
+ *   (`resolveRetainedRecentOrderSpan`), never the window of the attempt
+ *   currently on the row. An ordinary pass overwrites `latest_sync_window_*`
+ *   with `running` before it does any work, and a webhook repair overwrites it
+ *   with a window expanded backward by up to thirty days; neither is evidence,
+ *   and neither now erases the evidence an earlier pass left.
  * - The recent row's own `historical_target_start` is NOT a span start: it is
  *   COALESCE-frozen to the first recent run there ever was
- *   (`lib/shopify/sync-state.ts:199`) and says nothing about continuity since.
+ *   (`lib/shopify/sync-state.ts:237`) and says nothing about continuity since.
  *
- * Withholding the recent span is conservative in the direction that matters:
- * the worst it does is refuse a window during the seconds a routine pass is
- * running, or while a pass is failing — and a pass that keeps failing ages
- * `latest_successful_sync_at` past the freshness ceiling within two days
- * anyway, at which point the evidence is `stale` regardless.
+ * The refusal is therefore as narrow as the evidence requires. A store whose
+ * last successful pass proved the window keeps it through a refresh, through a
+ * failure and through an expanded repair — and loses it only when the proof
+ * itself ages out of the freshness ceiling, which is a different absence with
+ * a different name (`stale`). Rows that existed before the retained columns
+ * were added keep it too, through the one-time backfill in the migration that
+ * adds them (`SHOPIFY_SYNC_STATE_RETAINED_WINDOW_BACKFILL_SQL`); without it
+ * this narrowing would have cost every already-synced store its AOV on the
+ * deploy.
+ *
+ * Narrow refers to WHETHER it refuses, not to the name it gives the refusal.
+ * `recentCoverageIsUnproven` below renames a refusal that stands on its own
+ * evidence, and it can rename one that is entirely deserved.
  */
 export function proveShopifyOrderWindowCovered(input: {
   window: { from: string; to: string };
@@ -493,23 +612,24 @@ export function proveShopifyOrderWindowCovered(input: {
     });
   }
   const recent = input.coverage.recent;
-  const recentSpanProven = recentOrderSpanIsProven(recent);
-  if (recent?.latestSyncWindowStart && recent.readyThroughDate && recentSpanProven) {
-    spans.push({ start: recent.latestSyncWindowStart, end: recent.readyThroughDate });
+  const retainedRecentSpan = resolveRetainedRecentOrderSpan(recent);
+  if (retainedRecentSpan) {
+    spans.push(retainedRecentSpan);
   }
 
   /*
-    A recent row that has both bounds and still cannot prove them is a
-    different absence from the two below, and saying so is the point.
+    Rename the refusal when the recent row is describing days it cannot prove
+    it read. This changes the NAME only; the refusal below stands either way.
 
-    `orders_backfill_incomplete` names a backfill that has not arrived and
-    `orders_coverage_gap` names days nobody read; neither is true here. What is
-    true is that a later unsuccessful attempt overwrote the window start, so
-    the days may well be read and we can no longer show it. The next successful
-    pass restores the proof without anything else changing.
+    `orders_backfill_incomplete` and `orders_coverage_gap` each assert
+    something definite — a backfill that has not arrived, days nobody read —
+    and an attempt recorded over unproven days is a reason not to assert
+    either yet. It is NOT a finding that the days are probably fine: a store
+    with a genuine permanent hole is renamed too, for as long as any wider
+    attempt sits on its row, and the hole is unchanged. What the rename buys is
+    honesty about which of the two definite statements we are entitled to.
   */
-  const recentSpanWithheld =
-    Boolean(recent?.latestSyncWindowStart && recent.readyThroughDate) && !recentSpanProven;
+  const recentSpanWithheld = recentCoverageIsUnproven(recent);
   const refuse = (
     reason: "orders_backfill_incomplete" | "orders_coverage_gap",
   ): ShopifyOrderWindowCoverageVerdict => ({

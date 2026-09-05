@@ -1544,7 +1544,41 @@ export async function GET(request: NextRequest) {
   const loadBaseEvidence = () =>
     Promise.all([
       timedBaseRead("snapshot", () =>
-        readLatestMetaDecisionSnapshot({ businessId, startDate, endDate }),
+        /*
+          The account travels with the read, because the read uses it for the
+          CAMPAIGN ROLE.
+
+          `readLatestMetaDecisionSnapshot` resolves the campaign-context guard
+          through `readCampaignContextGuardState` →
+          `readCampaignContextLabelMap`, and that map refuses to answer without
+          a physical account: campaign role is an account fact, so an unproven
+          scope returns an EMPTY map rather than a business-wide guess
+          (`lib/creative-decision-engine/campaign-context/source.ts:248-254`).
+          Passing null therefore made every campaign read as unlabeled, and
+          `applyMetaCampaignLabelGuard` demoted every hard action to
+          `decisionState: "watch"`, `confidence: "low"`,
+          `campaign_context_action_authority: "review_only"` with
+          `campaign_context_unresolved` on the blockers — measured on a campaign
+          that HAS a published, high-confidence, system-inferred role from the
+          approved resolver identity.
+
+          Scoping the ROWS is the same argument's other half and is safe here
+          for two reasons that are already true of this route: the snapshot
+          recommendations are re-filtered below against `campaignIdsInScope` /
+          `adsetIdsInScope`, which are themselves read with
+          `accountId: providerAccountId`, so an out-of-account row could never
+          be served anyway; and this route already reads its own roles
+          account-scoped through `readAutomaticCampaignRoles` below. A null
+          account (the business-wide caller) keeps the previous behaviour
+          exactly, including the empty context map, which for that caller is the
+          honest answer rather than a defect.
+        */
+        readLatestMetaDecisionSnapshot({
+          businessId,
+          startDate,
+          endDate,
+          providerAccountId,
+        }),
       ),
       timedBaseRead("operator", () =>
         readOperatorRecStates(businessId).catch(

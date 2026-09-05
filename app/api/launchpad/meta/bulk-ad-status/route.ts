@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { isMetaWriteBlockedCode } from "@/lib/meta/write-blocked-codes";
 import {
   DECISION_ORIGIN_PENDING_RECONCILIATION_CODE,
   DECISION_ORIGIN_RECONCILIATION_REQUIRED_CODE,
@@ -2062,10 +2063,7 @@ export async function POST(request: NextRequest) {
                   }
               : { error: error! }),
           });
-          if (
-            error?.code === "kill_switch_engaged" ||
-            error?.code === "kill_switch_state_unavailable"
-          ) {
+          if (isMetaWriteBlockedCode(error?.code)) {
             haltedReason = error;
             break;
           }
@@ -3588,7 +3586,7 @@ export async function POST(request: NextRequest) {
           (haltedReason?.code ===
           DECISION_ORIGIN_PENDING_RECONCILIATION_CODE
             ? 409
-            : haltedReason?.code === "kill_switch_engaged" ||
+            : isMetaWriteBlockedCode(haltedReason?.code) ||
           haltedReason?.reconciliationRequired === true
             ? 503
             : haltedReason

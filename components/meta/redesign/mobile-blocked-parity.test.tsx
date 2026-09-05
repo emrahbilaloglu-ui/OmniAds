@@ -80,9 +80,18 @@ describe("mobile carries the served decision state", () => {
     expect(card).toContain('mobileDisplay(blockedNote) !== "—"');
   });
 
-  it("keeps mobile read-only", () => {
-    // The parity being fixed is DATA parity. Writes stay desktop-only, and the
-    // row states that in text rather than by hiding a disabled button.
+  it("keeps the ENGINE's routed action on the desktop, and never wires onPrimary", () => {
+    /*
+      The parity being fixed is DATA parity. The engine's routed action still
+      says "· desktop" because its destination — Launchpad, and the desktop
+      drill drawer — is drawn on the desktop pane only.
+
+      The OPERATOR's own verb is a separate authority and is now applied FROM
+      the phone: the card carries `Apply · bid` into the same server-authorized
+      ceremony the desktop opens, under `meta-manual-ceremony-mobile`. This case
+      is not about that, and the two must not be conflated — see
+      `mobile-card-apply-ceremony.test.tsx`.
+    */
     const card = PAGE.slice(
       PAGE.indexOf("function MetaMobileQueueRow"),
       PAGE.indexOf("function MetaMobileDecisionsScreen"),

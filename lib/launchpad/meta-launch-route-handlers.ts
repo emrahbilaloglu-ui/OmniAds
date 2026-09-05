@@ -38,6 +38,7 @@ import { MetaLaunchIntentLineageError } from "@/lib/launchpad/meta-launch-intent
 import { prepareMetaLaunchIntentForExecution } from "@/lib/launchpad/meta-launch-intent-service";
 import { getMetaLaunchIntentCapability } from "@/lib/launchpad/meta-launch-intent-capability";
 import {
+  getMetaLaunchIntent,
   recordMetaLaunchIntentPreExecutionFailure,
   recordMetaLaunchIntentValidation,
   recordMetaLaunchIntentWriteBlocked,
@@ -51,9 +52,12 @@ import {
   validateMetaLaunchRequest,
 } from "@/lib/launchpad/meta-validation";
 import {
-  bindMetaLaunchpadManualAuthorityToPayload,
+  bindMetaLaunchExecutionAuthorityToPayload,
   evaluateMetaLaunchpadManualAuthority,
   metaLaunchpadActionLogAuthority,
+  readMetaLaunchExecutionAuthority,
+  type MetaLaunchExecutionAuthority,
+  type MetaLaunchpadOperatorAuthority,
 } from "@/lib/launchpad/meta-manual-authority";
 import { evaluateMetaLaunchpadExecutionBounds } from "@/lib/launchpad/meta-execution-bounds";
 import { preflightAgeSeconds } from "@/lib/launchpad/validation-preflight-disclosure";
@@ -161,6 +165,51 @@ function intentErrorResponse(input: {
     },
     { status: input.status },
   );
+}
+
+/**
+ * The authority the request fingerprint must be taken over.
+ *
+ * The operator's own confirmation is still required and still checked: this
+ * runs AFTER `evaluateMetaLaunchpadManualAuthority` has refused any body that
+ * is not exactly `{launchpad_manual_v1, explicit_operator_confirmation}`. What
+ * it answers is a different question — which authority the payload was STAGED
+ * under, because that is the value inside the stored fingerprint.
+ *
+ * This used to bind the operator's authority unconditionally, which was
+ * correct while the Launchpad wizard was the only thing that ever wrote an
+ * intent. It is not correct for a producer-staged one: the decision producer
+ * stages under `launchpad_decision_staged_v1`, so re-binding the operator pair
+ * recomputes a DIFFERENT fingerprint and
+ * `prepareMetaLaunchIntentForExecution` refuses the whole approval as
+ * `launch_intent_contract_mismatch`. (Verified: the two payloads hash to
+ * 6ebfceeb… and 47d7b3c0…) Reading the stored value and replaying it is the
+ * only way an operator can approve a launch they did not compose themselves.
+ *
+ * It cannot be used to smuggle an authority in. The value is read from the
+ * PERSISTED intent, never from the request, and only the two exact pairs are
+ * recognised — anything else falls back to the operator's own authority and
+ * the existing mismatch refusal does its job.
+ */
+async function bindingLaunchExecutionAuthority(input: {
+  businessId: string;
+  launchIntentId: string | null | undefined;
+  operatorAuthority: MetaLaunchpadOperatorAuthority;
+}): Promise<MetaLaunchExecutionAuthority> {
+  const id = input.launchIntentId?.trim() ?? "";
+  if (!id) return input.operatorAuthority;
+  const intent = await getMetaLaunchIntent({
+    businessId: input.businessId,
+    id,
+  }).catch(() => null);
+  if (!intent) return input.operatorAuthority;
+  const stored =
+    intent.requestPayload
+    && typeof intent.requestPayload === "object"
+    && !Array.isArray(intent.requestPayload)
+      ? (intent.requestPayload as Record<string, unknown>).executionAuthority
+      : null;
+  return readMetaLaunchExecutionAuthority(stored) ?? input.operatorAuthority;
 }
 
 function normalizeBodyTargets(body: AddToExistingBody | null) {
@@ -296,9 +345,14 @@ export async function handleMetaLaunchAction(
       },
     });
   }
-  const intentRequestPayload = bindMetaLaunchpadManualAuthorityToPayload(
+  const boundAuthority = await bindingLaunchExecutionAuthority({
+    businessId: access.businessId,
+    launchIntentId: body?.launchIntentId,
+    operatorAuthority: authority,
+  });
+  const intentRequestPayload = bindMetaLaunchExecutionAuthorityToPayload(
     normalizedPayload,
-    authority,
+    boundAuthority,
   );
   const prepared = await prepareMetaLaunchIntentForExecution({
     businessId: access.businessId,
@@ -334,12 +388,20 @@ export async function handleMetaLaunchAction(
   const launchIntentId = prepared.intent.id;
   const requestFingerprint = prepared.intent.requestFingerprint;
   const receiptBinding = {
-    executionAuthority: authority,
+    /*
+      The payload's OWN authority, so the durable receipt says what was
+      approved rather than who pressed the button — the action log below says
+      that, and says it separately.
+    */
+    executionAuthority: boundAuthority,
     requestFingerprint,
   } as const;
   const actionLogAuthority = metaLaunchpadActionLogAuthority({
+    // This attempt's authority: a person confirmed it, and that is true even
+    // when the payload they confirmed was staged for them by a decision.
     authority,
     requestFingerprint,
+    stagedAuthority: boundAuthority,
   });
 
   /*
@@ -665,7 +727,8 @@ export async function handleMetaLaunchAction(
     idempotencyKey,
     ctx,
     payload,
-    executionAuthority: authority,
+    // The payload's own authority, matching every receipt written above it.
+    executionAuthority: boundAuthority,
     requestFingerprint,
     actionLogAuthority,
     actionLogPreflightProof,
@@ -814,9 +877,14 @@ export async function handleMetaAddToExistingAction(
       },
     });
   }
-  const intentRequestPayload = bindMetaLaunchpadManualAuthorityToPayload(
+  const boundAuthority = await bindingLaunchExecutionAuthority({
+    businessId: access.businessId,
+    launchIntentId: body?.launchIntentId,
+    operatorAuthority: authority,
+  });
+  const intentRequestPayload = bindMetaLaunchExecutionAuthorityToPayload(
     normalizedPayload,
-    authority,
+    boundAuthority,
   );
   const prepared = await prepareMetaLaunchIntentForExecution({
     businessId: access.businessId,
@@ -852,12 +920,20 @@ export async function handleMetaAddToExistingAction(
   const launchIntentId = prepared.intent.id;
   const requestFingerprint = prepared.intent.requestFingerprint;
   const receiptBinding = {
-    executionAuthority: authority,
+    /*
+      The payload's OWN authority, so the durable receipt says what was
+      approved rather than who pressed the button — the action log below says
+      that, and says it separately.
+    */
+    executionAuthority: boundAuthority,
     requestFingerprint,
   } as const;
   const actionLogAuthority = metaLaunchpadActionLogAuthority({
+    // This attempt's authority: a person confirmed it, and that is true even
+    // when the payload they confirmed was staged for them by a decision.
     authority,
     requestFingerprint,
+    stagedAuthority: boundAuthority,
   });
 
   /*
@@ -1081,7 +1157,8 @@ export async function handleMetaAddToExistingAction(
     livePreflightChecks: livePreflight.checks,
     targetCampaignId,
     targetAdsetId,
-    executionAuthority: authority,
+    // The payload's own authority, matching every receipt written above it.
+    executionAuthority: boundAuthority,
     requestFingerprint,
     actionLogAuthority,
     sanitizeError: sanitizeErrorMessage,

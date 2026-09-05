@@ -15,6 +15,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  accountProfileMeasuredScopeHold,
   accountProfileRetentionIdentity,
   type AccountProfileRetentionInputs,
 } from "@/lib/meta/account-profile-output-producer";
@@ -101,6 +102,13 @@ const inputs = (
     // The other volatile one: the instant this read happened.
     knowledgeAsOf: new Date().toISOString(),
   },
+  /*
+    The measured facts above came from this account's own retained calibration
+    scope, which is what makes them fixed for the day. `absent` would mean the
+    funnel pack is empty because nobody measured it and the calibration is a
+    live aggregate — facts no identity may be stamped on.
+  */
+  measuredScope: "materialised",
   ...over,
 });
 
@@ -223,5 +231,48 @@ describe("which expectation a budget reader compares a retained verdict against"
 
   it("offers nothing when neither source has an identity", () => {
     expect(reconcileProfileIdentityExpectation(none, null)).toEqual(none);
+  });
+});
+
+/**
+ * WHICH READINGS MAY BE STAMPED WITH AN IDENTITY AT ALL.
+ *
+ * The producer reads the measured half per account. When the calibration job
+ * has not materialised that account's own scope, the readers still answer — an
+ * empty funnel pack and a runtime aggregate — and both are unusable as an
+ * identity for the same underlying reason: the first is indistinguishable from a
+ * genuinely empty account and the second is recomputed on every read, so the
+ * verdict stops agreeing with its own expectation as soon as the account's sync
+ * writes one row. Retaining it would send a fully evidenced account to a
+ * mismatch hold at approval time; this is where that becomes a named refusal
+ * instead.
+ */
+describe("the measured scope a verdict may be built on", () => {
+  it("passes a scope the calibration job has materialised", () => {
+    expect(accountProfileMeasuredScopeHold("materialised")).toBeNull();
+  });
+
+  it("holds by name when the account has no scope of its own", () => {
+    expect(accountProfileMeasuredScopeHold("absent"))
+      .toBe("account_calibration_scope_not_materialised");
+  });
+
+  it("holds by a DIFFERENT name when the warehouse could not be asked", () => {
+    /*
+      A probe that threw proves nothing about what the table holds, so it is
+      neither reported as materialised nor confused with a genuine absence.
+    */
+    expect(accountProfileMeasuredScopeHold("unreadable"))
+      .toBe("account_calibration_scope_unreadable");
+  });
+
+  it("passes a source that has no such fact to report", () => {
+    /*
+      An injected double answers the measured reads itself and models no
+      precomputed table, so there is nothing to check its facts against. Every
+      production path runs against the warehouse source, which reports one of
+      the three real states.
+    */
+    expect(accountProfileMeasuredScopeHold("unprobed")).toBeNull();
   });
 });

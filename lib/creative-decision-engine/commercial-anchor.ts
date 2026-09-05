@@ -64,6 +64,18 @@ export type CommercialAnchorInputCode =
 export type CommercialAnchorStatus =
   | "eligible_target_cpa"
   | "eligible_operator_aov"
+  /**
+   * The anchor is the STORE's own settled average order value divided by the
+   * configured Target ROAS.
+   *
+   * Named separately from `eligible_meta_derived_aov` because it is a different
+   * fact with different provenance: the merchant's own orders, not Meta's
+   * attributed view of them, and no operator input at all. Reporting it as the
+   * Meta-derived rung — which is what happened while this value did not exist —
+   * told an operator the anchor came from a sampled attribution estimate on an
+   * account where the number was read out of Shopify.
+   */
+  | "eligible_observed_shopify_aov"
   | "eligible_meta_derived_aov"
   | "blocked_missing_owner_anchor"
   | "blocked_meta_aov_sample_insufficient"
@@ -247,6 +259,9 @@ function resolveStatus(input: {
   if (input.thresholdEligible) {
     if (input.spendUnitSource === "target_cpa") return "eligible_target_cpa";
     if (input.spendUnitSource === "operator_aov") return "eligible_operator_aov";
+    if (input.spendUnitSource === "observed_shopify_aov") {
+      return "eligible_observed_shopify_aov";
+    }
     return "eligible_meta_derived_aov";
   }
   // Provenance demotion is reported ahead of the source, because re-saving the
@@ -287,6 +302,7 @@ function resolveMissingInputs(input: {
   if (
     input.status === "eligible_target_cpa" ||
     input.status === "eligible_operator_aov" ||
+    input.status === "eligible_observed_shopify_aov" ||
     input.status === "eligible_meta_derived_aov" ||
     input.status === "blocked_shadow_only"
   ) {

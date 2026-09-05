@@ -174,6 +174,16 @@ type CampaignScopeRow = Record<string, unknown> & {
   mature_creative_count: unknown;
 };
 
+/*
+  `$8` is the OPTIONAL provider account this calibration speaks for.
+
+  NULL is the business's whole Meta footprint — every account it owns pooled
+  together — which is what the `scope_id '*'` row means and what every
+  parameter of this statement meant before. A value restricts BOTH populations
+  it reads (the per-creative aggregate and the source bounds) to one physical ad
+  account, because a percentile computed over two accounts is a calibration of
+  neither.
+*/
 const COMPUTE_CALIBRATION_QUERY = `
 WITH target_pack AS (
   SELECT target_roas
@@ -245,6 +255,7 @@ per_creative_raw AS (
     LIMIT 1
   ) campaign_context ON true
   WHERE d.business_ref_id = $2::uuid
+    AND ($8::text IS NULL OR d.provider_account_id = $8::text)
     AND d.date BETWEEN ($1::date - INTERVAL '89 days') AND $1::date
     AND d.objective = ANY($5::text[])
     AND ($6::text IS NULL OR d.campaign_id = $6::text)
@@ -486,6 +497,7 @@ source_bounds AS (
     LIMIT 1
   ) campaign_context ON true
   WHERE d.business_ref_id = $2::uuid
+    AND ($8::text IS NULL OR d.provider_account_id = $8::text)
     AND d.date BETWEEN ($1::date - INTERVAL '89 days') AND $1::date
     AND d.objective = ANY($5::text[])
     AND ($6::text IS NULL OR d.campaign_id = $6::text)
@@ -569,6 +581,29 @@ CROSS JOIN funnel_percentiles
 CROSS JOIN winner_percentiles
 CROSS JOIN meta_aov
 CROSS JOIN source_bounds
+`;
+
+/*
+  The ad accounts this business has SELECTED, which are the accounts a verdict
+  is ever produced for.
+
+  `business_provider_accounts` is both the historical identity binding and the
+  current selection: a deselected account keeps its row and is marked
+  `is_selected = FALSE`, so the filter is what separates "the operator works
+  this account" from "this account was once bound". An account that is selected
+  but has no rows in the window is deliberately still listed — it gets a scope
+  row of zeroes, which is the measurement "this account had nothing in the
+  window" and is a different fact from "this account was never measured".
+*/
+const LIST_SELECTED_PROVIDER_ACCOUNT_SCOPES_QUERY = `
+SELECT DISTINCT provider_account_id
+FROM business_provider_accounts
+WHERE business_id = $1::text
+  AND provider = 'meta'
+  AND is_selected
+  AND provider_account_id IS NOT NULL
+  AND provider_account_id <> ''
+ORDER BY provider_account_id ASC
 `;
 
 const LIST_ELIGIBLE_CAMPAIGN_SCOPES_QUERY = `
@@ -1006,6 +1041,63 @@ async function insertJobRun(input: {
   return id;
 }
 
+/**
+ * Every scope this job materialises for one business day.
+ *
+ * THREE KINDS OF SCOPE, AND WHY THE ACCOUNT ONES ARE NOT ONE SCOPE.
+ *
+ * - `('account', '*')` is the business's whole Meta footprint. Every account it
+ *   owns is pooled, and this is the row business-wide surfaces read.
+ * - `('account', <provider account id>)` is ONE physical ad account, computed
+ *   from that account's own rows and nothing else. A business can hold several
+ *   Meta ad accounts, and a percentile pooled across two of them is a
+ *   calibration of neither: it lets one account's samples set another's
+ *   thresholds and hands an account with no evidence a sibling's. Any reader
+ *   that speaks for a single account — `lib/meta/account-profile-output-producer.ts`
+ *   most of all, whose retained verdict is keyed on one `provider_account_id` —
+ *   asks for this scope, and before it was written such a reader found nothing
+ *   and either fell back to a live aggregate or read an empty pack as a
+ *   measurement of zero.
+ * - `('campaign', <campaign id>)` is one campaign, business-wide as before.
+ *
+ * The account scopes are computed, never copied. A single-account business's
+ * `'*'` row and its one account row will usually carry the same numbers, and
+ * they are still two separate computations: they diverge the moment the
+ * warehouse holds a row for an account the business no longer selects, and a
+ * copy would quietly call that pooled reading the account's own.
+ */
+async function listCalibrationScopes(input: {
+  businessId: string;
+  asOf: string;
+}): Promise<
+  Array<{
+    scopeType: CalibrationScopeType;
+    scopeId: string;
+    providerAccountId: string | null;
+  }>
+> {
+  return [
+    {
+      scopeType: ACCOUNT_SCOPE_TYPE,
+      scopeId: ACCOUNT_SCOPE_ID,
+      providerAccountId: null,
+    },
+    ...(await listSelectedProviderAccountScopes(input.businessId)).map(
+      (providerAccountId) => ({
+        scopeType: ACCOUNT_SCOPE_TYPE as CalibrationScopeType,
+        scopeId: providerAccountId,
+        providerAccountId,
+      }),
+    ),
+    ...(
+      await listEligibleCampaignScopes({
+        businessId: input.businessId,
+        asOf: input.asOf,
+      })
+    ).map((scope) => ({ ...scope, providerAccountId: null })),
+  ];
+}
+
 async function computeCalibrations(input: {
   businessId: string;
   asOf: string;
@@ -1014,13 +1106,10 @@ async function computeCalibrations(input: {
 }): Promise<ComputedCalibration[]> {
   const computedAt = new Date().toISOString();
   const calibrations: ComputedCalibration[] = [];
-  const scopes: Array<{ scopeType: CalibrationScopeType; scopeId: string }> = [
-    { scopeType: ACCOUNT_SCOPE_TYPE, scopeId: ACCOUNT_SCOPE_ID },
-    ...(await listEligibleCampaignScopes({
-      businessId: input.businessId,
-      asOf: input.asOf,
-    })),
-  ];
+  const scopes = await listCalibrationScopes({
+    businessId: input.businessId,
+    asOf: input.asOf,
+  });
 
   for (const scope of scopes) {
     const campaignKinds: readonly CalibrationCampaignKind[] =
@@ -1035,6 +1124,7 @@ async function computeCalibrations(input: {
             asOf: input.asOf,
             scopeType: scope.scopeType,
             scopeId: scope.scopeId,
+            providerAccountId: scope.providerAccountId,
             campaignKind,
             creativeFormat,
             computedAt,
@@ -1045,6 +1135,40 @@ async function computeCalibrations(input: {
   }
 
   return calibrations;
+}
+
+/**
+ * The selected Meta ad accounts, and nothing swallowed.
+ *
+ * Uncaught on purpose: a selection that cannot be read is not an empty
+ * selection, and treating it as one would write a run that silently covered no
+ * account while reporting success. The throw reaches this job's own savepoint,
+ * the transaction rolls back, and `engine_v3_job_runs` records the failure with
+ * its message — nothing partial is left behind, and no reader is served the
+ * pooled row in an account's place.
+ *
+ * An empty result IS meaningful and is left alone: a business with no selected
+ * Meta account has no per-account scope to write, and a reader that asks for
+ * one finds nothing and holds by name.
+ */
+async function listSelectedProviderAccountScopes(
+  businessId: string,
+): Promise<string[]> {
+  const rows = await getDb().query<Record<string, unknown>>(
+    LIST_SELECTED_PROVIDER_ACCOUNT_SCOPES_QUERY,
+    [businessId],
+  );
+  return rows.flatMap((row) => {
+    const providerAccountId = toStringOrNull(row.provider_account_id);
+    /*
+      `'*'` is the business-wide scope id. A provider account that literally
+      called itself `*` would overwrite the pooled row with one account's
+      numbers, so it is refused rather than trusted.
+    */
+    return providerAccountId === null || providerAccountId === ACCOUNT_SCOPE_ID
+      ? []
+      : [providerAccountId];
+  });
 }
 
 async function listEligibleCampaignScopes(input: {
@@ -1075,6 +1199,8 @@ async function computeCalibration(input: {
   asOf: string;
   scopeType: CalibrationScopeType;
   scopeId: string;
+  /** One ad account, or null for the business's whole Meta footprint. */
+  providerAccountId: string | null;
   campaignKind: CalibrationCampaignKind;
   creativeFormat: CalibrationCreativeFormat;
   computedAt: string;
@@ -1090,6 +1216,7 @@ async function computeCalibration(input: {
       supportedObjectivesArray,
       input.scopeType === CAMPAIGN_SCOPE_TYPE ? input.scopeId : null,
       input.campaignKind,
+      input.providerAccountId,
     ],
   );
   const matureCreativeCount = toIntegerOrNull(row?.mature_creative_count) ?? 0;

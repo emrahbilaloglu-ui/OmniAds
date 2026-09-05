@@ -25,6 +25,20 @@
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+/**
+ * The two windows, as callbacks the seams themselves fire.
+ *
+ * Hoisted because the DEFAULT journal — the one the production scheduled
+ * runtime uses, since `activateLaunchIntent` only defaults it — is the mocked
+ * action log below, and the claim window has to be expressible there too.
+ */
+const windows = vi.hoisted(() => ({
+  /** Fired INSIDE the journal claim: after `authorize`, before any request. */
+  duringClaim: {} as Record<string, () => void>,
+  /** Fired inside the write primitive's own preflight, after the claim. */
+  duringPreflight: {} as Record<string, () => void>,
+}));
+
 vi.mock("@/lib/meta/ads-write", () => ({
   readMetaAdExecutionState: vi.fn(),
   readMetaEntityExecutionState: vi.fn(),
@@ -65,9 +79,10 @@ vi.mock("@/lib/launchpad/meta-validation", () => ({
 */
 vi.mock("@/lib/meta/ads-action-log", () => ({
   findUnresolvedMetaAdStatusActionLog: vi.fn(async () => null),
-  createMetaAdsActionLog: vi.fn(async (input: { adId: string }) => ({
-    id: `log_${input.adId}`,
-  })),
+  createMetaAdsActionLog: vi.fn(async (input: { adId: string }) => {
+    windows.duringClaim[input.adId]?.();
+    return { id: `log_${input.adId}` };
+  }),
   completeMetaAdsActionLog: vi.fn(async () => undefined),
 }));
 vi.mock("@/lib/launchpad/meta-launch-intent-store", () => ({
@@ -75,7 +90,9 @@ vi.mock("@/lib/launchpad/meta-launch-intent-store", () => ({
   recordMetaLaunchIntentActivation: vi.fn(async () => undefined),
 }));
 
+import * as actionLog from "@/lib/meta/ads-action-log";
 import * as adsWrite from "@/lib/meta/ads-write";
+import * as writeGuard from "@/lib/meta/automation-write-guard";
 import type { MetaLaunchIntent } from "@/lib/launchpad/meta-launch-intent";
 import type { MetaAutomationProposal } from "@/lib/meta/automation-proposals";
 import { ACTIVATION_APPROVAL_CONTRACT } from "@/lib/meta/launch-activation-approval";
@@ -85,6 +102,10 @@ import {
   type ActivationJournal,
   type LaunchActivationReceipt,
 } from "@/lib/meta/launch-intent-activation";
+import {
+  runClaimedProposalExecution,
+  type ClaimedExecutionDeps,
+} from "@/lib/meta/budget-execution-lifecycle";
 import { createScheduledActivationRuntime } from "@/lib/meta/scheduled-activation-runtime";
 import type { ScheduledAuthorityGates } from "@/lib/meta/scheduled-action-execution";
 
@@ -161,15 +182,31 @@ function intent(): MetaLaunchIntent {
 
 const provider = new Map<string, { status: string; effective: string }>();
 let posted: string[] = [];
-let settled: Array<{ id: string; outcome: string }> = [];
+let settled: Array<{ id: string; outcome: string; reason: string | null }> = [];
 const stored: LaunchActivationReceipt[] = [];
 /** Fired the moment the named entity's resume lands, before the next step. */
 let afterPost: Record<string, () => void> = {};
+/**
+ * `windows.duringClaim` is the first window the entry gate cannot see:
+ * `authorize` has already answered, and the claim is a durable write that
+ * awaits the database before anything is sent.
+ *
+ * `windows.duringPreflight` is strictly later — `updateAdStatus` reads the ad
+ * back by id there and `metaFetchWriteOnce` takes the atomic write-authority
+ * snapshot; both stand between the claim and the POST, and both are long enough
+ * for an operator route to commit a revocation.
+ */
+const { duringClaim, duringPreflight } = windows;
 
 const journal: ActivationJournal = {
   findUnresolved: async () => null,
-  claim: async (input) => ({ id: `log_${input.entityId}` }),
-  settle: async (input) => { settled.push({ id: input.id, outcome: input.outcome }); },
+  claim: async (input) => {
+    duringClaim[input.entityId]?.();
+    return { id: `log_${input.entityId}` };
+  },
+  settle: async (input) => {
+    settled.push({ id: input.id, outcome: input.outcome, reason: input.reason });
+  },
 };
 
 async function runUnattended() {
@@ -191,12 +228,57 @@ beforeEach(() => {
   posted = [];
   settled = [];
   afterPost = {};
+  for (const key of Object.keys(duringClaim)) delete duringClaim[key];
+  for (const key of Object.keys(duringPreflight)) delete duringPreflight[key];
   stored.length = 0;
   provider.clear();
+  // `clearAllMocks` clears calls, not implementations, so the posture is
+  // restated here rather than leaking out of whichever case last changed it.
+  vi.mocked(writeGuard.readMetaWritePosture).mockImplementation((async () => ({
+    blocked: false, rehearsal: false, reason: null, message: null,
+  })) as never);
+  // Same reason: the no-blind-retry gate's reader is a module mock, and a case
+  // that arms it must not arm it for every case after.
+  vi.mocked(actionLog.findUnresolvedMetaAdStatusActionLog)
+    .mockImplementation((async () => null) as never);
   for (const id of ["camp_1", "set_1", "ad_1"]) {
     provider.set(id, { status: "PAUSED", effective: "PAUSED" });
   }
-  const resume = async (_ctx: unknown, id: string) => {
+  /*
+    A double shaped like the real primitive, in the real order.
+
+    `resumeCampaign`/`resumeAdset` reach `metaFetchWriteOnce`, which takes the
+    atomic write-authority snapshot and THEN runs `beforeMutationAttempt`
+    immediately before the request; `resumeAd` reads the ad back first and runs
+    the hook with that baseline. So: preflight, hook, POST — and a hook that
+    throws returns a named failure with no request made at all
+    (`buildWriteTransportFailure` with a null `mutationAttempt`).
+
+    Modelling that order is the whole point. A double that simply posts could
+    not express the window this file is about, and would pass whether or not the
+    hook is ever wired.
+  */
+  const resume = async (
+    _ctx: unknown,
+    id: string,
+    options?: { beforeMutationAttempt?: (baseline: unknown) => Promise<void> },
+  ) => {
+    duringPreflight[id]?.();
+    if (options?.beforeMutationAttempt) {
+      try {
+        await options.beforeMutationAttempt({ adId: id });
+      } catch (error) {
+        const code = (error as { code?: unknown })?.code;
+        return {
+          ok: false,
+          providerMutationAttempted: false,
+          error: {
+            code: typeof code === "string" ? code : "before_mutation_attempt_failed",
+            message: "The pre-mutation hook refused.",
+          },
+        };
+      }
+    }
     posted.push(id);
     provider.set(id, { status: "ACTIVE", effective: "ACTIVE" });
     afterPost[id]?.();
@@ -256,7 +338,9 @@ describe("the approval is re-proved before every provider call", () => {
         ["set_1", "blocked", null],
         ["ad_1", "not_attempted", null],
       ]);
-    expect(settled).toEqual([{ id: "log_camp_1", outcome: "activated" }]);
+    expect(settled).toEqual([
+      { id: "log_camp_1", outcome: "activated", reason: null },
+    ]);
     expect(stored[0]!.coverage).toEqual({
       planned: 3, on: 1, blocked: 1, ambiguous: 0, notAttempted: 1,
     });
@@ -348,6 +432,160 @@ describe("the approval is re-proved before every provider call", () => {
   });
 });
 
+/**
+ * The two windows the entry gate and the per-step gate BOTH miss.
+ *
+ * `activateHierarchy` asks `authorize` and, only then, `activate` awaits
+ * `journal.findUnresolved`, awaits `journal.claim`, and finally calls the write
+ * primitive — which takes its own authority snapshot before the request goes
+ * out. Three awaits stand between the last question and the POST. An operator
+ * revoking inside any of them was not seen, because nothing re-asked at the
+ * provider boundary itself.
+ */
+describe("the approval is re-proved inside the primitive's pre-POST hook", () => {
+  it("sends nothing when the revocation lands during the journal claim", async () => {
+    // The claim is a durable write. The operator's route commits the revocation
+    // while it is in flight — after `authorize` said yes, before any POST.
+    duringClaim.camp_1 = () => {
+      row.approval = approval({ revokedAt: "2026-09-05T09:05:00.000Z" });
+    };
+
+    const result = await runUnattended();
+
+    expect(posted).toEqual([]);
+    expect(vi.mocked(adsWrite.resumeCampaign)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(adsWrite.resumeAdset)).not.toHaveBeenCalled();
+    expect(vi.mocked(adsWrite.resumeAd)).not.toHaveBeenCalled();
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.activation.blockedAt).toBe("campaign");
+    expect(result.activation.blockedReason).toBe("activation_approval_revoked");
+    expect(result.activation.delivering).toBe(false);
+    expect(result.activation.partial).toBe(false);
+    /*
+      And the claim that was written is SETTLED, not left pending.
+
+      A pending row is this table's statement that a call may be in flight, and
+      `findUnresolvedMetaAdStatusActionLog` reads exactly that. Leaving one
+      behind for a POST that never happened would block the next honest attempt
+      on an entity nobody has written to.
+    */
+    expect(settled).toEqual([
+      {
+        id: "log_camp_1",
+        outcome: "authority_refused",
+        reason: "activation_approval_revoked",
+      },
+    ]);
+    expect(
+      stored[0]!.steps.map((step) => [step.entityId, step.outcome, step.claimOutcome]),
+    ).toEqual([
+      ["camp_1", "blocked", "authority_refused"],
+      ["set_1", "not_attempted", null],
+      ["ad_1", "not_attempted", null],
+    ]);
+    expect(stored[0]!.coverage).toEqual({
+      planned: 3, on: 0, blocked: 1, ambiguous: 0, notAttempted: 2,
+    });
+  });
+
+  it("sends nothing when the revocation lands during the provider preflight", async () => {
+    // Strictly later still: `authorize` has answered, the claim is written, and
+    // the primitive is inside its own read-back and authority snapshot.
+    duringPreflight.camp_1 = () => {
+      row.approval = approval({ revokedAt: "2026-09-05T09:05:00.000Z" });
+    };
+
+    const result = await runUnattended();
+
+    expect(posted).toEqual([]);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.activation.blockedAt).toBe("campaign");
+    expect(result.activation.blockedReason).toBe("activation_approval_revoked");
+    expect(settled).toEqual([
+      {
+        id: "log_camp_1",
+        outcome: "authority_refused",
+        reason: "activation_approval_revoked",
+      },
+    ]);
+  });
+
+  it("keeps the completed step's receipt when the window opens mid-sequence", async () => {
+    /*
+      The campaign comes on honestly; the revocation lands inside the AD SET's
+      claim. The verified write is not rolled back — nothing here undoes a
+      provider write to tidy a report — and everything below it stops.
+    */
+    duringClaim.set_1 = () => {
+      row.approval = approval({ revokedAt: "2026-09-05T09:05:00.000Z" });
+    };
+
+    const result = await runUnattended();
+
+    expect(posted).toEqual(["camp_1"]);
+    expect(vi.mocked(adsWrite.resumeAd)).not.toHaveBeenCalled();
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.activation.blockedAt).toBe("adset");
+    expect(result.activation.blockedReason).toBe("activation_approval_revoked");
+    expect(settled).toEqual([
+      { id: "log_camp_1", outcome: "activated", reason: null },
+      {
+        id: "log_set_1",
+        outcome: "authority_refused",
+        reason: "activation_approval_revoked",
+      },
+    ]);
+    expect(
+      stored[0]!.steps.map((step) => [step.entityId, step.outcome, step.actionLogId]),
+    ).toEqual([
+      ["camp_1", "activated", "log_camp_1"],
+      ["set_1", "blocked", "log_set_1"],
+      ["ad_1", "not_attempted", null],
+    ]);
+    expect(stored[0]!.coverage).toEqual({
+      planned: 3, on: 1, blocked: 1, ambiguous: 0, notAttempted: 1,
+    });
+  });
+
+  it("halts the run rather than stopping one branch", async () => {
+    /*
+      A withdrawn approval is a statement about the WHOLE run. An independently
+      approved sibling ad set is not more permitted than the one just refused,
+      so nothing below or beside the refusal is attempted.
+    */
+    duringPreflight.camp_1 = () => {
+      row.approval = approval({ revokedAt: "2026-09-05T09:05:00.000Z" });
+    };
+
+    const result = await runUnattended();
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.activation.steps.map((step) => step.outcome)).toEqual([
+      "blocked", "not_attempted", "not_attempted",
+    ]);
+    expect(result.activation.steps.slice(1).map((step) => step.reason)).toEqual([
+      "blocked_at_campaign", "blocked_at_campaign",
+    ]);
+  });
+
+  it("still posts every step when the approval holds through both windows", async () => {
+    // The hook is a gate, not a brake.
+    const result = await runUnattended();
+
+    expect(posted).toEqual(["camp_1", "set_1", "ad_1"]);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.activation.delivering).toBe(true);
+    expect(settled.map((entry) => entry.outcome)).toEqual([
+      "activated", "activated", "activated",
+    ]);
+  });
+});
+
 describe("the production scheduled runtime re-reads it too", () => {
   function proposal(): MetaAutomationProposal {
     return {
@@ -415,5 +653,167 @@ describe("the production scheduled runtime re-reads it too", () => {
     expect(response.coverage).toEqual({
       planned: 3, on: 1, blocked: 1, ambiguous: 0, notAttempted: 1,
     });
+  });
+
+  it("withholds the first POST when the revocation lands during the claim", async () => {
+    /*
+      The same window, through the production runtime. `authorize` has already
+      passed and stamped the dispatch marker; the revocation commits while the
+      claim is being written; nothing reaches the provider.
+    */
+    duringClaim.camp_1 = () => {
+      row.approval = approval({ revokedAt: "2026-09-05T09:05:00.000Z" });
+    };
+    const run = createScheduledActivationRuntime({
+      readGates: async () => gates(),
+      readMode: async () => "auto",
+      readIntent: async () => intent(),
+    });
+
+    const result = await run({
+      proposal: proposal(),
+      dryRunOnly: false,
+      claimToken: "claim-1",
+      authorization: {
+        kind: "scheduled",
+        expectedEnablingActorUserId: APPROVER,
+        expectedActivationControlVersion: CONTROL_VERSION,
+      },
+      beforeProviderPost: async () => true,
+    });
+
+    expect(posted).toEqual([]);
+    expect(result.ok).toBe(false);
+    // Not `withheld`: the row was claimed and the sequence ran. But no provider
+    // was reached, and the receipt must not say one was just because the
+    // dispatch marker had already been stamped.
+    expect(result.receipt.withheld).toBeNull();
+    expect(result.receipt.providerMutationAttempted).toBe(false);
+    const response = result.receipt.response as Record<string, unknown>;
+    expect(response.blockedReason).toBe("activation_approval_revoked");
+    expect(response.coverage).toEqual({
+      planned: 3, on: 0, blocked: 1, ambiguous: 0, notAttempted: 2,
+    });
+  });
+
+  it("withholds the POST when the runtime's OWN gate closes during the claim", async () => {
+    /*
+      The finding asks for the caller's authority gates at the boundary too, not
+      only the approval. The STOP is engaged while the claim is being written —
+      after this runtime's per-step `authorize` has already said yes.
+    */
+    let stopped = false;
+    vi.mocked(writeGuard.readMetaWritePosture).mockImplementation((async () =>
+      stopped
+        ? { blocked: true, rehearsal: true, reason: "business_kill_switch", message: null }
+        : { blocked: false, rehearsal: false, reason: null, message: null }) as never);
+    duringClaim.camp_1 = () => { stopped = true; };
+
+    const run = createScheduledActivationRuntime({
+      readGates: async () => gates(),
+      readMode: async () => "auto",
+      readIntent: async () => intent(),
+    });
+
+    const result = await run({
+      proposal: proposal(),
+      dryRunOnly: false,
+      claimToken: "claim-1",
+      authorization: {
+        kind: "scheduled",
+        expectedEnablingActorUserId: APPROVER,
+        expectedActivationControlVersion: CONTROL_VERSION,
+      },
+      beforeProviderPost: async () => true,
+    });
+
+    expect(posted).toEqual([]);
+    const response = result.receipt.response as Record<string, unknown>;
+    expect(response.blockedReason).toBe("business_kill_switch");
+    expect(result.receipt.providerMutationAttempted).toBe(false);
+  });
+
+  /*
+    The consequence ONE LAYER UP, driven through the real lifecycle.
+
+    `result.reconcile` is the runtime's own answer and it is only half the
+    question. `runClaimedProposalExecution` decides what the claimed row settles
+    to, and it gates that on `receipt.providerMutationAttempted`
+    (`budget-execution-lifecycle.ts`, read as `providerDispatchStarted`): a row
+    it settles `failed` releases the entity's one action slot, because `failed`
+    is not one of `META_AUTOMATION_PROPOSAL_OPEN_STATUSES` and `reconcile` is
+    — the list `automation-proposals.ts` documents as the thing that stops a
+    projection raising a SECOND proposal for work whose provider outcome nobody
+    has established. So the assertion has to be the settled status, not the
+    runtime's flag.
+  */
+  async function throughLifecycle() {
+    const settledStatuses: string[] = [];
+    const ledger: string[] = [];
+    const run = createScheduledActivationRuntime({
+      readGates: async () => gates(),
+      readMode: async () => "auto",
+      readIntent: async () => intent(),
+    });
+    const deps: ClaimedExecutionDeps = {
+      businessId: BUSINESS,
+      providerAccountId: ACCOUNT,
+      proposal: proposal(),
+      claimToken: "claim-1",
+      actorUserId: APPROVER,
+      executionKind: "scheduled",
+      // The durable pre-POST marker, which the runtime fires from inside its
+      // per-step authority hook exactly as production does.
+      markDispatchStarted: async () => true,
+      settle: async ({ status }) => {
+        settledStatuses.push(status);
+        return { ...proposal(), status } as unknown as MetaAutomationProposal;
+      },
+      forceReconcile: async () => true,
+      recordReconciliation: async () => true,
+      recordLedger: async (entry) => { ledger.push(entry.activityType); },
+      execute: async (beforeProviderPost) => run({
+        proposal: proposal(),
+        dryRunOnly: false,
+        claimToken: "claim-1",
+        authorization: {
+          kind: "scheduled",
+          expectedEnablingActorUserId: APPROVER,
+          expectedActivationControlVersion: CONTROL_VERSION,
+        },
+        beforeProviderPost,
+      }),
+    };
+    const result = await runClaimedProposalExecution(deps);
+    return { settledStatuses, ledger, result };
+  }
+
+  it("holds the row in reconcile when a PRIOR attempt on the entity is unresolved", async () => {
+    /*
+      The no-blind-retry gate arms: an earlier pause or resume on this campaign
+      is still `pending` or `silent_failure`, so a provider mutation on it may
+      be in flight or may already have landed — just not one of ours.
+    */
+    vi.mocked(actionLog.findUnresolvedMetaAdStatusActionLog)
+      .mockImplementation((async () => ({ id: "log_old" })) as never);
+
+    const probe = await throughLifecycle();
+
+    // Nothing was sent by THIS dispatch, and no new claim was even written:
+    // the gate refuses in front of both.
+    expect(posted).toEqual([]);
+    expect(vi.mocked(adsWrite.resumeCampaign)).not.toHaveBeenCalled();
+    expect(vi.mocked(actionLog.createMetaAdsActionLog)).not.toHaveBeenCalled();
+    // And the older row is left exactly as it is, for a person to resolve.
+    expect(vi.mocked(actionLog.completeMetaAdsActionLog)).not.toHaveBeenCalled();
+
+    const response = probe.result.receipt.response as Record<string, unknown>;
+    expect(response.blockedReason).toBe("unresolved_prior_attempt");
+    expect(probe.result.reconcile).toBe(true);
+    // THE ASSERTION THIS FILE WAS MISSING: the settled status, which is what
+    // keeps the entity's action slot held.
+    expect(probe.settledStatuses).toEqual(["reconcile"]);
+    expect(probe.result.settledStatus).toBe("reconcile");
+    expect(probe.ledger).toEqual(["automation_proposal_reconcile"]);
   });
 });

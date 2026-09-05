@@ -84,6 +84,8 @@ interface JournalRow {
 }
 let rows: JournalRow[] = [];
 let unresolved: Map<string, string>;
+/** Every entity a POST actually reached, in order. */
+let posted: string[] = [];
 
 function journalDouble(overrides: Partial<ActivationJournal> = {}): ActivationJournal {
   return {
@@ -114,12 +116,16 @@ function journalDouble(overrides: Partial<ActivationJournal> = {}): ActivationJo
 
 const stored: LaunchActivationReceipt[] = [];
 
-async function activate(journal = journalDouble()) {
+async function activate(
+  journal = journalDouble(),
+  authorize?: (target: { grain: string; entityId: string }) => Promise<string | null>,
+) {
   return activateLaunchIntent({
     intent: intent(),
     ctx: {} as never,
     authorization: { kind: "operator", operatorUserId: OPERATOR },
     journal,
+    ...(authorize ? { authorize: authorize as never } : {}),
     persistReceipt: async (receipt) => { stored.push(receipt); },
   });
 }
@@ -127,6 +133,7 @@ async function activate(journal = journalDouble()) {
 beforeEach(() => {
   vi.clearAllMocks();
   rows = [];
+  posted = [];
   stored.length = 0;
   unresolved = new Map();
   provider.clear();
@@ -151,21 +158,43 @@ beforeEach(() => {
       configuredStatus: state.status, effectiveStatus: state.effective,
     };
   }) as never);
-  // The default double turns the entity on. Each test overrides the one call
-  // whose behaviour it is about.
-  const turnOn = (id: string) => {
+  /*
+    The default double turns the entity on, running the pre-POST hook first.
+
+    The real primitives run `beforeMutationAttempt` after every adapter-side
+    check and immediately before the single POST, and a throw there returns a
+    named failure having built no request. Modelling that here is what lets a
+    case below assert that a refusal at the boundary leaves the entity
+    RETRYABLE — the cases that pass no gate are unaffected, since the hook is
+    then undefined and this is the same double it always was.
+  */
+  const turnOn = async (
+    _ctx: unknown,
+    id: string,
+    options?: { beforeMutationAttempt?: (baseline: unknown) => Promise<void> },
+  ) => {
+    if (options?.beforeMutationAttempt) {
+      try {
+        await options.beforeMutationAttempt({ adId: id });
+      } catch (error) {
+        const code = (error as { code?: unknown })?.code;
+        return {
+          ok: false,
+          providerMutationAttempted: false,
+          error: {
+            code: typeof code === "string" ? code : "before_mutation_attempt_failed",
+            message: "The pre-mutation hook refused.",
+          },
+        };
+      }
+    }
+    posted.push(id);
     provider.set(id, { status: "ACTIVE", effective: "ACTIVE" });
     return { ok: true };
   };
-  vi.mocked(adsWrite.resumeCampaign).mockImplementation((async (
-    _ctx: unknown, id: string,
-  ) => turnOn(id)) as never);
-  vi.mocked(adsWrite.resumeAdset).mockImplementation((async (
-    _ctx: unknown, id: string,
-  ) => turnOn(id)) as never);
-  vi.mocked(adsWrite.resumeAd).mockImplementation((async (
-    _ctx: unknown, id: string,
-  ) => turnOn(id)) as never);
+  vi.mocked(adsWrite.resumeCampaign).mockImplementation(turnOn as never);
+  vi.mocked(adsWrite.resumeAdset).mockImplementation(turnOn as never);
+  vi.mocked(adsWrite.resumeAd).mockImplementation(turnOn as never);
 });
 
 describe("campaign succeeds, ad set fails", () => {
@@ -358,5 +387,88 @@ describe("a claim that cannot be written", () => {
     */
     expect(vi.mocked(adsWrite.resumeCampaign)).not.toHaveBeenCalled();
     expect(stored[0]!.steps[0]!.claimOutcome).toBe("claim_unavailable");
+  });
+});
+
+/**
+ * A gate that refused INSIDE the primitive, after the claim was written.
+ *
+ * The claim is written before the write is handed over, so a refusal at the
+ * provider boundary leaves a row behind. That row must be settled and must be
+ * settled as a definite non-write: `pending` would say a call may be in flight,
+ * and `silent_failure` would say the outcome is unknown — both would arm the
+ * no-blind-retry gate against an entity nothing has ever written to, and the
+ * operator's next attempt would be refused for a call that was never made.
+ */
+describe("an authority refused at the provider boundary", () => {
+  it("settles the claim as a definite non-write and leaves the entity retryable", async () => {
+    /*
+      The gate is asked twice per step: once by the sequence, before the claim,
+      and once by the primitive's own pre-POST hook. This one answers yes the
+      first time and no the second — the STOP engaged in between — which is the
+      only way to reach the boundary refusal at all, since a gate that already
+      said no would have stopped the step before any row was written.
+    */
+    let stopped = true;
+    const asked = new Map<string, number>();
+    const gate = async (target: { entityId: string }) => {
+      const seen = (asked.get(target.entityId) ?? 0) + 1;
+      asked.set(target.entityId, seen);
+      return stopped && seen > 1 ? "kill_switch_engaged" : null;
+    };
+
+    const first = await activate(journalDouble(), gate);
+
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+    expect(posted).toEqual([]);
+    expect(first.activation.blockedAt).toBe("campaign");
+    expect(first.activation.blockedReason).toBe("kill_switch_engaged");
+    /*
+      Claimed, then terminalised. The row exists — the boundary was reached —
+      and it says plainly that nothing was sent.
+    */
+    expect(rows.map((row) => [row.entityId, row.settledAs, row.settledReason]))
+      .toEqual([["camp_1", "authority_refused", "kill_switch_engaged"]]);
+    expect(first.activation.steps.map((step) => step.outcome)).toEqual([
+      "blocked", "not_attempted", "not_attempted",
+    ]);
+
+    // The operator releases the STOP and runs it again. Nothing about the
+    // refused row may stand in the way, because no write ever happened.
+    stopped = false;
+    rows = [];
+    asked.clear();
+    const second = await activate(journalDouble(), gate);
+
+    expect(second.ok).toBe(true);
+    if (!second.ok) return;
+    expect(posted).toEqual(["camp_1", "set_1", "ad_1"]);
+    expect(second.activation.delivering).toBe(true);
+    expect(rows.map((row) => row.settledAs)).toEqual([
+      "activated", "activated", "activated",
+    ]);
+  });
+
+  it("does not mistake an ambiguous provider outcome for a refused authority", async () => {
+    /*
+      The two both halt the run and they are not the same fact. An ambiguous
+      write may have landed and must block its own retry; a refused authority
+      definitely did not and must not.
+    */
+    vi.mocked(adsWrite.resumeCampaign).mockImplementation((async () => ({
+      ok: false,
+      providerOutcome: "outcome_ambiguous",
+      error: { code: "provider_outcome_ambiguous", message: "timeout" },
+    })) as never);
+
+    const result = await activate(journalDouble(), async () => null);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.activation.steps[0]!.outcome).toBe("ambiguous");
+    expect(rows.map((row) => [row.entityId, row.settledAs])).toEqual([
+      ["camp_1", "ambiguous"],
+    ]);
   });
 });

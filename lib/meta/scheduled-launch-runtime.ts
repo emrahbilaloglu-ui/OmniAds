@@ -27,18 +27,20 @@
  * not created has no id to read back. So a rehearsing business is refused here
  * rather than handed a receipt for entities that do not exist.
  *
- * **The payload is the operator's, replayed.** `executionAuthority` is inside
+ * **The payload is somebody else's, replayed.** `executionAuthority` is inside
  * `metaLaunchIntentRequestFingerprint`, so a caller that recomposed the payload
  * to describe itself would be refused by its own honesty as
  * `launch_intent_contract_mismatch`. This runtime therefore touches nothing in
  * `request_payload_json` and says what it is in the action log alone, under
  * `launchpad_scheduled_v1` with no requester — the same shape
- * `scheduled-ad-status-runtime.ts` uses for the row nobody asked for.
+ * `scheduled-ad-status-runtime.ts` uses for the row nobody asked for. What the
+ * stored payload says about ITSELF is carried through untouched: an intent an
+ * operator confirmed reads `launchpad_manual_v1`, one the decision producer
+ * staged reads `launchpad_decision_staged_v1`, and the two never merge.
  */
 import {
-  META_LAUNCHPAD_MANUAL_ACTION_ORIGIN,
-  META_LAUNCHPAD_MANUAL_CONFIRMATION,
-  type MetaLaunchpadManualAuthority,
+  readMetaLaunchExecutionAuthority,
+  type MetaLaunchExecutionAuthority,
 } from "@/lib/launchpad/meta-manual-authority";
 import {
   metaLaunchIntentRequestFingerprint,
@@ -95,9 +97,10 @@ import {
  *
  * Deliberately not `launchpad_manual` — that word means an operator was on the
  * review screen and confirmed this create, which is false here. The stored
- * payload still carries the operator's own `executionAuthority`, because that
- * is what they approved when they staged the intent; the action log is where
- * the two authorities are told apart afterwards.
+ * payload carries its own `executionAuthority` — the operator's confirmation
+ * if they staged it themselves, the producer's `decision_staged_approval` if a
+ * reviewed decision staged it — and that value is written beside this origin,
+ * so the action log always says both what approved the payload and what ran it.
  */
 export const SCHEDULED_LAUNCH_ACTION_LOG_ORIGIN = "launchpad_scheduled_v1" as const;
 
@@ -168,26 +171,33 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /**
- * The authority the operator bound into the payload when they staged it.
+ * WHICH authority was bound into the payload when it was staged, if either was.
  *
  * Read rather than supplied: it is inside the fingerprint, so the only value
- * that can be true here is the one already stored. An intent whose payload does
- * not carry it was not staged through the authorized path, and this runtime
- * refuses it rather than inventing the missing half.
+ * that can be true here is the one already stored. There are exactly two, and
+ * this returns the one it found rather than a yes:
+ *
+ * - `launchpad_manual_v1` / `explicit_operator_confirmation` — an operator
+ *   composed and confirmed this exact payload on the Launchpad screen.
+ * - `launchpad_decision_staged_v1` / `decision_staged_approval` — the decision
+ *   producer staged it from a reviewed brief, an approved asset and an exact
+ *   destination a person had already chosen. Nobody was at a screen.
+ *
+ * Both are real approvals of the same payload and neither is an approval to
+ * ACTIVATE anything. Which one it was is carried into the action log, so a
+ * producer-staged create is never readable as an operator's confirmation.
+ *
+ * An intent whose payload carries neither was not staged through an authorized
+ * path, and this runtime refuses it rather than inventing the missing half.
  */
 export function storedLaunchExecutionAuthority(
   intent: MetaLaunchIntent,
-): MetaLaunchpadManualAuthority | null {
-  const stored = isRecord(intent.requestPayload)
-    ? intent.requestPayload.executionAuthority
-    : null;
-  if (!isRecord(stored)) return null;
-  if (stored.actionOrigin !== META_LAUNCHPAD_MANUAL_ACTION_ORIGIN) return null;
-  if (stored.manualConfirmation !== META_LAUNCHPAD_MANUAL_CONFIRMATION) return null;
-  return {
-    actionOrigin: META_LAUNCHPAD_MANUAL_ACTION_ORIGIN,
-    manualConfirmation: META_LAUNCHPAD_MANUAL_CONFIRMATION,
-  };
+): MetaLaunchExecutionAuthority | null {
+  return readMetaLaunchExecutionAuthority(
+    isRecord(intent.requestPayload)
+      ? intent.requestPayload.executionAuthority
+      : null,
+  );
 }
 
 /**
@@ -528,7 +538,7 @@ export async function runScheduledLaunchCreate(
       status: 409,
       code: "launch_execution_authority_absent",
       message:
-        "This launch intent's stored payload carries no operator execution authority, so nothing was created on Meta.",
+        "This launch intent's stored payload carries neither an operator confirmation nor a decision-staged approval, so nothing was created on Meta.",
     });
   }
 
@@ -576,8 +586,14 @@ export async function runScheduledLaunchCreate(
     scheduled_authority: request.scheduledAuthority,
     launch_intent_request_fingerprint: requestFingerprint,
     /*
-      The operator's own authority, quoted as the intent's fact rather than as
-      this attempt's. It is what they confirmed when they staged the payload.
+      The authority the payload was STAGED under, quoted as the intent's fact
+      rather than as this attempt's — an operator's own confirmation, or the
+      decision producer's `decision_staged_approval`. Either way it is an
+      approval of what to create, and never of turning it on.
+
+      There is deliberately no `manual_confirmation` key here. The manual path
+      writes one because a person gave one; writing it on this row would be a
+      fabricated confirmation for an execution nobody attended.
     */
     staged_execution_authority: authority,
   };
@@ -616,7 +632,7 @@ type ScheduledCreateContext = {
   request: ScheduledLaunchCreateRequest;
   ctx: MetaAdsWriteContext;
   receiptBinding: {
-    executionAuthority: MetaLaunchpadManualAuthority;
+    executionAuthority: MetaLaunchExecutionAuthority;
     requestFingerprint: string;
   };
   actionLogAuthority: Record<string, unknown>;

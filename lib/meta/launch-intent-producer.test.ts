@@ -18,7 +18,9 @@ import { MetaLaunchIntentLineageError } from "@/lib/launchpad/meta-launch-intent
 import {
   LAUNCH_INTENT_DECISION_MAX_AGE_DAYS,
   launchIntentIdempotencyKeyForDecision,
+  launchOperationForDecisionLabel,
   projectMetaLaunchIntents,
+  STAGEABLE_LAUNCH_DECISION_LABELS,
   STAGEABLE_LAUNCH_DECISION_SQL,
   type LaunchIntentProducerDeps,
   type StageableLaunchDecisionCandidate,
@@ -66,12 +68,63 @@ function candidate(
     briefReviewedBy: REVIEWER_ID,
     draftId: "7e8f90a1-b2c3-4d4e-8f5a-6b7c8d9e0f1a",
     draftPayload: draftPayload(),
+    draftMode: "add_to_existing",
     ...overrides,
   };
 }
 
+/**
+ * The other half of the accepted matrix: the test launch a `refresh` maps to.
+ *
+ * Everything in it is the operator's — the campaign they named, the budget they
+ * set, the ad set they built with its pixel, country, age range and click
+ * attribution. The producer adds none of it.
+ */
+function launchDraftPayload(overrides: Record<string, unknown> = {}) {
+  return {
+    mode: "new_campaign",
+    currencyCode: "USD",
+    campaign: { name: "Test · winner refresh" },
+    budget: {
+      mode: "CBO",
+      amountMinor: 5000,
+      currency: "USD",
+      bidStrategy: "LOWEST_COST_WITHOUT_CAP",
+    },
+    creativeIds: ["23847000000303"],
+    creatives: [{ creativeId: "23847000000303", sourceAdId: "23847000000404" }],
+    adSets: [
+      {
+        clientId: "adset-1",
+        name: "Broad · test",
+        optimizationGoal: "OFFSITE_CONVERSIONS",
+        pixelId: "555000111",
+        customEventType: "PURCHASE",
+        targeting: { countries: ["US"], ageMin: 18, ageMax: 65 },
+        attributionSpec: [{ eventType: "CLICK_THROUGH", windowDays: 7 }],
+      },
+    ],
+    ...overrides,
+  };
+}
+
+function launchCandidate(
+  overrides: Partial<StageableLaunchDecisionCandidate> = {},
+): StageableLaunchDecisionCandidate {
+  return candidate({
+    snapshotId: "2b3c4d5e-6f7a-4b8c-8d9e-0f1a2b3c4d5e",
+    decisionId: "meta:decision:refresh-1",
+    briefId: "3c4d5e6f-7a8b-4c9d-8e0f-1a2b3c4d5e6f",
+    publishedLabel: "refresh",
+    draftPayload: launchDraftPayload(),
+    draftMode: "new_campaign",
+    ...overrides,
+  });
+}
+
 type StageCall = {
   candidate: StageableLaunchDecisionCandidate;
+  operation: "add_to_existing" | "new_campaign";
   idempotencyKey: string;
   requestPayload: Record<string, unknown>;
 };
@@ -81,6 +134,7 @@ function harness(
     candidates?: StageableLaunchDecisionCandidate[];
     mode?: "manual" | "semi_auto" | "auto";
     validation?: { ok: boolean; blockers: Array<{ code: string }> };
+    launchValidation?: { ok: boolean; blockers: Array<{ code: string }> };
     stage?: LaunchIntentProducerDeps["stageIntent"];
   } = {},
 ) {
@@ -91,6 +145,8 @@ function harness(
     readCreativeMode: async () => input.mode ?? "semi_auto",
     listCandidates: async () => input.candidates ?? [candidate()],
     validatePayload: async () => input.validation ?? { ok: true, blockers: [] },
+    validateLaunchPayload: async () =>
+      input.launchValidation ?? { ok: true, blockers: [] },
     stageIntent:
       input.stage
       ?? (async (call) => {
@@ -121,14 +177,18 @@ describe("projectMetaLaunchIntents", () => {
     expect(staged.requestPayload.targetAdsetId).toBe("23847000000202");
     expect(staged.requestPayload.creativeIds).toEqual(["23847000000303"]);
     expect(staged.requestPayload.copyMode).toBe("reuse_creative");
+    expect(staged.operation).toBe("add_to_existing");
     /*
-      The authority the create path re-derives from the approving operator's
-      request. The fingerprint covers it, so a stored payload without it is
-      refused as a contract mismatch and the staged intent is inert.
+      This producer's OWN authority, and never the operator's.
+
+      Nobody pressed anything when it ran. Storing
+      `explicit_operator_confirmation` here would be a claim the unattended arm
+      reads as proof that somebody confirmed this exact provider write, so the
+      pair it binds says what is true instead: a reviewed decision was staged.
     */
     expect(staged.requestPayload.executionAuthority).toEqual({
-      actionOrigin: "launchpad_manual_v1",
-      manualConfirmation: "explicit_operator_confirmation",
+      actionOrigin: "launchpad_decision_staged_v1",
+      manualConfirmation: "decision_staged_approval",
     });
   });
 
@@ -355,18 +415,143 @@ describe("projectMetaLaunchIntents", () => {
   });
 
   /*
-    The unattended arm reads the stored `executionAuthority` as EVIDENCE that an
-    operator confirmed this exact provider write. This producer cannot give that
-    confirmation, so it withholds rather than leaving a value that would be read
-    as one — the whole point of `storedLaunchExecutionAuthority`.
+    The `auto` arm, which used to refuse every run as
+    `creative_mode_auto_operator_staging_required`.
+
+    It refused because the only authority a stored payload could carry said an
+    operator had confirmed the write, and a background producer cannot say that.
+    The staged authority is what makes this honest rather than what makes it
+    pass: the payload now says a reviewed decision was staged, which is exactly
+    what happened, and the unattended arm journals itself separately on top.
   */
-  it("stages nothing under the auto creative mode, where nobody would confirm the create", async () => {
+  it("stages under the auto creative mode, carrying the staged authority", async () => {
     const { deps, stageCalls } = harness({ mode: "auto" });
     const result = await projectMetaLaunchIntents(deps);
 
-    expect(result.staged).toBe(0);
+    expect(result.staged).toBe(1);
+    expect(result.refusals).toEqual({});
+    expect(stageCalls).toHaveLength(1);
+    expect(stageCalls[0]!.requestPayload.executionAuthority).toEqual({
+      actionOrigin: "launchpad_decision_staged_v1",
+      manualConfirmation: "decision_staged_approval",
+    });
+  });
+
+  /*
+    The value does not depend on the mode at staging time, and that is the
+    point. An intent staged under `semi_auto` and swept after somebody moved the
+    family to `auto` must not arrive at the unattended arm carrying a
+    confirmation nobody gave.
+  */
+  it("binds the same staged authority in semi_auto and auto", async () => {
+    const semi = harness({ mode: "semi_auto" });
+    await projectMetaLaunchIntents(semi.deps);
+    const auto = harness({ mode: "auto" });
+    await projectMetaLaunchIntents(auto.deps);
+
+    expect(semi.stageCalls[0]!.requestPayload.executionAuthority).toEqual(
+      auto.stageCalls[0]!.requestPayload.executionAuthority,
+    );
+  });
+
+  // ---------------------------------------------------------------------
+  // The test launch — the third case in the accepted creative matrix.
+  // ---------------------------------------------------------------------
+
+  it("stages a new-campaign test launch from a refresh decision", async () => {
+    const { deps, stageCalls } = harness({
+      mode: "auto",
+      candidates: [launchCandidate()],
+    });
+    const result = await projectMetaLaunchIntents(deps);
+
+    expect(result.staged).toBe(1);
+    expect(result.refusals).toEqual({});
+    expect(stageCalls[0]!.operation).toBe("new_campaign");
+    // The operator's own campaign and ad set, not one composed here.
+    expect(
+      (stageCalls[0]!.requestPayload.campaign as { name: string }).name,
+    ).toBe("Test · winner refresh");
+    expect(
+      (stageCalls[0]!.requestPayload.adSets as Array<{ name: string }>).map(
+        (adSet) => adSet.name,
+      ),
+    ).toEqual(["Broad · test"]);
+    expect(stageCalls[0]!.requestPayload.creativeIds).toEqual([
+      "23847000000303",
+    ]);
+    expect(stageCalls[0]!.requestPayload.executionAuthority).toEqual({
+      actionOrigin: "launchpad_decision_staged_v1",
+      manualConfirmation: "decision_staged_approval",
+    });
+  });
+
+  it("refuses a test launch whose draft names a different creative", async () => {
+    const { deps, stageCalls } = harness({
+      candidates: [
+        launchCandidate({
+          draftPayload: launchDraftPayload({
+            creativeIds: ["23847000000999"],
+            creatives: [{ creativeId: "23847000000999" }],
+          }),
+        }),
+      ],
+    });
+    const result = await projectMetaLaunchIntents(deps);
+
+    expect(result.refusals).toEqual({ launch_payload_creative_mismatch: 1 });
+    expect(stageCalls).toHaveLength(0);
+  });
+
+  it("refuses a test launch nobody has composed a campaign for", async () => {
+    const { deps, stageCalls } = harness({
+      candidates: [
+        launchCandidate({
+          draftPayload: launchDraftPayload({ campaign: { name: "" }, adSets: [] }),
+        }),
+      ],
+    });
+    const result = await projectMetaLaunchIntents(deps);
+
+    expect(result.refusals).toEqual({ destination_not_exact: 1 });
+    expect(stageCalls).toHaveLength(0);
+  });
+
+  it("carries the new-campaign validator's own refusal code", async () => {
+    const { deps, stageCalls } = harness({
+      candidates: [launchCandidate()],
+      launchValidation: {
+        ok: false,
+        blockers: [{ code: "pixel_not_active" }],
+      },
+    });
+    const result = await projectMetaLaunchIntents(deps);
+
+    expect(result.refusals).toEqual({ pixel_not_active: 1 });
+    expect(stageCalls).toHaveLength(0);
+  });
+
+  it("refuses a draft composed for the other kind of launch", async () => {
+    const { deps, stageCalls } = harness({
+      // A `refresh` decision whose only draft is a creative-reuse one. The SQL
+      // would not have matched it; an injected candidate still must not stage.
+      candidates: [launchCandidate({ draftMode: "add_to_existing" })],
+    });
+    const result = await projectMetaLaunchIntents(deps);
+
+    expect(result.refusals).toEqual({ launch_payload_mode_mismatch: 1 });
+    expect(stageCalls).toHaveLength(0);
+  });
+
+  it("refuses a label the shipped Launchpad map gives no destination", async () => {
+    const { deps, stageCalls } = harness({
+      candidates: [candidate({ publishedLabel: "cut" })],
+    });
+    const result = await projectMetaLaunchIntents(deps);
+
+    expect(launchOperationForDecisionLabel("cut")).toBeNull();
     expect(result.refusals).toEqual({
-      creative_mode_auto_operator_staging_required: 1,
+      decision_label_has_no_launch_destination: 1,
     });
     expect(stageCalls).toHaveLength(0);
   });
@@ -376,8 +561,8 @@ describe("projectMetaLaunchIntents", () => {
     that lost either predicate would stage a second intent for a decision that
     already has one, or would stage from a decision the engine itself blocked.
   */
-  it("selects only unblocked scale decisions that have no intent yet", () => {
-    expect(STAGEABLE_LAUNCH_DECISION_SQL).toContain("s.label = 'scale'");
+  it("selects only unblocked, launchable decisions that have no intent yet", () => {
+    expect(STAGEABLE_LAUNCH_DECISION_SQL).toContain("s.label = ANY($2::text[])");
     expect(STAGEABLE_LAUNCH_DECISION_SQL).toContain("s.authority_blocker IS NULL");
     expect(STAGEABLE_LAUNCH_DECISION_SQL).toContain(
       "i.source_decision_snapshot_id = s.id",
@@ -385,5 +570,11 @@ describe("projectMetaLaunchIntents", () => {
     expect(STAGEABLE_LAUNCH_DECISION_SQL).toContain(
       "d.payload_json -> 'creativeIds' = jsonb_build_array(s.creative_id)",
     );
+    // The label list and the required draft mode both come from the shipped
+    // map, so a `cut` can never be a candidate and a reuse draft can never
+    // satisfy a refresh.
+    expect([...STAGEABLE_LAUNCH_DECISION_LABELS]).toEqual(["scale", "refresh"]);
+    expect(launchOperationForDecisionLabel("scale")).toBe("add_to_existing");
+    expect(launchOperationForDecisionLabel("refresh")).toBe("new_campaign");
   });
 });

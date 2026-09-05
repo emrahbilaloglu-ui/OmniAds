@@ -116,15 +116,19 @@ newly registered in the gate):
 The approval goes through the real `POST /api/meta/automation/proposals` under a
 real session cookie with `manualConfirmation: explicit_operator_confirmation`.
 
-**Named limit, not a silent one.** Producer staging is offered under
-`semi_auto`, where an operator supplies the confirmation at the queue, and
-refuses under `auto` with `creative_mode_auto_operator_staging_required`.
-`storedLaunchExecutionAuthority` accepts exactly
-`{launchpad_manual_v1, explicit_operator_confirmation}` and its own comment says
-that value means "the authority the operator bound into the payload when they
-staged it" — a background producer cannot truthfully assert it. Opening the auto
-path needs a second, honestly-named authority origin; that is stated here rather
-than done by widening an existing one.
+**The limit is now lifted, by a second authority rather than a wider one.**
+`lib/launchpad/meta-manual-authority.ts` adds
+`META_LAUNCHPAD_STAGED_AUTHORITY = {launchpad_decision_staged_v1, decision_staged_approval}`.
+The producer binds it in **every** mode it stages under — not only `auto`,
+because an intent staged under `semi_auto` and swept after a mode change would
+otherwise arrive at the unattended arm carrying a confirmation nobody gave.
+`storedLaunchExecutionAuthority` returns which of the two it found, and the
+create routes bind the STORED payload's authority when a `launchIntentId` is
+present (re-binding the operator pair recomputes a different fingerprint and
+dies as `launch_intent_contract_mismatch` — verified, not assumed).
+`evaluateMetaLaunchpadManualAuthority` is unchanged at runtime: an HTTP request
+must still present the operator pair and may never claim the staged one. Only
+`manual` is refused now, by name.
 
 ## R3 — scheduled create rechecked authority only once · FIXED
 
@@ -405,6 +409,188 @@ stage's own footer promises.
   empty shell. Not investigated further; it is a dev observation, and a restart
   clears it.
 
+## Round three — the five bounded Codex items, and the two flagged contradictions
+
+Reviewed at `d1746f1df`. Six agents delivered, six **adversarial verifiers**
+then re-drove each delivery, and six more agents repaired what the verifiers
+proved wrong. Every regression below was found by a verifier, not by the agent
+that wrote the code, which is the reason the verify pass exists.
+
+### Item 1 — the automatic creative path · **COMPLETE**
+
+`META_LAUNCHPAD_STAGED_AUTHORITY = {launchpad_decision_staged_v1, decision_staged_approval}`
+is a second exact authority, not a wider one. The producer binds it in **every**
+mode it stages under — not only `auto`, because an intent staged under
+`semi_auto` and swept after a mode change would otherwise reach the unattended
+arm carrying a confirmation nobody gave. That is the lie the previous round was
+already storing, and it is gone. The create routes bind the STORED payload's
+authority when a `launchIntentId` is present; re-binding the operator pair
+recomputes a different fingerprint and dies as `launch_intent_contract_mismatch`
+(verified, not assumed). `evaluateMetaLaunchpadManualAuthority` is unchanged: an
+HTTP request must still present the operator pair and can never claim the staged
+one. Only `manual` refuses now, by name.
+
+Acceptance, in the registered seam child: under `auto` the producer stages under
+its own authority, the real sweep creates one PAUSED ad **and** one PAUSED
+test-launch hierarchy with no operator confirmation anywhere in the journal,
+activation still waits for its own approval, a family taken off auto and a
+missing or revoked approval each reach the provider with **zero writes**, and
+the rerun duplicates neither an intent nor a provider entity.
+
+Unattended **activation** remains operator-only, deliberately: turning a created
+entity on needs `activation_approval_json`, which only the operator's approval
+route writes. That is the plan's own S3.4 rule and Codex's instruction that
+activation keeps its separate approval.
+
+### Item 2 — the activation pre-POST boundary · **COMPLETE**, after one repair
+
+The recheck now runs inside each resume primitive's own `beforeMutationAttempt`.
+Three awaits used to stand between the last authority question and the POST —
+`authorize`, then `journal.findUnresolved`, then `journal.claim` — and a
+revocation inside any of them was ignored for exactly one write.
+
+**The verifier caught a regression in the fix.** The new `contacted` flag
+excluded `unresolved_prior_attempt`, and `contacted` is published as
+`providerMutationAttempted`, which `budget-execution-lifecycle.ts:151` reads to
+decide whether the row parks in `reconcile`. So a row whose earlier provider
+outcome is *unknown* settled `failed` and **released the entity's action slot** —
+the exact thing `META_AUTOMATION_PROPOSAL_OPEN_STATUSES` exists to prevent. The
+repair publishes no value in that one case, so the lifecycle's `?? markerWritten`
+fallback answers from the durable pre-POST marker; a comment at the reading end
+now says the `??` is load-bearing, and the case is pinned through the **real**
+claimed-execution lifecycle rather than the runtime's own return value.
+
+### Item 3 — account-scoped measured calibration · **COMPLETE**, after two repairs
+
+The measured half of the retained verdict was read at the pooled `account/*`
+scope for a row keyed on one provider account, so a sibling's samples moved this
+account's identity and could supply calibration it had no evidence for.
+
+**The verifier caught two regressions in the fix**, both of them new paths from
+"enough evidence" to a hold — the user's concern in miniature. (1) Funnel and
+by-kind evidence became unconditionally EMPTY on every real account, because
+those readers are precomputed-only and `calibration-job.ts` wrote only the
+pooled scope; the agent's own probe had planted rows at both scopes, a state
+production never has. (2) The identity became volatile against ordinary sync
+writes, so a verdict retained at projection was withheld at approval as
+`profile_not_retained` because the account's own sync ran in between.
+
+Repaired by materialising one calibration scope per selected account beside the
+pooled one, reporting a scoped miss as the named hold
+`account_calibration_scope_not_materialised` instead of a silent zero, and
+folding the duplicated AOV statement back into `computeMetaAttributedAov`.
+Proved with rows planted only the way the shipped jobs write them.
+
+### Item 4 — the mobile card Apply, and the History verb · **COMPLETE**, after four repairs
+
+Codex was right that the queue is not an equivalent path: `bid-proposal-producer.ts:165`
+returns `refusals: {bid_mode_manual: 1}` in manual mode, so in MANUAL there is no
+queue row to approve at all and the card was the only route. The ceremony now
+renders on the mobile stage from the same server-authorized component, one
+truth and two renders, with surface-scoped DOM ids and the role restrictions
+intact. Mounted at 390 px: card → `Apply · bid` → preflight → typed
+**CHANGE BID** → the shipped route → `POST {bid_amount: "1320"}` at the double →
+read-back → "Applied and verified". The same shared component through the
+desktop pane at 1280 px. Both writes are in `meta_ads_action_log` as
+`action = 'bid'` and both appear in History as `Bid | Broad prospecting` where
+the shipped code titled them "Launch Adset".
+
+Verifier repairs: a comment in shipped source cited a **test file that does not
+exist** (every directory-qualified path in the owned files was then audited);
+the DB test only ran the title expression, so the `INNER JOIN LATERAL` that
+decides whether a bid row reaches the journal was covered by nothing, and now a
+seam-guarded test executes the real `META_HISTORY_READ_SQL`; and the 44 px rule
+was scoped by POSITION (`body > [role=dialog]`), which matched nothing once the
+dialog portalled into `ZeroBasePortalHost` and matched unrelated overlays when
+it did not — it is now scoped by identity.
+
+### Item 5 — decision availability, measured · **COMPLETE**
+
+24 cells: creative/bid/budget/pause modes × STOP × rehearsal × automation master,
+facts held constant by cloning one seeded template database per cell, each cell
+in its own process, driving the real producer → retained snapshot → served route
+→ approval against `disableNetConnect()`. ROAS 2.20 is the only configured
+target; the CPA benchmark is the store's observed AOV, 58.00 / 2.20 = 26.36.
+
+**The invariant holds.** The served decision fingerprint, the retained snapshot
+fingerprint and the CTA fingerprint are each a single value across all 24
+postures. Only the queue and the dispatch move, each with a distinct code.
+
+But four degradations were CONSTANT in every cell — the "everything becomes
+generic extra review" symptom, measured. Three are fixed and the fourth was the
+refusal envelope:
+
+| Finding | Before | After |
+|---|---|---|
+| Action census could never report an executable row | `executableBid 0, reviewOnly 7` on the same request whose card carried `bidAmountMinor 1320` | `executableBid 1, reviewOnly 6` |
+| Lane serve path could not see a published campaign role | `campaign_context_unresolved` × 96 row-observations | × 72 — the 24 removed are exactly the campaign that HAS a published role; the genuine one is unchanged |
+| Commercial-anchor panel contradicted the card beside it | `blocked_missing_owner_anchor`, `spendUnit null`, `missingInputs ["target_cpa","operator_aov_assumption"]` — the two inputs the product declares optional | `eligible_observed_shopify_aov`, `26.36`, `missingInputs []`, byte-identical to the account's retained profile rows |
+| One refusal envelope for six postures | every blocked posture answered `kill_switch_engaged` | each names itself; `isMetaWriteBlockedCode` is the single question the four sequence-halting callers ask |
+
+All four fingerprints stayed single-valued afterwards, so the posture invariant
+is untouched. No threshold was lowered and no guard removed — one guard was
+*strengthened*: `observed_shopify_aov` was missing from `usesCommercialThreshold`
+and alone escaped the target-pack provenance demotion. The durable record is
+`docs/qa/decision-availability-matrix.md`.
+
+### Check (a) — the same-day rerun contradiction · **SETTLED, and a real loss found**
+
+Codex was right to flag it as a contradiction rather than a diagnosis. The
+documentation was wrong about the delivery-stall/bid path: two runs on
+byte-identical facts reproduce the same anomaly and the same 1320 intent, and
+`projected: 0` on the second run is the **anti-duplicate guard** refusing a
+second row for a slot that already holds one. The two DELETE statements the
+guide taught are gone.
+
+**But a real loss survived, in a family the first agent never looked at.** Three
+of the seven detectors are not pure over the warehouse tables:
+`pacing_failure`, `budget_exhausted_early` and `zero_conversions_with_spend`
+read the wall clock and the profile. A `budget_exhausted_early` row written at
+08:00 local was **resolved** on a 22:00 rerun with byte-identical facts, because
+the detector's time gate returned `[]` and the writer read absence as recovery.
+Two more instances of the same defect were found while fixing it: every
+per-account recommendation-only write ran the blanket resolve, and a bare
+`.catch(() => [])` around detection closed every open anomaly of the day
+silently. Fixed by making each detector report whether it *evaluated* its
+family, and scoping resolution to the families that actually looked. The time
+gates are untouched — a pacing verdict at 02:00 is meaningless, and that is
+correct for DETECTION.
+
+### Check (b) — a proven window during an in-flight refresh · **COMPLETE**, after one repair
+
+Success-only retained bounds (`latest_successful_sync_window_start` / `_end`)
+now carry the proof, so an ordinary running pass no longer withholds a 28-day
+window and its derived CPA benchmark. A 30-day webhook repair's expanded span is
+still never borrowed, and a failed attempt still proves nothing.
+
+**The verifier caught a deploy-day regression.** Every existing row has NULL
+retained bounds and nothing backfilled them, so for the class of store whose
+recent span is load-bearing the refusal moved from "while a sync is running" to
+"until a sync runs" — strictly WIDER than the behaviour being fixed. An additive,
+idempotent backfill now runs in the same migration, restating exactly the
+pairing the previous release already accepted as proof, so it can grant no
+coverage that release withheld. It invents nothing for a row whose last attempt
+was running, had failed, or ended somewhere other than its own
+`ready_through_date`. The false `orders_coverage_unproven` docstring is
+corrected.
+
+### Still open, and deliberately so
+
+- **`orders_coverage_unproven` is a weaker name than `orders_coverage_gap`.** A
+  store with a genuine permanent hole is named precisely when nothing is in
+  flight and vaguely the moment any attempt is running. That is a definite
+  finding degrading into a vaguer one — the user's concern — but narrowing it
+  changes the refusal-naming rule, which is outside what was asked here. Pinned
+  by three seam cases so it cannot drift unnoticed, and flagged for its own item.
+- **A closed-day `budget_exhausted_early` row now stays open forever**, because
+  that family can never be re-evaluated for a past date. Believed correct — the
+  finding is a fact about that day — and harmless in the reader, which anchors
+  on `MAX(snapshot_date)`. Stated because it is a behaviour change nobody asked
+  for explicitly.
+- **D077 artifact hash contract**, kept explicitly separate as instructed. It
+  pins a sha256 per file in the cumulative release diff, now lists ~78 files
+  from this delivery, and is regenerated at release time.
+
 ## Gates
 
 | Gate | Result |
@@ -424,15 +610,11 @@ maintenance out of scope.
 
 ## Explicitly unresolved
 
-1. **Producer-staged launch under the `auto` creative mode** (R2). Refused by
-   name with `creative_mode_auto_operator_staging_required`. Opening it requires
-   a second, honestly-named authority origin rather than widening the operator
-   one; see R2 above.
-2. **A bid write is journalled as `action: "launch_adset"`** with
+1. **A bid write is journalled as `action: "launch_adset"`** with
    `payload_request.operation = "apply_bid"`. History and the client feed
    disambiguate it, and the mounted receipt above reads "Launch Adset" for a bid.
    Flagged in the previous report, unchanged here, and outside the eight
    findings.
-3. **D077 artifact hash contract** — failing since before this work, and §7 of
+2. **D077 artifact hash contract** — failing since before this work, and §7 of
    the plan puts D077/D086 evidence-pack maintenance out of scope. It must be
    regenerated before release.

@@ -166,6 +166,11 @@ export function metaAdActionFailureMessage(
   payload: { error?: { code?: string; message?: string }; message?: string } | null,
   status: number,
 ) {
+  // Same correction as the Decision Center's own reader: the server names the
+  // posture that refused, and only the kill switch may be called one.
+  if (payload?.error?.code === "release_capability_closed") {
+    return "Live Meta writes are not enabled in this environment, so nothing was sent.";
+  }
   if (payload?.error?.code === "kill_switch_engaged") {
     return "Meta writes are temporarily disabled (kill switch). Try again later.";
   }

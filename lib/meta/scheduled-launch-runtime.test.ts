@@ -42,6 +42,7 @@ import type { ScheduledAuthorityGates } from "@/lib/meta/scheduled-action-execut
 import {
   createScheduledLaunchRuntime,
   SCHEDULED_LAUNCH_ACTION_LOG_ORIGIN,
+  storedLaunchExecutionAuthority,
   type ScheduledLaunchCreateRequest,
 } from "@/lib/meta/scheduled-launch-runtime";
 
@@ -352,6 +353,77 @@ describe("the intent is the authority, and it is re-read", () => {
       authorization: SCHEDULED,
     });
     expect(result.receipt.withheld).toBe("composition_blocked");
+  });
+});
+
+describe("which authority the stored payload was staged under", () => {
+  /*
+    There are two, and telling them apart is the point.
+
+    An operator staging a launch on the review screen binds their own
+    confirmation. The decision producer, which stages from a reviewed brief and
+    an operator-composed draft with nobody present, binds `decision_staged_approval`
+    instead — it cannot truthfully claim a confirmation nobody gave, and this
+    reader must never collapse the two into a yes.
+  */
+  const withAuthority = (executionAuthority: unknown) =>
+    ({ requestPayload: { ...PAYLOAD, executionAuthority } }) as unknown as MetaLaunchIntent;
+
+  it("returns the operator's own authority when they staged it", () => {
+    expect(
+      storedLaunchExecutionAuthority(
+        withAuthority({
+          actionOrigin: "launchpad_manual_v1",
+          manualConfirmation: "explicit_operator_confirmation",
+        }),
+      ),
+    ).toEqual({
+      actionOrigin: "launchpad_manual_v1",
+      manualConfirmation: "explicit_operator_confirmation",
+    });
+  });
+
+  it("returns the producer's staged authority, distinguishable from it", () => {
+    const staged = storedLaunchExecutionAuthority(
+      withAuthority({
+        actionOrigin: "launchpad_decision_staged_v1",
+        manualConfirmation: "decision_staged_approval",
+      }),
+    );
+    expect(staged).toEqual({
+      actionOrigin: "launchpad_decision_staged_v1",
+      manualConfirmation: "decision_staged_approval",
+    });
+    expect(staged?.actionOrigin).not.toBe("launchpad_manual_v1");
+    expect(staged?.manualConfirmation).not.toBe("explicit_operator_confirmation");
+  });
+
+  it("refuses a half-recognised pair rather than answering with either", () => {
+    // Mixing the two words is the exact shape a caller would produce if it were
+    // trying to look like a confirmation it does not have.
+    expect(
+      storedLaunchExecutionAuthority(
+        withAuthority({
+          actionOrigin: "launchpad_decision_staged_v1",
+          manualConfirmation: "explicit_operator_confirmation",
+        }),
+      ),
+    ).toBeNull();
+    expect(
+      storedLaunchExecutionAuthority(
+        withAuthority({
+          actionOrigin: "launchpad_manual_v1",
+          manualConfirmation: "decision_staged_approval",
+        }),
+      ),
+    ).toBeNull();
+    expect(storedLaunchExecutionAuthority(withAuthority(null))).toBeNull();
+    const { executionAuthority: _dropped, ...noAuthority } = PAYLOAD;
+    expect(
+      storedLaunchExecutionAuthority(
+        { requestPayload: noAuthority } as unknown as MetaLaunchIntent,
+      ),
+    ).toBeNull();
   });
 });
 

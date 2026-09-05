@@ -196,9 +196,17 @@ export function createScheduledActivationRuntime(
       is the ordinary case — never reach a provider. Marking above that would
       stamp a dispatch on a row that made no call, which is the exact defect the
       queue's pre-marker rule exists to avoid. `authorize` runs after the
-      already-active read and immediately before each step's own POST, so this
-      is both the first moment a call becomes possible and the last moment it
-      can still be prevented.
+      already-active read and before each step's own POST, so this is the first
+      moment a call becomes possible.
+
+      It is not the LAST moment, and it never was. `activateLaunchIntent` hands
+      this same function down into the write primitive's pre-POST hook, where it
+      is asked again with the journal claim and the primitive's own authority
+      snapshot already behind it — so these gates, not only the approval, are
+      re-read at the provider boundary. The marker is idempotent (`marked`), and
+      `providerMutationAttempted` accordingly means "a call became possible",
+      which is why the receipt below derives contact from the claim outcomes
+      rather than from this flag.
     */
     let marked = false;
     let providerMutationAttempted = false;
@@ -308,8 +316,74 @@ export function createScheduledActivationRuntime(
         step.claimOutcome === "ambiguous"
         || step.claimOutcome === "unresolved_prior_attempt",
     );
-    const contacted = providerMutationAttempted
-      || receipt.steps.some((step) => step.actionLogId !== null);
+    /*
+      Contacted means a provider was actually asked, step by step.
+
+      It used to be `providerMutationAttempted || any step has a journal row`,
+      and both halves overreport. The flag is set inside `authorize`, which now
+      answers once before the claim and once inside the write primitive's
+      pre-POST hook — so it says "a call became possible", not "a call was
+      made". And a journal row exists for every step that was CLAIMED, including
+      one whose write the hook then refused before the request was built.
+
+      The claim outcomes carry the distinction: `activated`, `ambiguous` and
+      `refused` are the three that mean a provider answered or failed to.
+      `authority_refused`, `claim_unavailable` and `unresolved_prior_attempt`
+      all mean nothing was sent by this dispatch.
+    */
+    const contacted = receipt.steps.some(
+      (step) =>
+        step.claimOutcome === "activated"
+        || step.claimOutcome === "ambiguous"
+        || step.claimOutcome === "refused",
+    );
+    /*
+      "This dispatch sent nothing" and "nothing is outstanding" are TWO
+      questions, and `unresolved_prior_attempt` is where they come apart.
+
+      That outcome is the no-blind-retry gate refusing: an EARLIER pause or
+      resume on this same entity is still `pending` or `silent_failure` in
+      `meta_ads_action_log` — the two states
+      `findUnresolvedMetaAdStatusActionLog` looks for — so a provider mutation
+      on it may be in flight or may already have landed. Just not one this
+      dispatch made.
+      `contacted` is therefore false and stays false: this dispatch built no
+      request, and the steps say so.
+
+      But the receipt has ONE field where the layer above asks the second
+      question. `budget-execution-lifecycle.ts` reads
+      `providerMutationAttempted ?? markerWritten` as `providerDispatchStarted`
+      and gates `outcomeNeedsReconcile` on it, so publishing a definite `false`
+      here settles the row `failed` instead of `reconcile` — and `failed` is not
+      one of `META_AUTOMATION_PROPOSAL_OPEN_STATUSES` while `reconcile` is. The
+      slot that list holds would be released for exactly the entity this runtime
+      just refused to write to because somebody's earlier attempt on it has no
+      established outcome, and the projection could raise a second proposal for
+      it: a second dispatch path for that same unknown.
+
+      So the field is OMITTED rather than answered either way. It is optional in
+      the receipt contract (`BudgetProposalExecutionReceipt`) and its absence
+      already has a defined meaning where the lifecycle reads it — defer to the
+      durable pre-POST dispatch marker (`?? markerWritten`) — and that is
+      the honest sentence here: this dispatch cannot settle the question. The
+      deferral is also safe rather than lucky. The marker is fired from inside
+      `authorize`, `hierarchy-activation.ts` calls `authorize` before `activate`
+      for every step, and this outcome can only be produced inside `activate` —
+      so a step that reports it has always stamped the marker first.
+
+      Setting it `true` instead would be exactly the overreporting the rest of
+      this block removes: a receipt whose own steps say nothing was sent, with a
+      flag on it saying a mutation was attempted.
+
+      And where no marker was stamped — a caller that passes no
+      `beforeProviderPost` — the fallback yields the same `false` this branch
+      declines to publish, which is the right answer in that world: no dispatch
+      intent was recorded either, and the journal's own gate still refuses the
+      next attempt on the entity regardless of what the slot says.
+    */
+    const priorAttemptUnresolved = receipt.steps.some(
+      (step) => step.claimOutcome === "unresolved_prior_attempt",
+    );
 
     return {
       ok: activation.delivering === true,
@@ -341,7 +415,12 @@ export function createScheduledActivationRuntime(
         // or read back and found not active; either way a provider was reached.
         withheld: null,
         receiptKey: claimToken,
-        providerMutationAttempted: contacted,
+        // `undefined` is not `false`: see the note above. JSON drops the key,
+        // and the lifecycle that reads this receipt treats an absent one as
+        // unstated rather than as a denial.
+        providerMutationAttempted: contacted || !priorAttemptUnresolved
+          ? contacted
+          : undefined,
       },
       reconcile: needsReconcile,
       rollbackRequested: false,

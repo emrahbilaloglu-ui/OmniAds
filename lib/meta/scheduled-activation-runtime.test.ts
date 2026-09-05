@@ -47,6 +47,10 @@ import { activateLaunchIntent } from "@/lib/meta/launch-intent-activation";
 import type { MetaLaunchIntent } from "@/lib/launchpad/meta-launch-intent";
 import type { MetaAutomationProposal } from "@/lib/meta/automation-proposals";
 import type { ScheduledAuthorityGates } from "@/lib/meta/scheduled-action-execution";
+import {
+  runClaimedProposalExecution,
+  type ClaimedExecutionDeps,
+} from "@/lib/meta/budget-execution-lifecycle";
 import { createScheduledActivationRuntime } from "@/lib/meta/scheduled-activation-runtime";
 
 const BUSINESS = "11111111-1111-4111-8111-111111111111";
@@ -541,19 +545,29 @@ describe("how an outcome is reported", () => {
     expect(result.ok).toBe(false);
   });
 
-  it("parks a step whose PRIOR attempt is unresolved, having sent nothing", async () => {
+  it("says no provider was reached when the boundary refused every step", async () => {
+    /*
+      The claim was written and the pre-POST hook then refused, so a journal row
+      exists for a request that was never built. `providerMutationAttempted` used
+      to be `true` here twice over — once from the dispatch marker having been
+      stamped, once from "some step has a row" — and both are the wrong sentence
+      about a run in which nothing was sent.
+    */
     const result = await runtime({
       activate: activateReturning({
         ok: true,
         activation: activation({
-          blockedAt: "campaign", blockedReason: "unresolved_prior_attempt",
-          coverage: { planned: 1, on: 0, blocked: 0, ambiguous: 1, notAttempted: 0 },
+          blockedAt: "campaign",
+          blockedReason: "activation_approval_revoked",
+          coverage: { planned: 1, on: 0, blocked: 1, ambiguous: 0, notAttempted: 0 },
         }),
         receipt: {
           steps: [
             stepReceipt({
-              outcome: "ambiguous", reason: "unresolved_prior_attempt",
-              claimOutcome: "unresolved_prior_attempt", actionLogId: "log-old",
+              outcome: "blocked",
+              reason: "activation_approval_revoked",
+              claimOutcome: "authority_refused",
+              verified: null,
             }),
           ],
         },
@@ -566,7 +580,195 @@ describe("how an outcome is reported", () => {
       beforeProviderPost: async () => true,
     });
 
+    expect(result.ok).toBe(false);
+    // Still not `withheld`: the sequence ran and the row was claimed. But
+    // nothing reached Meta, and the receipt must be able to say so.
+    expect(result.receipt.withheld).toBeNull();
+    expect(result.receipt.providerMutationAttempted).toBe(false);
+    // Nothing to park for a person, either: a definite non-write is not an
+    // outcome anybody has to reconcile.
+    expect(result.reconcile).toBe(false);
+    const response = result.receipt.response as Record<string, unknown>;
+    expect(response.blockedReason).toBe("activation_approval_revoked");
+  });
+
+  /**
+   * A double in the REAL order: `authorize` first, then the gate's verdict.
+   *
+   * `hierarchy-activation.ts` asks `authorize` before it calls `activate` for
+   * every step, and both outcomes below are produced inside `activate` — the
+   * no-blind-retry gate at its top, the pre-POST hook underneath it. So the
+   * dispatch marker this runtime stamps from inside `authorize` has always been
+   * written by the time either is reported. A double that skipped `authorize`
+   * would be modelling a sequence production cannot run, and the marker is
+   * exactly what the layer above falls back to when the receipt states nothing.
+   */
+  function activateAfterAuthorizing(result: unknown) {
+    return (async (args: {
+      authorize?: (target: { grain: string; entityId: string }) => Promise<string | null>;
+    }) => {
+      await args.authorize?.({ grain: "campaign", entityId: "120" });
+      return result;
+    }) as unknown as typeof activateLaunchIntent;
+  }
+
+  /** The one activation whose prior attempt on the same entity is unresolved. */
+  function unresolvedPriorAttempt() {
+    return activateAfterAuthorizing({
+      ok: true,
+      activation: activation({
+        blockedAt: "campaign", blockedReason: "unresolved_prior_attempt",
+        coverage: { planned: 1, on: 0, blocked: 0, ambiguous: 1, notAttempted: 0 },
+      }),
+      receipt: {
+        steps: [
+          stepReceipt({
+            outcome: "ambiguous", reason: "unresolved_prior_attempt",
+            // The id is the OLD row's: this dispatch wrote no claim of its own.
+            claimOutcome: "unresolved_prior_attempt", actionLogId: "log-old",
+          }),
+        ],
+      },
+    });
+  }
+
+  it("parks a step whose PRIOR attempt is unresolved, having sent nothing", async () => {
+    const result = await runtime({ activate: unresolvedPriorAttempt() })({
+      proposal: proposal(),
+      dryRunOnly: false,
+      claimToken: "claim-1",
+      authorization: SCHEDULED,
+      beforeProviderPost: async () => true,
+    });
+
     expect(result.reconcile).toBe(true);
     expect(result.receipt.withheld).toBeNull();
+    /*
+      And the receipt does not CLAIM a provider contact this dispatch did not
+      make. It states nothing at all: `undefined`, which is not `false`.
+      `false` is read one layer up as a definite non-attempt and would release
+      the entity's action slot — see the note in the runtime and the settled
+      status asserted below.
+    */
+    expect(result.receipt.providerMutationAttempted).toBeUndefined();
+    const steps = (result.receipt.response as { steps: Array<{ claimOutcome: string }> }).steps;
+    expect(steps.map((step) => step.claimOutcome)).toEqual(["unresolved_prior_attempt"]);
+  });
+
+  /*
+    The same case, carried into the layer that decides what the row becomes.
+
+    `result.reconcile` is the runtime's own answer and this file used to stop
+    there. `runClaimedProposalExecution` is what settles the claimed row, and it
+    gates reconcile on `receipt.providerMutationAttempted`; `failed` is not one
+    of `META_AUTOMATION_PROPOSAL_OPEN_STATUSES` and `reconcile` is, so the
+    settled status IS whether the entity's one action slot stays held against a
+    provider outcome nobody has established. Asserting the flag alone would let
+    the two drift apart again.
+  */
+  it("settles that row to reconcile through the real claimed-execution lifecycle", async () => {
+    const settledStatuses: string[] = [];
+    const ledger: string[] = [];
+    const run = runtime({ activate: unresolvedPriorAttempt() });
+    const deps: ClaimedExecutionDeps = {
+      businessId: BUSINESS,
+      providerAccountId: ACCOUNT,
+      proposal: proposal(),
+      claimToken: "claim-1",
+      actorUserId: ACTOR,
+      executionKind: "scheduled",
+      // The durable pre-POST marker. It is stamped inside the runtime's own
+      // per-step hook, before the gate that produced this outcome can run.
+      markDispatchStarted: async () => true,
+      settle: async ({ status }) => {
+        settledStatuses.push(status);
+        return { ...proposal(), status } as unknown as MetaAutomationProposal;
+      },
+      forceReconcile: async () => true,
+      recordReconciliation: async () => true,
+      recordLedger: async (entry) => { ledger.push(entry.activityType); },
+      execute: async (beforeProviderPost) => run({
+        proposal: proposal(),
+        dryRunOnly: false,
+        claimToken: "claim-1",
+        authorization: SCHEDULED,
+        beforeProviderPost,
+      }),
+    };
+
+    const lifecycle = await runClaimedProposalExecution(deps);
+
+    expect(lifecycle.settledStatus).toBe("reconcile");
+    expect(settledStatuses).toEqual(["reconcile"]);
+    expect(lifecycle.reconcile).toBe(true);
+    expect(ledger).toEqual(["automation_proposal_reconcile"]);
+    // Never reported as applied, either.
+    expect(lifecycle.ok).toBe(false);
+    expect(lifecycle.providerOutcomeKnown).toBe(false);
+  });
+
+  /*
+    The neighbouring case, which must NOT park.
+
+    A boundary refusal is a definite non-write: the hook stopped the request
+    before it was built, nothing is outstanding, and the row is free to be
+    offered again. It is the reason `providerMutationAttempted` cannot simply be
+    dropped whenever `contacted` is false.
+  */
+  it("settles a boundary-refused row to failed, holding no slot", async () => {
+    const settledStatuses: string[] = [];
+    const run = runtime({
+      activate: activateAfterAuthorizing({
+        ok: true,
+        activation: activation({
+          blockedAt: "campaign", blockedReason: "activation_approval_revoked",
+          coverage: { planned: 1, on: 0, blocked: 1, ambiguous: 0, notAttempted: 0 },
+        }),
+        receipt: {
+          steps: [
+            stepReceipt({
+              outcome: "blocked", reason: "activation_approval_revoked",
+              claimOutcome: "authority_refused", verified: null,
+            }),
+          ],
+        },
+      }),
+    });
+    const lifecycle = await runClaimedProposalExecution({
+      businessId: BUSINESS,
+      providerAccountId: ACCOUNT,
+      proposal: proposal(),
+      claimToken: "claim-1",
+      actorUserId: ACTOR,
+      executionKind: "scheduled",
+      markDispatchStarted: async () => true,
+      settle: async ({ status }) => {
+        settledStatuses.push(status);
+        return { ...proposal(), status } as unknown as MetaAutomationProposal;
+      },
+      forceReconcile: async () => true,
+      recordReconciliation: async () => true,
+      recordLedger: async () => undefined,
+      execute: async (beforeProviderPost) => run({
+        proposal: proposal(),
+        dryRunOnly: false,
+        claimToken: "claim-1",
+        authorization: SCHEDULED,
+        beforeProviderPost,
+      }),
+    });
+
+    /*
+      The marker WAS stamped here too — `authorize` passed and only the
+      primitive's own pre-POST hook refused — so this receipt's explicit `false`
+      is what keeps the row out of `reconcile`. Both halves of the fix are
+      visible in one pair of cases: a stated `false` overrides the marker, and
+      only an unstated field defers to it.
+    */
+    expect(lifecycle.providerDispatchIntentMarked).toBe(true);
+    expect(lifecycle.receipt.providerMutationAttempted).toBe(false);
+    expect(lifecycle.settledStatus).toBe("failed");
+    expect(settledStatuses).toEqual(["failed"]);
+    expect(lifecycle.reconcile).toBe(false);
   });
 });

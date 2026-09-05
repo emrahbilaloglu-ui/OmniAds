@@ -677,14 +677,27 @@ describe("Meta entity write routes", () => {
         beforeMutationAttempt: expect.any(Function),
       }),
     );
+    /*
+      The TRUE verb, and the compatibility that keeps old rows readable.
+
+      This asserted `launch_adset` — the verb the handler used to write while
+      carrying the real operation one level down — so Meta History titled a
+      verified cap change "Launch Adset | Broad prospecting". `bid` was always
+      legal (MetaAdsActionKind, the CHECK, and the unattended sweep all use it).
+      `operation: "apply_bid"` still travels in the payload, because every
+      reader that disambiguated the old spelling by it must keep working; the
+      reader half is driven in lib/meta/bid-history-verb-title.db.test.ts.
+    */
     expect(logs.createMetaAdsActionLog).toHaveBeenCalledWith(
       expect.objectContaining({
-        action: "launch_adset",
+        action: "bid",
         source: "manual_operator_v1",
         recIdOrigin: "rec_bid",
         payloadRequest: expect.objectContaining({
           action_origin: "manual_operator_v1",
           manual_confirmation: "explicit_operator_confirmation",
+          operation: "apply_bid",
+          scope_type: "adset",
         }),
       }),
     );
@@ -731,7 +744,7 @@ describe("Meta entity write routes", () => {
     );
     expect(logs.createMetaAdsActionLog).toHaveBeenCalledWith(
       expect.objectContaining({
-        action: "launch_adset",
+        action: "bid",
         businessId: "biz_1",
         providerAccountId: "act_1",
       }),

@@ -43,6 +43,16 @@
  * entity and there is no truth in leaving it paused because another one failed.
  * An outcome nobody can read is different: it stops the whole run, because the
  * next write would be built on a state no one has seen.
+ *
+ * ## Two places the authority is asked, not one
+ *
+ * `authorize` is asked here, before the step's write is handed to the caller's
+ * `activate`. That is not the last instant: `activate` writes a durable claim
+ * first, and the write primitive underneath takes its own authority snapshot,
+ * so several awaits stand between the answer and the request. The caller re-asks
+ * the identical question inside the primitive's own pre-POST hook and reports a
+ * refusal there as `authorityRefused`, which this module treats exactly as it
+ * treats a refusal from `authorize`: the whole run halts.
  */
 export const HIERARCHY_ACTIVATION_CONTRACT =
   "meta.hierarchy-activation.v1" as const;
@@ -145,6 +155,18 @@ export interface HierarchyActivationDeps {
   ): Promise<{
     ok: boolean;
     ambiguous?: boolean;
+    /**
+     * The write never left the process: an authority check standing at the
+     * provider boundary itself refused it.
+     *
+     * `authorize` below is asked before the claim is written, and the claim and
+     * the primitive's own preflight are awaits that stand between that answer
+     * and the request. The caller re-asks the identical question inside the
+     * primitive's pre-POST hook, and a refusal there arrives here — as a
+     * definite non-write, distinct from a provider that said no, and carrying
+     * the same "nothing more may be sent AT ALL" meaning `authorize` has.
+     */
+    authorityRefused?: boolean;
     reason?: string | null;
   }>;
   /**
@@ -353,7 +375,10 @@ export async function activateHierarchy(input: {
       status: before.status,
       effectiveStatus: before.effectiveStatus,
     }).catch(() => ({
-      ok: false, ambiguous: true, reason: "activate_threw",
+      // A throw is an unknown outcome, never a refused authority: the call may
+      // have gone out. `authorityRefused` is stated rather than omitted so this
+      // fallback keeps the same shape the deps contract declares.
+      ok: false, ambiguous: true, authorityRefused: false, reason: "activate_threw",
     }));
     if (written.ambiguous === true) {
       /*
@@ -370,6 +395,33 @@ export async function activateHierarchy(input: {
         grain: target.grain,
         entityId: target.entityId,
         outcome: "ambiguous",
+        reason,
+        verified: null,
+      });
+      continue;
+    }
+
+    /*
+      The authority, refused at the provider boundary rather than above it.
+
+      `authorize` ran before the claim was written, and the claim and the
+      primitive's own preflight are both awaits in front of the request. A
+      refusal raised inside the pre-POST hook is therefore the SAME fact as a
+      refusal from `authorize` — the permission this run acts under has been
+      withdrawn — arriving a few milliseconds later, so it halts the whole run
+      exactly as `authorize` does. It is not folded into the ordinary blocked
+      branch below: that branch stops one branch and leaves siblings alone,
+      which is right for a provider that refused one entity and wrong for a
+      permission that no longer covers any of them.
+    */
+    if (written.authorityRefused === true) {
+      const reason = written.reason ?? "activation_authority_refused";
+      noteBlock(target.grain, reason);
+      halted = true;
+      await record({
+        grain: target.grain,
+        entityId: target.entityId,
+        outcome: "blocked",
         reason,
         verified: null,
       });

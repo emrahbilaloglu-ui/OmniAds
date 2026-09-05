@@ -1,4 +1,13 @@
 import { NextResponse } from "next/server";
+
+/*
+  Re-exported so the refusal's producer and its vocabulary read as one thing,
+  while the halting callers import the leaf directly and pull in nothing.
+*/
+export {
+  META_WRITE_BLOCKED_CODES,
+  isMetaWriteBlockedCode,
+} from "@/lib/meta/write-blocked-codes";
 import {
   getMetaWriteBlockState,
   type MetaWriteBlockState,
@@ -67,14 +76,30 @@ export function metaWriteIsRehearsal(input: {
   return input.posture.rehearsal || input.requestedDryRun === true;
 }
 
-/** The refusal every write family answers with, unchanged in shape. */
+/**
+ * The refusal every write family answers with, unchanged in shape.
+ *
+ * The CODE now names the posture that actually refused. It was the literal
+ * `kill_switch_engaged` for all six of them, so an operator who had engaged no
+ * STOP — a closed release capability, a demo business, a read-only readiness
+ * tier, an unreadable control row — was told a kill switch was engaged. The
+ * inner `reason` always carried the truth; nothing read it.
+ *
+ * `business_kill_switch` keeps the old code, because that IS the kill switch
+ * and four callers classify a halted launch on it. The generic message fallback
+ * stops naming a kill switch for the same reason. This mirrors what
+ * `lib/meta/entity-action-routes.ts` already does with `posture.reason ??`.
+ */
 export function metaWriteBlockedResponse(posture: MetaWritePosture): NextResponse {
   return NextResponse.json(
     {
       ok: false,
       error: {
-        code: "kill_switch_engaged",
-        message: posture.message ?? "Meta writes are disabled by kill switch.",
+        code:
+          posture.reason === "business_kill_switch"
+            ? "kill_switch_engaged"
+            : posture.reason ?? "kill_switch_engaged",
+        message: posture.message ?? "Meta writes are blocked for this business.",
         reason: posture.reason,
       },
     },

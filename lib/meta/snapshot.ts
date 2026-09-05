@@ -22,9 +22,11 @@ import {
 } from "@/lib/meta/decision-stability";
 import {
   deliveryConstrainedAdsetIdsFrom,
-  detectAnomaliesForBusiness,
+  detectAnomalyEvaluationForBusiness,
   type MetaAnomaly,
+  type MetaAnomalyEvaluation,
   type MetaAnomalySeverity,
+  type MetaAnomalyType,
 } from "@/lib/meta/anomalies";
 import {
   buildEvidenceTrailsForRecommendations,
@@ -541,12 +543,35 @@ async function upsertSnapshotRows(input: {
    * whole snapshot would vanish one statement after it landed.
    */
   replaceRecommendations?: boolean;
+  /**
+   * The anomaly families this run actually EVALUATED, and therefore the only
+   * ones whose absent rows may be stamped `resolved_at`.
+   *
+   * Resolution is a claim — "we looked and it is no longer true" — and the
+   * payload cannot support it on its own. A family missing from `rows` was
+   * either judged clean or never judged at all, and only the detector knows
+   * which: `detectAnomalyEvaluationForBusiness` reports the difference in
+   * `evaluatedTypes`, and this is where that report is spent.
+   *
+   * Two concrete losses this closes. A same-day rerun at 22:00 local puts
+   * `budget_exhausted_early` outside its time-of-day gate, so an 08:00 run's
+   * open high-severity row used to be resolved on byte-identical facts. And a
+   * recommendation-only call — every per-account write in the loop — carries no
+   * anomaly rows at all, so it used to resolve every open anomaly of the day
+   * before the epilogue re-raised whichever ones happened to be re-detected.
+   *
+   * Empty means resolve nothing, which is the correct reading of "this call
+   * evaluated no anomaly family". It is not optional: a caller that forgets
+   * would otherwise silently inherit the old resolve-on-absence behaviour.
+   */
+  resolvableAnomalyTypes: readonly MetaAnomalyType[];
   rows: SnapshotPayloadRow[];
 }) {
   const sql = getDb();
   const account = input.providerAccountId?.trim() || null;
   const recommendationRows = input.rows.filter((row) => row.kind === "recommendation");
   const anomalyRows = input.rows.filter((row) => row.kind === "anomaly");
+  const resolvableAnomalyTypes = [...new Set(input.resolvableAnomalyTypes)];
 
   /*
    * Replace THIS account's batch for THIS date. Not leaving an older same-day
@@ -683,14 +708,23 @@ async function upsertSnapshotRows(input: {
   }
 
   if (anomalyRows.length === 0) {
-    await sql`
-      UPDATE meta_decision_snapshots_daily
-      SET resolved_at = now()
-      WHERE business_id = ${input.businessId}
-        AND snapshot_date = ${input.snapshotDate}::date
-        AND kind = 'anomaly'
-        AND resolved_at IS NULL
-    `;
+    /*
+      Nothing to write, so the only question left is what may be resolved — and
+      the answer is "the families this run evaluated, and no others". With none
+      evaluated (a recommendation-only call, or a detection that threw) there is
+      nothing this statement is entitled to close, so it does not run at all.
+    */
+    if (resolvableAnomalyTypes.length > 0) {
+      await sql`
+        UPDATE meta_decision_snapshots_daily
+        SET resolved_at = now()
+        WHERE business_id = ${input.businessId}
+          AND snapshot_date = ${input.snapshotDate}::date
+          AND kind = 'anomaly'
+          AND resolved_at IS NULL
+          AND rec_type = ANY(${resolvableAnomalyTypes}::text[])
+      `;
+    }
     return;
   }
 
@@ -737,6 +771,10 @@ async function upsertSnapshotRows(input: {
           AND existing.snapshot_date = $3::date
           AND existing.kind = 'anomaly'
           AND existing.resolved_at IS NULL
+          -- Only families this run evaluated. Absence from the payload is
+          -- evidence of recovery for those, and evidence of nothing for a
+          -- family whose gate kept it from looking.
+          AND existing.rec_type = ANY($4::text[])
           AND NOT EXISTS (
             SELECT 1
             FROM payload
@@ -837,7 +875,12 @@ async function upsertSnapshotRows(input: {
         resolved_at = NULL,
         created_at = now()
     `,
-    [JSON.stringify(anomalyRows), input.businessId, input.snapshotDate],
+    [
+      JSON.stringify(anomalyRows),
+      input.businessId,
+      input.snapshotDate,
+      resolvableAnomalyTypes,
+    ],
   );
 }
 
@@ -1683,7 +1726,23 @@ export async function runMetaSnapshotForBusiness(
     SELECT timezone FROM businesses WHERE id = ${businessId}::uuid LIMIT 1
   `.catch(() => null)) as Array<{ timezone: string | null }> | null;
 
-  const anomalies = await detectAnomaliesForBusiness({
+  /*
+    The EVALUATION, not just the list.
+
+    Three of the seven families read something outside the warehouse — the wall
+    clock, the business timezone, the loss budget — and decline to judge when it
+    is missing or when the hour makes the judgement meaningless. That decision
+    has to reach the writer, because the writer resolves an open anomaly whose
+    family produced no row this run, and "the gate was shut" is not evidence
+    that a finding is over.
+
+    A detection that throws yields the same shape with NOTHING evaluated, so a
+    failed read resolves nothing rather than closing the whole day's anomalies.
+    It is logged rather than swallowed silently: this used to be a bare
+    `.catch(() => [])`, and a run in which every detector failed was
+    indistinguishable in the logs from a clean account.
+  */
+  const anomalyEvaluation = await detectAnomalyEvaluationForBusiness({
     businessId,
     snapshotDate: normalizedSnapshotDate,
     calibrationContext: null,
@@ -1691,7 +1750,28 @@ export async function runMetaSnapshotForBusiness(
       lossBudgetSpend: lossBudget?.spendThreshold ?? null,
       timezone: businessZone?.[0]?.timezone ?? null,
     },
-  }).catch(() => [] as MetaAnomaly[]);
+  }).catch((error) => {
+    console.warn("[meta-snapshot] anomaly_detection_failed", {
+      businessId,
+      snapshotDate: normalizedSnapshotDate,
+      message: error instanceof Error ? error.message : String(error),
+    });
+    return {
+      anomalies: [] as MetaAnomaly[],
+      evaluatedTypes: [] as MetaAnomalyType[],
+      skipped: [],
+    } satisfies MetaAnomalyEvaluation;
+  });
+  const anomalies = anomalyEvaluation.anomalies;
+  if (anomalyEvaluation.skipped.length > 0) {
+    console.info("[meta-snapshot] anomaly_families_not_evaluated", {
+      businessId,
+      snapshotDate: normalizedSnapshotDate,
+      skipped: anomalyEvaluation.skipped.map(
+        (entry) => `${entry.type}: ${entry.reason} (${entry.detail})`,
+      ),
+    });
+  }
   const deliveryConstrainedAdsetIds = deliveryConstrainedAdsetIdsFrom(anomalies);
 
   const perAccount = await Promise.allSettled(
@@ -1768,6 +1848,9 @@ export async function runMetaSnapshotForBusiness(
         businessId,
         snapshotDate: normalizedSnapshotDate,
         providerAccountId: accountId,
+        // This call writes recommendations. It judged no anomaly family, so it
+        // may close none: the anomaly epilogue below owns that decision.
+        resolvableAnomalyTypes: [],
         rows,
       });
       /*
@@ -1833,6 +1916,10 @@ export async function runMetaSnapshotForBusiness(
     // Anomalies only. The recommendation batches are already written and each
     // belongs to an account this call knows nothing about.
     replaceRecommendations: false,
+    // Exactly the families this run judged. A family that declined to look
+    // keeps its open rows, so a second run later the same day cannot close a
+    // finding the first run made on facts that have not moved.
+    resolvableAnomalyTypes: anomalyEvaluation.evaluatedTypes,
     rows: anomalies.map((anomaly) =>
       anomalyToSnapshotRow(anomaly, businessId, normalizedSnapshotDate, null),
     ),
@@ -1921,7 +2008,27 @@ export async function runMetaSnapshotForBusiness(
       actionLabel: insert.actionLabel,
     }),
   })
-    .then((result) => ({ candidates: result.candidates, projected: result.projected }))
+    .then((result) => {
+      /*
+        The refusal codes, named in the log rather than dropped.
+
+        The returned pair is `{candidates, projected}` and nothing else, so a
+        rerun that legitimately raises no NEW row reads as `projected: 0` with
+        no reason attached — and that silence is what a QA guide already
+        mis-read once as "the second run lost the decision". The producer
+        already counts why it refused each candidate; this is the one place
+        that number can be seen. The shape of the return is unchanged on
+        purpose: callers compare it exactly.
+      */
+      console.info("[meta-snapshot] budget_proposal_projection", {
+        businessId,
+        snapshotDate: normalizedSnapshotDate,
+        candidates: result.candidates,
+        projected: result.projected,
+        refusals: result.refusals,
+      });
+      return { candidates: result.candidates, projected: result.projected };
+    })
     .catch((error) => {
       console.warn("[meta-snapshot] budget_proposal_projection_failed", {
         businessId,
@@ -1954,7 +2061,22 @@ export async function runMetaSnapshotForBusiness(
       actionLabel: insert.actionLabel,
     }),
   })
-    .then((result) => ({ candidates: result.candidates, projected: result.projected }))
+    .then((result) => {
+      /*
+        Same reason as the budget producer above. `insert_conflicted` here is
+        the anti-duplicate guard doing its job — one pending row per slot, so a
+        same-day rerun re-confirms the row it already raised instead of raising
+        a second one — and it must be legible as that rather than as a loss.
+      */
+      console.info("[meta-snapshot] bid_proposal_projection", {
+        businessId,
+        snapshotDate: normalizedSnapshotDate,
+        candidates: result.candidates,
+        projected: result.projected,
+        refusals: result.refusals,
+      });
+      return { candidates: result.candidates, projected: result.projected };
+    })
     .catch((error) => {
       console.warn("[meta-snapshot] bid_proposal_projection_failed", {
         businessId,
@@ -2361,8 +2483,14 @@ export async function readLatestMetaDecisionSnapshot(input: {
    * would be exactly that failure wearing a default.
    *
    * Omitted keeps the pre-lineage behaviour: business-wide, every row. The
-   * business-scoped callers (History, lane classification, the cron marker)
-   * are not account surfaces and are unchanged.
+   * remaining business-scoped callers — History and the cron marker — are not
+   * account surfaces and are unchanged.
+   *
+   * Lane classification DOES pass an account when the surface has one selected.
+   * Its rows stay business-wide, but the campaign-context read below is account
+   * scoped, and a null there returns an empty role map — which downgraded every
+   * hard action on a campaign whose role was published, high-confidence and
+   * resolver-validated. See `app/api/meta/lane-classify/route.ts`.
    */
   providerAccountId?: string | null;
 }): Promise<MetaRecommendationsResponse | null> {

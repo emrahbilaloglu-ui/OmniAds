@@ -69,6 +69,7 @@ vi.mock("@/lib/meta/anomalies", () => ({
         .map((a) => a.scopeId as string),
     ),
   detectAnomaliesForBusiness: vi.fn(),
+  detectAnomalyEvaluationForBusiness: vi.fn(),
 }));
 
 vi.mock("@/lib/meta/evidence-trail", () => ({
@@ -191,6 +192,34 @@ const campaignContextSource = await import(
 );
 const anomalies = await import("@/lib/meta/anomalies");
 const evidenceTrail = await import("@/lib/meta/evidence-trail");
+
+/**
+ * The snapshot now takes the EVALUATION, not just the anomalies: the writer may
+ * resolve an open row only for a family this run actually judged. A family the
+ * detector skipped — a time-of-day gate, an unreadable profile — was not looked
+ * at, and absence from the payload is not evidence of recovery for it.
+ *
+ * These suites assert the "every family looked" case, so the helper names all
+ * seven and the old expectations keep their exact meaning.
+ */
+const ALL_ANOMALY_FAMILIES = [
+  "roas_drop_sudden",
+  "delivery_stall",
+  "policy_block",
+  "pacing_failure",
+  "cpm_spike",
+  "zero_conversions_with_spend",
+  "budget_exhausted_early",
+] as const;
+
+function anomalyEvaluation(
+  found: Awaited<
+    ReturnType<typeof anomalies.detectAnomalyEvaluationForBusiness>
+  >["anomalies"] = [],
+) {
+  return { anomalies: found, evaluatedTypes: [...ALL_ANOMALY_FAMILIES], skipped: [] };
+}
+
 const entitySignals = await import("@/lib/meta/entity-signals");
 const entitySignalsBackfill = await import("@/lib/meta/entity-signals-backfill");
 const commercialTargets = await import("@/lib/meta/commercial-targets");
@@ -381,7 +410,8 @@ describe("meta snapshot job", () => {
     vi.mocked(
       campaignContextSource.readCampaignContextLabelMap,
     ).mockResolvedValue(new Map());
-    vi.mocked(anomalies.detectAnomaliesForBusiness).mockResolvedValue([]);
+    vi.mocked(anomalies.detectAnomalyEvaluationForBusiness)
+      .mockResolvedValue(anomalyEvaluation());
     vi.mocked(entitySignals.readMetaEntityDecisionSignalsDaily).mockResolvedValue(new Map());
     vi.mocked(entitySignalsBackfill.runMetaSignalsBackfillForBusiness).mockResolvedValue({
       businessId: "biz_1",
@@ -795,7 +825,7 @@ describe("meta snapshot job", () => {
   it("persists anomaly rows alongside recommendation rows", async () => {
     const sql = makeSqlMock();
     vi.mocked(db.getDb).mockReturnValue(sql.tag);
-    vi.mocked(anomalies.detectAnomaliesForBusiness).mockResolvedValue([
+    vi.mocked(anomalies.detectAnomalyEvaluationForBusiness).mockResolvedValue(anomalyEvaluation([
       {
         id: "meta_anomaly_2026-05-06_campaign_cmp_1_roas_drop_sudden",
         type: "roas_drop_sudden",
@@ -809,7 +839,7 @@ describe("meta snapshot job", () => {
         diagnostics: ["Tracking interruption candidate"],
         detectedAt: "2026-05-06T03:00:00.000Z",
       },
-    ]);
+    ]));
 
     await runMetaSnapshotForBusiness("biz_1", "2026-05-06");
 
@@ -1296,8 +1326,8 @@ describe("meta snapshot job", () => {
   it("marks previously active anomalies resolved when absent on rerun", async () => {
     const sql = makeSqlMock();
     vi.mocked(db.getDb).mockReturnValue(sql.tag);
-    vi.mocked(anomalies.detectAnomaliesForBusiness)
-      .mockResolvedValueOnce([
+    vi.mocked(anomalies.detectAnomalyEvaluationForBusiness)
+      .mockResolvedValueOnce(anomalyEvaluation([
         {
           id: "meta_anomaly_2026-05-06_campaign_cmp_1_roas_drop_sudden",
           type: "roas_drop_sudden",
@@ -1311,8 +1341,8 @@ describe("meta snapshot job", () => {
           diagnostics: ["Recent bid change candidate"],
           detectedAt: "2026-05-06T03:00:00.000Z",
         },
-      ])
-      .mockResolvedValueOnce([]);
+      ]))
+      .mockResolvedValueOnce(anomalyEvaluation());
 
     await runMetaSnapshotForBusiness("biz_1", "2026-05-06");
     await runMetaSnapshotForBusiness("biz_1", "2026-05-06");
@@ -1322,7 +1352,14 @@ describe("meta snapshot job", () => {
         (text) =>
           text.includes("SET resolved_at = now()") &&
           text.includes("kind = 'anomaly'") &&
-          text.includes("resolved_at IS NULL"),
+          text.includes("resolved_at IS NULL") &&
+          /*
+            And scoped to the families this run actually evaluated. Absence
+            from the payload is evidence of recovery only for a family that
+            looked; a time-of-day gate means nobody looked, and resolving on
+            that used to close an operator's open anomaly with no fact change.
+          */
+          text.includes("rec_type = ANY("),
       ),
     ).toBe(true);
   });

@@ -314,6 +314,16 @@ const agencyDesk = (returnedFrom: { name: string; href: string } | null = null) 
 const metaRecommendation = (overrides: Record<string, unknown> = {}) => ({
   id: "d1",
   level: "campaign",
+  /*
+   * The provider identity a real served recommendation carries.
+   *
+   * Without it `toDecisionRow` derives no decision key, and the write ceremony
+   * correctly withholds every control — which is right behaviour on a row that
+   * names no single campaign, and wrong as a FIXTURE: the inspector artboards
+   * (B02, B07, H10) exist to grade `gated:META-WRITE-01 open-manual`, so they
+   * must be given a row that could actually preflight.
+   */
+  campaignId: "c1",
   type: "campaign_state",
   lens: "profitability",
   priority: "high",
@@ -383,6 +393,7 @@ const decisions = (selected: string | null = null, rows = 3, sticky = false, con
   const items = Array.from({ length: rows }, (_, index) =>
     metaRecommendation({
       id: `d${index + 1}`,
+      campaignId: `c${index + 1}`,
       title: `Prospecting — Broad US ${index + 1}`,
       confidence: index === 2 ? "low" : "high",
       confidenceReason: index === 2 ? "Four days of data in a seven-day window." : null,
@@ -956,6 +967,9 @@ const ceremonySeed = () => ({
 
 const ceremonyRow = {
   id: "d1",
+  // The row's grain identity, which is what the ceremony sends; `id` is the
+  // display identity and the server refuses it as a decision key.
+  decisionKey: "adset:as-1",
   level: "adset" as const,
   title: "Prospecting — Broad US",
   decision: "Scale up — 7-day ROAS 3.4 vs target 2.6",

@@ -172,6 +172,8 @@ const DISPATCH = {
 };
 const CEREMONY_ROW = {
   id: "d1",
+  // Grain identity, not the display id: the panel preflights this.
+  decisionKey: "adset:as-1",
   level: "adset" as const,
   title: "Prospecting",
   decision: "Scale",

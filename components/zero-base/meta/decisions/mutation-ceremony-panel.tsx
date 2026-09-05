@@ -122,7 +122,15 @@ export type Step =
   | { kind: "dispatching"; action: MutationAction }
   | { kind: "terminal"; action: MutationAction; answer: DispatchAnswer };
 
-const OFFERED_ACTIONS: MutationAction[] = ["pause", "resume", "bid", "duplicate"];
+/**
+ * Verbs this panel offers when the caller names none.
+ *
+ * A caller that knows which verb the server authorized should pass it:
+ * a campaign or ad-set card used to draw all four, so an operator was
+ * offered "duplicate" at a grain `endpointFor` has no path for and the
+ * route answers `unsupported_action`.
+ */
+const DEFAULT_OFFERED_ACTIONS: readonly MutationAction[] = ["pause", "resume", "bid", "duplicate"];
 
 /** Preflight older than this must be re-run before anything is dispatched. */
 const MAX_AGE_MS = 15 * 60 * 1000;
@@ -143,11 +151,18 @@ export function MutationCeremonyPanel({
   row,
   seed,
   initialStep,
+  offeredActions = DEFAULT_OFFERED_ACTIONS,
 }: {
   row: DecisionRow;
   seed: MutationCeremonySeed;
   /** The state to open in. Defaults to the start of the ceremony. */
   initialStep?: Step;
+  /**
+   * The verbs to offer. Callers that already hold the server's own
+   * `operatorApply` pass exactly that one, so the panel never draws a control
+   * the route would answer `unsupported_action` to.
+   */
+  offeredActions?: readonly MutationAction[];
 }) {
   const t = useCopy();
   const [step, setStep] = useState<Step>(initialStep ?? { kind: "idle" });
@@ -158,6 +173,13 @@ export function MutationCeremonyPanel({
   const attemptId = useRef<string | null>(null);
   const triggerRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const now = seed.now ?? (() => new Date());
+  /*
+   * The key the server parses, held as a local so the two preflight calls
+   * cannot drift apart. It is emphatically not `row.id`: the ceremony used to
+   * send the served recommendation id (`structure-7`, `bid-c1`) and the route
+   * refused every one of them with `decision_not_actionable`.
+   */
+  const decisionKey = row.decisionKey;
 
   const denial = seed.viewer.isReviewer
     ? "Reviewer sessions are read-only and never reach a provider."
@@ -167,15 +189,27 @@ export function MutationCeremonyPanel({
         ? "Your role on this business cannot make provider changes."
         : row.held
           ? (row.heldReason ?? "This decision offers no authorized action.")
-          : null;
+          : /*
+             * A row with no grain identity has no decision-bound key, so every
+             * verb on it would reach `parseDecisionKey` and come back
+             * `decision_not_actionable`. Say so here instead of drawing a
+             * control whose only possible answer is a 422 — the same withhold
+             * contract `buildDispatchDescriptor` applies server-side.
+             */
+            row.decisionKey === null
+            ? "This decision does not name a single campaign or ad set, so there is nothing to act on here."
+            : null;
 
   const startPreflight = useCallback(
     async (action: MutationAction) => {
+      // Unreachable while the denial paragraph is rendered instead of the
+      // triggers; kept so no future caller can drive this without a key.
+      if (decisionKey === null) return;
       setStep({ kind: "preflighting", action });
       setAnnouncement(`Checking whether ${action} is still safe…`);
       const answer = await seed.preflight({
         businessId: seed.businessId,
-        decisionKey: row.id,
+        decisionKey,
         action,
       });
 
@@ -221,7 +255,7 @@ export function MutationCeremonyPanel({
       });
       setAnnouncement(`Ready to ${action}. Confirm to continue.`);
     },
-    [now, row.id, seed],
+    [decisionKey, now, seed],
   );
 
   /** Move from the form to the confirmation, but only if the form is valid. */
@@ -241,6 +275,7 @@ export function MutationCeremonyPanel({
 
   const dispatch = useCallback(
     async (confirmed: Extract<Step, { kind: "confirm" }>) => {
+      if (decisionKey === null) return;
       // One id per attempt, so a retried request is a replay rather than a
       // second write.
       if (!attemptId.current) attemptId.current = seed.newMutationId();
@@ -252,7 +287,7 @@ export function MutationCeremonyPanel({
       setAnnouncement("Re-checking the target before sending…");
       const fresh = await seed.preflight({
         businessId: seed.businessId,
-        decisionKey: row.id,
+        decisionKey,
         action: confirmed.action,
       });
       if (!fresh.ok) {
@@ -284,7 +319,7 @@ export function MutationCeremonyPanel({
       setStep({ kind: "terminal", action: confirmed.action, answer });
       setAnnouncement(`${TERMINAL_COPY[answer.outcome].title}. ${TERMINAL_COPY[answer.outcome].body}`);
     },
-    [row.id, seed, values],
+    [decisionKey, seed, values],
   );
 
   return (
@@ -316,7 +351,7 @@ export function MutationCeremonyPanel({
         </p>
       ) : (
         <div data-mutation-actions="" style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-          {OFFERED_ACTIONS.map((action) => (
+          {offeredActions.map((action) => (
             <Button
               key={action}
               variant="secondary"

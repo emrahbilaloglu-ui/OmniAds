@@ -4703,7 +4703,7 @@ export function MetaPlatformPage({
       the target, the capability, the rehearsal posture, the STOP and the
       current entity state before it POSTs anything.
     */
-    if (rec.operatorApply && mutationUiEnabled) {
+    if (rec.operatorApply && mutationUiEnabled && toDecisionRow(rec).decisionKey !== null) {
       setManualCeremonyRec(rec);
       return;
     }
@@ -5190,11 +5190,23 @@ export function MetaPlatformPage({
         },
       })
     : null;
+  /*
+   * Whether the drilled row can reach the ceremony at all.
+   *
+   * Both conditions come from the server: `operatorApply` is the verb it named,
+   * and the decision-bound key is the row's own grain identity. Without either
+   * one the sheet could only preflight a key `parseDecisionKey` refuses, so it
+   * is withheld with a stated reason rather than opened onto a certain 422.
+   */
+  const drillRec = drillItem && drillItem.mode !== "anomaly" ? drillItem.rec : null;
+  const drillOperatorApply = drillRec?.operatorApply ?? null;
+  const drillDecisionKey = drillRec ? toDecisionRow(drillRec).decisionKey : null;
   /**
    * The manual action sheet's posture for the selected row.
    *
-   * Two independent refusals, and the more specific one wins: a reviewer or a
-   * read-only workspace is told about THEM, and only then is the gate reported.
+   * Independent refusals, and the more specific one wins: a reviewer or a
+   * read-only workspace is told about THEM, then the gate, and only then what
+   * this particular row does or does not authorize.
    * Absent entirely when nothing is selected — there is no row to act on.
    */
   const inspectorManualAction: NonNullable<
@@ -5208,14 +5220,19 @@ export function MetaPlatformPage({
             ? "Meta writes are stopped for this workspace, so no manual action can be prepared."
             : !mutationUiEnabled
               ? "The manual action sheet is not enabled on this workspace yet. The decision and its evidence are shown above."
-              : null,
+              : drillRec && !drillOperatorApply
+                ? "This decision names no change to apply, so no manual action can be prepared. The decision and its evidence are shown above."
+                : drillRec && drillDecisionKey === null
+                  ? "This decision does not name a single campaign or ad set, so no manual action can be prepared."
+                  : null,
         onOpen:
           mutationUiEnabled &&
           !isViewerReadOnly &&
           !workspaceQuery.data?.system.killSwitchEngaged &&
-          drillItem &&
-          drillItem.mode !== "anomaly"
-            ? () => setManualCeremonyRec(drillItem.rec)
+          drillRec !== null &&
+          drillOperatorApply !== null &&
+          drillDecisionKey !== null
+            ? () => setManualCeremonyRec(drillRec)
             : undefined,
       }
     : null;
@@ -5793,6 +5810,17 @@ export function MetaPlatformPage({
             </button>
             <MutationCeremonyPanel
               row={toDecisionRow(manualCeremonyRec)}
+              /*
+                Exactly the verb `serverOperatorApplyForRec` named, never the
+                panel's own default four: a campaign or ad-set card used to
+                offer "duplicate", which has no endpoint at that grain and the
+                route answers `unsupported_action`.
+              */
+              offeredActions={
+                manualCeremonyRec.operatorApply
+                  ? [manualCeremonyRec.operatorApply.action]
+                  : []
+              }
               seed={buildMutationCeremonySeed({
                 businessId,
                 viewer: {

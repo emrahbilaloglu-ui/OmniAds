@@ -231,18 +231,25 @@ describe("D088 C2 — the ceremony calls the real admin route", () => {
     expect(html).not.toContain("Budget change capability");
   });
 
-  it("a READ-ONLY mobile surface renders NO actionable control", () => {
+  it("a `mobile_read_only` AUTHORIZATION renders NO actionable control", () => {
     /*
-      PRE-DEPLOY AUDIT: the mobile pane declares `data-read-only="true"` and
-      says "Read-only" on screen, and it used to render the same live Enable
-      and Disable buttons as the desktop pane.
+      PRE-DEPLOY AUDIT: this section used to render the same live Enable and
+      Disable buttons on the mobile pane as on the desktop one.
+
+      The name of the law moved but the law did not. The mobile pane is no
+      longer read-only — it carries the Meta stop and the confirmation queue —
+      so the refusal now names the CONTROL rather than the pane. What is
+      unchanged, and is the guard, is that a `"mobile_read_only"` authorization
+      draws nothing actionable: arming automatic execution stays
+      desktop-and-admin-only, and `buildBudgetMasterSwitchAuthorization`
+      refuses that surface unconditionally.
     */
     const html = renderToStaticMarkup(
       <BudgetWriteReadinessSection
         readiness={model()}
         authorization={{
           canConfigure: false, canDisable: false,
-          reason: "This is the read-only mobile view. Open Automation on a desktop browser to change automatic execution.",
+          reason: "Automatic execution is changed only in the desktop workspace. Open Automation on a desktop browser to change it.",
           reasonCode: "read_only_surface", surface: "mobile_read_only",
         }}
       />,
@@ -254,7 +261,8 @@ describe("D088 C2 — the ceremony calls the real admin route", () => {
     ]) {
       expect(html, control).not.toContain(control);
     }
-    // The STATUS is still fully rendered — read-only is not blind.
+    // The STATUS is still fully rendered — refused is not blind.
+    expect(html).toContain("desktop workspace");
     expect(html).toContain('data-field="business-master-switch"');
     expect(html).toContain('data-field="effective-write"');
     expect(html).toContain('data-field="master-switch-refusal"');

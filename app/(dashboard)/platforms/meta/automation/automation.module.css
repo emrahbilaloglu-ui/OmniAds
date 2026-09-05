@@ -1235,16 +1235,6 @@
   text-transform: uppercase;
 }
 
-.mobileReadOnly {
-  display: inline-flex;
-  border-radius: 9999px;
-  background: #f1f4f9;
-  padding: 3px 9px;
-  color: #45526b;
-  font-size: 12px;
-  font-weight: 600;
-}
-
 .mobileSurface h1 {
   margin: 0;
   color: #0e1526;
@@ -1252,6 +1242,26 @@
   font-size: 20px;
   font-weight: 700;
   line-height: 1.2;
+}
+
+/*
+ * The STOP block on the mobile pane.
+ *
+ * The controls inside are the desktop ones — `.killAction`, `.killNote`, the
+ * typed-confirmation form — so this only gives them a column to stack in and a
+ * boundary an operator can find in a hurry.
+ */
+.mobileStop {
+  display: grid;
+  gap: 8px;
+  border: 1px solid #e4e8f0;
+  border-radius: 12px;
+  padding: 12px;
+}
+
+.mobileStop input {
+  min-width: 0;
+  max-width: 100%;
 }
 
 .mobileIntro {
@@ -1305,6 +1315,39 @@
     gap: 12px;
     background: #fff;
     padding: 18px 16px 28px;
+  }
+
+  /*
+   * The queue row at 320px.
+   *
+   * `.proposalBody` carries a 220px floor and `.proposalControls` refuses to
+   * shrink, which together with `.proposalRow`'s 16px side padding overflows a
+   * 320px viewport — and the responsive gate measures the document for
+   * horizontal scroll. Relaxed on the narrow surface only; the desktop
+   * geometry the reference grades is untouched.
+   */
+  .proposalBody {
+    min-width: 0;
+    flex-basis: 100%;
+  }
+
+  .proposalControls {
+    flex-shrink: 1;
+    flex-wrap: wrap;
+    width: 100%;
+  }
+
+  .proposalPrimary,
+  .proposalSecondary,
+  .proposalTertiary {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .proposalEvidence,
+  .proposalExpiry {
+    min-width: 0;
+    overflow-wrap: anywhere;
   }
 }
 

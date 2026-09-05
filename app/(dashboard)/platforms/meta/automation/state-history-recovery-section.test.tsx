@@ -137,15 +137,27 @@ describe("StateHistoryRecoverySection", () => {
       /<StateHistoryRecoverySection readiness=\{stateHistoryReadiness\} \/>/g,
     );
     expect(mounts).toHaveLength(2);
-    // One mount inside the desktop surface, one inside the mobile surface.
+    /*
+      Anchored to the two SECTION testids rather than to first/second
+      occurrence order.
+
+      The old form asked "is the first occurrence before the mobile testid" and
+      "is the second one after it", which is a statement about ordinal position
+      in the file. It happened to be equivalent while the whole view was one
+      function; it stops being equivalent the moment anything — a shared
+      sub-component, a helper — is defined above or below the two sections. The
+      law being pinned is per-SURFACE parity: exactly one mount inside each
+      section, so a phone shows the same recovery readiness a desktop does.
+    */
     const desktop = source.indexOf('data-testid="automation-exact-desktop"');
     const mobile = source.indexOf('data-testid="meta-mobile-automation"');
-    const first = source.indexOf("<StateHistoryRecoverySection");
-    const second = source.indexOf("<StateHistoryRecoverySection", first + 1);
     expect(desktop).toBeGreaterThan(-1);
-    expect(mobile).toBeGreaterThan(-1);
-    expect(first).toBeGreaterThan(desktop);
-    expect(first).toBeLessThan(mobile);
-    expect(second).toBeGreaterThan(mobile);
+    expect(mobile).toBeGreaterThan(desktop);
+
+    const countIn = (text: string) =>
+      (text.match(/<StateHistoryRecoverySection/g) ?? []).length;
+    expect(countIn(source.slice(0, desktop))).toBe(0);
+    expect(countIn(source.slice(desktop, mobile))).toBe(1);
+    expect(countIn(source.slice(mobile))).toBe(1);
   });
 });

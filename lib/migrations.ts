@@ -12430,6 +12430,40 @@ export async function runMigrations(options?: {
           ON meta_structure_snapshot_runs (as_of_date DESC, slot)`,
         sql`ALTER TABLE meta_launch_intents
           ADD COLUMN IF NOT EXISTS activation_approval_json JSONB`,
+        /*
+          ── What the last activation attempt actually did ──
+
+          The approval above authorizes an activation; this records the one
+          that ran. They are deliberately separate columns: an approval that
+          was consumed is still the approval, and a receipt that says the ad
+          set blocked is not a revocation.
+
+          Without this, a half-activated hierarchy existed only in the HTTP
+          response. Reload the page and a campaign that is now on, under an ad
+          set that is not, looked exactly like an intent nobody had touched —
+          the single worst thing to be wrong about, because the difference is
+          whether money is being spent.
+        */
+        sql`ALTER TABLE meta_launch_intents
+          ADD COLUMN IF NOT EXISTS activation_receipt_json JSONB`,
+        sql`DO $$
+        BEGIN
+          IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint c
+            JOIN pg_class t ON t.oid = c.conrelid
+            JOIN pg_namespace n ON n.oid = t.relnamespace
+            WHERE n.nspname = current_schema()
+              AND t.relname = 'meta_launch_intents'
+              AND c.conname = 'meta_launch_intents_activation_receipt_object'
+          ) THEN
+            ALTER TABLE meta_launch_intents
+              ADD CONSTRAINT meta_launch_intents_activation_receipt_object
+              CHECK (
+                activation_receipt_json IS NULL
+                OR jsonb_typeof(activation_receipt_json) = 'object'
+              );
+          END IF;
+        END $$`,
         sql`DO $$
         BEGIN
           IF NOT EXISTS (

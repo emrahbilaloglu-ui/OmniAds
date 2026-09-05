@@ -16,6 +16,7 @@ function intent(overrides: Partial<MetaLaunchIntent> = {}): MetaLaunchIntent {
     // intent, which is what every intent is until somebody approves turning
     // it on.
     activationApproval: null,
+    activationReceipt: null,
     lineage: {
       sourceDecisionId: "decision_1",
       sourceDecisionSnapshotId: "snapshot_1",

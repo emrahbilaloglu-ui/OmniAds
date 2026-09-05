@@ -41,7 +41,13 @@ describe("the write-safety sequence", () => {
 
   it("declares every step for every write family", () => {
     // A family that simply omits a step would conform by silence.
-    expect(WRITE_FAMILIES).toHaveLength(3);
+    expect(WRITE_FAMILIES).toHaveLength(4);
+    // Activation is its own family, not a case of the create's. The create
+    // record excuses its rollback step on the grounds that everything it makes
+    // is PAUSED; activation is the write that ends that.
+    expect(WRITE_FAMILIES.map((family) => family.id)).toContain(
+      "launchpad_activation",
+    );
     for (const family of WRITE_FAMILIES) {
       for (const step of WRITE_SAFETY_STEPS) {
         expect(family.steps[step], `${family.id}/${step}`).toBeDefined();

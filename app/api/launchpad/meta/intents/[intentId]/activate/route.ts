@@ -29,6 +29,7 @@ import {
 import {
   jsonError,
   readJsonBody,
+  rejectIfLaunchpadExecutionGated,
   rejectIfLaunchpadReviewerReadOnly,
   requireLaunchpadBusinessAccess,
   sanitizeErrorMessage,
@@ -62,6 +63,17 @@ export async function POST(
     "launchpad_activate_intent",
   );
   if (reviewerBlocked) return reviewerBlocked;
+  /*
+    The release gate, which this route did not read.
+
+    Launch and add-to-existing both refuse when `META_LAUNCHPAD_EXECUTION` is
+    closed or the write family still declares a missing safety step. Activation
+    reached Meta without either check — so a deployment that had deliberately
+    not opened Launchpad's provider writes could still be made to turn a
+    campaign on, which is the one write in this family that starts spending.
+  */
+  const executionGated = rejectIfLaunchpadExecutionGated("launchpad_activate_intent");
+  if (executionGated) return executionGated;
   const demoBlocked = await rejectIfLaunchpadDemoWrite(
     access.businessId,
     "launchpad_activate_intent",
@@ -170,7 +182,7 @@ export async function POST(
       );
     }
 
-    const { activation } = result;
+    const { activation, receipt } = result;
     return NextResponse.json({
       ok: true,
       contract: activation.contract,
@@ -179,7 +191,20 @@ export async function POST(
       delivering: activation.delivering,
       blockedAt: activation.blockedAt,
       blockedReason: activation.blockedReason,
-      steps: activation.steps,
+      /*
+        The steps carry their durable ids.
+
+        The response used to be the only place this sequence existed. Each step
+        now names the `meta_ads_action_log` row it was journalled in, so the
+        surface can link a blocked ad set to the row History shows and a reload
+        finds the same facts on the intent rather than nothing at all.
+      */
+      steps: receipt.steps,
+      receipt: {
+        contract: receipt.contract,
+        recordedAt: receipt.recordedAt,
+        authorization: receipt.authorization,
+      },
     });
   } catch (error) {
     return jsonError(500, "activation_failed", sanitizeErrorMessage(error));

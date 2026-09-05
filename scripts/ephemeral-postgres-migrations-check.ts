@@ -1319,6 +1319,34 @@ async function assertActivationApproval(
     log("launch intents carry a nullable activation approval");
   }
 
+  /*
+    The receipt of the activation that ran, which is a different fact.
+
+    An approval authorizes; a receipt records. Kept in separate columns
+    deliberately: a consumed approval is still the approval, and a receipt
+    saying the ad set blocked is not a revocation of anything.
+  */
+  const { rows: receiptRows } = await client.query<{
+    is_nullable: string; data_type: string;
+  }>(
+    `SELECT is_nullable, data_type
+       FROM information_schema.columns
+      WHERE table_schema = 'public'
+        AND table_name = 'meta_launch_intents'
+        AND column_name = 'activation_receipt_json'`,
+  );
+  const receipt = receiptRows[0];
+  if (!receipt) {
+    failures.push("meta_launch_intents.activation_receipt_json is missing");
+  } else if (receipt.is_nullable !== "YES") {
+    // NULL is "no activation has run", which every existing row is.
+    failures.push("activation_receipt_json is NOT NULL, so old rows claim an activation");
+  } else if (receipt.data_type !== "jsonb") {
+    failures.push(`activation_receipt_json is ${receipt.data_type}, not jsonb`);
+  } else {
+    log("launch intents carry a nullable activation receipt");
+  }
+
   const { rows: checks } = await client.query<{ definition: string }>(
     `SELECT pg_get_constraintdef(c.oid) AS definition
        FROM pg_constraint c

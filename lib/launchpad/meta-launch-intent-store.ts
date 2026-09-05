@@ -36,6 +36,8 @@ type MetaLaunchIntentDbRow = {
    * operator may activate and nothing else may.
    */
   activation_approval_json: unknown;
+  /** The last activation attempt's receipt. NULL until one has run. */
+  activation_receipt_json: unknown;
   created_by: string | null;
   created_at: string;
   updated_at: string;
@@ -91,6 +93,7 @@ function mapMetaLaunchIntent(row: MetaLaunchIntentDbRow): MetaLaunchIntent {
     resultReceipt: row.result_receipt_json,
     errorReceipt: row.error_receipt_json,
     activationApproval: row.activation_approval_json ?? null,
+    activationReceipt: row.activation_receipt_json ?? null,
     createdBy: row.created_by,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -310,6 +313,32 @@ export async function recordMetaLaunchIntentValidation(input: {
     RETURNING *
   `) as MetaLaunchIntentDbRow[];
   return requireUpdatedIntent(rows, "Launch intent is not in prepared state.");
+}
+
+/**
+ * Store the receipt of one activation attempt.
+ *
+ * No status transition and no guard on the current status. Activation does not
+ * move the intent's own lifecycle — the launch already succeeded or partially
+ * succeeded, and turning its entities on does not change which of those it
+ * was. Refusing to record a receipt because the status was unexpected would
+ * throw away the only durable evidence that provider calls were made.
+ */
+export async function recordMetaLaunchIntentActivation(input: {
+  businessId: string;
+  id: string;
+  receipt: unknown;
+}): Promise<MetaLaunchIntent> {
+  const sql = getDb();
+  const rows = (await sql`
+    UPDATE meta_launch_intents
+    SET activation_receipt_json = ${JSON.stringify(input.receipt)}::jsonb,
+        updated_at = NOW()
+    WHERE business_id = ${input.businessId}
+      AND id = ${input.id}
+    RETURNING *
+  `) as MetaLaunchIntentDbRow[];
+  return requireUpdatedIntent(rows, "Launch intent not found.");
 }
 
 export async function markMetaLaunchIntentExecuting(input: {

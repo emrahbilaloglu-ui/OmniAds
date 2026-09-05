@@ -46,6 +46,7 @@ function intent(overrides: Partial<MetaLaunchIntent> = {}): MetaLaunchIntent {
     },
     errorReceipt: null,
     activationApproval: null,
+    activationReceipt: null,
     createdBy: APPROVER,
     createdAt: "2026-09-05T08:00:00.000Z",
     updatedAt: "2026-09-05T09:00:00.000Z",
@@ -96,9 +97,42 @@ function providerIsAgreeable() {
 
 const written = new Set<string>();
 
+/*
+  The durable seam, faked.
+
+  Activation now claims a row before every POST and terminalises it after, in
+  the same action log every other Meta write uses. These tests are about the
+  sequence, not the table, so they inject a journal that records the calls —
+  the durable behaviour itself is proved in `launch-activation-durability`.
+*/
+const claims: Array<{ entityId: string; grain: string }> = [];
+const settled: Array<{ id: string; outcome: string }> = [];
+let unresolvedFor = new Set<string>();
+const receipts: unknown[] = [];
+
+const fakeJournal = {
+  findUnresolved: async (input: { entityId: string }) =>
+    unresolvedFor.has(input.entityId) ? { id: `prior_${input.entityId}` } : null,
+  claim: async (input: { entityId: string; grain: string }) => {
+    claims.push({ entityId: input.entityId, grain: input.grain });
+    return { id: `log_${input.entityId}` };
+  },
+  settle: async (input: { id: string; outcome: string }) => {
+    settled.push({ id: input.id, outcome: input.outcome });
+  },
+};
+
+const persistReceipt = async (receipt: unknown) => {
+  receipts.push(receipt);
+};
+
 beforeEach(() => {
   vi.clearAllMocks();
   written.clear();
+  claims.length = 0;
+  settled.length = 0;
+  receipts.length = 0;
+  unresolvedFor = new Set<string>();
   for (const [fn, ids] of [
     [adsWrite.resumeCampaign, "camp"], [adsWrite.resumeAdset, "set"],
     [adsWrite.resumeAd, "ad"],
@@ -158,6 +192,8 @@ describe("an operator may activate; an unattended run needs an approval", () => 
     const result = await activateLaunchIntent({
       intent: intent(),
       ctx: {} as never,
+      journal: fakeJournal,
+      persistReceipt: persistReceipt,
       authorization: { kind: "operator", operatorUserId: APPROVER },
     });
 
@@ -170,6 +206,8 @@ describe("an operator may activate; an unattended run needs an approval", () => 
     const result = await activateLaunchIntent({
       intent: intent(),
       ctx: {} as never,
+      journal: fakeJournal,
+      persistReceipt: persistReceipt,
       authorization: { kind: "scheduled" },
     });
 
@@ -182,6 +220,8 @@ describe("an operator may activate; an unattended run needs an approval", () => 
     const result = await activateLaunchIntent({
       intent: intent({ activationApproval: approval() }),
       ctx: {} as never,
+      journal: fakeJournal,
+      persistReceipt: persistReceipt,
       authorization: { kind: "scheduled" },
       now: new Date("2026-09-05T10:00:00.000Z"),
     });
@@ -200,6 +240,8 @@ describe("an operator may activate; an unattended run needs an approval", () => 
         requestFingerprint: "c".repeat(64),
       }),
       ctx: {} as never,
+      journal: fakeJournal,
+      persistReceipt: persistReceipt,
       authorization: { kind: "scheduled" },
       now: new Date("2026-09-05T10:00:00.000Z"),
     });
@@ -219,6 +261,8 @@ describe("an operator may activate; an unattended run needs an approval", () => 
         }),
       }),
       ctx: {} as never,
+      journal: fakeJournal,
+      persistReceipt: persistReceipt,
       authorization: { kind: "scheduled" },
       now: new Date("2026-09-05T10:00:00.000Z"),
     });
@@ -236,6 +280,8 @@ describe("nothing is activated that was not created", () => {
     const result = await activateLaunchIntent({
       intent: intent({ status: "failed" }),
       ctx: {} as never,
+      journal: fakeJournal,
+      persistReceipt: persistReceipt,
       authorization: { kind: "operator", operatorUserId: APPROVER },
     });
     expect(result).toEqual({ ok: false, refusal: "intent_not_succeeded" });
@@ -246,6 +292,8 @@ describe("nothing is activated that was not created", () => {
     const result = await activateLaunchIntent({
       intent: intent({ resultReceipt: null }),
       ctx: {} as never,
+      journal: fakeJournal,
+      persistReceipt: persistReceipt,
       authorization: { kind: "operator", operatorUserId: APPROVER },
     });
     expect(result).toEqual({ ok: false, refusal: "receipt_absent" });
@@ -257,6 +305,8 @@ describe("a mid-sequence refusal stops where it happened", () => {
     const result = await activateLaunchIntent({
       intent: intent(),
       ctx: {} as never,
+      journal: fakeJournal,
+      persistReceipt: persistReceipt,
       authorization: { kind: "operator", operatorUserId: APPROVER },
       authorize: async (target) =>
         target.grain === "adset" ? "kill_switch_engaged" : null,

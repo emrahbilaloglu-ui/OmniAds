@@ -93,6 +93,14 @@ export interface MetaLaunchIntent {
   errorReceipt: MetaLaunchIntentErrorReceipt | null;
   /** Unvalidated. See `validateActivationApproval`; NULL means operator-only. */
   activationApproval: unknown;
+  /**
+   * The last activation attempt's own receipt, or null if none has run.
+   *
+   * `unknown` for the same reason the approval is: it is a stored document
+   * that a reader must version-check before believing, not a value this type
+   * can vouch for.
+   */
+  activationReceipt: unknown;
   createdBy: string | null;
   createdAt: string;
   updatedAt: string;

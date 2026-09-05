@@ -76,8 +76,16 @@ export interface HierarchyActivationDeps {
   /**
    * Set one entity active. Returns the provider's answer; it does not decide
    * whether that answer counts, because deciding is this module's job.
+   *
+   * `observed` is the state read from the provider immediately before this
+   * call, passed on rather than re-read: it is what makes a durable claim able
+   * to record what the entity was before the write, which is the only thing a
+   * rollback could ever be built from.
    */
-  activate(target: ActivationTarget): Promise<{
+  activate(
+    target: ActivationTarget,
+    observed: { status: string | null; effectiveStatus: string | null },
+  ): Promise<{
     ok: boolean;
     ambiguous?: boolean;
     reason?: string | null;
@@ -93,6 +101,17 @@ export interface HierarchyActivationDeps {
   } | null>;
   /** Re-proved before every single provider call. Throws or returns a reason. */
   authorize?(target: ActivationTarget): Promise<string | null>;
+  /**
+   * Called once per step with this module's verdict on it, before the next
+   * step begins.
+   *
+   * The provider's answer and the verdict are not the same fact: a write the
+   * adapter accepted whose independent read-back still says PAUSED is a
+   * successful call and a failed step. A durable record built from the call
+   * alone would say the ad set was activated when it demonstrably was not, so
+   * the journal is terminalised from here rather than from `activate`.
+   */
+  onStepResult?(step: ActivationStepResult): Promise<void>;
 }
 
 function isActive(state: {
@@ -132,9 +151,18 @@ export async function activateHierarchy(input: {
   let blockedAt: ActivationGrain | null = null;
   let blockedReason: string | null = null;
 
+  // Every verdict goes through here, so no branch can record a step without
+  // the journal hearing about it.
+  const record = async (step: ActivationStepResult) => {
+    steps.push(step);
+    if (input.deps.onStepResult) {
+      await input.deps.onStepResult(step).catch(() => undefined);
+    }
+  };
+
   for (const target of ordered) {
     if (blockedAt !== null) {
-      steps.push({
+      await record({
         grain: target.grain,
         entityId: target.entityId,
         outcome: "not_attempted",
@@ -155,7 +183,7 @@ export async function activateHierarchy(input: {
     if (before === null) {
       blockedAt = target.grain;
       blockedReason = "state_unreadable";
-      steps.push({
+      await record({
         grain: target.grain,
         entityId: target.entityId,
         outcome: "blocked",
@@ -169,7 +197,7 @@ export async function activateHierarchy(input: {
       // strength of an answer that is not about this one.
       blockedAt = target.grain;
       blockedReason = "identity_drift";
-      steps.push({
+      await record({
         grain: target.grain,
         entityId: target.entityId,
         outcome: "blocked",
@@ -179,7 +207,7 @@ export async function activateHierarchy(input: {
       continue;
     }
     if (isActive(before)) {
-      steps.push({
+      await record({
         grain: target.grain,
         entityId: target.entityId,
         outcome: "already_active",
@@ -198,7 +226,7 @@ export async function activateHierarchy(input: {
     if (refusal) {
       blockedAt = target.grain;
       blockedReason = refusal;
-      steps.push({
+      await record({
         grain: target.grain,
         entityId: target.entityId,
         outcome: "blocked",
@@ -208,7 +236,10 @@ export async function activateHierarchy(input: {
       continue;
     }
 
-    const written = await input.deps.activate(target).catch(() => ({
+    const written = await input.deps.activate(target, {
+      status: before.status,
+      effectiveStatus: before.effectiveStatus,
+    }).catch(() => ({
       ok: false, ambiguous: true, reason: "activate_threw",
     }));
     if (written.ambiguous === true) {
@@ -221,7 +252,7 @@ export async function activateHierarchy(input: {
       */
       blockedAt = target.grain;
       blockedReason = written.reason ?? "provider_outcome_ambiguous";
-      steps.push({
+      await record({
         grain: target.grain,
         entityId: target.entityId,
         outcome: "ambiguous",
@@ -243,7 +274,7 @@ export async function activateHierarchy(input: {
           : after.id !== target.entityId
             ? "identity_drift"
             : "verified_not_active";
-      steps.push({
+      await record({
         grain: target.grain,
         entityId: target.entityId,
         outcome: "blocked",
@@ -255,7 +286,7 @@ export async function activateHierarchy(input: {
       continue;
     }
 
-    steps.push({
+    await record({
       grain: target.grain,
       entityId: target.entityId,
       outcome: "activated",

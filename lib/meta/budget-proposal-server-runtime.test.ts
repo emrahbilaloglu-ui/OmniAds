@@ -153,6 +153,7 @@ const proposalFor = (shape: Shape): MetaAutomationProposal => ({
     engineVersion: "v3", decisionHash: "e".repeat(64),
     decisionAt: "2026-08-30T00:00:00.000Z",
   }),
+  launchIntentId: null,
   claimToken: "77777777-7777-4777-8777-777777777777",
   claimedBy: ACTOR, claimedAt: null, dispatchStartedAt: null,
   createdAt: "2026-08-30T10:00:00.000Z", updatedAt: "2026-08-30T10:00:00.000Z",

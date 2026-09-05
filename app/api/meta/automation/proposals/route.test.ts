@@ -148,6 +148,7 @@ function proposal(
     budgetEnvelope: null,
     // Claim fields are part of the row now. A fixture that omitted them would
     // let a test assert on a proposal shape the database can no longer produce.
+    launchIntentId: null,
     claimToken: null,
     claimedBy: null,
     claimedAt: null,

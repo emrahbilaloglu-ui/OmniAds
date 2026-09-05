@@ -518,6 +518,7 @@ const proposal = (over: Partial<MetaAutomationProposal> = {}): MetaAutomationPro
     snapshotDate: "2026-08-31", engineVersion: "meta-v3",
     decisionHash, decisionAt,
   }),
+  launchIntentId: null,
   claimToken: null, claimedBy: null, claimedAt: null, dispatchStartedAt: null,
   createdAt: "2026-08-31T07:00:00.000Z", updatedAt: "2026-08-31T07:00:00.000Z",
   ...over,

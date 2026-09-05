@@ -12517,6 +12517,17 @@ export async function runMigrations(options?: {
         the lineage rule requires it only for the action that has no meaning
         without it.
 
+        The activation lineage rule answers a hazard the launch rule does not
+        cover. Turning on what a launch created is raised as `resume`, a verb
+        the engine already uses for ordinary un-pausing, and the two are
+        indistinguishable from the action alone: an activation read as an
+        ordinary resume is armed by the pause standing mode and dispatched by
+        the status runtimes, with no activation approval, no campaign -> ad set
+        -> ad ordering and no way back to the intent that authorized it. The
+        arm is `origin <> 'operator_action'` so every engine-raised and
+        rule-raised `resume` row keeps its meaning untouched; only a row the
+        operator's own path stages must be able to name its intent.
+
         Nothing is backfilled. Existing `engine_decision` rows satisfy the new
         constraints unchanged, which is what makes this safe to apply while rows
         are in flight.
@@ -12598,6 +12609,23 @@ export async function runMigrations(options?: {
             ALTER TABLE meta_automation_proposals
               ADD CONSTRAINT meta_automation_proposals_launch_lineage
               CHECK (proposed_action <> 'launch' OR launch_intent_id IS NOT NULL);
+          END IF;
+
+          IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint c
+            JOIN pg_class t ON t.oid = c.conrelid
+            JOIN pg_namespace n ON n.oid = t.relnamespace
+            WHERE n.nspname = current_schema()
+              AND t.relname = 'meta_automation_proposals'
+              AND c.conname = 'meta_automation_proposals_activation_lineage'
+          ) THEN
+            ALTER TABLE meta_automation_proposals
+              ADD CONSTRAINT meta_automation_proposals_activation_lineage
+              CHECK (
+                proposed_action <> 'resume'
+                OR origin <> 'operator_action'
+                OR launch_intent_id IS NOT NULL
+              );
           END IF;
         END $$;`,
         /*

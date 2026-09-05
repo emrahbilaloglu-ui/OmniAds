@@ -131,6 +131,29 @@ export function decisionTypeForProposedAction(
 }
 
 /**
+ * The same question, asked of the ROW rather than of the verb.
+ *
+ * Turning on what a launch created is raised as `resume`, because that is what
+ * it does to the entity — but it is not the pause family. It publishes work an
+ * operator staged in Launchpad, under the creative standing mode and behind an
+ * activation approval, and reading it by its verb alone would arm it from the
+ * pause mode instead: an operator who armed unattended pausing would find
+ * themselves dispatching an activation they never armed, with no approval
+ * check and no route back to the intent that authorized it.
+ *
+ * The lineage is the only thing that separates the two, so anything deciding
+ * how a row may be dispatched asks this rather than
+ * {@link decisionTypeForProposedAction}, which stays exactly as it is for the
+ * callers that genuinely only have a verb.
+ */
+export function decisionTypeForProposal(
+  proposal: Pick<MetaAutomationProposal, "proposedAction" | "launchIntentId">,
+): MetaAutomationDecisionType {
+  if (proposal.launchIntentId) return "creative";
+  return decisionTypeForProposedAction(proposal.proposedAction);
+}
+
+/**
  * Build the `beforeMutationAttempt` hook the write adapters accept.
  *
  * It throws on refusal, which is what stops the POST: the adapters run this

@@ -85,19 +85,35 @@ export type MetaAutomationProposalScope = "campaign" | "adset" | "ad";
  * budget writes AND three more pauses on every tick — the cap an operator set
  * to bound money-moving actions bounded one third of them.
  *
- * `duplicate` and `launch` are absent: both create an entity, and creating one
- * without an operator is a different authorization than changing one that
- * already exists.
- *
  * `bid` is here now. It was excluded because no queue row could prove an
  * amount — the row carried a verb and a target and an executor would have had
  * to invent the size of the change. `bid_envelope_json` is that amount, the
  * database refuses a `bid` row without one, and the same daily cap that bounds
  * a budget change now bounds a cap change, because both move money.
+ *
+ * `launch` is here now too, and the reason it was absent has been answered
+ * rather than waived. It said creating an entity without an operator is a
+ * different authorization than changing one that already exists — which is
+ * true, so the authorization it named now exists and can be pointed at: the
+ * creative standing mode set to `auto`, the separate `META_LAUNCHPAD_EXECUTION`
+ * gate open with no missing step in the `launchpad_create` safety family, and
+ * the intent's OWN stored payload, staged and confirmed by a person in
+ * Launchpad and replayed byte for byte. Nothing here decides what to advertise;
+ * it decides only whether an approved intent may be executed unattended. Every
+ * create is still PAUSED, and turning it on remains a separate decision behind
+ * a separate stored approval.
+ *
+ * `duplicate` stays absent. It creates an entity with no intent behind it, so
+ * there is no stored authorization for an unattended path to read.
+ *
+ * Being on this list makes a launch both COUNTED and dispatchable, and the
+ * counting half binds first: a launch consumes the same daily allowance as a
+ * budget write, because it spends the account's money just as surely.
  */
 export const AUTOMATABLE_PROPOSAL_ACTIONS = [
   "budget",
   "bid",
+  "launch",
   "pause",
   "resume",
 ] as const;
@@ -112,6 +128,16 @@ export const AUTOMATABLE_PROPOSAL_ACTIONS = [
 export const META_AUTOMATION_PROPOSAL_ORIGINS = [
   "engine_decision",
   "automation_rule",
+  /*
+    A person's own decision, recorded in Launchpad.
+
+    The database has accepted this origin since the launch slice widened the
+    CHECK, and `launch-proposal-producer.ts` writes it — but this union never
+    learned about it, so a row the queue really does hold could not be typed.
+    A launch names an approved asset, copy and destination, and none of those
+    is an engine recommendation or a rule firing.
+  */
+  "operator_action",
 ] as const;
 export type MetaAutomationProposalOrigin =
   (typeof META_AUTOMATION_PROPOSAL_ORIGINS)[number];
@@ -357,6 +383,21 @@ export interface MetaAutomationProposal {
    */
   bidEnvelope: BidProposalEnvelope | null;
   /**
+   * The launch intent this row is about, when it is about one.
+   *
+   * A `launch` row has no meaning without it and the database refuses one
+   * (`meta_automation_proposals_launch_lineage`). An operator-staged `resume`
+   * row carries it too, and that is the only thing separating "turn on what
+   * this launch created" from an ordinary un-pause: the two share a verb, so
+   * anything deciding how the row may be dispatched has to read this field
+   * rather than `proposedAction` — see `decisionTypeForProposal`.
+   *
+   * Null on a pre-migration read exactly as the claim fields are, which is a
+   * different fact from "this row names no intent"; a reader that must have
+   * the lineage refuses instead of executing without it.
+   */
+  launchIntentId: string | null;
+  /**
    * The current (or last) execution claim.
    *
    * `null` on a database that has not run the claim migration yet, which is a
@@ -399,7 +440,16 @@ export function proposalActionLabel(
   action: MutationAction,
   scopeType: MetaAutomationProposalScope,
 ): string {
-  const entity = scopeType === "campaign" ? "campaign" : "ad set";
+  /*
+    Three grains, not two.
+
+    `ad` used to fold into "ad set" here because no producer raised an ad-grain
+    row. The native cut projection and the activation producer both do now, and
+    an activation tagged "Resume ad set" would name the wrong entity on the one
+    screen an operator uses to decide whether to approve it.
+  */
+  const entity =
+    scopeType === "campaign" ? "campaign" : scopeType === "ad" ? "ad" : "ad set";
   switch (action) {
     case "pause":
       return `Pause ${entity}`;
@@ -572,6 +622,8 @@ interface ProposalDbRow {
   budget_envelope_json?: unknown;
   /** The bid amount envelope. Absent the same way on a pre-migration read. */
   bid_envelope_json?: unknown;
+  /** The launch intent behind a `launch` or an operator-staged `resume` row. */
+  launch_intent_id?: string | null;
   /** Absent (undefined) on a database that predates the claim migration. */
   claim_token?: string | null;
   claimed_by?: string | null;
@@ -652,6 +704,14 @@ function mapProposalRow(row: ProposalDbRow): MetaAutomationProposal {
         scopeId: row.scope_id,
       },
     ),
+    /*
+      Read the same way the claim fields are, and for the same reason: on a
+      database that has not run the lineage migration the column is absent, so
+      the row still reads and this comes back null. Null therefore means "not
+      known here", not "this row names no intent", and the executor refuses
+      rather than dispatching a launch whose intent it cannot name.
+    */
+    launchIntentId: row.launch_intent_id ?? null,
     claimToken: row.claim_token ?? null,
     claimedBy: row.claimed_by ?? null,
     claimedAt: row.claimed_at ? new Date(row.claimed_at).toISOString() : null,
@@ -685,8 +745,18 @@ const PROPOSAL_CLAIM_COLUMNS = `
   claimed_at, dispatch_started_at
 `;
 
+/**
+ * The launch lineage, its own group so it degrades on its own.
+ *
+ * It arrived in a later migration than the claim and envelope columns, so a
+ * database can legitimately have those and not this one. Casting to text hands
+ * the UUID over as the string the intent id is used as everywhere else.
+ */
+const PROPOSAL_LAUNCH_COLUMNS = `launch_intent_id::text AS launch_intent_id`;
+
 const PROPOSAL_COLUMNS =
-  `${PROPOSAL_BASE_COLUMNS}, ${PROPOSAL_CLAIM_COLUMNS}, ${PROPOSAL_BUDGET_COLUMNS}`;
+  `${PROPOSAL_BASE_COLUMNS}, ${PROPOSAL_CLAIM_COLUMNS}, ` +
+  `${PROPOSAL_BUDGET_COLUMNS}, ${PROPOSAL_LAUNCH_COLUMNS}`;
 
 /** PostgreSQL's `undefined_column`. */
 function isUndefinedColumnError(error: unknown): boolean {
@@ -1206,14 +1276,42 @@ export async function projectNativeAdProposals(input: {
   businessId: string;
   snapshotDate: string;
   ttlInterval?: string;
-}): Promise<{ projected: number; ran: boolean }> {
-  if (!(await proposalsReady())) return { projected: 0, ran: false };
+}): Promise<{
+  projected: number;
+  ran: boolean;
+  /**
+   * Why nothing was projected, when nothing was.
+   *
+   * The caller used to see only `{ projected, ran }` and could not tell a
+   * complete answer from a withheld one, so it recorded every outcome the
+   * same way and a projection that never happened looked like one that had.
+   * `standing_mode_manual` is a complete answer — in manual mode the operator
+   * applies from the card and a queue filling up behind them is a second inbox
+   * nobody asked for — but it is not a permanent one: a family flipped to
+   * semi-automatic mid-slot must still fill the queue, so the chain records it
+   * as outstanding rather than done.
+   */
+  withheld:
+    | "schema_not_ready"
+    | "standing_mode_manual"
+    | "standing_mode_unreadable"
+    | null;
+}> {
+  if (!(await proposalsReady())) {
+    return { projected: 0, ran: false, withheld: "schema_not_ready" };
+  }
   const modes = await resolveEffectiveMetaModes(input.businessId).catch(() => null);
   // Same standing-mode gate the pause projection applies: in manual mode the
   // operator applies from the card, and a queue filling up behind them is a
   // second inbox nobody asked for.
   if (!modes || modes.pause === "manual") {
-    return { projected: 0, ran: modes !== null };
+    return {
+      projected: 0,
+      ran: modes !== null,
+      withheld: modes === null
+        ? "standing_mode_unreadable"
+        : "standing_mode_manual",
+    };
   }
   const projected = await projectNativeAdPauseProposals({
     businessId: input.businessId,
@@ -1221,7 +1319,7 @@ export async function projectNativeAdProposals(input: {
     ttlInterval:
       input.ttlInterval ?? `${META_AUTOMATION_PROPOSAL_TTL_HOURS} hours`,
   });
-  return { projected, ran: true };
+  return { projected, ran: true, withheld: null };
 }
 
 async function projectNativeAdPauseProposals(input: {

@@ -41,7 +41,7 @@ import {
   expectedProfileIdentity,
 } from "@/lib/meta/budget-readiness-retention";
 import { resolveCampaignRoleAuthority } from "@/lib/meta/campaign-role-authority";
-import { decisionTypeForProposedAction }
+import { decisionTypeForProposal }
   from "@/lib/meta/scheduled-action-execution";
 import { isCampaignContextResolverAuthorityValidated }
   from "@/lib/creative-decision-engine/campaign-context/source";
@@ -388,11 +388,18 @@ export function createBudgetServerReaders(
         manual would otherwise have every pause refused as
         `auto_execution_disabled` — a sentence about a decision they never made.
         For a budget row this resolves to `budget` exactly as before.
+
+        It is resolved from the whole row rather than from the verb, because a
+        `resume` row that turns on what a launch created belongs to the creative
+        family and nothing but its launch lineage says so. This is the one place
+        `autoExecutionEnabled` below learns which mode to consult, so reading the
+        verb here would let an operator who armed unattended pausing dispatch an
+        activation they never armed.
       */
       const standingMode = control.decisionTypeModes
         .find(
           (mode: MetaAutomationDecisionTypeMode) =>
-            mode.decisionType === decisionTypeForProposedAction(proposal.proposedAction),
+            mode.decisionType === decisionTypeForProposal(proposal),
         )
         ?.mode ?? null;
       const persisted = control.businessControl.source === "persisted";

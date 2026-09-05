@@ -133,11 +133,14 @@ describe("scheduled proposal claims reserve the daily cap atomically", () => {
     /*
       And the list is the one the sweep actually dispatches — now including
       `bid`, which had no producer and no executor and so could not be counted
-      against anything. A cap change moves money exactly the way a budget
-      change does, so it consumes the same daily allowance.
+      against anything, and `launch`, which was excluded for want of an
+      authorization it now has (creative mode auto, the Launchpad execution
+      gate open, and the operator's own stored payload replayed byte for byte).
+      A cap change and a paused create both spend the account's money, so both
+      consume the same daily allowance a budget change does.
     */
     expect([...AUTOMATABLE_PROPOSAL_ACTIONS].sort())
-      .toEqual(["bid", "budget", "pause", "resume"]);
+      .toEqual(["bid", "budget", "launch", "pause", "resume"]);
     // Still account-scoped: one account's automatic actions never consume
     // another's allowance.
     expect(capCall!.values[0]).toBe(BUSINESS_ID);

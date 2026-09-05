@@ -126,7 +126,20 @@ describe("PRE-DEPLOY — every unattended Meta write is behind the master gate",
       list, which is what the two cases below then hold it to.
     */
     expect(writers.map((entry) => entry.file)).toEqual([
+      /*
+        Six now, and the two new ones are the creative family finally having an
+        unattended path at all.
+
+        `meta-launch-execution.ts` holds the create primitives a queued launch
+        drives; `launch-intent-activation.ts` holds the ordered, read-back
+        activation sequence. Both are reached only through
+        `scheduled-launch-runtime.ts` / `scheduled-activation-runtime.ts`, which
+        carry the same chain the other writers do AND the Launchpad execution
+        gate on top of it — the case below holds them to it.
+      */
+      "lib/launchpad/meta-launch-execution.ts",
       "lib/meta/budget-proposal-server-readers.ts",
+      "lib/meta/launch-intent-activation.ts",
       "lib/meta/scheduled-ad-status-runtime.ts",
       "lib/meta/scheduled-bid-runtime.ts",
       "lib/meta/scheduled-status-runtime.ts",
@@ -236,9 +249,16 @@ describe("PRE-DEPLOY — every unattended Meta write is behind the master gate",
       family — still a standing `auto`, still required, and now the right
       question. The family is derived from the proposal rather than passed in,
       so no caller can nominate a family the row is not in.
+
+      It is derived from the WHOLE proposal, not from its verb. An activation
+      row — turning on what a Launchpad intent created — is raised as `resume`
+      and is indistinguishable from an ordinary un-pause by its action alone;
+      only its launch lineage says it belongs to the creative family. Reading
+      the verb here would let an operator who armed unattended pausing dispatch
+      an activation they never armed.
     */
     expect(code).toContain('standingMode === "auto"');
-    expect(code).toContain("decisionTypeForProposedAction(proposal.proposedAction)");
+    expect(code).toContain("decisionTypeForProposal(proposal)");
     // And a business explicitly placed in the read-only tier is never swept.
     expect(code).toContain('control.businessControl.readinessTier !== "read_only"');
     // A control row that was never persisted is not an enablement.

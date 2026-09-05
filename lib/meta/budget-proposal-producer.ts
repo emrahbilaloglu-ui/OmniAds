@@ -16,6 +16,7 @@
  * whose D085 verdict is `would_write_available` becomes a row, and the row
  * carries the server-built envelope the executor re-checks.
  */
+import { META_BUDGET_INTENT_CONTRACT_VERSION } from "@/lib/meta/budget-intent-contract";
 import { randomUUID } from "node:crypto";
 
 import { getDb } from "@/lib/db";
@@ -38,11 +39,24 @@ import {
 export const BUDGET_PROPOSAL_PRODUCER_CONTRACT =
   "meta.budget-proposal-producer.v1" as const;
 
-/** The only two recommended actions that are budget intents. */
+/**
+ * The two directions a budget intent can carry.
+ *
+ * Read from the typed payload's own `direction`, not from `recommended_action`:
+ * that column holds a sentence written for an operator, and requiring it to
+ * equal a literal is why no candidate ever matched.
+ */
 export const TYPED_BUDGET_RECOMMENDATIONS = [
   "increase_budget",
   "decrease_budget",
 ] as const;
+
+/** Direction as stored in the intent, mapped to this module's own vocabulary. */
+function typedRecommendationForDirection(
+  direction: string,
+): (typeof TYPED_BUDGET_RECOMMENDATIONS)[number] {
+  return direction === "decrease" ? "decrease_budget" : "increase_budget";
+}
 
 export interface TypedBudgetCandidate {
   /** Carried so a loader never has to be told the scope twice. */
@@ -93,6 +107,7 @@ export const TYPED_BUDGET_CANDIDATE_SQL = `
          d.engine_version,
          d.decision_label,
          d.recommended_action,
+         d.target_value ->> 'direction' AS target_direction,
          (d.target_value ->> 'amountMinor')::bigint AS target_amount_minor,
          d.reasoning,
          dim.entity_label,
@@ -120,12 +135,21 @@ export const TYPED_BUDGET_CANDIDATE_SQL = `
      AND d.snapshot_date = $2::date
      AND d.kind = 'recommendation'
      AND d.scope_type IN ('campaign', 'adset')
-     -- The EXACT typed verb. Not the decision label, which is a commercial
-     -- action and says nothing about money.
-     AND d.recommended_action = ANY($3::text[])
+     /*
+       The typed intent's own contract, not a verb in prose.
+
+       This used to require recommended_action to be one of two exact
+       literals, while every producer in the engine writes an English sentence
+       there ("Increase budget by 10-15% and monitor CPA / ROAS..."). The
+       predicate could not match, ever, so the whole budget path was inert.
+       A payload that names its contract is the thing that cannot be typed by
+       accident; the sentence stays where it is, for the operator to read.
+     */
+     AND d.target_value ->> 'contractVersion' = $3::text
      AND jsonb_typeof(d.target_value) = 'object'
      AND (d.target_value ->> 'amountMinor') ~ '^[0-9]+$'
      AND (d.target_value ->> 'amountMinor')::bigint > 0
+     AND d.target_value ->> 'direction' IN ('increase', 'decrease')
      AND COALESCE(UPPER(dim.entity_status), '') <> 'PAUSED'
      AND NULLIF(BTRIM(d.reasoning), '') IS NOT NULL
      -- An ad-set candidate without its parent cannot be role-authorised.
@@ -278,7 +302,7 @@ export async function listTypedBudgetCandidates(
 ): Promise<TypedBudgetCandidate[]> {
   const sql = getDb();
   const rows = (await sql.query(TYPED_BUDGET_CANDIDATE_SQL, [
-    businessId, snapshotDate, [...TYPED_BUDGET_RECOMMENDATIONS],
+    businessId, snapshotDate, META_BUDGET_INTENT_CONTRACT_VERSION,
   ])) as Array<Record<string, unknown>>;
   return rows.map((row) => ({
     businessId,
@@ -290,8 +314,9 @@ export async function listTypedBudgetCandidates(
     snapshotDate: String(row.snapshot_date).slice(0, 10),
     engineVersion: String(row.engine_version),
     decisionLabel: String(row.decision_label ?? ""),
-    recommendedAction: String(row.recommended_action) as
-      (typeof TYPED_BUDGET_RECOMMENDATIONS)[number],
+    recommendedAction: typedRecommendationForDirection(
+      String(row.target_direction ?? ""),
+    ),
     targetAmountMinor: Number(row.target_amount_minor),
     reasoning: String(row.reasoning),
     entityLabel: typeof row.entity_label === "string" ? row.entity_label : null,

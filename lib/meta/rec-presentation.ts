@@ -323,16 +323,65 @@ function compactAccountBadge(accountId: string | null | undefined) {
   return `${value.slice(0, 4)}…${value.slice(-5)}`;
 }
 
+/**
+ * Blockers that belong in diagnostics, not on the row.
+ *
+ * These are conditions of the automation research programme — a controlled
+ * causal estimate, a randomized assignment, a treatment receipt. They are real
+ * and they are checked, but they are also true of essentially every row, and
+ * they are the FIRST thing pushed onto the blocker list. The result was that
+ * an operator scanning their decisions read "Automation blocked · Controlled
+ * causal evidence is missing" on line after line — a sentence about our
+ * methodology where they expected a sentence about their ads.
+ *
+ * Nothing is hidden: the full list still travels in `automationReadiness` and
+ * still renders in the inspector. What changes is which one gets the row's one
+ * line. An operational blocker — an unresolved campaign role, a missing
+ * commercial target, no executor — is something they can act on today, so it
+ * wins. When only these remain, the row says so in one honest sentence
+ * instead of naming one of them at random.
+ */
+const PROGRAMMATIC_BLOCKERS = new Set([
+  "no_empirical_outcome_model",
+  "missing_controlled_causal_evidence",
+  "missing_valid_treatment_receipt",
+  "missing_valid_random_assignment",
+  "missing_valid_control_estimate",
+  "insufficient_empirical_sample",
+  "empirical_precision_below_floor",
+  "missing_holdout_plan",
+  "missing_post_action_monitor",
+]);
+
 function serverRowPresentationForRec(
   rec: MetaRecommendation,
   source?: MetaRecRowPresentationSource | null,
 ): NonNullable<MetaRecommendation["rowPresentation"]> {
   const readiness = rec.automationReadiness;
-  const firstBlocker = readiness?.blockers?.find((blocker) => blocker.trim().length > 0) ?? null;
+  const present = readiness?.blockers?.filter((blocker) => blocker.trim().length > 0)
+    ?? [];
+  const operational = present.find((blocker) => !PROGRAMMATIC_BLOCKERS.has(blocker));
+  const firstBlocker = operational ?? (present.length > 0
+    // One sentence for the whole family, because naming one member of it tells
+    // the operator nothing the others would not have.
+    ? "automation_evidence_incomplete"
+    : null);
   const hasBlocker = Boolean(firstBlocker);
   const hasShield = !hasBlocker && readiness?.operatorReviewRequired === true;
   const signal = hasBlocker ? "blocker" : hasShield ? "shield" : null;
-  const blockerLabel = firstBlocker ? compactTitle(firstBlocker) : null;
+  /*
+    The synthetic family code carries its own sentence.
+
+    Everything else is title-cased from a code, which reads acceptably for an
+    operational blocker ("Campaign Context Unresolved"). Doing that here would
+    produce "Automation Evidence Incomplete" — a phrase that still says nothing
+    the operator can do about it, which is the whole thing this replaced.
+  */
+  const blockerLabel = firstBlocker === "automation_evidence_incomplete"
+    ? "Gathering evidence — apply it yourself"
+    : firstBlocker
+      ? compactTitle(firstBlocker)
+      : null;
   const shieldLabel = hasShield ? "Operator protection active" : null;
   const autoBadge = readiness?.tier === "auto_execute" && readiness.autoExecuteEligible === true;
   const warnLine = hasBlocker

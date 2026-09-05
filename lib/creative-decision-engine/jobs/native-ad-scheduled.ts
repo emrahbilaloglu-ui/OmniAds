@@ -27,6 +27,34 @@ import {
 import { engineV3JobsDisabled } from "./job-switch";
 
 export const NATIVE_AD_SHADOW_DAILY_UTC_START_HOUR = 3;
+
+/**
+ * The two slots the native chain produces in, and why a second one is needed.
+ *
+ * Native `cut` decisions are withheld when their inputs are older than 12
+ * hours. Producing once at 03:00 UTC therefore meant that from 15:00 onwards
+ * every native cut was refused for staleness — not because the evidence was
+ * meaningfully old, but because nothing had produced since morning. The
+ * freshness threshold is right; the cadence was not.
+ *
+ * A second slot needs no schema change and no new job name. What it needs is
+ * for "has this job succeeded" to be answerable per slot rather than per day,
+ * which is what the `since` window below does.
+ */
+export const NATIVE_AD_SHADOW_SLOT_HOURS = [3, 15] as const;
+
+/** The start of the slot window `now` falls in, or null before the first. */
+export function nativeAdShadowSlotStart(now: Date): Date | null {
+  const hour = now.getUTCHours();
+  let slot: number | null = null;
+  for (const candidate of NATIVE_AD_SHADOW_SLOT_HOURS) {
+    if (hour >= candidate) slot = candidate;
+  }
+  if (slot === null) return null;
+  const start = new Date(now);
+  start.setUTCHours(slot, 0, 0, 0);
+  return start;
+}
 export const NATIVE_AD_OPERATOR_RESPONSE_RETRY_COOLDOWN_MS = 60 * 60 * 1_000;
 
 const NATIVE_AD_SHADOW_JOB_NAMES = [
@@ -413,6 +441,16 @@ export async function readSuccessfulNativeJobs(
     businessIds: readonly string[];
     asOf: string;
     decisionCutoff: string;
+    /**
+     * The slot window's start. A run that finished before it does not count
+     * as this slot's run.
+     *
+     * Without it the question is "did this job succeed today", and the answer
+     * at 15:00 is always yes because 03:00 already ran — so the second slot
+     * would report `already_ran` and produce nothing, every day. Omitting it
+     * keeps the day-level meaning for every caller that wants it.
+     */
+    since?: string | null;
   },
   db: DbClient = getDb(),
 ) {
@@ -429,6 +467,7 @@ export async function readSuccessfulNativeJobs(
         AND engine_version = $3
         AND job_name = ANY($4::text[])
         AND started_at <= $5::timestamptz
+        AND ($6::timestamptz IS NULL OR started_at >= $6::timestamptz)
     ), effective_runs AS (
       SELECT
         run.*,
@@ -474,6 +513,7 @@ export async function readSuccessfulNativeJobs(
       NATIVE_AD_ENGINE_VERSION,
       NATIVE_AD_SHADOW_JOB_NAMES,
       input.decisionCutoff,
+      input.since ?? null,
     ],
   );
   const result = new Map<string, Set<NativeAdShadowJobName>>();
@@ -866,7 +906,8 @@ export async function runNativeAdShadowChainForActiveBusinessesIfDue(
   if ((options.jobsDisabled ?? engineV3JobsDisabled)()) {
     return { ...base, skipped: true, reason: "jobs_disabled" };
   }
-  if (now.getUTCHours() < NATIVE_AD_SHADOW_DAILY_UTC_START_HOUR) {
+  const slotStart = nativeAdShadowSlotStart(now);
+  if (slotStart === null) {
     return { ...base, skipped: true, reason: "outside_slot" };
   }
 
@@ -906,11 +947,18 @@ export async function runNativeAdShadowChainForActiveBusinessesIfDue(
     return { ...base, skipped: true, reason: "no_meta_businesses" };
   }
 
+  /*
+    Completion is asked about THIS slot, and the same window goes to all three
+    jobs from one place so calibration, decisions and operator-response cannot
+    disagree about which slot they are in. `closeNativeJobDependencies` keeps
+    its own semantics: it still closes dependencies by name within the day.
+  */
   const successes = closeNativeJobDependencies(
     await (options.readSuccessfulJobs ?? readSuccessfulNativeJobs)({
       businessIds: businesses.map((business) => business.id),
       asOf,
       decisionCutoff: now.toISOString(),
+      since: slotStart.toISOString(),
     }),
   );
   const allComplete = businesses.every((business) => {

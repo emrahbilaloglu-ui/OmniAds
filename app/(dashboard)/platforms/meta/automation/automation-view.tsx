@@ -137,17 +137,27 @@ interface LedgerResultPresentation {
 
 const UNKNOWN = "—";
 
+/*
+  Said in the operator's language, not the ladder's.
+
+  "Tier 2" is a rung on an internal readiness ladder, and it appeared on the
+  one control that decides whether this product touches somebody's money. An
+  operator choosing how their ads are managed is choosing between doing it
+  themselves, confirming each change, and letting it run — three sentences
+  they can act on. The internal tier names still exist where they belong: on
+  the readiness state, which is a diagnosis rather than a choice.
+*/
 const READINESS_LABELS: Record<MetaAutomationReadinessControlTier, string> = {
-  read_only: "Tier 0 — Read only",
-  manual_review: "Tier 1 — Supervised",
-  backtest_candidate: "Tier 2 — Backtest candidate",
-  auto_execute: "Tier 3 — Auto-execute",
+  read_only: "Read only",
+  manual_review: "Supervised",
+  backtest_candidate: "Backtest candidate",
+  auto_execute: "Cleared for automatic",
 };
 
 const MODE_LABELS: Record<MetaAutomationDecisionMode, string> = {
-  manual: "Tier 1 · Supervised",
-  semi_auto: "Tier 2 · Backtest",
-  auto: "Tier 3 · Auto-execute",
+  manual: "Manual · you apply each change",
+  semi_auto: "Semi-automatic · you confirm each change",
+  auto: "Automatic · applied within your guardrails",
 };
 
 /** The ladder's three rungs, in the order the server declares them. */
@@ -159,16 +169,16 @@ const AUTONOMY_MODES: readonly MetaAutomationDecisionMode[] = [
 
 /** What each rung says ON the segment; `MODE_LABELS` is its accessible name. */
 const MODE_SEGMENT_LABELS: Record<MetaAutomationDecisionMode, string> = {
-  manual: "Tier 1",
-  semi_auto: "Tier 2",
-  auto: "Tier 3",
+  manual: "Manual",
+  semi_auto: "Semi-automatic",
+  auto: "Automatic",
 };
 
 const ACTIVATION_BLOCKER_LABELS: Record<BudgetActivationCondition, string> = {
   control_row_absent: "Save this business's automation guardrails.",
   global_gate_closed: "The production live-write capability is still closed.",
   business_stop_engaged: "Release the business emergency stop.",
-  budget_mode_not_auto: "Set Budget to Tier 3 — Auto-execute.",
+  budget_mode_not_auto: "Set Budget to Automatic.",
   dry_run_guardrail_engaged: "Turn off dry-run-only in the saved guardrails.",
   canonical_fact_retention_not_ready:
     "Historical canonical-decision retention is not yet proven.",
@@ -2577,8 +2587,8 @@ export function MetaAutomationView({
             */}
                 <p className={styles.sectionFootnote} data-field="mode-posture">
                   {liveWritesRefusalReason
-                    ? `Setting a tier records the intent in this workspace. It is not a Meta write, and it does not enable auto-execution: ${liveWritesRefusalReason}`
-                    : "Setting a tier records the intent in this workspace. It is not a Meta write; execution still runs through the confirmation queue."}
+                    ? `Choosing a mode records it in this workspace. It is not a Meta write, and it does not enable automatic execution: ${liveWritesRefusalReason}`
+                    : "Choosing a mode records it in this workspace. It is not a Meta write; execution still runs through the confirmation queue."}
                 </p>
               </article>
             </div>
@@ -3868,8 +3878,8 @@ export function BudgetWriteReadinessSection({
       if (payload?.ok) {
         setActivationMessage(
           enabled
-            ? "Automatic execution enabled for this account. Budget is the only " +
-                "decision type with an automatic executor, and it also needs Tier 3."
+            ? "Automatic execution enabled for this account. Each decision " +
+                "type also needs its own standing mode set to Automatic."
             : "Automatic execution disabled for this business.",
         );
         setActivationPhrase("");
@@ -3968,10 +3978,9 @@ export function BudgetWriteReadinessSection({
         This is the business-wide master switch for automatic Meta execution.
         Two keys are required and both are server-checked on every run: this
         master switch, and the decision type&rsquo;s own standing mode set to
-        Tier 3 · Auto-execute. Budget is the only decision type with an
-        automatic executor today; turning this on never makes pause, bid, or
-        creative write by themselves, and every operator-approved write keeps
-        its own approval.
+        Automatic. Budget, pause and resume have automatic executors; turning
+        this on never makes bid or creative write by themselves, and every
+        operator-approved write keeps its own approval.
       </p>
       {/*
         PRE-DEPLOY AUDIT — SIX separate facts, not one word.

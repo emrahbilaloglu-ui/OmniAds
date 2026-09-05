@@ -2069,6 +2069,14 @@ const READINESS_FACT_LABELS: Readonly<Record<string, string>> = {
   // never asks for a label — roles are inferred automatically.
   campaign_label: "Automatic campaign-role authority is required",
   operator_enablement: "Operator enablement is required",
+  /*
+    The one line a row shows when every remaining blocker is a condition of
+    the automation research programme rather than something about these ads.
+    The specific codes still travel in the readiness payload and still render
+    in the inspector; this is what replaces naming one of them at random.
+  */
+  automation_evidence_incomplete:
+    "Automatic execution is still gathering evidence — you can apply this yourself",
 };
 
 function operatorFactLabel(value: string): string {

@@ -9,6 +9,8 @@ import { useTierZeroFreshness } from "@/components/states/useTierZeroFreshness";
 import { measuredAsOf } from "@/lib/tier-zero-as-of";
 import { compareModeForPreset } from "@/lib/comparison-preset-contract";
 import { AiBriefCard } from "@/components/overview/v2/ai-brief-card";
+import { MetaMorningCard } from "@/components/overview/v2/meta-morning-card";
+import type { MetaDailyBrief } from "@/lib/meta/daily-brief";
 import { SourceHealthPanel } from "@/components/zero-base/home/source-health";
 import { TrendPanel } from "@/components/zero-base/home/trend-panel";
 import { EconomicsContext } from "@/components/zero-base/home/economics-context";
@@ -375,6 +377,30 @@ export default function OverviewPage() {
     staleTime: 15 * 60 * 1000,
   });
 
+  /*
+    The Meta morning read.
+
+    It is a plain read of what the producers already wrote, so it needs no
+    mutation and no refresh button: what it reports is decided by the overnight
+    jobs, not by this page.
+  */
+  const metaBriefQuery = useQuery({
+    queryKey: ["meta-daily-brief", businessId],
+    enabled: Boolean(selectedBusinessId) && dateRangeReady,
+    staleTime: 5 * 60 * 1000,
+    queryFn: async () => {
+      const response = await fetch(
+        `/api/meta/daily-brief?businessId=${encodeURIComponent(businessId)}`,
+      );
+      const payload = (await response.json().catch(() => null)) as
+        { ok?: boolean; brief?: MetaDailyBrief; error?: { code?: string } } | null;
+      if (!response.ok || !payload?.ok || !payload.brief) {
+        throw new Error(payload?.error?.code ?? "meta_brief_unavailable");
+      }
+      return payload.brief;
+    },
+  });
+
   const metaStatusQuery = useQuery({
     queryKey: ["meta-status", businessId],
     enabled: Boolean(selectedBusinessId) && dateRangeReady,
@@ -670,7 +696,13 @@ export default function OverviewPage() {
         className="adv-btn md:hidden"
         data-ctl="live:MOBILE-01"
         data-overview-section="mobile-triage"
-        href={`${dashboardHrefForRouteFamily("/platforms/meta/decisions", pathname)}?order=tier0`}
+        /*
+          `/platforms/meta/decisions` has no page. The decisions surface is
+          `/platforms/meta` itself, so the one route this card offered on
+          mobile — the only triage entry point below the tablet breakpoint —
+          answered 404 every time it was pressed.
+        */
+        href={`${dashboardHrefForRouteFamily("/platforms/meta", pathname)}?order=tier0`}
         style={{ minHeight: 44, display: "inline-flex", alignItems: "center" }}
       >
         Start Meta triage
@@ -681,6 +713,15 @@ export default function OverviewPage() {
         className="grid grid-cols-1 items-start gap-3 lg:[grid-template-columns:repeat(auto-fit,minmax(380px,1fr))]"
       >
         <AttributionCard rows={attributionRows} currencySymbol={symbol} />
+        <MetaMorningCard
+          brief={metaBriefQuery.data}
+          loading={metaBriefQuery.isLoading}
+          error={
+            metaBriefQuery.error instanceof Error
+              ? metaBriefQuery.error.message
+              : null
+          }
+        />
         <AiBriefCard
           insight={aiBriefQuery.data}
           loading={aiBriefQuery.isLoading}

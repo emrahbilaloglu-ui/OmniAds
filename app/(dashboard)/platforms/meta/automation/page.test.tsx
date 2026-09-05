@@ -454,7 +454,8 @@ describe("Dashboard v2 exact Automation presentation", () => {
     expect(html).not.toContain("2.50");
     expect(html).not.toContain("00:00–07:00 ET");
     expect(html).not.toContain("±15%");
-    expect(html).toContain("Tier 1 — Supervised");
+    // The readiness state, named without the internal ladder's rung number.
+    expect(html).toContain("Supervised");
     expect(html).toContain("1 promotion record");
   });
 
@@ -959,7 +960,7 @@ describe("Dashboard v2 exact Automation presentation", () => {
     expect(html).toMatch(/data-field="business-writes"[^>]*>—/);
     expect(html).not.toMatch(/data-field="business-writes"[^>]*>ENABLED/);
     expect(html).toMatch(/data-field="readiness-tier">—/);
-    expect(html).not.toContain("Tier 1 — Supervised");
+    expect(html).not.toContain("Supervised");
     expect(html).toMatch(/guardrail-budget-change[\s\S]*?<strong>—<\/strong>/);
     expect(html).toMatch(
       /guardrail-actions-per-day[\s\S]*?<strong>—<\/strong>/,
@@ -1253,14 +1254,17 @@ describe("Dashboard v2 exact Automation presentation", () => {
     const html = render();
 
     expect(html).toContain("Budget changes ≤ +15%");
-    expect(html).toContain("Tier 2 · Backtest");
+    // The operator's own words for the mode, not a rung on a ladder they
+    // never see: the label is what appears on the control that decides
+    // whether this product touches their money.
+    expect(html).toContain("Semi-automatic · you confirm each change");
     expect(html).toContain("Backtest contract required before auto-execute.");
     expect(html).toContain("Pause / resume");
     expect(html).toMatch(
       /data-decision-type="pause"[\s\S]*?<span[^>]*>—<\/span>/,
     );
     expect(html).toContain("Creative rotation");
-    expect(html).toContain("Tier 3 · Auto-execute");
+    expect(html).toContain("Automatic · applied within your guardrails");
     expect(html).toContain("Manual · by design");
     expect(html).toContain("New spend never automates.");
     expect(html).not.toContain("18 / 30");

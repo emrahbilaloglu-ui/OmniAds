@@ -47,7 +47,7 @@
   },
   "interactions": {
     "required": 142,
-    "executed": 59,
+    "executed": 58,
     "missing": [
       "live:AUTH-01",
       "live:AUTH-02 email",
@@ -98,6 +98,7 @@
       "live:PUBLIC-03",
       "live:PUBLIC-05",
       "live:META-DEC-05 load-more",
+      "gated:AUTO-03 mode",
       "live:CREATIVE-02 open",
       "live:CREATIVE-02 back",
       "live:CREATIVE-02 carousel-dot",
@@ -139,7 +140,6 @@
       "disabled:REPORT-06 source-unavailable",
       "gated:AUTO-01A engage",
       "gated:AUTO-02 release",
-      "gated:AUTO-03 mode",
       "gated:LAUNCH-03 delete",
       "gated:META-INTEL-09 run-snapshot",
       "gated:META-WF-02..08 menu",

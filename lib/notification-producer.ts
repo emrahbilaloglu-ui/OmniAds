@@ -11,9 +11,39 @@
  * not a new opinion about the data.
  */
 
+import { getDb } from "@/lib/db";
 import { readMetaAnomaliesForBusiness } from "@/lib/meta/anomalies";
 import type { NotificationEvent } from "@/lib/notification-contract";
 import { recordNotificationEvent } from "@/lib/notification-store";
+
+/**
+ * Who a business's notifications are for.
+ *
+ * The producer wrote deliveries with a NULL recipient and the reader looks
+ * them up by `recipient_user_id = <the viewer>`, so every notification this
+ * product has ever produced was addressed to nobody. The bell was empty not
+ * because nothing was detected but because nothing was addressed.
+ *
+ * Admins and collaborators, active memberships only. A guest can read the
+ * product; being interrupted about someone's ad spend is a different thing.
+ * An unreadable membership list returns empty, and the caller then writes the
+ * NULL-recipient row it always did — no worse than today, and never a
+ * broadcast to people who are not members.
+ */
+export async function readNotificationRecipients(
+  businessId: string,
+): Promise<string[]> {
+  const rows = (await getDb().query(
+    `SELECT user_id::text AS user_id
+       FROM memberships
+      WHERE business_id = $1::uuid
+        AND status = 'active'
+        AND role IN ('admin', 'collaborator')
+      ORDER BY user_id`,
+    [businessId],
+  ).catch(() => null)) as Array<{ user_id: string }> | null;
+  return rows?.map((row) => row.user_id) ?? [];
+}
 
 /**
  * Anomaly severity, translated into notification severity.
@@ -86,6 +116,11 @@ export async function produceNotificationsForBusiness(input: {
   } as never).catch(() => null);
 
   const rows = (anomalies as { anomalies?: unknown[] } | null)?.anomalies ?? [];
+  // Read once for the whole scan rather than per anomaly: the membership list
+  // does not change between two rows of the same batch.
+  const recipients = input.recipientUserId
+    ? [input.recipientUserId]
+    : await readNotificationRecipients(input.businessId);
   let created = 0;
   let skipped = 0;
 
@@ -113,6 +148,7 @@ export async function produceNotificationsForBusiness(input: {
     const result = await recordNotificationEvent({
       event,
       recipientUserId: input.recipientUserId,
+      recipientUserIds: recipients,
       // The deep link names the entity, never the anomaly's prose.
       deepLink: row.scopeId
         ? `/platforms/meta?businessId=${encodeURIComponent(input.businessId)}&focus=${encodeURIComponent(row.scopeId)}`

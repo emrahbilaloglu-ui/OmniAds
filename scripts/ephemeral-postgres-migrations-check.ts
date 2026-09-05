@@ -1333,6 +1333,38 @@ async function assertActivationApproval(
   }
 }
 
+/**
+ * The per-slot completion record the second daily snapshot depends on.
+ *
+ * Its primary key is the whole point: without the slot in the key, the 15:00
+ * catch-up would collide with the 03:00 run's row and be reported as already
+ * done.
+ */
+async function assertStructureSnapshotRuns(
+  client: Client,
+  failures: string[],
+): Promise<void> {
+  const { rows } = await client.query<{ attname: string }>(
+    `SELECT a.attname
+       FROM pg_index i
+       JOIN pg_class t ON t.oid = i.indrelid
+       JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = ANY(i.indkey)
+      WHERE t.relname = 'meta_structure_snapshot_runs' AND i.indisprimary`,
+  );
+  const key = new Set(rows.map((row) => row.attname));
+  const required = ["business_id", "provider_account_id", "as_of_date", "slot"];
+  const missing = required.filter((column) => !key.has(column));
+  if (rows.length === 0) {
+    failures.push("meta_structure_snapshot_runs does not exist");
+  } else if (missing.length > 0) {
+    failures.push(
+      `the snapshot run key is missing ${missing.join(", ")}, so slots would collide`,
+    );
+  } else {
+    log("structure snapshot runs are keyed per business, account, day and slot");
+  }
+}
+
 async function assertSchema(databaseUrl: string): Promise<string[]> {
   const client = new Client({ connectionString: databaseUrl });
   await client.connect();
@@ -1549,6 +1581,7 @@ async function assertSchema(databaseUrl: string): Promise<string[]> {
     await assertProposalLineageWidening(client, failures);
     await assertRoleAuthorityRetention(client, failures);
     await assertActivationApproval(client, failures);
+    await assertStructureSnapshotRuns(client, failures);
 
     const { rows: tableRows } = await client.query<{ table_name: string }>(
       `SELECT table_name

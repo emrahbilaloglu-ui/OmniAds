@@ -12398,6 +12398,36 @@ export async function runMigrations(options?: {
           module before dispatch, because half of it is a comparison against
           the live intent rather than a property of the value.
         */
+        /*
+          ── Which structure snapshot slots have actually completed ──
+
+          The snapshot's own "did today's run cover everything" question is
+          answered by looking for rows it would have written. That is a good
+          second defence and a poor first one: it cannot tell a slot that ran
+          from a slot that has not, so a second daily slot would look complete
+          the moment the first one finished, and the catch-up would never run.
+
+          `engine_v3_job_runs` cannot carry this. It has no provider-account
+          column — it is the shared record of three creative/native jobs — and
+          adding one would give the column a different meaning per job.
+
+          The row-coverage query stays as the second check. This table only
+          answers "has THIS (business, account, day, slot) succeeded".
+        */
+        sql`CREATE TABLE IF NOT EXISTS meta_structure_snapshot_runs (
+          business_id         TEXT NOT NULL,
+          provider_account_id TEXT NOT NULL,
+          as_of_date          DATE NOT NULL,
+          slot                SMALLINT NOT NULL CHECK (slot BETWEEN 0 AND 23),
+          status              TEXT NOT NULL
+            CHECK (status IN ('running', 'success', 'failed', 'skipped')),
+          source_max_date     DATE,
+          started_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          finished_at         TIMESTAMPTZ,
+          PRIMARY KEY (business_id, provider_account_id, as_of_date, slot)
+        )`,
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_structure_snapshot_runs_day
+          ON meta_structure_snapshot_runs (as_of_date DESC, slot)`,
         sql`ALTER TABLE meta_launch_intents
           ADD COLUMN IF NOT EXISTS activation_approval_json JSONB`,
         sql`DO $$

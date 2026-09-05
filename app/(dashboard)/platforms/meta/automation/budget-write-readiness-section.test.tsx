@@ -91,7 +91,10 @@ describe("D087 — the budget write panel is truthful and unpressable", () => {
     expect(html).toContain('data-blocker-code="global_gate_closed"');
     expect(html).toContain("The production live-write capability is still closed.");
     expect(html).toContain('data-blocker-code="budget_mode_not_auto"');
-    expect(html).toContain("Set Budget to Tier 3 — Auto-execute.");
+    // The blocker is stated in the operator's own vocabulary; "Tier 3" was a
+    // rung on an internal readiness ladder appearing on a control that decides
+    // whether this product spends money.
+    expect(html).toContain("Set Budget to Automatic.");
   });
 
   it("offers no DISPATCH affordance; its controls change a CONTROL ROW, not a budget", () => {
@@ -222,7 +225,8 @@ describe("D088 C2 — the ceremony calls the real admin route", () => {
     const html = renderToStaticMarkup(<BudgetWriteReadinessSection readiness={model()} authorization={ADMIN_DESKTOP} />);
     expect(html).toContain('data-field="master-switch-scope"');
     expect(html).toContain("business-wide master switch");
-    expect(html).toContain("Tier 3");
+    // The second key, named the way the control that sets it is now labelled.
+    expect(html).toContain("standing mode set to Automatic");
     // And it must not describe itself as budget-scoped in the heading.
     expect(html).not.toContain("Budget change capability");
   });

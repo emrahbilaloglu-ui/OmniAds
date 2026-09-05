@@ -9,6 +9,21 @@ export const META_ANOMALY_TYPES = [
   "policy_block",
   "pacing_failure",
   "cpm_spike",
+  /*
+    Two failures the existing five could not see.
+
+    `pacing_failure` catches a campaign spending too SLOWLY. Nothing caught the
+    opposite — a daily budget gone by mid-morning, which for the rest of the
+    day is a campaign that cannot buy anything and a competitor auction it is
+    absent from.
+
+    And nothing at all caught the most expensive shape there is: real money
+    spent, zero purchases. A ROAS drop needs a previous ROAS to drop from; an
+    account that has never converted has none, so its worst days were invisible
+    to every detector here.
+  */
+  "zero_conversions_with_spend",
+  "budget_exhausted_early",
 ] as const;
 
 export type MetaAnomalyType = (typeof META_ANOMALY_TYPES)[number];
@@ -44,6 +59,25 @@ export interface DetectAnomaliesInput {
   businessId: string;
   snapshotDate: string;
   calibrationContext?: MetaCalibrationContext | null;
+  /**
+   * What this account considers a meaningful loss, and when its day starts.
+   *
+   * Both new detectors need a number, and neither may invent one: "$50 with no
+   * purchases" means something different on an account whose average order is
+   * $30 and one whose average order is $400. The spend floor is the loss
+   * budget the commercial targets already define — the CPA baseline times the
+   * account's own risk posture — and the day fraction is measured in the
+   * business's own timezone, because "by mid-morning" is a local sentence.
+   *
+   * Absent, both detectors produce nothing. A default here would be a
+   * universal threshold wearing a profile's clothes.
+   */
+  profile?: {
+    /** Spend at which zero purchases stops being a small sample. */
+    lossBudgetSpend?: number | null;
+    /** IANA zone the business's day is measured in. */
+    timezone?: string | null;
+  } | null;
   now?: Date;
 }
 
@@ -63,6 +97,7 @@ type CampaignDailyRow = {
   revenue: unknown;
   impressions: unknown;
   daily_budget: unknown;
+  purchases: unknown;
 };
 
 type AdsetDailyRow = {
@@ -198,6 +233,51 @@ function detectedAtFor(snapshotDate: string, now: Date) {
   return `${snapshotDate}T23:59:59.000Z`;
 }
 
+function positiveOrNull(value: unknown): number | null {
+  const parsed = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+/**
+ * How much of the business's OWN day has passed.
+ *
+ * `timeOfDayProgress` measures the UTC day, which is the right clock for a
+ * UTC-dated snapshot and the wrong one for the sentence "the budget was gone
+ * by mid-morning". A business in Los Angeles is eight hours from agreeing with
+ * UTC about when its morning is.
+ *
+ * No zone, no answer. Substituting UTC would be quietly reporting somebody
+ * else's morning as theirs.
+ */
+function localDayProgress(
+  snapshotDate: string,
+  now: Date,
+  timezone: string | null | undefined,
+): number | null {
+  if (!timezone?.trim()) return null;
+  let parts: Intl.DateTimeFormatPart[];
+  try {
+    parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: timezone,
+      year: "numeric", month: "2-digit", day: "2-digit",
+      hour: "2-digit", minute: "2-digit", hour12: false,
+    }).formatToParts(now);
+  } catch {
+    // An unknown zone is unreadable, not UTC.
+    return null;
+  }
+  const part = (type: string) =>
+    parts.find((entry) => entry.type === type)?.value ?? "";
+  const localDate = `${part("year")}-${part("month")}-${part("day")}`;
+  if (snapshotDate < localDate) return 1;
+  if (snapshotDate > localDate) return 0;
+  const hour = Number(part("hour"));
+  const minute = Number(part("minute"));
+  if (!Number.isFinite(hour) || !Number.isFinite(minute)) return null;
+  // 24 formats midnight as "24" in some locales; both mean the day just began.
+  return Math.max(0, Math.min(1, ((hour % 24) * 60 + minute) / (24 * 60)));
+}
+
 function timeOfDayProgress(snapshotDate: string, now: Date) {
   const today = now.toISOString().slice(0, 10);
   if (snapshotDate < today) return 1;
@@ -281,7 +361,8 @@ async function fetchAnomalyInputs(input: { businessId: string; snapshotDate: str
         spend,
         revenue,
         impressions,
-        daily_budget
+        daily_budget,
+        purchases
       FROM meta_campaign_daily
       WHERE business_id = ${input.businessId}
         AND date BETWEEN ${start28}::date AND ${input.snapshotDate}::date
@@ -501,6 +582,135 @@ function detectPacingFailures(input: {
   return anomalies;
 }
 
+/**
+ * Real money, no purchases.
+ *
+ * The most expensive failure a Meta account has, and until now no detector saw
+ * it: `roas_drop_sudden` needs a previous ROAS to fall from, so an account or
+ * campaign that has never converted produced no signal at all — its worst
+ * fortnight looked exactly like its best one.
+ *
+ * The threshold is the account's OWN loss budget, not a number chosen here.
+ * Below it, zero purchases is a small sample and saying anything would be
+ * noise; above it, the campaign has spent what this business decided it was
+ * willing to lose learning something, and learned that nobody bought.
+ *
+ * The window is 7 closed days, not today: an account with a long
+ * consideration cycle would otherwise be accused of failing every morning.
+ */
+function detectZeroConversionSpend(input: {
+  rows: CampaignDailyRow[];
+  snapshotDate: string;
+  detectedAt: string;
+  lossBudgetSpend: number;
+}) {
+  const anomalies: MetaAnomaly[] = [];
+  const windowStart = addDaysToISO(input.snapshotDate, -7);
+  const windowEnd = addDaysToISO(input.snapshotDate, -1);
+  for (const [campaignId, rows] of groupBy(input.rows, (row) => row.campaign_id)) {
+    const latest = latestByDate(rows);
+    if (!latest || !isActiveStatus(latest.campaign_status)) continue;
+    const window = rows.filter(
+      (row) => row.date >= windowStart && row.date <= windowEnd,
+    );
+    if (window.length === 0) continue;
+    const spend = sum(window, (row) => row.spend);
+    const purchases = sum(window, (row) => row.purchases);
+    const revenue = sum(window, (row) => row.revenue);
+    // Purchases AND revenue: a conversion the pixel counted without a value,
+    // or a value without a count, is still a conversion. Neither is "nothing".
+    if (purchases > 0 || revenue > 0) continue;
+    if (spend < input.lossBudgetSpend) continue;
+
+    const overBudget = ratio(spend, input.lossBudgetSpend);
+    anomalies.push(
+      makeAnomaly({
+        snapshotDate: input.snapshotDate,
+        type: "zero_conversions_with_spend",
+        scopeType: "campaign",
+        scopeId: campaignId,
+        scopeLabel: latest.campaign_name ?? campaignId,
+        // Two loss budgets spent with nothing to show is not a worse version
+        // of the same problem; it is a different conversation.
+        severity: overBudget >= 2 ? "high" : "medium",
+        title: "Spending with no purchases",
+        detail: `$${rounded(spend)} spent over 7 closed days with no recorded purchase, against a $${rounded(input.lossBudgetSpend)} loss budget.`,
+        diagnostics: [
+          "Conversion tracking may not be recording purchases for this campaign.",
+          "Targeting or creative may be reaching people who do not buy.",
+          "The offer or landing page may not convert the traffic being bought.",
+        ],
+        detectedAt: input.detectedAt,
+        entityStatus: normalizeStatus(latest.campaign_status),
+      }),
+    );
+  }
+  return anomalies;
+}
+
+/**
+ * The daily budget gone before the day is.
+ *
+ * `pacing_failure` is the opposite failure — a campaign spending too slowly —
+ * and this is its missing twin. A budget exhausted at 30% of the day means the
+ * campaign is absent from the auction for the other 70%, and the day's results
+ * describe a morning rather than a day.
+ *
+ * The day fraction is measured in the BUSINESS's timezone, because "by
+ * mid-morning" is a local sentence and Meta bills against the ad account's own
+ * day. Without a zone there is no local morning to speak of, and the caller
+ * passes none rather than assuming UTC.
+ */
+function detectEarlyBudgetExhaustion(input: {
+  rows: CampaignDailyRow[];
+  snapshotDate: string;
+  detectedAt: string;
+  /** How much of the local day has passed, 0–1. */
+  localProgress: number;
+}) {
+  // Before a fifth of the day there is not enough day to be early in.
+  if (input.localProgress <= 0.2 || input.localProgress >= 0.9) return [];
+  const anomalies: MetaAnomaly[] = [];
+  for (const [campaignId, rows] of groupBy(input.rows, (row) => row.campaign_id)) {
+    const latest = latestByDate(rows);
+    if (!latest || latest.date !== input.snapshotDate) continue;
+    if (!isActiveStatus(latest.campaign_status)) continue;
+    const budget = toNumber(latest.daily_budget);
+    const spendToday = toNumber(latest.spend);
+    if (budget <= 0) continue;
+    const consumed = ratio(spendToday, budget);
+    /*
+      Spent faster than the clock, and nearly all of it.
+
+      Both conditions matter. A campaign at 95% of budget at 90% of the day is
+      pacing correctly; one at 95% at 30% of the day has stopped buying for
+      most of it.
+    */
+    if (consumed < 0.9 || consumed <= input.localProgress * 1.5) continue;
+
+    anomalies.push(
+      makeAnomaly({
+        snapshotDate: input.snapshotDate,
+        type: "budget_exhausted_early",
+        scopeType: "campaign",
+        scopeId: campaignId,
+        scopeLabel: latest.campaign_name ?? campaignId,
+        severity: input.localProgress <= 0.5 ? "high" : "medium",
+        title: "Budget spent early",
+        detail: `$${rounded(spendToday)} of a $${rounded(budget)} daily budget was spent by ${Math.round(input.localProgress * 100)}% of the local day.`,
+        diagnostics: [
+          "Delivery is front-loading and the campaign is absent later in the day.",
+          "The daily budget may be below what this audience can absorb.",
+          "Bid strategy or schedule may be concentrating spend into a short window.",
+        ],
+        detectedAt: input.detectedAt,
+        entityStatus: normalizeStatus(latest.campaign_status),
+      }),
+    );
+  }
+  return anomalies;
+}
+
 function detectCpmSpikes(input: {
   rows: CampaignDailyRow[];
   snapshotDate: string;
@@ -553,6 +763,9 @@ export async function detectAnomaliesForBusiness(input: DetectAnomaliesInput): P
     snapshotDate,
   });
 
+  const lossBudgetSpend = positiveOrNull(input.profile?.lossBudgetSpend);
+  const localProgress = localDayProgress(snapshotDate, now, input.profile?.timezone);
+
   const scopeStatusById = new Map<string, string | null>();
   for (const [campaignId, rows] of groupBy(campaignRows, (row) => row.campaign_id)) {
     scopeStatusById.set(campaignId, normalizeStatus(latestByDate(rows)?.campaign_status));
@@ -572,6 +785,21 @@ export async function detectAnomaliesForBusiness(input: DetectAnomaliesInput): P
       progress: timeOfDayProgress(snapshotDate, now),
     }),
     ...detectCpmSpikes({ rows: campaignRows, snapshotDate, detectedAt }),
+    /*
+      Both new detectors are silent without a profile. That is deliberate: a
+      default loss budget or an assumed timezone would be this module deciding
+      what a business considers a bad day.
+    */
+    ...(lossBudgetSpend !== null
+      ? detectZeroConversionSpend({
+        rows: campaignRows, snapshotDate, detectedAt, lossBudgetSpend,
+      })
+      : []),
+    ...(localProgress !== null
+      ? detectEarlyBudgetExhaustion({
+        rows: campaignRows, snapshotDate, detectedAt, localProgress,
+      })
+      : []),
   ].sort(
     (left, right) =>
       severityRank(right.severity) - severityRank(left.severity) ||

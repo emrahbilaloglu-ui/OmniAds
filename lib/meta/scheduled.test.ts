@@ -1,5 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { runMetaSnapshotJobIfDue } from "@/lib/meta/scheduled";
+import {
+  metaSnapshotSlotFor,
+  runMetaSnapshotJobIfDue,
+} from "@/lib/meta/scheduled";
 
 vi.mock("@/lib/db", () => ({
   getDb: vi.fn(),
@@ -47,11 +50,28 @@ describe("runMetaSnapshotJobIfDue", () => {
     });
   });
 
-  it("skips outside the daily UTC slot", async () => {
+  it("skips before the day's first slot opens", async () => {
     const result = await runMetaSnapshotJobIfDue(new Date("2026-05-08T02:00:00.000Z"));
 
     expect(result).toEqual({ skipped: true, reason: "outside_slot", snapshotDate: "2026-05-08" });
     expect(snapshot.runMetaSnapshotForAllBusinesses).not.toHaveBeenCalled();
+  });
+
+  it("runs the day's second slot in the afternoon", async () => {
+    /*
+      The reason there is a second slot at all: native `cut` decisions are
+      withheld when their inputs are older than 12 hours, so a single 03:00
+      production refused everything from 15:00 onwards. The mock's run table
+      is empty, so the 03 slot is still outstanding and gets picked first —
+      which is the catch-up behaviour, and the point of running at all.
+    */
+    vi.mocked(db.getDb).mockReturnValue(makeSqlMock([]));
+
+    const result = await runMetaSnapshotJobIfDue(new Date("2026-05-08T15:10:00.000Z"));
+
+    expect(result.skipped).toBe(false);
+    expect(result.slot).toBe(3);
+    expect(snapshot.runMetaSnapshotForAllBusinesses).toHaveBeenCalledWith("2026-05-08");
   });
 
   it("does not treat calibration-only or partial snapshot coverage as already-run", async () => {
@@ -73,7 +93,9 @@ describe("runMetaSnapshotJobIfDue", () => {
 
     const result = await runMetaSnapshotJobIfDue(new Date("2026-05-08T03:10:00.000Z"));
 
-    expect(result).toEqual({ skipped: true, reason: "already_ran", snapshotDate: "2026-05-08" });
+    expect(result).toEqual({
+      skipped: true, reason: "already_ran", snapshotDate: "2026-05-08", slot: 3,
+    });
     expect(snapshot.runMetaSnapshotForAllBusinesses).not.toHaveBeenCalled();
   });
 
@@ -87,5 +109,23 @@ describe("runMetaSnapshotJobIfDue", () => {
 
     expect(result.skipped).toBe(false);
     expect(snapshot.runMetaSnapshotForAllBusinesses).toHaveBeenCalledWith("2026-05-08");
+  });
+});
+
+describe("metaSnapshotSlotFor", () => {
+  /*
+    Windows, not instants. The cron ticks every ten minutes and a tick can be
+    missed; `=== 3` meant a missed 03:00 cost the whole day's production, and
+    everything downstream of it.
+  */
+  it.each([
+    ["02:59", "2026-05-08T02:59:00.000Z", null],
+    ["03:00", "2026-05-08T03:00:00.000Z", 3],
+    ["03:40 — a late tick still lands in the 03 slot", "2026-05-08T03:40:00.000Z", 3],
+    ["14:59 — still the morning slot's window", "2026-05-08T14:59:00.000Z", 3],
+    ["15:00", "2026-05-08T15:00:00.000Z", 15],
+    ["23:50 — the afternoon slot stays open all evening", "2026-05-08T23:50:00.000Z", 15],
+  ])("%s", (_label, iso, expected) => {
+    expect(metaSnapshotSlotFor(new Date(iso))).toBe(expected);
   });
 });

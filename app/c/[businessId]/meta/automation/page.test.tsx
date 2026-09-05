@@ -61,6 +61,16 @@ vi.mock("@/lib/zero-base/provider-scope-server", () => ({
 }));
 vi.mock("@/lib/meta/automation-control-plane", () => ({
   getMetaAutomationControlPlane: vi.fn(),
+  /*
+    The route creates the business's control row on first view.
+
+    Twelve of thirteen businesses had no row, and with no row every write
+    answered `control_state_unavailable` — a refusal nobody could act on
+    because the thing that was missing was invisible. The row is created with
+    every switch off, so the call is safe to make on a read. Mocked here
+    because this suite is about the route's authority, not about that write.
+  */
+  ensureBusinessControlRow: vi.fn(async () => ({ created: false })),
 }));
 vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({}) as never) }));
 vi.mock("@/lib/meta/state-history-compaction-readiness", () => ({
@@ -322,7 +332,16 @@ describe("Automation canonical route authority", () => {
        * operator sentence, so a gate cannot start refusing for a different
        * reason without this saying so.
        */
-      stopEngageRefusalReason: META_GATE_REFUSAL_REASONS.automationStopUi,
+      /*
+        The STOP is never refused for want of a capability.
+
+        It used to sit behind its own environment gate, which meant a business
+        could reach a screen where automation was live and the control that
+        turns it off said "not enabled yet". A stop that can be withheld is not
+        a stop. It is now unconditional, so nothing refuses engaging it and
+        this reason is null.
+      */
+      stopEngageRefusalReason: null,
       liveWritesRefusalReason: META_GATE_REFUSAL_REASONS.automationLiveWrites,
       // D077: the server-read, display-only recovery readiness travels to
       // the body verbatim.

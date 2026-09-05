@@ -595,6 +595,48 @@ export async function POST(request: NextRequest) {
       failed: true as const,
     }));
 
+  /*
+    The campaign-context chain runs BEFORE the structure snapshot.
+
+    The snapshot reads a campaign's role from `engine_v3_campaign_context_daily`
+    and refuses to act on a campaign it cannot place. The job that writes those
+    rows ran after it, so on any day whose earlier tick had not already written
+    them the snapshot read yesterday's row or none at all — and "no role" is
+    the single most common reason a decision is withheld. Ordering is not a
+    guarantee on its own (the age check still applies, and a failed context job
+    still leaves the snapshot reading what it can), but the reverse order
+    guaranteed the wrong thing.
+  */
+  const decisionProducerJob = await runEngineV3ProducerChainForActiveBusinessesIfDue(
+    new Date(),
+  ).catch((error) => {
+    console.error("[sync-cron] decision_producer_job_failed", error);
+    return {
+      skipped: true,
+      reason: "failed" as const,
+      asOf: new Date().toISOString().slice(0, 10),
+      error: error instanceof Error ? error.message : String(error),
+    };
+  });
+  if (!decisionProducerJob.skipped && "results" in decisionProducerJob) {
+    for (const result of decisionProducerJob.results ?? []) {
+      for (const [job, jobResult] of [
+        ["calibration", result.calibration],
+        ["lifecycle", result.lifecycle],
+        ["decisions", result.decisions],
+      ] as const) {
+        if (jobResult.status === "failed") {
+          console.error("[sync-cron] decision_producer_business_job_failed", {
+            businessId: result.businessId,
+            businessName: result.businessName,
+            job,
+            jobRunId: jobResult.jobRunId,
+            errorMessage: jobResult.errorMessage ?? null,
+          });
+        }
+      }
+    }
+  }
   const metaSnapshotJob = await runMetaSnapshotJobIfDue().catch((error) => {
     console.error("[sync-cron] meta_snapshot_job_failed", error);
     return {
@@ -654,36 +696,6 @@ export async function POST(request: NextRequest) {
       };
     },
   );
-  const decisionProducerJob = await runEngineV3ProducerChainForActiveBusinessesIfDue(
-    new Date(),
-  ).catch((error) => {
-    console.error("[sync-cron] decision_producer_job_failed", error);
-    return {
-      skipped: true,
-      reason: "failed" as const,
-      asOf: new Date().toISOString().slice(0, 10),
-      error: error instanceof Error ? error.message : String(error),
-    };
-  });
-  if (!decisionProducerJob.skipped && "results" in decisionProducerJob) {
-    for (const result of decisionProducerJob.results ?? []) {
-      for (const [job, jobResult] of [
-        ["calibration", result.calibration],
-        ["lifecycle", result.lifecycle],
-        ["decisions", result.decisions],
-      ] as const) {
-        if (jobResult.status === "failed") {
-          console.error("[sync-cron] decision_producer_business_job_failed", {
-            businessId: result.businessId,
-            businessName: result.businessName,
-            job,
-            jobRunId: jobResult.jobRunId,
-            errorMessage: jobResult.errorMessage ?? null,
-          });
-        }
-      }
-    }
-  }
   const nativeAdShadowJob = await runNativeAdShadowChainForActiveBusinessesIfDue(
     new Date(),
     businesses,

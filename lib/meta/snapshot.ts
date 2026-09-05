@@ -67,7 +67,10 @@ import {
 } from "@/lib/meta/recommendations";
 import { resolveMetaFunnelCohort } from "@/lib/meta/funnel-cohort";
 import type { MetaBidRegime, MetaCampaignRole } from "@/lib/meta/types";
-import { readMetaCommercialTargets } from "@/lib/meta/commercial-targets";
+import {
+  metaLossBudgetMaturity,
+  readMetaCommercialTargets,
+} from "@/lib/meta/commercial-targets";
 import { enforceMetaCommercialActionAuthority } from "@/lib/meta/commercial-action-authority";
 
 export interface RunMetaSnapshotResult {
@@ -1324,10 +1327,31 @@ export async function runMetaSnapshotForBusiness(
    * business-wide and its resolve pass has no account predicate, so it belongs
    * outside the loop — see the note above.
    */
+  /*
+    The two profile numbers the newer detectors need, read from what this
+    business has already configured.
+
+    Neither detector runs without them, which is the point: "spent this much
+    with no purchases" and "spent the budget by mid-morning" are both claims
+    about a threshold, and a threshold this module chose for itself would be a
+    universal rule wearing a profile's clothes.
+  */
+  const anomalyTargets = await readMetaCommercialTargets(businessId, {
+    asOf: normalizedSnapshotDate,
+  }).catch(() => null);
+  const lossBudget = metaLossBudgetMaturity({ targets: anomalyTargets });
+  const businessZone = (await getDb()`
+    SELECT timezone FROM businesses WHERE id = ${businessId}::uuid LIMIT 1
+  `.catch(() => null)) as Array<{ timezone: string | null }> | null;
+
   const anomalies = await detectAnomaliesForBusiness({
     businessId,
     snapshotDate: normalizedSnapshotDate,
     calibrationContext: null,
+    profile: {
+      lossBudgetSpend: lossBudget?.spendThreshold ?? null,
+      timezone: businessZone?.[0]?.timezone ?? null,
+    },
   });
   await upsertSnapshotRows({
     businessId,

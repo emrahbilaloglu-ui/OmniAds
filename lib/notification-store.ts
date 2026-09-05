@@ -51,6 +51,19 @@ export interface NotificationRecordRow {
 export async function recordNotificationEvent(input: {
   event: NotificationEvent;
   recipientUserId: string | null;
+  /**
+   * Everyone this notification is for.
+   *
+   * The reader looks up deliveries by `recipient_user_id = <the viewer>`, so a
+   * delivery written with NULL is addressed to nobody and appears in nobody's
+   * bell. One event, one delivery row per person: the event stays deduped —
+   * one underlying fact is one notification — while each recipient gets their
+   * own row to read, and later to mark read.
+   *
+   * Absent or empty falls back to `recipientUserId`, so every existing caller
+   * keeps its exact behaviour.
+   */
+  recipientUserIds?: readonly string[];
   deepLink?: string | null;
   hourInRecipientTimezone?: number;
   quietWindow?: { startHour: number; endHour: number } | null;
@@ -106,22 +119,30 @@ export async function recordNotificationEvent(input: {
     ? "attempted"
     : "suppressed";
 
-  const delivery = (await sql.query(
-    `INSERT INTO notification_deliveries (
-       notification_event_id, recipient_user_id, channel, state,
-       suppression_reason, attempts, attempted_at
-     ) VALUES ($1::uuid, $2, $3, $4, $5, $6, $7)
-     RETURNING id::text AS id`,
-    [
-      inserted[0].id,
-      input.recipientUserId,
-      NOTIFICATION_IN_APP_CHANNEL,
-      state,
-      decision.deliver ? null : decision.reason,
-      decision.deliver ? 1 : 0,
-      decision.deliver ? new Date().toISOString() : null,
-    ],
-  )) as unknown as Array<{ id: string }>;
+  const recipients = input.recipientUserIds?.length
+    ? [...new Set(input.recipientUserIds)]
+    : [input.recipientUserId];
+  const deliveries: Array<{ id: string }> = [];
+  for (const recipient of recipients) {
+    const row = (await sql.query(
+      `INSERT INTO notification_deliveries (
+         notification_event_id, recipient_user_id, channel, state,
+         suppression_reason, attempts, attempted_at
+       ) VALUES ($1::uuid, $2, $3, $4, $5, $6, $7)
+       RETURNING id::text AS id`,
+      [
+        inserted[0].id,
+        recipient,
+        NOTIFICATION_IN_APP_CHANNEL,
+        state,
+        decision.deliver ? null : decision.reason,
+        decision.deliver ? 1 : 0,
+        decision.deliver ? new Date().toISOString() : null,
+      ],
+    )) as unknown as Array<{ id: string }>;
+    if (row[0]) deliveries.push(row[0]);
+  }
+  const delivery = deliveries;
 
   // Section 9: an attempt happened, or was withheld by quiet hours. Reported as
   // what it was -- a suppressed alert is not a delivered one.

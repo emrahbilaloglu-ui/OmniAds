@@ -116,6 +116,12 @@ describe("what the producer will not do", () => {
     expect(READY_LAUNCH_INTENT_SQL).toContain("i.creative_brief_id IS NOT NULL");
     // And it never re-raises one an operator has already decided.
     expect(READY_LAUNCH_INTENT_SQL).toContain("'launch:' || i.id::text");
+    /*
+      An add-to-existing payload carries neither `campaign.name` nor `name`, so
+      before the third arm every creative-reuse row reached the queue with no
+      label at all. The destination ad set is what an operator recognises it by.
+    */
+    expect(READY_LAUNCH_INTENT_SQL).toContain("'{targetAdsetName}'");
   });
 
   it("arbitrates the insert on the index that can actually fire", () => {

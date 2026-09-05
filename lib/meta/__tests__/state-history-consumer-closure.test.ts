@@ -191,13 +191,29 @@ const STATE_HISTORY_REFERENCE_LEDGER: ReadonlyArray<{
   /*
     OPERATOR-READINESS 2026-09-05 — the end-to-end economics seam.
 
-    It seeds the retained budget truth the sizing policies reason from, with the
-    observation-run foreign keys that table requires, and then calls the REAL
-    snapshot rather than restating any of its arithmetic. Two literals, both in
-    the fixture: the observation run and the state rows themselves. It issues no
+    It seeds the retained budget truth the sizing policies reason from and then
+    calls the REAL snapshot rather than restating any of its arithmetic. The
+    fixture no longer writes this table itself: the state rows and the
+    observation run now go through the shipped capture chain
+    (`queueMetaSyncPartition`, `persistMetaRawSnapshot`,
+    `persistMetaEntityObservation`), which is what lets
+    `readMeasuredBudgetHistory` attest a complete run instead of returning
+    null. The one remaining literal is prose in a comment; the seam issues no
     production query of its own.
   */
-  { file: "scripts/ephemeral-postgres-economics-bid-chain-seam-child.ts", category: "harness", count: 2 },
+  { file: "scripts/ephemeral-postgres-economics-bid-chain-seam-child.ts", category: "harness", count: 1 },
+  /*
+    OPERATOR-READINESS 2026-09-05 — the mounted Decision Center harness.
+
+    It builds a throwaway workspace in which the product's own Decision Center
+    renders a populated lane, so the card-level Apply can be driven in a real
+    browser instead of at a SQL seam. Two literals, both fixture: the comment
+    naming the composite foreign key, and the INSERT that satisfies it — the
+    row has to exist for `readMeasuredBudgetHistory` to attest anything, and
+    its observation run has to exist first. It issues no production query over
+    this table; the shipped snapshot does that.
+  */
+  { file: "scripts/meta-decision-card-apply-harness.ts", category: "harness", count: 2 },
 ];
 const LEDGER = new Map(
   STATE_HISTORY_REFERENCE_LEDGER.map((entry) => [entry.file, entry]),

@@ -1322,6 +1322,23 @@
       text-align: left;
     }
 
+    /*
+      The banner's own action link, on a phone.
+
+      `.ad-mobile-anomaly-button` already gave the anomaly card a 44px target,
+      but the posture banners rendered inside the same stage carry a shared
+      desktop link (`meta-posture-banner__button`, 26px tall) — and the stage's
+      own footer promises "Hit targets >= 44px". Measured at 320px: "Open
+      recovery status" and "Set commercial truth" were 26px. Scoped to the
+      mobile stage so the desktop banner keeps its own density.
+    */
+    .ad-final .meta-mobile-decision-stage .meta-posture-banner__button,
+    .ad-final .meta-mobile-surface-stage .meta-posture-banner__button {
+      min-height: 44px;
+      padding-top: 10px;
+      padding-bottom: 10px;
+    }
+
     .ad-mobile-anomaly div {
       margin-top: 2px;
       color: var(--adc-ink3);

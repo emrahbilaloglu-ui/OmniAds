@@ -13,12 +13,26 @@
  * So the fingerprint is compared against the intent's CURRENT value, and a
  * mismatch drops the approval rather than repairing it.
  *
+ * It also has to name a SET. The v1 document held one creative and one ad set,
+ * and a launch may create several of each: an unattended run of a three-
+ * creative launch could only ever be approved for one of them, so either the
+ * other two were turned on under an authorization that never mentioned them,
+ * or the whole launch was refused. Both are wrong answers to a question the
+ * document simply could not ask. v2 holds the sets, and the receipt's own
+ * creatives and ad sets must be a SUBSET of what was approved — approving more
+ * than the launch produced is harmless, approving less is a refusal.
+ *
+ * The contract version moved with the shape. A v1 document is refused as an
+ * unknown contract rather than reinterpreted: its single `approvedAsset` said
+ * nothing about the creatives it did not name, and reading silence as consent
+ * is exactly the defect this replaces.
+ *
  * Every refusal is a named code. "Not approved" and "approved for something
  * else" are different sentences, and the operator has to be able to read which
  * one happened.
  */
 export const ACTIVATION_APPROVAL_CONTRACT =
-  "meta.launch-activation-approval.v1" as const;
+  "meta.launch-activation-approval.v2" as const;
 
 export type ActivationApprovalRefusal =
   | "activation_approval_absent"
@@ -37,6 +51,11 @@ export type ActivationApprovalRefusal =
   | "activation_approval_approver_absent"
   | "activation_approval_policy_version_unbound";
 
+export interface ActivationApprovedAsset {
+  creativeId: string;
+  version: string;
+}
+
 export interface ActivationApproval {
   contractVersion: typeof ACTIVATION_APPROVAL_CONTRACT;
   businessId: string;
@@ -45,11 +64,13 @@ export interface ActivationApproval {
   /** Must equal the intent's own current fingerprint, character for character. */
   requestFingerprint: string;
   approvedOperation: "add_to_existing" | "new_campaign";
-  /** `ad` activates one ad; `hierarchy` also activates the campaign and ad set. */
+  /** `ad` activates the ads; `hierarchy` also activates the campaign and ad sets. */
   approvedScope: "ad" | "hierarchy";
-  approvedAsset: { creativeId: string; version: string };
+  /** Every creative this approval covers. Never empty. */
+  approvedAssets: ActivationApprovedAsset[];
   approvedCopy: { hash: string };
-  approvedDestination: { campaignId: string; adsetId: string | null };
+  /** Every ad set this approval covers; empty means "none named". */
+  approvedDestination: { campaignId: string; adsetIds: string[] };
   approvedBy: string;
   approvedAt: string;
   expiresAt: string;
@@ -69,9 +90,9 @@ export interface ActivationIntentFacts {
 /** What the receipt actually created, so an approval cannot name other entities. */
 export interface ActivationReceiptIdentities {
   campaignId: string | null;
-  adsetId: string | null;
+  adsetIds: readonly string[];
   adIds: readonly string[];
-  creativeId: string | null;
+  creativeIds: readonly string[];
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -85,6 +106,31 @@ function timeOf(value: unknown): number | null {
   if (!text) return null;
   const ms = Date.parse(text);
   return Number.isFinite(ms) ? ms : null;
+}
+
+/** Distinct, trimmed, order preserved. Used for both the sets in the document. */
+function idSet(values: readonly unknown[]): string[] {
+  const found: string[] = [];
+  for (const value of values) {
+    const text = str(value);
+    if (text && !found.includes(text)) found.push(text);
+  }
+  return found;
+}
+
+function readApprovedAssets(value: unknown): ActivationApprovedAsset[] | null {
+  if (!Array.isArray(value) || value.length === 0) return null;
+  const assets: ActivationApprovedAsset[] = [];
+  for (const item of value) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return null;
+    const record = item as { creativeId?: unknown; version?: unknown };
+    const creativeId = str(record.creativeId);
+    const version = str(record.version);
+    if (!creativeId || !version) return null;
+    if (assets.some((asset) => asset.creativeId === creativeId)) continue;
+    assets.push({ creativeId, version });
+  }
+  return assets.length > 0 ? assets : null;
 }
 
 export type ActivationApprovalVerdict =
@@ -125,17 +171,21 @@ export function validateActivationApproval(input: {
   const policyVersion = str(raw.policyVersion);
   const operation = str(raw.approvedOperation);
   const scope = str(raw.approvedScope);
-  const asset = raw.approvedAsset as { creativeId?: unknown; version?: unknown } | null;
+  const assets = readApprovedAssets(raw.approvedAssets);
   const copy = raw.approvedCopy as { hash?: unknown } | null;
   const destination = raw.approvedDestination as
-    { campaignId?: unknown; adsetId?: unknown } | null;
+    { campaignId?: unknown; adsetIds?: unknown } | null;
+  const approvedAdsetIds =
+    destination && Array.isArray(destination.adsetIds)
+      ? idSet(destination.adsetIds)
+      : null;
 
   if (
     !businessId || !providerAccountId || !launchIntentId || !requestFingerprint
     || !approvedAt || !policyVersion
-    || !asset || !str(asset.creativeId) || !str(asset.version)
+    || !assets
     || !copy || !str(copy.hash)
-    || !destination || !str(destination.campaignId)
+    || !destination || !str(destination.campaignId) || approvedAdsetIds === null
     || (operation !== "add_to_existing" && operation !== "new_campaign")
     || (scope !== "ad" && scope !== "hierarchy")
   ) {
@@ -188,14 +238,17 @@ export function validateActivationApproval(input: {
   /*
     And it must name the entities that were actually created.
 
-    The receipt is the record of what exists. An approval pointing at a
-    creative or a campaign the intent did not produce would authorize a write
-    against something outside its own lineage.
+    The receipt is the record of what exists, so the test is containment in
+    that direction: every creative and every ad set the launch produced has to
+    appear in the approval. An approval that names extra ids authorizes
+    nothing extra — the plan only ever walks the receipt — but an approval
+    missing one is exactly the hole this file exists to close.
   */
-  if (
-    input.identities.creativeId !== null
-    && str(asset.creativeId) !== input.identities.creativeId
-  ) {
+  const approvedCreativeIds = assets.map((asset) => asset.creativeId);
+  const unapprovedCreative = input.identities.creativeIds.find(
+    (creativeId) => !approvedCreativeIds.includes(creativeId),
+  );
+  if (unapprovedCreative !== undefined) {
     return { approved: false, refusal: "activation_approval_asset_mismatch" };
   }
   if (
@@ -204,12 +257,21 @@ export function validateActivationApproval(input: {
   ) {
     return { approved: false, refusal: "activation_approval_destination_mismatch" };
   }
-  const approvedAdsetId = str(destination.adsetId);
-  if (
-    input.identities.adsetId !== null
-    && approvedAdsetId !== null
-    && approvedAdsetId !== input.identities.adsetId
-  ) {
+  /*
+    An empty approved ad-set list names none, and an `ad`-scoped approval of an
+    add-to-existing launch legitimately has none to name — the ad set already
+    existed and belongs to somebody else. Containment is therefore only asked
+    when the approval names ad sets at all.
+  */
+  if (approvedAdsetIds.length > 0) {
+    const unapprovedAdset = input.identities.adsetIds.find(
+      (adsetId) => !approvedAdsetIds.includes(adsetId),
+    );
+    if (unapprovedAdset !== undefined) {
+      return { approved: false, refusal: "activation_approval_destination_mismatch" };
+    }
+  } else if (scope === "hierarchy" && input.identities.adsetIds.length > 0) {
+    // A hierarchy approval turns ad sets on. It has to have named them.
     return { approved: false, refusal: "activation_approval_destination_mismatch" };
   }
   /*
@@ -232,14 +294,11 @@ export function validateActivationApproval(input: {
       requestFingerprint,
       approvedOperation: operation,
       approvedScope: scope,
-      approvedAsset: {
-        creativeId: str(asset.creativeId)!,
-        version: str(asset.version)!,
-      },
+      approvedAssets: assets,
       approvedCopy: { hash: str(copy.hash)! },
       approvedDestination: {
         campaignId: str(destination.campaignId)!,
-        adsetId: approvedAdsetId,
+        adsetIds: approvedAdsetIds,
       },
       approvedBy,
       approvedAt,
@@ -261,7 +320,9 @@ export function validateActivationApproval(input: {
  * a destination or an asset that this launch did not produce.
  *
  * The caller supplies only what is genuinely theirs to decide: the scope, who
- * approved, when it expires, and the copy hash they reviewed.
+ * approved, when it expires, and the copy hash they reviewed. The creative and
+ * ad-set sets come from the receipt, which is why an approval always covers
+ * the whole launch and never a first-listed slice of it.
  */
 export function buildActivationApproval(input: {
   intent: ActivationIntentFacts;
@@ -288,8 +349,9 @@ export function buildActivationApproval(input: {
   if (!str(input.policyVersion)) {
     return { ok: false, refusal: "activation_approval_policy_version_unbound" };
   }
-  const creativeId = str(input.identities.creativeId);
-  if (!creativeId || !str(input.approvedAssetVersion)) {
+  const creativeIds = idSet(input.identities.creativeIds);
+  const version = str(input.approvedAssetVersion);
+  if (creativeIds.length === 0 || !version) {
     return { ok: false, refusal: "activation_approval_asset_mismatch" };
   }
   if (!str(input.approvedCopyHash)) {
@@ -312,6 +374,11 @@ export function buildActivationApproval(input: {
   ) {
     return { ok: false, refusal: "activation_approval_scope_mismatch" };
   }
+  const adsetIds = idSet(input.identities.adsetIds);
+  if (input.approvedScope === "hierarchy" && adsetIds.length === 0) {
+    // Nothing to turn on between the campaign and the ads.
+    return { ok: false, refusal: "activation_approval_destination_mismatch" };
+  }
   if (input.identities.adIds.length === 0) {
     return { ok: false, refusal: "activation_approval_destination_mismatch" };
   }
@@ -328,12 +395,12 @@ export function buildActivationApproval(input: {
       requestFingerprint: input.intent.requestFingerprint,
       approvedOperation: input.intent.operation,
       approvedScope: input.approvedScope,
-      approvedAsset: { creativeId, version: input.approvedAssetVersion.trim() },
+      approvedAssets: creativeIds.map((creativeId) => ({
+        creativeId,
+        version: version,
+      })),
       approvedCopy: { hash: input.approvedCopyHash.trim() },
-      approvedDestination: {
-        campaignId,
-        adsetId: str(input.identities.adsetId),
-      },
+      approvedDestination: { campaignId, adsetIds },
       approvedBy: input.approvedBy,
       approvedAt: new Date(approvedAt).toISOString(),
       expiresAt: new Date(expiresAt).toISOString(),

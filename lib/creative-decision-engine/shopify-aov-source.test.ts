@@ -35,6 +35,12 @@ const NOW = new Date("2026-09-05T09:00:00.000Z");
   pass picks up, and the recent pass covers the last seven days through the
   store's today. Between them there is no day of `2026-08-08 .. 2026-09-04`
   that nobody read.
+
+  Each row is shaped as the sync's own SUCCESS write leaves it: the recorded
+  attempt's status is a success, and its window end is the same day as the
+  success-only `ready_through_date`, because one upsert wrote both. That
+  pairing is what the coverage proof now requires, so a fixture that omits it
+  is describing a store whose window start belongs to some later attempt.
 */
 function fullCoverage(
   overrides: Partial<ShopifyOrderSyncCoverage> = {},
@@ -44,12 +50,16 @@ function fullCoverage(
       latestSuccessfulSyncAt: "2026-09-05T08:30:00.000Z",
       latestSyncWindowStart: "2026-08-30",
       readyThroughDate: "2026-09-05",
+      latestSyncWindowEnd: "2026-09-05",
+      latestSyncStatus: "succeeded",
       historicalTargetStart: "2026-08-30",
     },
     historical: {
       latestSuccessfulSyncAt: "2026-09-05T04:00:00.000Z",
       latestSyncWindowStart: "2026-08-06",
       readyThroughDate: "2026-09-04",
+      latestSyncWindowEnd: "2026-09-04",
+      latestSyncStatus: "succeeded",
       historicalTargetStart: "2025-09-05",
     },
     ...overrides,
@@ -235,6 +245,8 @@ describe("observed Shopify AOV", () => {
               latestSuccessfulSyncAt: "2026-09-01T00:00:00.000Z",
               latestSyncWindowStart: "2026-08-30",
               readyThroughDate: "2026-09-05",
+              latestSyncWindowEnd: "2026-09-05",
+              latestSyncStatus: "succeeded",
               historicalTargetStart: "2026-08-30",
             },
           }),
@@ -271,6 +283,8 @@ describe("observed Shopify AOV", () => {
         latestSuccessfulSyncAt: "2026-08-31T09:00:00.000Z",
         latestSyncWindowStart: "2026-08-25",
         readyThroughDate: "2026-09-05",
+        latestSyncWindowEnd: "2026-09-05",
+        latestSyncStatus: "succeeded",
         historicalTargetStart: "2026-08-25",
       },
     });
@@ -300,12 +314,16 @@ describe("observed Shopify AOV", () => {
               latestSuccessfulSyncAt: "2026-09-01T09:00:00.000Z",
               latestSyncWindowStart: "2026-08-30",
               readyThroughDate: "2026-09-05",
+              latestSyncWindowEnd: "2026-09-05",
+              latestSyncStatus: "succeeded",
               historicalTargetStart: "2026-08-30",
             },
             historical: {
               latestSuccessfulSyncAt: "2026-09-05T08:55:00.000Z",
               latestSyncWindowStart: "2026-08-06",
               readyThroughDate: "2026-09-04",
+              latestSyncWindowEnd: "2026-09-04",
+              latestSyncStatus: "succeeded",
               historicalTargetStart: "2025-09-05",
             },
           }),
@@ -329,6 +347,8 @@ describe("observed Shopify AOV", () => {
               latestSuccessfulSyncAt: "2026-09-05T04:00:00.000Z",
               latestSyncWindowStart: "2026-08-20",
               readyThroughDate: "2026-09-04",
+              latestSyncWindowEnd: "2026-09-04",
+              latestSyncStatus: "succeeded",
               historicalTargetStart: "2026-08-20",
             },
           }),
@@ -356,6 +376,8 @@ describe("observed Shopify AOV", () => {
               latestSuccessfulSyncAt: "2026-02-16T04:00:00.000Z",
               latestSyncWindowStart: "2026-02-01",
               readyThroughDate: "2026-02-16",
+              latestSyncWindowEnd: "2026-02-16",
+              latestSyncStatus: "succeeded",
               historicalTargetStart: "2025-09-05",
             },
           }),
@@ -372,12 +394,16 @@ describe("observed Shopify AOV", () => {
             latestSuccessfulSyncAt: "2026-09-05T08:30:00.000Z",
             latestSyncWindowStart: null,
             readyThroughDate: null,
+            latestSyncWindowEnd: null,
+            latestSyncStatus: null,
             historicalTargetStart: null,
           },
           historical: {
             latestSuccessfulSyncAt: "2026-09-05T04:00:00.000Z",
             latestSyncWindowStart: "2026-08-01",
             readyThroughDate: "2026-08-20",
+            latestSyncWindowEnd: "2026-08-20",
+            latestSyncStatus: "succeeded",
             historicalTargetStart: "2025-09-05",
           },
         }),
@@ -409,6 +435,8 @@ describe("observed Shopify AOV", () => {
       latestSuccessfulSyncAt: "2026-09-05T08:30:00.000Z",
       latestSyncWindowStart: start,
       readyThroughDate: end,
+      latestSyncWindowEnd: end,
+      latestSyncStatus: "succeeded",
       historicalTargetStart: start,
     });
 
@@ -470,6 +498,163 @@ describe("observed Shopify AOV", () => {
     ).toEqual({ covered: false, reason: "orders_backfill_incomplete" });
   });
 
+  describe("an expanded recent window that no successful pass established", () => {
+    /*
+      The defect, as the sync itself persists it.
+
+      A seven-day recent pass succeeded at 06:00 and wrote `ready_through_date`
+      and `latest_successful_sync_at` together with its own window. A webhook
+      then arrived carrying a thirty-day-old order, so the repair pass expanded
+      the recent window to thirty days (`lib/shopify/webhooks.ts:183-191`) and
+      wrote its start before doing any work. `latest_sync_window_start` is
+      written by running, cancelled and failed attempts alike, while the two
+      success-only columns are COALESCE-preserved through them
+      (`lib/shopify/sync-state.ts:201`, `:205`).
+
+      What is left on the row is a THIRTY-day start beside a SEVEN-day
+      success — and the old proof combined them into twenty-eight days of
+      coverage for days the store had never read.
+    */
+    const window = { from: "2026-08-08", to: "2026-09-04" };
+    function afterExpandedRepair(status: string): ShopifyOrderSyncCoverage {
+      return {
+        recent: {
+          // The seven-day pass that really did succeed, half an hour before
+          // the repair started. Still inside the freshness ceiling, so this
+          // case reaches the coverage proof rather than stopping at `stale`.
+          latestSuccessfulSyncAt: "2026-09-05T06:00:00.000Z",
+          readyThroughDate: "2026-09-05",
+          // The repair's window, which nothing has finished reading.
+          latestSyncWindowStart: "2026-08-07",
+          latestSyncWindowEnd: "2026-09-05",
+          latestSyncStatus: status,
+          historicalTargetStart: "2026-08-30",
+        },
+        // No backfill has run for this store, so the recent row is the only
+        // thing that could speak for the window.
+        historical: null,
+      };
+    }
+
+    it("is refused rather than combined into a window nobody read", () => {
+      for (const status of ["running", "failed", "missing_read_orders_scope", "cancelled"]) {
+        const coverage = afterExpandedRepair(status);
+        // The naive combination really would have covered the window: the
+        // retained start is before its first day and the retained success end
+        // is after its last. This is the shape the review reproduced
+        // `{"covered":true}` on.
+        expect(coverage.recent!.latestSyncWindowStart! <= window.from).toBe(true);
+        expect(coverage.recent!.readyThroughDate! >= window.to).toBe(true);
+
+        expect(proveShopifyOrderWindowCovered({ window, coverage })).toEqual({
+          covered: false,
+          reason: "orders_coverage_unproven",
+        });
+      }
+    });
+
+    it("needs the recorded OUTCOME, because the bounds alone still match", () => {
+      /*
+        Both halves of the pairing are load-bearing and neither is redundant.
+
+        A same-day repair ends on the same day the last success ended, so the
+        attempt's own end equals the retained `ready_through_date` and that
+        check passes on its own. Only the status says the attempt that wrote
+        the start never finished.
+      */
+      const coverage = afterExpandedRepair("running");
+      expect(coverage.recent!.latestSyncWindowEnd).toBe(coverage.recent!.readyThroughDate);
+      expect(proveShopifyOrderWindowCovered({ window, coverage })).toEqual({
+        covered: false,
+        reason: "orders_coverage_unproven",
+      });
+
+      // And the mirror: a success status whose own end is NOT the retained
+      // success end is a start paired with someone else's receipt.
+      const mismatched: ShopifyOrderSyncCoverage = {
+        recent: {
+          ...afterExpandedRepair("succeeded").recent!,
+          latestSyncWindowEnd: "2026-09-04",
+        },
+        historical: null,
+      };
+      expect(proveShopifyOrderWindowCovered({ window, coverage: mismatched })).toEqual({
+        covered: false,
+        reason: "orders_coverage_unproven",
+      });
+    });
+
+    it("is accepted once that same thirty-day pass actually finishes", () => {
+      // Nothing about the window changed; the pass completed and wrote its
+      // own end and receipt beside its own start.
+      const coverage: ShopifyOrderSyncCoverage = {
+        recent: {
+          latestSuccessfulSyncAt: "2026-09-05T06:30:00.000Z",
+          latestSyncWindowStart: "2026-08-07",
+          latestSyncWindowEnd: "2026-09-05",
+          readyThroughDate: "2026-09-05",
+          latestSyncStatus: "succeeded",
+          historicalTargetStart: "2026-08-30",
+        },
+        historical: null,
+      };
+      expect(proveShopifyOrderWindowCovered({ window, coverage })).toEqual({ covered: true });
+    });
+
+    it("names the absence as unproven, not as a backfill that never arrived", async () => {
+      // Through the reader, end to end. `orders_backfill_incomplete` would say
+      // the days were never read; what is actually true is that the days may
+      // well have been read and the row can no longer show it.
+      const withheldEvidence = await resolve({
+        deps: deps({ readOrderSyncCoverage: async () => afterExpandedRepair("running") }),
+      });
+      expect(withheldEvidence.status).toBe("orders_coverage_unproven");
+      expect(observedShopifyAovIsUsable(withheldEvidence)).toBe(false);
+      expect(withheldEvidence.aovMinor).toBeNull();
+
+      const finished = await resolve({
+        deps: deps({
+          readOrderSyncCoverage: async () => ({
+            recent: {
+              ...afterExpandedRepair("succeeded").recent!,
+              latestSuccessfulSyncAt: "2026-09-05T06:30:00.000Z",
+            },
+            historical: null,
+          }),
+        }),
+      });
+      expect(finished.status).toBe("observed");
+      expect(observedShopifyAovIsUsable(finished)).toBe(true);
+    });
+
+    it("withholds only the recent span, never a backfill that can still prove itself", async () => {
+      /*
+        The refusal is as narrow as the evidence requires. A store whose
+        historical backfill has genuinely reached across the whole window is
+        covered even while a recent repair is in flight, because the
+        historical span's start is the backfill target the chunk walk provably
+        runs forward from, not an attempt's own window.
+      */
+      const coverage: ShopifyOrderSyncCoverage = {
+        recent: afterExpandedRepair("running").recent,
+        historical: {
+          latestSuccessfulSyncAt: "2026-09-05T04:00:00.000Z",
+          latestSyncWindowStart: "2026-08-06",
+          latestSyncWindowEnd: "2026-09-04",
+          readyThroughDate: "2026-09-04",
+          latestSyncStatus: "ready",
+          historicalTargetStart: "2025-09-05",
+        },
+      };
+      expect(proveShopifyOrderWindowCovered({ window, coverage })).toEqual({ covered: true });
+
+      const evidence = await resolve({
+        deps: deps({ readOrderSyncCoverage: async () => coverage }),
+      });
+      expect(evidence.status).toBe("observed");
+    });
+  });
+
   it("does NOT call a freshly synced store stale for want of recent sales", async () => {
     /*
       The defect this replaces. Freshness was measured from
@@ -505,9 +690,16 @@ describe("observed Shopify AOV", () => {
     expect(recordedFields).toEqual([
       "historicalTargetStart",
       "latestSuccessfulSyncAt",
+      "latestSyncStatus",
+      "latestSyncWindowEnd",
       "latestSyncWindowStart",
       "readyThroughDate",
     ]);
+    // The two fields the proof gained are the recorded attempt's OUTCOME and
+    // its own end, which is what pairs a retained window start to a retained
+    // success receipt. Neither is a per-day fact about orders, so the law
+    // above is unchanged: every field here is something the sync wrote about
+    // itself.
   });
 
   it("separates 'never synced successfully' from 'synced too long ago'", async () => {
@@ -530,6 +722,8 @@ describe("observed Shopify AOV", () => {
               latestSuccessfulSyncAt: null,
               latestSyncWindowStart: "2026-08-30",
               readyThroughDate: null,
+              latestSyncWindowEnd: "2026-09-05",
+              latestSyncStatus: "running",
               historicalTargetStart: "2026-08-30",
             },
           }),

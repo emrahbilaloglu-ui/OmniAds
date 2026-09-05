@@ -7,6 +7,7 @@ import type {
   MetaCalibrationThresholds,
   MetaMetricPercentiles,
 } from "@/lib/meta/calibration";
+import { executableBidIntentMinorUnits } from "@/lib/meta/bid-intent-contract";
 import { LEGACY_META_CALIBRATION_THRESHOLDS } from "@/lib/meta/calibration";
 import { formatBidStrategyLabel } from "@/lib/meta/configuration";
 import type { MetaBidRegimeHistorySummary } from "@/lib/meta/config-snapshots";
@@ -1099,34 +1100,26 @@ function campaignAgeDays(row: MetaCampaignRow) {
   return Math.max(0, Math.floor((Date.now() - parsed.getTime()) / 86_400_000));
 }
 
-function readPositiveInteger(value: unknown) {
-  const numeric = Number(value);
-  return Number.isInteger(numeric) && numeric > 0 ? numeric : null;
-}
-
-function recordValue(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : null;
-}
-
-function executableBidAmountMinorFromTargetValue(targetValue: unknown) {
-  const target = recordValue(targetValue);
-  if (!target) return null;
-  const direct = readPositiveInteger(target.bidAmountMinor);
-  if (direct) return direct;
-  const bid = recordValue(target.bid);
-  return readPositiveInteger(bid?.bidAmountMinor);
-}
-
-function proposedActionForRecommendation(
+export function proposedActionForRecommendation(
   recommendation: MetaRecommendation,
 ): MetaRecommendationProposedAction | undefined {
   if (recommendation.proposedAction) return recommendation.proposedAction;
-  if (recommendation.level !== "adset" || recommendation.type !== "bid_value_guidance") {
-    return undefined;
-  }
-  const bidAmountMinor = executableBidAmountMinorFromTargetValue(recommendation.targetValue);
+  /*
+    Ad-set grain, because a bid amount lives on an ad set and a campaign-grain
+    bid has no endpoint. The second half used to test
+    `type === "bid_value_guidance"` — a condition NO producer can satisfy: the
+    only emitter of that type builds a campaign recommendation, and the bid
+    projection attaches its intent to whichever ad-set recommendation is
+    present. So every real ad set carrying a validated cap raise served
+    `operatorApply: null`, and the decision card offered nothing while the
+    confirmation queue offered the same amount one surface away.
+
+    The authority is the intent, not the label above it. See
+    `executableBidIntentMinorUnits`, which asks the same question the queue's
+    own candidate SQL asks.
+  */
+  if (recommendation.level !== "adset") return undefined;
+  const bidAmountMinor = executableBidIntentMinorUnits(recommendation.targetValue);
   return bidAmountMinor ? { kind: "apply_bid", bidAmountMinor } : undefined;
 }
 
@@ -1144,6 +1137,26 @@ function applyConfidence(
       : {}),
     engineVersion: META_RECOMMENDATION_ENGINE_VERSION,
   };
+}
+
+/**
+ * Re-derive `proposedAction` after a sizing pass attached a target value.
+ *
+ * `stampRecommendation` runs when the recommendation is built, and the budget
+ * and bid projections attach their intents afterwards — so the stamp was
+ * always taken before the amount existed. Nothing re-asked, and the persisted
+ * row went out with `proposedAction` absent next to a `targetValue` carrying a
+ * validated amount. It only ever ADDS an action: a recommendation that already
+ * carries one keeps it, because `proposedActionForRecommendation` returns the
+ * existing value first.
+ */
+export function restampProposedActions(
+  recommendations: MetaRecommendation[],
+): MetaRecommendation[] {
+  return recommendations.map((recommendation) => {
+    const proposedAction = proposedActionForRecommendation(recommendation);
+    return proposedAction ? { ...recommendation, proposedAction } : recommendation;
+  });
 }
 
 function stampRecommendation(recommendation: MetaRecommendation): MetaRecommendation {

@@ -36,6 +36,7 @@ import {
 } from "@/lib/meta/budget-readiness-read-model";
 import {
   classifyRetainedProfile,
+  reconcileProfileIdentityExpectation,
   D086_COHORT_LANE,
   D086_COHORT_SCOPES,
   expectedProfileIdentity,
@@ -48,6 +49,7 @@ import { isCampaignContextResolverAuthorityValidated }
 import { declaredFamilyStatus } from "@/lib/meta/budget-write-safety-projection";
 import { WRITE_SAFETY_STEPS } from "@/lib/meta/write-safety-contract";
 import { CANONICAL_PROFILE_CONTRACT } from "@/lib/meta/budget-proposal-dry-run";
+import { readAccountProfileRetentionIdentity } from "@/lib/meta/account-profile-output-producer";
 import type { MetaAutomationProposal } from "@/lib/meta/automation-proposals";
 import type { BudgetCompositionSources } from "@/lib/meta/budget-execution-composition";
 import type { BudgetServerRuntimeReaders } from "@/lib/meta/budget-proposal-server-runtime";
@@ -178,6 +180,44 @@ export function createBudgetWriteJournal(): BudgetWriteJournal {
  * cannot disagree. It returns `null` whenever the population cannot be proven
  * complete: an unprovable denominator is not a small one.
  */
+/**
+ * The control row's own day, from a value the driver hands back as a Date.
+ *
+ * `MetaAutomationBusinessControl.updatedAt` is typed `string | null` and the
+ * control plane assigns `row.updated_at` straight from the query, which the
+ * Postgres driver returns as a `Date` for a `timestamptz`. Calling `.slice` on
+ * it threw inside a reader whose failures degrade to "sources unavailable", so
+ * the crash looked like an absent fact. Nothing here invents a day: an
+ * unparseable clock stays `null`.
+ */
+function controlUpdatedDay(value: unknown): string | null {
+  if (value instanceof Date) {
+    return Number.isFinite(value.getTime())
+      ? value.toISOString().slice(0, 10) : null;
+  }
+  return typeof value === "string" && value.length >= 10
+    ? value.slice(0, 10) : null;
+}
+
+/**
+ * A retained TIMESTAMPTZ, as the strict classifier expects to receive it.
+ *
+ * `classifyRetainedProfile` reads clocks with an ISO-instant regex, and the
+ * Postgres driver hands a `timestamptz` column back as a `Date` — so a
+ * perfectly good retained verdict was answered
+ * `retained_profile_recorded_malformed` and every budget candidate refused.
+ * `as_of_date` is already cast to text in the statement itself; these two are
+ * not, and casting them there would change a shared read model. Anything that
+ * is neither a Date nor a string is passed through untouched, so a genuinely
+ * malformed clock is still refused by name.
+ */
+function retainedInstant(value: unknown): unknown {
+  if (value instanceof Date) {
+    return Number.isFinite(value.getTime()) ? value.toISOString() : null;
+  }
+  return value ?? null;
+}
+
 export async function readMeasuredBudgetHistory(input: {
   businessId: string;
   providerAccountId: string;
@@ -507,6 +547,22 @@ export function createBudgetServerReaders(
         for THIS action on THIS account.
       */
       const profileAction = envelope.intentVerb === "increase_budget" ? "scale" : "cut";
+      /*
+        The expectation, RE-DERIVED at execution time and never produced here.
+
+        This path only ever reads. The verdict it needs was retained when the
+        proposal was projected; what execution has to establish is that the
+        verdict still describes this account — so the identity is re-derived
+        from the commercial-truth and calibration readers now. A target ROAS
+        edited between projection and approval moves that identity, the retained
+        verdict stops agreeing, and the write is withheld. A verdict that was
+        never produced is simply absent, and absent is review-only.
+      */
+      const retainedInputIdentity = await readAccountProfileRetentionIdentity({
+        businessId: proposal.businessId,
+        providerAccountId: proposal.providerAccountId,
+        asOfDate: envelope.snapshotDate,
+      }).catch(() => null);
       const profileRows = (await getDb().query(
         D086_PROFILE_LATEST_SQL,
         [proposal.businessId, proposal.providerAccountId],
@@ -528,18 +584,34 @@ export function createBudgetServerReaders(
             eligible: profileRow.eligible ?? null,
             blockerCode: profileRow.blocker_code ?? null,
             asOfDate: profileRow.as_of_date ?? null,
-            effectiveAt: profileRow.effective_at ?? null,
-            recordedAt: profileRow.recorded_at ?? null,
+            effectiveAt: retainedInstant(profileRow.effective_at),
+            recordedAt: retainedInstant(profileRow.recorded_at),
           },
           {
-            /* The decision's own expectation, carried on the row. */
-            ...expectedProfileIdentity(
-              (proposal.evidenceRef as { evidence?: unknown } | null)?.evidence,
+            /* The decision's own expectation where the row carries one, and
+               the identity of the inputs retained now. Both must agree. */
+            ...reconcileProfileIdentityExpectation(
+              expectedProfileIdentity(
+                (proposal.evidenceRef as { evidence?: unknown } | null)?.evidence,
+              ),
+              retainedInputIdentity,
             ),
             nowIso, maxAgeMs: D086_PROFILE_MAX_AGE_MS,
           },
         )
         : null;
+      /*
+        Trusted and eligible are different claims. A well-formed retained
+        verdict that says `eligible: false` with a canonical blocker code on it
+        is trustworthy AND is a refusal; reporting the classifier's trust as the
+        commercial verdict would have executed a write the engine withheld.
+      */
+      const profileTrusted = profileVerdict?.usable === true;
+      const profileEligible = profileTrusted && profileRow?.eligible === true;
+      const profileBlockerCode = profileTrusted && profileRow?.eligible === false
+        && typeof profileRow.blocker_code === "string"
+        ? profileRow.blocker_code
+        : profileVerdict?.reason ?? null;
 
       const control = await getMetaAutomationControlPlane({
         businessId: proposal.businessId,
@@ -575,6 +647,21 @@ export function createBudgetServerReaders(
         return null;
       }
 
+      /*
+        THE KNOWLEDGE INSTANT, TAKEN AFTER EVERY READ — not before them.
+
+        It travels into the composition as the point-in-time knowledge cutoff
+        and as the preflight's evaluation instant, and the provider baseline is
+        read above, many awaits after this reader started. Stamping it at entry
+        dated the account's own fresh read after the moment the proposal claims
+        to know anything, and D085 refused with `capture_after_knowledge_cutoff`
+        and a contradictory preflight summary. The queries above keep the entry
+        cutoff, so evidence is read as of the earlier instant and knowledge is
+        as of the later one.
+      */
+      const knowledgeMs = Math.max(
+        nowMs, baseline.ok ? baseline.readAtMs : 0, Date.now(),
+      );
       const guardrails = control.businessControl.guardrails;
       const policySafety = projectBudgetPolicySafety({
         currentAmountMinor: baseline.ok ? baseline.amountMinor : null,
@@ -595,7 +682,7 @@ export function createBudgetServerReaders(
       const flagFor = (clear: boolean, why: string) => ({
         state: clear ? ("clear" as const) : ("unknown" as const),
         source: "meta_automation_business_controls",
-        asOf: control.businessControl.updatedAt?.slice(0, 10) ?? null,
+        asOf: controlUpdatedDay(control.businessControl.updatedAt),
         why,
       });
 
@@ -631,7 +718,7 @@ export function createBudgetServerReaders(
           }
           : null,
         // The EXACT action row's own classification.
-        profileRetained: profileVerdict?.usable === true,
+        profileRetained: profileEligible,
         // `null` when the population could not be proven. Unknown blocks.
         changeHistory: history,
         /* The goal of the EXACT ad set being changed. `observations[0]` is
@@ -648,7 +735,7 @@ export function createBudgetServerReaders(
             readAtMs: baseline.readAtMs,
           }
           : null,
-        nowMs,
+        nowMs: knowledgeMs,
         /*
           Safety is READ from the persisted posture. `clear` means the control
           plane says so; anything a control row does not establish is `unknown`,
@@ -684,7 +771,7 @@ export function createBudgetServerReaders(
           writeSafetyStatus(step, {
             guardrails,
             roleReady: roleResolution.satisfiesRoleAuthority,
-            profileReady: profileVerdict?.usable === true,
+            profileReady: profileEligible,
             baselineFresh: baseline.ok,
             killSwitchClear: control.globalKillSwitch.engaged === false
               && control.businessControl.killSwitchEngaged === false,
@@ -699,14 +786,14 @@ export function createBudgetServerReaders(
           profileContractVersion: CANONICAL_PROFILE_CONTRACT,
           businessId: proposal.businessId,
           providerAccountId: proposal.providerAccountId,
-          // `resolved` only when the retention read says the profile is ready.
-          sourceStatus: profileVerdict?.usable === true ? "resolved" : "unavailable",
+          // `resolved` only when the retained verdict is trusted AND eligible.
+          sourceStatus: profileEligible ? "resolved" : "unavailable",
           selectedAction: profileAction,
-          eligible: profileVerdict?.usable === true ? true : null,
-          code: profileVerdict?.reason ?? null,
-          reason: profileVerdict?.reason ?? null,
-          blockerCodes: profileVerdict?.reason ? [profileVerdict.reason] : [],
-          evidenceFloorsClear: profileVerdict?.usable === true,
+          eligible: profileEligible ? true : null,
+          code: profileBlockerCode,
+          reason: profileBlockerCode,
+          blockerCodes: profileBlockerCode ? [profileBlockerCode] : [],
+          evidenceFloorsClear: profileEligible,
           changeSafetyClear: roleResolution.satisfiesRoleAuthority,
         },
         /*
@@ -800,6 +887,19 @@ export function createBudgetServerReaders(
         policy: policyFromGuardrails(control?.businessControl.guardrails ?? null),
         history: measured,
         readProviderBaseline: async (probe) => {
+          /*
+            One live GET per attempt, taken by the executor itself.
+
+            This used to be answered from a copy read a few milliseconds
+            earlier, because `executeBudgetWrite` sampled its clock before
+            calling this reader and its preflight then refused any baseline
+            stamped after that clock — so on a real account, where a provider
+            GET takes longer than zero milliseconds, every budget write was
+            refused as `provider_baseline_stale` without a single POST. That
+            ordering is fixed at source (the clock is now sampled after the
+            read), so the workaround is gone and the baseline this attempt
+            compares against is genuinely the freshest one.
+          */
           if (!input.writeContext) return null;
           const read = await readMetaEntityBudgetState(input.writeContext, {
             entityId: probe.entityId,

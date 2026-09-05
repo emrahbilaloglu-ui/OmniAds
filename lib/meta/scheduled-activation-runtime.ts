@@ -241,6 +241,22 @@ export function createScheduledActivationRuntime(
         // and this runtime must never claim otherwise.
         authorization: { kind: "scheduled" },
         authorize,
+        /*
+          The authority itself, re-read before every step, through this
+          runtime's own reader.
+
+          The per-step hook above re-reads gates, mode and posture, and for a
+          long time that was the whole of it: the approval was validated once
+          from the intent loaded at the top, so an operator revoking it after
+          the campaign step still had the ad set and the ad turned on under a
+          withdrawn permission. The approval is the one authority nobody was
+          re-asking, and it is the only one that names this exact payload.
+        */
+        reloadIntent: () =>
+          readIntent({
+            businessId: proposal.businessId,
+            id: proposal.launchIntentId!,
+          }),
       });
     } catch {
       /*
@@ -305,6 +321,15 @@ export function createScheduledActivationRuntime(
           // The word the surface renders. Never derived from the ad alone: an
           // ad reading ACTIVE under a paused parent shows to nobody.
           delivering: activation.delivering,
+          /*
+            And the count behind it, because "not delivering" covers two very
+            different situations. A launch where nothing came on and one where
+            three of five entities are live and spending need different
+            sentences, and the receipt is the only place that difference
+            survives the request.
+          */
+          partial: activation.partial,
+          coverage: activation.coverage,
           blockedAt: activation.blockedAt,
           blockedReason: activation.blockedReason,
           steps: receipt.steps,

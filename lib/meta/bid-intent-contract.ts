@@ -334,3 +334,42 @@ export function validateBidIntent(
     },
   };
 }
+
+/**
+ * The executable amount a PERSISTED bid intent carries, or null.
+ *
+ * Two readers need exactly this answer and used to ask a different question.
+ * `proposedActionForRecommendation` gated the card's Apply on the
+ * recommendation's TYPE being `bid_value_guidance` at ad-set grain — a
+ * condition no producer can satisfy, because the only emitter of that type
+ * builds a CAMPAIGN recommendation and the projection attaches the intent to
+ * whichever ad-set recommendation is present (a `scenario_*` row, in
+ * practice). So an ad set could carry a validated 1320-minor-unit cap raise
+ * and still serve `operatorApply: null`: the card offered nothing while the
+ * queue offered the same amount one surface away.
+ *
+ * The type was never the authority. This is: the intent's own contract, the
+ * authority status the validator wrote, an empty blocker list, and an amount
+ * the two fields agree on. It is the same predicate `TYPED_BID_CANDIDATE_SQL`
+ * applies before raising a queue row, so the card and the queue can no longer
+ * disagree about whether one amount is applyable.
+ *
+ * Strict on purpose: a withheld or blocker-carrying intent returns null, and
+ * so does a row whose `bidAmountMinor` and `proposedMinorUnits` differ — two
+ * numbers for one write is not a number.
+ */
+export function executableBidIntentMinorUnits(targetValue: unknown): number | null {
+  if (!targetValue || typeof targetValue !== "object" || Array.isArray(targetValue)) {
+    return null;
+  }
+  const target = targetValue as Record<string, unknown>;
+  if (target.contractVersion !== META_BID_INTENT_CONTRACT_VERSION) return null;
+  if (target.authorityStatus !== "authorised") return null;
+  if (!Array.isArray(target.blockerCodes) || target.blockerCodes.length > 0) return null;
+  const positive = (value: unknown) =>
+    Number.isSafeInteger(value) && (value as number) > 0 ? (value as number) : null;
+  const proposed = positive(target.proposedMinorUnits);
+  const bidAmount = positive(target.bidAmountMinor);
+  if (proposed === null || bidAmount === null || proposed !== bidAmount) return null;
+  return bidAmount;
+}

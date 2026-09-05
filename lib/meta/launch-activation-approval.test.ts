@@ -21,9 +21,9 @@ const INTENT: ActivationIntentFacts = {
 
 const IDENTITIES: ActivationReceiptIdentities = {
   campaignId: "camp_1",
-  adsetId: "set_1",
+  adsetIds: ["set_1"],
   adIds: ["ad_1"],
-  creativeId: "cr_1",
+  creativeIds: ["cr_1"],
 };
 
 function approval(overrides: Record<string, unknown> = {}) {
@@ -35,9 +35,9 @@ function approval(overrides: Record<string, unknown> = {}) {
     requestFingerprint: INTENT.requestFingerprint,
     approvedOperation: "add_to_existing",
     approvedScope: "ad",
-    approvedAsset: { creativeId: "cr_1", version: "v3" },
+    approvedAssets: [{ creativeId: "cr_1", version: "v3" }],
     approvedCopy: { hash: "b".repeat(64) },
-    approvedDestination: { campaignId: "camp_1", adsetId: "set_1" },
+    approvedDestination: { campaignId: "camp_1", adsetIds: ["set_1"] },
     approvedBy: APPROVER,
     approvedAt: "2026-09-05T09:00:00.000Z",
     expiresAt: "2026-09-06T09:00:00.000Z",
@@ -89,13 +89,80 @@ describe("an approval is for one exact payload", () => {
 
   it("refuses an approval naming a creative the launch did not produce", () => {
     expect(check(approval({
-      approvedAsset: { creativeId: "cr_other", version: "v3" },
+      approvedAssets: [{ creativeId: "cr_other", version: "v3" }],
     }))).toEqual({ approved: false, refusal: "activation_approval_asset_mismatch" });
+  });
+
+  it("refuses an approval that covers only the first of several creatives", () => {
+    /*
+      The defect the set form exists for. A launch built from three creatives
+      used to be bound by a document naming one of them, and the ads made from
+      the other two were turned on unattended under an authorization that never
+      mentioned them. Containment is asked against what the receipt says exists.
+    */
+    expect(check(approval(), {
+      identities: { ...IDENTITIES, creativeIds: ["cr_1", "cr_2", "cr_3"] },
+    })).toEqual({ approved: false, refusal: "activation_approval_asset_mismatch" });
+  });
+
+  it("accepts one that names every creative the launch produced", () => {
+    const verdict = check(
+      approval({
+        approvedAssets: [
+          { creativeId: "cr_1", version: "v3" },
+          { creativeId: "cr_2", version: "v3" },
+          { creativeId: "cr_3", version: "v3" },
+        ],
+      }),
+      { identities: { ...IDENTITIES, creativeIds: ["cr_1", "cr_2", "cr_3"] } },
+    );
+    expect(verdict.approved).toBe(true);
+  });
+
+  it("refuses an approval that covers only the first of several ad sets", () => {
+    expect(check(
+      approval({ approvedOperation: "new_campaign", approvedScope: "hierarchy" }),
+      {
+        intent: { ...INTENT, operation: "new_campaign" },
+        identities: { ...IDENTITIES, adsetIds: ["set_1", "set_2"] },
+      },
+    )).toEqual({
+      approved: false, refusal: "activation_approval_destination_mismatch",
+    });
+  });
+
+  it("accepts one that names both ad sets", () => {
+    const verdict = check(
+      approval({
+        approvedOperation: "new_campaign",
+        approvedScope: "hierarchy",
+        approvedDestination: { campaignId: "camp_1", adsetIds: ["set_1", "set_2"] },
+      }),
+      {
+        intent: { ...INTENT, operation: "new_campaign" },
+        identities: { ...IDENTITIES, adsetIds: ["set_1", "set_2"] },
+      },
+    );
+    expect(verdict.approved).toBe(true);
+  });
+
+  it("refuses a hierarchy approval that names no ad set at all", () => {
+    // It turns ad sets on. Naming none of them is not a narrower approval.
+    expect(check(
+      approval({
+        approvedOperation: "new_campaign",
+        approvedScope: "hierarchy",
+        approvedDestination: { campaignId: "camp_1", adsetIds: [] },
+      }),
+      { intent: { ...INTENT, operation: "new_campaign" } },
+    )).toEqual({
+      approved: false, refusal: "activation_approval_destination_mismatch",
+    });
   });
 
   it("refuses an approval pointing at another campaign", () => {
     expect(check(approval({
-      approvedDestination: { campaignId: "camp_other", adsetId: "set_1" },
+      approvedDestination: { campaignId: "camp_other", adsetIds: ["set_1"] },
     }))).toEqual({
       approved: false, refusal: "activation_approval_destination_mismatch",
     });
@@ -162,6 +229,29 @@ describe("the shape has to be the shape", () => {
   it("refuses an unknown contract version", () => {
     expect(check(approval({ contractVersion: "meta.something.v9" }))).toEqual({
       approved: false, refusal: "activation_approval_contract_unknown",
+    });
+  });
+
+  it("refuses a v1 document rather than reinterpreting its single asset", () => {
+    /*
+      A v1 approval said nothing about the creatives it did not name. Reading
+      that silence as consent is the defect the set form replaces, so the
+      contract moved with the shape and the old document is simply unknown.
+    */
+    expect(check({
+      ...approval(),
+      contractVersion: "meta.launch-activation-approval.v1",
+      approvedAssets: undefined,
+      approvedAsset: { creativeId: "cr_1", version: "v3" },
+      approvedDestination: { campaignId: "camp_1", adsetId: "set_1" },
+    })).toEqual({
+      approved: false, refusal: "activation_approval_contract_unknown",
+    });
+  });
+
+  it("refuses an empty approved-asset list", () => {
+    expect(check(approval({ approvedAssets: [] }))).toEqual({
+      approved: false, refusal: "activation_approval_malformed",
     });
   });
 

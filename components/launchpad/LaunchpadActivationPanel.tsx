@@ -79,6 +79,26 @@ export interface LaunchpadActivationOutcome {
   error?: { code: string; message: string } | null;
 }
 
+/**
+ * How many of this launch's entities are on, counted from the steps.
+ *
+ * A launch can create several ad sets and several ads, and activation reports
+ * one step per entity. "Not delivering" therefore covers two situations an
+ * operator must never see written the same way: nothing came on, and most of it
+ * did and is spending. The count is derived here rather than read from the
+ * response so the sentence is true of whatever the server sent — a step list is
+ * the one thing every activation reply carries.
+ */
+export function activationCoverage(steps: LaunchpadActivationStep[]): {
+  planned: number;
+  on: number;
+} {
+  const on = steps.filter(
+    (step) => step.outcome === "activated" || step.outcome === "already_active",
+  ).length;
+  return { planned: steps.length, on };
+}
+
 /** The stored approval, after a reader has checked it is the document it claims to be. */
 export interface LaunchpadStandingApproval {
   approvedScope: "ad" | "hierarchy";
@@ -86,12 +106,15 @@ export interface LaunchpadStandingApproval {
   approvedAt: string;
   expiresAt: string;
   revokedAt: string | null;
-  creativeId: string | null;
+  /** Every creative this approval covers, from the document's own set. */
+  approvedCreativeIds: string[];
+  /** Every ad set it covers; empty means the launch created none of its own. */
+  approvedAdsetIds: string[];
   assetVersion: string | null;
   policyVersion: string | null;
 }
 
-const APPROVAL_CONTRACT = "meta.launch-activation-approval.v1";
+const APPROVAL_CONTRACT = "meta.launch-activation-approval.v2";
 const ACTIVATION_RECEIPT_CONTRACT = "meta.launch-activation-receipt.v1";
 
 const GRAIN_LABEL: Record<ActivationGrain, string> = {
@@ -122,15 +145,45 @@ export function readStandingApproval(value: unknown): LaunchpadStandingApproval 
   const expiresAt = text(raw.expiresAt);
   if (!approvedBy || !approvedAt || !expiresAt) return null;
   if (scope !== "ad" && scope !== "hierarchy") return null;
-  const asset = (raw.approvedAsset ?? null) as Record<string, unknown> | null;
+  /*
+    Sets, not first-of-each. A v1 document named one creative and one ad set,
+    so a three-creative launch could be shown as approved while two of its ads
+    were covered by nothing. The contract above moved with the shape, so a v1
+    document reads as absent here rather than as a partial approval.
+  */
+  const assets = Array.isArray(raw.approvedAssets) ? raw.approvedAssets : [];
+  const approvedCreativeIds = assets
+    .map((item) =>
+      item && typeof item === "object"
+        ? text((item as Record<string, unknown>).creativeId)
+        : null,
+    )
+    .filter((value): value is string => Boolean(value));
+  const destination = (raw.approvedDestination ?? null) as
+    Record<string, unknown> | null;
+  const approvedAdsetIds = (
+    destination && Array.isArray(destination.adsetIds)
+      ? destination.adsetIds
+      : []
+  )
+    .map((value) => text(value))
+    .filter((value): value is string => Boolean(value));
+  const firstVersion = assets
+    .map((item) =>
+      item && typeof item === "object"
+        ? text((item as Record<string, unknown>).version)
+        : null,
+    )
+    .find((value): value is string => Boolean(value)) ?? null;
   return {
     approvedScope: scope,
     approvedBy,
     approvedAt,
     expiresAt,
     revokedAt: text(raw.revokedAt),
-    creativeId: asset ? text(asset.creativeId) : null,
-    assetVersion: asset ? text(asset.version) : null,
+    approvedCreativeIds,
+    approvedAdsetIds,
+    assetVersion: firstVersion,
     policyVersion: text(raw.policyVersion),
   };
 }
@@ -182,22 +235,36 @@ export function approvableScopes(
  * Composed from the steps that came back active and the step that blocked, so
  * a stopped sequence reads as the true, ordinary outcome it is. Nothing here
  * infers delivery: a campaign being on says nothing about the ad below it.
+ *
+ * A grain is counted rather than named once, because a launch can create more
+ * than one ad set and more than one ad. Saying "ad set is on" when one of two
+ * is on would be the same lie the receipt itself used to tell.
  */
 export function describeBlockedHierarchy(
   steps: LaunchpadActivationStep[],
   blockedAt: ActivationGrain | null | undefined,
 ): string | null {
   if (!blockedAt) return null;
-  const on = steps
-    .filter(
+  const on: string[] = [];
+  for (const grain of ["campaign", "adset", "ad"] as const) {
+    const planned = steps.filter((step) => step.grain === grain);
+    if (planned.length === 0) continue;
+    const active = planned.filter(
       (step) => step.outcome === "activated" || step.outcome === "already_active",
-    )
-    .map((step) => GRAIN_LABEL[step.grain]);
+    ).length;
+    if (active === 0) continue;
+    on.push(
+      planned.length === 1
+        ? GRAIN_LABEL[grain]
+        : `${active} of ${planned.length} ${GRAIN_LABEL[grain]}s`,
+    );
+  }
   const blocked = GRAIN_LABEL[blockedAt];
   if (on.length === 0) return `${blocked} is not on`;
   const list =
     on.length === 1 ? on[0] : `${on.slice(0, -1).join(", ")} and ${on[on.length - 1]}`;
-  return `${list} ${on.length === 1 ? "is" : "are"} on, ${blocked} is not`;
+  const verb = on.length === 1 && !on[0]!.includes(" of ") ? "is" : "are";
+  return `${list} ${verb} on, ${blocked} is not`;
 }
 
 export function LaunchpadActivationPanel({
@@ -466,6 +533,26 @@ export function LaunchpadActivationPanel({
                         : "ad only"}
                     </strong>
                   </p>
+                  <p data-activation-approval-coverage="">
+                    covers{" "}
+                    <strong className="font-semibold text-[var(--ink)]">
+                      {standing.approvedCreativeIds.length}
+                    </strong>{" "}
+                    {standing.approvedCreativeIds.length === 1
+                      ? "creative"
+                      : "creatives"}
+                    {standing.approvedAdsetIds.length > 0 ? (
+                      <>
+                        {" · "}
+                        <strong className="font-semibold text-[var(--ink)]">
+                          {standing.approvedAdsetIds.length}
+                        </strong>{" "}
+                        {standing.approvedAdsetIds.length === 1
+                          ? "ad set"
+                          : "ad sets"}
+                      </>
+                    ) : null}
+                  </p>
                   <p className="break-all font-mono text-[11px]">
                     approved by {standing.approvedBy}
                   </p>
@@ -624,6 +711,26 @@ export function LaunchpadActivationPanel({
                 Activation attempted · not reported as delivering
               </p>
             )}
+            {/*
+              The count, always, whatever the headline says.
+
+              This launch may have created several ad sets and several ads. "Not
+              delivering" is true of a launch where nothing came on and of one
+              where four of five entities are live and spending, and only one of
+              those needs an operator right now.
+            */}
+            {(shown.steps ?? []).length > 0 ? (
+              <p
+                className="mt-1 text-[11px] text-[var(--muted)]"
+                data-activation-coverage={`${
+                  activationCoverage(shown.steps ?? []).on
+                }/${activationCoverage(shown.steps ?? []).planned}`}
+              >
+                {activationCoverage(shown.steps ?? []).on} of{" "}
+                {activationCoverage(shown.steps ?? []).planned} entities this launch
+                created are on
+              </p>
+            ) : null}
             {shown.recordedAt ? (
               <p className="mt-1 text-[11px] text-[var(--muted)]">
                 Recorded {shown.recordedAt}

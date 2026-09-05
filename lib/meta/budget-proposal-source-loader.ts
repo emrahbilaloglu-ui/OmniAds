@@ -44,7 +44,9 @@ import {
 import {
   classifyRetainedProfile,
   expectedProfileIdentity,
+  reconcileProfileIdentityExpectation,
 } from "@/lib/meta/budget-readiness-retention";
+import { ensureRetainedAccountProfileOutputs } from "@/lib/meta/account-profile-output-producer";
 import {
   campaignContextAuthorityResolverVersion,
   isCampaignContextResolverAuthorityValidated,
@@ -58,6 +60,25 @@ import {
 } from "@/lib/meta/budget-write-safety-projection";
 import type { BudgetCompositionSources } from "@/lib/meta/budget-execution-composition";
 import type { TypedBudgetCandidate } from "@/lib/meta/budget-proposal-producer";
+
+/**
+ * A retained TIMESTAMPTZ, as the strict classifier expects to receive it.
+ *
+ * `classifyRetainedProfile` reads clocks with an ISO-instant regex, and the
+ * Postgres driver hands a `timestamptz` column back as a `Date` — so a
+ * perfectly good retained verdict was answered
+ * `retained_profile_recorded_malformed` and every budget candidate refused.
+ * `as_of_date` is already cast to text in the statement itself; these two are
+ * not, and casting them there would change a shared read model. Anything that
+ * is neither a Date nor a string is passed through untouched, so a genuinely
+ * malformed clock is still refused by name.
+ */
+function retainedInstant(value: unknown): unknown {
+  if (value instanceof Date) {
+    return Number.isFinite(value.getTime()) ? value.toISOString() : null;
+  }
+  return value ?? null;
+}
 
 export async function loadBudgetCompositionSourcesForCandidate(
   candidate: TypedBudgetCandidate,
@@ -205,6 +226,30 @@ export async function loadBudgetCompositionSourcesForCandidate(
   */
   const profileAction = candidate.recommendedAction === "increase_budget"
     ? "scale" : "cut";
+  /*
+    THE DAY'S VERDICT, MATERIALISED BEFORE IT IS READ.
+
+    `engine_v3_account_profile_output` had no writer at all, so this read found
+    nothing on every account and the candidate was refused with
+    `composition_sources_unavailable` — the budget arm inert for a reason no
+    surface could show. This is the first production consumer on the chain, so
+    it is where the day's verdict is materialised: the producer resolves the
+    canonical `AccountDecisionProfile` from this account's own retained facts
+    and retains what it says, including a verdict that withholds the action.
+    Nothing is invented — an account whose facts cannot be read produces no row,
+    the read below finds nothing, and this loader refuses exactly as it did.
+
+    It runs once per account-day per set of inputs; a day whose facts have not
+    moved costs one indexed lookup. The identity it hands back is the
+    expectation the classifier checks the retained row against, and it is
+    re-derived from the commercial-truth and calibration readers rather than
+    from the row itself.
+  */
+  const retainedInputIdentity = await ensureRetainedAccountProfileOutputs({
+    businessId,
+    providerAccountId,
+    asOfDate: candidate.snapshotDate,
+  }).catch(() => null);
   const profileRows = (await getDb().query(
     D086_PROFILE_LATEST_SQL, [businessId, providerAccountId],
   ).catch(() => null)) as Array<Record<string, unknown>> | null;
@@ -225,16 +270,36 @@ export async function loadBudgetCompositionSourcesForCandidate(
         eligible: profileRow.eligible ?? null,
         blockerCode: profileRow.blocker_code ?? null,
         asOfDate: profileRow.as_of_date ?? null,
-        effectiveAt: profileRow.effective_at ?? null,
-        recordedAt: profileRow.recorded_at ?? null,
+        effectiveAt: retainedInstant(profileRow.effective_at),
+        recordedAt: retainedInstant(profileRow.recorded_at),
       },
       {
-        ...expectedProfileIdentity(candidate.evidence),
+        ...reconcileProfileIdentityExpectation(
+          expectedProfileIdentity(candidate.evidence),
+          retainedInputIdentity,
+        ),
         nowIso, maxAgeMs: D086_PROFILE_MAX_AGE_MS,
       },
     )
     : null;
-  const profileReady = profileVerdict?.usable === true;
+  /*
+    USABLE AND ELIGIBLE ARE DIFFERENT CLAIMS, and this used to conflate them.
+
+    `classifyRetainedProfile` answers whether the retained verdict can be
+    trusted — right contract, right engine identity, agreeing fingerprints,
+    coherent clocks, a boolean paired with a canonical code. A well-formed
+    verdict that says `eligible: false` with the engine's own blocker code on it
+    is perfectly trustworthy and is a REFUSAL. Reporting `usable` as the
+    commercial verdict would have declared every such account eligible the
+    moment the retained table started carrying rows, which is the direction that
+    costs money.
+  */
+  const profileTrusted = profileVerdict?.usable === true;
+  const profileEligible = profileTrusted && profileRow?.eligible === true;
+  const profileBlockerCode = profileTrusted && profileRow?.eligible === false
+    && typeof profileRow.blocker_code === "string"
+    ? profileRow.blocker_code
+    : profileVerdict?.reason ?? null;
   const guardrails: MetaAutomationGuardrails = control.businessControl.guardrails;
   const policySafety = projectBudgetPolicySafety({
     currentAmountMinor: baseline?.amountMinor ?? null,
@@ -252,12 +317,33 @@ export async function loadBudgetCompositionSourcesForCandidate(
     },
     history,
   });
+  /*
+    The control row's own day, from a value the driver hands back as a Date.
+
+    `MetaAutomationBusinessControl.updatedAt` is typed `string | null`, and the
+    control plane assigns `row.updated_at` straight from the query — which the
+    Postgres driver returns as a `Date` for a `timestamptz` column. Calling
+    `.slice` on it threw, and because the whole budget projection is wrapped in
+    a `catch` that degrades to "the queue was not projected", the failure was
+    invisible until a candidate got far enough to reach this line. Nothing here
+    invents a day: an unparseable clock stays `null`.
+  */
+  const controlUpdatedDay = (value: unknown): string | null => {
+    if (value instanceof Date) {
+      return Number.isFinite(value.getTime())
+        ? value.toISOString().slice(0, 10) : null;
+    }
+    return typeof value === "string" && value.length >= 10
+      ? value.slice(0, 10) : null;
+  };
   const flag = (clear: boolean, why: string) => ({
     state: clear ? ("clear" as const) : ("unknown" as const),
     source: "meta_automation_business_controls",
-    asOf: control.businessControl.updatedAt?.slice(0, 10) ?? null,
+    asOf: controlUpdatedDay(control.businessControl.updatedAt),
     why,
   });
+
+  const knowledgeMs = Math.max(nowMs, baseline?.readAtMs ?? 0, Date.now());
 
   return {
     businessId,
@@ -287,7 +373,7 @@ export async function loadBudgetCompositionSourcesForCandidate(
         authorityBlockers: roleResolution.blockers,
       }
       : null,
-    profileRetained: profileReady,
+    profileRetained: profileEligible,
     // Measured, prospective, and `null` when the population is not provable.
     changeHistory: history,
     /* The goal of the EXACT ad set being changed. `observations[0]` is
@@ -305,7 +391,23 @@ export async function loadBudgetCompositionSourcesForCandidate(
         readAtMs: baseline.readAtMs,
       }
       : null,
-    nowMs,
+    /*
+      THE KNOWLEDGE INSTANT, TAKEN AFTER EVERY READ — not before them.
+
+      `nowMs` travels into the composition as the point-in-time knowledge cutoff
+      AND as the preflight's evaluation instant, and the provider baseline is
+      read here, several awaits after this function started. Stamping the
+      cutoff at entry therefore dated the account's own fresh read *after* the
+      moment the proposal claims to know anything, and D085 refused every
+      candidate with `capture_after_knowledge_cutoff`,
+      `preflight_observation_after_cutoff` and a contradictory preflight
+      summary. Nothing about the account was wrong; the clock was.
+
+      Every query above still uses the entry cutoff, so evidence is read as of
+      the earlier instant and the composition's knowledge is as of the later
+      one — which is the correct ordering, not a widened window.
+    */
+    nowMs: knowledgeMs,
     safety: {
       killSwitch: flag(
         control.globalKillSwitch.engaged === false
@@ -325,7 +427,7 @@ export async function loadBudgetCompositionSourcesForCandidate(
        path does. Nothing here asserts a step on its own authority. */
     writeSafety: projectionWriteSafety({
       roleReady: roleResolution.satisfiesRoleAuthority,
-      profileReady: profileReady,
+      profileReady: profileEligible,
       baselineFresh: baseline !== null,
       killSwitchClear: control.globalKillSwitch.engaged === false
         && control.businessControl.killSwitchEngaged === false,
@@ -335,13 +437,14 @@ export async function loadBudgetCompositionSourcesForCandidate(
     commercial: {
       profileContractVersion: CANONICAL_PROFILE_CONTRACT,
       businessId, providerAccountId,
-      sourceStatus: profileReady ? "resolved" : "unavailable",
+      sourceStatus: profileEligible ? "resolved" : "unavailable",
       selectedAction: candidate.recommendedAction === "increase_budget" ? "scale" : "cut",
-      eligible: profileReady ? true : null,
-      code: profileVerdict?.reason ?? null,
-      reason: profileVerdict?.reason ?? null,
-      blockerCodes: profileVerdict?.reason ? [profileVerdict.reason] : [],
-      evidenceFloorsClear: profileReady,
+      /* The RETAINED row's own boolean, never the classifier's trust verdict. */
+      eligible: profileEligible ? true : null,
+      code: profileBlockerCode,
+      reason: profileBlockerCode,
+      blockerCodes: profileBlockerCode ? [profileBlockerCode] : [],
+      evidenceFloorsClear: profileEligible,
       changeSafetyClear: roleResolution.satisfiesRoleAuthority,
     },
     /* The persisted decision's OWN hash and OWN clock, both selected with the

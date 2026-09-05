@@ -1,5 +1,6 @@
 // Child of ephemeral-postgres-migrations-check. It runs only against the
-// throwaway database URL force-set by the parent and never calls a provider.
+// throwaway database URL force-set by the parent, and the only provider it ever
+// reaches is a double this file installs.
 //
 // WHY THIS SEAM EXISTS
 //
@@ -12,24 +13,47 @@
 // and no test compared the two because no test used both.
 //
 // So this seam takes the long way round on purpose. It seeds inputs only —
-// warehouse facts, a Shopify store, commercial targets, guardrails, a campaign
-// role — and then calls the REAL production functions end to end:
+// warehouse and creative facts through the shipped writers, a real capture
+// chain (partition, raw snapshot, observation) for the retained budget truth, a
+// Shopify store, commercial targets, guardrails and campaign roles — and then
+// calls the REAL production functions end to end:
 // `runMetaSnapshotForBusiness`, `listTypedBudgetCandidates`,
 // `listTypedBidCandidates`, `projectMetaBidProposals` with `insertBidProposalRow`,
 // `projectMetaBudgetProposals` with the production
-// `loadBudgetCompositionSourcesForCandidate`, and `readMetaAutomationProposal`.
+// `loadBudgetCompositionSourcesForCandidate`, `readMetaAutomationProposal`, the
+// approval route's own claim/readers/runtime/lifecycle assembly, and
+// `runMetaBudgetAutomationSweepIfDue`.
+//
+// THE BUDGET ARM, WHICH USED TO STOP HERE. The earlier revision asserted one
+// budget candidate and ZERO projected rows, because
+// `engine_v3_account_profile_output` had no migration and no writer: the
+// commercial verdict the composition needs could not exist. That is a negative
+// test, not acceptance of the feature. The table is now migrated and
+// `lib/meta/account-profile-output-producer.ts` retains the canonical verdict
+// from this account's own facts, so the chain runs to a queue row, an operator
+// approval and an unattended sweep — each ending in a durable journal receipt
+// verified against a provider read-back. Nothing here inserts a profile row,
+// and the two ways a verdict fails — never produced, and superseded by
+// commercial truth that moved — are asserted as their own refusals.
 //
 // It re-implements NO formula. Every asserted number is either read back out of
 // the database or taken off a production return value. In particular the seam
 // never divides 58.00 by 2.20: the derived $26.36 benchmark is bound by what it
-// produces (a 10% cap raise at a 0.83 CPA ratio) and by a negative control that
-// removes the store's evidence and shows every intent disappear.
+// produces (a 10% cap raise at a 0.83 CPA ratio, and the retained verdict's own
+// spend unit) and by a negative control that removes the store's evidence and
+// shows every intent disappear.
 import {
   createMetaAuthoritativeSliceVersion,
   publishMetaAuthoritativeSliceVersion,
   upsertMetaAdSetDailyRows,
   upsertMetaCampaignDailyRows,
+  upsertMetaCreativeDailyRows,
+  buildMetaRawSnapshotHash,
+  persistMetaRawSnapshot,
+  queueMetaSyncPartition,
 } from "@/lib/meta/warehouse";
+import { mapCampaignObservationState, mapAdSetObservationState } from "@/lib/api/meta";
+import { persistMetaEntityObservation } from "@/lib/meta/entity-state-history";
 import { detectAnomaliesForBusiness } from "@/lib/meta/anomalies";
 import { getDb, resetDbClientCache } from "@/lib/db";
 import { readMetaAutomationProposal } from "@/lib/meta/automation-proposals";
@@ -49,7 +73,25 @@ import {
   projectMetaBudgetProposals,
 } from "@/lib/meta/budget-proposal-producer";
 import { loadBudgetCompositionSourcesForCandidate } from "@/lib/meta/budget-proposal-source-loader";
+import {
+  produceRetainedAccountProfileOutputs,
+  readAccountProfileRetentionIdentity,
+} from "@/lib/meta/account-profile-output-producer";
 import { runMetaSnapshotForBusiness } from "@/lib/meta/snapshot";
+import {
+  claimMetaAutomationProposal,
+  forceMetaAutomationProposalReconcile,
+  markMetaAutomationProposalDispatchStarted,
+  providerDispatchFacts,
+  settleMetaAutomationProposal,
+} from "@/lib/meta/automation-proposals";
+import { appendMetaAutomationReconciliationReceipt } from "@/lib/meta/automation-reconciliation";
+import { createBudgetProposalServerRuntime } from "@/lib/meta/budget-proposal-server-runtime";
+import { createBudgetServerReaders } from "@/lib/meta/budget-proposal-server-readers";
+import { runClaimedProposalExecution } from "@/lib/meta/budget-execution-lifecycle";
+import { buildMetaBudgetWriteContextForProposal } from "@/lib/meta/budget-proposal-write-context";
+import { runMetaBudgetAutomationSweepIfDue } from "@/lib/meta/budget-automation-scheduled";
+import { composeBudgetExecutionCandidate } from "@/lib/meta/budget-execution-composition";
 import type { MetaAdSetDailyRow, MetaCampaignDailyRow } from "@/lib/meta/warehouse-types";
 
 const LABEL = "economics-bid-chain-seam";
@@ -71,6 +113,18 @@ const CBO_CAMPAIGN = "5000000000101";
 const CBO_ADSET = "5000000000201";
 const ABO_CAMPAIGN = "5000000000102";
 const ABO_ADSET = "5000000000202";
+/*
+  The SECOND authorised budget owner.
+
+  Two proposals are needed because a proposal is executed exactly once, and the
+  approval path and the scheduled sweep are two different authorisations that
+  both have to be shown reaching the provider. It mirrors the CBO campaign in
+  every respect except the delivery stall, so it raises a budget row and no bid
+  row, and its presence also keeps the account concentration share of any single
+  increase comfortably inside the guardrail.
+*/
+const SWEEP_CAMPAIGN = "5000000000103";
+const SWEEP_ADSET = "5000000000203";
 
 /** The evidence window both the warehouse and the store fixture cover. */
 const WINDOW_DAYS = 28;
@@ -108,16 +162,35 @@ interface RecordedRequest {
 }
 
 /**
- * A provider that refuses to exist.
+ * The provider, as a double that only ever answers what this seam allows.
  *
- * The seam's central claim is that a decision worth an operator's approval is
- * produced from retained facts alone. Any request at all is therefore a
- * finding, and a POST is a failure of the strongest kind: nothing on this path
- * may write to Meta.
+ * It starts REFUSING. Everything the economics and bid chains claim is derived
+ * from retained facts, so a request during that phase is a finding and a POST
+ * is a failure of the strongest kind.
+ *
+ * It is then switched to SERVING for the budget execution phase, where the
+ * point is the opposite: the projection takes exactly one GET-only baseline
+ * through the shipped write context, and approval and the scheduled sweep each
+ * POST once through the shipped executor. The double holds the entity's budget
+ * as state and updates it on a POST, so the executor's own pre-POST
+ * compare-and-set and post-write read-back are answered by a provider that
+ * actually changed — not by a stub that echoes whatever it is asked.
  */
-function installRefusingFetch(): { calls: RecordedRequest[]; restore: () => void } {
+function installProviderDouble(budgets: Map<string, number>): {
+  calls: RecordedRequest[];
+  serve: () => void;
+  refuse: () => void;
+  restore: () => void;
+  since: (index: number) => RecordedRequest[];
+} {
   const calls: RecordedRequest[] = [];
+  let mode: "refuse" | "serve" = "refuse";
   const original = globalThis.fetch;
+  const json = (payload: unknown) =>
+    new Response(JSON.stringify(payload), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
   globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
     const url = String(
       typeof input === "object" && input !== null && "url" in input
@@ -126,12 +199,62 @@ function installRefusingFetch(): { calls: RecordedRequest[]; restore: () => void
     );
     const method = (init?.method ?? "GET").toUpperCase();
     calls.push({ method, url });
-    if (method !== "GET") {
-      fail("provider_write_attempted", `${method} ${url}`);
+    if (mode === "refuse") {
+      if (method !== "GET") fail("provider_write_attempted", `${method} ${url}`);
+      fail("provider_request_attempted", `${method} ${url}`);
     }
-    fail("provider_request_attempted", `${method} ${url}`);
+    const node = new URL(url).pathname.split("/").filter(Boolean).pop() ?? "";
+    // The ad account profile, which is where the account's currency comes from.
+    if (method === "GET" && node === ACCOUNT) {
+      return json({
+        id: ACCOUNT, currency: "USD", name: "Economics seam account",
+        timezone_name: "UTC",
+      });
+    }
+    if (method === "GET" && budgets.has(node)) {
+      return json({
+        id: node,
+        // Meta reports the account without the `act_` prefix the context holds.
+        account_id: ACCOUNT.replace(/^act_/, ""),
+        name: node, daily_budget: String(budgets.get(node)),
+        status: "ACTIVE", effective_status: "ACTIVE",
+      });
+    }
+    if (method === "POST" && budgets.has(node)) {
+      const body = init?.body instanceof URLSearchParams
+        ? init.body
+        : new URLSearchParams(String(init?.body ?? ""));
+      const amount = Number(body.get("daily_budget"));
+      if (!Number.isSafeInteger(amount) || amount <= 0) {
+        fail("provider_post_without_amount", `${url} body=${body.toString()}`);
+      }
+      budgets.set(node, amount);
+      return json({ success: true, id: node });
+    }
+    fail("provider_request_unexpected", `${method} ${url}`);
   }) as typeof fetch;
-  return { calls, restore: () => { globalThis.fetch = original; } };
+  return {
+    calls,
+    serve: () => { mode = "serve"; },
+    refuse: () => { mode = "refuse"; },
+    restore: () => { globalThis.fetch = original; },
+    since: (index: number) => calls.slice(index),
+  };
+}
+
+/**
+ * Clear the process-wide read-through cache.
+ *
+ * `getMetaAccountContext` memoises for a minute on `globalThis`, and this seam
+ * deliberately runs the first phase with no Meta connection at all — so the
+ * "not connected" answer would still be cached when the connection is seeded.
+ * A fresh process would not have it; clearing the store is how one run stands
+ * in for two.
+ */
+function clearServerCache() {
+  (globalThis as typeof globalThis & {
+    __omniadsServerCache?: { entries: Map<string, unknown> };
+  }).__omniadsServerCache?.entries.clear();
 }
 
 function metricRow(input: {
@@ -266,12 +389,24 @@ async function seedShopifyStore(syncAt: string) {
     [latest_sync_window_start, ready_through_date] is how far back that reading
     reached. A window we never read cannot be averaged, however fresh the sync.
   */
+  /*
+    `latest_sync_window_end` is written too, and it equals `ready_through_date`.
+
+    The coverage proof pairs the retained start with the retained SUCCESS end
+    and refuses `orders_coverage_unproven` when they disagree, because a
+    running or failed attempt overwrites the start and leaves the older success
+    end behind. A fixture that recorded only the start was claiming a span no
+    single pass had established, which is exactly the shape the proof exists to
+    reject.
+  */
   await sql.query(
     `INSERT INTO shopify_sync_state
        (business_id, provider_account_id, sync_target,
-        latest_successful_sync_at, latest_sync_window_start, ready_through_date,
+        latest_successful_sync_at, latest_sync_window_start,
+        latest_sync_window_end, ready_through_date,
         latest_sync_status)
-     VALUES ($1, $2, 'commerce_orders_recent', $3::timestamptz, $4::date, $5::date, 'succeeded')
+     VALUES ($1, $2, 'commerce_orders_recent', $3::timestamptz, $4::date,
+             $5::date, $5::date, 'succeeded')
      ON CONFLICT (business_id, provider_account_id, sync_target)
      DO UPDATE SET latest_successful_sync_at = EXCLUDED.latest_successful_sync_at`,
     [BUSINESS, SHOP, syncAt, addDays(AS_OF, -60), AS_OF],
@@ -363,6 +498,104 @@ async function seedCampaignRole() {
              'system_inferred', 'system_inference', $5)`,
     [BUSINESS, ACCOUNT, CBO_CAMPAIGN, AS_OF, CAMPAIGN_CONTEXT_RESOLVER_VERSION],
   );
+  /*
+    The RETAINED authority record, which is a different fact from the daily row
+    above and is the one the budget path actually reads.
+
+    Its producer in this product is `campaign-context-job`'s
+    `UPSERT_ROLE_AUTHORITY_QUERY`, which writes exactly these columns beside the
+    daily inference under `engine-v3-campaign-role-authority.v1`. It is seeded
+    here as an INPUT, the same way the daily context row above is: this seam's
+    subject is the budget chain, and the campaign-context job is upstream of it.
+    Both hashes are the job's own digests over its evidence; a fixture cannot
+    reproduce those, so they are stated as fixture digests and nothing in the
+    budget path reads them.
+  */
+  await getDb().query(
+    `INSERT INTO engine_v3_campaign_role_authority
+       (contract, business_id, provider_account_id, campaign_id, as_of_date,
+        inferred_kind, kind_source, resolver_version, confidence_class,
+        evidence_hash, input_hash, effective_at, recorded_at, provenance)
+     VALUES ('engine-v3-campaign-role-authority.v1', $1, $2, $3, $4::date,
+             'main', 'system_inferred', $5, 'high',
+             $6, $7, ($4 || 'T00:00:00.000Z')::timestamptz, now(),
+             'system_inference')`,
+    [BUSINESS, ACCOUNT, CBO_CAMPAIGN, AS_OF, CAMPAIGN_CONTEXT_RESOLVER_VERSION,
+      "a".repeat(64), "b".repeat(64)],
+  );
+  await getDb().query(
+    `INSERT INTO engine_v3_campaign_context_daily
+       (business_id, provider_account_id, campaign_id, campaign_name, as_of_date,
+        inferred_kind, confidence_score, confidence_class, kind_source,
+        kind_basis, resolver_version)
+     VALUES ($1, $2, $3, 'Prospecting CBO II', $4::date, 'main', 0.95, 'high',
+             'system_inferred', 'system_inference', $5)`,
+    [BUSINESS, ACCOUNT, SWEEP_CAMPAIGN, AS_OF, CAMPAIGN_CONTEXT_RESOLVER_VERSION],
+  );
+  await getDb().query(
+    `INSERT INTO engine_v3_campaign_role_authority
+       (contract, business_id, provider_account_id, campaign_id, as_of_date,
+        inferred_kind, kind_source, resolver_version, confidence_class,
+        evidence_hash, input_hash, effective_at, recorded_at, provenance)
+     VALUES ('engine-v3-campaign-role-authority.v1', $1, $2, $3, $4::date,
+             'main', 'system_inferred', $5, 'high',
+             $6, $7, ($4 || 'T00:00:00.000Z')::timestamptz, now(),
+             'system_inference')`,
+    [BUSINESS, ACCOUNT, SWEEP_CAMPAIGN, AS_OF, CAMPAIGN_CONTEXT_RESOLVER_VERSION,
+      "c".repeat(64), "d".repeat(64)],
+  );
+}
+
+/**
+ * The converter population the account calibration is computed from.
+ *
+ * `calibrationReady` — `matureCreativeCount >= MIN_ACCOUNT_SCALE_CALIBRATION_SAMPLE`
+ * — is one of the three conditions the canonical resolver requires before it
+ * will call `scale` commercially eligible, and `mature_count` in
+ * `ACCOUNT_CALIBRATION_QUERY` is the count of creatives with at least one
+ * purchase, positive revenue and positive spend inside ninety days. An account
+ * with campaign and ad-set rows but no creative rows has a mature count of
+ * zero, so its scale verdict is withheld with `scale_calibration_below_floor`
+ * — a true answer about a fixture that had never described the ad level at all.
+ *
+ * Thirty-two, so the floor is cleared and is still the thing being cleared.
+ * The rows go through the production writer, and their AOV (36.00) is
+ * deliberately NOT the store's (58.00): the spend-unit resolver reaches the
+ * store's number first, so the derived benchmark below stays the store's and
+ * the negative control at the end of this seam still bites.
+ */
+const CONVERTER_CREATIVE_COUNT = 32;
+
+async function seedCreativeFacts() {
+  const rows = [];
+  for (let index = 0; index < CONVERTER_CREATIVE_COUNT; index += 1) {
+    rows.push({
+      businessId: BUSINESS,
+      providerAccountId: ACCOUNT,
+      accountTimezone: "UTC",
+      accountCurrency: "USD",
+      sourceSnapshotId: null,
+      date: AS_OF,
+      campaignId: CBO_CAMPAIGN,
+      adsetId: CBO_ADSET,
+      adId: `50000000003${String(index).padStart(2, "0")}`,
+      creativeId: `50000000004${String(index).padStart(2, "0")}`,
+      creativeName: `Converter ${index}`,
+      headline: null,
+      primaryText: null,
+      destinationUrl: null,
+      thumbnailUrl: null,
+      assetType: "image",
+      objective: "OUTCOME_SALES",
+      optimizationGoal: "OFFSITE_CONVERSIONS",
+      effectiveStatus: "ACTIVE",
+      ...metricRow({
+        spend: 10, revenue: 36, conversions: 1,
+        impressions: 400, clicks: 8, reach: 300,
+      }),
+    });
+  }
+  await upsertMetaCreativeDailyRows(rows);
 }
 
 async function seedWarehouseFacts() {
@@ -394,6 +627,35 @@ async function seedWarehouseFacts() {
       campaignId: CBO_CAMPAIGN,
       campaignNameCurrent: "Prospecting CBO",
       campaignNameHistorical: "Prospecting CBO",
+      campaignStatus: "ACTIVE",
+      objective: "OUTCOME_SALES",
+      buyingType: "AUCTION",
+      optimizationGoal: "OFFSITE_CONVERSIONS",
+      customEventType: "PURCHASE",
+      bidStrategyType: "lowest_cost",
+      bidStrategyLabel: null,
+      manualBidAmount: null,
+      bidValue: null,
+      bidValueFormat: null,
+      dailyBudget: 250,
+      lifetimeBudget: null,
+      isBudgetMixed: false,
+      isConfigMixed: false,
+      isOptimizationGoalMixed: false,
+      isCustomEventTypeMixed: false,
+      isBidStrategyMixed: false,
+      isBidValueMixed: false,
+      ...metricRow({
+        spend: 100, revenue: 360, conversions: 4,
+        impressions: 4000, clicks: 30, reach: 1000,
+      }),
+    });
+    campaignRows.push({
+      ...base,
+      date,
+      campaignId: SWEEP_CAMPAIGN,
+      campaignNameCurrent: "Prospecting CBO II",
+      campaignNameHistorical: "Prospecting CBO II",
       campaignStatus: "ACTIVE",
       objective: "OUTCOME_SALES",
       buyingType: "AUCTION",
@@ -494,6 +756,40 @@ async function seedWarehouseFacts() {
       `policy_account_concentration_exceeded`. Its lowest-cost strategy also
       gives the seam a contrast case — an ad set that owns no writable cap.
     */
+    /*
+      The sweep campaign's ad set, with steady delivery on every day.
+
+      No impression collapse, so no `delivery_stall` anomaly and no cap intent:
+      the bid arm still has exactly one candidate, and the second budget row
+      this campaign exists for is the only thing it adds.
+    */
+    adsetRows.push({
+      ...base,
+      date,
+      campaignId: SWEEP_CAMPAIGN,
+      adsetId: SWEEP_ADSET,
+      adsetNameCurrent: "Broad prospecting II",
+      adsetNameHistorical: "Broad prospecting II",
+      adsetStatus: "ACTIVE",
+      optimizationGoal: "OFFSITE_CONVERSIONS",
+      customEventType: "PURCHASE",
+      bidStrategyType: "lowest_cost",
+      bidStrategyLabel: null,
+      manualBidAmount: null,
+      bidValue: null,
+      bidValueFormat: null,
+      dailyBudget: null,
+      lifetimeBudget: null,
+      isBudgetMixed: false,
+      isConfigMixed: false,
+      isOptimizationGoalMixed: false,
+      isBidStrategyMixed: false,
+      isBidValueMixed: false,
+      ...metricRow({
+        spend: 80, revenue: 288, conversions: 3,
+        impressions: 4000, clicks: 30, reach: 1000,
+      }),
+    });
     adsetRows.push({
       ...base,
       date,
@@ -569,79 +865,163 @@ async function publishSlices() {
 }
 
 /**
- * The retained budget truth, with the foreign-key chain it depends on.
+ * The retained budget truth, through the REAL capture chain.
  *
- * `meta_entity_state_history` rows carry a COMPOSITE key back to an
- * observation run — id, business, account, entity type, captured_at and
- * completeness all have to agree — so the run has to exist first. The CBO ad
- * set carries its parent's amount and owns none of it, which is what makes its
- * budget universe `proven_non_applicable` and keeps a budget intent off it; an
- * ad set that acquired one would suppress its own bid intent as a sibling
- * change in the same window.
+ * `readMeasuredBudgetHistory` does not read `meta_entity_state_history` on its
+ * own: it first attests a COMPLETE capture run from
+ * `meta_entity_observation_receipts`, whose cohort has to name a real
+ * `meta_sync_partitions` row and a real raw snapshot, and then requires the
+ * present entity identities to be exactly the run's members. A fixture that
+ * INSERTed state rows by hand satisfied none of that, so the history read
+ * returned null and the composition refused with `change_history_unknown` —
+ * a fact about the fixture rather than about the account.
+ *
+ * So every row below comes from the same writers the Meta sync uses: a queued
+ * core-lane partition, a persisted raw snapshot of the provider's own payload
+ * shape, the shipped observation mappers, and `persistMetaEntityObservation`.
+ * The CBO ad set carries its parent's amount and owns none of it, which is what
+ * makes its budget universe `proven_non_applicable` and keeps a budget intent
+ * off it; an ad set that acquired one would suppress its own bid intent as a
+ * sibling change in the same window.
  */
-async function seedBudgetState(accountRefId: string) {
-  const sql = getDb();
-  const captured = `${AS_OF}T03:00:00.000Z`;
-  const runFor = async (entityType: "campaign" | "adset") => {
-    const rows = (await sql.query(
-      `INSERT INTO meta_entity_observation_runs
-         (business_ref_id, business_id, provider_account_ref_id,
-          provider_account_id, entity_type, endpoint,
-          observed_at, captured_at, completeness, run_hash)
-       VALUES ($1::uuid, $2, $6::uuid, $3, $4, '/act/' || $3,
-               $5::timestamptz, $5::timestamptz, 'complete',
-               $7)
-       RETURNING id::text AS id`,
-      [BUSINESS, BUSINESS, ACCOUNT, entityType, captured, accountRefId,
-        (entityType === "campaign" ? "e" : "f").repeat(64)],
-    )) as Array<{ id: string }>;
-    return rows[0]!.id;
-  };
-  const runIds = {
-    campaign: await runFor("campaign"),
-    adset: await runFor("adset"),
-  };
+interface RawCampaignPayload {
+  id: string; name: string; status: string; effective_status: string;
+  daily_budget?: string; updated_time: string;
+}
+interface RawAdSetPayload {
+  id: string; name: string; campaign_id: string; status: string;
+  effective_status: string; daily_budget?: string; updated_time: string;
+}
 
-  let stateHashSeed = 0;
-  const state = async (input: {
-    entityType: "campaign" | "adset";
-    entityId: string;
-    campaignId: string;
-    origin: string;
-    campaignDaily: string | null;
-    adsetDaily: string | null;
-  }) => {
-    stateHashSeed += 1;
-    await sql.query(
-      `INSERT INTO meta_entity_state_history
-         (run_id, business_ref_id, business_id, provider_account_ref_id,
-          provider_account_id, entity_type, entity_id, campaign_id, adset_id,
-          configured_status, effective_status,
-          campaign_daily_budget_raw, adset_daily_budget_raw,
-          budget_currency, budget_currency_exponent, budget_origin,
-          presence, observed_at, captured_at, run_completeness, state_hash)
-       VALUES ($1::uuid, $2::uuid, $3, $14::uuid, $4, $5, $6, $7, $8,
-               'ACTIVE', 'ACTIVE', $9, $10, 'USD', 2, $11, 'present',
-               $12::timestamptz, $12::timestamptz, 'complete', $13)`,
-      [runIds[input.entityType], BUSINESS, BUSINESS, ACCOUNT,
-        input.entityType, input.entityId, input.campaignId,
-        input.entityType === "adset" ? input.entityId : null,
-        input.campaignDaily, input.adsetDaily, input.origin, captured,
-        String(stateHashSeed).padStart(64, "0"), accountRefId],
-    );
-  };
+type ObservationCredentials =
+  Parameters<typeof mapCampaignObservationState>[0]["credentials"];
 
-  await state({
-    entityType: "campaign", entityId: CBO_CAMPAIGN, campaignId: CBO_CAMPAIGN,
-    origin: "campaign", campaignDaily: "25000", adsetDaily: null,
+async function seedBudgetState() {
+  const observedAt = `${AS_OF}T03:00:00.000Z`;
+  const capturedAt = `${AS_OF}T03:00:00.000Z`;
+  const providerUpdatedAt = `${AS_OF}T02:00:00+0000`;
+
+  const credentials = {
+    businessId: BUSINESS,
+    accessToken: "unused-by-the-mapper",
+    accountIds: [ACCOUNT],
+    accountProfiles: { [ACCOUNT]: { timezone: "UTC", currency: "USD" } },
+  } as unknown as ObservationCredentials;
+
+  const campaigns: RawCampaignPayload[] = [
+    {
+      id: CBO_CAMPAIGN, name: "Prospecting CBO", status: "ACTIVE",
+      effective_status: "ACTIVE", daily_budget: "25000",
+      updated_time: providerUpdatedAt,
+    },
+    {
+      id: SWEEP_CAMPAIGN, name: "Prospecting CBO II", status: "ACTIVE",
+      effective_status: "ACTIVE", daily_budget: "25000",
+      updated_time: providerUpdatedAt,
+    },
+    {
+      id: ABO_CAMPAIGN, name: "Retargeting ABO", status: "ACTIVE",
+      effective_status: "ACTIVE", updated_time: providerUpdatedAt,
+    },
+  ];
+  const adsets: RawAdSetPayload[] = [
+    {
+      id: CBO_ADSET, name: "Broad prospecting", campaign_id: CBO_CAMPAIGN,
+      status: "ACTIVE", effective_status: "ACTIVE",
+      updated_time: providerUpdatedAt,
+    },
+    {
+      id: SWEEP_ADSET, name: "Broad prospecting II", campaign_id: SWEEP_CAMPAIGN,
+      status: "ACTIVE", effective_status: "ACTIVE",
+      updated_time: providerUpdatedAt,
+    },
+    {
+      id: ABO_ADSET, name: "Retargeting 30d", campaign_id: ABO_CAMPAIGN,
+      status: "ACTIVE", effective_status: "ACTIVE", daily_budget: "25000",
+      updated_time: providerUpdatedAt,
+    },
+  ];
+
+  const partition = await queueMetaSyncPartition({
+    businessId: BUSINESS,
+    providerAccountId: ACCOUNT,
+    lane: "core" as never,
+    scope: "account_daily" as never,
+    partitionDate: AS_OF,
+    status: "succeeded",
+    priority: 0,
+    source: "system",
+    attemptCount: 1,
   });
-  await state({
-    entityType: "adset", entityId: CBO_ADSET, campaignId: CBO_CAMPAIGN,
-    origin: "campaign", campaignDaily: "25000", adsetDaily: null,
+  const partitionId = partition?.id ?? null;
+  if (!partitionId) fail("partition_not_queued", "the partition queue returned no row");
+
+  const snapshotFor = async (endpointName: string, entityScope: string, payload: unknown) => {
+    const id = await persistMetaRawSnapshot({
+      businessId: BUSINESS,
+      providerAccountId: ACCOUNT,
+      partitionId: partitionId!,
+      endpointName,
+      entityScope,
+      startDate: AS_OF,
+      endDate: AS_OF,
+      accountTimezone: "UTC",
+      accountCurrency: "USD",
+      payloadJson: payload,
+      payloadHash: buildMetaRawSnapshotHash({
+        businessId: BUSINESS,
+        providerAccountId: ACCOUNT,
+        endpointName,
+        startDate: AS_OF,
+        endDate: AS_OF,
+        payload,
+      }),
+      requestContext: { source: LABEL },
+      providerHttpStatus: 200,
+      status: "fetched",
+    });
+    if (!id) fail("raw_snapshot_absent", endpointName);
+    return id!;
+  };
+  const campaignSnapshot = await snapshotFor("campaign_configs", "campaign", campaigns);
+  const adsetSnapshot = await snapshotFor("adset_configs", "adset", adsets);
+
+  const campaignStates = campaigns
+    .map((row) => mapCampaignObservationState({
+      credentials, accountId: ACCOUNT, row: row as never,
+      responseObservedAt: observedAt, capturedAt,
+    }).state)
+    .filter((state): state is NonNullable<typeof state> => state !== null);
+  const adsetStates = adsets
+    .map((row) => mapAdSetObservationState({
+      credentials, accountId: ACCOUNT, row: row as never,
+      responseObservedAt: observedAt, capturedAt,
+    }).state)
+    .filter((state): state is NonNullable<typeof state> => state !== null);
+
+  await persistMetaEntityObservation({
+    businessId: BUSINESS, providerAccountId: ACCOUNT, entityType: "campaign",
+    endpoint: "campaign_configs", observedAt, capturedAt,
+    completeness: "complete", pageCount: 1,
+    providerRowCount: campaignStates.length, states: campaignStates,
+    sourceSnapshotId: campaignSnapshot, error: null,
+    captureReceipt: {
+      partitionId: partitionId!,
+      sourceSnapshotId: campaignSnapshot,
+      sourceSnapshotRefId: campaignSnapshot,
+    },
   });
-  await state({
-    entityType: "adset", entityId: ABO_ADSET, campaignId: ABO_CAMPAIGN,
-    origin: "adset", campaignDaily: null, adsetDaily: "25000",
+  await persistMetaEntityObservation({
+    businessId: BUSINESS, providerAccountId: ACCOUNT, entityType: "adset",
+    endpoint: "adset_configs", observedAt, capturedAt,
+    completeness: "complete", pageCount: 1,
+    providerRowCount: adsetStates.length, states: adsetStates,
+    sourceSnapshotId: adsetSnapshot, error: null,
+    captureReceipt: {
+      partitionId: partitionId!,
+      sourceSnapshotId: adsetSnapshot,
+      sourceSnapshotRefId: adsetSnapshot,
+    },
   });
   // No `meta_budget_write_journal` rows: this product has never changed these
   // budgets, which is a real observation and not an unreadable one.
@@ -680,6 +1060,126 @@ function intentFor(rows: DecisionRow[], contractVersion: string, label: string) 
   return match;
 }
 
+/**
+ * The Meta connection, seeded ONLY for the execution phase.
+ *
+ * `buildMetaBudgetWriteContextForProposal` needs a connected integration, its
+ * generation, and an account profile carrying the account's own currency. Until
+ * this row exists the projection cannot take a baseline at all, which is what
+ * the first phase of this seam shows: the candidate is admitted, composed, and
+ * refused by name with `provider_baseline_unavailable`, having contacted
+ * nothing.
+ */
+async function seedMetaConnection() {
+  const sql = getDb();
+  const rows = (await sql.query(
+    `INSERT INTO provider_connections
+       (business_id, provider, status, provider_account_id,
+        provider_account_name, connected_at)
+     VALUES ($1, 'meta', 'connected', $2, 'Economics seam account', now())
+     RETURNING id::text AS id`,
+    [BUSINESS, ACCOUNT],
+  )) as Array<{ id: string }>;
+  await sql.query(
+    `INSERT INTO integration_credentials (provider_connection_id, access_token)
+     VALUES ($1::uuid, 'economics-seam-meta-token')`,
+    [rows[0]!.id],
+  );
+  // The cached "not connected" answer from the first phase would otherwise
+  // outlive the connection it describes.
+  clearServerCache();
+}
+
+/**
+ * The MANUAL approval path, assembled exactly as the approval route assembles
+ * it: the same claim, the same readers, the same runtime, the same shared
+ * lifecycle, and the same settle/reconcile/marker dependencies.
+ */
+async function approveManually(proposalId: string) {
+  const claim = await claimMetaAutomationProposal({
+    businessId: BUSINESS, providerAccountId: ACCOUNT, proposalId,
+    claimedBy: OWNER,
+  });
+  if (claim.status !== "claimed") {
+    fail("manual_claim_refused", `claim status ${claim.status}`);
+  }
+  const claimed = claim as Extract<typeof claim, { status: "claimed" }>;
+  const runtime = createBudgetProposalServerRuntime(
+    createBudgetServerReaders({
+      businessId: BUSINESS,
+      actorUserId: OWNER,
+      writeContext: await buildMetaBudgetWriteContextForProposal({
+        businessId: BUSINESS, providerAccountId: ACCOUNT,
+      }),
+    }),
+  );
+  return runClaimedProposalExecution({
+    businessId: BUSINESS,
+    providerAccountId: ACCOUNT,
+    proposal: claimed.proposal,
+    claimToken: claimed.claimToken,
+    actorUserId: OWNER,
+    executionKind: "manual",
+    markDispatchStarted: async (marked) =>
+      Boolean(await markMetaAutomationProposalDispatchStarted({
+        businessId: marked.businessId,
+        proposalId: marked.proposalId,
+        claimToken: marked.claimToken,
+      }).catch(() => null)),
+    settle: async (settleInput) => settleMetaAutomationProposal({
+      businessId: settleInput.businessId,
+      proposalId: settleInput.proposalId,
+      status: settleInput.status,
+      decidedBy: settleInput.decidedBy,
+      decisionNote: null,
+      receipt: settleInput.receipt,
+      claimToken: settleInput.claimToken,
+    }),
+    forceReconcile: (reconcileInput) =>
+      forceMetaAutomationProposalReconcile(reconcileInput),
+    recordReconciliation: async ({ proposal, claimToken, receipt }) => {
+      const recorded = await appendMetaAutomationReconciliationReceipt({
+        businessId: proposal.businessId,
+        proposalId: proposal.id,
+        providerAccountId: proposal.providerAccountId,
+        decisionKey: proposal.decisionKey,
+        proposedAction: proposal.proposedAction,
+        claimToken,
+        reason: "settle_failed_after_dispatch",
+        facts: providerDispatchFacts({
+          dispatchStarted: true, outcomeKnown: false, ok: false,
+          dryRun: receipt.dryRun === true,
+        }),
+        receipt,
+      });
+      return recorded.status !== "unavailable";
+    },
+    recordLedger: async () => {},
+    execute: async (beforeProviderPost) => runtime({
+      proposal: claimed.proposal,
+      dryRunOnly: false,
+      claimToken: claimed.claimToken,
+      authorization: {
+        kind: "manual", explicitConfirmation: true, operatorUserId: OWNER,
+      },
+      beforeProviderPost,
+    }),
+  });
+}
+
+/** The durable journal receipt for one entity, read straight back out. */
+async function readJournalReceipts(entityId: string) {
+  return (await getDb().query(
+    `SELECT entity_id, result_class, before_amount_minor,
+            intended_amount_minor, readback_amount_minor, currency,
+            provider_attempted, provider_http_status
+       FROM meta_budget_write_journal
+      WHERE business_id = $1 AND provider_account_id = $2 AND entity_id = $3
+      ORDER BY requested_at`,
+    [BUSINESS, ACCOUNT, entityId],
+  )) as Array<Record<string, unknown>>;
+}
+
 async function main() {
   if (
     process.env.DATABASE_URL?.includes(":15432/")
@@ -696,18 +1196,29 @@ async function main() {
   process.env.CAMPAIGN_CONTEXT_AUTHORITY_RESOLVER_VERSION =
     CAMPAIGN_CONTEXT_RESOLVER_VERSION;
 
+  /*
+    Both entities the double will be asked about, with the amount the account
+    actually holds. It is the double's STATE: a POST changes it, so the
+    executor's pre-POST compare-and-set and its post-write read-back are
+    answered by a provider that moved rather than by an echo.
+  */
+  const providerBudgets = new Map<string, number>([
+    [CBO_CAMPAIGN, 25_000],
+    [SWEEP_CAMPAIGN, 25_000],
+  ]);
   // Installed BEFORE the first production call, so a request during seeding is
-  // caught too.
-  const provider = installRefusingFetch();
+  // caught too. It refuses everything until the execution phase.
+  const provider = installProviderDouble(providerBudgets);
 
-  const accountRefId = await seedIdentity();
+  await seedIdentity();
   await seedCommercialTargets();
   await seedShopifyStore(new Date().toISOString());
   await seedAutomationControls();
   await seedCampaignRole();
   await seedWarehouseFacts();
+  await seedCreativeFacts();
   await publishSlices();
-  await seedBudgetState(accountRefId);
+  await seedBudgetState();
 
   const run = await runMetaSnapshotForBusiness(BUSINESS, AS_OF);
   expectEqual(run.failedAccountIds, [], "every assigned account generated");
@@ -736,10 +1247,14 @@ async function main() {
   expectEqual(budgetIntent.currentMinorUnits, 25000, "observed budget in minor units");
 
   const budgetCandidates = await listTypedBudgetCandidates(BUSINESS, AS_OF);
-  expectEqual(budgetCandidates.length, 1, "one typed budget candidate");
-  const budgetCandidate = budgetCandidates[0]!;
+  expectEqual(
+    budgetCandidates.map((candidate) => candidate.scopeId).sort(),
+    [CBO_CAMPAIGN, SWEEP_CAMPAIGN].sort(),
+    "one typed budget candidate per role-authorised budget owner",
+  );
+  const budgetCandidate = budgetCandidates
+    .find((candidate) => candidate.scopeId === CBO_CAMPAIGN)!;
   expectEqual(budgetCandidate.scopeType, "campaign", "candidate grain");
-  expectEqual(budgetCandidate.scopeId, CBO_CAMPAIGN, "candidate entity");
   expectEqual(budgetCandidate.providerAccountId, ACCOUNT, "candidate account");
   expectEqual(budgetCandidate.recommendedAction, "increase_budget", "candidate verb");
   expectEqual(budgetCandidate.targetAmountMinor, 27500, "candidate amount");
@@ -861,21 +1376,24 @@ async function main() {
   expectEqual(rerun.candidates, 1, "the candidate survives a second pass");
   expectEqual(rerun.refusals, { insert_conflicted: 1 }, "and is not duplicated");
 
-  // ── Chain A's terminal step, pinned by its exact refusal ─────────────────
+  // ── Chain A's terminal step, with the provider still unreachable ─────────
   /*
-    `D086_PROFILE_LATEST_SQL` reads `engine_v3_account_profile_output`, which
-    `lib/migrations.ts` deliberately does not create: the D086 pack is prepared
-    and unapplied, and its own audit asserts it stays that way. The statement
-    raises 42P01, the loader reads that as unknown, and the producer refuses by
-    name.
+    The RETAINED COMMERCIAL VERDICT, produced by the shipped producer.
+
+    `D086_PROFILE_LATEST_SQL` reads `engine_v3_account_profile_output`. That
+    table had no migration and no writer, so the statement raised 42P01, the
+    loader read the error as unknown, and every candidate was refused with
+    `composition_sources_unavailable` — the whole budget arm inert. The table is
+    now created by `lib/migrations.ts` and
+    `lib/meta/account-profile-output-producer.ts` resolves the canonical
+    `AccountDecisionProfile` from this account's own retained facts and retains
+    what it says. Nothing below inserts a profile row.
 
     The production loader is used UNWRAPPED on purpose. Substituting a
     seam-owned `loadCompositionSources` would replace the only thing this step
-    can prove with the seam's own opinion. When the D086 slice is deployed this
-    assertion fails, and that is the correct moment to change it to demand a
-    projected row.
+    can prove with the seam's own opinion.
   */
-  const budgetProjection = await projectMetaBudgetProposals({
+  const projectBudgetProposals = () => projectMetaBudgetProposals({
     businessId: BUSINESS,
     snapshotDate: AS_OF,
     loadCompositionSources: loadBudgetCompositionSourcesForCandidate,
@@ -887,13 +1405,311 @@ async function main() {
       actionLabel: insert.actionLabel,
     }),
   });
-  expectEqual(budgetProjection.candidates, 1, "the budget candidate is admitted");
-  expectEqual(budgetProjection.projected, 0, "and no row is raised");
+
+  const withoutConnection = await projectBudgetProposals();
+  expectEqual(withoutConnection.candidates, 2, "both budget candidates are admitted");
+  expectEqual(withoutConnection.projected, 0, "and neither raises a row yet");
+  /*
+    ONE blocker, and it is the provider one. The commercial verdict, the role
+    authority, the canonical fact and the measured history are all satisfied
+    from retained evidence; what is missing is the account's own current amount,
+    and this seam has deliberately not connected Meta yet.
+  */
   expectEqual(
-    budgetProjection.refusals,
-    { composition_sources_unavailable: 1 },
+    withoutConnection.refusals,
+    { provider_baseline_unavailable: 2 },
     "refused by name, not by silence",
   );
+  expectEqual(provider.calls, [], "and still no provider request left the process");
+
+  const retained = (await getDb().query(
+    `SELECT action, contract, profile_contract, engine_epoch, engine_version,
+            eligible, blocker_code, anchor_source, spend_unit,
+            input_fingerprint, source_fingerprint, as_of_date::text AS as_of_date
+       FROM engine_v3_account_profile_output
+      WHERE business_id = $1 AND provider_account_id = $2
+      ORDER BY action`,
+    [BUSINESS, ACCOUNT],
+  )) as Array<Record<string, unknown>>;
+  expectEqual(
+    retained.map((row) => row.action),
+    ["cut", "refresh", "scale"],
+    "the producer retained one verdict per canonical action",
+  );
+  const scaleVerdict = retained.find((row) => row.action === "scale")!;
+  expectEqual(scaleVerdict.eligible, true, "the account may scale");
+  expectEqual(scaleVerdict.blocker_code, null, "an eligible verdict carries no code");
+  expectEqual(scaleVerdict.as_of_date, AS_OF, "the day the verdict speaks for");
+  /*
+    26.36 again, and from the same place: the store's $58.00 average order value
+    over the 2.20 target ROAS. The retained verdict and the sized intent rest on
+    ONE commercial anchor, not on two that happen to agree.
+  */
+  expectEqual(
+    Math.round(Number(scaleVerdict.spend_unit) * 100) / 100,
+    26.36,
+    "the retained spend unit is the store's AOV over the target ROAS",
+  );
+  /*
+    The expectation a reader re-derives, with the retained table untouched. It
+    is what `classifyRetainedProfile` compares the row against, so it is what
+    makes a verdict computed from superseded commercial truth unusable.
+  */
+  const identity = await readAccountProfileRetentionIdentity({
+    businessId: BUSINESS, providerAccountId: ACCOUNT, asOfDate: AS_OF,
+  });
+  if (!identity) fail("retention_identity_unreadable", "the reader offered no expectation");
+  expectEqual(
+    scaleVerdict.input_fingerprint, identity!.inputFingerprint,
+    "the retained verdict names the configured inputs a reader re-derives",
+  );
+  expectEqual(
+    scaleVerdict.source_fingerprint, identity!.sourceFingerprint,
+    "and the measured ones",
+  );
+
+  // ── The connection, and the projected queue rows ─────────────────────────
+  await seedMetaConnection();
+  provider.serve();
+  const beforeProjectionCalls = provider.calls.length;
+  const projectedRun = await projectBudgetProposals();
+  expectEqual(projectedRun.candidates, 2, "the same two candidates");
+  expectEqual(projectedRun.refusals, {}, "and nothing is refused");
+  expectEqual(projectedRun.projected, 2, "both become queue rows");
+  expectEqual(
+    provider.since(beforeProjectionCalls)
+      .filter((call) => call.method !== "GET").length,
+    0,
+    "projection is GET-only: a preview never writes",
+  );
+
+  const queuedBudgetRows = (await getDb().query(
+    `SELECT id::text AS id, scope_id, status
+       FROM meta_automation_proposals
+      WHERE business_id = $1::uuid AND provider_account_id = $2
+        AND proposed_action = 'budget'
+      ORDER BY scope_id`,
+    [BUSINESS, ACCOUNT],
+  )) as Array<{ id: string; scope_id: string; status: string }>;
+  expectEqual(
+    queuedBudgetRows.map((row) => `${row.scope_id}:${row.status}`),
+    [`${CBO_CAMPAIGN}:pending`, `${SWEEP_CAMPAIGN}:pending`],
+    "one pending budget row per owner",
+  );
+  const manualProposalId = queuedBudgetRows
+    .find((row) => row.scope_id === CBO_CAMPAIGN)!.id;
+  const sweepProposalId = queuedBudgetRows
+    .find((row) => row.scope_id === SWEEP_CAMPAIGN)!.id;
+  const raised = await readMetaAutomationProposal({
+    businessId: BUSINESS, providerAccountId: ACCOUNT, proposalId: manualProposalId,
+  });
+  expectEqual(raised?.proposedAction, "budget", "queue row action");
+  expectEqual(raised?.budgetEnvelope?.currentAmountMinor, 25000, "envelope current amount");
+  expectEqual(raised?.budgetEnvelope?.intendedAmountMinor, 27500, "envelope intended amount");
+  expectEqual(raised?.budgetEnvelope?.currency, "USD", "envelope currency");
+
+  // ── Two rejections, on the real execution reader ─────────────────────────
+  /*
+    The execution path NEVER produces a verdict; it reads the one projection
+    retained and re-checks it against the inputs of the moment. These two cases
+    are what that buys, and both are driven through the shipped readers and the
+    shipped composition root on a real pending proposal.
+  */
+  const executionSources = async () => {
+    const readers = createBudgetServerReaders({
+      businessId: BUSINESS,
+      actorUserId: OWNER,
+      writeContext: await buildMetaBudgetWriteContextForProposal({
+        businessId: BUSINESS, providerAccountId: ACCOUNT,
+      }),
+    });
+    const proposal = await readMetaAutomationProposal({
+      businessId: BUSINESS, providerAccountId: ACCOUNT, proposalId: manualProposalId,
+    });
+    if (!proposal) fail("proposal_unreadable", manualProposalId);
+    const sources = await readers.loadCompositionSources({
+      proposal: proposal!, claimToken: manualProposalId, explicitlyApproved: true,
+    });
+    if (!sources) return null;
+    return {
+      sources,
+      composed: composeBudgetExecutionCandidate({
+        ...sources, proposalId: manualProposalId, claimToken: manualProposalId,
+      }),
+    };
+  };
+
+  // A verdict nobody produced is ABSENT, and absent is a refusal.
+  await getDb().query("DELETE FROM engine_v3_account_profile_output");
+  const withoutProfile = await executionSources();
+  if (!withoutProfile) fail("execution_sources_unreadable", "with no retained profile");
+  expectEqual(
+    withoutProfile!.composed.blockers.includes("profile_not_retained"), true,
+    "an unretained commercial verdict blocks the write by name",
+  );
+  expectEqual(
+    withoutProfile!.sources.commercial.sourceStatus, "unavailable",
+    "and the commercial verdict is reported unavailable rather than resolved",
+  );
+  expectEqual(
+    withoutProfile!.sources.commercial.eligible, null,
+    "an absent verdict is never reported eligible",
+  );
+
+  // Produced again, by the same producer, from the same unchanged facts.
+  const reproduced = await produceRetainedAccountProfileOutputs({
+    businessId: BUSINESS, providerAccountId: ACCOUNT, asOfDate: AS_OF,
+  });
+  expectEqual(reproduced.produced, true, "the producer retained the verdict again");
+  const restoredVerdict = await executionSources();
+  expectEqual(
+    restoredVerdict!.composed.blockers, [],
+    "and the execution reader admits the candidate again",
+  );
+
+  /*
+    COMMERCIAL TRUTH THAT MOVED AFTER PROJECTION.
+
+    A new target pack row changes the configured half of the retained identity,
+    so the verdict projection retained no longer describes this account and the
+    classifier refuses it. This is the check the retention exists for: without
+    it a write approved at noon would be authorised by a target ROAS the
+    operator replaced at eleven.
+  */
+  await getDb().query(
+    `INSERT INTO business_target_pack_history
+       (business_id, target_roas, break_even_roas, target_cpa, break_even_cpa,
+        aov_assumption, default_risk_posture, operation, effective_at, recorded_at)
+     VALUES ($1::uuid, 3.10, 1.80, NULL, NULL, NULL, 'balanced', 'upsert',
+             ($2 || 'T02:00:00.000Z')::timestamptz,
+             ($2 || 'T02:00:00.000Z')::timestamptz)`,
+    [BUSINESS, AS_OF],
+  );
+  const afterTargetChange = await executionSources();
+  expectEqual(
+    afterTargetChange!.composed.blockers.includes("profile_not_retained"), true,
+    "a verdict computed from superseded commercial truth is not usable",
+  );
+  expectEqual(
+    afterTargetChange!.sources.commercial.code,
+    "retained_profile_input_mismatch",
+    "and the refusal names the identity that moved",
+  );
+  // Withdrawn again, so the rest of the seam runs on the truth it seeded.
+  await getDb().query(
+    `DELETE FROM business_target_pack_history
+      WHERE business_id = $1::uuid AND target_roas = 3.10`,
+    [BUSINESS],
+  );
+  expectEqual(
+    (await executionSources())!.composed.blockers, [],
+    "and the original commercial truth restores the verdict",
+  );
+  expectEqual(
+    provider.calls.filter((call) => call.method !== "GET").length, 0,
+    "no rejection above reached the provider with a write",
+  );
+
+  // ── The approval path, to a real POST and a durable receipt ──────────────
+  /*
+    Live writes are armed HERE and nowhere earlier: everything above is proven
+    with the write gate shut, so nothing before this line could have reached
+    Meta even if it had tried to.
+  */
+  process.env.META_AUTOMATION_LIVE_WRITES = "true";
+  await getDb().query(
+    `UPDATE meta_automation_business_controls
+        SET guardrails_json = jsonb_set(guardrails_json, '{dryRunOnly}', 'false')
+      WHERE business_id = $1::uuid`,
+    [BUSINESS],
+  );
+  clearServerCache();
+  const beforeManual = provider.calls.length;
+  const manual = await approveManually(manualProposalId);
+  expectEqual(manual.receipt.withheld ?? null, null, "nothing withheld the approval");
+  expectEqual(manual.ok, true, "the manual approval executed");
+  expectEqual(manual.settledStatus, "approved", "and settled as approved");
+  expectEqual(manual.providerDispatchStarted, true, "the provider was reached");
+  expectEqual(
+    provider.since(beforeManual).filter((call) => call.method === "POST").length,
+    1,
+    "exactly one provider write, from one approval",
+  );
+  expectEqual(providerBudgets.get(CBO_CAMPAIGN), 27500, "the account's own amount moved");
+  const manualJournal = await readJournalReceipts(CBO_CAMPAIGN);
+  expectEqual(manualJournal.length, 1, "one durable journal receipt");
+  expectEqual(manualJournal[0]!.result_class, "verified", "verified against a read-back");
+  expectEqual(Number(manualJournal[0]!.before_amount_minor), 25000, "receipt before amount");
+  expectEqual(Number(manualJournal[0]!.intended_amount_minor), 27500, "receipt intended amount");
+  expectEqual(Number(manualJournal[0]!.readback_amount_minor), 27500, "receipt read-back amount");
+  expectEqual(manualJournal[0]!.currency, "USD", "receipt currency");
+  const settledManual = await readMetaAutomationProposal({
+    businessId: BUSINESS, providerAccountId: ACCOUNT, proposalId: manualProposalId,
+  });
+  expectEqual(settledManual?.status, "approved", "the queue row is settled");
+
+  // ── The scheduled path, on the second row ────────────────────────────────
+  /*
+    A DIFFERENT authorisation. Manual approval rests on the operator's explicit
+    confirmation; the sweep has no operator, so it requires the account-bound
+    enablement, the admin who persisted it, and the exact control version that
+    tuple was read under — all re-checked at the pre-POST boundary.
+  */
+  await getDb().query(
+    `UPDATE meta_automation_business_controls
+        SET auto_execution_enabled = TRUE,
+            auto_execution_provider_account_id = $2,
+            auto_execution_enabled_by = $3::uuid
+      WHERE business_id = $1::uuid`,
+    [BUSINESS, ACCOUNT, OWNER],
+  );
+  await getDb().query(
+    `UPDATE meta_automation_decision_type_modes SET mode = 'auto'
+      WHERE business_id = $1::uuid AND decision_type = 'budget'`,
+    [BUSINESS],
+  );
+  clearServerCache();
+  const beforeSweep = provider.calls.length;
+  const sweep = await runMetaBudgetAutomationSweepIfDue();
+  if (sweep.skipped) fail("sweep_skipped", String(sweep.reason));
+  expectEqual(
+    (sweep.reports ?? []).map((report) => ({
+      executed: report.executed, withheld: report.withheld, failed: report.failed,
+    })),
+    [{ executed: 1, withheld: 0, failed: 0 }],
+    "the sweep executed exactly the one row left",
+  );
+  expectEqual(
+    provider.since(beforeSweep).filter((call) => call.method === "POST").length,
+    1,
+    "one unattended provider write",
+  );
+  expectEqual(providerBudgets.get(SWEEP_CAMPAIGN), 27500, "the swept account amount moved");
+  const sweepJournal = await readJournalReceipts(SWEEP_CAMPAIGN);
+  expectEqual(sweepJournal.length, 1, "one durable journal receipt for the sweep");
+  expectEqual(sweepJournal[0]!.result_class, "verified", "verified against a read-back");
+  expectEqual(Number(sweepJournal[0]!.readback_amount_minor), 27500, "sweep read-back amount");
+  const settledSweep = await readMetaAutomationProposal({
+    businessId: BUSINESS, providerAccountId: ACCOUNT, proposalId: sweepProposalId,
+  });
+  expectEqual(settledSweep?.status, "approved", "the swept row is settled");
+
+  /*
+    The writes are done. Everything after this point is about decision content
+    again, so the provider goes back to refusing: a request from here on is a
+    finding.
+  */
+  process.env.META_AUTOMATION_LIVE_WRITES = "false";
+  await getDb().query(
+    `UPDATE meta_automation_business_controls
+        SET auto_execution_enabled = FALSE,
+            guardrails_json = jsonb_set(guardrails_json, '{dryRunOnly}', 'true')
+      WHERE business_id = $1::uuid`,
+    [BUSINESS],
+  );
+  clearServerCache();
+  provider.refuse();
+  const beforeControlPhase = provider.calls.length;
 
   // ── The negative control that makes $26.36 load-bearing ─────────────────
   /*
@@ -927,11 +1743,9 @@ async function main() {
   if (carriesIntent(await readDecisionRows(CBO_ADSET), META_BID_INTENT_CONTRACT_VERSION)) {
     fail("bid_intent_survived_store_removal", "the benchmark was not the store's");
   }
-  // And nothing downstream can find one either.
-  expectEqual(
-    (await listTypedBudgetCandidates(BUSINESS, AS_OF)).length, 0,
-    "no budget candidate without the store",
-  );
+  // And nothing downstream can find one either. Both budget rows are settled by
+  // now, so the candidate query would exclude them on the open-slot predicate
+  // whatever the store said; the bid candidate is the one that still proves it.
   expectEqual(
     (await listTypedBidCandidates(BUSINESS, AS_OF)).length, 0,
     "no bid candidate without the store",
@@ -956,16 +1770,47 @@ async function main() {
     "the same amount returns with the store's evidence",
   );
 
-  expectEqual(provider.calls, [], "still no provider request, across three runs");
+  /*
+    Exactly two provider writes across the whole run, and both of them are
+    accounted for above: one operator approval and one unattended sweep, each
+    against its own entity. Every other phase — three snapshots, two
+    projections, four execution reads and two rejections — reached the provider
+    only for GETs or not at all.
+  */
+  expectEqual(
+    provider.calls.filter((call) => call.method !== "GET").length, 2,
+    "two provider writes in the whole run, one per authorised execution",
+  );
+  /*
+    And the control phase touched no ENTITY at all.
+
+    The three snapshots there reload the account context, whose own profile read
+    is a GET against the ad account node; that is the shipped behaviour of a
+    connected workspace and is not what this phase is about. What matters is
+    that no campaign or ad set was read or written while the decision content
+    was being re-derived. The RECORD is what proves it: the double `fail()`s on
+    a refused request, but that rejection is swallowed by the production fetch
+    wrapper's own catch.
+  */
+  expectEqual(
+    provider.since(beforeControlPhase).filter(
+      (call) => call.method !== "GET" || !call.url.includes(ACCOUNT),
+    ).length,
+    0,
+    "the control-phase snapshots read only the ad account profile",
+  );
   provider.restore();
 
   console.log(
     `[${LABEL}] PASS: the real snapshot derives its CPA benchmark from a Shopify `
     + "store and a target ROAS alone, sizes a campaign budget 25000 -> 27500 that "
     + "the real candidate SQL selects, sizes a cost cap 1200 -> 1320 on the "
-    + "delivery-stalled ad set and raises the queue row carrying it, refuses the "
-    + "budget row by name on the unapplied D086 profile table, loses both intents "
-    + "when the store's evidence is withdrawn, and makes zero provider requests.",
+    + "delivery-stalled ad set and raises the queue row carrying it, retains the "
+    + "canonical commercial verdict through the real producer and raises both "
+    + "budget rows on it, refuses an absent and a superseded verdict by name, "
+    + "executes one row through operator approval and the other through the "
+    + "scheduled sweep with durable read-back receipts, loses both intents when "
+    + "the store's evidence is withdrawn, and makes exactly two provider writes.",
   );
   resetDbClientCache();
 }

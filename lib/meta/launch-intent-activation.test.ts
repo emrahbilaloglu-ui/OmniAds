@@ -65,9 +65,9 @@ function approval(overrides: Record<string, unknown> = {}) {
     requestFingerprint: "a".repeat(64),
     approvedOperation: "new_campaign",
     approvedScope: "hierarchy",
-    approvedAsset: { creativeId: "cr_1", version: "v1" },
+    approvedAssets: [{ creativeId: "cr_1", version: "v1" }],
     approvedCopy: { hash: "b".repeat(64) },
-    approvedDestination: { campaignId: "camp_1", adsetId: "set_1" },
+    approvedDestination: { campaignId: "camp_1", adsetIds: ["set_1"] },
     approvedBy: APPROVER,
     approvedAt: "2026-09-05T09:00:00.000Z",
     expiresAt: "2026-09-06T09:00:00.000Z",
@@ -147,11 +147,18 @@ beforeEach(() => {
 });
 
 describe("the plan comes from the receipt, not the request", () => {
-  it("activates all three for a launch that created its own campaign", () => {
+  it("activates all three for a launch that created its own campaign, each naming its parent", () => {
+    /*
+      The parent is part of the plan now. It is what makes a second ad set
+      independent of the first — an ad names the ad set it was created under, so
+      a blocked ad set stops its own ads and not the sibling branch's.
+    */
     expect(activationPlanForIntent(intent())).toEqual([
       { grain: "campaign", entityId: "camp_1" },
-      { grain: "adset", entityId: "set_1" },
-      { grain: "ad", entityId: "ad_1" },
+      { grain: "adset", entityId: "set_1", parentEntityId: "camp_1" },
+      // One ad set, so nothing has to be attributed: the conservative rule
+      // (every planned ancestor on first) already names it exactly.
+      { grain: "ad", entityId: "ad_1", parentEntityId: null },
     ]);
   });
 
@@ -182,7 +189,7 @@ describe("the plan comes from the receipt, not the request", () => {
     // The campaign it created is real whether or not the ad followed.
     expect(activationPlanForIntent(partial)).toEqual([
       { grain: "campaign", entityId: "camp_1" },
-      { grain: "adset", entityId: "set_1" },
+      { grain: "adset", entityId: "set_1", parentEntityId: "camp_1" },
     ]);
   });
 });
@@ -217,20 +224,112 @@ describe("an operator may activate; an unattended run needs an approval", () => 
   });
 
   it("runs the whole hierarchy for an explicit hierarchy approval", async () => {
+    const approved = intent({ activationApproval: approval() });
+    const result = await activateLaunchIntent({
+      intent: approved,
+      ctx: {} as never,
+      journal: fakeJournal,
+      persistReceipt: persistReceipt,
+      authorization: { kind: "scheduled" },
+      // The approval is re-proved before every step, so an unattended run needs
+      // the row as it stands right now — not the copy it was handed.
+      reloadIntent: async () => approved,
+      now: new Date("2026-09-05T10:00:00.000Z"),
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.activation.steps.map((step) => [step.grain, step.outcome]))
+        .toEqual([
+          ["campaign", "activated"],
+          ["adset", "activated"],
+          ["ad", "activated"],
+        ]);
+      expect(result.activation.delivering).toBe(true);
+    }
+  });
+
+  it("refuses an unattended run whose approval cannot be re-read at the step", async () => {
+    /*
+      An unreadable authority is not an unchanged one. The run has no document
+      to send the next write under, so it stops rather than proceeding on the
+      copy it happened to load first.
+    */
     const result = await activateLaunchIntent({
       intent: intent({ activationApproval: approval() }),
       ctx: {} as never,
       journal: fakeJournal,
       persistReceipt: persistReceipt,
       authorization: { kind: "scheduled" },
+      reloadIntent: async () => null,
       now: new Date("2026-09-05T10:00:00.000Z"),
     });
 
     expect(result.ok).toBe(true);
     if (result.ok) {
-      expect(result.activation.steps.map((step) => step.grain))
-        .toEqual(["campaign", "adset", "ad"]);
+      expect(result.activation.blockedAt).toBe("campaign");
+      expect(result.activation.blockedReason).toBe("activation_intent_unreadable");
     }
+    expect(vi.mocked(adsWrite.resumeCampaign)).not.toHaveBeenCalled();
+  });
+
+  it("refuses an unattended run the approval does not cover completely", async () => {
+    /*
+      The approval names a SET of creatives, and containment is asked against
+      what the launch actually produced. A document naming `cr_1` cannot turn
+      on the ads built from `cr_2`: that would be acting under an authorization
+      which never mentioned them.
+    */
+    const many = intent({
+      activationApproval: approval(),
+      requestPayload: { creatives: [{ creativeId: "cr_1" }, { creativeId: "cr_2" }] },
+    });
+    const result = await activateLaunchIntent({
+      intent: many,
+      ctx: {} as never,
+      journal: fakeJournal,
+      persistReceipt: persistReceipt,
+      authorization: { kind: "scheduled" },
+      reloadIntent: async () => many,
+      now: new Date("2026-09-05T10:00:00.000Z"),
+    });
+
+    expect(result).toEqual({
+      ok: false, refusal: "activation_approval_asset_mismatch",
+    });
+    expect(vi.mocked(adsWrite.resumeAd)).not.toHaveBeenCalled();
+  });
+
+  it("runs an unattended multi-creative launch the approval DOES cover", async () => {
+    /*
+      The other half of the same rule, and the reason the document had to hold
+      a set at all: a two-creative launch used to be unrunnable unattended
+      because the approval had exactly one asset field. Naming both is now a
+      thing an operator can actually do, and then the run proceeds.
+    */
+    providerIsAgreeable();
+    const many = intent({
+      activationApproval: approval({
+        approvedAssets: [
+          { creativeId: "cr_1", version: "v1" },
+          { creativeId: "cr_2", version: "v1" },
+        ],
+      }),
+      requestPayload: { creatives: [{ creativeId: "cr_1" }, { creativeId: "cr_2" }] },
+    });
+    const result = await activateLaunchIntent({
+      intent: many,
+      ctx: {} as never,
+      journal: fakeJournal,
+      persistReceipt: persistReceipt,
+      authorization: { kind: "scheduled" },
+      reloadIntent: async () => many,
+      now: new Date("2026-09-05T10:00:00.000Z"),
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.activation.delivering).toBe(true);
+    expect(vi.mocked(adsWrite.resumeAd)).toHaveBeenCalled();
   });
 
   it("refuses an unattended run whose payload changed after approval", async () => {
@@ -253,17 +352,19 @@ describe("an operator may activate; an unattended run needs an approval", () => 
   });
 
   it("narrows an ad-scoped approval to the ad and leaves the parents alone", async () => {
-    const result = await activateLaunchIntent({
-      intent: intent({
-        operation: "add_to_existing",
-        activationApproval: approval({
-          approvedOperation: "add_to_existing", approvedScope: "ad",
-        }),
+    const joined = intent({
+      operation: "add_to_existing",
+      activationApproval: approval({
+        approvedOperation: "add_to_existing", approvedScope: "ad",
       }),
+    });
+    const result = await activateLaunchIntent({
+      intent: joined,
       ctx: {} as never,
       journal: fakeJournal,
       persistReceipt: persistReceipt,
       authorization: { kind: "scheduled" },
+      reloadIntent: async () => joined,
       now: new Date("2026-09-05T10:00:00.000Z"),
     });
 

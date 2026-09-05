@@ -16,6 +16,7 @@ vi.mock("@/lib/provider-account-assignments", () => ({
   })),
 }));
 
+import * as assignments from "@/lib/provider-account-assignments";
 import * as db from "@/lib/db";
 import * as snapshot from "@/lib/meta/snapshot";
 import { runMetaSnapshotJobIfDue } from "@/lib/meta/scheduled";
@@ -199,7 +200,10 @@ describe("a failed afternoon slot is never closed by the morning's rows", () => 
     expect(result.slot).toBe(3);
   });
 
-  it("records a whole-business rejection as a failure for every pair", async () => {
+  it("records a whole-business rejection as a failure for every pair it attempted", async () => {
+    // Nothing had run in this slot, so attempted and required are the same
+    // set here and both accounts are failed. The test below is the case where
+    // they differ.
     const recorded = harness({
       runs: [
         { business_id: "biz_1", provider_account_id: "act_1", slot: 3 },
@@ -217,5 +221,95 @@ describe("a failed afternoon slot is never closed by the morning's rows", () => 
 
     expect(recorded.every((row) => row.status === "failed")).toBe(true);
     expect(recorded).toHaveLength(2);
+  });
+});
+
+/**
+ * A rejected retry fails what it RAN, and nothing else.
+ *
+ * This used to fail every account the slot REQUIRES. On a retry that is a
+ * different set: account A succeeded, B and C did not, the tick runs B and C
+ * alone, and a shared failure — the calibration pass at the top of the
+ * business run is not wrapped in a catch — then overwrote A's `success` for
+ * the slot with `failed`. The next tick found A outstanding and regenerated
+ * it, at the cost of a full generation, over a failure A had no part in.
+ *
+ * The real database seam for this is
+ * `scripts/ephemeral-postgres-slot-retry-scope-seam-child.ts`, which drives
+ * four consecutive ticks through the migrated run table. This file holds the
+ * scheduler's own half: what it asks the generator for, and what it writes
+ * back.
+ */
+describe("a rejected partial retry keeps the accounts it did not attempt", () => {
+  it("fails only the attempted accounts and leaves the successful one alone", async () => {
+    vi.mocked(assignments.getProviderAccountAssignments).mockResolvedValue({
+      account_ids: ["act_1", "act_2", "act_3"],
+    } as never);
+    const recorded = harness({
+      runs: [
+        { business_id: "biz_1", provider_account_id: "act_1", slot: 3 },
+        { business_id: "biz_1", provider_account_id: "act_2", slot: 3 },
+        { business_id: "biz_1", provider_account_id: "act_3", slot: 3 },
+        // The afternoon slot succeeded for act_1 and owes the other two.
+        { business_id: "biz_1", provider_account_id: "act_1", slot: 15 },
+      ],
+      dayHasRows: true,
+    });
+    vi.mocked(snapshot.runMetaSnapshotForAllBusinesses).mockResolvedValue({
+      snapshotDate: "2026-05-08",
+      businessCount: 1,
+      // No account outcome exists at all: the failure is upstream of the
+      // per-account loop, which is the case that used to be answered with the
+      // required set.
+      results: [{ businessId: "biz_1", status: "rejected", reason: "boom" }],
+    } as never);
+
+    await runMetaSnapshotJobIfDue(AFTERNOON);
+
+    expect(snapshot.runMetaSnapshotForAllBusinesses).toHaveBeenCalledWith(
+      "2026-05-08",
+      {
+        onlyPairs: [
+          { businessId: "biz_1", providerAccountId: "act_2" },
+          { businessId: "biz_1", providerAccountId: "act_3" },
+        ],
+      },
+    );
+    expect(recorded).toEqual([
+      { businessId: "biz_1", providerAccountId: "act_2", slot: 15, status: "failed" },
+      { businessId: "biz_1", providerAccountId: "act_3", slot: 15, status: "failed" },
+    ]);
+    // Stated as its own expectation because this is the whole finding: the
+    // account that was not attempted is not written about.
+    expect(recorded.some((row) => row.providerAccountId === "act_1")).toBe(false);
+  });
+
+  it("writes nothing for a business the tick never asked for", async () => {
+    // A generator that reports on a business outside the attempted set leaves
+    // no honest account key to record under, and inventing one is how the
+    // defect above happened.
+    // Set explicitly rather than inherited: `clearAllMocks` keeps the previous
+    // test's implementation, so the assignment this case runs under has to be
+    // stated where it is read.
+    vi.mocked(assignments.getProviderAccountAssignments).mockResolvedValue({
+      account_ids: ["act_1", "act_2"],
+    } as never);
+    const recorded = harness({
+      runs: [
+        { business_id: "biz_1", provider_account_id: "act_1", slot: 3 },
+        { business_id: "biz_1", provider_account_id: "act_2", slot: 3 },
+        { business_id: "biz_1", provider_account_id: "act_1", slot: 15 },
+      ],
+      dayHasRows: true,
+    });
+    vi.mocked(snapshot.runMetaSnapshotForAllBusinesses).mockResolvedValue({
+      snapshotDate: "2026-05-08",
+      businessCount: 1,
+      results: [{ businessId: "biz_other", status: "rejected", reason: "boom" }],
+    } as never);
+
+    await runMetaSnapshotJobIfDue(AFTERNOON);
+
+    expect(recorded).toEqual([]);
   });
 });

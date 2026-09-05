@@ -737,6 +737,20 @@ async function handleMetaEntityStatusAction(
 
   const log = await createMetaAdsActionLog({
     businessId: prepared.businessId,
+    /*
+      The account this write belongs to. It used to be omitted.
+
+      `meta_ads_action_log` then took the row with `provider_account_id` NULL,
+      and `history-read-model.ts` filters its action-log branch on
+      `action_log.provider_account_id = $2` — deliberately, so a row with no
+      account lineage fails closed rather than leaking across accounts. The
+      consequence was that a successful operator pause, resume or bid write
+      never appeared in Meta History's Writes journal at all: the receipt was
+      durable and invisible. The throwing guard inside `createMetaAdsActionLog`
+      only demands the id for AD-grain manual status claims, which is why the
+      campaign and ad-set path went silently unlineaged.
+    */
+    providerAccountId: prepared.ctx.providerAccountId,
     adId: prepared.target.entityId,
     creativeId: null,
     action: input.action,
@@ -912,6 +926,9 @@ export async function handleMetaAdsetBidAction(
 
   const log = await createMetaAdsActionLog({
     businessId: prepared.businessId,
+    // Same lineage, same reason: without it the applied bid is missing from
+    // Meta History's Writes journal. See the status handler above.
+    providerAccountId: prepared.ctx.providerAccountId,
     adId: prepared.target.entityId,
     creativeId: null,
     action: "launch_adset",
@@ -955,6 +972,11 @@ export async function handleMetaAdsetBidAction(
           error: result.error,
           metaHttpStatus: result.httpStatus,
           providerOutcome: result.providerOutcome ?? null,
+          // The failure half of the same answer, for the same reason.
+          ...metaWriteFailureAnswer({
+            providerOutcome: result.providerOutcome,
+            logId: log.id,
+          }),
           mutationAttempt: result.mutationAttempt ?? null,
           retryAllowed:
             isProviderOutcomeAmbiguous(result) ||
@@ -983,6 +1005,24 @@ export async function handleMetaAdsetBidAction(
       bidAmountMinor: result.verifiedBidAmount,
       dryRun: result.dryRun === true,
       wouldHaveWritten: result.wouldHaveWritten ?? null,
+      /*
+        The terminal answer, which this handler used to omit.
+
+        The status handler returns it and the ceremony reads it
+        (`mutation-ceremony-seed.ts`): an absent `outcome` is normalised to
+        `provider_outcome_ambiguous`, deliberately, because inferring success
+        from `ok: true` is the inference that guard exists to forbid. The
+        consequence here was that a bid write which verified against its own
+        read-back and settled `success` in the action log still told the
+        operator "Outcome unknown · No receipt · do not retry" — a durable,
+        verified write reported as unresolved. Derived from the row just
+        written, exactly as the status handler derives it.
+      */
+      ...metaWriteTerminalAnswer({
+        dryRun: result.dryRun === true,
+        logStatus: "success",
+        logId: log.id,
+      }),
     });
   } catch (error) {
     const message = sanitizeErrorMessage(error);

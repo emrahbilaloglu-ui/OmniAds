@@ -67,7 +67,9 @@ import { preflightAgeSeconds } from "@/lib/launchpad/validation-preflight-disclo
 import {
   runMetaAddToExistingCreate,
   runMetaLaunchIntentCreate,
+  META_LAUNCH_PROVIDER_MUTATION_WITHHELD_CODE,
   type MetaLaunchExecutionOutcome,
+  type MetaLaunchProviderMutationVerdict,
 } from "@/lib/launchpad/meta-launch-execution";
 import {
   hasRecentPendingMetaAddToExistingAction,
@@ -130,8 +132,11 @@ export interface ScheduledLaunchCreateRequest {
     enablingActorUserId: string;
     activationControlVersion: string;
   };
-  /** Fired once, immediately before the first provider create. */
-  beforeProviderMutation: () => Promise<boolean>;
+  /**
+   * Fired immediately before EVERY provider create, not once before the
+   * sequence, and it names the gate that closed when it refuses.
+   */
+  beforeProviderMutation: () => Promise<MetaLaunchProviderMutationVerdict>;
 }
 
 export interface ScheduledLaunchRuntimeDeps {
@@ -334,49 +339,60 @@ export function createScheduledLaunchRuntime(
     }
 
     /*
-      The binding authority check, at the pre-POST boundary.
+      The binding authority check, at EVERY pre-POST boundary.
 
       Everything above was read before the claim, and claiming, resolving and
-      preflighting take seconds. This runs immediately before the first provider
+      preflighting take seconds. This runs immediately before each provider
       create, which is the only place a re-read can still prevent the write
-      rather than describe it. A refusal here is remembered so the receipt can
-      name the gate that closed rather than reporting a missing marker.
+      rather than describe it. A refusal is remembered so the receipt can name
+      the gate that closed rather than reporting a missing marker.
+
+      It used to run once, before the whole sequence. A launch is three or more
+      POSTs, so the campaign's answer was reused for the ad set and the ad below
+      it: an operator could take the family off `auto`, engage the STOP, put the
+      business into rehearsal or shut the Launchpad gate the moment after the
+      campaign existed, and the rest of the launch was still built. Asking again
+      per create is what makes those four gates bind for the whole sequence.
     */
     let lateRefusal: BudgetProposalWithheldReason | null = null;
-    const beforeProviderMutation = async (): Promise<boolean> => {
+    const refuse = (
+      reason: BudgetProposalWithheldReason,
+    ): MetaLaunchProviderMutationVerdict => {
+      lateRefusal = reason;
+      return { allowed: false, reason };
+    };
+    const beforeProviderMutation = async (): Promise<MetaLaunchProviderMutationVerdict> => {
       const [currentGates, currentMode, currentPosture] = await Promise.all([
         deps.readGates({ proposal }).catch(() => null),
         deps.readMode({ proposal }).catch(() => null),
         readMetaWritePosture({ businessId: proposal.businessId }).catch(() => null),
       ]);
       if (!currentGates || !currentMode || !currentPosture) {
-        lateRefusal = "control_state_unavailable";
-        return false;
+        return refuse("control_state_unavailable");
       }
-      if (currentPosture.blocked) {
-        lateRefusal = "kill_switch_engaged";
-        return false;
-      }
-      if (currentPosture.rehearsal) {
-        lateRefusal = "dry_run_guardrail";
-        return false;
-      }
+      if (currentPosture.blocked) return refuse("kill_switch_engaged");
+      if (currentPosture.rehearsal) return refuse("dry_run_guardrail");
       const verdict = evaluateScheduledAuthority({
         gates: currentGates, expectation, mode: currentMode, killSwitchEngaged: false,
       });
-      if (!verdict.authorized) {
-        lateRefusal = verdict.refusal;
-        return false;
-      }
+      if (!verdict.authorized) return refuse(verdict.refusal);
       const lateGate = launchpadCreateGateRefusal();
-      if (lateGate) {
-        lateRefusal = lateGate;
-        return false;
-      }
+      if (lateGate) return refuse(lateGate);
       if (input.beforeProviderPost) {
+        /*
+          The write-ahead dispatch marker, which is idempotent for one attempt:
+          the second and later creates in a sequence re-enter it and it answers
+          true from what it already wrote.
+        */
         const marked = await input.beforeProviderPost();
-        if (!marked) return false;
+        if (!marked) return refuse("dispatch_marker_unavailable");
       }
+      /*
+        Authority held for THIS create only. The next one asks again, and a
+        remembered refusal from an earlier boundary would name the wrong gate on
+        a receipt this one is allowed to write.
+      */
+      lateRefusal = null;
       return true;
     };
 
@@ -408,10 +424,21 @@ export function createScheduledLaunchRuntime(
       providerMutationAttempted: true,
     }));
 
-    const markerVetoed = isRecord(outcome.body)
-      && isRecord(outcome.body.error)
-      && outcome.body.error.code === "dispatch_marker_unavailable";
-    if (markerVetoed) {
+    /*
+      A boundary refusal, told apart by whether anything was created.
+
+      Before the first POST there is nothing to report but the refusal, so the
+      row settles as withheld and names the gate. Once a campaign or an ad set
+      exists, "withheld" would be a false account of the attempt: the receipt
+      below carries the identities, the steps and the reason instead, and the
+      intent's own durable receipt carries them too.
+    */
+    const boundaryError = isRecord(outcome.body) && isRecord(outcome.body.error)
+      ? outcome.body.error.code
+      : null;
+    const boundaryVetoed = boundaryError === "dispatch_marker_unavailable"
+      || boundaryError === META_LAUNCH_PROVIDER_MUTATION_WITHHELD_CODE;
+    if (boundaryVetoed && outcome.providerMutationAttempted === false) {
       return withheld(lateRefusal ?? "dispatch_marker_unavailable");
     }
 

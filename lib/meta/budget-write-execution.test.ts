@@ -579,3 +579,69 @@ describe("budget currency: verified account value, not the request's claim", () 
     expect(writes).toBe(0);
   });
 });
+
+
+describe("the evaluation instant is not sampled before the provider is read", () => {
+  it("does not refuse a live write because the provider GET took time", async () => {
+    /*
+      A P1 defect that only a slow provider shows.
+
+      The preflight refuses `baseline.readAtMs > nowMs` as
+      `provider_baseline_stale`: a baseline stamped after the moment being
+      judged cannot be evidence for it. But the clock used to be sampled at the
+      top of `executeBudgetWrite`, several awaits before the provider GET — so
+      against an instant double both timestamps landed in the same millisecond
+      and every test passed, while against a real account, where the GET takes
+      more than zero milliseconds, EVERY budget write was refused before any
+      POST. This clock advances while the baseline is being read, exactly as a
+      real one does.
+    */
+    let ticks = 0;
+    const wrote: number[] = [];
+    const result = await executeBudgetWrite(deps({
+      // Reads the wall clock the way the real dependency does: each call is
+      // later than the last, because time passed.
+      nowMs: () => NOW + ticks * 250,
+      readProviderBaseline: async () => {
+        ticks += 1; // the GET takes a quarter second
+        return {
+          entityId: "c_100", providerAccountId: "act_770001",
+          budgetField: "daily_budget" as const, amountMinor: 250000,
+          currency: "TRY", readAtMs: NOW + ticks * 250,
+        };
+      },
+      writeBudget: async () => {
+        wrote.push(300000);
+        return {
+          ok: true as const,
+          scope: "campaign" as const,
+          entityId: "c_100",
+          budgetField: "daily_budget" as const,
+          verifiedAmountMinor: 300000,
+          verifiedCurrency: "TRY",
+          previousAmountMinor: 250000,
+          responsePayload: { success: true },
+          verificationPayload: { id: "c_100", daily_budget: "300000" },
+        };
+      },
+    }) as never, rawRequest());
+
+    expect(result.blockers).not.toContain("provider_baseline_stale");
+    expect(result.resultClass).toBe("verified");
+    expect(wrote).toEqual([300000]);
+  });
+
+  it("still refuses a baseline genuinely stamped in the future", async () => {
+    // The guard keeps its meaning: only the ordering bug was removed.
+    const result = await executeBudgetWrite(deps({
+      readProviderBaseline: async () => ({
+        entityId: "c_100", providerAccountId: "act_770001",
+        budgetField: "daily_budget" as const, amountMinor: 250000,
+        currency: "TRY", readAtMs: NOW + 3_600_000,
+      }),
+    }) as never, rawRequest());
+
+    expect(result.blockers).toContain("provider_baseline_stale");
+    expect(result.providerAttempted).toBe(false);
+  });
+});

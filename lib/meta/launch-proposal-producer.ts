@@ -74,9 +74,19 @@ export const READY_LAUNCH_INTENT_SQL = `
          i.provider_account_id,
          i.operation,
          i.created_at,
+         /*
+           What the row is called in the queue.
+
+           The first two keys are a NEW-CAMPAIGN payload's; an add-to-existing
+           payload has neither, so every creative-reuse row came back unlabelled
+           — a queue line with no name at all. The destination ad set is what an
+           operator recognises such a launch by, and it is the payload's own
+           field rather than anything composed here.
+         */
          COALESCE(
            NULLIF(BTRIM(i.request_payload_json #>> '{campaign,name}'), ''),
-           NULLIF(BTRIM(i.request_payload_json #>> '{name}'), '')
+           NULLIF(BTRIM(i.request_payload_json #>> '{name}'), ''),
+           NULLIF(BTRIM(i.request_payload_json #>> '{targetAdsetName}'), '')
          )                     AS entity_label
     FROM meta_launch_intents i
    WHERE i.business_id = $1::uuid

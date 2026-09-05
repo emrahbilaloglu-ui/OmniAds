@@ -179,7 +179,8 @@ export async function runMetaSnapshotJobIfDue(
   let missing: Array<{ businessId: string; providerAccountId: string }> = [];
   for (const candidate of META_SNAPSHOT_SLOT_HOURS) {
     if (candidate > slot) break;
-    const outstanding = await missingPairsForSlot(snapshotDate, candidate);
+    const outstanding =
+      await metaSnapshotMissingPairsForSlot(snapshotDate, candidate);
     // An unreadable run record returns every pair — run rather than skip. A
     // second run of a slot rewrites the same day's rows; a skipped slot
     // silently produces nothing.
@@ -208,7 +209,10 @@ export async function runMetaSnapshotJobIfDue(
   const result = await runMetaSnapshotForAllBusinesses(snapshotDate, {
     onlyPairs: missing,
   });
-  await recordSlotOutcome(snapshotDate, dueSlot, result);
+  // `missing` is what this attempt actually ran. Outcome recording is told so
+  // rather than asking what the slot requires, because the two differ on every
+  // retry and the difference is another account's already-recorded success.
+  await recordSlotOutcome(snapshotDate, dueSlot, result, missing);
   return { skipped: false, snapshotDate, slot: dueSlot, result };
 }
 
@@ -218,8 +222,12 @@ export async function runMetaSnapshotJobIfDue(
  * Every currently required pair, minus the ones a SUCCESSFUL run of this exact
  * slot already recorded. An unreadable run table returns everything, because
  * running twice rewrites the same day's rows while skipping produces nothing.
+ *
+ * Exported because it is the observable consequence of what an attempt
+ * records: an account whose success a failed sibling's retry overwrote comes
+ * straight back out of here as outstanding, and the slot regenerates it.
  */
-async function missingPairsForSlot(
+export async function metaSnapshotMissingPairsForSlot(
   snapshotDate: string,
   slot: number,
 ): Promise<Array<{ businessId: string; providerAccountId: string }>> {
@@ -295,11 +303,16 @@ async function markSlotCoveredByExistingRows(snapshotDate: string, slot: number)
  * closed by the morning's own output and its retry suppressed — the exact
  * failure the run record exists to prevent. Nothing is inferred from rows
  * here: a pair is successful because this run said so.
+ *
+ * `attempted` is the set this attempt was actually given, and it is why the
+ * whole-business rejection below is a bounded statement rather than a blanket
+ * one. See `recordRejectedBusiness`.
  */
 async function recordSlotOutcome(
   snapshotDate: string,
   slot: number,
   result: Awaited<ReturnType<typeof runMetaSnapshotForAllBusinesses>>,
+  attempted: ReadonlyArray<{ businessId: string; providerAccountId: string }>,
 ) {
   for (const business of result.results) {
     const outcome = business.status === "fulfilled" ? business.value : null;
@@ -332,9 +345,10 @@ async function recordSlotOutcome(
     /*
       A failed account is recorded as failed, not left silent.
 
-      Either way the pair stays outstanding for this slot — `missingPairsForSlot`
-      counts only `success` — but writing the failure is what lets an operator
-      see that the slot was attempted and where it stopped.
+      Either way the pair stays outstanding for this slot —
+      `metaSnapshotMissingPairsForSlot` counts only `success` — but writing the
+      failure is what lets an operator see that the slot was attempted and
+      where it stopped.
     */
     for (const account of failed) {
       await recordSlotRun({
@@ -343,14 +357,43 @@ async function recordSlotOutcome(
       });
     }
     if (business.status === "rejected") {
-      // The whole business threw before any account outcome existed.
-      for (const pair of (await requiredPairs())
-        .filter((entry) => entry.businessId === business.businessId)) {
-        await recordSlotRun({
-          snapshotDate, slot, businessId: pair.businessId,
-          providerAccountId: pair.providerAccountId, status: "failed",
-        });
-      }
+      await recordRejectedBusiness({
+        snapshotDate, slot, businessId: business.businessId, attempted,
+      });
     }
+  }
+}
+
+/**
+ * A business that threw as a whole fails the accounts IT RAN, and no others.
+ *
+ * This used to fail every REQUIRED account of the business. Required and
+ * attempted are the same set only on a first, complete run; on a retry they
+ * are not. Account A succeeds, B and C fail, the next tick retries B and C
+ * alone, and then something shared — calibration, the signals backfill, the
+ * epilogue — throws for the business. A never ran in this attempt, yet its
+ * `success` row for the slot was overwritten as `failed`, so the following
+ * tick found A outstanding and regenerated it: a full generation, and a
+ * rewrite of truth that was already correct, caused by a failure that had
+ * nothing to do with A.
+ *
+ * A business with no attempted pair here is one the generator reported on
+ * without being asked for it. Nothing is written for it, because this
+ * function has no honest account key to write under and inventing one is how
+ * the defect above happened.
+ */
+async function recordRejectedBusiness(input: {
+  snapshotDate: string;
+  slot: number;
+  businessId: string;
+  attempted: ReadonlyArray<{ businessId: string; providerAccountId: string }>;
+}) {
+  for (const pair of input.attempted) {
+    if (pair.businessId !== input.businessId) continue;
+    await recordSlotRun({
+      snapshotDate: input.snapshotDate, slot: input.slot,
+      businessId: pair.businessId,
+      providerAccountId: pair.providerAccountId, status: "failed",
+    });
   }
 }

@@ -143,6 +143,36 @@ function stepReceipt(overrides: Record<string, unknown> = {}) {
   };
 }
 
+/**
+ * A complete hierarchy result, as the real sequence returns one.
+ *
+ * `partial` and `coverage` are part of that shape now: a launch can create
+ * several ad sets and several ads, and the runtime reports the counts so a
+ * stopped run reads as "three of five are on" rather than as a flat "not
+ * delivering". A double that omitted them would be handing this runtime a shape
+ * production cannot produce.
+ */
+function activation(overrides: Record<string, unknown> = {}) {
+  const steps = (overrides.steps as unknown[]) ?? [];
+  const delivering = overrides.delivering === true;
+  return {
+    contract: "meta.hierarchy-activation.v1",
+    steps,
+    delivering,
+    partial: overrides.partial ?? false,
+    coverage: overrides.coverage ?? {
+      planned: steps.length,
+      on: delivering ? steps.length : 0,
+      blocked: 0,
+      ambiguous: 0,
+      notAttempted: 0,
+    },
+    blockedAt: null,
+    blockedReason: null,
+    ...overrides,
+  };
+}
+
 function runtime(input: {
   mode?: "manual" | "semi_auto" | "auto";
   gates?: ScheduledAuthorityGates;
@@ -277,16 +307,16 @@ describe("the stored approval is the entire authority", () => {
     // this" and "somebody approved something else" are different sentences and
     // the operator has to be able to read which one happened.
     const approved = {
-      contractVersion: "meta.launch-activation-approval.v1",
+      contractVersion: "meta.launch-activation-approval.v2",
       businessId: BUSINESS,
       providerAccountId: ACCOUNT,
       launchIntentId: INTENT,
       requestFingerprint: "b".repeat(64),
       approvedOperation: "new_campaign",
       approvedScope: "hierarchy",
-      approvedAsset: { creativeId: "23851000000077", version: "v1" },
+      approvedAssets: [{ creativeId: "23851000000077", version: "v1" }],
       approvedCopy: { hash: "c".repeat(64) },
-      approvedDestination: { campaignId: "120", adsetId: "121" },
+      approvedDestination: { campaignId: "120", adsetIds: ["121"] },
       approvedBy: ACTOR,
       approvedAt: "2026-09-05T07:00:00.000Z",
       expiresAt: "2126-09-05T07:00:00.000Z",
@@ -320,10 +350,7 @@ describe("what the sequence is handed, and when it may proceed", () => {
   it("reaches activateLaunchIntent under a scheduled authorization, never an operator one", async () => {
     const { calls, activate } = capturing({
       ok: true,
-      activation: {
-        contract: "meta.hierarchy-activation.v1",
-        steps: [], delivering: true, blockedAt: null, blockedReason: null,
-      },
+      activation: activation({ delivering: true }),
       receipt: { steps: [stepReceipt()] },
     });
     const result = await runtime({ activate })({
@@ -350,11 +377,9 @@ describe("what the sequence is handed, and when it may proceed", () => {
     */
     const { calls, activate } = capturing({
       ok: true,
-      activation: {
-        contract: "meta.hierarchy-activation.v1",
-        steps: [], delivering: false, blockedAt: "adset",
-        blockedReason: "kill_switch_engaged",
-      },
+      activation: activation({
+        blockedAt: "adset", blockedReason: "kill_switch_engaged",
+      }),
       receipt: { steps: [stepReceipt()] },
     });
     let reads = 0;
@@ -389,10 +414,7 @@ describe("what the sequence is handed, and when it may proceed", () => {
   it("fires the dispatch marker once, inside the per-step hook, and refuses when it cannot", async () => {
     const { calls, activate } = capturing({
       ok: true,
-      activation: {
-        contract: "meta.hierarchy-activation.v1",
-        steps: [], delivering: true, blockedAt: null, blockedReason: null,
-      },
+      activation: activation({ delivering: true }),
       receipt: { steps: [stepReceipt()] },
     });
     const marker = vi.fn(async () => true);
@@ -418,11 +440,9 @@ describe("what the sequence is handed, and when it may proceed", () => {
 
     const refused = capturing({
       ok: true,
-      activation: {
-        contract: "meta.hierarchy-activation.v1",
-        steps: [], delivering: false, blockedAt: "campaign",
-        blockedReason: "dispatch_marker_unavailable",
-      },
+      activation: activation({
+        blockedAt: "campaign", blockedReason: "dispatch_marker_unavailable",
+      }),
       receipt: { steps: [] },
     });
     await runtime({ activate: refused.activate })({
@@ -446,13 +466,12 @@ describe("how an outcome is reported", () => {
     const result = await runtime({
       activate: activateReturning({
         ok: true,
-        activation: {
-          contract: "meta.hierarchy-activation.v1",
-          steps: [],
-          delivering: false,
+        activation: activation({
           blockedAt: "adset",
           blockedReason: "verified_not_active",
-        },
+          partial: true,
+          coverage: { planned: 2, on: 1, blocked: 1, ambiguous: 0, notAttempted: 0 },
+        }),
         receipt: {
           steps: [
             stepReceipt(),
@@ -479,6 +498,15 @@ describe("how an outcome is reported", () => {
     const response = result.receipt.response as Record<string, unknown>;
     expect(response.delivering).toBe(false);
     expect(response.blockedAt).toBe("adset");
+    /*
+      And the counts, because "not delivering" is true of a launch where nothing
+      came on and of one where most of it is live and spending. Only one of
+      those needs somebody now.
+    */
+    expect(response.partial).toBe(true);
+    expect(response.coverage).toEqual({
+      planned: 2, on: 1, blocked: 1, ambiguous: 0, notAttempted: 0,
+    });
     expect(result.reconcile).toBe(false);
   });
 
@@ -486,11 +514,11 @@ describe("how an outcome is reported", () => {
     const result = await runtime({
       activate: activateReturning({
         ok: true,
-        activation: {
-          contract: "meta.hierarchy-activation.v1",
-          steps: [], delivering: false, blockedAt: "adset",
-          blockedReason: "provider_outcome_ambiguous",
-        },
+        activation: activation({
+          blockedAt: "adset", blockedReason: "provider_outcome_ambiguous",
+          partial: true,
+          coverage: { planned: 2, on: 1, blocked: 0, ambiguous: 1, notAttempted: 0 },
+        }),
         receipt: {
           steps: [
             stepReceipt(),
@@ -517,11 +545,10 @@ describe("how an outcome is reported", () => {
     const result = await runtime({
       activate: activateReturning({
         ok: true,
-        activation: {
-          contract: "meta.hierarchy-activation.v1",
-          steps: [], delivering: false, blockedAt: "campaign",
-          blockedReason: "unresolved_prior_attempt",
-        },
+        activation: activation({
+          blockedAt: "campaign", blockedReason: "unresolved_prior_attempt",
+          coverage: { planned: 1, on: 0, blocked: 0, ambiguous: 1, notAttempted: 0 },
+        }),
         receipt: {
           steps: [
             stepReceipt({

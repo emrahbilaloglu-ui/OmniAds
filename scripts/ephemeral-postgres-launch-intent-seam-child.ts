@@ -410,6 +410,10 @@ async function main() {
       operatorUserId: fixture.userId,
       recordedAt: "2026-09-05T11:00:00.000Z",
       delivering: false,
+      // The shape production writes: `delivering` now means FULL coverage, so
+      // a receipt has to say what a partial run actually reached.
+      partial: true,
+      coverage: { planned: 1, on: 0, blocked: 1, ambiguous: 0, notAttempted: 0 },
       blockedAt: "adset",
       blockedReason: "provider_outcome_ambiguous",
       steps: [],

@@ -1024,6 +1024,62 @@ export function expectedProfileIdentity(
   };
 }
 
+/**
+ * The expectation a budget reader actually holds, from two independent sources.
+ *
+ * WHY THIS EXISTS. `expectedProfileIdentity` reads the digests off the engine
+ * decision, and no producer in this repository has ever written them there — so
+ * every real candidate reached `classifyRetainedProfile` with a null expectation
+ * and was answered `profile_identity_agreement_unavailable`. Registering the
+ * retained table and writing verdicts into it would not have changed that
+ * answer by itself.
+ *
+ * THE LAW THIS STATES. A retained verdict is usable only when it can be shown
+ * to have been computed from the inputs that are retained now:
+ * `readAccountProfileRetentionIdentity` re-derives that identity from the
+ * commercial-truth and calibration readers, never from
+ * `engine_v3_account_profile_output`, so it remains an expectation external to
+ * the row being judged. This is strictly what the old law wanted and could not
+ * get, and it is the check that matters at execution time — an operator who
+ * edits a target ROAS between projection and approval moves the identity, the
+ * retained verdict stops agreeing, and the write is refused.
+ *
+ * A decision-carried expectation is still honoured wherever one exists — that
+ * is the original law, unchanged — and the re-derived one is what a reader
+ * holds when the decision carries none. Where BOTH exist they must agree
+ * exactly: two independent claims about one account that disagree cannot both
+ * describe it, so neither is offered and the verdict stays review-only. This
+ * only ever adds refusals to the old rule; it never admits a verdict the old
+ * rule would have refused on an expectation it did hold.
+ */
+export function reconcileProfileIdentityExpectation(
+  decisionCarried: {
+    inputFingerprint: string | null;
+    sourceFingerprint: string | null;
+  },
+  retainedInputs: {
+    inputFingerprint: string;
+    sourceFingerprint: string;
+  } | null,
+): { inputFingerprint: string | null; sourceFingerprint: string | null } {
+  const none = { inputFingerprint: null, sourceFingerprint: null };
+  // Half a decision-carried identity is not an expectation: `classifyRetainedProfile`
+  // needs both digests, and pairing one of them with the other source's would
+  // be comparing against something neither producer ever stamped.
+  const carried = decisionCarried.inputFingerprint !== null
+    && decisionCarried.sourceFingerprint !== null
+    ? decisionCarried as { inputFingerprint: string; sourceFingerprint: string }
+    : null;
+  if (!carried) return retainedInputs ?? none;
+  if (!retainedInputs) return carried;
+  // Both sources exist, so they are two independent claims about one account
+  // and a disagreement means neither can be trusted to describe it.
+  return carried.inputFingerprint === retainedInputs.inputFingerprint
+    && carried.sourceFingerprint === retainedInputs.sourceFingerprint
+    ? carried
+    : none;
+}
+
 export function classifyRetainedProfile(
   retained: unknown,
   expected: {

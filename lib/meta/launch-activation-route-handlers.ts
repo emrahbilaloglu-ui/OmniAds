@@ -224,6 +224,17 @@ export async function handleMetaLaunchIntentActivateAction(
       intentId: intent.id,
       // The word the surface renders. Never derived from the ad alone.
       delivering: activation.delivering,
+      /*
+        And whether it covered everything it planned to.
+
+        `delivering` alone is the sentence that used to be untrue: it was set
+        from the steps the run chose to take, so three entities of five could
+        report delivery. It now means full coverage, and these two say what a
+        partial run actually reached rather than making every reader recount
+        the steps.
+      */
+      partial: activation.partial,
+      coverage: activation.coverage,
       blockedAt: activation.blockedAt,
       blockedReason: activation.blockedReason,
       /*

@@ -532,13 +532,26 @@ ownership was matched to the entity's own grain.
 
 ## Addendum — 2026-09-05 end-to-end economics and bid chain seam
 
-`scripts/ephemeral-postgres-economics-bid-chain-seam-child.ts` (new, 2) — HARNESS
+`scripts/ephemeral-postgres-economics-bid-chain-seam-child.ts` (new, 1) — HARNESS
 
 The seam that proves both economic chains through the shipped producers rather
-than through a hand-written payload. Its two literals are fixture inserts: one
-`meta_entity_observation_runs` row per entity type, and the
-`meta_entity_state_history` rows those runs carry, because that table's
-composite foreign key requires the run to exist first. It issues no production
-query over this table — it seeds facts, calls `runMetaSnapshotForBusiness` and
+than through a hand-written payload. It no longer writes this table itself:
+the state rows and their observation run now go through the shipped capture
+chain (`queueMetaSyncPartition`, `persistMetaRawSnapshot`,
+`persistMetaEntityObservation`), which is what lets `readMeasuredBudgetHistory`
+attest a complete run instead of returning null — a hand-written row cannot.
+The single remaining reference is prose in a comment. It issues no production
+query over this table: it seeds facts, calls `runMetaSnapshotForBusiness` and
 asserts on what the real readers produced.
 
+## Addendum — 2026-09-05 mounted Decision Center apply harness
+
+`scripts/meta-decision-card-apply-harness.ts` (new, 2) — HARNESS
+
+The throwaway workspace in which the product's own Decision Center renders a
+populated lane, so the card-level Apply can be driven in a real browser rather
+than proved at a SQL seam. Its two literals are a fixture insert and the
+comment explaining it: `meta_entity_state_history` carries a composite foreign
+key back to an observation run, so the run is written first and the state row
+second. It issues no production query over this table — the shipped snapshot
+does, and the harness asserts on what that produced.

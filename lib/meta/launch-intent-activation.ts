@@ -30,6 +30,7 @@ import {
   type ActivationGrain,
   type ActivationStepResult,
   type ActivationTarget,
+  type HierarchyActivationCoverage,
   type HierarchyActivationDeps,
   type HierarchyActivationResult,
 } from "@/lib/meta/hierarchy-activation";
@@ -42,7 +43,10 @@ import {
   createMetaAdsActionLog,
   findUnresolvedMetaAdStatusActionLog,
 } from "@/lib/meta/ads-action-log";
-import { recordMetaLaunchIntentActivation } from "@/lib/launchpad/meta-launch-intent-store";
+import {
+  getMetaLaunchIntent,
+  recordMetaLaunchIntentActivation,
+} from "@/lib/launchpad/meta-launch-intent-store";
 
 /** The policy this build implements. An approval naming another is refused. */
 export const ACTIVATION_POLICY_VERSION = "meta.activation-policy.v1" as const;
@@ -107,17 +111,29 @@ export interface LaunchActivationReceipt {
   operatorUserId: string | null;
   recordedAt: string;
   delivering: boolean;
+  /** On, but not all of it. The honest word for a stopped multi-entity run. */
+  partial: boolean;
+  /** Every identity the plan named, counted. `on === planned` is `delivering`. */
+  coverage: HierarchyActivationCoverage;
   blockedAt: ActivationGrain | null;
   blockedReason: string | null;
   steps: ActivationStepReceipt[];
 }
 
 /**
- * The entities this intent created, outside in.
+ * EVERY entity this intent created, outside in, with its parent named.
+ *
+ * This used to take `adsetIds[0]` and `adIds[0]`. The launch create runtime
+ * loops over `payload.adSets` and then over `payload.creatives` inside each, so
+ * a two-ad-set two-creative launch produces two ad sets and four ads — and
+ * activation would turn on the first of each, report `delivering: true`, and
+ * never mention the entities it had silently dropped. Those ad sets and ads are
+ * as real as the ones it did activate: they exist in the account, paused, with
+ * an operator being told their launch is live.
  *
  * A partially-succeeded launch has an error receipt rather than a result one,
  * and its partial identities are just as real — the campaign it created is
- * live in the account whether or not the ad followed. Both are read, so a
+ * live in the account whether or not the ads followed. Both are read, so a
  * half-finished launch can still be completed rather than stranded.
  */
 export function activationPlanForIntent(
@@ -125,24 +141,73 @@ export function activationPlanForIntent(
 ): ActivationTarget[] {
   const receipt = intent.resultReceipt ?? intent.errorReceipt?.partialResult ?? null;
   if (!receipt) return [];
+  const adsetIds = (receipt.adsetIds ?? []).filter((id) => Boolean(id));
+  const adIds = (receipt.adIds ?? []).filter((id) => Boolean(id));
   const targets: ActivationTarget[] = [];
   /*
     Only a launch that created its own campaign may activate one.
 
     An add-to-existing receipt names the campaign it joined, because the ad has
     to live somewhere. Activating that campaign would turn on somebody else's
-    structure on the strength of having added one ad to it.
+    structure on the strength of having added one ad to it — and for the same
+    reason its ads name no parent here, so nothing above them is ever planned.
   */
   if (intent.operation === "new_campaign") {
     if (receipt.campaignId) {
       targets.push({ grain: "campaign", entityId: receipt.campaignId });
     }
-    const adsetId = receipt.adsetIds?.[0] ?? null;
-    if (adsetId) targets.push({ grain: "adset", entityId: adsetId });
+    for (const adsetId of adsetIds) {
+      targets.push({
+        grain: "adset",
+        entityId: adsetId,
+        parentEntityId: receipt.campaignId ?? null,
+      });
+    }
+    const parents = adsetParentsForAds(receipt.steps ?? [], adsetIds);
+    for (const adId of adIds) {
+      targets.push({
+        grain: "ad",
+        entityId: adId,
+        parentEntityId: parents.get(adId) ?? null,
+      });
+    }
+    return targets;
   }
-  const adId = receipt.adIds?.[0] ?? null;
-  if (adId) targets.push({ grain: "ad", entityId: adId });
+  for (const adId of adIds) targets.push({ grain: "ad", entityId: adId });
   return targets;
+}
+
+/**
+ * Which ad set each ad was created under, read off the receipt's own steps.
+ *
+ * The receipt records identities as two flat lists and never says which ad set
+ * an ad belongs to. The `steps` array does, by construction: the create runtime
+ * pushes an `adset` step and then, inside that ad set's loop, one `ad` step per
+ * creative, so the ad set most recently recorded above an ad IS its parent.
+ * Nothing is inferred beyond that — an ad whose parent cannot be read this way
+ * is left unparented, which makes the sequence require every ad set to be on
+ * before it. A guess would be worse than the conservative rule.
+ */
+function adsetParentsForAds(
+  steps: ReadonlyArray<Record<string, unknown>>,
+  adsetIds: readonly string[],
+): Map<string, string> {
+  const known = new Set(adsetIds);
+  const parents = new Map<string, string>();
+  // One ad set means there is nothing to attribute: every ad is under it.
+  if (adsetIds.length === 1) return parents;
+  let current: string | null = null;
+  for (const step of steps) {
+    const kind = typeof step.kind === "string" ? step.kind : null;
+    const id = typeof step.id === "string" && step.id.trim() ? step.id.trim() : null;
+    if (!id) continue;
+    if (kind === "adset") {
+      current = known.has(id) ? id : null;
+      continue;
+    }
+    if (kind === "ad" && current) parents.set(id, current);
+  }
+  return parents;
 }
 
 export type LaunchActivationAuthorization =
@@ -157,6 +222,16 @@ export async function activateLaunchIntent(input: {
   authorization: LaunchActivationAuthorization;
   /** Re-read before every step's own write, so a STOP mid-sequence is honoured. */
   authorize?: (target: ActivationTarget) => Promise<string | null>;
+  /**
+   * The intent as it stands RIGHT NOW, re-read before each unattended step.
+   *
+   * An unattended run's entire authority is a document in a column that the
+   * operator's own route can rewrite while the run is in flight. Defaults to
+   * the store, so a scheduled caller cannot end up with the stale copy by
+   * forgetting to pass one; the operator path never calls it, because an
+   * operator standing on the receipt is not acting under the approval at all.
+   */
+  reloadIntent?: () => Promise<MetaLaunchIntent | null>;
   now?: Date;
   /** The durable seam. Defaults to the action log every other Meta write uses. */
   journal?: ActivationJournal;
@@ -179,41 +254,120 @@ export async function activateLaunchIntent(input: {
   }
 
   if (input.authorization.kind === "scheduled") {
-    const receipt = intent.resultReceipt ?? intent.errorReceipt?.partialResult ?? null;
-    const verdict = validateActivationApproval({
-      stored: intent.activationApproval,
-      intent: {
-        id: intent.id,
-        businessId: intent.businessId,
-        providerAccountId: intent.providerAccountId,
-        operation: intent.operation,
-        requestFingerprint: intent.requestFingerprint,
-      },
-      identities: {
-        campaignId: receipt?.campaignId ?? null,
-        adsetId: receipt?.adsetIds?.[0] ?? null,
-        adIds: receipt?.adIds ?? [],
-        creativeId: readCreativeId(intent),
-      },
-      policyVersion: ACTIVATION_POLICY_VERSION,
-      now: input.now,
-    });
+    const verdict = approvalVerdictFor(intent, input.now);
     if (!verdict.approved) return { ok: false, refusal: verdict.refusal };
     /*
-      An `ad`-scoped approval activates the ad and nothing above it. The plan is
-      narrowed rather than refused, because activating one ad in a live ad set
+      An `ad`-scoped approval activates the ads and nothing above them. The plan
+      is narrowed rather than refused, because activating an ad in a live ad set
       is a perfectly good thing to have approved.
     */
-    if (verdict.scope === "ad") {
-      const adOnly = targets.filter((target) => target.grain === "ad");
-      if (adOnly.length === 0) {
-        return { ok: false, refusal: "no_activatable_entities" };
-      }
-      return runActivation(input, adOnly);
+    const planned = verdict.scope === "ad"
+      ? targets.filter((target) => target.grain === "ad")
+      : targets;
+    if (planned.length === 0) {
+      return { ok: false, refusal: "no_activatable_entities" };
     }
+    return runActivation(input, planned, scheduledApprovalRecheck(input));
   }
 
-  return runActivation(input, targets);
+  return runActivation(input, targets, null);
+}
+
+/**
+ * The stored approval, validated against the intent as it stands.
+ *
+ * Split out of the entry check for one reason: the entry check happens once,
+ * and this has to happen again before every single POST. The two must ask
+ * exactly the same question or the second one would be a weaker gate wearing
+ * the first one's name.
+ */
+function approvalVerdictFor(intent: MetaLaunchIntent, now: Date | undefined) {
+  const receipt = intent.resultReceipt ?? intent.errorReceipt?.partialResult ?? null;
+  const creativeIds = readCreativeIds(intent);
+  return validateActivationApproval({
+    stored: intent.activationApproval,
+    intent: {
+      id: intent.id,
+      businessId: intent.businessId,
+      providerAccountId: intent.providerAccountId,
+      operation: intent.operation,
+      requestFingerprint: intent.requestFingerprint,
+    },
+    identities: {
+      campaignId: receipt?.campaignId ?? null,
+      /*
+        Every ad set and every creative the launch produced, because the
+        approval document names sets. It used to pass the first of each, which
+        is how a launch could be approved for one creative and activated across
+        three: the validator was only ever shown the one that happened to be
+        listed first.
+      */
+      adsetIds: receipt?.adsetIds ?? [],
+      adIds: receipt?.adIds ?? [],
+      creativeIds,
+    },
+    policyVersion: ACTIVATION_POLICY_VERSION,
+    now,
+  });
+}
+
+/**
+ * The approval, re-proved immediately before every unattended provider call.
+ *
+ * It used to be read once, from the intent object loaded at the top of the run.
+ * The operator route can persist a revocation at any moment, and the scheduled
+ * runtime's per-step hook re-read gates, mode and posture but never the
+ * approval — so a withdrawn authorization stayed usable for the rest of an
+ * in-flight sequence: revoke after the campaign came on and the ad set and the
+ * ad were still POSTed under it.
+ *
+ * A refusal here halts the whole run, which is what `hierarchy-activation`
+ * does with any refused authority: the permission was withdrawn from the run,
+ * not from one entity. Steps already completed keep their receipts — the
+ * campaign really is on, and nothing here rolls a verified write back.
+ */
+function scheduledApprovalRecheck(
+  input: Parameters<typeof activateLaunchIntent>[0],
+): (target: ActivationTarget) => Promise<string | null> {
+  const { intent } = input;
+  const reload = input.reloadIntent
+    ?? (() => getMetaLaunchIntent({ businessId: intent.businessId, id: intent.id }));
+  return async (target) => {
+    const current = await reload().catch(() => null);
+    // Unreadable is not "unchanged". A run whose authority cannot be read has
+    // no authority to send the next write under.
+    if (!current) return "activation_intent_unreadable";
+    if (
+      current.id !== intent.id
+      || current.businessId !== intent.businessId
+      || current.providerAccountId !== intent.providerAccountId
+    ) {
+      return "activation_intent_changed";
+    }
+    if (current.status !== "succeeded" && current.status !== "partially_succeeded") {
+      return "intent_not_succeeded";
+    }
+    const verdict = approvalVerdictFor(current, input.now);
+    if (!verdict.approved) return verdict.refusal;
+    // A scope narrowed to `ad` after the campaign step no longer covers a
+    // parent, so nothing above an ad may be sent under it.
+    if (verdict.scope === "ad" && target.grain !== "ad") {
+      return "activation_approval_scope_mismatch";
+    }
+    /*
+      And the entity has to still be one the CURRENT receipt names.
+
+      The plan was built from the receipt this run loaded. If the intent's
+      identities have moved since, this step would be a status write against
+      an entity the live record no longer says this launch created.
+    */
+    const stillPlanned = activationPlanForIntent(current).some(
+      (planned) =>
+        planned.grain === target.grain && planned.entityId === target.entityId,
+    );
+    if (!stillPlanned) return "activation_target_no_longer_approved";
+    return null;
+  };
 }
 
 /**
@@ -227,6 +381,8 @@ export async function activateLaunchIntent(input: {
 async function runActivation(
   input: Parameters<typeof activateLaunchIntent>[0],
   targets: readonly ActivationTarget[],
+  /** The unattended run's own re-proof of its approval, or null when present. */
+  recheckApproval: ((target: ActivationTarget) => Promise<string | null>) | null,
 ): Promise<LaunchActivationResult> {
   const { intent } = input;
   const journal = input.journal ?? defaultActivationJournal;
@@ -236,7 +392,16 @@ async function runActivation(
     targets,
     deps: providerDeps({
       ctx: input.ctx,
-      authorize: input.authorize,
+      /*
+        The approval is re-proved BEFORE the caller's own gates.
+
+        The scheduled runtime fires its dispatch marker from inside `authorize`,
+        and a marker on a row whose approval has just been withdrawn would stamp
+        a dispatch for a call that will never be made. Asking the cheaper, more
+        specific question first also means the blocked step records the reason
+        an operator can act on — `activation_approval_revoked`, not a posture.
+      */
+      authorize: composeAuthorize(recheckApproval, input.authorize),
       journal,
       businessId: intent.businessId,
       providerAccountId: intent.providerAccountId,
@@ -257,6 +422,16 @@ async function runActivation(
       : null,
     recordedAt: (input.now ?? new Date()).toISOString(),
     delivering: activation.delivering,
+    /*
+      Both words, stored.
+
+      `delivering` alone cannot tell a reload the difference between a launch
+      nothing turned on and one where three of five entities are live and
+      spending. The counts are what let the surface say which, without
+      recomputing them from steps it may not fully understand.
+    */
+    partial: activation.partial,
+    coverage: activation.coverage,
     blockedAt: activation.blockedAt,
     blockedReason: activation.blockedReason,
     steps: activation.steps.map((step) => {
@@ -290,7 +465,25 @@ async function runActivation(
 }
 
 /**
- * The creative the launch used, from its own request payload.
+ * Two gates in sequence, either of which may refuse.
+ *
+ * They are kept separate because they answer different questions: the first is
+ * "does the stored approval still authorize this", the second is the caller's
+ * own "may anything be written at all right now". Composing them here means the
+ * hierarchy still sees one `authorize`, and neither can be skipped by a caller
+ * that forgot to chain the other.
+ */
+function composeAuthorize(
+  first: ((target: ActivationTarget) => Promise<string | null>) | null,
+  second: ((target: ActivationTarget) => Promise<string | null>) | undefined,
+): ((target: ActivationTarget) => Promise<string | null>) | undefined {
+  if (!first) return second;
+  if (!second) return first;
+  return async (target) => (await first(target)) ?? (await second(target));
+}
+
+/**
+ * EVERY creative the launch used, from its own request payload.
  *
  * The first two keys are the shapes this reader was written against and the
  * shipped payload carries NEITHER: a launch stores its creatives under
@@ -299,36 +492,45 @@ async function runActivation(
  * activation — whose approval names the creative it approved — refused every
  * one of them as `activation_approval_asset_mismatch`, a sentence about an
  * asset when the truth was that nobody had read it.
+ *
+ * It returns the whole list rather than the first entry because the approval
+ * document names a SET, and containment is asked against every creative the
+ * launch produced. Handing over only the first would put the other creatives
+ * outside the question, which is the exact shape of the hole this closes.
  */
-function readCreativeId(intent: MetaLaunchIntent): string | null {
+export function readCreativeIds(intent: MetaLaunchIntent): string[] {
   const payload = intent.requestPayload as Record<string, unknown>;
   const read = (value: unknown): string | null =>
     typeof value === "string" && value.trim() ? value.trim() : null;
+  const unique = (values: Array<string | null>) => {
+    const found: string[] = [];
+    for (const value of values) {
+      if (value && !found.includes(value)) found.push(value);
+    }
+    return found;
+  };
+  /*
+    The sources are tried in the order the single-creative reader tried them,
+    and the FIRST one that answers is the whole answer. The shipped payload
+    carries `creatives` and a `creativeIds` mirror of it, so unioning the
+    sources would count the same creative twice under two keys and read a
+    one-creative launch as a many-creative one.
+  */
   const direct = read(payload?.creativeId);
-  if (direct) return direct;
+  if (direct) return [direct];
   const reuse = payload?.reuseCreative as { creativeId?: unknown } | undefined;
   const reused = read(reuse?.creativeId);
-  if (reused) return reused;
+  if (reused) return [reused];
   const refs = Array.isArray(payload?.creatives) ? payload.creatives : [];
-  for (const item of refs) {
-    if (typeof item === "string") {
-      const bare = read(item);
-      if (bare) return bare;
-      continue;
-    }
-    if (!item || typeof item !== "object") continue;
+  const fromRefs = unique(refs.map((item) => {
+    if (typeof item === "string") return read(item);
+    if (!item || typeof item !== "object") return null;
     const record = item as Record<string, unknown>;
-    const fromRef = read(record.creativeId) ?? read(record.id);
-    if (fromRef) return fromRef;
-  }
+    return read(record.creativeId) ?? read(record.id);
+  }));
+  if (fromRefs.length > 0) return fromRefs;
   const ids = payload?.creativeIds;
-  if (Array.isArray(ids)) {
-    for (const id of ids) {
-      const value = read(id);
-      if (value) return value;
-    }
-  }
-  return null;
+  return Array.isArray(ids) ? unique(ids.map(read)) : [];
 }
 
 /**

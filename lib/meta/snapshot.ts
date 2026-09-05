@@ -30,6 +30,8 @@ import {
   buildEvidenceTrailsForRecommendations,
   type MetaEvidenceTrail,
 } from "@/lib/meta/evidence-trail";
+import { produceRetainedAccountProfileOutputs } from "@/lib/meta/account-profile-output-producer";
+import { restampProposedActions } from "@/lib/meta/recommendations";
 import { buildMetaAdsetRecommendations } from "@/lib/meta/adset-decisions";
 import { projectMetaAutomationProposals } from "@/lib/meta/automation-proposals";
 import {
@@ -40,6 +42,7 @@ import {
   insertBidProposalRow,
   projectMetaBidProposals,
 } from "@/lib/meta/bid-proposal-producer";
+import { projectMetaLaunchIntents } from "@/lib/meta/launch-intent-producer";
 import {
   insertLaunchProposalRow,
   projectMetaLaunchProposals,
@@ -1076,7 +1079,18 @@ async function attachSizedIntents(input: {
     },
   });
 
-  return bid.recommendations;
+  /*
+    Re-stamp, because the intent arrived AFTER the recommendation was stamped.
+
+    `buildMetaRecommendations` maps `stampRecommendation` over its output, and
+    that is where `proposedAction` — the field the decision card's Apply reads —
+    is derived from `targetValue`. The sizing above attaches the target value
+    later, so the stamp had already been taken against a recommendation that
+    carried no intent: an ad set could be persisted with a validated
+    1320-minor-unit cap raise and `proposedAction` absent, and the card offered
+    nothing while the queue offered the same amount.
+  */
+  return restampProposedActions(bid.recommendations);
 }
 
 async function buildCalibrationContexts(input: {
@@ -1857,6 +1871,44 @@ export async function runMetaSnapshotForBusiness(
     A failure degrades exactly like the pause projection above: the queue was
     not projected, and the snapshot still stands.
   */
+  /*
+    The day's RETAINED COMMERCIAL VERDICT, before anything asks for it.
+
+    `engine_v3_account_profile_output` is what the budget composition reads to
+    answer "is this account commercially eligible today, and if not, by which
+    named blocker". The table was described in a prepared pack, never applied
+    and never written, so the loader's read failed, the failure became
+    `composition_sources_unavailable`, and no budget candidate could ever be
+    admitted. The producer exists now; this is its first production caller, on
+    the same chain and the same tick as every other producer.
+
+    Per account, because the verdict is an account's own and pooling two
+    accounts' facts would be inventing a third account. It degrades like the
+    projections below: a failure means the verdict was not retained this tick,
+    the loader's own ensure-probe still covers the gap, and every reader treats
+    an absent verdict as review-only rather than as permission.
+  */
+  for (const accountId of generationAccounts) {
+    /*
+      `null` means this business has no assigned account at all, and the
+      generation ran unscoped. There is no account whose verdict this would be,
+      so nothing is retained rather than a row keyed on an empty identity.
+    */
+    if (!accountId) continue;
+    await produceRetainedAccountProfileOutputs({
+      businessId,
+      providerAccountId: accountId,
+      asOfDate: normalizedSnapshotDate,
+    }).catch((error: unknown) => {
+      console.warn("[meta-snapshot] account_profile_output_failed", {
+        businessId,
+        providerAccountId: accountId,
+        snapshotDate: normalizedSnapshotDate,
+        message: error instanceof Error ? error.message : String(error),
+      });
+      return null;
+    });
+  }
   const budgetProposals = await projectMetaBudgetProposals({
     businessId,
     snapshotDate: normalizedSnapshotDate,
@@ -1911,6 +1963,34 @@ export async function runMetaSnapshotForBusiness(
       });
       return null;
     });
+
+  /*
+    First the STAGING producer, because the queue producer below it reads what
+    this one writes and both belong to the same tick.
+
+    The launch row's candidate query wants a prepared intent carrying decision,
+    snapshot or brief lineage, and nothing in the product ever wrote one — the
+    wizard stages and executes inside a single request, and the operator intent
+    API stages one with no lineage — so the row was unreachable by construction
+    and the creative operation matrix had no first caller. This is that caller.
+    It composes nothing: the decision, the reviewed brief and the operator's own
+    draft supply the asset, the copy mode and the exact destination, and a
+    candidate missing any of them is refused by name rather than filled in.
+
+    It degrades exactly like the projections around it: a failure means nothing
+    was staged this tick, and the decisions themselves are already durable.
+  */
+  await projectMetaLaunchIntents({
+    businessId,
+    snapshotDate: normalizedSnapshotDate,
+  }).catch((error) => {
+    console.warn("[meta-snapshot] launch_intent_staging_failed", {
+      businessId,
+      snapshotDate: normalizedSnapshotDate,
+      message: error instanceof Error ? error.message : String(error),
+    });
+    return null;
+  });
 
   /*
     And the launch producer, which points at intents rather than decisions.

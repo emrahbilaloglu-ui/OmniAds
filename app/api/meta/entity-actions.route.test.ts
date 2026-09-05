@@ -690,6 +690,67 @@ describe("Meta entity write routes", () => {
     );
   });
 
+  it("names the bid outcome, instead of leaving the card to guess", async () => {
+    /*
+      The status handler returned `{outcome, durable, reference}` and this one
+      did not. The ceremony normalises an absent `outcome` to
+      `provider_outcome_ambiguous` on purpose — inferring success from
+      `ok: true` is exactly the inference that rule forbids — so a bid write
+      that verified against its own read-back and settled `success` in the
+      action log still told the operator "Outcome unknown · No receipt · do
+      not retry". Observed in the mounted product before this fix.
+    */
+    const response = await applyBid.POST(
+      request({ businessId: "biz_1", bidAmountMinor: 2200, recId: "rec_bid" }),
+      { params: Promise.resolve({ adsetId: "adset_1" }) },
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload).toMatchObject({
+      ok: true,
+      outcome: "verified",
+      durable: true,
+      reference: "log_1",
+    });
+  });
+
+  it("journals the account this write belongs to, so History can find it", async () => {
+    /*
+      Both manual handlers used to omit `providerAccountId`, so the action-log
+      row landed with `provider_account_id` NULL. `history-read-model.ts`
+      filters its action-log branch on `provider_account_id = $2` — on purpose,
+      so a row with no account lineage fails closed rather than leaking across
+      accounts — and the consequence was that a successful operator write never
+      appeared in Meta History's Writes journal at all. The receipt was durable
+      and invisible. Asserted for both handlers, because both had it wrong.
+    */
+    await applyBid.POST(
+      request({ businessId: "biz_1", bidAmountMinor: 2200, recId: "rec_bid" }),
+      { params: Promise.resolve({ adsetId: "adset_1" }) },
+    );
+    expect(logs.createMetaAdsActionLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "launch_adset",
+        businessId: "biz_1",
+        providerAccountId: "act_1",
+      }),
+    );
+
+    vi.mocked(logs.createMetaAdsActionLog).mockClear();
+    await campaignPause.POST(
+      request({ businessId: "biz_1", recId: "rec_1" }),
+      { params: Promise.resolve({ campaignId: "cmp_1" }) },
+    );
+    expect(logs.createMetaAdsActionLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "pause",
+        businessId: "biz_1",
+        providerAccountId: "act_1",
+      }),
+    );
+  });
+
   it("rejects legacy major-unit bidValue for adset bid caps", async () => {
     const response = await applyBid.POST(
       request({ businessId: "biz_1", bidValue: 22, recId: "rec_bid" }),

@@ -50,16 +50,16 @@ function stub(response: Record<string, unknown>) {
 
 function storedApproval(overrides: Record<string, unknown> = {}) {
   return {
-    contractVersion: "meta.launch-activation-approval.v1",
+    contractVersion: "meta.launch-activation-approval.v2",
     businessId: BUSINESS,
     providerAccountId: "act_1",
     launchIntentId: INTENT,
     requestFingerprint: "f".repeat(64),
     approvedOperation: "new_campaign",
     approvedScope: "hierarchy",
-    approvedAsset: { creativeId: "crt_1", version: "v1" },
+    approvedAssets: [{ creativeId: "crt_1", version: "v1" }],
     approvedCopy: { hash: "a".repeat(64) },
-    approvedDestination: { campaignId: "cmp_1", adsetId: "as_1" },
+    approvedDestination: { campaignId: "cmp_1", adsetIds: ["as_1"] },
     approvedBy: APPROVER,
     approvedAt: "2026-09-05T09:00:00.000Z",
     expiresAt: "2026-09-06T09:00:00.000Z",
@@ -267,6 +267,67 @@ describe("LaunchpadActivationPanel", () => {
     expect(receipt.textContent).not.toContain("Delivering");
     // Each step names the durable action-log row it was journalled in.
     expect(receipt.textContent).toContain("log log-adset");
+  });
+
+  it("counts the entities rather than naming a grain once, when a launch made several", async () => {
+    /*
+      A launch that created two ad sets and two ads reports one step per entity.
+      Saying "ad set is on" when one of two is on would be the same lie the
+      receipt itself used to tell by activating only the first of each grain.
+    */
+    const step = (
+      grain: "campaign" | "adset" | "ad",
+      entityId: string,
+      outcome: string,
+    ) => ({
+      grain, entityId, outcome, reason: null, verified: null,
+      actionLogId: null, claimOutcome: null,
+    });
+    expect(
+      describeBlockedHierarchy(
+        [
+          step("campaign", "cmp_1", "activated"),
+          step("adset", "as_1", "activated"),
+          step("adset", "as_2", "blocked"),
+          step("ad", "ad_1", "activated"),
+          step("ad", "ad_2", "not_attempted"),
+        ] as never,
+        "adset",
+      ),
+    ).toBe("campaign, 1 of 2 ad sets and 1 of 2 ads are on, ad set is not");
+
+    stub({
+      ok: true,
+      delivering: false,
+      blockedAt: "adset",
+      blockedReason: "adset_in_review",
+      steps: [
+        step("campaign", "cmp_1", "activated"),
+        step("adset", "as_1", "activated"),
+        step("adset", "as_2", "blocked"),
+        step("ad", "ad_1", "activated"),
+        step("ad", "ad_2", "not_attempted"),
+      ],
+    });
+    render(panel());
+    type("[data-activation-phrase]", "ACTIVATE");
+    (document.querySelector("[data-activation-run]") as HTMLButtonElement).click();
+
+    await waitFor(() =>
+      expect(document.querySelector("[data-activation-receipt]")).not.toBeNull(),
+    );
+    const receipt = document.querySelector("[data-activation-receipt]")!;
+    expect(receipt.getAttribute("data-activation-delivering")).toBe("false");
+    // Three of five, said out loud — "not delivering" alone would cover both
+    // this and a launch where nothing came on at all.
+    expect(
+      document.querySelector("[data-activation-coverage]")?.getAttribute(
+        "data-activation-coverage",
+      ),
+    ).toBe("3/5");
+    expect(receipt.textContent).toContain("3 of 5 entities this launch created are on");
+    // Every identity has its own row, including the one nothing was sent to.
+    expect(document.querySelectorAll("[data-activation-step]")).toHaveLength(5);
   });
 
   it("disables every control with the server's own sentence rather than hiding it", () => {

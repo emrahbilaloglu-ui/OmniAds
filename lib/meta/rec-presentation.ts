@@ -11,6 +11,8 @@
 //   - primaryActionLabel: honest copy - execute verbs only for controls
 //     that execute; review framing for controls that open the drill drawer.
 import type { MetaLaunchMode } from "@/components/meta/redesign/types";
+import { executableBidIntentMinorUnits } from "@/lib/meta/bid-intent-contract";
+import { proposedActionForRecommendation } from "@/lib/meta/recommendations";
 import type {
   MetaRecommendation,
   MetaRecOperatorApply,
@@ -152,20 +154,30 @@ export function serverDecisionLabelForRec(
 }
 
 export function serverLaunchModeForRec(
-  rec: Pick<MetaRecommendation, "type" | "kind" | "level">,
+  rec: Pick<MetaRecommendation, "type" | "kind" | "level" | "targetValue">,
 ): MetaLaunchMode | null {
   if (rec.kind === "anomaly" || rec.kind === "state") return null;
   const type = String(rec.type ?? "");
   if (REBUILD_TYPES.has(type)) return "rebuild";
   if (DUPLICATE_TYPES.has(type)) return "duplicate";
-  if (rec.level === "adset" && type === "bid_value_guidance") return "apply_bid";
+  /*
+    The same correction as `proposedActionForRecommendation`.
+
+    This tested `type === "bid_value_guidance"` at ad-set grain, which no
+    producer emits, so the served `launchMode` said `null` for every ad set
+    that actually carried a validated cap raise. The intent decides, not the
+    label: `executableBidIntentMinorUnits` asks the queue's own question.
+  */
+  if (rec.level === "adset" && executableBidIntentMinorUnits(rec.targetValue) !== null) {
+    return "apply_bid";
+  }
   return null;
 }
 
 export function serverActionKindForRec(
   rec: Pick<
     MetaRecommendation,
-    "type" | "kind" | "level" | "proposedAction" | "decisionState"
+    "type" | "kind" | "level" | "proposedAction" | "decisionState" | "targetValue"
   >,
 ): MetaRecActionKind {
   if (rec.kind === "anomaly" || rec.kind === "state") return "review_drill";
@@ -256,12 +268,22 @@ export function serverPrimaryActionLabelForRec(
 export function serverOperatorApplyForRec(
   rec: Pick<
     MetaRecommendation,
-    "kind" | "level" | "proposedAction" | "campaignId" | "adsetId"
+    "kind" | "level" | "proposedAction" | "campaignId" | "adsetId" | "targetValue"
   >,
 ): MetaRecOperatorApply {
   // An anomaly or a state row describes a condition, not a change to make.
   if (rec.kind === "anomaly" || rec.kind === "state") return null;
-  const proposed = rec.proposedAction;
+  /*
+    Derived when the stored row does not carry one.
+
+    A recommendation is stamped when it is built and the sizing passes attach
+    their intents afterwards, so every row persisted before that ordering was
+    corrected carries a validated amount and no `proposedAction`. Re-asking
+    here reads the row's OWN target value with the same predicate the stamp
+    uses — it invents nothing, and a row that already carries an action keeps
+    it, because `proposedActionForRecommendation` returns that first.
+  */
+  const proposed = proposedActionForRecommendation(rec as MetaRecommendation);
   if (!proposed) return null;
 
   const grain =

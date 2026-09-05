@@ -31,7 +31,10 @@ import {
   revokeActivationApproval,
   type ActivationApproval,
 } from "@/lib/meta/launch-activation-approval";
-import { ACTIVATION_POLICY_VERSION } from "@/lib/meta/launch-intent-activation";
+import {
+  ACTIVATION_POLICY_VERSION,
+  readCreativeIds,
+} from "@/lib/meta/launch-intent-activation";
 import {
   jsonError,
   readJsonBody,
@@ -166,9 +169,18 @@ export async function POST(
       },
       identities: {
         campaignId: receipt.campaignId ?? null,
-        adsetId: receipt.adsetIds?.[0] ?? null,
+        /*
+          The whole set of each, not the first of each.
+
+          The v1 document held one creative and one ad set, so this route used
+          to hand the builder `adsetIds[0]` and a single creative — and an
+          unattended run of a multi-creative launch was then either refused or,
+          worse, covered by an approval that never mentioned two thirds of what
+          it turned on. v2 names sets, and they come from the receipt.
+        */
+        adsetIds: receipt.adsetIds ?? [],
         adIds: receipt.adIds ?? [],
-        creativeId: readCreativeId(intent),
+        creativeIds: readCreativeIds(intent),
       },
       approvedScope: scope,
       approvedBy: access.session.user.id,
@@ -198,36 +210,6 @@ export async function POST(
   } catch (error) {
     return jsonError(500, "activation_approval_failed", sanitizeErrorMessage(error));
   }
-}
-
-/**
- * The creative the launch used, from its own request payload.
- *
- * The shipped Launchpad payload has never had a top-level `creativeId` or a
- * `reuseCreative` object: both shapes normalize to `creatives[]` and
- * `creativeIds[]` (`lib/launchpad/meta.ts`). Reading only the two absent keys
- * returned null for every real intent, and `buildActivationApproval` refuses a
- * null creative with `activation_approval_asset_mismatch` — so the approval
- * control could not have succeeded once. The two original keys are still read
- * first, because a stored payload written by an older build may carry them.
- */
-function readCreativeId(intent: { requestPayload: unknown }): string | null {
-  const payload = intent.requestPayload as Record<string, unknown> | null;
-  const direct = payload?.creativeId;
-  if (typeof direct === "string" && direct.trim()) return direct.trim();
-  const reuse = payload?.reuseCreative as { creativeId?: unknown } | undefined;
-  if (typeof reuse?.creativeId === "string" && reuse.creativeId.trim()) {
-    return reuse.creativeId.trim();
-  }
-  const first = readApprovedCreatives(payload)[0];
-  if (first) return first.creativeId;
-  const ids = payload?.creativeIds;
-  if (Array.isArray(ids)) {
-    for (const id of ids) {
-      if (typeof id === "string" && id.trim()) return id.trim();
-    }
-  }
-  return null;
 }
 
 /**

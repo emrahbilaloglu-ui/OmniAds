@@ -104,6 +104,19 @@ export type AddToExistingStep = {
 };
 
 /**
+ * What the pre-POST boundary answers.
+ *
+ * `true` lets the create through. The object form refuses it AND says which
+ * gate closed, so the reason survives into the intent's durable error receipt
+ * rather than arriving as a bare "the caller said no". A plain `false` is still
+ * accepted — it is what the manual queue's dispatch marker returns — and reads
+ * as a refusal with no reason to quote.
+ */
+export type MetaLaunchProviderMutationVerdict =
+  | boolean
+  | { allowed: false; reason: string };
+
+/**
  * Who is executing, and the boundary at which they may stop it.
  *
  * Nothing in here reaches `request_payload_json`. The intent's payload is the
@@ -115,14 +128,85 @@ export interface MetaLaunchExecutionOrigin {
   /** The person behind the attempt, or null when nobody is. */
   requestedBy: string | null;
   /**
-   * Fired once, immediately before the first provider mutation.
+   * Fired immediately before EVERY provider mutation in the sequence, not once
+   * before the sequence.
    *
-   * Returning false refuses the create outright: a caller that cannot record
-   * its own dispatch intent must not be allowed to cause one it could then
-   * never account for. Absent means nobody is holding anything, which is the
-   * state a plain operator request is in.
+   * It used to fire once. A launch is three or more provider POSTs separated by
+   * read-backs and durable writes, and an operator can engage the STOP, drop
+   * the standing mode out of `auto`, re-activate under a different admin or put
+   * the business into rehearsal in the seconds between the campaign create and
+   * the ad set create. Asking once meant the campaign's answer was reused for
+   * every entity below it, so a launch could keep building itself under
+   * authority that had already been withdrawn.
+   *
+   * A refusal refuses only what has not happened yet: whatever was already
+   * created stays created, is reported, and is persisted on the intent with the
+   * reason the rest was withheld. Callers must therefore be idempotent — the
+   * queue's dispatch marker already is, and returns true once written.
+   *
+   * Absent means nobody is holding anything, which is the state a plain
+   * operator request is in.
    */
-  beforeProviderMutation?: () => Promise<boolean>;
+  beforeProviderMutation?: () => Promise<MetaLaunchProviderMutationVerdict>;
+}
+
+/**
+ * The code a withheld provider create is recorded under.
+ *
+ * Deliberately not a failure code: nothing failed and nothing was sent. It is
+ * the one answer an operator reading a partially built launch needs — the
+ * entities above exist, the entities below were never asked for, and the
+ * message names the gate that closed.
+ */
+export const META_LAUNCH_PROVIDER_MUTATION_WITHHELD_CODE =
+  "provider_mutation_withheld" as const;
+
+type ProviderMutationBoundaryVerdict =
+  | { allowed: true }
+  | { allowed: false; reason: string | null };
+
+async function askProviderMutationBoundary(
+  hook: (() => Promise<MetaLaunchProviderMutationVerdict>) | undefined,
+): Promise<ProviderMutationBoundaryVerdict> {
+  if (!hook) return { allowed: true };
+  const verdict = await hook();
+  if (verdict === true) return { allowed: true };
+  if (verdict === false) return { allowed: false, reason: null };
+  return { allowed: false, reason: verdict.reason };
+}
+
+/**
+ * The same verdict, asked again from inside the primitive.
+ *
+ * The check above this one is the cheap refusal: it answers before the adapter
+ * does any work and produces the richer receipt, with the partial identities
+ * and the gate that closed. This one is the BINDING one. It runs after every
+ * adapter-side check and immediately before the single request, which is the
+ * only place a lapsed authority can still prevent the create rather than
+ * describe it — the same two-read shape the scheduled status runtime uses.
+ */
+function providerMutationBoundaryHook(
+  hook: (() => Promise<MetaLaunchProviderMutationVerdict>) | undefined,
+): (() => Promise<void>) | undefined {
+  if (!hook) return undefined;
+  return async () => {
+    const verdict = await askProviderMutationBoundary(hook);
+    if (!verdict.allowed) {
+      throw Object.assign(
+        new Error(providerMutationWithheldError(verdict.reason).message),
+        { code: META_LAUNCH_PROVIDER_MUTATION_WITHHELD_CODE },
+      );
+    }
+  };
+}
+
+function providerMutationWithheldError(reason: string | null) {
+  return {
+    code: META_LAUNCH_PROVIDER_MUTATION_WITHHELD_CODE,
+    message: reason
+      ? `Authority for this launch was withdrawn before the next provider create (${reason}), so nothing further was created on Meta.`
+      : "The caller withheld the next provider create, so nothing further was created on Meta.",
+  };
 }
 
 export interface MetaLaunchExecutionOutcome {
@@ -178,6 +262,10 @@ function getDuplicateFailureLogStatus(
 
 function shouldHaltProviderMutationChain(result: MetaAdsWriteFailure) {
   return (
+    // Authority for the next POST was withdrawn, so it is withdrawn for the one
+    // after it too. Walking the rest of the matrix would re-ask a closed gate
+    // once per remaining target and creative, and answer the same each time.
+    result.error.code === META_LAUNCH_PROVIDER_MUTATION_WITHHELD_CODE ||
     result.error.code === "kill_switch_engaged" ||
     result.error.code === "silent_failure" ||
     result.mutationAttempt != null ||
@@ -348,6 +436,7 @@ async function persistExecutionFailure(input: {
  */
 function dispatchMarkerUnavailable(
   launchIntentId: string,
+  reason: string | null,
 ): MetaLaunchExecutionOutcome {
   return {
     ok: false,
@@ -359,6 +448,10 @@ function dispatchMarkerUnavailable(
         message:
           "The caller could not record dispatch intent for this launch, so nothing was created on Meta.",
       },
+      // Which gate closed, when the caller named one. The boundary is asked the
+      // same question before every create, and only the first of them can still
+      // answer before the intent is marked executing.
+      withheldReason: reason,
       launchIntentId,
       launchIntentStatus: null,
     },
@@ -409,15 +502,97 @@ export async function runMetaLaunchIntentCreate(
   let providerExecutionCompleted = false;
   let providerMutationAttempted = false;
 
-  if (input.beforeProviderMutation) {
-    const mayDispatch = await input.beforeProviderMutation();
-    if (!mayDispatch) return dispatchMarkerUnavailable(launchIntentId);
+  const mayStart = await askProviderMutationBoundary(input.beforeProviderMutation);
+  if (!mayStart.allowed) {
+    return dispatchMarkerUnavailable(launchIntentId, mayStart.reason);
   }
 
   await markMetaLaunchIntentExecuting({
     businessId,
     id: launchIntentId,
   });
+
+  /*
+    A create that the boundary refused part of the way down.
+
+    The entities above it exist and stay reported; the log row for the entity
+    that was never asked for is completed rather than left pending, so a later
+    attempt's in-flight guard does not read a POST that never happened; and the
+    intent settles `partially_succeeded` carrying both the identities and the
+    reason. Everything below this step is simply not attempted.
+  */
+  const withholdRemaining = async (withhold: {
+    kind: LaunchStepKind;
+    index: number;
+    name: string;
+    logId: string;
+    startedAt: number;
+    failedAt: string;
+    reason: string | null;
+    creativeId?: string;
+  }): Promise<MetaLaunchExecutionOutcome> => {
+    const error = providerMutationWithheldError(withhold.reason);
+    const result: MetaAdsWriteFailure = {
+      ok: false,
+      httpStatus: 409,
+      providerMutationAttempted: false,
+      providerOutcome: "definite_failure",
+      error,
+    };
+    await completeMetaAdsActionLog({
+      id: withhold.logId,
+      status: "failure",
+      payloadResponse: null,
+      errorCode: error.code,
+      errorMessage: error.message,
+      resultingAdId: null,
+      durationMs: Date.now() - withhold.startedAt,
+      verifiedAt: null,
+      verificationPayload: null,
+    }).catch(() => null);
+    const step = failureStep({
+      kind: withhold.kind,
+      index: withhold.index,
+      name: withhold.name,
+      result,
+    });
+    if (withhold.creativeId) step.creativeId = withhold.creativeId;
+    steps.push(step);
+    const failedIntent = await persistExecutionFailure({
+      businessId,
+      launchIntentId,
+      providerAccountId,
+      result,
+      executionAuthority: input.executionAuthority,
+      requestFingerprint: input.requestFingerprint,
+      checks: preflightChecks,
+      failedAt: withhold.failedAt,
+      campaignId: campaignId ?? null,
+      adsetIds,
+      adIds,
+      steps,
+    }).catch(() => null);
+    return {
+      ok: false,
+      status: 409,
+      providerMutationAttempted,
+      body: {
+        ok: false,
+        campaignId: campaignId ?? null,
+        adsetIds,
+        adIds,
+        steps,
+        failedAt: withhold.failedAt,
+        error,
+        withheldReason: withhold.reason,
+        providerOutcome: null,
+        mutationAttempt: null,
+        retryAllowed: null,
+        launchIntentId,
+        launchIntentStatus: failedIntent?.status ?? "receipt_write_failed",
+      },
+    };
+  };
 
   try {
     const campaignInput = toCampaignInput(payload);
@@ -443,8 +618,32 @@ export async function runMetaLaunchIntentCreate(
       },
     });
     const campaignStartedAt = Date.now();
+    /*
+      Asked again, with the log row written and nothing else left to do.
+
+      The answer above was given before `markMetaLaunchIntentExecuting` and the
+      action-log insert, which is where it has to be — a refusal there leaves the
+      intent `prepared` and executable. This one is the last word before the
+      first POST.
+    */
+    const mayCreateCampaign = await askProviderMutationBoundary(
+      input.beforeProviderMutation,
+    );
+    if (!mayCreateCampaign.allowed) {
+      return withholdRemaining({
+        kind: "campaign",
+        index: 0,
+        name: campaignInput.name,
+        logId: campaignLog.id,
+        startedAt: campaignStartedAt,
+        failedAt: "campaign",
+        reason: mayCreateCampaign.reason,
+      });
+    }
     providerMutationAttempted = true;
-    const campaignResult = await createCampaign(ctx, campaignInput);
+    const campaignResult = await createCampaign(ctx, campaignInput, {
+      beforeMutationAttempt: providerMutationBoundaryHook(input.beforeProviderMutation),
+    });
     if (!campaignResult.ok) {
       await completeFailure({
         logId: campaignLog.id,
@@ -538,7 +737,23 @@ export async function runMetaLaunchIntentCreate(
         },
       });
       const adSetStartedAt = Date.now();
-      const adSetResult = await createAdSet(ctx, adSetInput);
+      const mayCreateAdSet = await askProviderMutationBoundary(
+        input.beforeProviderMutation,
+      );
+      if (!mayCreateAdSet.allowed) {
+        return withholdRemaining({
+          kind: "adset",
+          index: adsetIndex,
+          name: adSetInput.name,
+          logId: adSetLog.id,
+          startedAt: adSetStartedAt,
+          failedAt: `adset:${adsetIndex + 1}`,
+          reason: mayCreateAdSet.reason,
+        });
+      }
+      const adSetResult = await createAdSet(ctx, adSetInput, {
+        beforeMutationAttempt: providerMutationBoundaryHook(input.beforeProviderMutation),
+      });
       if (!adSetResult.ok) {
         await completeFailure({
           logId: adSetLog.id,
@@ -633,7 +848,24 @@ export async function runMetaLaunchIntentCreate(
           },
         });
         const adStartedAt = Date.now();
-        const adResult = await createAd(ctx, adInput);
+        const mayCreateAd = await askProviderMutationBoundary(
+          input.beforeProviderMutation,
+        );
+        if (!mayCreateAd.allowed) {
+          return withholdRemaining({
+            kind: "ad",
+            index: adIds.length,
+            name: adInput.name,
+            logId: adLog.id,
+            startedAt: adStartedAt,
+            failedAt: `ad:${adsetIndex + 1}:${creativeIndex + 1}`,
+            reason: mayCreateAd.reason,
+            creativeId: creative.creativeId,
+          });
+        }
+        const adResult = await createAd(ctx, adInput, {
+          beforeMutationAttempt: providerMutationBoundaryHook(input.beforeProviderMutation),
+        });
         if (!adResult.ok) {
           await completeFailure({
             logId: adLog.id,
@@ -874,9 +1106,9 @@ export async function runMetaAddToExistingCreate(
     | "silent_failure"
     | null = null;
 
-  if (input.beforeProviderMutation) {
-    const mayDispatch = await input.beforeProviderMutation();
-    if (!mayDispatch) return dispatchMarkerUnavailable(launchIntentId);
+  const mayStart = await askProviderMutationBoundary(input.beforeProviderMutation);
+  if (!mayStart.allowed) {
+    return dispatchMarkerUnavailable(launchIntentId, mayStart.reason);
   }
 
   await markMetaLaunchIntentExecuting({
@@ -964,13 +1196,37 @@ export async function runMetaAddToExistingCreate(
           },
         });
         const startedAt = Date.now();
-        providerMutationAttempted = true;
+        /*
+          The boundary, inside the primitive rather than around it.
+
+          `duplicateAd` runs its own account, kill-switch and source-identity
+          checks first and fires this hook as the last thing before the POST,
+          so a gate that closes while the previous ad was being read back still
+          prevents this one. Throwing is how the primitive is refused; the
+          thrown `code` becomes the write failure's code, which halts the rest
+          of the target/creative matrix below.
+        */
         const adResult = await duplicateAd(ctx, {
           adId: sourceAdId,
           targetAdsetId: target.targetAdsetId,
           expectedSourceCreativeId: creativeId,
           name: adName,
           copyMode,
+          beforeMutationAttempt: async () => {
+            const mayDuplicate = await askProviderMutationBoundary(
+              input.beforeProviderMutation,
+            );
+            if (!mayDuplicate.allowed) {
+              throw providerMutationWithheldError(mayDuplicate.reason);
+            }
+            /*
+              Reaching here is the exact moment a POST becomes possible, so it
+              is where the attempt is recorded. Setting it before the call would
+              have claimed an attempt for an ad the primitive's own account and
+              kill-switch checks — or this boundary — refused outright.
+            */
+            providerMutationAttempted = true;
+          },
         });
         if (!adResult.ok) {
           await completeDuplicateFailure({ logId: adLog.id, startedAt, result: adResult });
@@ -1115,9 +1371,14 @@ export async function runMetaAddToExistingCreate(
       status:
         haltedReason?.code === "kill_switch_engaged"
           ? 503
-          : haltedReason || hasAmbiguousOutcome
-            ? 502
-            : 200,
+          // Nothing failed and nothing was sent, so this is not a bad gateway:
+          // the boundary refused the rest of the matrix. Same 409 the
+          // new-campaign path answers a withheld create with.
+          : haltedReason?.code === META_LAUNCH_PROVIDER_MUTATION_WITHHELD_CODE
+            ? 409
+            : haltedReason || hasAmbiguousOutcome
+              ? 502
+              : 200,
       providerMutationAttempted,
       body: {
         ok: failedCount === 0 && !haltedReason,

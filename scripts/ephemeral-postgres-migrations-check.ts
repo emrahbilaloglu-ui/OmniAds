@@ -46,11 +46,13 @@ import {
   READ_NATIVE_DECISION_GENERATION_QUERY,
 } from "@/lib/meta/decisions-workspace-read-model";
 import { createControlledExperimentRegistryStore } from "@/lib/meta/controlled-experiment-registry";
+import { D086_REQUIRED_PROFILE_COLUMNS } from "@/lib/meta/budget-readiness-retention";
 
 const FORBIDDEN_PORTS = new Set([15432, 5432]);
 const EPHEMERAL_DB_NAME = "adsecute_migrations_from_zero";
 const EPHEMERAL_DB_USER = "postgres";
 const REQUIRED_TABLES = [
+  "engine_v3_account_profile_output",
   "engine_v3_decision_snapshots_daily",
   "engine_v3_decision_outcomes_daily",
   "engine_v3_decision_evaluation_contexts",
@@ -1289,6 +1291,40 @@ async function assertRoleAuthorityRetention(
 }
 
 /**
+ * The other table the budget path reads and nothing used to write.
+
+ * `engine_v3_account_profile_output` carries the day's commercial verdict per
+ * canonical action. It was described in the D086 pack, never applied, and the
+ * loader's read of it failed into `composition_sources_unavailable` — so no
+ * budget candidate could be admitted at all, for a reason no surface showed.
+ * The migration and the producer both exist now; this is the assertion that
+ * the schema a real deploy builds actually carries every column the reader
+ * names.
+ */
+async function assertAccountProfileOutputRetention(
+  client: Client,
+  failures: string[],
+): Promise<void> {
+  const required = [...D086_REQUIRED_PROFILE_COLUMNS];
+  const { rows } = await client.query<{ column_name: string }>(
+    `SELECT column_name FROM information_schema.columns
+      WHERE table_schema = 'public'
+        AND table_name = 'engine_v3_account_profile_output'`,
+  );
+  const present = new Set(rows.map((row) => row.column_name));
+  const missing = required.filter((column) => !present.has(column));
+  if (rows.length === 0) {
+    failures.push("engine_v3_account_profile_output does not exist");
+  } else if (missing.length > 0) {
+    failures.push(
+      `engine_v3_account_profile_output is missing: ${missing.join(", ")}`,
+    );
+  } else {
+    log("account profile output retention table present with every read column");
+  }
+}
+
+/**
  * The activation approval, and the thing it must never become.
  *
  * `requested_status = 'PAUSED'` is what makes a launch intent unable to turn
@@ -1640,6 +1676,7 @@ async function assertSchema(databaseUrl: string): Promise<string[]> {
     await assertNativeSchemaCapabilities(client, failures);
     await assertProposalLineageWidening(client, failures);
     await assertRoleAuthorityRetention(client, failures);
+    await assertAccountProfileOutputRetention(client, failures);
     await assertActivationApproval(client, failures);
     await assertStructureSnapshotRuns(client, failures);
 
@@ -3092,7 +3129,9 @@ async function main() {
       The freshness clock took MAX(latest_successful_sync_at) across every sync
       target, so a returns pass that finished an hour ago vouched for orders
       last read five days ago. Only a real database can show that the coverage
-      proof reads the recorded windows rather than the presence of rows.
+      proof reads the recorded windows rather than the presence of rows — and
+      that an expanded recent window written by a running or failed repair
+      cannot borrow an earlier pass's success end.
     */
     await runChildScript(
       repoRoot,
@@ -3102,6 +3141,62 @@ async function main() {
         "ephemeral-postgres-shopify-aov-coverage-seam-child.ts",
       ),
       "Shopify order coverage DB seam check",
+    );
+
+    /*
+      The slot outcome recorded from what was ATTEMPTED, not from what is
+      required.
+
+      A retry that runs only the outstanding accounts and then throws as a whole
+      used to fail every required account — including the one that had already
+      succeeded, whose slot row was overwritten and whose work the next tick
+      then redid. Only a real database shows that, because the damage is an
+      ON CONFLICT DO UPDATE on the run table's own primary key.
+    */
+    await runChildScript(
+      repoRoot,
+      databaseUrl,
+      path.join("scripts", "ephemeral-postgres-slot-retry-scope-seam-child.ts"),
+      "slot retry scope DB seam check",
+    );
+
+    /*
+      The complete activation identity set, and the approval re-read.
+
+      Activation took only the first ad set and the first ad of a launch and
+      still called itself delivering. It also validated the stored approval once,
+      from the intent it loaded at the start, so a revocation mid-sequence could
+      not stop the next POST. Both are claims about persisted state across
+      steps, which is why they are proved here rather than only in memory.
+    */
+    await runChildScript(
+      repoRoot,
+      databaseUrl,
+      path.join(
+        "scripts",
+        "ephemeral-postgres-activation-identity-seam-child.ts",
+      ),
+      "activation identity and approval DB seam check",
+    );
+
+    /*
+      Decision to staged intent to queue row to create to activation.
+
+      The launch family shipped complete and unreachable: nothing turned a
+      decision into the staged intent its queue producer selects. This child
+      starts from an eligible published decision — not a hand-inserted row —
+      and walks the whole chain through the shipped producers and routes,
+      including the rerun that must duplicate neither the intent nor the
+      provider entity.
+    */
+    await runChildScript(
+      repoRoot,
+      databaseUrl,
+      path.join(
+        "scripts",
+        "ephemeral-postgres-decision-launch-chain-seam-child.ts",
+      ),
+      "decision to launch chain DB seam check",
     );
 
     // The null-versus-zero contract rests on a claim about the SCHEMA — that a

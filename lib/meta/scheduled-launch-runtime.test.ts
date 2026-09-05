@@ -132,12 +132,19 @@ const SCHEDULED = {
   expectedActivationControlVersion: VERSION,
 } as const;
 
-/** The tail, standing in for prepare → validate → preflight → create. */
+/**
+ * The tail, standing in for prepare → validate → preflight → create.
+ *
+ * It answers the boundary the way the real tail does: only a literal `true`
+ * lets a create through. The refusal form carries the gate that closed, which
+ * is what the shipped `runMetaLaunchIntentCreate` records when it withholds a
+ * create part of the way down a sequence.
+ */
 function createdOk(seen: ScheduledLaunchCreateRequest[]) {
   return async (request: ScheduledLaunchCreateRequest) => {
     seen.push(request);
     const mayDispatch = await request.beforeProviderMutation();
-    if (!mayDispatch) {
+    if (mayDispatch !== true) {
       return {
         ok: false,
         status: 409,
@@ -147,6 +154,8 @@ function createdOk(seen: ScheduledLaunchCreateRequest[]) {
             code: "dispatch_marker_unavailable",
             message: "nothing was created on Meta",
           },
+          withheldReason:
+            typeof mayDispatch === "object" ? mayDispatch.reason : null,
         },
         providerMutationAttempted: false,
       };
@@ -417,6 +426,99 @@ describe("what reaches the create, and under whose name", () => {
   });
 });
 
+describe("the boundary is a question, asked once per create", () => {
+  it("re-reads the gates on every ask and names the one that closed", async () => {
+    /*
+      The tail asks three times, as a campaign / ad set / ad sequence does. The
+      family comes off `auto` between the second ask and the third: the first
+      two must be authorized and the third must refuse by name, because a
+      remembered answer is exactly what let a launch keep building itself under
+      authority that had already been withdrawn.
+    */
+    let mode: "manual" | "semi_auto" | "auto" = "auto";
+    const asked: Array<boolean | { allowed: false; reason: string }> = [];
+    const run = createScheduledLaunchRuntime({
+      readGates: async () => gates(),
+      readMode: async () => mode,
+      readIntent: async () => intent(),
+      runCreate: async (request) => {
+        asked.push(await request.beforeProviderMutation());
+        asked.push(await request.beforeProviderMutation());
+        mode = "manual";
+        asked.push(await request.beforeProviderMutation());
+        return {
+          ok: false,
+          status: 409,
+          body: {
+            ok: false,
+            error: {
+              code: "provider_mutation_withheld",
+              message: "Authority for this launch was withdrawn (mode_not_auto).",
+            },
+            campaignId: "120",
+            adsetIds: ["121"],
+            adIds: [],
+            withheldReason: "mode_not_auto",
+            launchIntentStatus: "partially_succeeded",
+          },
+          providerMutationAttempted: true,
+        };
+      },
+    });
+    const result = await run({
+      proposal: proposal(),
+      dryRunOnly: false,
+      claimToken: "claim-1",
+      authorization: SCHEDULED,
+      beforeProviderPost: async () => true,
+    });
+
+    expect(asked).toEqual([
+      true,
+      true,
+      { allowed: false, reason: "mode_not_auto" },
+    ]);
+    /*
+      A partial create is NOT a withheld row. Something was created, the receipt
+      says what, and flattening that to "we refused" would lose the campaign and
+      the ad set an operator now owns.
+    */
+    expect(result.receipt.withheld).toBeNull();
+    expect(result.receipt.providerMutationAttempted).toBe(true);
+    expect(result.receipt.response).toMatchObject({
+      campaignId: "120",
+      adsetIds: ["121"],
+      withheldReason: "mode_not_auto",
+    });
+    // Its outcome is known, so it is not parked for reconciliation.
+    expect(result.reconcile).toBe(false);
+  });
+
+  it("settles as withheld when the refusal came before any provider create", async () => {
+    let asks = 0;
+    const run = createScheduledLaunchRuntime({
+      readGates: async () => gates(),
+      readMode: async () => {
+        asks += 1;
+        // The pre-claim read passes; the boundary read does not.
+        return asks <= 1 ? "auto" : "semi_auto";
+      },
+      readIntent: async () => intent(),
+      runCreate: createdOk([]),
+    });
+    const result = await run({
+      proposal: proposal(),
+      dryRunOnly: false,
+      claimToken: "claim-1",
+      authorization: SCHEDULED,
+      beforeProviderPost: async () => true,
+    });
+
+    expect(result.receipt.withheld).toBe("mode_not_auto");
+    expect(result.receipt.providerMutationAttempted).toBe(false);
+  });
+});
+
 describe("an outcome nobody can read parks the row", () => {
   it("sets reconcile on an ambiguous create rather than offering it again", async () => {
     const run = createScheduledLaunchRuntime({
@@ -424,7 +526,7 @@ describe("an outcome nobody can read parks the row", () => {
       readMode: async () => "auto",
       readIntent: async () => intent(),
       runCreate: async (request) => {
-        await request.beforeProviderMutation();
+        expect(await request.beforeProviderMutation()).toBe(true);
         return {
           ok: false,
           status: 502,

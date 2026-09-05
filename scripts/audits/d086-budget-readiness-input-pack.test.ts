@@ -258,26 +258,32 @@ describe("D086 — honesty rules", () => {
     // The PACK is not registered anywhere a deploy would run it.
     const migrations = readFileSync(d086TrustedPath("lib/migrations.ts"), "utf8");
     expect(migrations).not.toContain("D086_ADDITIVE_MIGRATION_SQL");
-    expect(migrations).not.toContain("engine_v3_account_profile_output");
     /*
-      `engine_v3_campaign_role_authority` is the exception, and it is a
-      correction rather than a leak.
+      Two tables are exceptions, and both are corrections rather than leaks.
 
-      This pack described the table; nothing ever applied it, so in production
-      it did not exist. The budget proposal source loader reads it, that read
-      failed, the failure became `unknown`, and no budget proposal could be
-      produced at all — for a reason no surface could show. It is now created
-      by a real migration owned by the automation delivery.
+      This pack described `engine_v3_campaign_role_authority` and
+      `engine_v3_account_profile_output`; nothing ever applied it, so in
+      production neither existed. The budget proposal source loader reads both.
+      Each read failed, each failure became `unknown` or
+      `composition_sources_unavailable`, and no budget proposal could be
+      produced at all — for a reason no surface could show. Both are now
+      created by real migrations owned by the automation delivery, and both
+      have a real producer writing them.
 
-      The two definitions must not drift apart, so the audit checks they are
-      the same statement rather than checking the table is absent. The pack
-      itself is still unapplied: nothing here runs `D086_ADDITIVE_MIGRATION_SQL`.
+      The definitions must not drift apart, so the audit checks each is the
+      same statement rather than checking the table is absent. The pack itself
+      is still unapplied: nothing here runs `D086_ADDITIVE_MIGRATION_SQL`.
     */
-    const packDdl = D086_ADDITIVE_MIGRATION_SQL.find((statement) =>
-      statement.includes("engine_v3_campaign_role_authority"));
-    expect(packDdl, "the pack still describes the role authority table").toBeTruthy();
     const normalise = (sql: string) => sql.replace(/\s+/g, " ").trim();
-    expect(normalise(migrations)).toContain(normalise(packDdl!));
+    for (const table of [
+      "engine_v3_campaign_role_authority",
+      "engine_v3_account_profile_output",
+    ]) {
+      const packDdl = D086_ADDITIVE_MIGRATION_SQL.find((statement) =>
+        statement.includes(`CREATE TABLE IF NOT EXISTS ${table}`));
+      expect(packDdl, `the pack still describes ${table}`).toBeTruthy();
+      expect(normalise(migrations)).toContain(normalise(packDdl!));
+    }
   });
 
   it("every prepared statement is additive and idempotent", () => {

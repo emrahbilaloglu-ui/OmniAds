@@ -12803,6 +12803,67 @@ export async function runMigrations(options?: {
           (business_id, provider_account_id, campaign_id, as_of_date DESC, recorded_at DESC)`,
       ]);
 
+      /*
+        ── Retained account profile output ──
+
+        The other half of the same defect. `budget-proposal-source-loader.ts`
+        and the execution refresh in `budget-proposal-server-readers.ts` both
+        run `D086_PROFILE_LATEST_SQL` over this table to find the canonical
+        commercial verdict for the exact action being proposed. Its DDL existed
+        only inside `lib/meta/budget-readiness-retention.ts`, which nothing but
+        an audit script applies, so in production the relation did not exist:
+        the statement raised 42P01, the loader read that error as `unknown`,
+        and every budget candidate was refused with
+        `composition_sources_unavailable` — the whole budget arm inert for a
+        reason no surface could show. Registering the role authority table
+        alone left the loader one missing relation short of ever producing a
+        row.
+
+        The statement is the pack's own, byte for byte, so the two definitions
+        cannot drift; the pack itself is still never executed.
+
+        Existing rows: there are none, and none are backfilled. A commercial
+        verdict has to be projected from the profile the engine actually
+        resolved, under the identity of the inputs it ran on;
+        `lib/meta/account-profile-output-producer.ts` is what writes them.
+      */
+      await runMigrationBatchSequentially([
+        sql`CREATE TABLE IF NOT EXISTS engine_v3_account_profile_output (
+     id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+     contract              TEXT        NOT NULL,
+     -- The canonical profile contract the verdict came from. r3's query and
+     -- classifier both required this column and the DDL never created it, so
+     -- the statement failed SQLSTATE 42703 against a real cluster.
+     profile_contract      TEXT        NOT NULL,
+     business_id           TEXT        NOT NULL,
+     provider_account_id   TEXT        NOT NULL,
+     action                TEXT        NOT NULL CHECK (action IN ('scale','cut','refresh')),
+     engine_epoch          TEXT        NOT NULL,
+     engine_version        TEXT        NOT NULL,
+     input_fingerprint     TEXT        NOT NULL,
+     source_fingerprint    TEXT        NOT NULL,
+     eligible              BOOLEAN     NOT NULL,
+     blocker_code          TEXT,
+     anchor_source         TEXT,
+     anchor_confidence     TEXT,
+     spend_unit            DOUBLE PRECISION,
+     commercial_anchor_provenance TEXT,
+     as_of_date            DATE        NOT NULL,
+     effective_at          TIMESTAMPTZ NOT NULL,
+     recorded_at           TIMESTAMPTZ NOT NULL,
+     created_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
+     -- r1's identity omitted engine_version and source_fingerprint, so two
+     -- genuinely different verdicts collapsed onto one row and the later write
+     -- would have silently lost or conflicted with the earlier one.
+     UNIQUE (business_id, provider_account_id, action, engine_epoch, engine_version,
+             input_fingerprint, source_fingerprint, as_of_date),
+     CHECK ((eligible AND blocker_code IS NULL) OR (NOT eligible AND blocker_code IS NOT NULL))
+   )`,
+        sql`CREATE INDEX IF NOT EXISTS idx_engine_v3_account_profile_output_latest
+     ON engine_v3_account_profile_output
+        (business_id, provider_account_id, action, recorded_at DESC, effective_at DESC)`,
+      ]);
+
       // ── Engine v3 rollout feature flags (NULL = inherit env default) ─────
       await runMigrationBatchSequentially([
         sql`CREATE TABLE IF NOT EXISTS business_engine_v3_flags (

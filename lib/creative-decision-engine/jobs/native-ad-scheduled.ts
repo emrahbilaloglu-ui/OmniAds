@@ -1,5 +1,6 @@
 import { getDb, type DbClient } from "@/lib/db";
 import { getActiveBusinesses } from "@/lib/sync/active-businesses";
+import { projectNativeAdProposals } from "@/lib/meta/automation-proposals";
 import { READ_AD_HYDRATION_COMPLETENESS_RECEIPTS_QUERY } from "../data-source";
 import { inspectEvaluationStoreSchemaCapability } from "../evaluation-store";
 import { listEnabledBusinessIds } from "../feature-flags";
@@ -94,6 +95,19 @@ export interface NativeAdShadowBusinessResult {
   calibration: NativeAdScheduledStep<AdCalibrationJobResult>;
   decisions: NativeAdScheduledStep<AdDecisionsJobResult>;
   operatorResponse: NativeAdScheduledStep<AdOperatorResponseJobResult>;
+  /**
+   * The confirmation-queue projection of the decisions THIS chain published.
+   *
+   * It belongs here rather than in the structure snapshot because ordering is
+   * the whole problem: the cron runs the snapshot first, so a projection there
+   * could only ever read the previous slot's native decisions. Running it after
+   * publication means the morning's decisions reach the queue in the morning.
+   *
+   * `null` when the decisions step did not succeed — there is nothing new to
+   * project, and projecting the previous slot's rows again would be the same
+   * defect wearing a different hat.
+   */
+  proposalProjection: { projected: number; ran: boolean } | null;
 }
 
 export interface NativeAdShadowChainDueResult {
@@ -247,6 +261,13 @@ CROSS JOIN assigned_accounts
 `;
 
 export interface NativeAdShadowScheduleOptions {
+  /**
+   * The confirmation-queue projection, injectable for the same reason every
+   * other reader here is: these suites drive doubles, and a projection that
+   * opened its own connection would fail them for a reason unrelated to the
+   * chain. Production uses the real one.
+   */
+  projectProposals?: typeof projectNativeAdProposals;
   jobsDisabled?: () => boolean;
   inspectSchema?: () => Promise<NativeAdShadowSchemaReadiness>;
   listEnabledIds?: () => Promise<readonly string[]>;
@@ -887,12 +908,29 @@ async function runBusinessChain(input: {
             failedStep<AdOperatorResponseJobResult>,
           );
 
+  /*
+    The queue projection, once the decisions this chain publishes exist.
+
+    Only after a SUCCESSFUL decisions step: projecting when the step failed
+    would queue the previous slot's rows, which is exactly the ordering defect
+    this call was moved here to fix. A projection failure degrades to "the
+    queue was not projected" — the decisions are already durable — for the
+    same reason the structure snapshot's own projection does.
+  */
+  const proposalProjection = decisions.status === "success"
+    ? await (input.options.projectProposals ?? projectNativeAdProposals)({
+      businessId: input.business.id,
+      snapshotDate: input.asOf,
+    }).catch(() => null)
+    : null;
+
   return {
     businessId: input.business.id,
     businessName: input.business.name,
     calibration,
     decisions,
     operatorResponse,
+    proposalProjection,
   };
 }
 

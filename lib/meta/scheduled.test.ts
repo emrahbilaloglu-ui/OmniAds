@@ -71,7 +71,13 @@ describe("runMetaSnapshotJobIfDue", () => {
 
     expect(result.skipped).toBe(false);
     expect(result.slot).toBe(3);
-    expect(snapshot.runMetaSnapshotForAllBusinesses).toHaveBeenCalledWith("2026-05-08");
+    // The scheduler names the pairs this slot still owes, so a retry of a
+    // failed slot does not regenerate the accounts that already succeeded in
+    // it.
+    expect(snapshot.runMetaSnapshotForAllBusinesses).toHaveBeenCalledWith(
+      "2026-05-08",
+      expect.objectContaining({ onlyPairs: expect.any(Array) }),
+    );
   });
 
   it("does not treat calibration-only or partial snapshot coverage as already-run", async () => {
@@ -82,7 +88,13 @@ describe("runMetaSnapshotJobIfDue", () => {
     const result = await runMetaSnapshotJobIfDue(new Date("2026-05-08T03:10:00.000Z"));
 
     expect(result.skipped).toBe(false);
-    expect(snapshot.runMetaSnapshotForAllBusinesses).toHaveBeenCalledWith("2026-05-08");
+    // The scheduler names the pairs this slot still owes, so a retry of a
+    // failed slot does not regenerate the accounts that already succeeded in
+    // it.
+    expect(snapshot.runMetaSnapshotForAllBusinesses).toHaveBeenCalledWith(
+      "2026-05-08",
+      expect.objectContaining({ onlyPairs: expect.any(Array) }),
+    );
   });
 
   it("skips only when all active businesses already have campaign and adset snapshot rows", async () => {
@@ -108,7 +120,13 @@ describe("runMetaSnapshotJobIfDue", () => {
     const result = await runMetaSnapshotJobIfDue(new Date("2026-05-08T03:10:00.000Z"));
 
     expect(result.skipped).toBe(false);
-    expect(snapshot.runMetaSnapshotForAllBusinesses).toHaveBeenCalledWith("2026-05-08");
+    // The scheduler names the pairs this slot still owes, so a retry of a
+    // failed slot does not regenerate the accounts that already succeeded in
+    // it.
+    expect(snapshot.runMetaSnapshotForAllBusinesses).toHaveBeenCalledWith(
+      "2026-05-08",
+      expect.objectContaining({ onlyPairs: expect.any(Array) }),
+    );
   });
 });
 

@@ -104,6 +104,13 @@ export interface RunMetaSnapshotResult {
   /** D088: the canonical budget producer's own result, reported separately. */
   budgetProposals?: { candidates: number; projected: number } | null;
   /**
+   * The accounts THIS attempt generated for, so a caller can record completion
+   * from what happened rather than from what exists.
+   *
+   * `""` is the unattributed batch a business with no assignment produces.
+   */
+  succeededAccountIds?: string[];
+  /**
    * Accounts whose generation threw, by id.
    *
    * Empty on a clean run. A per-account failure is CONTAINED — INVARIANTS is
@@ -1741,6 +1748,20 @@ export async function runMetaSnapshotForBusiness(
     failedAccountIds: failedAccounts
       .map((entry) => entry.accountId)
       .filter((id): id is string => typeof id === "string"),
+    /*
+      Which accounts THIS attempt actually generated for.
+
+      The scheduler needs it to record slot completion from the attempt rather
+      than from a row query: rows written at 03:00 are still there at 15:00, so
+      a failed afternoon run could be closed by the morning's own output and
+      the retry suppressed. `""` is the unattributed batch a business with no
+      assignment produces, and it is a real account key here for the same
+      reason the coverage query treats it as one.
+    */
+    succeededAccountIds: perAccount
+      .map((outcome, index) => ({ outcome, accountId: generationAccounts[index] ?? "" }))
+      .filter((entry) => entry.outcome.status === "fulfilled")
+      .map((entry) => entry.accountId ?? ""),
     anomaliesWritten: anomalies.length,
     proposals,
   };
@@ -1748,19 +1769,51 @@ export async function runMetaSnapshotForBusiness(
 
 export async function runMetaSnapshotForAllBusinesses(
   snapshotDate: string,
+  input?: {
+    /**
+     * The (business, account) pairs still outstanding for this slot.
+     *
+     * Omitted runs every active business, which is what every existing caller
+     * means. Supplied, it runs only what is missing — the scheduler's retry
+     * of a failed afternoon slot must not regenerate the accounts that already
+     * succeeded in it.
+     */
+    onlyPairs?: ReadonlyArray<{ businessId: string; providerAccountId: string }>;
+  },
 ): Promise<RunMetaSnapshotAllBusinessesResult> {
   const normalizedSnapshotDate = normalizeDate(snapshotDate);
   const businesses = await getActiveBusinesses();
+  /*
+    Only the pairs the caller says are missing, when it says so.
+
+    A slot that failed for one account must not re-run every account: the
+    others already produced this slot's rows, and re-running them costs a full
+    generation each and rewrites truth that was already correct.
+  */
+  const requested = input?.onlyPairs ?? null;
+  const targeted = requested
+    ? businesses.filter((business) =>
+      requested.some((pair) => pair.businessId === business.id))
+    : businesses;
   const settled = await Promise.allSettled(
-    businesses.map((business) =>
-      runMetaSnapshotForBusiness(business.id, normalizedSnapshotDate),
-    ),
+    targeted.map((business) => {
+      const accounts = requested
+        ?.filter((pair) => pair.businessId === business.id)
+        .map((pair) => pair.providerAccountId)
+        .filter((id): id is string => typeof id === "string" && id.length > 0);
+      // One account named: compute exactly it. Several or none: the whole
+      // business, which is what an unqualified run has always meant.
+      return accounts && accounts.length === 1
+        ? runMetaSnapshotForBusiness(business.id, normalizedSnapshotDate, accounts[0])
+        : runMetaSnapshotForBusiness(business.id, normalizedSnapshotDate);
+    }),
   );
+  const businessesForResult = targeted;
   return {
     snapshotDate: normalizedSnapshotDate,
-    businessCount: businesses.length,
+    businessCount: businessesForResult.length,
     results: settled.map((result, index) => {
-      const businessId = businesses[index]?.id ?? "unknown";
+      const businessId = businessesForResult[index]?.id ?? "unknown";
       if (result.status === "fulfilled") {
         return {
           businessId,

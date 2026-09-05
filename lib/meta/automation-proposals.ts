@@ -1120,13 +1120,21 @@ export async function projectMetaAutomationProposals(input: {
     ],
   )) as Array<{ id: string }>;
 
-  const adRows = await projectNativeAdPauseProposals({
-    businessId: input.businessId,
-    snapshotDate: input.snapshotDate,
-    ttlInterval,
-  });
+  /*
+    The native ad projection does NOT run here.
 
-  return { projected: rows.length + adRows, expired, ran: true };
+    It used to, and the ordering made it useless: this projection is called
+    from the structure snapshot, and the cron runs the native ad chain
+    AFTERWARDS. So it read the previous slot's native decisions every time —
+    the morning's decisions never entered the queue in the morning, and by the
+    afternoon it was reading them while the afternoon's own decisions were
+    again still unwritten.
+
+    It is now `projectNativeAdProposals`, called by the native chain once that
+    chain has actually published. Same statement, same idempotency; the only
+    change is that it runs after the rows it reads exist.
+  */
+  return { projected: rows.length, expired, ran: true };
 }
 
 /**
@@ -1143,6 +1151,42 @@ export async function projectMetaAutomationProposals(input: {
  * already committed, and losing it because the native table is absent in some
  * environment would trade a working queue for a missing one.
  */
+/**
+ * Project the native ad decisions this business just published.
+ *
+ * Called by the native chain, per business, AFTER it has written
+ * `engine_v3_ad_decision_snapshots_daily` for the day — which is the whole
+ * point: run from the structure snapshot, as it was, it could only ever see
+ * the previous slot's decisions.
+ *
+ * Idempotent by construction. The insert's ON CONFLICT targets the projection's
+ * own unique key (business, account, decision key, rec type, snapshot date) and
+ * only refreshes a row that is still `pending`, so a second call after a
+ * partial run adds what is missing and touches nothing an operator has decided.
+ * Safe to call again for one account, or for all of them.
+ */
+export async function projectNativeAdProposals(input: {
+  businessId: string;
+  snapshotDate: string;
+  ttlInterval?: string;
+}): Promise<{ projected: number; ran: boolean }> {
+  if (!(await proposalsReady())) return { projected: 0, ran: false };
+  const modes = await resolveEffectiveMetaModes(input.businessId).catch(() => null);
+  // Same standing-mode gate the pause projection applies: in manual mode the
+  // operator applies from the card, and a queue filling up behind them is a
+  // second inbox nobody asked for.
+  if (!modes || modes.pause === "manual") {
+    return { projected: 0, ran: modes !== null };
+  }
+  const projected = await projectNativeAdPauseProposals({
+    businessId: input.businessId,
+    snapshotDate: input.snapshotDate,
+    ttlInterval:
+      input.ttlInterval ?? `${META_AUTOMATION_PROPOSAL_TTL_HOURS} hours`,
+  });
+  return { projected, ran: true };
+}
+
 async function projectNativeAdPauseProposals(input: {
   businessId: string;
   snapshotDate: string;

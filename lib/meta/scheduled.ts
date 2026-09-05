@@ -103,68 +103,35 @@ async function alreadyRan(snapshotDate: string) {
 }
 
 /**
- * Has this exact slot already succeeded for every business and account?
+ * Record that this (business, account, day, slot) attempt finished, and how.
  *
- * Two questions, and both have to be asked. The run record answers "did the
- * 15:00 slot complete", which the row-coverage query cannot: rows written at
- * 03:00 are still there at 15:00 and would report the day as done. The
- * coverage query answers "are the rows actually there", which the run record
- * cannot: a row-level failure after a successful-looking run would otherwise
- * go unnoticed.
- *
- * An unreadable run record returns `false` — run again rather than skip. A
- * second run of the same slot rewrites the same day's rows; a skipped slot
- * silently produces nothing.
+ * `sourceMaxDate` is the newest source day the run actually read. It is the
+ * honest reading and never a high-water mark: if this run saw less than the
+ * last one did, that is what it records — the freshness rule is that genuinely
+ * new data may move the cut-off forward, and nothing else may.
  */
-async function slotAlreadyRan(snapshotDate: string, slot: number) {
-  const sql = getDb();
-  const rows = (await sql`
-    SELECT business_id, provider_account_id
-    FROM meta_structure_snapshot_runs
-    WHERE as_of_date = ${snapshotDate}::date
-      AND slot = ${slot}
-      AND status = 'success'
-  `.catch(() => null)) as Array<{
-    business_id: string;
-    provider_account_id: string;
-  }> | null;
-  if (rows === null) return false;
-
-  const activeBusinesses = await getActiveBusinesses();
-  if (activeBusinesses.length === 0) return true;
-  const done = new Set(
-    rows.map((row) => `${row.business_id}|${row.provider_account_id}`),
-  );
-  for (const business of activeBusinesses) {
-    const assignment = await getProviderAccountAssignments(business.id, "meta")
-      .catch(() => null);
-    const accounts = assignment?.account_ids ?? [];
-    const required = accounts.length > 0 ? accounts : [""];
-    for (const account of required) {
-      if (!done.has(`${business.id}|${account}`)) return false;
-    }
-  }
-  return true;
-}
-
-/** Record that this (business, account, day, slot) completed. */
 async function recordSlotRun(input: {
   snapshotDate: string;
   slot: number;
   businessId: string;
   providerAccountId: string;
   status: "success" | "failed";
+  sourceMaxDate?: string | null;
 }) {
   const sql = getDb();
   await sql`
     INSERT INTO meta_structure_snapshot_runs (
-      business_id, provider_account_id, as_of_date, slot, status, finished_at
+      business_id, provider_account_id, as_of_date, slot, status,
+      source_max_date, finished_at
     ) VALUES (
       ${input.businessId}, ${input.providerAccountId},
-      ${input.snapshotDate}::date, ${input.slot}, ${input.status}, NOW()
+      ${input.snapshotDate}::date, ${input.slot}, ${input.status},
+      ${input.sourceMaxDate ?? null}::date, NOW()
     )
     ON CONFLICT (business_id, provider_account_id, as_of_date, slot)
-    DO UPDATE SET status = EXCLUDED.status, finished_at = NOW()
+    DO UPDATE SET status = EXCLUDED.status,
+                  source_max_date = EXCLUDED.source_max_date,
+                  finished_at = NOW()
   `.catch(() => null);
 }
 
@@ -191,79 +158,167 @@ export async function runMetaSnapshotJobIfDue(
     An outstanding EARLIER slot is run first.
 
     A tick missed at 03:00 must not be lost because the clock has since reached
-    15:00: the day's first production is the one every downstream freshness
-    check is measured against. Whichever slot is chosen, the other stays
-    outstanding and the next tick picks it up.
+    15:00: the day's first production is what every downstream freshness check
+    is measured against. Whichever slot is chosen, the other stays outstanding
+    and the next tick picks it up.
   */
   let dueSlot: number | null = null;
+  let missing: Array<{ businessId: string; providerAccountId: string }> = [];
   for (const candidate of META_SNAPSHOT_SLOT_HOURS) {
     if (candidate > slot) break;
-    if (!(await slotAlreadyRan(snapshotDate, candidate))) {
+    const outstanding = await missingPairsForSlot(snapshotDate, candidate);
+    // An unreadable run record returns every pair — run rather than skip. A
+    // second run of a slot rewrites the same day's rows; a skipped slot
+    // silently produces nothing.
+    if (outstanding.length > 0) {
       dueSlot = candidate;
+      missing = outstanding;
       break;
     }
   }
   if (dueSlot === null) {
     return { skipped: true, reason: "already_ran", snapshotDate, slot };
   }
-  // The second defence: the rows themselves. Kept because a run record that
-  // says success and a table with no rows in it disagree, and the rows win.
+  /*
+    The second defence, for the FIRST slot only: the rows themselves.
+
+    A day whose rows exist but whose run record does not is exactly what the
+    first tick after this ships finds. Stamping the morning slot keeps the
+    catch-up from re-running a day that is genuinely complete, without
+    inventing a record for a slot that never ran.
+  */
   if (dueSlot === META_SNAPSHOT_SLOT_HOURS[0] && (await alreadyRan(snapshotDate))) {
     await markSlotCoveredByExistingRows(snapshotDate, dueSlot);
     return { skipped: true, reason: "already_ran", snapshotDate, slot: dueSlot };
   }
 
-  const result = await runMetaSnapshotForAllBusinesses(snapshotDate);
-  await recordCompletedSlot(snapshotDate, dueSlot);
+  const result = await runMetaSnapshotForAllBusinesses(snapshotDate, {
+    onlyPairs: missing,
+  });
+  await recordSlotOutcome(snapshotDate, dueSlot, result);
   return { skipped: false, snapshotDate, slot: dueSlot, result };
 }
 
 /**
- * A day whose rows exist but whose run record does not.
+ * The (business, account) pairs this slot still owes.
  *
- * The first tick after this ships finds exactly that: rows written by the
- * single-slot job, and an empty run table. Stamping the first slot keeps the
- * catch-up loop from re-running a day that is genuinely complete, without
- * inventing a record for a slot that never ran.
+ * Every currently required pair, minus the ones a SUCCESSFUL run of this exact
+ * slot already recorded. An unreadable run table returns everything, because
+ * running twice rewrites the same day's rows while skipping produces nothing.
  */
-async function markSlotCoveredByExistingRows(snapshotDate: string, slot: number) {
-  for (const business of await getActiveBusinesses()) {
-    const assignment = await getProviderAccountAssignments(business.id, "meta")
-      .catch(() => null);
-    for (const account of assignment?.account_ids ?? [""]) {
-      await recordSlotRun({
-        snapshotDate, slot, businessId: business.id,
-        providerAccountId: account, status: "success",
-      });
-    }
-  }
-}
-
-async function recordCompletedSlot(snapshotDate: string, slot: number) {
-  /*
-    Recorded per (business, account), from the coverage the generator actually
-    produced — not from "the job returned". A business whose account failed
-    must stay outstanding for this slot, which is exactly what the next tick
-    will then retry.
-  */
+async function missingPairsForSlot(
+  snapshotDate: string,
+  slot: number,
+): Promise<Array<{ businessId: string; providerAccountId: string }>> {
+  const required = await requiredPairs();
   const sql = getDb();
-  const coverage = (await sql`
-    SELECT DISTINCT business_id, COALESCE(provider_account_id, '') AS provider_account_id
-    FROM meta_decision_snapshots_daily
-    WHERE snapshot_date = ${snapshotDate}::date
-      AND kind IN ('recommendation', 'anomaly')
-      AND engine_version = ${META_RECOMMENDATION_ENGINE_VERSION}
+  const rows = (await sql`
+    SELECT business_id, provider_account_id
+    FROM meta_structure_snapshot_runs
+    WHERE as_of_date = ${snapshotDate}::date
+      AND slot = ${slot}
+      AND status = 'success'
   `.catch(() => null)) as Array<{
     business_id: string;
     provider_account_id: string;
   }> | null;
-  for (const row of coverage ?? []) {
+  if (rows === null) return required;
+  const done = new Set(
+    rows.map((row) => `${row.business_id}|${row.provider_account_id}`),
+  );
+  return required.filter(
+    (pair) => !done.has(`${pair.businessId}|${pair.providerAccountId}`),
+  );
+}
+
+/**
+ * Every (business, account) pair a complete slot has to cover.
+ *
+ * A business with no assignment is covered by its single unattributed batch,
+ * which the generator writes with a null account — `""` here and in the run
+ * record, so the two agree about what "covered" means.
+ */
+async function requiredPairs(): Promise<
+  Array<{ businessId: string; providerAccountId: string }>
+> {
+  const pairs: Array<{ businessId: string; providerAccountId: string }> = [];
+  for (const business of await getActiveBusinesses()) {
+    const assignment = await getProviderAccountAssignments(business.id, "meta")
+      .catch(() => null);
+    const accounts = assignment?.account_ids ?? [];
+    for (const account of accounts.length > 0 ? accounts : [""]) {
+      pairs.push({ businessId: business.id, providerAccountId: account });
+    }
+  }
+  return pairs;
+}
+
+/**
+ * A day whose rows exist but whose run record does not.
+ */
+async function markSlotCoveredByExistingRows(snapshotDate: string, slot: number) {
+  for (const pair of await requiredPairs()) {
     await recordSlotRun({
       snapshotDate,
       slot,
-      businessId: row.business_id,
-      providerAccountId: row.provider_account_id,
+      businessId: pair.businessId,
+      providerAccountId: pair.providerAccountId,
       status: "success",
     });
+  }
+}
+
+/**
+ * Record what THIS attempt did, per (business, account).
+ *
+ * The previous version asked `meta_decision_snapshots_daily` which pairs had
+ * rows for the day and stamped every one of them as this slot's success. Rows
+ * written at 03:00 are still there at 15:00, so a failed afternoon run was
+ * closed by the morning's own output and its retry suppressed — the exact
+ * failure the run record exists to prevent. Nothing is inferred from rows
+ * here: a pair is successful because this run said so.
+ */
+async function recordSlotOutcome(
+  snapshotDate: string,
+  slot: number,
+  result: Awaited<ReturnType<typeof runMetaSnapshotForAllBusinesses>>,
+) {
+  for (const business of result.results) {
+    const outcome = business.status === "fulfilled" ? business.value : null;
+    const succeeded = outcome?.succeededAccountIds ?? [];
+    const failed = outcome?.failedAccountIds ?? [];
+    for (const account of succeeded) {
+      await recordSlotRun({
+        snapshotDate, slot, businessId: business.businessId,
+        providerAccountId: account, status: "success",
+        // The day this run's decisions are about. It is the source cut-off
+        // the freshness rule is measured against, recorded rather than
+        // inferred later from whatever rows happen to be present.
+        sourceMaxDate: outcome?.snapshotDate ?? snapshotDate,
+      });
+    }
+    /*
+      A failed account is recorded as failed, not left silent.
+
+      Either way the pair stays outstanding for this slot — `missingPairsForSlot`
+      counts only `success` — but writing the failure is what lets an operator
+      see that the slot was attempted and where it stopped.
+    */
+    for (const account of failed) {
+      await recordSlotRun({
+        snapshotDate, slot, businessId: business.businessId,
+        providerAccountId: account, status: "failed",
+      });
+    }
+    if (business.status === "rejected") {
+      // The whole business threw before any account outcome existed.
+      for (const pair of (await requiredPairs())
+        .filter((entry) => entry.businessId === business.businessId)) {
+        await recordSlotRun({
+          snapshotDate, slot, businessId: pair.businessId,
+          providerAccountId: pair.providerAccountId, status: "failed",
+        });
+      }
+    }
   }
 }

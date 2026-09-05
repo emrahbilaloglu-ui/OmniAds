@@ -190,6 +190,23 @@ export type MetaRecommendationProposedAction =
   | { kind: "pause" }
   | { kind: "resume" };
 
+/**
+ * What the operator may apply from a row with their own authority.
+ *
+ * Lives beside `MetaRecommendationProposedAction` because it is derived from
+ * it: the engine names a concrete verb, and this says whether that verb has a
+ * real endpoint at this grain with a proven entity id. It is a capability, not
+ * an authorization — see `serverOperatorApplyForRec`.
+ */
+export type MetaRecOperatorApply =
+  | {
+      action: "pause" | "resume";
+      grain: "campaign" | "adset";
+      entityId: string;
+    }
+  | { action: "bid"; grain: "adset"; entityId: string; bidAmountMinor: number }
+  | null;
+
 export interface MetaRecommendationRowPresentation {
   /** Compact server-owned account badge; null means the source account is unknown. */
   accountBadge?: string | null;
@@ -290,6 +307,16 @@ export interface MetaRecommendation {
     | "route_launchpad_rebuild"
     | "route_launchpad_duplicate"
     | "review_drill";
+  /**
+   * What the OPERATOR may apply from this row under their own authority
+   * (`manual_operator_v1` plus a typed confirmation), as distinct from what the
+   * engine authorizes above.
+   *
+   * Server-owned and never derived on the client. Absent means this row offers
+   * no in-product change; the server still re-checks capability, rehearsal,
+   * STOP, account binding and current entity state before any provider POST.
+   */
+  operatorApply?: MetaRecOperatorApply;
   primaryActionLabel?: string;
   /** Server-owned row presentation fields for the Decisions reference row.
    * These are display affordances only; buyer actions still come from actionKind. */

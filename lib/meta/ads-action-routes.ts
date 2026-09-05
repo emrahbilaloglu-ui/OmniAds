@@ -1,6 +1,7 @@
 import { resolveMetaAccountAuthority } from "@/lib/meta/account-context";
 import { NextRequest, NextResponse } from "next/server";
 import { requireBusinessAccess } from "@/lib/access";
+import { metaWriteTerminalAnswer } from "@/lib/meta/write-outcome";
 import { getIntegration } from "@/lib/integrations";
 import { rejectIfMetaWritesBlocked } from "@/lib/meta/automation-write-guard";
 import { rejectIfReviewerReadOnly } from "@/lib/meta/reviewer-write-guard";
@@ -2207,6 +2208,14 @@ export async function handleMetaAdStatusAction(
       status: result.verifiedStatus,
       dryRun: result.dryRun === true,
       wouldHaveWritten: result.wouldHaveWritten ?? null,
+      // The terminal answer the ceremony reads. `completedLog` is the persisted
+      // row; a failure or silent failure has already returned above, so an
+      // absent status here is genuinely unsettled and stays ambiguous.
+      ...metaWriteTerminalAnswer({
+        dryRun: result.dryRun === true,
+        logStatus: completedLog?.status ?? "success",
+        logId: log.id,
+      }),
     });
   } catch (error) {
     const message = sanitizeErrorMessage(error);

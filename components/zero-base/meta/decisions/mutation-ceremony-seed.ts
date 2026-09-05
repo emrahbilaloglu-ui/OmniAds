@@ -109,8 +109,16 @@ export function buildMutationCeremonySeed(input: {
           message?: string;
         } | null;
         return {
-          // The endpoint's own classification is authority. An unnamed outcome
-          // is ambiguous, never assumed applied.
+          /*
+            The endpoint's own classification is authority. An unnamed outcome
+            is ambiguous, never assumed applied — and this client still never
+            infers one from `ok`.
+
+            Every Meta status route now names it, derived from the action-log
+            row it just wrote. Before they did, a verified, read-back, journalled
+            pause was presented to the operator as "Outcome unknown — do not
+            retry", which is the opposite of what had happened.
+          */
           outcome:
             json?.outcome ??
             (response.ok ? "provider_outcome_ambiguous" : "failed"),

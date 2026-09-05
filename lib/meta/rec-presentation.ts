@@ -11,7 +11,10 @@
 //   - primaryActionLabel: honest copy - execute verbs only for controls
 //     that execute; review framing for controls that open the drill drawer.
 import type { MetaLaunchMode } from "@/components/meta/redesign/types";
-import type { MetaRecommendation } from "@/lib/meta/recommendations";
+import type {
+  MetaRecommendation,
+  MetaRecOperatorApply,
+} from "@/lib/meta/recommendations";
 
 export type MetaRecActionKind =
   | "route_launchpad_rebuild"
@@ -231,6 +234,62 @@ export function serverPrimaryActionLabelForRec(
   }
 }
 
+/**
+ * What the OPERATOR may apply from this row, with their own authority.
+ *
+ * Deliberately separate from `serverActionKindForRec`, which answers a
+ * different question: what the ENGINE authorizes. The engine withholds its own
+ * authority from campaign and ad-set rows because they do not carry the
+ * immutable decision-origin execution contract that canonical Ad decisions do,
+ * and that stays true. But a media buyer reading a row that says "reduce budget
+ * pressure or pause this ad set" and finding no way to pause it inside the
+ * product is being asked to keep a second browser tab open — which is where
+ * mistakes come from.
+ *
+ * So this offers the concrete typed verb the engine already named in
+ * `proposedAction`, executed under `manual_operator_v1` with an explicit typed
+ * confirmation. It is a capability, not a recommendation: the row still shows
+ * the engine's own authority chip beside it, and the server re-checks the
+ * capability, rehearsal posture, STOP, account binding and current entity state
+ * immediately before the provider POST regardless of what this returns.
+ */
+export function serverOperatorApplyForRec(
+  rec: Pick<
+    MetaRecommendation,
+    "kind" | "level" | "proposedAction" | "campaignId" | "adsetId"
+  >,
+): MetaRecOperatorApply {
+  // An anomaly or a state row describes a condition, not a change to make.
+  if (rec.kind === "anomaly" || rec.kind === "state") return null;
+  const proposed = rec.proposedAction;
+  if (!proposed) return null;
+
+  const grain =
+    rec.level === "adset" ? "adset" : rec.level === "campaign" ? "campaign" : null;
+  if (!grain) return null;
+  const entityId = (grain === "adset" ? rec.adsetId : rec.campaignId)?.trim();
+  if (!entityId) return null;
+
+  if (proposed.kind === "pause" || proposed.kind === "resume") {
+    return { action: proposed.kind, grain, entityId };
+  }
+  if (proposed.kind === "apply_bid") {
+    // Bid amount lives on an ad set. A campaign-grain bid has no endpoint and
+    // must not be offered as though it did.
+    if (grain !== "adset") return null;
+    if (!Number.isSafeInteger(proposed.bidAmountMinor) || proposed.bidAmountMinor <= 0) {
+      return null;
+    }
+    return {
+      action: "bid",
+      grain: "adset",
+      entityId,
+      bidAmountMinor: proposed.bidAmountMinor,
+    };
+  }
+  return null;
+}
+
 export interface MetaRecEntityMetricsSource {
   /** Keyed by entity id (campaign or adset id). */
   spend?: number | null;
@@ -312,6 +371,10 @@ export function annotateMetaRecPresentation(
       ...rec,
       decisionLabel: serverDecisionLabelForRec(rec),
       actionKind: serverActionKindForRec(rec),
+      // The engine's authority and the operator's capability, side by side and
+      // never conflated. `actionKind` says what the engine authorizes;
+      // `operatorApply` says what the operator may do with their own.
+      operatorApply: serverOperatorApplyForRec(rec),
       primaryActionLabel: serverPrimaryActionLabelForRec(rec),
       rowPresentation: serverRowPresentationForRec(rec, rowPresentationSource),
       metrics: rec.metrics ?? metrics ?? null,

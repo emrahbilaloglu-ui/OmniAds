@@ -1,6 +1,10 @@
 import { resolveMetaAccountAuthority } from "@/lib/meta/account-context";
 import { NextRequest, NextResponse } from "next/server";
 import { requireBusinessAccess } from "@/lib/access";
+import {
+  metaWriteFailureAnswer,
+  metaWriteTerminalAnswer,
+} from "@/lib/meta/write-outcome";
 import { getDb } from "@/lib/db";
 import { getIntegration } from "@/lib/integrations";
 import { rejectIfMetaWritesBlocked } from "@/lib/meta/automation-write-guard";
@@ -708,8 +712,13 @@ async function handleMetaEntityStatusAction(
         {
           ok: false,
           error: result.error,
+          message: result.error?.message,
           metaHttpStatus: result.httpStatus,
           providerOutcome: result.providerOutcome ?? null,
+          ...metaWriteFailureAnswer({
+            providerOutcome: result.providerOutcome,
+            logId: log.id,
+          }),
           mutationAttempt: result.mutationAttempt ?? null,
           retryAllowed:
             isProviderOutcomeAmbiguous(result) ||
@@ -738,6 +747,13 @@ async function handleMetaEntityStatusAction(
       status: result.verifiedStatus,
       dryRun: result.dryRun === true,
       wouldHaveWritten: result.wouldHaveWritten ?? null,
+      // The terminal answer the ceremony reads. Derived from the row just
+      // written, not from the absence of an error.
+      ...metaWriteTerminalAnswer({
+        dryRun: result.dryRun === true,
+        logStatus: "success",
+        logId: log.id,
+      }),
     });
   } catch (error) {
     const message = sanitizeErrorMessage(error);

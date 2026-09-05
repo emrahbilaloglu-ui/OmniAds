@@ -97,6 +97,16 @@ export type ConfirmationLevel = "none" | "acknowledge" | "typed_phrase";
 
 export type TerminalOutcome =
   | "verified"
+  /**
+   * The write was rehearsed, not made.
+   *
+   * `guardrails_json.dryRunOnly` is a business-level posture the server reads
+   * at the write boundary, so an operator can complete the whole ceremony and
+   * have nothing reach Meta. Folding that into `verified` would tell them a
+   * change was applied that was not; folding it into `failed` would tell them
+   * something went wrong when the guardrail did exactly its job.
+   */
+  | "dry_run"
   | "failed"
   | "silent_failure"
   | "provider_outcome_ambiguous";
@@ -307,7 +317,12 @@ export function resolveCeremony(input: CeremonyInput): CeremonyState {
  */
 export function receiptAvailable(outcome: TerminalOutcome, durable: boolean): boolean {
   if (!durable) return false;
-  return outcome === "verified" || outcome === "failed" || outcome === "silent_failure";
+  return (
+    outcome === "verified" ||
+    outcome === "dry_run" ||
+    outcome === "failed" ||
+    outcome === "silent_failure"
+  );
 }
 
 /**
@@ -317,13 +332,20 @@ export function receiptAvailable(outcome: TerminalOutcome, durable: boolean): bo
  * retrying could double it. D067 requires the outcome be reconciled first.
  */
 export function retryAllowed(outcome: TerminalOutcome): boolean {
-  return outcome === "failed";
+  // A rehearsal may be re-run: nothing was applied, so nothing can be doubled.
+  return outcome === "failed" || outcome === "dry_run";
 }
 
 export const TERMINAL_COPY: Record<TerminalOutcome, { title: string; body: string }> = {
   verified: {
     title: "Applied and verified",
     body: "Meta confirmed the change and we re-read it back.",
+  },
+  dry_run: {
+    title: "Rehearsed, not applied",
+    body:
+      "Rehearsal mode is on for this business, so the request stopped before Meta. " +
+      "Turn rehearsal off in Automation to apply changes for real.",
   },
   failed: {
     title: "Not applied",

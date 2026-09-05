@@ -4688,6 +4688,25 @@ export function MetaPlatformPage({
       openOverlayForRec(rec, mode);
       return;
     }
+    /*
+      The operator's own authority, offered where the engine withholds its.
+
+      A campaign or ad-set row carries no decision-origin execution contract, so
+      the served action stays `review`. That is the engine speaking about
+      itself, and it used to be the end of the road: the primary control said
+      "Recommendation is review-only" and a buyer reading "pause this ad set"
+      had to leave for Ads Manager to do it.
+
+      When the server named a concrete verb (`operatorApply`) the ceremony is
+      opened instead. It is a different authority, not a promotion of this one:
+      `manual_operator_v1`, a typed confirmation, and a server that re-proves
+      the target, the capability, the rehearsal posture, the STOP and the
+      current entity state before it POSTs anything.
+    */
+    if (rec.operatorApply && mutationUiEnabled) {
+      setManualCeremonyRec(rec);
+      return;
+    }
     setNotice({
       tone: "info",
       title: "Recommendation is review-only.",

@@ -5,6 +5,7 @@
 // table as the sole runtime campaign-role source. CAMPAIGN_CONTEXT_MODE=unknown
 // is the only emergency fallback and makes every role review-only.
 import { getDb, runDbTransaction } from "@/lib/db";
+import { canonicalSha256 } from "../canonical-evaluation";
 import { ENGINE_VERSION } from "../types";
 import { resolveEngineV3Flags } from "../feature-flags";
 import { getBusinessGuardFailure } from "./business-guard";
@@ -325,6 +326,45 @@ export function parseHysteresisState(raw: unknown): HysteresisState {
 // Exported for the ephemeral-postgres seam check (see decisions-job's
 // UPSERT export note): the hysteresis_state_json write->read round trip is
 // exactly the seam that silently broke once.
+/**
+ * The retained authority record, written beside the daily context row.
+ *
+ * These two are not the same fact and one cannot stand in for the other. The
+ * daily row is mutable inference with a nullable account; this is an
+ * append-only record of what was resolved, under which contract, from which
+ * evidence, at which point in time, for exactly one provider account. The
+ * budget path reads THIS one, and until now it did not exist in production at
+ * all — its DDL lived only in an audit module, so the read failed, `unknown`
+ * raised nothing, and no budget proposal could ever be produced.
+ *
+ * Conflict target is the record's own identity, and a re-run of the same
+ * resolver for the same day updates it rather than appending a second answer to
+ * one question. `recorded_at` moves because the record was re-observed;
+ * `effective_at` does not, because the day it speaks for has not changed.
+ */
+export const UPSERT_ROLE_AUTHORITY_QUERY = `
+INSERT INTO engine_v3_campaign_role_authority (
+  contract, business_id, provider_account_id, campaign_id, as_of_date,
+  inferred_kind, kind_source, resolver_version, confidence_class,
+  evidence_hash, input_hash, effective_at, recorded_at, provenance
+)
+VALUES (
+  $1, $2, $3, $4, $5::date,
+  $6, 'system_inferred', $7, $8,
+  $9, $10, $11::timestamptz, now(), $12
+)
+ON CONFLICT (business_id, provider_account_id, campaign_id, as_of_date, resolver_version)
+DO UPDATE SET
+  inferred_kind = EXCLUDED.inferred_kind,
+  confidence_class = EXCLUDED.confidence_class,
+  evidence_hash = EXCLUDED.evidence_hash,
+  input_hash = EXCLUDED.input_hash,
+  recorded_at = now()
+`;
+
+export const CAMPAIGN_ROLE_AUTHORITY_CONTRACT =
+  "engine-v3-campaign-role-authority.v1" as const;
+
 export const UPSERT_CONTEXT_QUERY = `
 INSERT INTO engine_v3_campaign_context_daily (
   business_id, provider_account_id, campaign_id, campaign_name, as_of_date,
@@ -573,6 +613,64 @@ export async function runCampaignContextJob(
               }),
               jobRunId,
             ]);
+
+            /*
+              The authority record, for a resolved role only.
+
+              An unresolved kind is not an authority for anything, and writing a
+              row that says "unknown" would give the reader something to find
+              where the honest answer is that nothing was resolved. The
+              confidence class is carried verbatim: this job does not decide
+              what is authoritative, `resolveCampaignRoleAuthority` does, and it
+              requires an exact `high` from a validated resolver.
+
+              A failure here does not fail the job. The daily context row is
+              already written and readable; the authority record is an
+              additional retention, and losing one day of it must not cost the
+              inference the job exists to produce.
+            */
+            if (hysteresis.publishedKind) {
+              const evidenceHash = canonicalSha256({
+                contract: CAMPAIGN_ROLE_AUTHORITY_CONTRACT,
+                evidence,
+                conflictReasons: resolution.conflictReasons,
+                kindBasis,
+                hysteresis: hysteresis.state,
+              });
+              const inputHash = canonicalSha256({
+                contract: CAMPAIGN_ROLE_AUTHORITY_CONTRACT,
+                businessId: input.businessId,
+                providerAccountId,
+                campaignId: feature.campaignId,
+                asOf: input.asOf,
+                resolverVersion: CAMPAIGN_CONTEXT_RESOLVER_VERSION,
+                sourceWindowStart: rangeStart,
+                sourceWindowEnd: input.asOf,
+                creativeDayRows: accountCreativeDays.length,
+                scores: {
+                  testScore: resolution.testScore,
+                  mainScore: resolution.mainScore,
+                  mixedScore: resolution.mixedScore,
+                  agreeingFamilies: resolution.agreeingFamilies,
+                },
+              });
+              await db
+                .query(UPSERT_ROLE_AUTHORITY_QUERY, [
+                  CAMPAIGN_ROLE_AUTHORITY_CONTRACT,
+                  input.businessId,
+                  providerAccountId,
+                  feature.campaignId,
+                  input.asOf,
+                  hysteresis.publishedKind,
+                  CAMPAIGN_CONTEXT_RESOLVER_VERSION,
+                  hysteresis.publishedClass,
+                  evidenceHash,
+                  inputHash,
+                  `${input.asOf}T00:00:00.000Z`,
+                  kindBasis,
+                ])
+                .catch(() => null);
+            }
             rowsWritten += 1;
           }
         }

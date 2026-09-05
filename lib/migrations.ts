@@ -12452,6 +12452,55 @@ export async function runMigrations(options?: {
           (business_id, provider_account_id, campaign_id, as_of_date DESC)`,
       ]);
 
+      /*
+        ── Retained campaign-role authority (D081-B) ──
+
+        The budget proposal source loader reads this table to decide whether a
+        campaign's Main/Test/Mixed role can authorise an account-scoped budget
+        change. Its DDL existed only inside `lib/meta/budget-readiness-retention.ts`,
+        which nothing but an audit script ever applies — so in production the
+        table did not exist, the loader's read failed, `unknown` raised nothing,
+        and the entire budget path was inert for a reason no surface could show.
+
+        It is NOT the same shape as `engine_v3_campaign_context_daily` above and
+        cannot be replaced by it. The daily context row is mutable inference with
+        a nullable account; this is an append-only authority record with a
+        contract, both hashes, both clocks, a provenance and a non-empty account.
+        Renaming one to the other would have widened authority rather than
+        repaired it.
+
+        Existing rows: there are none, and none are backfilled. An authority
+        record has to be captured under its own contract at the time the role was
+        resolved; manufacturing one now from a daily row would assert an
+        evidentiary claim nobody made.
+      */
+      await runMigrationBatchSequentially([
+        sql`CREATE TABLE IF NOT EXISTS engine_v3_campaign_role_authority (
+          id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          contract            TEXT        NOT NULL,
+          business_id         TEXT        NOT NULL,
+          provider_account_id TEXT        NOT NULL,
+          campaign_id         TEXT        NOT NULL,
+          as_of_date          DATE        NOT NULL,
+          inferred_kind       TEXT        NOT NULL,
+          kind_source         TEXT        NOT NULL,
+          resolver_version    TEXT        NOT NULL,
+          confidence_class    TEXT        NOT NULL,
+          evidence_hash       TEXT        NOT NULL,
+          input_hash          TEXT        NOT NULL,
+          effective_at        TIMESTAMPTZ NOT NULL,
+          recorded_at         TIMESTAMPTZ NOT NULL,
+          provenance          TEXT        NOT NULL,
+          created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (business_id, provider_account_id, campaign_id, as_of_date, resolver_version),
+          CHECK (provider_account_id <> ''),
+          CHECK (contract <> '')
+        )`,
+        sql`CREATE INDEX IF NOT EXISTS idx_engine_v3_campaign_role_authority_latest
+          ON engine_v3_campaign_role_authority
+          (business_id, provider_account_id, campaign_id, as_of_date DESC, recorded_at DESC)`,
+      ]);
+
       // ── Engine v3 rollout feature flags (NULL = inherit env default) ─────
       await runMigrationBatchSequentially([
         sql`CREATE TABLE IF NOT EXISTS business_engine_v3_flags (

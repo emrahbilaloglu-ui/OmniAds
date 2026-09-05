@@ -42,11 +42,19 @@ function isoDate(value: string | Date): string {
 }
 
 /**
- * The action column of meta_ads_action_log only ever holds these verbs. Bid changes are NOT
- * stored under their own verb — they are persisted as action='launch_adset' with
- * payload_request.operation==='apply_bid' (see lib/meta/entity-action-routes.ts). So there is
- * intentionally no 'apply_bid' key here; the mislabel guard below disambiguates launch_adset.
+ * The action column of meta_ads_action_log holds these verbs.
+ *
+ * Bid changes reach it two ways, and both have to be describable. The operator
+ * route still persists one as action='launch_adset' with
+ * payload_request.operation==='apply_bid' (see lib/meta/entity-action-routes.ts),
+ * which the mislabel guard below disambiguates; the unattended sweep writes
+ * action='bid' under its own verb. A row this map cannot name is dropped by the
+ * share store's sanitize step, so an action the product took would simply
+ * vanish from the client's feed.
  */
+/** One sentence, used by both spellings of a bid change. */
+const LAUNCH_ADSET_BID_PHRASE_VALUE = "Adjusted bidding on an ad set";
+
 const ACTION_PHRASES: Record<string, string> = {
   pause: "Paused an underperforming ad",
   resume: "Resumed a paused ad",
@@ -54,9 +62,10 @@ const ACTION_PHRASES: Record<string, string> = {
   launch_campaign: "Launched a new campaign",
   launch_adset: "Launched a new ad set",
   launch_ad: "Launched a new ad",
+  bid: LAUNCH_ADSET_BID_PHRASE_VALUE,
 };
 
-const LAUNCH_ADSET_BID_PHRASE = "Adjusted bidding on an ad set";
+const LAUNCH_ADSET_BID_PHRASE = LAUNCH_ADSET_BID_PHRASE_VALUE;
 
 /**
  * Generic, class-keyed client-safe rationale. Keyed by the resolved action class ('apply_bid'
@@ -70,6 +79,7 @@ const WHY_BY_CLASS: Record<string, string> = {
   launch_campaign: "We opened a new campaign to pursue additional demand.",
   launch_adset: "We added a new ad set to test or expand delivery.",
   apply_bid: "We tuned the bid to improve delivery efficiency.",
+  bid: "We tuned the bid to improve delivery efficiency.",
   launch_ad: "We put a fresh creative live to keep the account performing.",
 };
 

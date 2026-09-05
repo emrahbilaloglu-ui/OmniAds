@@ -63,9 +63,17 @@ type ApprovalBody = {
 
 export async function POST(
   request: NextRequest,
-  context: { params: Promise<{ intentId: string }> },
+  context: { params: Promise<{ id: string }> },
 ) {
-  const { intentId } = await context.params;
+  /*
+    The segment is `[id]`, not `[intentId]`.
+
+    Next refuses two different slug names on one dynamic path, and
+    `intents/[id]/route.ts` already owned this position — so the app would not
+    boot at all with a second name here. A route that cannot be mounted is not
+    a route, whatever an import graph says about it.
+  */
+  const { id: intentId } = await context.params;
   const body = await readJsonBody<ApprovalBody>(request);
   const businessId = body?.businessId?.trim() ?? "";
   const access = await requireLaunchpadBusinessAccess({ request, businessId });

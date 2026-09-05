@@ -12380,6 +12380,114 @@ export async function runMigrations(options?: {
           WHERE launch_intent_id IS NOT NULL`,
       ]);
 
+      /*
+        ── The operator's own origin, and the creative launch action ──
+
+        Placed here, after `meta_launch_intents` exists, because the new column
+        carries a foreign key to it. Running it up in the proposals block would
+        have failed silently: that block swallows errors, so the column would
+        simply not have been added and every launch row would have been refused
+        later by a constraint whose column was missing.
+
+        Both widenings replace a constraint rather than add a second one, because
+        a CHECK cannot be relaxed in place.
+
+        `operator_action` exists because the operator may now stage a concrete
+        change from a decision card. Such a row has no rule and needs no engine
+        lineage, so the lineage constraint gets its own arm rather than being
+        forced through the engine arm with invented ids.
+
+        `launch` exists because a creative reuse or test launch executes through
+        a launch intent, and a queue row naming one must point at it.
+        `launch_intent_id` is nullable so every existing row keeps its meaning;
+        the lineage rule requires it only for the action that has no meaning
+        without it.
+
+        Nothing is backfilled. Existing `engine_decision` rows satisfy the new
+        constraints unchanged, which is what makes this safe to apply while rows
+        are in flight.
+      */
+      await runMigrationBatchSequentially([
+        sql`ALTER TABLE meta_automation_proposals
+          ADD COLUMN IF NOT EXISTS launch_intent_id UUID
+            REFERENCES meta_launch_intents(id) ON DELETE RESTRICT`,
+        sql`DO $$
+        BEGIN
+          IF EXISTS (
+            SELECT 1 FROM pg_constraint c
+            JOIN pg_class t ON t.oid = c.conrelid
+            JOIN pg_namespace n ON n.oid = t.relnamespace
+            WHERE n.nspname = current_schema()
+              AND t.relname = 'meta_automation_proposals'
+              AND c.conname = 'meta_automation_proposals_origin_check'
+          ) THEN
+            ALTER TABLE meta_automation_proposals
+              DROP CONSTRAINT meta_automation_proposals_origin_check;
+          END IF;
+          ALTER TABLE meta_automation_proposals
+            ADD CONSTRAINT meta_automation_proposals_origin_check
+            CHECK (origin IN ('engine_decision', 'automation_rule', 'operator_action'));
+
+          IF EXISTS (
+            SELECT 1 FROM pg_constraint c
+            JOIN pg_class t ON t.oid = c.conrelid
+            JOIN pg_namespace n ON n.oid = t.relnamespace
+            WHERE n.nspname = current_schema()
+              AND t.relname = 'meta_automation_proposals'
+              AND c.conname = 'meta_automation_proposals_origin_lineage'
+          ) THEN
+            ALTER TABLE meta_automation_proposals
+              DROP CONSTRAINT meta_automation_proposals_origin_lineage;
+          END IF;
+          ALTER TABLE meta_automation_proposals
+            ADD CONSTRAINT meta_automation_proposals_origin_lineage
+            CHECK (
+              (origin = 'engine_decision'
+                 AND rule_id IS NULL AND dedupe_key IS NULL
+                 AND rec_id IS NOT NULL AND rec_type IS NOT NULL
+                 AND engine_version IS NOT NULL AND decision_label IS NOT NULL)
+              OR
+              (origin = 'automation_rule'
+                 AND rule_id IS NOT NULL AND dedupe_key IS NOT NULL
+                 AND rec_id IS NULL AND rec_type IS NULL
+                 AND engine_version IS NULL AND decision_label IS NULL)
+              OR
+              (origin = 'operator_action'
+                 AND rule_id IS NULL AND dedupe_key IS NULL)
+            );
+
+          IF EXISTS (
+            SELECT 1 FROM pg_constraint c
+            JOIN pg_class t ON t.oid = c.conrelid
+            JOIN pg_namespace n ON n.oid = t.relnamespace
+            WHERE n.nspname = current_schema()
+              AND t.relname = 'meta_automation_proposals'
+              AND c.conname = 'meta_automation_proposals_action_budget_check'
+          ) THEN
+            ALTER TABLE meta_automation_proposals
+              DROP CONSTRAINT meta_automation_proposals_action_budget_check;
+          END IF;
+          ALTER TABLE meta_automation_proposals
+            ADD CONSTRAINT meta_automation_proposals_action_budget_check
+            CHECK (proposed_action IN (
+              'pause', 'resume', 'bid', 'duplicate', 'budget', 'launch'
+            ));
+
+          IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint c
+            JOIN pg_class t ON t.oid = c.conrelid
+            JOIN pg_namespace n ON n.oid = t.relnamespace
+            WHERE n.nspname = current_schema()
+              AND t.relname = 'meta_automation_proposals'
+              AND c.conname = 'meta_automation_proposals_launch_lineage'
+          ) THEN
+            ALTER TABLE meta_automation_proposals
+              ADD CONSTRAINT meta_automation_proposals_launch_lineage
+              CHECK (proposed_action <> 'launch' OR launch_intent_id IS NOT NULL);
+          END IF;
+        END $$;`,
+      ]);
+
       // ── Automatic campaign context (D033): daily inferred campaign role ──
       await runMigrationBatchSequentially([
         sql`CREATE TABLE IF NOT EXISTS engine_v3_campaign_context_daily (

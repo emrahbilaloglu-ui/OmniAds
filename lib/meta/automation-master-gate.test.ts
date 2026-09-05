@@ -110,14 +110,37 @@ describe("PRE-DEPLOY — every unattended Meta write is behind the master gate",
       .filter((entry) => entry.calls.length > 0);
 
     /*
-      `budget-proposal-server-readers.ts` is the module that actually holds
-      `updateEntityBudget`; the scheduled sweep reaches a mutation only
-      through it, and it is reached only after the sweep's gate chain. Both
-      are listed so a NEW writer appearing in this closure fails loudly.
+      Two modules, and only two.
+
+      `budget-proposal-server-readers.ts` holds `updateEntityBudget`;
+      `scheduled-status-runtime.ts` holds the status primitives the sweep drives
+      for a queued pause or resume. Both are reached only after the sweep's gate
+      chain, and both are named here so a THIRD writer appearing in this closure
+      fails loudly rather than arriving unannounced.
     */
     expect(writers.map((entry) => entry.file)).toEqual([
       "lib/meta/budget-proposal-server-readers.ts",
+      "lib/meta/scheduled-status-runtime.ts",
     ]);
+  });
+
+  it("the status writer re-proves its authority immediately before the POST", () => {
+    /*
+      Being on the list above is not a licence. The status runtime reaches a
+      provider directly, so the gate it carries is asserted here in the same
+      breath: it evaluates the scheduled authority, it hands the write
+      primitive a pre-POST hook, and that hook throws — which is what stops the
+      request — rather than logging and continuing.
+    */
+    const code = stripComments(
+      readFileSync("lib/meta/scheduled-status-runtime.ts", "utf8"));
+    expect(code).toContain("evaluateScheduledAuthority(");
+    expect(code).toContain("beforeMutationAttempt");
+    expect(code).toContain("throw new Error(verdict.refusal)");
+    // A posture it could not read is a refusal, never a default-open.
+    expect(code).toContain("control_state_unavailable");
+    // And it never speaks for an operator.
+    expect(code).toContain("manual_confirmation_absent");
   });
 
   it("the scheduled sweep carries the whole master gate chain", () => {
@@ -136,11 +159,20 @@ describe("PRE-DEPLOY — every unattended Meta write is behind the master gate",
     expect(code).toContain("verdict.dryRunOnly !== false");
   });
 
-  it("readGates requires BOTH keys: the master switch and the budget Tier 3 mode", () => {
+  it("readGates requires BOTH keys: the master switch and the row's own auto mode", () => {
     const code = stripComments(
       readFileSync("lib/meta/budget-proposal-server-readers.ts", "utf8"));
     expect(code).toContain("control.businessControl.autoExecutionEnabled === true");
-    expect(code).toContain('budgetMode === "auto"');
+    /*
+      The second key used to be the literal `budget` mode, because budget was
+      the only action the sweep could take. The queue now carries pause and
+      resume as well, so the mode read is the one belonging to THIS row's
+      family — still a standing `auto`, still required, and now the right
+      question. The family is derived from the proposal rather than passed in,
+      so no caller can nominate a family the row is not in.
+    */
+    expect(code).toContain('standingMode === "auto"');
+    expect(code).toContain("decisionTypeForProposedAction(proposal.proposedAction)");
     // And a business explicitly placed in the read-only tier is never swept.
     expect(code).toContain('control.businessControl.readinessTier !== "read_only"');
     // A control row that was never persisted is not an enablement.

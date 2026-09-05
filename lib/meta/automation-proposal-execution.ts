@@ -43,12 +43,14 @@ import type {
   MetaAutomationProposal,
   MetaAutomationProposalReceipt,
 } from "@/lib/meta/automation-proposals";
+import { handleMetaAdStatusAction } from "@/lib/meta/ads-action-routes";
 import { buildDispatchDescriptor } from "@/lib/zero-base/meta/dispatch-contract";
 import type { BudgetProposalExecutionResult } from "@/lib/meta/budget-proposal-runtime";
 
 const PARAM_NAME: Record<MetaAutomationProposal["scopeType"], string> = {
   campaign: "campaignId",
   adset: "adsetId",
+  ad: "adId",
 };
 
 /**
@@ -175,13 +177,25 @@ export async function executeMetaAutomationProposal(input: {
     };
   }
 
+  /*
+    The creative identity an ad write must present.
+
+    The ad route resolves the true target and refuses unless the creative it
+    finds still matches the one presented — which is the check that makes a
+    stale row unable to pause a different ad than the one it was raised about.
+    The projection persists the identity the decision was made on; nothing here
+    invents it, and an ad row without one is withheld by the builder.
+  */
+  const creativeId = typeof proposal.evidenceRef?.creativeId === "string"
+    ? proposal.evidenceRef.creativeId
+    : null;
   const built = buildDispatchDescriptor({
     businessId: input.businessId,
     target: {
       grain: proposal.scopeType,
       entityId: proposal.scopeId,
       providerAccountId: proposal.providerAccountId,
-      creativeId: null,
+      creativeId,
       parentId: null,
     },
     action: proposal.proposedAction,
@@ -221,16 +235,29 @@ export async function executeMetaAutomationProposal(input: {
     params: Promise.resolve({ [paramName]: proposal.scopeId }),
   };
 
+  /*
+    Ad grain goes to the ad handler, which is a different write with a
+    different journal: it resolves the true target, refuses unless the creative
+    identity it finds still matches the one presented, and records an immutable
+    per-attempt event before the single POST. Sending an ad row to the entity
+    handler would hit a route that does not exist for it.
+  */
   const response =
-    proposal.proposedAction === "pause"
-      ? await handleMetaEntityPauseAction(forwarded, context, {
-          scopeType: proposal.scopeType,
-          paramName,
-        })
-      : await handleMetaEntityResumeAction(forwarded, context, {
-          scopeType: proposal.scopeType,
-          paramName,
-        });
+    proposal.scopeType === "ad"
+      ? await handleMetaAdStatusAction(
+          forwarded,
+          { params: Promise.resolve({ adId: proposal.scopeId }) },
+          proposal.proposedAction,
+        )
+      : proposal.proposedAction === "pause"
+        ? await handleMetaEntityPauseAction(forwarded, context, {
+            scopeType: proposal.scopeType,
+            paramName,
+          })
+        : await handleMetaEntityResumeAction(forwarded, context, {
+            scopeType: proposal.scopeType,
+            paramName,
+          });
 
   const payload = (await response.json().catch(() => null)) as unknown;
   const ok = response.status < 400 && (payload as { ok?: boolean } | null)?.ok === true;

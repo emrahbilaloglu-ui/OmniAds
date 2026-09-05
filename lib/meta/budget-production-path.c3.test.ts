@@ -362,6 +362,10 @@ describe("D088 C3 — the real producer projects real rows", () => {
 
   it("projects exactly one CBO row and one ABO row through the real chain", async () => {
     const result = await projectMetaBudgetProposals({
+      // This suite is about composition refusals, so the family's standing
+      // mode is stated: a manual business projects nothing at all, which is
+      // its own test elsewhere.
+      readBudgetMode: async () => "semi_auto",
       businessId: BIZ,
       snapshotDate: "2026-08-31",
       loadCompositionSources: loadBudgetCompositionSourcesForCandidate,
@@ -386,6 +390,10 @@ describe("D088 C3 — the real producer projects real rows", () => {
 
   it("the stored envelope carries the DECISION's own hash, clock and lineage", async () => {
     await projectMetaBudgetProposals({
+      // This suite is about composition refusals, so the family's standing
+      // mode is stated: a manual business projects nothing at all, which is
+      // its own test elsewhere.
+      readBudgetMode: async () => "semi_auto",
       businessId: BIZ, snapshotDate: "2026-08-31",
       loadCompositionSources: loadBudgetCompositionSourcesForCandidate,
       insertProposal: async (input) => insertBudgetProposalRow({
@@ -423,6 +431,10 @@ describe("D088 C3 — the real producer projects real rows", () => {
       controlPayload({ businessControl: { source: "default" } }) as never,
     );
     const result = await projectMetaBudgetProposals({
+      // This suite is about composition refusals, so the family's standing
+      // mode is stated: a manual business projects nothing at all, which is
+      // its own test elsewhere.
+      readBudgetMode: async () => "semi_auto",
       businessId: BIZ, snapshotDate: "2026-08-31",
       loadCompositionSources: loadBudgetCompositionSourcesForCandidate,
       insertProposal: async () => "should-not-happen",
@@ -452,6 +464,10 @@ describe("D088 C3 — the real producer projects real rows", () => {
       }) as never,
     );
     const result = await projectMetaBudgetProposals({
+      // This suite is about composition refusals, so the family's standing
+      // mode is stated: a manual business projects nothing at all, which is
+      // its own test elsewhere.
+      readBudgetMode: async () => "semi_auto",
       businessId: BIZ, snapshotDate: "2026-08-31",
       loadCompositionSources: loadBudgetCompositionSourcesForCandidate,
       insertProposal: async () => "should-not-happen",
@@ -465,6 +481,10 @@ describe("D088 C3 — the real producer projects real rows", () => {
   it("refuses when the profile row is for the OTHER action", async () => {
     profileActions = ["cut"];
     const result = await projectMetaBudgetProposals({
+      // This suite is about composition refusals, so the family's standing
+      // mode is stated: a manual business projects nothing at all, which is
+      // its own test elsewhere.
+      readBudgetMode: async () => "semi_auto",
       businessId: BIZ, snapshotDate: "2026-08-31",
       loadCompositionSources: loadBudgetCompositionSourcesForCandidate,
       insertProposal: async () => "should-not-happen",
@@ -477,6 +497,10 @@ describe("D088 C3 — the real producer projects real rows", () => {
   it("refuses when NO automatic role evidence exists", async () => {
     roleRowsPresent = false;
     const result = await projectMetaBudgetProposals({
+      // This suite is about composition refusals, so the family's standing
+      // mode is stated: a manual business projects nothing at all, which is
+      // its own test elsewhere.
+      readBudgetMode: async () => "semi_auto",
       businessId: BIZ, snapshotDate: "2026-08-31",
       loadCompositionSources: loadBudgetCompositionSourcesForCandidate,
       insertProposal: async () => "should-not-happen",
@@ -489,6 +513,10 @@ describe("D088 C3 — the real producer projects real rows", () => {
   it("refuses when the account concentration cannot be measured", async () => {
     concentrationKnown = false;
     const result = await projectMetaBudgetProposals({
+      // This suite is about composition refusals, so the family's standing
+      // mode is stated: a manual business projects nothing at all, which is
+      // its own test elsewhere.
+      readBudgetMode: async () => "semi_auto",
       businessId: BIZ, snapshotDate: "2026-08-31",
       loadCompositionSources: loadBudgetCompositionSourcesForCandidate,
       insertProposal: async () => "should-not-happen",
@@ -541,6 +569,10 @@ describe("D088 C3 — the real producer projects real rows", () => {
       return original(sql, params);
     });
     const result = await projectMetaBudgetProposals({
+      // This suite is about composition refusals, so the family's standing
+      // mode is stated: a manual business projects nothing at all, which is
+      // its own test elsewhere.
+      readBudgetMode: async () => "semi_auto",
       businessId: BIZ, snapshotDate: "2026-08-31",
       loadCompositionSources: loadBudgetCompositionSourcesForCandidate,
       insertProposal: async () => "should-not-happen",

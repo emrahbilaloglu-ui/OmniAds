@@ -40,6 +40,14 @@ const { projectMetaAutomationProposals } = await import(
 
 const BUSINESS_ID = "172d0ab8-495b-4679-a4c6-ffa404c389d3";
 
+/** Every family armed for confirmation: the posture that projects. */
+const SEMI_AUTO_MODES = {
+  pause: "semi_auto",
+  bid: "semi_auto",
+  budget: "semi_auto",
+  creative: "semi_auto",
+} as const;
+
 const OPEN_CONTROL_ROW = {
   business_id: BUSINESS_ID,
   is_demo_business: false,
@@ -508,6 +516,10 @@ describe("the ROAS floor gates the engine-decision projection", () => {
       businessId: BUSINESS_ID,
       snapshotDate: "2026-08-16",
       now: new Date("2026-08-17T12:00:00.000Z"),
+      // The queue only fills for a family the operator armed. This suite is
+      // about the ROAS floor, so the standing mode is stated rather than left
+      // to a control plane it does not mock.
+      readModes: async () => SEMI_AUTO_MODES,
     });
 
     expect(result.ran).toBe(true);
@@ -534,6 +546,10 @@ describe("the ROAS floor gates the engine-decision projection", () => {
       businessId: BUSINESS_ID,
       snapshotDate: "2026-08-16",
       now: new Date("2026-08-17T12:00:00.000Z"),
+      // The queue only fills for a family the operator armed. This suite is
+      // about the ROAS floor, so the standing mode is stated rather than left
+      // to a control plane it does not mock.
+      readModes: async () => SEMI_AUTO_MODES,
     });
 
     expect(result.ran).toBe(true);
@@ -555,6 +571,10 @@ describe("the ROAS floor gates the engine-decision projection", () => {
       businessId: BUSINESS_ID,
       snapshotDate: "2026-08-16",
       now: new Date("2026-08-17T12:00:00.000Z"),
+      // The queue only fills for a family the operator armed. This suite is
+      // about the ROAS floor, so the standing mode is stated rather than left
+      // to a control plane it does not mock.
+      readModes: async () => SEMI_AUTO_MODES,
     });
 
     expect(result).toEqual({ projected: 0, expired: 0, ran: false });

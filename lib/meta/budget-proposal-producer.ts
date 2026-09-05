@@ -20,6 +20,7 @@ import { META_BUDGET_INTENT_CONTRACT_VERSION } from "@/lib/meta/budget-intent-co
 import { randomUUID } from "node:crypto";
 
 import { getDb } from "@/lib/db";
+import { resolveEffectiveMetaModes } from "@/lib/meta/automation-control-plane";
 import {
   META_AUTOMATION_PROPOSAL_PRIMARY_CAPTION,
   META_AUTOMATION_PROPOSAL_TTL_HOURS,
@@ -191,6 +192,14 @@ export interface BudgetProposalProducerDeps {
     actionLabel: string;
   }): Promise<string | null>;
   listCandidates?(): Promise<TypedBudgetCandidate[]>;
+  /**
+   * The standing budget mode. Injectable so a test needs no control plane.
+   *
+   * Manual means the operator applies from the decision card, so a queue row
+   * would be a second inbox they never asked for and would have to dismiss one
+   * by one. The pause projection makes the same judgement about its own family.
+   */
+  readBudgetMode?(): Promise<"manual" | "semi_auto" | "auto">;
   /** Injectable only so a test can pin the identity it asserts on. */
   newProposalId?(): string;
   nowMs?: number;
@@ -209,6 +218,18 @@ export async function projectMetaBudgetProposals(
 ): Promise<BudgetProposalProducerResult> {
   const refusals: Record<string, number> = {};
   const refuse = (code: string) => { refusals[code] = (refusals[code] ?? 0) + 1; };
+
+  const mode = await (deps.readBudgetMode
+    ?? (async () => (await resolveEffectiveMetaModes(deps.businessId)).budget))();
+  if (mode === "manual") {
+    return {
+      contract: BUDGET_PROPOSAL_PRODUCER_CONTRACT,
+      ran: true,
+      candidates: 0,
+      projected: 0,
+      refusals: { budget_mode_manual: 1 },
+    };
+  }
 
   const candidates = deps.listCandidates
     ? await deps.listCandidates()

@@ -1170,6 +1170,124 @@ async function assertNativeSchemaCapabilities(
   }
 }
 
+
+/**
+ * The proposal lineage widening, and the reason it needs watching.
+ *
+ * `launch_intent_id` carries a foreign key to `meta_launch_intents`, and the
+ * batch it lives in swallows its own errors. Run before that table exists, the
+ * statement fails, the error is discarded, and the release ships a schema where
+ * every launch proposal is refused by a constraint whose column is missing —
+ * silently, and only at runtime. So the column is asserted here, together with
+ * the two constraint vocabularies it travels with.
+ */
+async function assertProposalLineageWidening(
+  client: Client,
+  failures: string[],
+): Promise<void> {
+  const { rows: columnRows } = await client.query<{ exists: boolean }>(
+    `SELECT EXISTS (
+       SELECT 1 FROM information_schema.columns
+       WHERE table_schema = 'public'
+         AND table_name = 'meta_automation_proposals'
+         AND column_name = 'launch_intent_id'
+     ) AS exists`,
+  );
+  if (columnRows[0]?.exists) {
+    log("proposal launch_intent_id column present");
+  } else {
+    failures.push(
+      "meta_automation_proposals.launch_intent_id is missing — its FK target probably did not exist when the ALTER ran",
+    );
+  }
+
+  const { rows: fkRows } = await client.query<{ count: string }>(
+    `SELECT count(*)::text AS count
+       FROM pg_constraint c
+       JOIN pg_class t ON t.oid = c.conrelid
+       JOIN pg_class r ON r.oid = c.confrelid
+      WHERE t.relname = 'meta_automation_proposals'
+        AND r.relname = 'meta_launch_intents'
+        AND c.contype = 'f'`,
+  );
+  if (Number(fkRows[0]?.count ?? "0") === 1) {
+    log("proposal launch_intent_id references meta_launch_intents");
+  } else {
+    failures.push("launch_intent_id does not reference meta_launch_intents");
+  }
+
+  const { rows: checkRows } = await client.query<{
+    conname: string;
+    definition: string;
+  }>(
+    `SELECT c.conname, pg_get_constraintdef(c.oid) AS definition
+       FROM pg_constraint c
+       JOIN pg_class t ON t.oid = c.conrelid
+      WHERE t.relname = 'meta_automation_proposals' AND c.contype = 'c'`,
+  );
+  const byName = new Map(checkRows.map((row) => [row.conname, row.definition]));
+  const origin = byName.get("meta_automation_proposals_origin_check") ?? "";
+  if (origin.includes("operator_action")) {
+    log("proposal origin accepts operator_action");
+  } else {
+    failures.push("origin check does not accept operator_action");
+  }
+  const action = byName.get("meta_automation_proposals_action_budget_check") ?? "";
+  if (action.includes("launch")) {
+    log("proposal action accepts launch");
+  } else {
+    failures.push("proposed_action check does not accept launch");
+  }
+  // The arm that already existed must still hold: widening must not relax it.
+  const lineage = byName.get("meta_automation_proposals_origin_lineage") ?? "";
+  if (lineage.includes("engine_decision") && lineage.includes("operator_action")) {
+    log("proposal lineage keeps the engine arm and adds the operator arm");
+  } else {
+    failures.push("origin lineage lost an arm during the widening");
+  }
+  if (byName.has("meta_automation_proposals_launch_lineage")) {
+    log("a launch proposal must name its launch intent");
+  } else {
+    failures.push("launch rows are not required to carry a launch intent");
+  }
+}
+
+/**
+ * The retained campaign-role authority the budget path reads.
+ *
+ * Its DDL used to live only in an audit module, so production had no such
+ * table: the reader threw, the caller turned that into `unknown`, and no budget
+ * proposal could be produced. Asserted here so it cannot quietly go missing
+ * again.
+ */
+async function assertRoleAuthorityRetention(
+  client: Client,
+  failures: string[],
+): Promise<void> {
+  const required = [
+    "contract", "business_id", "provider_account_id", "campaign_id",
+    "as_of_date", "inferred_kind", "kind_source", "resolver_version",
+    "confidence_class", "evidence_hash", "input_hash", "effective_at",
+    "recorded_at", "provenance",
+  ];
+  const { rows } = await client.query<{ column_name: string }>(
+    `SELECT column_name FROM information_schema.columns
+      WHERE table_schema = 'public'
+        AND table_name = 'engine_v3_campaign_role_authority'`,
+  );
+  const present = new Set(rows.map((row) => row.column_name));
+  const missing = required.filter((column) => !present.has(column));
+  if (rows.length === 0) {
+    failures.push("engine_v3_campaign_role_authority does not exist");
+  } else if (missing.length > 0) {
+    failures.push(
+      `engine_v3_campaign_role_authority is missing: ${missing.join(", ")}`,
+    );
+  } else {
+    log("campaign-role authority retention table present with every read column");
+  }
+}
+
 async function assertSchema(databaseUrl: string): Promise<string[]> {
   const client = new Client({ connectionString: databaseUrl });
   await client.connect();
@@ -1383,6 +1501,8 @@ async function assertSchema(databaseUrl: string): Promise<string[]> {
     }
 
     await assertNativeSchemaCapabilities(client, failures);
+    await assertProposalLineageWidening(client, failures);
+    await assertRoleAuthorityRetention(client, failures);
 
     const { rows: tableRows } = await client.query<{ table_name: string }>(
       `SELECT table_name

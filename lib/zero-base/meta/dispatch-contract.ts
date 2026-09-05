@@ -40,7 +40,19 @@ import type { DecisionBoundGrain } from "@/lib/zero-base/meta/decision-bound-tar
  * descriptor. A budget proposal is executed server-side through the D087
  * executor, where the UI chooses no entity, field or magnitude.
  */
-export type MutationAction = "pause" | "resume" | "bid" | "duplicate" | "budget";
+export type MutationAction =
+  | "pause"
+  | "resume"
+  | "bid"
+  | "duplicate"
+  | "budget"
+  /**
+   * A creative reuse or test launch, executed through a launch intent rather
+   * than through an endpoint in the map below. Like `budget`, the descriptor
+   * builder refuses it: there is no single path to substitute an id into,
+   * because the intent already names its own destination.
+   */
+  | "launch";
 
 /**
  * Every endpoint the ceremony may call, keyed by grain and action.

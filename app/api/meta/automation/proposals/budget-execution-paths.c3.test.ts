@@ -84,6 +84,17 @@ vi.mock("@/lib/meta/automation-control-plane", async (importOriginal) => {
       verified: true, writeBlocked: false, killSwitchEngaged: false, blockReason: null,
     })),
     writeActivityLedgerRow: vi.fn(async () => undefined),
+    /*
+      The standing modes the sweep now reads before it claims anything.
+
+      The sweep used to hard-code `budget`, so it never asked. It asks now, and
+      a business with no family on `auto` is skipped without touching the
+      queue — which is the right behaviour and would make every case here
+      vacuous. These are the modes this suite's business has armed.
+    */
+    resolveEffectiveMetaModes: vi.fn(async () => ({
+      pause: "auto", bid: "auto", budget: "auto", creative: "manual",
+    })),
   };
 });
 vi.mock("@/lib/meta/automation-proposals", async (importOriginal) => {
@@ -350,16 +361,25 @@ const baseQuery = async (sql: string, params: unknown[] = []): Promise<unknown[]
     return staleSweepRows;
   }
   if (text.includes("FROM meta_automation_proposals")
-    && text.includes("proposed_action = 'budget'")) {
+    && text.includes("proposed_action = ANY($4::text[])")) {
     /*
       The queue page, with the real predicate applied: business, THEN the exact
-      account, then order, then limit. Filtering here is what makes a starvation
-      case meaningful — a mock that ignored the account parameter would report
-      the fix working whether or not the SQL actually had one.
+      account, THEN the armed action families, then order, then limit. Filtering
+      here is what makes a starvation case meaningful — a mock that ignored the
+      account parameter would report the fix working whether or not the SQL
+      actually had one.
+
+      The action filter used to be the literal `budget`. It is now the list the
+      sweep builds from the standing modes, so the mock applies that list: a row
+      for a family this business did not arm must not come back, or the test
+      would prove the query returns rows rather than that it selects them.
     */
+    const armed = new Set((params[3] as string[]) ?? []);
+    const byAction = pendingRows.filter((row) =>
+      armed.has(row.proposed_action ?? "budget"));
     const scoped = text.includes("provider_account_id = $2")
-      ? pendingRows.filter((row) => row.provider_account_id === String(params[1]))
-      : pendingRows;
+      ? byAction.filter((row) => row.provider_account_id === String(params[1]))
+      : byAction;
     const ordered = text.includes("ORDER BY provider_account_id")
       ? [...scoped].sort((a, b) =>
         a.provider_account_id.localeCompare(b.provider_account_id)
@@ -413,7 +433,11 @@ let replacementActivationVersion = "2026-08-31T11:59:00.000Z";
 let boundAccount: string | null = ACCOUNT;
 /** The pending budget queue, as rows the real predicate can be applied to. */
 let pendingRows: Array<{
-  id: string; provider_account_id: string; created_at: string;
+  id: string;
+  provider_account_id: string;
+  created_at: string;
+  /** Omitted means a budget row: the action every case here is about. */
+  proposed_action?: string;
 }> = [];
 let scheduledUsed = 0;
 let staleSweepAvailable = true;
@@ -806,7 +830,7 @@ describe("D088 C3 — the SCHEDULED path shares the one lifecycle", () => {
 
     const result = await runMetaBudgetAutomationSweepIfDue();
     expect(result.skipped, JSON.stringify(result)).toBe(false);
-    expect(calls("POST")).toHaveLength(1);
+    expect(calls("POST"), JSON.stringify(result)).toHaveLength(1);
     expect(journalRows).toHaveLength(1);
     expect(journalRows[0]!.result_class).toBe("verified");
     // The claim, the settle and the journal all name the enabling ADMIN.

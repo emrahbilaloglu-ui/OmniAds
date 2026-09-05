@@ -178,6 +178,11 @@ export function confirmationFor(action: MutationAction): ConfirmationLevel {
       return "acknowledge";
     case "duplicate":
       return "acknowledge";
+    case "launch":
+      // A launch creates PAUSED, so nothing begins spending on confirmation;
+      // acknowledgement matches what the act actually does. Activating it
+      // afterwards is a separate, explicitly authorized step.
+      return "acknowledge";
     case "resume":
     case "bid":
       return "typed_phrase";

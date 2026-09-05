@@ -34,6 +34,22 @@ export interface MetaAdsWriteOptions {
   dryRun?: boolean;
 }
 
+/**
+ * The campaign / ad set status write, with the same pre-POST boundary the ad
+ * status write already has.
+ *
+ * The ad path grew a hook because its manual route journals a claim before the
+ * single POST. Unattended execution needs the same boundary one level up: an
+ * operator can engage the STOP, change the standing mode or re-activate under a
+ * different admin in the seconds between claiming a queued row and reaching the
+ * provider, and this is the last point at which re-reading that authority can
+ * still prevent the write rather than merely describe it. The hook throws to
+ * refuse, and a throw here means no request was made at all.
+ */
+export interface MetaEntityStatusWriteOptions extends MetaAdsWriteOptions {
+  beforeMutationAttempt?: () => Promise<void>;
+}
+
 export interface MetaAdStatusMutationBaseline {
   businessId: string;
   providerAccountId: string;
@@ -1861,7 +1877,7 @@ async function updateEntityStatus(
   entityId: string,
   status: "ACTIVE" | "PAUSED",
   entityLabel: "campaign" | "ad set",
-  options: MetaAdsWriteOptions = {},
+  options: MetaEntityStatusWriteOptions = {},
 ): Promise<MetaAdStatusWriteSuccess | MetaAdsWriteFailure> {
   if (isMetaAdsWriteKillSwitchEngaged()) return killSwitchFailure();
   const wouldHaveWritten: MetaAdsWouldHaveWritten = {
@@ -1904,6 +1920,7 @@ async function updateEntityStatus(
     path: entityId,
     method: "POST",
     body,
+    beforeMutationAttempt: options.beforeMutationAttempt,
   });
   if (write.error) {
     return buildWriteTransportFailure({
@@ -2685,7 +2702,7 @@ export async function resumeAd(
 export async function pauseCampaign(
   ctx: MetaAdsWriteContext,
   campaignId: string,
-  options: MetaAdsWriteOptions = {},
+  options: MetaEntityStatusWriteOptions = {},
 ): Promise<MetaAdStatusWriteSuccess | MetaAdsWriteFailure> {
   return updateEntityStatus(ctx, campaignId, "PAUSED", "campaign", options);
 }
@@ -2693,7 +2710,7 @@ export async function pauseCampaign(
 export async function resumeCampaign(
   ctx: MetaAdsWriteContext,
   campaignId: string,
-  options: MetaAdsWriteOptions = {},
+  options: MetaEntityStatusWriteOptions = {},
 ): Promise<MetaAdStatusWriteSuccess | MetaAdsWriteFailure> {
   return updateEntityStatus(ctx, campaignId, "ACTIVE", "campaign", options);
 }
@@ -2701,7 +2718,7 @@ export async function resumeCampaign(
 export async function pauseAdset(
   ctx: MetaAdsWriteContext,
   adsetId: string,
-  options: MetaAdsWriteOptions = {},
+  options: MetaEntityStatusWriteOptions = {},
 ): Promise<MetaAdStatusWriteSuccess | MetaAdsWriteFailure> {
   return updateEntityStatus(ctx, adsetId, "PAUSED", "ad set", options);
 }
@@ -2709,14 +2726,20 @@ export async function pauseAdset(
 export async function resumeAdset(
   ctx: MetaAdsWriteContext,
   adsetId: string,
-  options: MetaAdsWriteOptions = {},
+  options: MetaEntityStatusWriteOptions = {},
 ): Promise<MetaAdStatusWriteSuccess | MetaAdsWriteFailure> {
   return updateEntityStatus(ctx, adsetId, "ACTIVE", "ad set", options);
 }
 
 export async function updateAdsetBidAmount(
   ctx: MetaAdsWriteContext,
-  input: { adsetId: string; bidAmountMinor: number; dryRun?: boolean },
+  input: {
+    adsetId: string;
+    bidAmountMinor: number;
+    dryRun?: boolean;
+    /** See `MetaEntityStatusWriteOptions`: the pre-POST authority boundary. */
+    beforeMutationAttempt?: () => Promise<void>;
+  },
 ): Promise<MetaAdsetBidWriteSuccess | MetaAdsWriteFailure> {
   if (isMetaAdsWriteKillSwitchEngaged()) return killSwitchFailure();
   const bidAmount = Math.round(input.bidAmountMinor);
@@ -2761,6 +2784,7 @@ export async function updateAdsetBidAmount(
     path: input.adsetId,
     method: "POST",
     body,
+    beforeMutationAttempt: input.beforeMutationAttempt,
   });
   if (write.error) {
     return buildWriteTransportFailure({

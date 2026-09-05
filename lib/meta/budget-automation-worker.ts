@@ -28,6 +28,14 @@ export const BUDGET_SWEEP_BLOCKERS = [
   "stale_claim_sweep_unavailable",
   "daily_auto_action_cap_unavailable",
   "daily_auto_action_cap_reached",
+  /**
+   * The per-decision-type standing modes could not be read.
+   *
+   * Distinct from "no family is on auto": one is a state the operator chose,
+   * the other is a reading that failed, and only the second is a reason to
+   * report the sweep as blocked rather than as having nothing to do.
+   */
+  "decision_type_modes_unreadable",
 ] as const;
 export type BudgetSweepBlocker = (typeof BUDGET_SWEEP_BLOCKERS)[number];
 

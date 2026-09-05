@@ -46,6 +46,7 @@
  * in this table means exactly one thing: an operator may approve it, and
  * approving calls the existing guarded handler.
  */
+import { resolveEffectiveMetaModes } from "@/lib/meta/automation-control-plane";
 import { getDb, runDbTransaction } from "@/lib/db";
 import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 import { readMetaAutomationProposalRoasFloor } from "@/lib/meta/automation-guardrail-policy";
@@ -57,7 +58,16 @@ import {
 } from "@/lib/meta/budget-proposal-runtime";
 
 /** Grains the queue can aim a guarded write at. */
-export type MetaAutomationProposalScope = "campaign" | "adset";
+/**
+ * The grains a proposal can be about.
+ *
+ * `ad` was in the database CHECK from the beginning and in no producer: the
+ * native chain writes thousands of authorized ad-level `cut` decisions a day
+ * and none of them reached a surface an operator could act on. It is a real
+ * grain here now; what differs is the write path, which carries an immutable
+ * per-attempt journal and therefore stays operator-approved.
+ */
+export type MetaAutomationProposalScope = "campaign" | "adset" | "ad";
 
 /**
  * What raised the row.
@@ -353,6 +363,9 @@ export function proposalActionLabel(
       return `Pause ${entity}`;
     case "resume":
       return `Resume ${entity}`;
+    case "launch":
+      // The intent names its own destination, so the tag names the act.
+      return "Create paused ad";
     case "bid":
       return `Apply bid`;
     case "duplicate":
@@ -879,9 +892,30 @@ export async function projectMetaAutomationProposals(input: {
   businessId: string;
   snapshotDate: string;
   now?: Date;
+  /** Injectable so the projection stays testable without a control plane. */
+  readModes?: typeof resolveEffectiveMetaModes;
 }): Promise<ProjectMetaAutomationProposalsResult> {
   if (!(await proposalsReady())) {
     return { projected: 0, expired: 0, ran: false };
+  }
+
+  /*
+    The standing mode decides whether a queue row is wanted at all.
+
+    In manual mode the operator applies from the decision card; a confirmation
+    queue that fills up behind them is a second inbox nobody asked for, and one
+    they would have to dismiss row by row. Semi-automatic and automatic are the
+    two modes whose whole shape is "it arrives here first", so those are the two
+    that project.
+
+    An unreadable mode is `manual` — the safe reading, and the one
+    `resolveEffectiveMetaModes` already gives.
+  */
+  const modes = await (input.readModes ?? resolveEffectiveMetaModes)(
+    input.businessId,
+  );
+  if (modes.pause === "manual") {
+    return { projected: 0, expired: 0, ran: true };
   }
   // Read the floor before anything else happens. "I could not read the floor"
   // is not "there is no floor", and projecting under a guardrail this process
@@ -1064,7 +1098,148 @@ export async function projectMetaAutomationProposals(input: {
     ],
   )) as Array<{ id: string }>;
 
-  return { projected: rows.length, expired, ran: true };
+  const adRows = await projectNativeAdPauseProposals({
+    businessId: input.businessId,
+    snapshotDate: input.snapshotDate,
+    ttlInterval,
+  });
+
+  return { projected: rows.length + adRows, expired, ran: true };
+}
+
+/**
+ * The native ad decisions, which had no producer at all.
+ *
+ * The creative chain writes an ad-grain `cut` with its own `authorized_action`
+ * — the field that says the engine's authority survived every blocker — and
+ * nothing has ever turned one into something an operator could act on. Both
+ * conditions are required here: a `cut` label whose authority was withheld is
+ * a diagnosis, not a proposal, and projecting it would offer an action the
+ * engine deliberately refused to authorize.
+ *
+ * A failure returns zero rather than throwing. The pause projection above has
+ * already committed, and losing it because the native table is absent in some
+ * environment would trade a working queue for a missing one.
+ */
+async function projectNativeAdPauseProposals(input: {
+  businessId: string;
+  snapshotDate: string;
+  ttlInterval: string;
+}): Promise<number> {
+  const rows = (await getDb().query<{ id: string }>(
+    `
+      WITH decisions AS (
+        SELECT DISTINCT ON (d.ad_id)
+               d.ad_id,
+               d.creative_id,
+               d.provider_account_id,
+               d.evaluation_id::text AS rec_id,
+               d.as_of_date,
+               d.engine_version,
+               d.reason,
+               d.decision_hash,
+               d.roas,
+               d.spend,
+               d.effective_target_roas,
+               dim.ad_name_current AS entity_label
+          FROM engine_v3_ad_decision_snapshots_daily d
+          JOIN meta_ad_dimensions dim
+            ON dim.business_id = d.business_id
+           AND dim.provider_account_id = d.provider_account_id
+           AND dim.ad_id = d.ad_id
+         WHERE d.business_id = $1::text
+           AND d.as_of_date = $2::date
+           AND d.label = 'cut'
+           AND d.authorized_action = 'cut'
+           -- The identity the ad write must present. Without it the dispatch
+           -- builder withholds, so a row that could never execute is never
+           -- offered.
+           AND NULLIF(BTRIM(d.creative_id), '') IS NOT NULL
+           AND COALESCE(UPPER(dim.ad_status), '') <> 'PAUSED'
+           AND NOT EXISTS (
+             SELECT 1
+               FROM meta_automation_proposals decided
+              WHERE decided.business_id = $1::uuid
+                AND decided.provider_account_id = d.provider_account_id
+                AND decided.decision_key = 'ad:' || d.ad_id
+                AND decided.snapshot_date = d.as_of_date
+                AND decided.status NOT IN (${META_AUTOMATION_PROPOSAL_UNDECIDED_STATUS_SQL})
+           )
+           AND NOT EXISTS (
+             SELECT 1
+               FROM meta_automation_proposals held
+              WHERE held.business_id = $1::uuid
+                AND held.provider_account_id = d.provider_account_id
+                AND held.decision_key = 'ad:' || d.ad_id
+                AND held.proposed_action = 'pause'
+                AND held.status IN (${META_AUTOMATION_PROPOSAL_OPEN_STATUS_SQL})
+                AND NOT (
+                  held.status = 'pending'
+                  AND held.origin = 'engine_decision'
+                  AND held.rec_type = 'native_ad_cut'
+                  AND held.snapshot_date = d.as_of_date
+                )
+           )
+         ORDER BY d.ad_id, d.computed_at DESC
+      )
+      INSERT INTO meta_automation_proposals (
+        business_id, provider_account_id, origin, decision_key, scope_type,
+        scope_id, rec_id, rec_type, snapshot_date, engine_version,
+        decision_label, proposed_action, action_label, primary_caption,
+        entity_label, reason, evidence_label, evidence_ref, expires_at, status
+      )
+      SELECT $1::uuid,
+             provider_account_id,
+             'engine_decision',
+             'ad:' || ad_id,
+             'ad',
+             ad_id,
+             rec_id,
+             'native_ad_cut',
+             as_of_date,
+             engine_version,
+             'cut',
+             'pause',
+             'Pause ad',
+             $3,
+             NULLIF(BTRIM(entity_label), ''),
+             reason,
+             NULL,
+             jsonb_build_object(
+               'recId', rec_id,
+               'recType', 'native_ad_cut',
+               'snapshotDate', as_of_date::text,
+               'engineVersion', engine_version,
+               'decisionKey', 'ad:' || ad_id,
+               'creativeId', creative_id,
+               'decisionHash', decision_hash,
+               'evidence', jsonb_build_object(
+                 'roas', roas,
+                 'spend', spend,
+                 'targetRoas', effective_target_roas
+               )
+             ),
+             NOW() + $4::interval,
+             'pending'
+        FROM decisions
+      ON CONFLICT (business_id, provider_account_id, decision_key, rec_type, snapshot_date)
+      DO UPDATE SET
+        reason = EXCLUDED.reason,
+        evidence_ref = EXCLUDED.evidence_ref,
+        entity_label = EXCLUDED.entity_label,
+        expires_at = EXCLUDED.expires_at,
+        updated_at = NOW()
+      WHERE meta_automation_proposals.status = 'pending'
+      RETURNING id
+    `,
+    [
+      input.businessId,
+      input.snapshotDate,
+      META_AUTOMATION_PROPOSAL_PRIMARY_CAPTION,
+      input.ttlInterval,
+    ],
+  ).catch(() => null)) as Array<{ id: string }> | null;
+  return rows?.length ?? 0;
 }
 
 export interface ReadMetaAutomationProposalsResult {

@@ -41,6 +41,8 @@ import {
   expectedProfileIdentity,
 } from "@/lib/meta/budget-readiness-retention";
 import { resolveCampaignRoleAuthority } from "@/lib/meta/campaign-role-authority";
+import { decisionTypeForProposedAction }
+  from "@/lib/meta/scheduled-action-execution";
 import { isCampaignContextResolverAuthorityValidated }
   from "@/lib/creative-decision-engine/campaign-context/source";
 import { declaredFamilyStatus } from "@/lib/meta/budget-write-safety-projection";
@@ -377,8 +379,21 @@ export function createBudgetServerReaders(
         enabling_actor_user_id: string | null;
         activation_control_version: string | null;
       }> | null;
-      const budgetMode = control.decisionTypeModes
-        .find((mode: MetaAutomationDecisionTypeMode) => mode.decisionType === "budget")
+      /*
+        The standing mode of THIS row's family, not always the budget one.
+
+        These readers were written when `budget` was the only action the sweep
+        could take, so the family was a literal. It is now the queue's whole
+        vocabulary: an operator who set the pause family to auto and left budget
+        manual would otherwise have every pause refused as
+        `auto_execution_disabled` — a sentence about a decision they never made.
+        For a budget row this resolves to `budget` exactly as before.
+      */
+      const standingMode = control.decisionTypeModes
+        .find(
+          (mode: MetaAutomationDecisionTypeMode) =>
+            mode.decisionType === decisionTypeForProposedAction(proposal.proposedAction),
+        )
         ?.mode ?? null;
       const persisted = control.businessControl.source === "persisted";
       return {
@@ -402,7 +417,7 @@ export function createBudgetServerReaders(
           persisted
           && control.businessControl.autoExecutionEnabled === true
           && control.businessControl.readinessTier !== "read_only"
-          && budgetMode === "auto",
+          && standingMode === "auto",
         // The PERSISTED guardrail, not a restatement of the global gate.
         dryRunOnly: control.businessControl.guardrails.dryRunOnly !== false,
         enablingActorUserId: activation?.[0]?.enabling_actor_user_id ?? null,

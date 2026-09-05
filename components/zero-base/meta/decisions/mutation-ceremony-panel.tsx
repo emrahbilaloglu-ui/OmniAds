@@ -135,6 +135,8 @@ const TYPED_PHRASE: Record<MutationAction, string> = {
   // D088: unreachable from this panel — the descriptor builder refuses a
   // budget action — but the map stays total so a future edit cannot omit it.
   budget: "CHANGE BUDGET",
+  // Same: a launch is executed through its intent, not through this panel.
+  launch: "CREATE PAUSED AD",
 };
 
 export function MutationCeremonyPanel({

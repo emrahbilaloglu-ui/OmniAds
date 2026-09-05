@@ -11,6 +11,8 @@
 import { getDb } from "@/lib/db";
 import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 import { readMetaReleaseGates } from "@/lib/meta/release-gates";
+import { resolveEffectiveMetaModes } from "@/lib/meta/automation-control-plane";
+import { decisionTypeForProposedAction } from "@/lib/meta/scheduled-action-execution";
 import { readEffectiveMetaWriteGovernance } from "@/lib/meta/automation-control-plane";
 import {
   BUDGET_SWEEP_CONTRACT,
@@ -18,6 +20,7 @@ import {
   type BudgetSweepReport,
 } from "@/lib/meta/budget-automation-worker";
 import { createBudgetProposalServerRuntime } from "@/lib/meta/budget-proposal-server-runtime";
+import { createScheduledStatusRuntime } from "@/lib/meta/scheduled-status-runtime";
 import { createBudgetServerReaders } from "@/lib/meta/budget-proposal-server-readers";
 import { buildMetaBudgetWriteContextForProposal } from "@/lib/meta/budget-proposal-write-context";
 import {
@@ -44,6 +47,27 @@ export type BudgetAutomationJobResult =
 
 /** The system actor a scheduled execution is attributed to. */
 export const BUDGET_SWEEP_ACTOR = "meta_budget_automation_sweep" as const;
+
+/**
+ * The queued actions unattended execution may take.
+ *
+ * `duplicate` and `launch` are absent: both create an entity, and creating one
+ * without an operator is a different authorization than changing one that
+ * already exists. Creative work reaches the provider through its launch intent
+ * and its own activation approval, not through this sweep.
+ *
+ * `bid` is absent for a different reason: a bid write is an AMOUNT, and no
+ * queue row can yet prove one. A budget row carries a server-built envelope
+ * that re-fingerprints from its own fields; there is no such envelope for a
+ * bid, so claiming one here could only mean inventing the number or reading it
+ * back out of prose. It joins this list in the same change that gives it an
+ * envelope, and not before.
+ */
+export const AUTOMATABLE_PROPOSAL_ACTIONS = [
+  "budget",
+  "pause",
+  "resume",
+] as const;
 
 /**
  * `decided_by` on the proposal row is a plain text column, so the sweep names
@@ -127,10 +151,43 @@ export async function runMetaBudgetAutomationSweepIfDue(
       continue;
     }
     /*
-      The FRESH control-plane verdict for this business and account, read
-      before anything else. C1 asserted `releaseGateOpen: true` /
-      `autoExecutionEnabled: true` here without proving the budget mode, the
-      persisted enablement, the business stop or the dry-run guardrail.
+      Which action families this business has actually armed.
+
+      The sweep used to hard-code `budget`, so an operator who set the pause
+      family to auto got nothing: the executor for it existed, the standing mode
+      was persisted, and no query ever asked. The modes are read here — once per
+      business, before any claim — and a business with none on auto is skipped
+      without touching the queue at all.
+    */
+    const modes = await resolveEffectiveMetaModes(row.business_id).catch(
+      () => null,
+    );
+    if (!modes) {
+      reports.push({
+        contract: BUDGET_SWEEP_CONTRACT,
+        ran: false,
+        blockers: ["decision_type_modes_unreadable"],
+        considered: 0, executed: 0, skipped: 0, withheld: 0, failed: 0,
+      });
+      continue;
+    }
+    const autoActions = AUTOMATABLE_PROPOSAL_ACTIONS.filter(
+      (action) => modes[decisionTypeForProposedAction(action)] === "auto",
+    );
+    if (autoActions.length === 0) continue;
+
+    /*
+      The FRESH control-plane verdict for this business and account. C1 asserted
+      `releaseGateOpen: true` / `autoExecutionEnabled: true` here without
+      proving the standing mode, the persisted enablement, the business stop or
+      the dry-run guardrail.
+
+      It is read for one of the ARMED families, because the posture read
+      includes a standing-mode question and a question needs a subject. Every
+      family in `autoActions` answers `auto` by construction, so which one is
+      named cannot change the verdict; naming none would silently ask about
+      whichever family the fail-closed default happened to pick. Each row is
+      re-checked against its own family later, twice.
     */
     const verdict = await createBudgetServerReaders({
       businessId: row.business_id,
@@ -138,7 +195,9 @@ export async function runMetaBudgetAutomationSweepIfDue(
       writeContext,
     }).readGates({
       proposal: {
-        businessId: row.business_id, providerAccountId,
+        businessId: row.business_id,
+        providerAccountId,
+        proposedAction: autoActions[0],
       } as never,
     });
 
@@ -291,12 +350,17 @@ export async function runMetaBudgetAutomationSweepIfDue(
          FROM meta_automation_proposals
         WHERE business_id = $1::uuid
           AND provider_account_id = $2
-          AND proposed_action = 'budget'
+          AND proposed_action = ANY($4::text[])
+          -- Ad-grain rows are operator-approved. Their write records an
+          -- immutable per-attempt event and re-proves the creative identity
+          -- through a path this sweep does not drive; claiming one here would
+          -- terminally fail a row an operator could still act on.
+          AND scope_type IN ('campaign', 'adset')
           AND status = 'pending'
           AND expires_at > now()
         ORDER BY created_at
         LIMIT $3`,
-      [row.business_id, providerAccountId, remaining],
+      [row.business_id, providerAccountId, remaining, autoActions],
     ).catch(() => null)) as Array<{ id: string }> | null;
     // An unread queue is unknown, and unknown does nothing.
     if (pending === null) continue;
@@ -308,7 +372,48 @@ export async function runMetaBudgetAutomationSweepIfDue(
       actorUserId: enablingActor,
       writeContext,
     });
-    const runtime = createBudgetProposalServerRuntime(readers);
+    const budgetRuntime = createBudgetProposalServerRuntime(readers);
+    /*
+      Status changes do not go through the manual HTTP handler.
+
+      That handler stamps `manual_operator_v1` and an explicit confirmation,
+      which are true of an approval and false of a sweep. Driving the write
+      primitive directly keeps the action log honest about which authority
+      acted, and the primitive's pre-POST hook is where this path re-proves
+      that authority after the claim.
+    */
+    const statusRuntime = createScheduledStatusRuntime({
+      ctx: writeContext,
+      readGates: async ({ proposal }) => {
+        /*
+          The reader's type makes most of the posture optional, so absence is
+          normalised HERE rather than inside the authority check. Every default
+          below is the closed one: a field nobody wrote is not permission.
+        */
+        const gates = await readers.readGates({ proposal });
+        return {
+          releaseGateOpen: gates.releaseGateOpen === true,
+          autoExecutionEnabled: gates.autoExecutionEnabled === true,
+          enabledProviderAccountId: gates.enabledProviderAccountId ?? null,
+          enablingActorUserId: gates.enablingActorUserId ?? null,
+          activationControlVersion: gates.activationControlVersion ?? null,
+          dryRunOnly: gates.dryRunOnly !== false,
+        };
+      },
+      /*
+        Re-read, not the `modes` above. The whole point of the boundary check
+        is that the operator can change their mind in the seconds a claim and
+        a composition take.
+      */
+      readMode: async ({ proposal }) => {
+        const current = await resolveEffectiveMetaModes(proposal.businessId)
+          .catch(() => null);
+        if (!current) return null;
+        return current[decisionTypeForProposedAction(proposal.proposedAction)];
+      },
+    });
+    const runtimeFor = (proposal: MetaAutomationProposal) =>
+      proposal.proposedAction === "budget" ? budgetRuntime : statusRuntime;
 
     const claimedProposals = new Map<string, MetaAutomationProposal>();
     reports.push(await runBudgetAutomationSweep({
@@ -407,7 +512,7 @@ export async function runMetaBudgetAutomationSweepIfDue(
               resultReceiptId: claimToken,
             }).catch(() => undefined);
           },
-          execute: async (beforeProviderPost) => runtime({
+          execute: async (beforeProviderPost) => runtimeFor(proposal)({
             proposal,
             dryRunOnly: verdict.dryRunOnly !== false,
             claimToken,

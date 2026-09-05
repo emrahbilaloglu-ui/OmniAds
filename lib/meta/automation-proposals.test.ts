@@ -311,6 +311,40 @@ describe("the proposal state machine", () => {
   });
 });
 
+/** Every family routed through the queue. */
+const SEMI_AUTO_MODES = {
+  pause: "semi_auto",
+  bid: "semi_auto",
+  budget: "semi_auto",
+  creative: "semi_auto",
+} as const;
+
+describe("the standing mode decides whether the queue is used at all", () => {
+  it("projects nothing in manual mode", async () => {
+    // In manual mode the operator applies from the decision card. A queue that
+    // fills up behind them is a second inbox nobody asked for.
+    const { tagged, calls } = recordingDb([[], [], []]);
+    vi.mocked(dbModule.getDb).mockReturnValue(tagged as never);
+    vi.mocked(
+      guardrailPolicy.readMetaAutomationProposalRoasFloor,
+    ).mockResolvedValue({ status: "read", floor: null } as never);
+
+    const result = await projectMetaAutomationProposals({
+      businessId: BUSINESS_ID,
+      snapshotDate: "2026-08-17",
+      now: NOW,
+      readModes: async () => ({ ...SEMI_AUTO_MODES, pause: "manual" }),
+    });
+
+    expect(result).toMatchObject({ projected: 0, ran: true });
+    expect(
+      calls.some((call) =>
+        call.text.includes("INSERT INTO meta_automation_proposals"),
+      ),
+    ).toBe(false);
+  });
+});
+
 describe("one queue, two origins", () => {
   // Rewritten from a source scan to an EXECUTION.
   //
@@ -338,6 +372,10 @@ describe("one queue, two origins", () => {
       businessId: BUSINESS_ID,
       snapshotDate: "2026-08-17",
       now: NOW,
+      // The queue exists for the two modes that route through it. Injected so
+      // this case stays about the projection rather than about the control
+      // plane, and so the mode gate has a case of its own below.
+      readModes: async () => SEMI_AUTO_MODES,
     });
 
     const projection = calls.at(-1)!.text;

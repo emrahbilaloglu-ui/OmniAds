@@ -35,6 +35,19 @@ export const BUDGET_PROPOSAL_WITHHELD_REASONS = [
   "account_not_activated",
   "enabling_actor_absent",
   "scheduled_authority_changed",
+  /*
+    The three the unattended STATUS and BID path can add.
+
+    The receipt shape is shared with budget, so the vocabulary is shared too: a
+    queue row settled `failed` must be able to say which gate refused it in the
+    same field the operator already reads. `mode_not_auto` and
+    `kill_switch_engaged` are states an operator chose, and
+    `control_state_unavailable` is a reading that failed — three different
+    answers that a single "refused" would flatten.
+  */
+  "mode_not_auto",
+  "kill_switch_engaged",
+  "control_state_unavailable",
 ] as const;
 export type BudgetProposalWithheldReason =
   (typeof BUDGET_PROPOSAL_WITHHELD_REASONS)[number];

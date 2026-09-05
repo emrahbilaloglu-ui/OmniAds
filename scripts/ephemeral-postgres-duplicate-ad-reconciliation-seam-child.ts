@@ -427,6 +427,18 @@ function unverifiedProviderSuccessCompletion(input: {
 }
 
 async function main() {
+  /*
+    The release capability, opened for this seam.
+
+    The shared write choke point now reads it: with it shut, every product
+    write — including this duplicate — answers `release_capability_closed`
+    before reaching the fake provider, and the duplicate contract below could
+    not be exercised at all. It is an environment fact a deployment opens
+    deliberately, so this seam states it rather than inheriting whatever the
+    process happens to have. The closed answer has its own coverage in
+    `lib/meta/write-posture-enforcement.test.ts`.
+  */
+  process.env.META_AUTOMATION_LIVE_WRITES = "true";
   const databaseUrl = assertEphemeralDatabase();
   resetDbClientCache();
   const admin = new Client({ connectionString: databaseUrl });

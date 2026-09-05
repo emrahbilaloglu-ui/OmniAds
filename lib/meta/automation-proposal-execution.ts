@@ -37,6 +37,7 @@ import { NextRequest } from "next/server";
 
 import {
   handleMetaEntityPauseAction,
+  handleMetaAdsetBidAction,
   handleMetaEntityResumeAction,
 } from "@/lib/meta/entity-action-routes";
 import type {
@@ -54,11 +55,13 @@ const PARAM_NAME: Record<MetaAutomationProposal["scopeType"], string> = {
 };
 
 /**
- * Actions this module may hand to the entity-action handler.
+ * Actions this module may hand to the entity-action handler as a descriptor.
  *
- * `bid` and `duplicate` are absent on purpose: the first needs an
- * operator-entered amount no proposal proves, and the second exists only at ad
- * grain, whose write path is the decision-origin contract.
+ * `bid` was here for a reason that has since stopped being true — it needed an
+ * amount no proposal could prove — and it is now handled by its own branch
+ * below, from the row's persisted envelope rather than from an operator's
+ * typing. `duplicate` is still absent: it exists only at ad grain, whose write
+ * path is the decision-origin contract.
  */
 type ExecutableProposalAction = "pause" | "resume";
 
@@ -157,6 +160,71 @@ export async function executeMetaAutomationProposal(input: {
         dispatchedAt: result.receipt.dispatchedAt,
         endpoint: result.receipt.endpoint,
         withheld: result.receipt.withheld,
+        receiptKey,
+      },
+    };
+  }
+
+  /*
+    An approved BID row, with the amount the server proved.
+
+    `buildDispatchDescriptor` asks an operator to TYPE a bid amount, which is
+    right on a decision card and wrong here: this row already carries an
+    envelope naming the exact minor units, bound to the row's identity and
+    fingerprinted. Asking again would invite a different number than the one
+    that was approved.
+
+    It goes through the same guarded `apply-bid` handler an operator's own
+    entry uses, under the same manual origin and confirmation — both true
+    statements: a person clicked Approve on this row.
+  */
+  if (proposal.proposedAction === "bid") {
+    const envelope = proposal.bidEnvelope;
+    if (!envelope || proposal.scopeType !== "adset") {
+      return {
+        ok: false,
+        receipt: {
+          httpStatus: 422,
+          response: null,
+          dryRun: input.dryRunOnly,
+          dispatchedAt,
+          endpoint: null,
+          withheld: "bid_envelope_absent",
+          receiptKey,
+        },
+      };
+    }
+    const path = `/api/meta/adsets/${proposal.scopeId}/apply-bid`;
+    const bidRequest = new NextRequest(
+      new URL(path, input.request.nextUrl.origin),
+      {
+        method: "POST",
+        headers: forwardedHeaders(input.request),
+        body: JSON.stringify({
+          actionOrigin: "manual_operator_v1",
+          manualConfirmation: "explicit_operator_confirmation",
+          businessId: input.businessId,
+          providerAccountId: proposal.providerAccountId,
+          bidAmountMinor: envelope.proposedMinorUnits,
+          ...(proposal.recId ? { recId: proposal.recId } : {}),
+          ...(input.dryRunOnly ? { dryRun: true } : {}),
+        }),
+      },
+    );
+    const bidResponse = await handleMetaAdsetBidAction(bidRequest, {
+      params: Promise.resolve({ adsetId: proposal.scopeId }),
+    });
+    const bidPayload = (await bidResponse.json().catch(() => null)) as unknown;
+    return {
+      ok: bidResponse.status < 400
+        && (bidPayload as { ok?: boolean } | null)?.ok === true,
+      receipt: {
+        httpStatus: bidResponse.status,
+        response: bidPayload,
+        dryRun: input.dryRunOnly,
+        dispatchedAt,
+        endpoint: path,
+        withheld: null,
         receiptKey,
       },
     };

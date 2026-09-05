@@ -40,6 +40,10 @@ import {
   insertBidProposalRow,
   projectMetaBidProposals,
 } from "@/lib/meta/bid-proposal-producer";
+import {
+  insertLaunchProposalRow,
+  projectMetaLaunchProposals,
+} from "@/lib/meta/launch-proposal-producer";
 import { loadBudgetCompositionSourcesForCandidate }
   from "@/lib/meta/budget-proposal-source-loader";
 import { buildMetaEntityStateRows } from "@/lib/meta/engine-v1/state-rows";
@@ -109,6 +113,8 @@ export interface RunMetaSnapshotResult {
   budgetProposals?: { candidates: number; projected: number } | null;
   /** The bid producer's own result, reported separately for the same reason. */
   bidProposals?: { candidates: number; projected: number } | null;
+  /** The launch producer's, which counts validated intents rather than rows. */
+  launchProposals?: { candidates: number; projected: number } | null;
   /**
    * The accounts THIS attempt generated for, so a caller can record completion
    * from what happened rather than from what exists.
@@ -1507,6 +1513,7 @@ export async function runMetaSnapshotForBusiness(
       proposals: null,
       budgetProposals: null,
       bidProposals: null,
+      launchProposals: null,
       failedAccountIds: [],
       skippedReason: "provider_account_not_assigned",
     };
@@ -1779,12 +1786,41 @@ export async function runMetaSnapshotForBusiness(
       return null;
     });
 
+  /*
+    And the launch producer, which points at intents rather than decisions.
+
+    `launch` became an allowed queue action with a CHECK requiring the intent
+    id, and nothing ever raised one: a validated intent sat in `ready` where
+    only the Launchpad screen could see it, so the queue an operator actually
+    works from never mentioned it. The row is a pointer; the intent stays the
+    authority, and creating anything remains an operator's act.
+  */
+  const launchProposals = await projectMetaLaunchProposals({
+    businessId,
+    snapshotDate: normalizedSnapshotDate,
+    insertProposal: async (insert) => insertLaunchProposalRow({
+      candidate: insert.candidate,
+      snapshotDate: normalizedSnapshotDate,
+      actionLabel: insert.actionLabel,
+    }),
+  })
+    .then((result) => ({ candidates: result.candidates, projected: result.projected }))
+    .catch((error) => {
+      console.warn("[meta-snapshot] launch_proposal_projection_failed", {
+        businessId,
+        snapshotDate: normalizedSnapshotDate,
+        message: error instanceof Error ? error.message : String(error),
+      });
+      return null;
+    });
+
   return {
     businessId,
     snapshotDate: normalizedSnapshotDate,
     calibration,
     budgetProposals,
     bidProposals,
+    launchProposals,
     recommendationsWritten: recommendations.length,
     failedAccountIds: failedAccounts
       .map((entry) => entry.accountId)

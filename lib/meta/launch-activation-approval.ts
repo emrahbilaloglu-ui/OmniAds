@@ -249,3 +249,104 @@ export function validateActivationApproval(input: {
     },
   };
 }
+
+/**
+ * Build an approval from the intent and its receipt, or refuse.
+ *
+ * The reader and the migration existed and nothing could write one, so the
+ * column was permanently NULL and the unattended activation path could only
+ * ever refuse. This is the writer, and it is deliberately not a setter: every
+ * field that could be wrong is taken from the live intent and the receipt
+ * rather than from the caller, so an approval cannot be created for a payload,
+ * a destination or an asset that this launch did not produce.
+ *
+ * The caller supplies only what is genuinely theirs to decide: the scope, who
+ * approved, when it expires, and the copy hash they reviewed.
+ */
+export function buildActivationApproval(input: {
+  intent: ActivationIntentFacts;
+  identities: ActivationReceiptIdentities;
+  approvedScope: "ad" | "hierarchy";
+  approvedBy: string;
+  approvedAt: string;
+  expiresAt: string;
+  approvedAssetVersion: string;
+  approvedCopyHash: string;
+  policyVersion: string;
+}):
+  | { ok: true; approval: ActivationApproval }
+  | { ok: false; refusal: ActivationApprovalRefusal } {
+  if (!UUID.test(input.approvedBy)) {
+    return { ok: false, refusal: "activation_approval_approver_absent" };
+  }
+  const approvedAt = timeOf(input.approvedAt);
+  const expiresAt = timeOf(input.expiresAt);
+  if (approvedAt === null || expiresAt === null || expiresAt <= approvedAt) {
+    // An approval that expires before it is given is not an approval.
+    return { ok: false, refusal: "activation_approval_expired" };
+  }
+  if (!str(input.policyVersion)) {
+    return { ok: false, refusal: "activation_approval_policy_version_unbound" };
+  }
+  const creativeId = str(input.identities.creativeId);
+  if (!creativeId || !str(input.approvedAssetVersion)) {
+    return { ok: false, refusal: "activation_approval_asset_mismatch" };
+  }
+  if (!str(input.approvedCopyHash)) {
+    return { ok: false, refusal: "activation_approval_asset_mismatch" };
+  }
+  /*
+    A hierarchy approval needs a hierarchy to name.
+
+    An `add_to_existing` launch created one ad inside somebody else's campaign;
+    approving "the hierarchy" there would authorize turning on structure this
+    launch never made.
+  */
+  const campaignId = str(input.identities.campaignId);
+  if (!campaignId) {
+    return { ok: false, refusal: "activation_approval_destination_mismatch" };
+  }
+  if (
+    input.approvedScope === "hierarchy"
+    && input.intent.operation !== "new_campaign"
+  ) {
+    return { ok: false, refusal: "activation_approval_scope_mismatch" };
+  }
+  if (input.identities.adIds.length === 0) {
+    return { ok: false, refusal: "activation_approval_destination_mismatch" };
+  }
+  return {
+    ok: true,
+    approval: {
+      contractVersion: ACTIVATION_APPROVAL_CONTRACT,
+      businessId: input.intent.businessId,
+      providerAccountId: input.intent.providerAccountId,
+      launchIntentId: input.intent.id,
+      // Taken from the live intent, so an approval always names the payload
+      // that exists right now. A later edit changes the fingerprint and the
+      // validator drops this approval rather than repairing it.
+      requestFingerprint: input.intent.requestFingerprint,
+      approvedOperation: input.intent.operation,
+      approvedScope: input.approvedScope,
+      approvedAsset: { creativeId, version: input.approvedAssetVersion.trim() },
+      approvedCopy: { hash: input.approvedCopyHash.trim() },
+      approvedDestination: {
+        campaignId,
+        adsetId: str(input.identities.adsetId),
+      },
+      approvedBy: input.approvedBy,
+      approvedAt: new Date(approvedAt).toISOString(),
+      expiresAt: new Date(expiresAt).toISOString(),
+      revokedAt: null,
+      policyVersion: input.policyVersion,
+    },
+  };
+}
+
+/** Revoking is a write of its own, so a stored approval is never edited away. */
+export function revokeActivationApproval(
+  approval: ActivationApproval,
+  revokedAt: string,
+): ActivationApproval {
+  return { ...approval, revokedAt };
+}

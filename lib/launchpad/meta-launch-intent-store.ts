@@ -316,6 +316,48 @@ export async function recordMetaLaunchIntentValidation(input: {
 }
 
 /**
+ * Record — or revoke — the approval that lets an activation run unattended.
+ *
+ * The column and its reader shipped together and nothing could write one, so
+ * every row's approval was NULL and the scheduled path could only refuse. This
+ * is the writer.
+ *
+ * It takes the whole document, built and validated elsewhere, and it never
+ * merges: an approval is a single statement about a single payload, and
+ * patching a field of one would produce an approval nobody gave. Passing null
+ * clears it, which is how "this is operator-only again" is said.
+ */
+export async function recordMetaLaunchIntentActivationApproval(input: {
+  businessId: string;
+  id: string;
+  approval: unknown | null;
+}): Promise<MetaLaunchIntent> {
+  const sql = getDb();
+  const rows = (await sql`
+    UPDATE meta_launch_intents
+    SET activation_approval_json = ${
+      input.approval === null ? null : JSON.stringify(input.approval)
+    }::jsonb,
+        updated_at = NOW()
+    WHERE business_id = ${input.businessId}
+      AND id = ${input.id}
+      /*
+        Only a launch that produced something can be approved for activation.
+
+        A prepared or failed intent has nothing to turn on, and an approval
+        sitting on one would be an authorization waiting for entities that may
+        never exist in the shape it names.
+      */
+      AND status IN ('succeeded', 'partially_succeeded')
+    RETURNING *
+  `) as MetaLaunchIntentDbRow[];
+  return requireUpdatedIntent(
+    rows,
+    "Launch intent has not created anything that can be approved for activation.",
+  );
+}
+
+/**
  * Store the receipt of one activation attempt.
  *
  * No status transition and no guard on the current status. Activation does not

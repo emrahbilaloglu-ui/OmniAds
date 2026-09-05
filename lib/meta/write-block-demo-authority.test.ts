@@ -62,6 +62,17 @@ function controlRow(overrides: Record<string, unknown> = {}) {
 beforeEach(() => {
   vi.clearAllMocks();
   vi.stubEnv("META_AUTOMATION_WRITE_GUARD_TEST_READS", "1");
+  /*
+    The release capability, opened so these cases can be about DEMO status.
+
+    The shared block now refuses every product write while the capability is
+    shut, and it refuses first — cheapest fact, and the one a deployment
+    controls. With it closed, "a proven live workspace" would answer
+    `release_capability_closed` and this suite would stop proving anything
+    about the demo branch. The closed answer has its own coverage in
+    `write-posture-enforcement.test.ts`.
+  */
+  vi.stubEnv("META_AUTOMATION_LIVE_WRITES", "true");
 });
 
 afterEach(() => {

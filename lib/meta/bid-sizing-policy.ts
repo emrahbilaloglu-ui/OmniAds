@@ -115,9 +115,29 @@ function positive(value: number | null | undefined): value is number {
 }
 
 export function isBidCapStrategy(value: string | null | undefined): boolean {
+  return bidStrategyFamily(value) !== null;
+}
+
+/**
+ * The family two spellings of one strategy share.
+ *
+ * The warehouse says `bid_cap`; Meta says `LOWEST_COST_WITH_BID_CAP`. They are
+ * the same strategy, and a write path that compared the retained value with
+ * the provider's own by string equality would refuse every real bid cap in the
+ * account — reading "the strategy changed" off a difference in vocabulary. The
+ * comparison that matters is the family, so it is named once here rather than
+ * re-derived at each boundary.
+ */
+export function bidStrategyFamily(
+  value: string | null | undefined,
+): "cost_cap" | "bid_cap" | null {
   const normalized = value?.trim().toLowerCase();
-  if (!normalized) return false;
-  return (BID_CAP_STRATEGIES as readonly string[]).includes(normalized);
+  if (!normalized) return null;
+  if (normalized === "cost_cap") return "cost_cap";
+  if (normalized === "bid_cap" || normalized === "lowest_cost_with_bid_cap") {
+    return "bid_cap";
+  }
+  return null;
 }
 
 export function sizeBidChange(input: BidSizingInput): BidSizingOutcome {

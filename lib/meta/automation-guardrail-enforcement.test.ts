@@ -102,6 +102,17 @@ describe("the persisted quiet-hours window refuses provider writes", () => {
     vi.clearAllMocks();
     vi.unstubAllEnvs();
     vi.stubEnv("META_AUTOMATION_WRITE_GUARD_TEST_READS", "1");
+    /*
+      The release capability, opened so these cases are about QUIET HOURS.
+
+      The shared block refuses every product write while the capability is
+      shut, and it answers before the guardrails — it is the cheapest fact and
+      the one a deployment controls. Left closed, all seven cases below would
+      read `release_capability_closed` and prove nothing about the operator's
+      own window. The closed answer is covered by
+      `lib/meta/write-posture-enforcement.test.ts`.
+    */
+    vi.stubEnv("META_AUTOMATION_LIVE_WRITES", "true");
   });
 
   it("refuses a write inside the configured window", async () => {
@@ -144,7 +155,17 @@ describe("the persisted quiet-hours window refuses provider writes", () => {
       at: new Date("2026-08-17T08:00:00.000Z"),
     });
 
-    expect(block).toEqual({ blocked: false, reason: null, message: null });
+    /*
+      Not blocked, and still rehearsing.
+
+      `guardrails_json` carries no explicit `dryRunOnly: false`, and the
+      default is rehearsal — a business that has never committed to live
+      writes gets one. "Not blocked" and "will reach Meta" are two facts, and
+      the shared posture reports both.
+    */
+    expect(block).toEqual({
+      blocked: false, reason: null, message: null, rehearsal: true,
+    });
   });
 
   it("honours a window that crosses midnight", async () => {
@@ -182,7 +203,9 @@ describe("the persisted quiet-hours window refuses provider writes", () => {
       // 12:00 in New York — squarely outside.
       at: new Date("2026-08-17T16:00:00.000Z"),
     });
-    expect(outside).toEqual({ blocked: false, reason: null, message: null });
+    expect(outside).toEqual({
+      blocked: false, reason: null, message: null, rehearsal: true,
+    });
   });
 
   it("respects the minute, not just the hour", async () => {
@@ -198,7 +221,9 @@ describe("the persisted quiet-hours window refuses provider writes", () => {
       // 22:29 in New York.
       at: new Date("2026-08-18T02:29:00.000Z"),
     });
-    expect(justBefore).toEqual({ blocked: false, reason: null, message: null });
+    expect(justBefore).toEqual({
+      blocked: false, reason: null, message: null, rehearsal: true,
+    });
 
     vi.mocked(db.getDb).mockReturnValue(controlPlaneSql(window) as never);
     const justInside = await getMetaWriteBlockState({
@@ -265,7 +290,17 @@ describe("the persisted quiet-hours window refuses provider writes", () => {
       at: new Date("2026-08-17T18:00:00.000Z"),
     });
 
-    expect(block).toEqual({ blocked: false, reason: null, message: null });
+    /*
+      Not blocked, and still rehearsing.
+
+      `guardrails_json` carries no explicit `dryRunOnly: false`, and the
+      default is rehearsal — a business that has never committed to live
+      writes gets one. "Not blocked" and "will reach Meta" are two facts, and
+      the shared posture reports both.
+    */
+    expect(block).toEqual({
+      blocked: false, reason: null, message: null, rehearsal: true,
+    });
   });
 });
 

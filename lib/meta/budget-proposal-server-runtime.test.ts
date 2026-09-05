@@ -137,6 +137,7 @@ const proposalFor = (shape: Shape): MetaAutomationProposal => ({
   reason: "typed budget intent", evidenceLabel: null, evidenceRef: {},
   expiresAt: "2026-09-01T00:00:00.000Z", status: "claimed",
   decidedBy: ACTOR, decidedAt: null, decisionNote: null, receipt: null,
+  bidEnvelope: null,
   budgetEnvelope: buildBudgetProposalEnvelope({
     proposalId: "11111111-1111-4111-8111-111111111111",
     businessId: BIZ, providerAccountId: "act_123",

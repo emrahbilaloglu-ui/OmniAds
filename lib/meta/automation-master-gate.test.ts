@@ -110,18 +110,53 @@ describe("PRE-DEPLOY — every unattended Meta write is behind the master gate",
       .filter((entry) => entry.calls.length > 0);
 
     /*
-      Two modules, and only two.
+      Three modules, and only three.
 
       `budget-proposal-server-readers.ts` holds `updateEntityBudget`;
-      `scheduled-status-runtime.ts` holds the status primitives the sweep drives
-      for a queued pause or resume. Both are reached only after the sweep's gate
-      chain, and both are named here so a THIRD writer appearing in this closure
-      fails loudly rather than arriving unannounced.
+      `scheduled-status-runtime.ts` holds the status primitives the sweep
+      drives for a queued pause or resume; `scheduled-bid-runtime.ts` holds
+      `updateAdsetBidAmount` for a queued cap change, which is the family that
+      had a queue action, a database CHECK and no executor at all.
+
+      Each is reached only after the sweep's gate chain, and each is named here
+      so a FOURTH writer appearing in this closure fails loudly rather than
+      arriving unannounced. Adding one is meant to be a deliberate edit of this
+      list, which is what the next case then holds it to.
     */
     expect(writers.map((entry) => entry.file)).toEqual([
       "lib/meta/budget-proposal-server-readers.ts",
+      "lib/meta/scheduled-bid-runtime.ts",
       "lib/meta/scheduled-status-runtime.ts",
     ]);
+  });
+
+  it("the bid writer carries the same gate the status writer does", () => {
+    /*
+      A new writer in the closure above is on probation until it proves it
+      answers to the same chain. This is that proof, asserted from the source
+      rather than from a claim: the scheduled authority, the pre-POST hook, the
+      throw that actually stops the request, and the two refusals that must
+      never be defaults.
+
+      It also re-reads the ad set's own bid state, which the status writer has
+      no equivalent of: a cap amount is meaningless without the strategy it
+      sits on, and both can move between the decision and the write.
+    */
+    const code = stripComments(
+      readFileSync("lib/meta/scheduled-bid-runtime.ts", "utf8"));
+    expect(code).toContain("evaluateScheduledAuthority(");
+    expect(code).toContain("beforeMutationAttempt");
+    expect(code).toContain("throw new Error(verdict.refusal)");
+    expect(code).toContain("control_state_unavailable");
+    expect(code).toContain("manual_confirmation_absent");
+    // The shared posture, not a literal.
+    expect(code).toContain("readMetaWritePosture(");
+    // And the live baseline, before anything is composed.
+    expect(code).toContain("readMetaAdsetBidState(");
+    expect(code).toContain("bid_baseline_changed");
+    expect(code).toContain("bid_strategy_not_writable");
+    // An amount it cannot vouch for is never written.
+    expect(code).toContain("bid_envelope_absent");
   });
 
   it("the status writer re-proves its authority immediately before the POST", () => {

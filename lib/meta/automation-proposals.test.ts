@@ -130,9 +130,14 @@ describe("scheduled proposal claims reserve the daily cap atomically", () => {
     expect(capCall!.text).toContain("proposed_action = ANY($4::text[])");
     expect(capCall!.text).not.toContain("proposed_action = 'budget'");
     expect(capCall!.values[3]).toEqual([...AUTOMATABLE_PROPOSAL_ACTIONS]);
-    // And the list is the one the sweep actually dispatches.
+    /*
+      And the list is the one the sweep actually dispatches — now including
+      `bid`, which had no producer and no executor and so could not be counted
+      against anything. A cap change moves money exactly the way a budget
+      change does, so it consumes the same daily allowance.
+    */
     expect([...AUTOMATABLE_PROPOSAL_ACTIONS].sort())
-      .toEqual(["budget", "pause", "resume"]);
+      .toEqual(["bid", "budget", "pause", "resume"]);
     // Still account-scoped: one account's automatic actions never consume
     // another's allowance.
     expect(capCall!.values[0]).toBe(BUSINESS_ID);

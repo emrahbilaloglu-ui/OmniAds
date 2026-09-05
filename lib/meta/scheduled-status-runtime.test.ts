@@ -10,9 +10,22 @@ vi.mock("@/lib/meta/ads-write", () => ({
   pauseAdset: vi.fn(),
   resumeAdset: vi.fn(),
 }));
+/*
+  The shared server posture, answered rather than removed.
+
+  The runtime reads it twice — once cheaply and once at the pre-POST boundary —
+  and it fails CLOSED, so with no database these cases would all refuse with
+  `kill_switch_engaged` before reaching the behaviour they are about. Only the
+  reading is faked; the branch that acts on it still runs, and the case below
+  drives it blocked on purpose.
+*/
+vi.mock("@/lib/meta/automation-write-guard", () => ({
+  readMetaWritePosture: vi.fn(async () => ({ blocked: false, rehearsal: false })),
+}));
 
 import * as log from "@/lib/meta/ads-action-log";
 import * as adsWrite from "@/lib/meta/ads-write";
+import * as writeGuard from "@/lib/meta/automation-write-guard";
 import type { MetaAutomationProposal } from "@/lib/meta/automation-proposals";
 import {
   createScheduledStatusRuntime,
@@ -68,6 +81,63 @@ function build(options: {
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(log.createMetaAdsActionLog).mockResolvedValue({ id: "log-1" } as never);
+  vi.mocked(writeGuard.readMetaWritePosture).mockResolvedValue(
+    { blocked: false, rehearsal: false } as never,
+  );
+});
+
+describe("the unattended path answers to the SAME server posture", () => {
+  it("withholds and sends nothing when the shared posture is blocked", async () => {
+    /*
+      This runtime used to pass `killSwitchEngaged: false` as a literal, which
+      made the write with nobody watching the only family that never consulted
+      the shared gate. The capability, the readiness tier, the STOP, the guard
+      rules and quiet hours all live behind this one read.
+    */
+    vi.mocked(writeGuard.readMetaWritePosture).mockResolvedValue(
+      { blocked: true, reason: "release_capability_closed", rehearsal: true } as never,
+    );
+    const runtime = build();
+    const result = await runtime({
+      proposal: PROPOSAL,
+      dryRunOnly: false,
+      claimToken: "claim-1",
+      authorization: SCHEDULED,
+    });
+    expect(result.receipt.withheld).toBe("release_gate_closed");
+    expect(vi.mocked(adsWrite.pauseAdset)).not.toHaveBeenCalled();
+    // No claim either: a refused row must not leave a marker saying a call
+    // may be live.
+    expect(vi.mocked(log.createMetaAdsActionLog)).not.toHaveBeenCalled();
+  });
+
+  it("names the readiness tier separately from the STOP", async () => {
+    vi.mocked(writeGuard.readMetaWritePosture).mockResolvedValue(
+      { blocked: true, reason: "readiness_tier_read_only", rehearsal: true } as never,
+    );
+    const runtime = build();
+    const result = await runtime({
+      proposal: PROPOSAL,
+      dryRunOnly: false,
+      claimToken: "claim-1",
+      authorization: SCHEDULED,
+    });
+    // Three different answers an operator has to be able to tell apart.
+    expect(result.receipt.withheld).toBe("auto_execution_disabled");
+  });
+
+  it("refuses rather than writing when the posture cannot be read", async () => {
+    vi.mocked(writeGuard.readMetaWritePosture).mockRejectedValue(new Error("db down"));
+    const runtime = build();
+    const result = await runtime({
+      proposal: PROPOSAL,
+      dryRunOnly: false,
+      claimToken: "claim-1",
+      authorization: SCHEDULED,
+    });
+    expect(result.receipt.withheld).toBe("control_state_unavailable");
+    expect(vi.mocked(adsWrite.pauseAdset)).not.toHaveBeenCalled();
+  });
 });
 
 describe("a scheduled status change never claims an operator confirmed it", () => {

@@ -5326,12 +5326,22 @@ export async function runMigrations(options?: {
                 AND pg_get_constraintdef(c.oid) LIKE '%launch_campaign%'
                 AND pg_get_constraintdef(c.oid) LIKE '%launch_adset%'
                 AND pg_get_constraintdef(c.oid) LIKE '%launch_ad%'
+                AND pg_get_constraintdef(c.oid) LIKE '%bid%'
             ) THEN
+              ALTER TABLE meta_ads_action_log
+                DROP CONSTRAINT IF EXISTS meta_ads_action_log_action_check;
               ALTER TABLE meta_ads_action_log
                 ADD CONSTRAINT meta_ads_action_log_action_check
                 CHECK (action IN (
                   'pause',
                   'resume',
+                  /*
+                    An ad-set bid amount change, journalled like every other
+                    write. It is deliberately its own verb: the pause/resume
+                    triggers above key on their own two, and a bid row must not
+                    fall into a status row's contract.
+                  */
+                  'bid',
                   'duplicate',
                   'launch_campaign',
                   'launch_adset',
@@ -12588,6 +12598,53 @@ export async function runMigrations(options?: {
             ALTER TABLE meta_automation_proposals
               ADD CONSTRAINT meta_automation_proposals_launch_lineage
               CHECK (proposed_action <> 'launch' OR launch_intent_id IS NOT NULL);
+          END IF;
+        END $$;`,
+        /*
+          ── The amount a queued bid row is about ──
+
+          `bid` has been in the action CHECK since the table was created and no
+          row could ever prove a number: the queue carried a verb and a target
+          id, and an executor asked to raise a cap would have had to invent the
+          amount from a sentence. That is why unattended bid execution was
+          excluded rather than implemented.
+
+          It mirrors the budget envelope exactly, including the constraint that
+          matters — a `bid` row without one cannot exist. A nullable column with
+          a hopeful reader would let a row reach a dispatcher with nothing in
+          it, and the dispatcher would have to decide what to do about a bid
+          change of unknown size.
+        */
+        sql`ALTER TABLE meta_automation_proposals
+          ADD COLUMN IF NOT EXISTS bid_envelope_json JSONB`,
+        sql`DO $$
+        BEGIN
+          IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint c
+            JOIN pg_class t ON t.oid = c.conrelid
+            JOIN pg_namespace n ON n.oid = t.relnamespace
+            WHERE n.nspname = current_schema()
+              AND t.relname = 'meta_automation_proposals'
+              AND c.conname = 'meta_automation_proposals_bid_envelope_object'
+          ) THEN
+            ALTER TABLE meta_automation_proposals
+              ADD CONSTRAINT meta_automation_proposals_bid_envelope_object
+              CHECK (
+                bid_envelope_json IS NULL
+                OR jsonb_typeof(bid_envelope_json) = 'object'
+              );
+          END IF;
+          IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint c
+            JOIN pg_class t ON t.oid = c.conrelid
+            JOIN pg_namespace n ON n.oid = t.relnamespace
+            WHERE n.nspname = current_schema()
+              AND t.relname = 'meta_automation_proposals'
+              AND c.conname = 'meta_automation_proposals_bid_envelope_required'
+          ) THEN
+            ALTER TABLE meta_automation_proposals
+              ADD CONSTRAINT meta_automation_proposals_bid_envelope_required
+              CHECK (proposed_action <> 'bid' OR bid_envelope_json IS NOT NULL);
           END IF;
         END $$;`,
       ]);

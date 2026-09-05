@@ -108,6 +108,19 @@ vi.mock("@/lib/meta/budget-proposal-producer", () => ({
   insertBudgetProposalRow: vi.fn(async () => null),
 }));
 
+// The bid producer is a collaborator on the same chain, mocked for the same
+// reason: its own SQL and envelope have dedicated tests, and letting it read
+// here would pollute this suite's captured decision rows.
+vi.mock("@/lib/meta/bid-proposal-producer", () => ({
+  projectMetaBidProposals: vi.fn(async () => ({
+    ran: true,
+    candidates: 0,
+    projected: 0,
+    refusals: {},
+  })),
+  insertBidProposalRow: vi.fn(async () => null),
+}));
+
 vi.mock("@/lib/meta/budget-proposal-source-loader", () => ({
   loadBudgetCompositionSourcesForCandidate: vi.fn(async () => null),
 }));

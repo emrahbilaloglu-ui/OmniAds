@@ -494,3 +494,38 @@ already-classified D077 planner/executor family.
 The regression fixture pins that predecessor-presence query while proving that
 capture order cannot erase distinct transitions observed in a different order.
 It opens no production connection.
+
+## Addendum — 2026-09-05 operator-readiness sizing projection
+
+`lib/meta/intent-projection-context.ts` (new, 2) — CONTENT READER
+
+The budget and bid sizing policies need a canonical current amount and a proven
+owner, and this is where both come from. Its predecessor read
+`meta_campaign_config_history` for columns that do not exist there
+(`budget_owner_mode`, `budget_raw_minor_units`, `budget_field`, `changed_at`),
+so every read failed as `42703`, was swallowed, and no typed intent could be
+produced from a real source.
+
+The two literals are one query. It is latest-per-entity per the D075 serving
+corollary — `DISTINCT ON (entity_type, entity_id)` ordered by `observed_at
+DESC, captured_at DESC, created_at DESC, id DESC` — bounded by the snapshot
+date, and presence-guarded, so an absent winner is excluded rather than
+resurrected behind it. Ownership is taken from `budget_origin` and matched
+against the entity's OWN grain: an ad set under a CBO campaign carries the
+campaign's amount in its own observation, and attributing that to the ad set
+double-counted the account. It serves no entity content to a surface; it
+returns owned minor units, an owner mode and a currency, and withholds when
+ownership is not provable.
+
+`lib/meta/intent-projection-context.test.ts` (new, 2) — TEST
+
+Schema-aware: it asserts on the shape the reader produces and carries a
+forbidden-column guard so a return to the non-existent column names fails
+rather than silently yielding nulls again.
+
+`scripts/ephemeral-postgres-intent-projection-seam-child.ts` (new, 2) — HARNESS
+
+The same query against a genuinely migrated throwaway database, seeded with a
+CBO campaign, an ad set beneath it and a separate ABO ad set. It is what caught
+the double-count above: the account total read 550,000 instead of 300,000 until
+ownership was matched to the entity's own grain.

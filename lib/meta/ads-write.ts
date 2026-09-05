@@ -2731,12 +2731,113 @@ export async function resumeAdset(
   return updateEntityStatus(ctx, adsetId, "ACTIVE", "ad set", options);
 }
 
+export type MetaAdsetBidStateRead =
+  | {
+      ok: true;
+      adsetId: string;
+      providerAccountId: string;
+      /** Minor units, as Meta stores `bid_amount`. Null when there is none. */
+      bidAmountMinor: number | null;
+      /** The live strategy. A cap written under another one means something else. */
+      bidStrategy: string | null;
+      configuredStatus: string | null;
+      effectiveStatus: string | null;
+      observedAt: string;
+    }
+  | { ok: false; adsetId: string | null; error: MetaAdsWriteError; httpStatus: number | null };
+
+/**
+ * The current bid state of one ad set, bound to its identity.
+ *
+ * A bid intent is reasoned about under a strategy — a cost cap and a bid cap
+ * are different instructions to the auction — and the strategy can change
+ * between the decision and the write. Nothing may be written against an
+ * assumption about it, so this is read fresh immediately before the write and
+ * refuses, like every other reader here, when the answer is about a different
+ * ad set or a different account.
+ */
+export async function readMetaAdsetBidState(
+  ctx: MetaAdsWriteContext,
+  adsetId: string,
+): Promise<MetaAdsetBidStateRead> {
+  const result = await metaFetch({
+    ctx,
+    path: adsetId,
+    method: "GET",
+    fields: "id,account_id,bid_amount,bid_strategy,status,effective_status",
+  });
+  if (result.error || !result.response?.ok || isFailureBody(result.payload)) {
+    return {
+      ok: false,
+      adsetId,
+      error:
+        result.error
+        ?? getMetaError(result.payload, {
+          code: "current_entity_state_unverified",
+          message: "Meta current ad set bid state could not be verified.",
+        }),
+      httpStatus: result.response?.status ?? null,
+    };
+  }
+  const resolvedId = readStringField(result.payload, "id");
+  if (resolvedId !== adsetId) {
+    return {
+      ok: false,
+      adsetId: resolvedId || null,
+      error: {
+        code: "entity_identity_mismatch",
+        message: "Meta ad set bid state resolved to a different ad set.",
+      },
+      httpStatus: result.response.status,
+    };
+  }
+  const providerAccountId = normalizeProviderAccountId(
+    readStringField(result.payload, "account_id"),
+  );
+  if (
+    !providerAccountId
+    || providerAccountId !== normalizeProviderAccountId(ctx.providerAccountId)
+  ) {
+    return {
+      ok: false,
+      adsetId: resolvedId,
+      error: {
+        code: providerAccountId ? "provider_account_mismatch" : "meta_account_unresolved",
+        message: providerAccountId
+          ? "Meta ad set bid state belongs to a different provider account."
+          : "Meta ad set bid state omitted account identity.",
+      },
+      httpStatus: result.response.status,
+    };
+  }
+  const rawBid = Number(result.payload?.bid_amount ?? NaN);
+  return {
+    ok: true,
+    adsetId: resolvedId,
+    providerAccountId,
+    bidAmountMinor: Number.isFinite(rawBid) ? Math.round(rawBid) : null,
+    bidStrategy: readStringField(result.payload, "bid_strategy") || null,
+    configuredStatus: readStringField(result.payload, "status") || null,
+    effectiveStatus: readStringField(result.payload, "effective_status") || null,
+    observedAt: new Date().toISOString(),
+  };
+}
+
 export async function updateAdsetBidAmount(
   ctx: MetaAdsWriteContext,
   input: {
     adsetId: string;
     bidAmountMinor: number;
     dryRun?: boolean;
+    /**
+     * The strategy the amount was reasoned under.
+     *
+     * When given, the read-back must still show it. The bid intent's own
+     * contract asserts `bid_strategy_unchanged` for a reason: the same number
+     * under a different strategy is a different instruction, and a write that
+     * verified only the number would report success for it.
+     */
+    expectedBidStrategy?: string | null;
     /** See `MetaEntityStatusWriteOptions`: the pre-POST authority boundary. */
     beforeMutationAttempt?: () => Promise<void>;
   },
@@ -2821,6 +2922,30 @@ export async function updateAdsetBidAmount(
           code: "verification_failed",
           message: "Meta accepted the ad set bid write, but verification failed.",
         },
+      responsePayload: write.payload,
+      verificationPayload: verification.payload,
+    };
+  }
+  /*
+    The strategy, checked before the amount.
+
+    A cap of 1320 on `COST_CAP` and on `LOWEST_COST_WITH_BID_CAP` are different
+    instructions. If the strategy moved between the decision and the write, the
+    number that was verified is not the number that was decided, and calling
+    that a success would be the write reporting on something else.
+  */
+  const verifiedStrategy = readStringField(verification.payload, "bid_strategy") || null;
+  const expectedStrategy = input.expectedBidStrategy?.trim().toUpperCase() || null;
+  if (expectedStrategy && verifiedStrategy?.trim().toUpperCase() !== expectedStrategy) {
+    return {
+      ok: false,
+      httpStatus: 409,
+      error: {
+        code: "bid_strategy_changed",
+        message: `Meta accepted the bid write, but the ad set's strategy verified as ${verifiedStrategy ?? "unknown"} instead of ${expectedStrategy}.`,
+      },
+      providerOutcome: "definite_failure",
+      mutationAttempt: write.mutationAttempt,
       responsePayload: write.payload,
       verificationPayload: verification.payload,
     };

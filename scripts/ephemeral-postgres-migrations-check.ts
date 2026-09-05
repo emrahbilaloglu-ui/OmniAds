@@ -3002,6 +3002,18 @@ async function main() {
       "duplicate-ad reconciliation DB seam check",
     );
 
+    /*
+      The bid arm's own SQL, which is the part a mock cannot answer: the typed
+      candidate query reads real payload columns, and the database — not a
+      hopeful reader — is what refuses a `bid` row with no amount on it.
+    */
+    await runChildScript(
+      repoRoot,
+      databaseUrl,
+      path.join("scripts", "ephemeral-postgres-bid-queue-seam-child.ts"),
+      "bid queue DB seam check",
+    );
+
     // The null-versus-zero contract rests on a claim about the SCHEMA — that a
     // NULL column and an absent payload key are still distinguishable from a
     // measured 0 after the read. In memory that claim is unfalsifiable, so it

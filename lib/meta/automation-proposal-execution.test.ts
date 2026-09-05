@@ -47,6 +47,7 @@ function proposal(
     decidedAt: null,
     decisionNote: null,
     receipt: null,
+    bidEnvelope: null,
     budgetEnvelope: null,
     // Claim fields are part of the row now. A fixture that omitted them would
     // let a test assert on a proposal shape the database can no longer produce.

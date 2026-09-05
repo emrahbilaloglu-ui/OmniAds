@@ -504,6 +504,7 @@ const proposal = (over: Partial<MetaAutomationProposal> = {}): MetaAutomationPro
   expiresAt: new Date(NOW + 6 * 3_600_000).toISOString(),
   status: "pending", decidedBy: null, decidedAt: null, decisionNote: null,
   receipt: null,
+  bidEnvelope: null,
   budgetEnvelope: buildBudgetProposalEnvelope({
     proposalId: PROPOSAL_ID, businessId: BIZ, providerAccountId: ACCOUNT,
     ownerGrain: CBO.grain, entityId: CBO.entityId,

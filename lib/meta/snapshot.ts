@@ -36,6 +36,10 @@ import {
   insertBudgetProposalRow,
   projectMetaBudgetProposals,
 } from "@/lib/meta/budget-proposal-producer";
+import {
+  insertBidProposalRow,
+  projectMetaBidProposals,
+} from "@/lib/meta/bid-proposal-producer";
 import { loadBudgetCompositionSourcesForCandidate }
   from "@/lib/meta/budget-proposal-source-loader";
 import { buildMetaEntityStateRows } from "@/lib/meta/engine-v1/state-rows";
@@ -103,6 +107,8 @@ export interface RunMetaSnapshotResult {
   proposals: { projected: number; expired: number } | null;
   /** D088: the canonical budget producer's own result, reported separately. */
   budgetProposals?: { candidates: number; projected: number } | null;
+  /** The bid producer's own result, reported separately for the same reason. */
+  bidProposals?: { candidates: number; projected: number } | null;
   /**
    * The accounts THIS attempt generated for, so a caller can record completion
    * from what happened rather than from what exists.
@@ -1500,6 +1506,7 @@ export async function runMetaSnapshotForBusiness(
       anomaliesWritten: 0,
       proposals: null,
       budgetProposals: null,
+      bidProposals: null,
       failedAccountIds: [],
       skippedReason: "provider_account_not_assigned",
     };
@@ -1738,12 +1745,46 @@ export async function runMetaSnapshotForBusiness(
       });
       return null;
     });
+  /*
+    The BID producer, on the same chain and the same tick as the budget one.
+
+    `bid` has been an allowed queue action since the table was created and
+    nothing has ever raised one, which is why unattended bid execution was
+    excluded rather than built. The sizing policy and the intent contract were
+    already here; this is the step that turns the typed intent the snapshot
+    just wrote into a row an operator can approve.
+
+    Like the two projections above, a failure degrades to "the queue was not
+    projected" — the decisions are already durable and the card still shows the
+    amount.
+  */
+  const bidProposals = await projectMetaBidProposals({
+    businessId,
+    snapshotDate: normalizedSnapshotDate,
+    insertProposal: async (insert) => insertBidProposalRow({
+      businessId,
+      proposalId: insert.proposalId,
+      candidate: insert.candidate,
+      envelopeJson: insert.envelopeJson,
+      actionLabel: insert.actionLabel,
+    }),
+  })
+    .then((result) => ({ candidates: result.candidates, projected: result.projected }))
+    .catch((error) => {
+      console.warn("[meta-snapshot] bid_proposal_projection_failed", {
+        businessId,
+        snapshotDate: normalizedSnapshotDate,
+        message: error instanceof Error ? error.message : String(error),
+      });
+      return null;
+    });
 
   return {
     businessId,
     snapshotDate: normalizedSnapshotDate,
     calibration,
     budgetProposals,
+    bidProposals,
     recommendationsWritten: recommendations.length,
     failedAccountIds: failedAccounts
       .map((entry) => entry.accountId)

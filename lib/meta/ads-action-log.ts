@@ -29,6 +29,8 @@ import {
 export type MetaAdsActionKind =
   | "pause"
   | "resume"
+  /** An ad-set bid amount change. Never a status, never a budget. */
+  | "bid"
   | "duplicate"
   | "launch_campaign"
   | "launch_adset"

@@ -48,6 +48,19 @@ export const BUDGET_PROPOSAL_WITHHELD_REASONS = [
   "mode_not_auto",
   "kill_switch_engaged",
   "control_state_unavailable",
+  /*
+    The four only a BID row can produce.
+
+    A bid change is the one queued action whose meaning depends on a provider
+    setting that can move underneath it. Each of these is a different fact and
+    the operator needs to be able to tell them apart: no amount was stored, the
+    strategy is not one that owns a writable amount, the current value could
+    not be read, or it is no longer the value the decision was reasoned from.
+  */
+  "bid_envelope_absent",
+  "bid_strategy_not_writable",
+  "bid_baseline_unreadable",
+  "bid_baseline_changed",
 ] as const;
 export type BudgetProposalWithheldReason =
   (typeof BUDGET_PROPOSAL_WITHHELD_REASONS)[number];

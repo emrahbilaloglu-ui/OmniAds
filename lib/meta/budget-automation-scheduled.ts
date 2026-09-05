@@ -21,6 +21,7 @@ import {
 } from "@/lib/meta/budget-automation-worker";
 import { createBudgetProposalServerRuntime } from "@/lib/meta/budget-proposal-server-runtime";
 import { createScheduledStatusRuntime } from "@/lib/meta/scheduled-status-runtime";
+import { createScheduledBidRuntime } from "@/lib/meta/scheduled-bid-runtime";
 import { createBudgetServerReaders } from "@/lib/meta/budget-proposal-server-readers";
 import { buildMetaBudgetWriteContextForProposal } from "@/lib/meta/budget-proposal-write-context";
 import {
@@ -372,38 +373,62 @@ export async function runMetaBudgetAutomationSweepIfDue(
       acted, and the primitive's pre-POST hook is where this path re-proves
       that authority after the claim.
     */
+    /*
+      The reader's type makes most of the posture optional, so absence is
+      normalised HERE rather than inside the authority check. Every default
+      below is the closed one: a field nobody wrote is not permission.
+
+      Named once and shared by both unattended arms: two copies would be two
+      places for a default to drift open in.
+    */
+    const statusGates = async ({ proposal }: { proposal: MetaAutomationProposal }) => {
+      const gates = await readers.readGates({ proposal });
+      return {
+        releaseGateOpen: gates.releaseGateOpen === true,
+        autoExecutionEnabled: gates.autoExecutionEnabled === true,
+        enabledProviderAccountId: gates.enabledProviderAccountId ?? null,
+        enablingActorUserId: gates.enablingActorUserId ?? null,
+        activationControlVersion: gates.activationControlVersion ?? null,
+        dryRunOnly: gates.dryRunOnly !== false,
+      };
+    };
+    /*
+      Re-read, not the `modes` above. The whole point of the boundary check is
+      that the operator can change their mind in the seconds a claim and a
+      composition take. A bid row resolves the `bid` mode, a pause row the
+      `pause` mode — the mapping is the proposal's own action.
+    */
+    const statusMode = async ({ proposal }: { proposal: MetaAutomationProposal }) => {
+      const current = await resolveEffectiveMetaModes(proposal.businessId)
+        .catch(() => null);
+      if (!current) return null;
+      return current[decisionTypeForProposedAction(proposal.proposedAction)];
+    };
     const statusRuntime = createScheduledStatusRuntime({
       ctx: writeContext,
-      readGates: async ({ proposal }) => {
-        /*
-          The reader's type makes most of the posture optional, so absence is
-          normalised HERE rather than inside the authority check. Every default
-          below is the closed one: a field nobody wrote is not permission.
-        */
-        const gates = await readers.readGates({ proposal });
-        return {
-          releaseGateOpen: gates.releaseGateOpen === true,
-          autoExecutionEnabled: gates.autoExecutionEnabled === true,
-          enabledProviderAccountId: gates.enabledProviderAccountId ?? null,
-          enablingActorUserId: gates.enablingActorUserId ?? null,
-          activationControlVersion: gates.activationControlVersion ?? null,
-          dryRunOnly: gates.dryRunOnly !== false,
-        };
-      },
-      /*
-        Re-read, not the `modes` above. The whole point of the boundary check
-        is that the operator can change their mind in the seconds a claim and
-        a composition take.
-      */
-      readMode: async ({ proposal }) => {
-        const current = await resolveEffectiveMetaModes(proposal.businessId)
-          .catch(() => null);
-        if (!current) return null;
-        return current[decisionTypeForProposedAction(proposal.proposedAction)];
-      },
+      readGates: statusGates,
+      readMode: statusMode,
+    });
+    /*
+      The bid arm, which had no executor at all.
+
+      `bid` was an allowed queue action with no producer and no runtime: a row,
+      had one ever been raised, would have been claimed and then withheld as
+      `composition_blocked`. It reads the same gates and the same posture as
+      the status arm; what it adds is a live re-read of the ad set's own bid
+      state, because a cap amount means nothing without the strategy it sits on.
+    */
+    const bidRuntime = createScheduledBidRuntime({
+      ctx: writeContext,
+      readGates: statusGates,
+      readMode: statusMode,
     });
     const runtimeFor = (proposal: MetaAutomationProposal) =>
-      proposal.proposedAction === "budget" ? budgetRuntime : statusRuntime;
+      proposal.proposedAction === "budget"
+        ? budgetRuntime
+        : proposal.proposedAction === "bid"
+          ? bidRuntime
+          : statusRuntime;
 
     const claimedProposals = new Map<string, MetaAutomationProposal>();
     reports.push(await runBudgetAutomationSweep({

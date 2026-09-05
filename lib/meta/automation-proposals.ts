@@ -56,6 +56,11 @@ import {
   parseBudgetProposalEnvelope,
   type BudgetProposalEnvelope,
 } from "@/lib/meta/budget-proposal-runtime";
+import {
+  bidEnvelopeForProposalRow,
+  parseBidProposalEnvelope,
+  type BidProposalEnvelope,
+} from "@/lib/meta/bid-proposal-envelope";
 
 /** Grains the queue can aim a guarded write at. */
 /**
@@ -82,11 +87,17 @@ export type MetaAutomationProposalScope = "campaign" | "adset" | "ad";
  *
  * `duplicate` and `launch` are absent: both create an entity, and creating one
  * without an operator is a different authorization than changing one that
- * already exists. `bid` is absent because no queue row can yet prove an
- * amount; it joins the list in the change that gives it an envelope.
+ * already exists.
+ *
+ * `bid` is here now. It was excluded because no queue row could prove an
+ * amount — the row carried a verb and a target and an executor would have had
+ * to invent the size of the change. `bid_envelope_json` is that amount, the
+ * database refuses a `bid` row without one, and the same daily cap that bounds
+ * a budget change now bounds a cap change, because both move money.
  */
 export const AUTOMATABLE_PROPOSAL_ACTIONS = [
   "budget",
+  "bid",
   "pause",
   "resume",
 ] as const;
@@ -337,6 +348,15 @@ export interface MetaAutomationProposal {
    */
   budgetEnvelope: BudgetProposalEnvelope | null;
   /**
+   * The same fact for a `bid` row: which ad set, from what, to what.
+   *
+   * Non-null only when the stored envelope parses, its own arithmetic holds
+   * and it names this row. The database refuses a `bid` row without one, so a
+   * null here means the value was edited or copied from another proposal —
+   * and the executor refuses rather than writing an amount it cannot vouch for.
+   */
+  bidEnvelope: BidProposalEnvelope | null;
+  /**
    * The current (or last) execution claim.
    *
    * `null` on a database that has not run the claim migration yet, which is a
@@ -550,6 +570,8 @@ interface ProposalDbRow {
   receipt_json: unknown;
   /** D088. Absent on a pre-migration read; the mapper then yields null. */
   budget_envelope_json?: unknown;
+  /** The bid amount envelope. Absent the same way on a pre-migration read. */
+  bid_envelope_json?: unknown;
   /** Absent (undefined) on a database that predates the claim migration. */
   claim_token?: string | null;
   claimed_by?: string | null;
@@ -615,6 +637,21 @@ function mapProposalRow(row: ProposalDbRow): MetaAutomationProposal {
         engineVersion: row.engine_version,
       },
     ),
+    /*
+      The same two proofs the budget envelope gets: the fingerprint says it was
+      not edited, the identity check says it was not copied from another row —
+      where it would re-fingerprint perfectly and name another ad set's cap.
+    */
+    bidEnvelope: bidEnvelopeForProposalRow(
+      parseBidProposalEnvelope(row.bid_envelope_json ?? null),
+      {
+        id: row.id,
+        businessId: row.business_id,
+        providerAccountId: row.provider_account_id,
+        scopeType: row.scope_type,
+        scopeId: row.scope_id,
+      },
+    ),
     claimToken: row.claim_token ?? null,
     claimedBy: row.claimed_by ?? null,
     claimedAt: row.claimed_at ? new Date(row.claimed_at).toISOString() : null,
@@ -640,7 +677,7 @@ const PROPOSAL_BASE_COLUMNS = `
  * the same way the claim columns do: the row still reads, the envelope is null,
  * and a budget approval refuses rather than dispatching without one.
  */
-const PROPOSAL_BUDGET_COLUMNS = `budget_envelope_json`;
+const PROPOSAL_BUDGET_COLUMNS = `budget_envelope_json, bid_envelope_json`;
 
 /** The claim columns, cast to text so a UUID arrives as the key it is used as. */
 const PROPOSAL_CLAIM_COLUMNS = `

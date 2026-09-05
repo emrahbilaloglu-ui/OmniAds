@@ -2646,6 +2646,12 @@ const COVERAGE: Record<string, Coverage> = {
   "MetaOsLegacyDecisionAction.budgetIntent": N(
     "Typed `never`: the legacy branch cannot carry a budget payload, and the type says so at compile time. There is no value to render — a field that cannot exist is not information withheld from the operator.",
   ),
+  "MetaOsLegacyDecisionAction.bidIntent": N(
+    "Typed `never`, for the same reason as the budget marker beside it: the legacy branch cannot carry a bid payload either.",
+  ),
+  "MetaOsBudgetDecisionAction.bidIntent": N(
+    "Typed `never`: one action carries ONE typed payload. Two would make 'what is being proposed here' a question with two answers, and the queue projects a row per payload — so a double-payload action would become two proposals for one decision. The type refuses it, and `assertCanonicalDecisionAction` refuses it again for callers arriving through JSON.",
+  ),
   "MetaOsDecisionActionBase.code": R(
     S.EVIDENCE,
     "the 'Served action' row, as 'code · intent · targetLevel'; the queue's own button prints the LABEL and never the code, and the served tuple travels to onStructurePrimary by reference",
@@ -3383,7 +3389,14 @@ describe("Meta Decision payload · served-field coverage matrix", () => {
       by "classifies every served field" before these numbers moved, which is
       the order the paragraph above requires.
     */
-    expect(fields.length).toBe(757);
+    /*
+      759: two `never` markers, from the canonical action's new bid branch.
+
+      They are exclusions rather than data — a bid action cannot also carry a
+      budget payload, and the legacy branch can carry neither — so the varying
+      count is unchanged. A leaf that cannot hold a value never varies.
+    */
+    expect(fields.length).toBe(759);
     expect(new Set(fields.map((field) => field.iface)).size).toBe(62);
     expect(fields.filter((field) => field.varies).length).toBe(707);
     expect(fields.some((field) => field.key.endsWith(".metrics.cpa"))).toBe(
@@ -4622,6 +4635,10 @@ const PINNED_BEYOND_TEXT_PROOF: Record<string, string> = {
   "MetaOsBudgetIntentPayload.readback.independentRead":
     "the pinned value is `true`, which has no text to search for",
   "MetaOsLegacyDecisionAction.budgetIntent":
+    "the field is typed `never`: there is no value, and so no literal, to search for",
+  "MetaOsLegacyDecisionAction.bidIntent":
+    "the field is typed `never`: there is no value, and so no literal, to search for",
+  "MetaOsBudgetDecisionAction.bidIntent":
     "the field is typed `never`: there is no value, and so no literal, to search for",
   "MetaBudgetDecisionEvidenceByDirection.directionSelected":
     "the type pins the value to `null`, which has no text to search for",

@@ -191,7 +191,13 @@ describe("automation release posture — the SHIPPED tree is phase A by construc
   it("ships a gate that only the exact string 'true' can open", () => {
     const gates = read("lib/meta/release-gates.ts");
     expect(gates).toContain('raw?.trim().toLowerCase() === "true"');
-    expect(gates).toContain("automationLiveWrites: parseGate(env.META_AUTOMATION_LIVE_WRITES)");
+    // The reader was extracted to a local so the decision workflow could follow
+    // the same capability instead of carrying a second variable of its own. The
+    // parse it goes through is what this case is about, and it is unchanged.
+    expect(gates).toContain(
+      "const automationLiveWrites = parseGate(env.META_AUTOMATION_LIVE_WRITES)",
+    );
+    expect(gates).toContain("automationLiveWrites,");
   });
 
   it("ships database defaults that are OFF at every layer", () => {

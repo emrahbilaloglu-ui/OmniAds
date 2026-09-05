@@ -29,6 +29,7 @@ vi.mock("@/lib/meta/automation-control-plane", async (importOriginal) => {
     await importOriginal<typeof import("@/lib/meta/automation-control-plane")>();
   return {
     ...actual,
+    ensureBusinessControlRow: vi.fn(async () => ({ created: false })),
     engageMetaAutomationKillSwitch: vi.fn(),
     releaseMetaAutomationKillSwitch: vi.fn(),
     setMetaAutomationDecisionTypeMode: vi.fn(),
@@ -245,19 +246,25 @@ describe("POST /api/meta/automation is demo fail-closed", () => {
     ).not.toHaveBeenCalled();
   });
 
-  it("refuses engage on the shut gate once the caller is beyond reproach", async () => {
+  it("never gates ENGAGE either — STOP is not a capability", async () => {
+    /*
+      This previously asserted a 503 from `META_AUTOMATION_STOP_UI`, which meant
+      the product could refuse to stop itself while the gate was shut. An
+      operator reaches for the kill switch precisely when provider writes are
+      closed, so STOP now has no environment gate in either direction. Every
+      other guard on this action is unchanged and is asserted by its own case:
+      role floor, reviewer read-only, and the demo refusals above.
+    */
     stubDemoFlag("live");
 
     const response = await POST(
       postRequest({ action: "engage_kill_switch", reason: "operator stop" }),
     );
 
-    expect(response.status).toBe(503);
-    const body = await response.json();
-    expect(body.error).toBe("automation_stop_disabled");
+    expect(response.status).toBe(200);
     expect(
       vi.mocked(controlPlane.engageMetaAutomationKillSwitch),
-    ).not.toHaveBeenCalled();
+    ).toHaveBeenCalledTimes(1);
   });
 
   it("never gates RELEASE, at any setting", async () => {

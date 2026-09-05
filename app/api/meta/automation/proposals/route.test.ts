@@ -409,7 +409,7 @@ describe("the guards an approval must clear", () => {
     expect(execution.executeMetaAutomationProposal).not.toHaveBeenCalled();
   });
 
-  it("executes only under the Tier 1 supervised readiness tier", async () => {
+  it("refuses an approval when the business is set to read-only", async () => {
     vi.mocked(controlPlane.getMetaAutomationControlPlane).mockResolvedValue(
       controlPlanePayload({ readinessTier: "read_only" }),
     );
@@ -417,7 +417,7 @@ describe("the guards an approval must clear", () => {
     const response = await POST(post(APPROVE));
 
     expect(response.status).toBe(409);
-    expect((await response.json()).error.code).toBe("supervision_tier_mismatch");
+    expect((await response.json()).error.code).toBe("supervision_tier_read_only");
     expect(execution.executeMetaAutomationProposal).not.toHaveBeenCalled();
   });
 

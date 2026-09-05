@@ -472,11 +472,19 @@ async function approve(input: {
       "Automation control state could not be verified, so no proposal can be approved.",
     );
   }
-  if (control.businessControl.readinessTier !== "manual_review") {
+  /*
+    `readiness_tier` has no application writer anywhere in this repository, so
+    its value is always the column default. Requiring exactly `manual_review`
+    here therefore passed by accident rather than by decision, and would have
+    begun refusing every approval the moment anything wrote a different tier.
+    The tier now has one meaning — `read_only` forbids writes — and the standing
+    mode is what decides whether a queue row may be approved.
+  */
+  if (control.businessControl.readinessTier === "read_only") {
     return jsonError(
       409,
-      "supervision_tier_mismatch",
-      "The confirmation queue executes only under the Tier 1 supervised readiness tier.",
+      "supervision_tier_read_only",
+      "This business is set to read-only, so no proposal can be approved.",
     );
   }
 

@@ -38,8 +38,23 @@ const WIRED_GATES: Record<
   },
   decisionWorkflowUi: {
     server: ["app/api/meta/decision-workflow/route.ts"],
-    offer: ["app/c/[businessId]/meta/decisions/page.tsx"],
-    governs: "the decision workflow write controls",
+    /*
+      The legacy `/platforms/meta` shim joined the offer list. The rail links
+      there, the generic compatibility shim mounts legacy bodies with their
+      props untouched, and this prop therefore arrived `undefined` — so one
+      route family showed the workflow controls and the other did not. The shim
+      now reads the same gate the canonical page reads.
+
+      `lib/zero-base/meta/mutation-ceremony.ts` is the other half of the same
+      capability: it decides whether the manual action sheet exists at all.
+    */
+    offer: [
+      "app/c/[businessId]/meta/decisions/page.tsx",
+      "app/(dashboard)/platforms/meta/page.tsx",
+      "lib/zero-base/meta/mutation-ceremony.ts",
+    ],
+    governs:
+      "the decision workflow write controls and the manual action sheet — one capability, no longer spelled three ways",
   },
   automationStopUi: {
     server: ["app/api/meta/automation/route.ts"],
@@ -82,13 +97,14 @@ const WIRED_GATES: Record<
       "lib/meta/budget-proposal-server-readers.ts",
       "lib/meta/budget-automation-scheduled.ts",
       "lib/meta/budget-activation-readiness-server.ts",
+      "lib/meta/automation-control-plane.ts",
     ],
     offer: [
       "app/c/[businessId]/meta/automation/page.tsx",
       "app/(dashboard)/platforms/meta/automation/legacy-page.tsx",
     ],
     governs:
-      "whether an approved proposal may reach Meta. The gate can only ADD dry-run; the persisted guardrail stays authoritative",
+      "whether an approved proposal may reach Meta, and — through resolveMetaWriteCapability — the single server reading both route families take as props. The gate can only ADD dry-run; the persisted guardrail stays authoritative",
   },
   publicShareMint: {
     server: ["app/api/creatives/share/route.ts"],
@@ -242,11 +258,18 @@ describe("a closed gate refuses with a code the dictionary owns", () => {
   });
 });
 
-describe("every gate is still off by default", () => {
-  it("defaults every one of them to off", () => {
+describe("every capability gate is still off by default", () => {
+  it("defaults every capability to off", () => {
     // The property that makes the whole scheme safe, asserted where a reader
-    // comes to ask what a gate does.
+    // comes to ask what a gate does. `automationStopUi` is excluded because it
+    // is not a capability: engaging or releasing the kill switch must stay
+    // reachable when provider writes are closed, which is exactly when an
+    // operator reaches for it. Its role, reviewer and demo guards are unchanged.
     for (const [name, value] of Object.entries(readMetaReleaseGates({}))) {
+      if (name === "automationStopUi") {
+        expect(value, "STOP management must never default off").toBe(true);
+        continue;
+      }
       expect(value, `${name} defaulted on`).toBe(false);
     }
   });

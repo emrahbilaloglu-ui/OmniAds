@@ -5,7 +5,10 @@ import { buildAutomationViewerEnvelope } from "@/app/(dashboard)/platforms/meta/
 import { readLaunchpadWriteAuthority } from "@/app/api/launchpad/meta/demo-write-authority";
 import { requireBusinessPageContext } from "@/lib/access/require-business-page-context";
 import { getSessionFromCookies } from "@/lib/auth";
-import { getMetaAutomationControlPlane } from "@/lib/meta/automation-control-plane";
+import {
+  ensureBusinessControlRow,
+  getMetaAutomationControlPlane,
+} from "@/lib/meta/automation-control-plane";
 import { getDb } from "@/lib/db";
 import { readStateHistoryCompactionReadiness } from "@/lib/meta/state-history-compaction-readiness";
 import { readBudgetWriteSurfaceReadiness } from "@/lib/meta/budget-write-readiness-server";
@@ -47,6 +50,17 @@ export default async function MetaAutomationRoute({
     provider: "meta",
     requestedAccountId: first(raw.providerAccountId),
   });
+  /*
+    Every Meta write requires a persisted control row: `getMetaWriteBlockState`
+    refuses `control_state_unavailable` without one. A business that has never
+    been opened here therefore cannot act at all, and the surface could not say
+    why. Creating the row is not an authorization — STOP is clear but automatic
+    execution is off, rehearsal is on, and no spend ceiling is claimed.
+  */
+  await ensureBusinessControlRow({
+    businessId,
+    userId: access.context.session.user.id,
+  }).catch(() => null);
   const control = await getMetaAutomationControlPlane({
     businessId,
     providerAccountId,

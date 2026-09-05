@@ -18,20 +18,60 @@ const GATE_KEYS = [
 
 const ENV_BY_GATE: Record<keyof MetaReleaseGates, string> = {
   launchpadExecution: "META_LAUNCHPAD_EXECUTION",
-  decisionWorkflowUi: "META_DECISION_WORKFLOW_UI",
+  decisionWorkflowUi: "META_AUTOMATION_LIVE_WRITES",
   automationStopUi: "META_AUTOMATION_STOP_UI",
   automationLiveWrites: "META_AUTOMATION_LIVE_WRITES",
   publicShareMint: "META_PUBLIC_SHARE_MINT",
   accountPicker: "META_ACCOUNT_PICKER",
 };
 
+/**
+ * The gates that are still their own environment variable.
+ *
+ * `decisionWorkflowUi` left this set when the decision workflow and the
+ * mutation ceremony were recognised as two halves of one write capability:
+ * three spellings of one thing is how one route family came to offer controls
+ * the other did not. `automationStopUi` left it because STOP is not a
+ * capability at all — an operator reaches for the kill switch precisely when
+ * provider writes are closed.
+ */
+const INDEPENDENT_GATE_KEYS = [
+  "launchpadExecution",
+  "automationLiveWrites",
+  "publicShareMint",
+  "accountPicker",
+] as const satisfies readonly (keyof MetaReleaseGates)[];
+
 describe("Meta release gates", () => {
-  it("every gate is off when the environment says nothing", () => {
+  it("every capability gate is off when the environment says nothing", () => {
     const gates = readMetaReleaseGates({});
-    for (const key of GATE_KEYS) expect(gates[key]).toBe(false);
+    for (const key of GATE_KEYS) {
+      // STOP is always reachable; it is the one entry that is not a capability.
+      expect(gates[key]).toBe(key === "automationStopUi");
+    }
   });
 
-  it.each(GATE_KEYS)("%s opens only on an exact true", (key) => {
+  it("STOP management is never gated by the environment", () => {
+    for (const raw of ["", "false", "true", "nonsense"]) {
+      expect(
+        readMetaReleaseGates({ META_AUTOMATION_STOP_UI: raw }).automationStopUi,
+      ).toBe(true);
+    }
+  });
+
+  it("the decision workflow follows the one live-write capability", () => {
+    expect(readMetaReleaseGates({}).decisionWorkflowUi).toBe(false);
+    // Its own former variable no longer opens anything on its own.
+    expect(
+      readMetaReleaseGates({ META_DECISION_WORKFLOW_UI: "true" })
+        .decisionWorkflowUi,
+    ).toBe(false);
+    const open = readMetaReleaseGates({ META_AUTOMATION_LIVE_WRITES: "true" });
+    expect(open.decisionWorkflowUi).toBe(true);
+    expect(open.automationLiveWrites).toBe(true);
+  });
+
+  it.each(INDEPENDENT_GATE_KEYS)("%s opens only on an exact true", (key) => {
     const name = ENV_BY_GATE[key];
     for (const raw of ["true", "TRUE", " True "]) {
       expect(readMetaReleaseGates({ [name]: raw })[key]).toBe(true);
@@ -44,14 +84,17 @@ describe("Meta release gates", () => {
     }
   });
 
-  it("one gate opening does not open another", () => {
-    for (const key of GATE_KEYS) {
+  it("one gate opening does not open an unrelated one", () => {
+    for (const key of INDEPENDENT_GATE_KEYS) {
       const gates = readMetaReleaseGates({
         [ENV_BY_GATE[key]]: "true",
       });
-      for (const other of GATE_KEYS) {
+      for (const other of INDEPENDENT_GATE_KEYS) {
         expect(gates[other]).toBe(other === key);
       }
+      // The workflow half of the live-write capability moves with it, and only
+      // with it. Nothing else does.
+      expect(gates.decisionWorkflowUi).toBe(key === "automationLiveWrites");
     }
   });
 

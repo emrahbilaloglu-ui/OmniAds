@@ -18,6 +18,7 @@
  *    execute route: a single endpoint taking an action name is one validation
  *    bug away from performing an action nobody reviewed.
  */
+import { readMetaReleaseGates } from "@/lib/meta/release-gates";
 import type { WidthBucket } from "@/lib/zero-base/instrumentation-schema";
 
 export type MutationGrain = "campaign" | "adset" | "ad";
@@ -54,13 +55,19 @@ export const MUTATION_UI_FLAG = "ZERO_BASE_MUTATION_UI_ENABLED";
 /**
  * Whether the manual write UI exists at all.
  *
- * Read on the server only, and default OFF: an unset, empty, or any-other-value
- * environment means off. The flag is set in no environment file, so this
- * returns false everywhere unless somebody deliberately exports it for a single
- * process.
+ * Read on the server only. This used to be a third independent spelling of one
+ * capability: `ZERO_BASE_MUTATION_UI_ENABLED` was set in no environment file, so
+ * the manual action sheet was unreachable everywhere while the routes behind it
+ * had no gate at all. It now follows the single environment capability that the
+ * rest of the write path reads, and the legacy variable is honoured only as an
+ * explicit local override for a single process.
+ *
+ * This decides what the product OFFERS. What a viewer may actually do is
+ * decided per business by `resolveMetaWriteCapability` on the server.
  */
 export function isMutationUiEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
-  return env[MUTATION_UI_FLAG]?.trim() === "true";
+  if (env[MUTATION_UI_FLAG]?.trim() === "true") return true;
+  return readMetaReleaseGates(env).automationLiveWrites;
 }
 
 /**

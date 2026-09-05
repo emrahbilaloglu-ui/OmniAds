@@ -39,6 +39,7 @@ vi.mock("@/lib/meta/automation-control-plane", async (importOriginal) => {
   const actual = await importOriginal<Record<string, unknown>>();
   return {
     ...actual,
+    ensureBusinessControlRow: vi.fn(async () => ({ created: false })),
     getMetaAutomationControlPlane: vi.fn(),
     setMetaAutomationDecisionTypeMode: vi.fn(async () => []),
     setMetaAutomationGuardrailPolicy: vi.fn(async () => undefined),

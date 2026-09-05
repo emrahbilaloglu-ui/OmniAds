@@ -7,6 +7,7 @@ import {
   releaseMetaAutomationKillSwitch,
   setMetaAutomationDecisionTypeMode,
   setMetaAutomationGuardrailPolicy,
+  ensureBusinessControlRow,
   getMetaAutomationControlPlane,
   getMetaWriteBlockState,
   writeActivityLedgerRow,
@@ -228,6 +229,7 @@ export async function POST(request: NextRequest) {
     action !== "engage_kill_switch" &&
     action !== "release_kill_switch" &&
     action !== "set_decision_type_mode" &&
+    action !== "set_business_mode" &&
     action !== "set_budget_auto_execution" &&
     action !== "save_budget_automation_config" &&
     action !== "set_guardrail_policy" &&
@@ -238,7 +240,7 @@ export async function POST(request: NextRequest) {
     return jsonError(
       400,
       "unsupported_automation_action",
-      "Only engage_kill_switch, release_kill_switch, set_decision_type_mode, set_budget_auto_execution, save_budget_automation_config, set_guardrail_policy, create_rule, set_rule_active and evaluate_rules are supported from Automation.",
+      "Only engage_kill_switch, release_kill_switch, set_decision_type_mode, set_business_mode, set_budget_auto_execution, save_budget_automation_config, set_guardrail_policy, create_rule, set_rule_active and evaluate_rules are supported from Automation.",
     );
   }
 
@@ -260,7 +262,8 @@ export async function POST(request: NextRequest) {
     because standing down must never be harder than standing up.
   */
   const armsAutoExecution =
-    action === "set_decision_type_mode" && body?.mode === "auto";
+    (action === "set_decision_type_mode" || action === "set_business_mode") &&
+    body?.mode === "auto";
   const access = await requireBusinessAccess({
     request,
     businessId,
@@ -278,9 +281,18 @@ export async function POST(request: NextRequest) {
   });
   if ("error" in access) return access.error;
 
+  // Same reason as the Automation page: without a persisted control row every
+  // Meta write is refused `control_state_unavailable`, so a deliberate operator
+  // action on this surface creates the default-closed row it needs.
+  await ensureBusinessControlRow({
+    businessId: access.membership.businessId,
+    userId: access.session.user.id,
+  }).catch(() => null);
+
   const REVIEWER_ACTION_LABELS: Record<string, string> = {
     release_kill_switch: "automation_kill_switch_release",
     set_decision_type_mode: "automation_decision_type_mode",
+    set_business_mode: "automation_business_mode",
     set_guardrail_policy: "automation_guardrail_policy",
     engage_kill_switch: "automation_kill_switch_engage",
     create_rule: "automation_rule_create",
@@ -473,6 +485,19 @@ export async function POST(request: NextRequest) {
   }
 
   const VALID_MODES: MetaAutomationDecisionMode[] = ["manual", "semi_auto", "auto"];
+  if (action === "set_business_mode") {
+    const mode = body?.mode;
+    if (
+      typeof mode !== "string" ||
+      !VALID_MODES.includes(mode as MetaAutomationDecisionMode)
+    ) {
+      return jsonError(
+        400,
+        "invalid_business_mode",
+        "mode must be manual|semi_auto|auto.",
+      );
+    }
+  }
   let cleanApprovalThreshold: number | null | undefined;
   if (action === "set_decision_type_mode") {
     const decisionType = body?.decisionType;
@@ -690,6 +715,30 @@ export async function POST(request: NextRequest) {
           ? {}
           : { cleanApprovalThreshold }),
       });
+    } else if (action === "set_business_mode") {
+      /*
+        One switch, four rows.
+
+        The operator asks for "this business runs semi-automatically"; the
+        product stores that per decision type because that is where every
+        consumer reads it. Writing the four rows here — rather than inventing a
+        fifth business-level column that would then disagree with them — keeps
+        one source of truth. A per-type override afterwards is still allowed and
+        the surface then reads "custom".
+
+        Sequential, not concurrent: each write appends a promotion record and an
+        activity-ledger row, and interleaving them would produce an audit trail
+        whose order does not match what happened.
+      */
+      for (const decisionType of META_AUTOMATION_DECISION_TYPES) {
+        await setMetaAutomationDecisionTypeMode({
+          businessId: access.membership.businessId,
+          userId: access.session.user.id,
+          decisionType,
+          mode: body?.mode as MetaAutomationDecisionMode,
+          reason: body?.reason,
+        });
+      }
     } else if (action === "set_guardrail_policy") {
       await setMetaAutomationGuardrailPolicy({
         businessId: access.membership.businessId,

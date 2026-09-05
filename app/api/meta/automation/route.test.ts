@@ -21,6 +21,7 @@ vi.mock("@/lib/meta/creatives-fetchers", () => ({
 }));
 
 vi.mock("@/lib/meta/automation-control-plane", () => ({
+  ensureBusinessControlRow: vi.fn(async () => ({ created: false })),
   engageMetaAutomationKillSwitch: vi.fn(),
   releaseMetaAutomationKillSwitch: vi.fn(),
   setMetaAutomationDecisionTypeMode: vi.fn(),

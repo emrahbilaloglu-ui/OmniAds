@@ -72,27 +72,29 @@ in-process test double.
 
 ## Open items
 
-1. **Apply from a decision card is not visually confirmed.** The Decision
-   Center refuses to serve until eight sources are available; the fixture
-   satisfies the recommendation snapshot and the warehouse but not the
-   canonical creative decision source, so the lanes stayed at zero and no card
-   rendered. The same operator-origin write path is proven end to end through
-   the queue's Approve, which drives the same guarded handlers. Closing this
-   needs a deeper fixture (`engine_v3_ad_decision_snapshots_daily` and its FK
-   chain), not a code change.
+1. ~~**Apply from a decision card is not visually confirmed.**~~ **CORRECTED
+   2026-09-05.** The premise above is wrong: there is no eight-source gate.
+   Those eight are `DECISION_CAPABILITY_SLOTS`, a display envelope that gates
+   no render, and two of them are hard-coded `proposed` in production so
+   "eight available" was unreachable by construction. The real defect was that
+   the ceremony sent a display identity (`structure-7`) where the preflight
+   demands `campaign|adset|ad:<id>`, so every card-level Apply was refused
+   before any data question could be asked. Fixed in `3c72f400e`; see
+   `2026-09-05-meta-operator-readiness-remaining-items.md`.
 
-2. **At 390 px the Automation surface is read-only by design.** It renders
-   `data-read-only="true"` and says "Automation controls are available only in
-   the desktop workspace": STOP state is visible, STOP is not operable, and the
-   queue is absent. That contradicts the plan's §6 acceptance line ("Uygula /
-   Onayla accessible at 320px"). It is a stated product decision, not a broken
-   layout, so it needs a decision rather than a silent fix: make the mobile
-   surface carry STOP and the queue, or amend the acceptance line.
+2. ~~**At 390 px the Automation surface is read-only by design.**~~ **CLOSED
+   2026-09-05.** The decision was made the way the plan already stated it: the
+   mobile surface now carries STOP and the confirmation queue, both operable
+   and both verified mounted at 390 and 320 px. What stays desktop-only — the
+   guardrail form, the rules, the autonomy ladder and the master switch — is
+   now named on screen instead of the pane claiming it can do nothing. See
+   `2026-09-05-meta-operator-readiness-remaining-items.md`.
 
 3. **D077 artifact hash contract fails** — two cases, already failing at
    `8d5756c53`. It pins a sha256 per file in the cumulative release diff and is
    regenerated at release time; §7 of the plan puts D077/D086 evidence-pack
    maintenance out of scope. It must be regenerated before release.
 
-S1–S4 are **not** declared complete: items 1 and 2 above are acceptance
-criteria that remain unmet.
+S1–S4 are **not** declared complete. Items 1 and 2 above are now closed; the
+remaining open items are listed in
+`2026-09-05-meta-operator-readiness-remaining-items.md`.

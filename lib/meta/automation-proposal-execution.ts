@@ -32,6 +32,13 @@
  *   handler already supports this mode; wiring the persisted guardrail to it is
  *   what makes "approving executes inside the guardrails above" true rather
  *   than decorative.
+ *
+ * The Launchpad families arrived the same way. A `launch` row and an activation
+ * `resume` row are dispatched by forwarding to the extracted Launchpad handlers
+ * — `handleMetaLaunchAction` / `handleMetaAddToExistingAction` and
+ * `handleMetaLaunchIntentActivateAction` — which is why those bodies were moved
+ * out of `app/` at all. Nothing about a create or an activation is reimplemented
+ * here, and this module still imports no provider client and no action log.
  */
 import { NextRequest } from "next/server";
 
@@ -40,6 +47,12 @@ import {
   handleMetaAdsetBidAction,
   handleMetaEntityResumeAction,
 } from "@/lib/meta/entity-action-routes";
+import {
+  handleMetaAddToExistingAction,
+  handleMetaLaunchAction,
+} from "@/lib/launchpad/meta-launch-route-handlers";
+import { handleMetaLaunchIntentActivateAction } from "@/lib/meta/launch-activation-route-handlers";
+import type { MetaLaunchIntent } from "@/lib/launchpad/meta-launch-intent";
 import type {
   MetaAutomationProposal,
   MetaAutomationProposalReceipt,
@@ -62,6 +75,12 @@ const PARAM_NAME: Record<MetaAutomationProposal["scopeType"], string> = {
  * below, from the row's persisted envelope rather than from an operator's
  * typing. `duplicate` is still absent: it exists only at ad grain, whose write
  * path is the decision-origin contract.
+ *
+ * `launch` is likewise handled by its own branch, and so is the `resume` that
+ * carries a `launchIntentId`. An activation resume is NOT a status write on
+ * something the engine was watching — it turns on a hierarchy a launch just
+ * created — so sending it to this descriptor would resume an entity through a
+ * path that knows nothing about ordering, read-back or the intent's receipt.
  */
 type ExecutableProposalAction = "pause" | "resume";
 
@@ -91,6 +110,33 @@ export interface ExecuteProposalResult {
   receipt: MetaAutomationProposalReceipt;
 }
 
+/**
+ * A refusal that reached no handler, said in the receipt's own vocabulary.
+ *
+ * `withheld` is the field every downstream reader uses to tell a refusal from
+ * an attempt, so a branch that decides not to dispatch has to fill it rather
+ * than return a bare failure.
+ */
+function withheldResult(input: {
+  reason: string;
+  dryRunOnly: boolean;
+  dispatchedAt: string;
+  receiptKey: string | null;
+}): ExecuteProposalResult {
+  return {
+    ok: false,
+    receipt: {
+      httpStatus: 422,
+      response: null,
+      dryRun: input.dryRunOnly,
+      dispatchedAt: input.dispatchedAt,
+      endpoint: null,
+      withheld: input.reason,
+      receiptKey: input.receiptKey,
+    },
+  };
+}
+
 export async function executeMetaAutomationProposal(input: {
   request: NextRequest;
   businessId: string;
@@ -117,6 +163,24 @@ export async function executeMetaAutomationProposal(input: {
     dryRunOnly: boolean;
     claimToken: string | null;
   }) => Promise<BudgetProposalExecutionResult>;
+  /**
+   * The intent a Launchpad row points at, read by the caller and injected.
+   *
+   * The queue row knows it is a launch; only the intent knows WHICH launch —
+   * its operation, its idempotency key and the payload the operator's own
+   * fingerprint was taken over. Reading any of that from the row instead would
+   * let a stale projection create something the operator never composed.
+   */
+  launchIntent?: (launchIntentId: string) => Promise<MetaLaunchIntent | null>;
+  /**
+   * Write-ahead dispatch intent, fired at the handler's own pre-POST boundary.
+   *
+   * The Launchpad handlers refuse the create or the activation outright when
+   * this answers false, so a claim that can no longer be marked cannot cause a
+   * provider write nobody could account for afterwards. Absent for the pause
+   * family, whose boundary marks before the handler is entered at all.
+   */
+  markDispatchStarted?: () => Promise<boolean>;
   now?: Date;
 }): Promise<ExecuteProposalResult> {
   const dispatchedAt = (input.now ?? new Date()).toISOString();
@@ -221,6 +285,142 @@ export async function executeMetaAutomationProposal(input: {
       receipt: {
         httpStatus: bidResponse.status,
         response: bidPayload,
+        dryRun: input.dryRunOnly,
+        dispatchedAt,
+        endpoint: path,
+        withheld: null,
+        receiptKey,
+      },
+    };
+  }
+
+  /*
+    An approved LAUNCH row, executed by the Launchpad handler an operator's own
+    review screen posts to.
+
+    Before this branch the row fell through to `unsupported_action`, and the
+    boundary settled that withheld answer as `failed` — so approving a launch
+    destroyed the queue row and created nothing. The row is not the authority
+    here and never composes anything: the operation, the idempotency key and
+    the payload all come from the intent, whose stored payload is replayed
+    field for field because `metaLaunchIntentRequestFingerprint` hashes it
+    whole. Recomposing it to look like a queue dispatch would be refused by the
+    intent service as `launch_intent_contract_mismatch`.
+  */
+  if (proposal.proposedAction === "launch") {
+    const withheld = (reason: string) =>
+      withheldResult({ reason, dryRunOnly: input.dryRunOnly, dispatchedAt, receiptKey });
+    if (!proposal.launchIntentId) return withheld("launch_intent_absent");
+    if (!input.launchIntent) return withheld("launch_intent_reader_unavailable");
+    /*
+      The guardrail the screen shows above the queue, honoured by refusing.
+
+      Every other family can answer `dryRunOnly` by rehearsing. A create
+      cannot: `launch-write.ts` has no dry-run path, because a campaign that
+      was not created has no id to read back. Dispatching anyway would make the
+      guardrail decorative for the one family where it is most expensive to
+      ignore.
+    */
+    if (input.dryRunOnly) return withheld("dry_run_guardrail");
+    const intent = await input
+      .launchIntent(proposal.launchIntentId)
+      .catch(() => null);
+    if (!intent) return withheld("launch_intent_unreadable");
+
+    const addToExisting = intent.operation === "add_to_existing";
+    const path = addToExisting
+      ? "/api/launchpad/meta/add-to-existing"
+      : "/api/launchpad/meta/launch";
+    const launchRequest = new NextRequest(
+      new URL(path, input.request.nextUrl.origin),
+      {
+        method: "POST",
+        headers: forwardedHeaders(input.request),
+        body: JSON.stringify({
+          actionOrigin: "launchpad_manual_v1",
+          manualConfirmation: "explicit_operator_confirmation",
+          businessId: input.businessId,
+          providerAccountId: intent.providerAccountId,
+          idempotencyKey: intent.idempotencyKey,
+          launchIntentId: intent.id,
+          /*
+            The two handlers read the stored payload differently — the create
+            takes it whole under `payload`, add-to-existing reads its own
+            fields off the body — so it is handed over in the shape each one
+            normalizes back to the very payload the fingerprint was taken over.
+          */
+          ...(addToExisting
+            ? intent.requestPayload
+            : { payload: intent.requestPayload }),
+        }),
+      },
+    );
+    const launchResponse = addToExisting
+      ? await handleMetaAddToExistingAction(launchRequest, {
+          beforeProviderMutation: input.markDispatchStarted,
+        })
+      : await handleMetaLaunchAction(launchRequest, {
+          beforeProviderMutation: input.markDispatchStarted,
+        });
+    const launchPayload = (await launchResponse.json().catch(() => null)) as unknown;
+    return {
+      ok: launchResponse.status < 400
+        && (launchPayload as { ok?: boolean } | null)?.ok === true,
+      receipt: {
+        httpStatus: launchResponse.status,
+        response: launchPayload,
+        dryRun: input.dryRunOnly,
+        dispatchedAt,
+        endpoint: path,
+        withheld: null,
+        receiptKey,
+      },
+    };
+  }
+
+  /*
+    An approved ACTIVATION row — a `resume` that names the intent it turns on.
+
+    `resume` alone would go to the entity handler below, which resumes one
+    entity and knows nothing about the campaign above it. Activation is the
+    ordered, read-back, journalled sequence in `launch-intent-activation.ts`,
+    and an ad reading ACTIVE under a paused parent shows to nobody. The lineage
+    on the row is what tells the two apart, which is why it is checked before
+    the descriptor path and not after it.
+  */
+  if (proposal.proposedAction === "resume" && proposal.launchIntentId) {
+    const withheld = (reason: string) =>
+      withheldResult({ reason, dryRunOnly: input.dryRunOnly, dispatchedAt, receiptKey });
+    // An activation cannot be rehearsed either: the whole value of the step is
+    // the effective status coming back ACTIVE, which a dry run cannot produce.
+    if (input.dryRunOnly) return withheld("dry_run_guardrail");
+    const path = `/api/launchpad/meta/intents/${proposal.launchIntentId}/activate`;
+    const activateRequest = new NextRequest(
+      new URL(path, input.request.nextUrl.origin),
+      {
+        method: "POST",
+        headers: forwardedHeaders(input.request),
+        body: JSON.stringify({
+          actionOrigin: "manual_operator_v1",
+          manualConfirmation: "explicit_operator_confirmation",
+          businessId: input.businessId,
+        }),
+      },
+    );
+    const activateResponse = await handleMetaLaunchIntentActivateAction(
+      activateRequest,
+      { params: Promise.resolve({ id: proposal.launchIntentId }) },
+      { beforeProviderMutation: input.markDispatchStarted },
+    );
+    const activatePayload = (await activateResponse
+      .json()
+      .catch(() => null)) as unknown;
+    return {
+      ok: activateResponse.status < 400
+        && (activatePayload as { ok?: boolean } | null)?.ok === true,
+      receipt: {
+        httpStatus: activateResponse.status,
+        response: activatePayload,
         dryRun: input.dryRunOnly,
         dispatchedAt,
         endpoint: path,

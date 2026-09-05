@@ -59,6 +59,7 @@ import { createBudgetProposalServerRuntime } from "@/lib/meta/budget-proposal-se
 import { runClaimedProposalExecution } from "@/lib/meta/budget-execution-lifecycle";
 import { createBudgetServerReaders } from "@/lib/meta/budget-proposal-server-readers";
 import { buildMetaBudgetWriteContextForProposal } from "@/lib/meta/budget-proposal-write-context";
+import { getMetaLaunchIntent } from "@/lib/launchpad/meta-launch-intent-store";
 import { MANUAL_CONFIRMATION } from "@/lib/zero-base/meta/dispatch-contract";
 
 export const dynamic = "force-dynamic";
@@ -563,9 +564,22 @@ async function approve(input: {
     contact (a shut gate, a missing confirmation, an inadmissible composition),
     and an operator reading the row could not tell those from a real dispatch.
     The pause family keeps its own marker: its handler has no such boundary.
+
+    Nor for a Launchpad row — a `launch`, or the `resume` that names the intent
+    it activates. Both cross a long chain of pre-provider refusals inside their
+    handler (a closed execution gate, a demo workspace, rehearsal, validation,
+    the fresh creative preflight), and until this branch existed a launch row
+    was stamped as dispatched while the executor answered `unsupported_action`
+    and nothing was ever sent. They take the marker through
+    `markDispatchStarted` below, which the handler fires immediately before its
+    first provider call and which VETOES that call when it cannot be written.
   */
-  const budgetApproval = input.proposal.proposedAction === BUDGET_PROPOSAL_ACTION;
-  const dispatchMarked = budgetApproval
+  const marksAtItsOwnBoundary =
+    input.proposal.proposedAction === BUDGET_PROPOSAL_ACTION
+    || input.proposal.proposedAction === "launch"
+    || (input.proposal.proposedAction === "resume"
+      && input.proposal.launchIntentId !== null);
+  const dispatchMarked = marksAtItsOwnBoundary
     ? true
     : await markMetaAutomationProposalDispatchStarted({
       businessId: input.businessId,
@@ -598,6 +612,30 @@ async function approve(input: {
       proposal: input.proposal,
       dryRunOnly,
       receiptKey: claim.claimToken,
+      /*
+        The intent behind a Launchpad row, bound to THIS business.
+
+        The executor is handed a reader, not an id it could resolve itself, so
+        a launch row can never reach an intent belonging to a business the
+        approving operator has no membership in.
+      */
+      launchIntent: async (launchIntentId) =>
+        getMetaLaunchIntent({
+          businessId: input.businessId,
+          id: launchIntentId,
+        }).catch(() => null),
+      /*
+        The write-ahead marker, fired from inside the Launchpad handler at the
+        boundary before its first provider call, and refusing the call when it
+        cannot be recorded. Same compare-and-set the pause family takes above,
+        moved to the only place that can tell a refusal from an attempt.
+      */
+      markDispatchStarted: async () =>
+        Boolean(await markMetaAutomationProposalDispatchStarted({
+          businessId: input.businessId,
+          proposalId: input.proposal.id,
+          claimToken: claim.claimToken,
+        }).catch(() => null)),
       /*
         D088 C3: the CONCRETE budget runtime, and the SHARED lifecycle.
 

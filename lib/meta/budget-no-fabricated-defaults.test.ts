@@ -165,10 +165,21 @@ describe("D088 C3 — no fabricated authority survives on an authoritative path"
     // The route defers to the lifecycle's settlement instead of repeating it.
     expect(route).toContain("budgetLifecycle = lifecycle");
     expect(route).toContain("proposal: lifecycle.settled");
-    // ...and does not stamp a dispatch marker on a budget approval that may
-    // still be withheld before any provider contact.
-    expect(route).toContain("const budgetApproval = input.proposal.proposedAction");
-    expect(route).toContain("dispatchMarked = budgetApproval");
+    /*
+      ...and does not stamp a dispatch marker on an approval that may still be
+      withheld before any provider contact.
+
+      The rule outgrew its old name. It now covers every family that marks at
+      its own pre-POST boundary — budget, a Launchpad `launch`, and the
+      `resume` that names the intent it activates — because each crosses a long
+      chain of pre-provider refusals inside its handler, and a row stamped as
+      dispatched before any of them is a row an operator cannot read.
+    */
+    expect(route).toContain("const marksAtItsOwnBoundary =");
+    expect(route).toContain("input.proposal.proposedAction === BUDGET_PROPOSAL_ACTION");
+    expect(route).toContain('input.proposal.proposedAction === "launch"');
+    expect(route).toContain("input.proposal.launchIntentId !== null");
+    expect(route).toContain("dispatchMarked = marksAtItsOwnBoundary");
   });
 
   it("the scheduler acts under the enabling ADMIN, and fails closed without one", () => {

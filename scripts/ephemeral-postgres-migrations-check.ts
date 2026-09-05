@@ -2945,6 +2945,25 @@ async function main() {
       "native-ad decision-fact ownership DB seam check",
     );
 
+    /*
+      The sizing projection's own queries, against the real schema.
+
+      This module shipped broken and green: its unit test mocked the database
+      and fed rows named after columns that do not exist, so every statement
+      raised 42703, the error was swallowed, and the projection returned every
+      recommendation unchanged. A mocked row agrees with any schema; only
+      PostgreSQL refuses one.
+    */
+    await runChildScript(
+      repoRoot,
+      databaseUrl,
+      path.join(
+        "scripts",
+        "ephemeral-postgres-intent-projection-seam-child.ts",
+      ),
+      "sizing projection source DB seam check",
+    );
+
     await runChildScript(
       repoRoot,
       databaseUrl,

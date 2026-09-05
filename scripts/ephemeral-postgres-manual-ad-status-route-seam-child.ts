@@ -77,11 +77,22 @@ async function seed(): Promise<{ token: string; otherToken: string }> {
   // automation-control-plane tests; here it must not mask the route contract.
   await db.query(
     `INSERT INTO meta_automation_business_controls
-       (business_id, kill_switch_engaged, auto_execution_enabled, readiness_tier)
-     VALUES ($1::uuid, FALSE, FALSE, 'manual_review')
+       (business_id, kill_switch_engaged, auto_execution_enabled, readiness_tier,
+        guardrails_json)
+     VALUES ($1::uuid, FALSE, FALSE, 'manual_review',
+             $2::jsonb)
      ON CONFLICT (business_id)
-     DO UPDATE SET kill_switch_engaged = FALSE`,
-    [BUSINESS_ID],
+     DO UPDATE SET kill_switch_engaged = FALSE,
+                   guardrails_json = EXCLUDED.guardrails_json`,
+    /*
+      A LIVE business, stated rather than defaulted.
+
+      `dryRunOnly` ships as rehearsal, and rehearsal is now enforced by the
+      server for every write family — so a control row that leaves the field
+      unset would make this seam prove the dry-run path while claiming to
+      prove the real one.
+    */
+    [BUSINESS_ID, JSON.stringify({ dryRunOnly: false })],
   );
 
   // Only USER_ID is a member of BUSINESS_ID. OTHER_USER_ID holds a real session
@@ -304,6 +315,15 @@ async function clearLifecycle() {
 }
 
 async function main() {
+  /*
+    The release capability, opened for this seam.
+
+    It is an environment fact and the server now enforces it at the same choke
+    point as the STOP: with it shut, every route here answers 503
+    `release_capability_closed` and the route contract below could not be
+    exercised at all. A deployment opens it deliberately; this seam states it.
+  */
+  process.env.META_AUTOMATION_LIVE_WRITES = "true";
   const { token, otherToken } = await seed();
 
   // ------------------------------------------------------------------ case 1

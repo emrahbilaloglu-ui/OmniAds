@@ -55,7 +55,7 @@ describe("the native projection runs on its own, after publication", () => {
       snapshotDate: "2026-09-05",
     });
 
-    expect(result).toEqual({ projected: 1, ran: true });
+    expect(result).toEqual({ projected: 1, ran: true, withheld: null });
     const insert = calls.find((call) =>
       call.text.includes("INSERT INTO meta_automation_proposals"));
     expect(insert, "the projection issued no insert").toBeDefined();
@@ -76,7 +76,7 @@ describe("the native projection runs on its own, after publication", () => {
 
     expect(await projectNativeAdProposals({
       businessId: BUSINESS, snapshotDate: "2026-09-05",
-    })).toEqual({ projected: 0, ran: true });
+    })).toEqual({ projected: 0, ran: true, withheld: "standing_mode_manual" });
     expect(calls.some((call) =>
       call.text.includes("INSERT INTO meta_automation_proposals"))).toBe(false);
   });
@@ -90,7 +90,11 @@ describe("the native projection runs on its own, after publication", () => {
 
     expect(await projectNativeAdProposals({
       businessId: BUSINESS, snapshotDate: "2026-09-05",
-    })).toEqual({ projected: 0, ran: false });
+    })).toEqual({
+      projected: 0,
+      ran: false,
+      withheld: "standing_mode_unreadable",
+    });
   });
 
   it("is safe to call again: the insert only refreshes a pending row", async () => {

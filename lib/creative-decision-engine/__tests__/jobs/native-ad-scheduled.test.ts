@@ -19,6 +19,7 @@ import {
   listNativeAdMetaEligibleBusinessIds,
   NATIVE_AD_OPERATOR_RESPONSE_RETRY_COOLDOWN_MS,
   READ_NATIVE_AD_OPERATOR_RESPONSE_RETRY_BACKOFFS_SQL,
+  AD_PROPOSAL_PROJECTION_JOB_NAME,
   READ_NATIVE_AD_CALIBRATION_REUSE_RECEIPT_SQL,
   readNativeAdOperatorResponseRetryBackoffs,
   readSuccessfulNativeJobs,
@@ -100,6 +101,14 @@ function options(
     runCalibration: async () => calibrationResult(),
     runDecisions: async () => decisionsResult(),
     runOperatorResponse: async () => operatorResult(),
+    /*
+      The queue projection is a step of this chain now, so these cases would
+      otherwise reach the real one and, through it, an unset DATABASE_URL. A
+      case that is about the chain's ordering answers it here; the cases that
+      are about the projection itself override this.
+    */
+    projectProposals: async () => ({ projected: 0, ran: true, withheld: null }),
+    recordProjectionRun: async () => undefined,
     ...overrides,
   };
 }
@@ -1084,12 +1093,22 @@ describe("native ad shadow scheduled chain", () => {
   });
 
   it("reports already_ran only when every native step succeeded for every business", async () => {
+    /*
+      Four names, not three.
+
+      Filling the queue is a step of this chain, and the slot is not done until
+      it has succeeded — a projection that threw on the tick that published the
+      decisions used to leave the queue empty and be skipped forever after,
+      because the three PRODUCER jobs were complete and nothing recorded that
+      the projection was not.
+    */
     const complete = new Map<
       string,
       Set<
         | typeof AD_CALIBRATION_JOB_NAME
         | typeof AD_DECISIONS_JOB_NAME
         | typeof AD_OPERATOR_RESPONSE_JOB_NAME
+        | typeof AD_PROPOSAL_PROJECTION_JOB_NAME
       >
     >(
       BUSINESSES.map((business) => [
@@ -1098,6 +1117,7 @@ describe("native ad shadow scheduled chain", () => {
           AD_CALIBRATION_JOB_NAME,
           AD_DECISIONS_JOB_NAME,
           AD_OPERATOR_RESPONSE_JOB_NAME,
+          AD_PROPOSAL_PROJECTION_JOB_NAME,
         ]),
       ]),
     );

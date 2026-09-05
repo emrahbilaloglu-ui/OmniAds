@@ -714,13 +714,20 @@ export async function POST(request: NextRequest) {
         ["calibration", result.calibration],
         ["decisions", result.decisions],
         ["operator_response", result.operatorResponse],
+        // The projection was the one step whose failure was invisible here:
+        // it was swallowed at the call site and absent from this list, so an
+        // unfilled queue left no trace in the cron log at all.
+        ["proposal_projection", result.proposalProjection],
       ] as const) {
         if (step.status === "failed") {
           console.error("[sync-cron] native_ad_shadow_business_job_failed", {
             businessId: result.businessId,
             businessName: result.businessName,
             job,
-            jobRunId: step.result?.jobRunId ?? null,
+            jobRunId:
+              step.result && "jobRunId" in step.result
+                ? step.result.jobRunId
+                : null,
             errorMessage: step.errorMessage,
           });
         }

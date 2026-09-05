@@ -105,7 +105,7 @@ async function alreadyRan(snapshotDate: string) {
 /**
  * Record that this (business, account, day, slot) attempt finished, and how.
  *
- * `sourceMaxDate` is the newest source day the run actually read. It is the
+ * The source cut-off is the newest source day the run actually read. It is the
  * honest reading and never a high-water mark: if this run saw less than the
  * last one did, that is what it records — the freshness rule is that genuinely
  * new data may move the cut-off forward, and nothing else may.
@@ -116,7 +116,16 @@ async function recordSlotRun(input: {
   businessId: string;
   providerAccountId: string;
   status: "success" | "failed";
-  sourceMaxDate?: string | null;
+  /**
+   * What this attempt observed of the source, if it observed anything.
+   *
+   * `{ observed: true, maxDate: null }` is a reading — the source has nothing
+   * at or before this day — and it is written. Omitted means the attempt never
+   * got a reading, and the stored cut-off is then left alone: erasing the last
+   * real observation would make a later freshness check believe the source had
+   * never been seen at all.
+   */
+  source?: { observed: true; maxDate: string | null };
 }) {
   const sql = getDb();
   await sql`
@@ -126,11 +135,15 @@ async function recordSlotRun(input: {
     ) VALUES (
       ${input.businessId}, ${input.providerAccountId},
       ${input.snapshotDate}::date, ${input.slot}, ${input.status},
-      ${input.sourceMaxDate ?? null}::date, NOW()
+      ${input.source ? input.source.maxDate : null}::date, NOW()
     )
     ON CONFLICT (business_id, provider_account_id, as_of_date, slot)
     DO UPDATE SET status = EXCLUDED.status,
-                  source_max_date = EXCLUDED.source_max_date,
+                  source_max_date = CASE
+                    WHEN ${input.source !== undefined}::boolean
+                      THEN EXCLUDED.source_max_date
+                    ELSE meta_structure_snapshot_runs.source_max_date
+                  END,
                   finished_at = NOW()
   `.catch(() => null);
 }
@@ -255,6 +268,11 @@ async function requiredPairs(): Promise<
 
 /**
  * A day whose rows exist but whose run record does not.
+ *
+ * It writes no source cut-off. This infers a slot from rows that already
+ * exist and has read no warehouse day of its own; stamping one would be a
+ * cut-off nobody observed, and it would overwrite a real observation recorded
+ * earlier for the same key.
  */
 async function markSlotCoveredByExistingRows(snapshotDate: string, slot: number) {
   for (const pair of await requiredPairs()) {
@@ -287,14 +305,28 @@ async function recordSlotOutcome(
     const outcome = business.status === "fulfilled" ? business.value : null;
     const succeeded = outcome?.succeededAccountIds ?? [];
     const failed = outcome?.failedAccountIds ?? [];
+    const observedSourceMaxDates = outcome?.sourceMaxDateByAccountId ?? {};
     for (const account of succeeded) {
       await recordSlotRun({
         snapshotDate, slot, businessId: business.businessId,
         providerAccountId: account, status: "success",
-        // The day this run's decisions are about. It is the source cut-off
-        // the freshness rule is measured against, recorded rather than
-        // inferred later from whatever rows happen to be present.
-        sourceMaxDate: outcome?.snapshotDate ?? snapshotDate,
+        /*
+          The newest source day this account's generation actually READ.
+
+          It used to be `outcome.snapshotDate` — the day the scheduler asked
+          for — so the cut-off advanced on every successful slot whether or not
+          the warehouse had received a single new day. An account the run
+          reported no reading for has no key here, and passing nothing leaves
+          the stored cut-off where it was.
+        */
+        ...(Object.hasOwn(observedSourceMaxDates, account)
+          ? {
+            source: {
+              observed: true as const,
+              maxDate: observedSourceMaxDates[account] ?? null,
+            },
+          }
+          : {}),
       });
     }
     /*

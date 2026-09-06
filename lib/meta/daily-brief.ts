@@ -14,7 +14,6 @@
  */
 import { getDb } from "@/lib/db";
 import { readMetaAnomaliesForBusiness } from "@/lib/meta/anomalies";
-import { readMetaAutomationProposalQueue } from "@/lib/meta/automation-proposals";
 import { readLatestMetaDecisionSnapshot } from "@/lib/meta/snapshot";
 import { resolveEffectiveMetaModes } from "@/lib/meta/automation-control-plane";
 
@@ -27,7 +26,16 @@ export interface MetaDailyBrief {
   businessId: string;
   providerAccountId: string | null;
   asOf: string;
-  /** How this business is being managed today, per action family. */
+  /**
+   * How this business is being managed RIGHT NOW, per action family.
+   *
+   * The one section deliberately not bounded to `asOf`, and it says so here so
+   * a historical brief is not read as a record of that day's settings. The
+   * control plane stores one standing mode per business and action family
+   * (`meta_automation_decision_type_modes`, keyed `(business_id,
+   * decision_type)`) with no history table, so what a mode WAS on a past
+   * morning is not recorded anywhere to be read back.
+   */
   modes: {
     state: BriefSectionState;
     pause: string | null;
@@ -78,15 +86,56 @@ function dayBefore(asOf: string): string {
   return date.toISOString().slice(0, 10);
 }
 
+/*
+  WHAT THIS CARD CANNOT SAY, enumerated once so the next reader does not have to
+  re-derive it.
+
+  Every read in the builder below is bounded to `asOf` and scoped to the
+  resolved provider account, EXCEPT these three, and the exceptions are
+  structural rather than oversights:
+
+  1. "Applied overnight" (`readOvernightLedger`) is asOf-bounded but
+     BUSINESS-WIDE. `meta_automation_activity_ledger` has no
+     `provider_account_id` column at all — the later ALTERs added only
+     `actor_kind`, `entity_type`, `entity_id`, `result_status` and
+     `result_receipt_id` — so it cannot be account-scoped without a schema
+     change. On a business with two or more assigned Meta accounts, this number
+     is business-wide on a card whose other sections are account-scoped.
+  2. `modes` is business-keyed by primary key, so the same applies, and it has
+     no date dimension to bound either.
+  3. Alerts are read business-wide, while the two other surfaces that serve
+     anomalies — the anomalies route and the intelligence server — both pass
+     `providerAccountId` and refuse outright when there is none. The brief is
+     the outlier. The consequence is observable: Home's "Alerts" number can
+     exceed the Alerts screen's for the same business. It is left as it is
+     rather than changed late in a release, because the account filter works
+     from dimension allow-sets and would report a confident `0` where rows are
+     thin — but this is a judgement call on a card whose whole premise is that
+     its sections agree with the screens behind them, and it is recorded as one
+     rather than presented as settled.
+
+  None of the three is fixable inside this file. They are limits of the card,
+  not defects in it, and they are written down so a future reader does not
+  mistake a business-wide number for an account-scoped one.
+*/
 export async function buildMetaDailyBrief(input: {
   businessId: string;
-  providerAccountId?: string | null;
+  /** A calendar day, `YYYY-MM-DD`. The caller validates it; see the route. */
   asOf?: string;
+  providerAccountId?: string | null;
 }): Promise<MetaDailyBrief> {
-  const asOf = input.asOf ?? new Date().toISOString().slice(0, 10);
+  /*
+    One clock read for the whole brief.
+
+    The day the payload is stamped with and the day it is compared against
+    below have to be the same day, and two `new Date()` calls are two chances
+    for them not to be.
+  */
+  const today = new Date().toISOString().slice(0, 10);
+  const asOf = input.asOf ?? today;
   const providerAccountId = input.providerAccountId ?? null;
 
-  const [modes, anomalies, snapshot, queue, ledger] = await Promise.all([
+  const [modes, anomalies, snapshot, queuePending, ledger] = await Promise.all([
     resolveEffectiveMetaModes(input.businessId).catch(() => null),
     readMetaAnomaliesForBusiness({
       businessId: input.businessId,
@@ -132,11 +181,42 @@ export async function buildMetaDailyBrief(input: {
         snapshotDateCeiling: asOf,
       }).catch(() => null)
       : Promise.resolve(null),
-    providerAccountId
-      ? readMetaAutomationProposalQueue({
-        businessId: input.businessId,
-        providerAccountId,
-      }).catch(() => null)
+    /*
+      The queue count is a READ, and only for a brief about today.
+
+      Two defects met on this one line, and the second is the worse of them.
+
+      `readMetaAutomationProposalQueue` is the Automation screen's reader, and
+      its first two statements are UPDATEs.
+      `expireStaleMetaAutomationProposals` runs `UPDATE
+      meta_automation_proposals SET status = 'expired', updated_at = NOW()
+      WHERE business_id = $1 AND status = 'pending' AND expires_at <= $2`, and
+      `sweepStaleMetaAutomationProposalClaims` runs `UPDATE ... SET status =
+      CASE ... 'reconcile' / 'expired' / 'pending' END, claim_token = ...,
+      claimed_by = ..., claimed_at = ..., updated_at = NOW() WHERE business_id
+      = $1 AND status = 'claimed' AND claimed_at <= $3`. Both are business-wide
+      — neither is narrowed to the account this brief is about — so merely
+      rendering the Home card expired proposals and released claim leases
+      across every account of the business. Opening a dashboard is not a
+      decision, and a GET must not make one.
+
+      And the number that came back was never bounded to `asOf`: the sweeps and
+      the select all use the real current time, while alerts, decisions, the
+      ledger window and freshness are bounded to the requested day. A brief for
+      last Tuesday counted proposals raised days after it as "waiting for you"
+      under Tuesday's date.
+
+      The bound is refused rather than approximated, because it cannot be
+      reconstructed. A proposal's `status` is overwritten in place — there is
+      no per-row history — and the snapshot's `ON CONFLICT ... DO UPDATE`
+      refresh rewrites `expires_at` on the row it touches, so nothing stored
+      says which rows were pending on a past morning: `created_at` cannot
+      exclude a row decided since, and `updated_at` is one last-touch stamp
+      with no before value. A count assembled from those columns would look
+      bounded and be wrong, which on this card is worse than "not read".
+    */
+    providerAccountId && asOf === today
+      ? readPendingProposalCount(input.businessId, providerAccountId)
       : Promise.resolve(null),
     readOvernightLedger(input.businessId, asOf),
   ]);
@@ -237,10 +317,11 @@ export async function buildMetaDailyBrief(input: {
       snapshotDate: lastSnapshotDate,
     },
     queue: {
-      // A business with no bound account has no queue to read, which is not
-      // the same as an empty one.
-      state: queue?.readCompleteness === "complete" ? "read" : UNAVAILABLE,
-      pending: queue?.proposals.length ?? 0,
+      // Three things that are not an empty queue, and all three say so: no
+      // bound account to read, a brief about a day whose pending set cannot be
+      // reconstructed, and a read that did not answer.
+      state: queuePending === null ? UNAVAILABLE : "read",
+      pending: queuePending ?? 0,
     },
     appliedYesterday: ledger ?? { state: UNAVAILABLE, applied: 0, failed: 0 },
     freshness: {
@@ -249,6 +330,51 @@ export async function buildMetaDailyBrief(input: {
       staleDays,
     },
   };
+}
+
+/**
+ * How many proposals are waiting for this operator — without deciding any.
+ *
+ * The predicate is the queue reader's own — `pending`, not yet expired, in
+ * this one account, the same rows `idx_meta_automation_proposals_queue` was
+ * built for. What is dropped is the two stale sweeps that reader runs first,
+ * which belong to a screen where the operator is about to act on the rows and
+ * not to a card that reports a number. The difference they make is small,
+ * one-directional, and worth stating rather than leaving to be discovered:
+ *
+ * - The expiry sweep changes nothing here. `expires_at > now()` already
+ *   excludes every row that sweep would have flipped to `expired`.
+ * - The claim sweep can. A claim past its lease whose dispatch never started
+ *   is still `claimed` to this count, and is counted only once the Automation
+ *   screen or the scheduled claim path returns it to `pending`. So the card
+ *   can read one lower than that screen for a few minutes. That is the price
+ *   of not writing from a read, and it is the right side to err on: a number
+ *   on Home is not worth a status transition nobody asked for.
+ *
+ * Counting rather than hydrating is also why this needs no equivalent of the
+ * queue reader's `withClaimColumnFallback`: `status` and `expires_at` predate
+ * every later migration, so a database missing the claim, envelope or launch
+ * columns answers this query instead of degrading through a 42703.
+ *
+ * Null is "not read", never zero. On a database without the table the query
+ * raises and this returns null, because an empty queue and an unreadable one
+ * are opposite facts on this card.
+ */
+async function readPendingProposalCount(
+  businessId: string,
+  providerAccountId: string,
+): Promise<number | null> {
+  const rows = (await getDb().query(
+    `SELECT count(*)::int AS pending
+       FROM meta_automation_proposals
+      WHERE business_id = $1::uuid
+        AND provider_account_id = $2
+        AND status = 'pending'
+        AND expires_at > now()`,
+    [businessId, providerAccountId],
+  ).catch(() => null)) as Array<{ pending: number }> | null;
+  if (rows === null) return null;
+  return rows[0]?.pending ?? 0;
 }
 
 /**

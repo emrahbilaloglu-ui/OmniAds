@@ -238,6 +238,19 @@ export function createScheduledBidRuntime(
       // still show it, which is what the intent's `bid_strategy_unchanged`
       // assertion means.
       expectedBidStrategy: baseline.bidStrategy,
+      /*
+        The cap read a moment ago, re-proved immediately before the POST.
+
+        The comparison above is not the last word: the action-log insert, the
+        three control re-reads in `beforeMutationAttempt` and the dispatch
+        marker all await after it, and an operator can move the cap in Ads
+        Manager in that time. The read-back cannot catch that — it verifies the
+        amount this write itself sent — so the amount is compared against a
+        fresh read taken as the last operation before the request goes out. The
+        unattended path needs it exactly as much as the manual one: nobody is
+        watching this write at all.
+      */
+      expectedCurrentBidAmountMinor: baseline.bidAmountMinor,
       dryRun,
       beforeMutationAttempt,
     });

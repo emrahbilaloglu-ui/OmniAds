@@ -151,17 +151,17 @@ The sixth repin is different in kind from the first five, and the difference is
 the point. Those replaced a PASSING log whose child programs had changed. This
 one replaces a tree that FAILED the shell — see the round-4 section below.
 
-The canonical stage is the 13:56Z run, retained at
-`docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1356Z.log`:
+The canonical stage is the 14:43Z run, retained at
+`docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1443Z.log`:
 
 | | |
 |---|---|
-| Start / end (UTC) | 2026-09-06T13:56:00 → 2026-09-06T14:04:22 |
-| Duration | 502.0 s |
+| Start / end (UTC) | 2026-09-06T14:43:14 → 2026-09-06T14:51:38 |
+| Duration | 504.0 s |
 | Exit code | 0 |
 | Stage headers | 40 |
 | Final line | `[verify-db-seams] PASS — 40 stages` |
-| Bytes | 661,047 |
+| Bytes | 661,045 |
 
 The three registered seam children report their counts inside it, each with
 `skipped=0`: `direct Launchpad create route approval-standing` 7/7, `Meta History
@@ -169,11 +169,11 @@ bid verb title` 2/2, and the newly registered `Meta History bid write journal
 admission` 6/6 — the last being the direct evidence that five previously dormant
 database assertions now actually execute.
 
-Nine captures are retained and none was relabelled or edited: 2026-08-30
+Ten captures are retained and none was relabelled or edited: 2026-08-30
 (38-stage) and 2026-09-03 (40-stage) as the earlier releases' evidence; 2026-09-06
 07:59Z (Phase 1 checkpoint), 10:30Z (PR open), 11:18Z (round 1), 11:56Z (round 2),
-12:34Z (round 3), 13:17Z (round 4) and 13:56Z (this one, round 5). The seven
-same-day captures are superseded rather than historical.
+12:34Z (round 3), 13:17Z (round 4), 13:56Z (round 5) and 14:43Z (this one, round
+6). The eight same-day captures are superseded rather than historical.
 Each is kept because it is truthful evidence of the tree it ran on — only the
 label moves, never the bytes.
 
@@ -399,6 +399,45 @@ their own id, so bootstrap now runs only for a `live` write authority; and
 `notification-producer.ts` carried `as never` on the same anomaly read, whose
 removal exposed a second unsound cast that had only type-checked because the
 first one blinded the compiler.
+
+## Review round 6 on PR #276 — the two families closed
+
+CI on `5eb543f3e` was fully green across all eleven jobs, the fifth consecutive
+fully-green head. Codex Review completed on it with two findings, and both were
+continuations of families this release had already touched, so both were closed
+rather than incremented.
+
+| finding | fix |
+|---|---|
+| **P1** `automation-proposal-execution.ts` — round 5 carried the checked STRATEGY to the write but not the AMOUNT, so a cap moved during the handler's awaits was overwritten and verified as a success | `expectedCurrentBidAmountMinor`, enforced in `beforeProviderMutation` — the same pre-POST hook `updateEntityBudget` already uses. Refusal is a definite failure with no `mutationAttempt`. BOTH callers pass it, manual and unattended. |
+| P2 `daily-brief.ts` — the queue count was not bounded to `asOf`, and building the read ran expiry and stale-claim MUTATIONS | The queue reader's import is gone, so no card render can write; a past-day brief reports `unavailable` rather than a number that only looks bounded. |
+
+**Why the amount could not be solved the way the strategy was.** The strategy
+guard is a POST-WRITE read-back comparison. That is structurally unavailable for
+the amount, because by read-back time the write has overwritten it. The amount
+needs a genuine pre-POST comparison, and `metaFetchWriteOnce` orders kill-switch
+→ `beforeMutationAttempt` → `beforeProviderMutation` → `metaFetch`, with no await
+inside `metaFetch` before the request — so the new read really is the last
+operation before the POST.
+
+**What remains open on that path, stated so there is no seventh round.** The
+GET→POST pair is irreducible: Meta exposes no conditional or versioned bid
+mutation, so a read and a write are two requests and this is an application-level
+compare-and-set, not an atomic one. A crash between them leaves the action log
+`pending`, which reads as ambiguous and forbids retry — conservative and
+unchanged. A rehearsal returns before any POST. And the operator's own apply-bid
+deliberately proves no baseline: a cap a person types at that moment is an
+instruction, not a projection of an older reading.
+
+**Three limits of the daily brief, recorded rather than fixed.**
+`meta_automation_activity_ledger` and the modes table have no
+`provider_account_id` column at all, so "Applied overnight" and the modes line
+are structurally business-wide on a card whose other sections are account-scoped;
+neither is fixable without a schema change. Alerts are read business-wide while
+the anomalies route and the intelligence server both scope theirs, so Home's
+alert count can exceed the Alerts screen's for the same business — left as it is
+rather than changed late in a release, but recorded as an open judgement call
+rather than presented as settled.
 
 ## Review round 5 on PR #276
 

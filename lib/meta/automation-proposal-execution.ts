@@ -384,6 +384,25 @@ export async function executeMetaAutomationProposal(input: {
             proved the two are one strategy.
           */
           expectedBidStrategy: baseline.bidStrategy,
+          /*
+            The cap the check above just proved, carried to the write as well.
+
+            The strategy is protected by a POST-WRITE read-back, which cannot
+            protect the amount: by read-back time the write has overwritten it,
+            so the number verified is the number sent. This value is compared
+            instead against a live read taken immediately BEFORE the POST — the
+            last await before the request goes out — so a cap moved during the
+            handler's access check, account context, action log or provider
+            preflight is refused rather than overwritten. Without it the
+            approved "+10%, 1200 → 1320" still went out over somebody's 1500 as
+            a 12% cut, and verified.
+
+            The LIVE read's number, not `envelope.currentMinorUnits`, for the
+            same reason as the strategy beside it: what the write compares
+            against is Meta's own answer. The equality above has already proved
+            the two are the same number.
+          */
+          expectedCurrentBidAmountMinor: baseline.bidAmountMinor,
           ...(proposal.recId ? { recId: proposal.recId } : {}),
           ...(input.dryRunOnly ? { dryRun: true } : {}),
         }),

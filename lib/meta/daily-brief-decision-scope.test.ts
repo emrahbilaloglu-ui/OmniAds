@@ -22,12 +22,6 @@ vi.mock("@/lib/db", () => ({ getDb: vi.fn() }));
 vi.mock("@/lib/meta/anomalies", () => ({
   readMetaAnomaliesForBusiness: vi.fn(async () => ({ anomalies: [] })),
 }));
-vi.mock("@/lib/meta/automation-proposals", () => ({
-  readMetaAutomationProposalQueue: vi.fn(async () => ({
-    readCompleteness: "complete",
-    proposals: [],
-  })),
-}));
 vi.mock("@/lib/meta/snapshot", () => ({
   readLatestMetaDecisionSnapshot: vi.fn(async () => ({
     status: "ok",

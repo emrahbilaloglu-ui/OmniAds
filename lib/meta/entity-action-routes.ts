@@ -58,6 +58,7 @@ interface EntityActionBody {
   bidValueMinor?: unknown;
   bidAmountMinor?: unknown;
   expectedBidStrategy?: unknown;
+  expectedCurrentBidAmountMinor?: unknown;
   dryRun?: unknown;
 }
 
@@ -924,6 +925,40 @@ function expectedBidStrategyFromBody(body: EntityActionBody | null) {
   return { ok: true as const, value };
 }
 
+/**
+ * The cap the caller proved the ad set was on when it sized this change.
+ *
+ * Same shape and same rules as the strategy field above, for the other half of
+ * the same window. Carrying the strategy closed the strategy race at the only
+ * boundary that sits AFTER the POST — a read-back. That boundary cannot close
+ * the amount race, because by read-back time the write has already overwritten
+ * the amount and the number it verifies is its own. So this value goes to
+ * `updateAdsetBidAmount`, which compares it against a live read taken
+ * immediately BEFORE the POST and refuses rather than overwriting a cap
+ * somebody moved during this handler's access check, account context, action
+ * log or provider preflight.
+ *
+ * OPTIONAL, and absent from the operator's own apply-bid request: a person
+ * typing a cap on a decision card proved nothing about the current one, and
+ * their write is exactly the write it has always been — including making no
+ * extra provider request. Present-but-unusable is refused rather than ignored,
+ * for the same reason as the strategy: silently dropping the value would
+ * disable the very check the caller asked for.
+ */
+function expectedCurrentBidAmountFromBody(body: EntityActionBody | null) {
+  if (
+    !body ||
+    !Object.prototype.hasOwnProperty.call(body, "expectedCurrentBidAmountMinor")
+  ) {
+    return { ok: true as const, value: null };
+  }
+  const value = body.expectedCurrentBidAmountMinor;
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value <= 0) {
+    return { ok: false as const, value: null };
+  }
+  return { ok: true as const, value };
+}
+
 export async function handleMetaAdsetBidAction(
   request: NextRequest,
   context: RouteParams,
@@ -947,6 +982,14 @@ export async function handleMetaAdsetBidAction(
       400,
       "invalid_bid_strategy",
       "expectedBidStrategy must be a non-empty string when provided.",
+    );
+  }
+  const expectedCurrentBidAmount = expectedCurrentBidAmountFromBody(body);
+  if (!expectedCurrentBidAmount.ok) {
+    return jsonError(
+      400,
+      "invalid_expected_bid_amount",
+      "expectedCurrentBidAmountMinor must be a positive integer of minor units when provided.",
     );
   }
 
@@ -1045,6 +1088,11 @@ export async function handleMetaAdsetBidAction(
       // strategy hands the write the same input shape it always did.
       ...(expectedBidStrategy.value
         ? { expectedBidStrategy: expectedBidStrategy.value }
+        : {}),
+      // Same spread, same reason: a caller that proved no current cap hands
+      // the write the input shape it always did, and no pre-POST read happens.
+      ...(expectedCurrentBidAmount.value !== null
+        ? { expectedCurrentBidAmountMinor: expectedCurrentBidAmount.value }
         : {}),
       ...(dryRun
         ? { dryRun: true }

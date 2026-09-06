@@ -132,7 +132,10 @@ REGISTRY=(
   "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1317Z.log|1|Retained whole-shell capture (40-stage run, 13:17Z, superseded): this guard announcing the token it scans for."
   # 13:56Z is canonical: round 5 changed the bid dispatch and the entity
   # action handler, both of which seam children execute.
-  "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1356Z.log|1|Retained whole-shell capture (40-stage run, 13:56Z, CANONICAL): this guard announcing the token it scans for."
+  "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1356Z.log|1|Retained whole-shell capture (40-stage run, 13:56Z, superseded): this guard announcing the token it scans for."
+  # 14:43Z is canonical: round 6 changed the provider write client and the
+  # brief, both reached by seam children.
+  "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1443Z.log|1|Retained whole-shell capture (40-stage run, 14:43Z, CANONICAL): this guard announcing the token it scans for."
 )
 
 HISTORICAL_COUNTS=(

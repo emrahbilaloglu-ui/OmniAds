@@ -15,6 +15,26 @@ import { getProviderAccountAssignments } from "@/lib/provider-account-assignment
 
 export const dynamic = "force-dynamic";
 
+/**
+ * `asOf` is a real calendar day or the request is refused.
+ *
+ * The value went from the query string into the builder's date arithmetic
+ * unchecked, and a value that is not a date makes `new Date(...)
+ * .toISOString()` throw `RangeError: Invalid time value` out of the builder —
+ * so `?asOf=abc` returned a 500 and no brief at all, and `?asOf=2026-02-30`
+ * silently became 2026-03-02. Refusing names the problem to the caller;
+ * falling back to today would answer a question nobody asked under a date the
+ * caller did not request, which is the class of defect this brief keeps
+ * having. The round-trip is the check: a well-formed day that the calendar
+ * does not contain comes back as a different day.
+ */
+function isCalendarDay(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const parsed = Date.parse(`${value}T00:00:00.000Z`);
+  return Number.isFinite(parsed)
+    && new Date(parsed).toISOString().slice(0, 10) === value;
+}
+
 export async function GET(request: NextRequest) {
   const businessId = request.nextUrl.searchParams.get("businessId")?.trim() ?? "";
   if (!businessId) {
@@ -25,6 +45,14 @@ export async function GET(request: NextRequest) {
   }
   const access = await requireBusinessAccess({ request, businessId });
   if ("error" in access) return access.error;
+
+  const asOf = request.nextUrl.searchParams.get("asOf")?.trim() || null;
+  if (asOf !== null && !isCalendarDay(asOf)) {
+    return NextResponse.json(
+      { ok: false, error: { code: "as_of_invalid" } },
+      { status: 400 },
+    );
+  }
 
   /*
     The account is resolved, never taken from the query string.
@@ -42,7 +70,7 @@ export async function GET(request: NextRequest) {
   const brief = await buildMetaDailyBrief({
     businessId,
     providerAccountId,
-    asOf: request.nextUrl.searchParams.get("asOf")?.trim() || undefined,
+    asOf: asOf ?? undefined,
   });
 
   return NextResponse.json({ ok: true, brief });

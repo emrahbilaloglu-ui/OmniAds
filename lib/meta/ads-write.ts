@@ -2836,8 +2836,36 @@ export async function updateAdsetBidAmount(
      * contract asserts `bid_strategy_unchanged` for a reason: the same number
      * under a different strategy is a different instruction, and a write that
      * verified only the number would report success for it.
+     *
+     * When `expectedCurrentBidAmountMinor` is given as well, the pre-POST read
+     * below checks it too, so a moved strategy is refused before the write
+     * rather than only reported after it.
      */
     expectedBidStrategy?: string | null;
+    /**
+     * The amount the caller's own baseline read says the ad set holds RIGHT NOW.
+     *
+     * The strategy above is proved by the POST-WRITE read-back, which cannot
+     * work for the amount: by read-back time this write has already overwritten
+     * whatever was there, so the number it verifies is its own. The amount
+     * therefore needs a genuine PRE-POST comparison, and this is it.
+     *
+     * Both callers that re-read a baseline pass it —
+     * `automation-proposal-execution.ts` (approval) and
+     * `scheduled-bid-runtime.ts` (unattended). Each compares the live cap
+     * against the envelope and then hands this write the amount; everything
+     * between that comparison and the POST is awaits — an access check, an
+     * account context, an action-log insert, a live provider preflight, a
+     * durable dispatch marker. An operator moving the cap in Ads Manager inside
+     * that window had the approved "+10%, 1200 → 1320" written over their 1500
+     * as a 12% CUT, and the read-back found 1320 and called it a success.
+     *
+     * Absent — the operator's own apply-bid entry, which has proved nothing
+     * about the current cap — nothing is asserted on the caller's behalf and NO
+     * extra provider request is made. A rehearsal skips it too: it returns from
+     * the dry-run branch above without POSTing, so there is nothing to overwrite.
+     */
+    expectedCurrentBidAmountMinor?: number | null;
     /** See `MetaEntityStatusWriteOptions`: the pre-POST authority boundary. */
     beforeMutationAttempt?: () => Promise<void>;
   },
@@ -2880,13 +2908,117 @@ export async function updateAdsetBidAmount(
   }
 
   const body = new URLSearchParams({ bid_amount: String(bidAmount) });
+  const expectedStrategy = input.expectedBidStrategy?.trim().toUpperCase() || null;
+  /*
+    A caller that proved a current amount gets a pre-POST compare-and-set;
+    a caller that proved none gets the write it has always had, GET included.
+  */
+  const expectedCurrentBidAmount =
+    typeof input.expectedCurrentBidAmountMinor === "number"
+      && Number.isFinite(input.expectedCurrentBidAmountMinor)
+      ? Math.round(input.expectedCurrentBidAmountMinor)
+      : null;
+  let preconditionFailure: MetaAdsWriteFailure | null = null;
   const write = await metaFetchWriteOnce({
     ctx,
     path: input.adsetId,
     method: "POST",
     body,
     beforeMutationAttempt: input.beforeMutationAttempt,
+    /*
+      THE LAST WORD BEFORE THE POST — about the CAP.
+
+      Precise, because the ordering moved: `metaFetchWriteOnce` runs the kill
+      switch and the write-authority snapshot first, then `beforeMutationAttempt`
+      (the manual path's posture re-read, the scheduled path's control re-reads
+      and dispatch marker), and only then this hook. So this GET is the last
+      awaited operation before the POST, and those control checks are now one
+      round trip further from it than they were. That is the same trade
+      `updateEntityBudget` already makes for its own compare-and-set; it is
+      named here so nobody reads the heading as saying the control checks still
+      hold this position.
+
+      `metaFetchWriteOnce` calls no other awaited hook after this one — the
+      kill switch, the write-authority snapshot and the caller's own journal /
+      dispatch marker have all already run, and the next operation is the one
+      Meta POST. A cap moved during ANY of those awaits is therefore seen here
+      and refused, instead of being overwritten by an amount that was a
+      percentage of a number nobody holds any more.
+
+      The strategy is compared here too, from the same GET. It is already
+      proved after the write, but that proof arrives too late to prevent
+      anything: `bid_strategy_changed` from the read-back means the amount
+      already landed under the wrong strategy. Refusing here costs no extra
+      request and makes the post-write check the second boundary rather than
+      the only one — it still has to run, because the strategy can move between
+      this GET and the POST.
+
+      Meta exposes no conditional bid mutation, so a separate GET and POST keep
+      an irreducible provider-side race. This is the narrowest application-level
+      check, not an atomic compare-and-swap.
+    */
+    ...(expectedCurrentBidAmount === null ? {} : {
+      beforeProviderMutation: async () => {
+        const live = await readMetaAdsetBidState(ctx, input.adsetId);
+        const refuse = (error: MetaAdsWriteError): never => {
+          /*
+            Nothing was written, and the shape says so DEFINITELY rather than
+            ambiguously.
+
+            What actually carries that, named precisely: `providerOutcome:
+            "definite_failure"` together with the ABSENCE of `mutationAttempt`.
+            `failureLogStatus` (entity-action-routes.ts) reads `error.code`,
+            `hasSuccessfulMetaProviderMutationAttempt` — which reads
+            `mutationAttempt` — and `providerOutcome`; the scheduled runtime's
+            `isAmbiguous` reads `error.code` and `providerOutcome`. Neither
+            reads `providerMutationAttempted`, and an earlier draft of this
+            comment claimed all three did.
+
+            `providerMutationAttempted: false` is still set, and is still
+            correct: it is the same shape `updateEntityBudget`'s compare-and-set
+            returns, and its real readers are elsewhere (`ads-action-routes.ts`,
+            `budget-write-execution.ts`, the bulk ad-status route) rather than
+            on this path. The point of the field here is consistency, not the
+            classification — the classification comes from the two above.
+          */
+          preconditionFailure = {
+            ok: false,
+            httpStatus: 409,
+            providerMutationAttempted: false,
+            providerOutcome: "definite_failure",
+            error,
+            responsePayload: null,
+            verificationPayload: null,
+          };
+          throw error;
+        };
+        if (!live.ok) {
+          // The read carries its own identity and account checks; an answer
+          // about another ad set is not a baseline, and an unread baseline is
+          // not permission to write.
+          refuse(live.error);
+        } else {
+          const liveStrategy = live.bidStrategy?.trim().toUpperCase() || null;
+          if (expectedStrategy && liveStrategy !== expectedStrategy) {
+            refuse({
+              code: "bid_strategy_changed",
+              message: `The ad set is on ${liveStrategy ?? "no writable strategy"} rather than the ${expectedStrategy} this amount was proved under, so no bid write was attempted.`,
+            });
+          }
+          if (
+            live.bidAmountMinor === null
+            || live.bidAmountMinor !== expectedCurrentBidAmount
+          ) {
+            refuse({
+              code: "bid_baseline_changed",
+              message: `The ad set holds ${live.bidAmountMinor ?? "no bid amount"} rather than the ${expectedCurrentBidAmount} this change was approved against; it moved after the caller's baseline read and nothing may be written over it.`,
+            });
+          }
+        }
+      },
+    }),
   });
+  if (preconditionFailure) return preconditionFailure;
   if (write.error) {
     return buildWriteTransportFailure({
       error: write.error,
@@ -2935,7 +3067,8 @@ export async function updateAdsetBidAmount(
     that a success would be the write reporting on something else.
   */
   const verifiedStrategy = readStringField(verification.payload, "bid_strategy") || null;
-  const expectedStrategy = input.expectedBidStrategy?.trim().toUpperCase() || null;
+  // Normalised once, above the write, so the pre-POST refusal and this
+  // post-write one cannot disagree about what the caller asked for.
   if (expectedStrategy && verifiedStrategy?.trim().toUpperCase() !== expectedStrategy) {
     return {
       ok: false,

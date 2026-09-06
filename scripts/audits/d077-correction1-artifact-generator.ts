@@ -87,12 +87,16 @@ import { execFileSync, spawnSync } from "node:child_process";
   Seventh repin, for round 5: the bid dispatch and the entity-action handler
   both changed, and seam children execute both.
 
-  This log is the 13:56Z canonical run on the delivered tree: 40 headers,
-  `PASS — 40 stages`, exit 0, 502 s, with the three registered children
+  Eighth repin, for round 6: the provider write client gained a pre-POST
+  compare-and-set and the daily brief stopped reaching the queue reader, both
+  of which seam children execute.
+
+  This log is the 14:43Z canonical run on the delivered tree: 40 headers,
+  `PASS — 40 stages`, exit 0, 504 s, with the three registered children
   reporting 7/7, 2/2 and 6/6, each `skipped=0`.
 */
 const PORTABLE_SHELL_LOG_PATH =
-  "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1356Z.log";
+  "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1443Z.log";
 
 /*
   The branch this candidate actually lives on, read from git rather than typed.

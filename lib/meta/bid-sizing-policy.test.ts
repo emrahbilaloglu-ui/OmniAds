@@ -12,6 +12,7 @@ function eligible(overrides: Partial<BidSizingInput> = {}): BidSizingInput {
     bidStrategyType: "cost_cap",
     currentBidMinor: 1200,
     spendUnitMinor: 1000,
+    currencyExponent: 2,
     spend28d: 840,
     purchases28d: 100,
     maturityOk: true,
@@ -113,6 +114,62 @@ describe("bid cap sizing", () => {
     expect(sizeBidChange(eligible({ spendUnitMinor: null }))).toMatchObject({
       status: "withheld",
       code: "spend_unit_unavailable",
+    });
+  });
+
+  it("reads a JPY account at its own scale rather than assuming two decimals", () => {
+    /*
+      ¥1,500 cost per purchase against a ¥3,000 benchmark: half of it, and
+      delivery is constrained, so the cap goes up.
+
+      JPY has exponent 0, so both numbers are already minor units. Scaling the
+      CPA by a hardcoded 100 made it ¥150,000 — fifty times the benchmark —
+      and the policy cut a cap it should have raised, on an account where the
+      executor would have written that amount.
+    */
+    const outcome = sizeBidChange(eligible({
+      currencyExponent: 0,
+      spendUnitMinor: 3000,
+      spend28d: 150_000,
+      purchases28d: 100,
+      currentBidMinor: 500,
+    }));
+    expect(outcome).toMatchObject({
+      status: "sized",
+      direction: "increase",
+      percent: 15,
+      proposedBidMinor: 575,
+    });
+  });
+
+  it("reads a KWD account at its own scale rather than assuming two decimals", () => {
+    /*
+      The same error in the other direction. KWD has exponent 3: 3.000 KWD per
+      purchase against a 2.000 KWD benchmark is 1.5x and the cap comes down.
+      A hardcoded 100 understated the CPA tenfold to 0.15x, which reads as a
+      constrained ad set running cheap — a 15% RAISE.
+    */
+    const outcome = sizeBidChange(eligible({
+      currencyExponent: 3,
+      spendUnitMinor: 2000,
+      spend28d: 300,
+      purchases28d: 100,
+      currentBidMinor: 4000,
+    }));
+    expect(outcome).toMatchObject({
+      status: "sized",
+      direction: "decrease",
+      percent: 15,
+      proposedBidMinor: 3400,
+    });
+  });
+
+  it("refuses when the account currency has no known scale", () => {
+    // The ISO registry fails closed on codes it has not transcribed; so does
+    // this, rather than comparing two numbers at different scales.
+    expect(sizeBidChange(eligible({ currencyExponent: null }))).toMatchObject({
+      status: "withheld",
+      code: "currency_unresolvable",
     });
   });
 

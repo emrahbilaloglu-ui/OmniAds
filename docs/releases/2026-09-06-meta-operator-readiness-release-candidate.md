@@ -139,17 +139,22 @@ children execute. On all three occasions the 40 headings were byte-identical, so
 a header comparison alone would have accepted a log that no longer described what
 ran.
 
-The canonical stage is the 11:18Z run, retained at
-`docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1118Z.log`:
+A fourth repin followed the second review round, which changed the bid sizing
+policy one of the seam's children exercises. The cause is identical every time,
+and so is the justification: the 40 headings were byte-identical on each
+occasion, so only a fresh run can bind what actually executed.
+
+The canonical stage is the 11:56Z run, retained at
+`docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1156Z.log`:
 
 | | |
 |---|---|
-| Start / end (UTC) | 2026-09-06T11:18:34 → 2026-09-06T11:27:08 |
-| Duration | 514.0 s |
+| Start / end (UTC) | 2026-09-06T11:56:19 → 2026-09-06T12:04:22 |
+| Duration | 483.0 s |
 | Exit code | 0 |
 | Stage headers | 40 |
 | Final line | `[verify-db-seams] PASS — 40 stages` |
-| Bytes | 661,046 |
+| Bytes | 661,049 |
 
 The three registered seam children report their counts inside it, each with
 `skipped=0`: `direct Launchpad create route approval-standing` 7/7, `Meta History
@@ -157,10 +162,11 @@ bid verb title` 2/2, and the newly registered `Meta History bid write journal
 admission` 6/6 — the last being the direct evidence that five previously dormant
 database assertions now actually execute.
 
-Five captures are retained and none was relabelled or edited: 2026-08-30
+Six captures are retained and none was relabelled or edited: 2026-08-30
 (38-stage) and 2026-09-03 (40-stage) as the earlier releases' evidence; 2026-09-06
-07:59Z (Phase 1 checkpoint), 10:30Z (PR open) and 11:18Z (this one, after the
-review fixes). The three same-day captures are superseded rather than historical.
+07:59Z (Phase 1 checkpoint), 10:30Z (PR open), 11:18Z (review round 1) and 11:56Z
+(this one, review round 2). The four same-day captures are superseded rather than
+historical.
 Each is kept because it is truthful evidence of the tree it ran on — only the
 label moves, never the bytes.
 
@@ -353,6 +359,39 @@ and all five activity-ledger tuple columns were re-read and are present. The
 daily-brief anchor resolves in the session time zone, so a session ahead of UTC
 would under-count the tail of a UTC day; nothing sets a session time zone and the
 server default is UTC.
+
+## Review round 2 on PR #276
+
+CI on `5081bd98b` was fully green — all eleven jobs, including the shard that had
+carried the time bomb. Codex Review completed on the same head with four NEW
+findings, none a re-raise of round 1.
+
+| finding | fix |
+|---|---|
+| P1 `bid-sizing-policy.ts` — CPA was converted with a hard-coded `* 100` while the benchmark used `10 ** currencyExponent`, so JPY inflated CPA 100× and KWD understated it 10×, able to reverse the bid direction | The resolved exponent is threaded through from the ISO-4217 registry the contract already uses, and the policy refuses `currency_unresolvable` rather than guessing. Mutation-checked in both directions: with the old `* 100` restored, JPY flips raise→cut and KWD flips cut→raise. |
+| P1 `automation-proposal-execution.ts` — the manual queue forwarded a stale amount without comparing the live cap, so a queued +10% could land as a cut | The same compare-and-set the scheduled runtime already performs, with the same refusal codes, ahead of the handler. |
+| P2 `automation/route.ts` — `ensureBusinessControlRow` ran before the reviewer and demo guards, so a refused request still wrote a durable row stamped with the refused actor | Bootstrap moved below both guards. |
+| P2 `daily-brief.ts` — the anomaly read omitted `endDate`, so a historical `asOf` mixed in today's alerts | `asOf` is passed as the bound, sharing the anchor the overnight-window fix introduced. |
+
+**The re-check caught a regression in one of these fixes, which matters more than
+any of the findings.** Wiring the bid compare-and-set made `readBidBaseline` a
+required dependency, but the executor's only production caller did not supply it
+— so every manual bid approval would have refused with
+`bid_baseline_reader_unavailable`, and because `bid` was not in
+`marksAtItsOwnBoundary` the row would have been stamped dispatched, settled
+`failed` and consumed, leaving the operator without the proposal and without a
+remedy. Strictly worse than the defect being fixed. The reader is now exported
+from `budget-proposal-write-context.ts` — the one module on this path sanctioned
+to import the write client — injected by the route, and `bid` marks at its own
+boundary because it can refuse before any provider call.
+
+Two follow-ups in files the fixing agents correctly refused to touch were closed
+in the same batch: the identical control-row-before-guards ordering survived on
+the Automation PAGE, where a reviewer merely opening it persisted a row under
+their own id, so bootstrap now runs only for a `live` write authority; and
+`notification-producer.ts` carried `as never` on the same anomaly read, whose
+removal exposed a second unsound cast that had only type-checked because the
+first one blinded the compiler.
 
 ## A latent time bomb CI caught, which local runs could not
 

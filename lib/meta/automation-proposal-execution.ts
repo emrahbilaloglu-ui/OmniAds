@@ -47,6 +47,13 @@
  * by `beforeProviderMutation` in the launch branch below, the second through
  * the same shipped lineage read the intent was created against rather than a
  * second copy of the rule, and neither ever manufactures an authority.
+ *
+ * A bid row asks for one more, for the same reason: the amount it carries is a
+ * percentage of a cap that can move between the decision and the approval, and
+ * `handleMetaAdsetBidAction` writes whatever amount it is handed. The live
+ * baseline is therefore read through an injected reader and compared before
+ * dispatch, in the exact terms `scheduled-bid-runtime.ts` uses. That is a
+ * pre-write check, not a second write path — nothing here contacts a provider.
  */
 import { NextRequest } from "next/server";
 
@@ -67,6 +74,7 @@ import type {
   MetaAutomationProposalReceipt,
 } from "@/lib/meta/automation-proposals";
 import { handleMetaAdStatusAction } from "@/lib/meta/ads-action-routes";
+import { bidStrategyFamily } from "@/lib/meta/bid-sizing-policy";
 import { buildDispatchDescriptor } from "@/lib/zero-base/meta/dispatch-contract";
 import type { BudgetProposalExecutionResult } from "@/lib/meta/budget-proposal-runtime";
 
@@ -182,6 +190,32 @@ export async function executeMetaAutomationProposal(input: {
    */
   launchIntent?: (launchIntentId: string) => Promise<MetaLaunchIntent | null>;
   /**
+   * The ad set's LIVE bid state, read by the caller and injected.
+   *
+   * A bid envelope is a percentage of a number that was current when the
+   * decision was made. An operator can move the cap — or leave the cap
+   * strategy entirely — in Ads Manager between then and the moment somebody
+   * clicks Approve, and a queued "+10%, 1000 → 1100" applied against a live cap
+   * of 1300 is a REDUCTION nobody approved. `scheduled-bid-runtime.ts` reads
+   * the baseline immediately before its write for exactly this reason; the
+   * manual path had no equivalent, and the handler it forwards to takes the
+   * amount on trust.
+   *
+   * Injected rather than read here because this module reaches no provider
+   * client — see the note at the top of the file, and the two guards that
+   * assert it (`automation-write-path.test.ts`,
+   * `automation-proposal-execution.test.ts`). `null` means the read did not
+   * produce a state, which is a refusal and never an assumption that the
+   * baseline still holds.
+   */
+  readBidBaseline?: (input: {
+    providerAccountId: string;
+    adsetId: string;
+  }) => Promise<{
+    bidAmountMinor: number | null;
+    bidStrategy: string | null;
+  } | null>;
+  /**
    * Write-ahead dispatch intent, fired at the handler's own pre-POST boundary.
    *
    * The Launchpad handlers refuse the create or the activation outright when
@@ -266,6 +300,56 @@ export async function executeMetaAutomationProposal(input: {
           receiptKey,
         },
       };
+    }
+    /*
+      The live baseline, re-proved before the amount is dispatched.
+
+      An envelope proves what was true when the decision was made; it cannot
+      prove it is still true when an operator gets round to approving it. The
+      unattended runtime settles that with a fresh read and three refusals, and
+      the manual path forwarded `proposedMinorUnits` with no such compare — so
+      an approved "+10%, 1000 → 1100" applied against a cap somebody had since
+      moved to 1300 went out as a 15% CUT under the operator's own
+      confirmation. `handleMetaAdsetBidAction` cannot catch it: it takes
+      `bidAmountMinor` as given and never reads the current cap.
+
+      Same predicate and same three answers as `scheduled-bid-runtime.ts`, in
+      the same order, so one stale bid is not `bid_baseline_changed` on the
+      sweep and a silent 15% cut on approval. The family comparison is
+      `bidStrategyFamily` itself rather than a second copy of it — the
+      warehouse's `bid_cap` and Meta's `LOWEST_COST_WITH_BID_CAP` are one
+      strategy. A missing reader is its own answer: it says the caller wired no
+      baseline read, which is a different fact from a read that failed, and it
+      still refuses — dispatching an unproven amount is the defect itself.
+    */
+    const withheldBid = (reason: string) =>
+      withheldResult({ reason, dryRunOnly: input.dryRunOnly, dispatchedAt, receiptKey });
+    if (!input.readBidBaseline) return withheldBid("bid_baseline_reader_unavailable");
+    const baseline = await input
+      .readBidBaseline({
+        providerAccountId: proposal.providerAccountId,
+        // The envelope's own ad set, which `bidEnvelopeForProposalRow` has
+        // already proved is this row's — the same id the runtime reads.
+        adsetId: envelope.entityId,
+      })
+      .catch(() => null);
+    if (!baseline) return withheldBid("bid_baseline_unreadable");
+    const liveFamily = bidStrategyFamily(baseline.bidStrategy);
+    if (
+      liveFamily === null
+      || liveFamily !== bidStrategyFamily(envelope.bidStrategyType)
+    ) {
+      // Either the strategy no longer owns a writable amount, or it is not the
+      // strategy this amount was reasoned under.
+      return withheldBid("bid_strategy_not_writable");
+    }
+    if (baseline.bidAmountMinor === null) return withheldBid("bid_baseline_unreadable");
+    if (baseline.bidAmountMinor !== envelope.currentMinorUnits) {
+      // Somebody moved the cap since the decision, so the approved amount is a
+      // percentage of a number that is no longer current. Refused rather than
+      // recomputed: sizing a bid here is the producer's job, and the operator
+      // approved this number against the evidence on the card.
+      return withheldBid("bid_baseline_changed");
     }
     const path = `/api/meta/adsets/${proposal.scopeId}/apply-bid`;
     const bidRequest = new NextRequest(

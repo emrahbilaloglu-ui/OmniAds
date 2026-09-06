@@ -281,14 +281,6 @@ export async function POST(request: NextRequest) {
   });
   if ("error" in access) return access.error;
 
-  // Same reason as the Automation page: without a persisted control row every
-  // Meta write is refused `control_state_unavailable`, so a deliberate operator
-  // action on this surface creates the default-closed row it needs.
-  await ensureBusinessControlRow({
-    businessId: access.membership.businessId,
-    userId: access.session.user.id,
-  }).catch(() => null);
-
   const REVIEWER_ACTION_LABELS: Record<string, string> = {
     release_kill_switch: "automation_kill_switch_release",
     set_decision_type_mode: "automation_decision_type_mode",
@@ -325,6 +317,29 @@ export async function POST(request: NextRequest) {
     REVIEWER_ACTION_LABELS[action] ?? "automation_kill_switch_engage",
   );
   if (demoBlocked) return demoBlocked;
+
+  /*
+    Same reason as the Automation page: without a persisted control row every
+    Meta write is refused `control_state_unavailable`, so a deliberate operator
+    action on this surface creates the default-closed row it needs.
+
+    BELOW the reviewer and demo gates, not above them. This is itself a durable
+    write — `ensureBusinessControlRow` runs an INSERT against
+    `meta_automation_business_controls` — and running it first meant a reviewer
+    session (403 `reviewer_read_only`), a demo workspace (403
+    `demo_business_read_only`) and an unreadable demo flag (503
+    `demo_status_unverified`) each persisted the initial control state on their
+    way to being refused. That contradicts what those refusals promise, and it
+    stamped `updated_by` with an actor the server had just decided has no write
+    authority at all. Every caller that still reaches this line cleared all
+    three gates, so no legitimate operator loses the row: the action paths
+    below — the fail-safe STOP, PREPARE, and everything after account
+    resolution — all run after it, exactly as before.
+  */
+  await ensureBusinessControlRow({
+    businessId: access.membership.businessId,
+    userId: access.session.user.id,
+  }).catch(() => null);
 
   /*
     THE FAIL-SAFE STOP, ahead of every dependency it does not need.

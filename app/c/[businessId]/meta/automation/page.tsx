@@ -50,17 +50,6 @@ export default async function MetaAutomationRoute({
     provider: "meta",
     requestedAccountId: first(raw.providerAccountId),
   });
-  /*
-    Every Meta write requires a persisted control row: `getMetaWriteBlockState`
-    refuses `control_state_unavailable` without one. A business that has never
-    been opened here therefore cannot act at all, and the surface could not say
-    why. Creating the row is not an authorization — STOP is clear but automatic
-    execution is off, rehearsal is on, and no spend ceiling is claimed.
-  */
-  await ensureBusinessControlRow({
-    businessId,
-    userId: access.context.session.user.id,
-  }).catch(() => null);
   const control = await getMetaAutomationControlPlane({
     businessId,
     providerAccountId,
@@ -137,6 +126,39 @@ export default async function MetaAutomationRoute({
     reviewerReadOnly: access.context.reviewerReadOnly,
     writeAuthority,
   });
+
+  /*
+    Bootstrap the control row AFTER the viewer's authority is known, and only
+    for a viewer who has some.
+
+    Every Meta write requires a persisted control row: `getMetaWriteBlockState`
+    refuses `control_state_unavailable` without one. A business that has never
+    been opened here therefore cannot act at all, and the surface could not say
+    why. Creating the row is not an authorization — STOP is clear but automatic
+    execution is off, rehearsal is on, and no spend ceiling is claimed.
+
+    But it IS a durable write, stamped `updated_by` with whoever triggered it.
+    Running it at the top of the page meant a reviewer merely LOOKING at the
+    screen, or anyone opening a demo workspace, persisted the initial control
+    state under their own id — attributing it to an actor the server would
+    refuse every write from. The confirmation-queue route carried the same
+    ordering defect and was corrected the same way; this is the second site.
+
+    `"live"` is the only value that admits a write: `"demo"`, `"unverified"`
+    and the preserved-render sentinel all refuse, and `unverified` exists
+    precisely so an unreadable flag never reads as real.
+
+    A reviewer therefore sees `control_state_unavailable` on a never-opened
+    business rather than the guardrail reason. That is the honest reading of
+    their position: they cannot act here, and a read-only viewer should not
+    cause a write to make their own view more explanatory.
+  */
+  if (!access.context.reviewerReadOnly && writeAuthority === "live") {
+    await ensureBusinessControlRow({
+      businessId,
+      userId: access.context.session.user.id,
+    }).catch(() => null);
+  }
 
   // When several assigned accounts require an explicit choice, the business
   // control remains readable but account-owned provider action rows do not.

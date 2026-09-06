@@ -17,6 +17,7 @@
  * rounding rule and the refusal codes. A percentage that rounds to no change
  * at all is rejected there rather than proposed here as a change.
  */
+import { resolveMinorUnitExponent } from "@/lib/currency/iso-4217-minor-units";
 import {
   META_BID_INTENT_CONTRACT_VERSION,
   validateBidIntent,
@@ -71,6 +72,20 @@ export function projectBidIntents(
     withheldByCode[code] = (withheldByCode[code] ?? 0) + 1;
   };
   let sized = 0;
+  /*
+    The account's minor-unit scale, resolved once from the one registry.
+
+    The sizing policy weighs a MAJOR-unit cost per purchase against a
+    MINOR-unit benchmark, and only this exponent makes them one number. It is
+    resolved here rather than inside the policy so the policy stays pure, and
+    from the same authority `validateBidIntent` re-resolves below — a second
+    representation of "how many decimals" is how the two would ever disagree.
+    An unresolvable code yields null, and the policy refuses on null instead of
+    assuming two decimals.
+  */
+  const exponent = resolveMinorUnitExponent(input.accountCurrency);
+  const currencyExponent =
+    exponent.status === "resolved" ? exponent.exponent : null;
   const bindings = [{
     businessId: input.businessId,
     providerAccountId: input.providerAccountId,
@@ -89,6 +104,7 @@ export function projectBidIntents(
       bidStrategyType: context.bidStrategyType,
       currentBidMinor: context.currentBidMinor,
       spendUnitMinor: input.spendUnitMinor,
+      currencyExponent,
       spend28d: context.spend28d,
       purchases28d: context.purchases28d,
       maturityOk: context.maturityOk,

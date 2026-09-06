@@ -58,7 +58,10 @@ import { BUDGET_PROPOSAL_ACTION } from "@/lib/meta/budget-proposal-runtime";
 import { createBudgetProposalServerRuntime } from "@/lib/meta/budget-proposal-server-runtime";
 import { runClaimedProposalExecution } from "@/lib/meta/budget-execution-lifecycle";
 import { createBudgetServerReaders } from "@/lib/meta/budget-proposal-server-readers";
-import { buildMetaBudgetWriteContextForProposal } from "@/lib/meta/budget-proposal-write-context";
+import {
+  buildMetaBudgetWriteContextForProposal,
+  readProposalBidBaseline,
+} from "@/lib/meta/budget-proposal-write-context";
 import { getMetaLaunchIntent } from "@/lib/launchpad/meta-launch-intent-store";
 import { MANUAL_CONFIRMATION } from "@/lib/zero-base/meta/dispatch-contract";
 
@@ -577,6 +580,17 @@ async function approve(input: {
   const marksAtItsOwnBoundary =
     input.proposal.proposedAction === BUDGET_PROPOSAL_ACTION
     || input.proposal.proposedAction === "launch"
+    /*
+      `bid` joins them, because it too can refuse BEFORE any provider call.
+
+      The executor now re-reads the live cap and withholds on
+      `bid_baseline_changed` / `bid_strategy_not_writable` / a failed read —
+      all of them ahead of the handler. Stamping a dispatch before that would
+      leave a row reading as though a provider write may have been attempted
+      when nothing was sent, which is the same pathology this file's header
+      records for launch rows.
+    */
+    || input.proposal.proposedAction === "bid"
     || (input.proposal.proposedAction === "resume"
       && input.proposal.launchIntentId !== null);
   const dispatchMarked = marksAtItsOwnBoundary
@@ -612,6 +626,28 @@ async function approve(input: {
       proposal: input.proposal,
       dryRunOnly,
       receiptKey: claim.claimToken,
+      /*
+        The live cap, read at the manual boundary the way the scheduled sweep
+        reads it at its own.
+
+        Injected rather than imported. `automation-write-path.test.ts` asserts
+        that no module in this subsystem — this file included — so much as
+        mentions the Meta write client by name, and it checks the SOURCE TEXT,
+        so even naming it in a comment trips the guard. That crudeness is the
+        point: it catches a second write path that a type signature would not.
+        The read therefore lives behind `readProposalBidBaseline`, in the one
+        module on the proposal path sanctioned to hold that import.
+
+        Omitting it is not a safe default: without a reader the executor
+        refuses every bid row, which would consume the operator's proposal and
+        settle it `failed` with no remedy.
+      */
+      readBidBaseline: async ({ providerAccountId, adsetId }) =>
+        readProposalBidBaseline({
+          businessId: input.businessId,
+          providerAccountId,
+          adsetId,
+        }),
       /*
         The intent behind a Launchpad row, bound to THIS business.
 

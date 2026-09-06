@@ -91,7 +91,19 @@ export async function buildMetaDailyBrief(input: {
     readMetaAnomaliesForBusiness({
       businessId: input.businessId,
       activeOnly: true,
-    } as never).catch(() => null),
+      /*
+        The same ceiling the rest of the brief hangs off.
+
+        Unbounded, this read takes `MAX(snapshot_date)` over all time — its
+        own doc says so — so a brief for last Tuesday carried today's alerts
+        beside last Tuesday's decisions and ledger, all under one `asOf`. The
+        card would have said "3 high alerts as of 2026-09-01" about anomalies
+        detected days later. `asOf` is that ceiling everywhere else here (the
+        decision snapshot's `endDate`, the overnight window's anchor), so it
+        is the ceiling here too: one notion of "as of" per brief.
+      */
+      endDate: asOf,
+    }).catch(() => null),
     readLatestMetaDecisionSnapshot({
       businessId: input.businessId,
       startDate: dayBefore(dayBefore(asOf)),

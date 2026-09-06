@@ -64,6 +64,8 @@ describe("the A2 worked case, through the real policy", () => {
     currentBidMinor: 1200,
     // $10.00 CPA benchmark.
     spendUnitMinor: 1000,
+    // USD: the benchmark above was scaled by this, and so is the CPA below.
+    currencyExponent: 2 as const,
     // cpa28d = 4200 / 500 = $8.40, so q = 0.84.
     spend28d: 4200,
     purchases28d: 500,

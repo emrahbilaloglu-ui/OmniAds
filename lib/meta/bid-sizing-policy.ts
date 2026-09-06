@@ -26,6 +26,8 @@
  * Like the budget policy, this is a stated operating policy and not a proven
  * optimum.
  */
+import type { MinorUnitExponent } from "@/lib/currency/iso-4217-minor-units";
+
 export const BID_SIZING_POLICY_VERSION = "meta.bid-sizing.v1" as const;
 
 /**
@@ -61,6 +63,7 @@ export type BidSizingWithheldCode =
   | "bid_strategy_not_writable"
   | "current_bid_unknown"
   | "spend_unit_unavailable"
+  | "currency_unresolvable"
   | "cpa_unavailable"
   | "maturity_insufficient"
   | "within_cpa_dead_band"
@@ -76,6 +79,21 @@ export interface BidSizingInput {
   currentBidMinor: number | null;
   /** Spend unit in MINOR units — the derived CPA benchmark. */
   spendUnitMinor: number | null;
+  /**
+   * The account currency's ISO-4217 minor-unit exponent, resolved by the
+   * caller from `lib/currency/iso-4217-minor-units` — the one registry this
+   * repository has for the question, and the same one that built
+   * `spendUnitMinor` and that the bid intent contract re-resolves at write
+   * time.
+   *
+   * It has to be here because the two operands below arrive in different
+   * units: `spend28d` is a MAJOR-unit sum of the daily tables, while the
+   * benchmark was built as `round(major * 10 ** exponent)`. Null when the
+   * registry refuses the code, because a ratio computed on an assumed scale
+   * is worse than no ratio at all.
+   */
+  currencyExponent: MinorUnitExponent | null;
+  /** 28-day spend in MAJOR units, summed from `meta_*_daily.spend`. */
   spend28d: number | null;
   purchases28d: number | null;
   maturityOk: boolean;
@@ -177,6 +195,15 @@ export function sizeBidChange(input: BidSizingInput): BidSizingOutcome {
       "Cost per purchase could not be computed for the evidence window.",
     );
   }
+  if (input.currencyExponent === null) {
+    // The registry refuses codes it has not transcribed, and so does this: a
+    // benchmark and a cost per purchase compared at guessed scales is a
+    // guessed ratio, and the executor would spend real money on it.
+    return withheld(
+      "currency_unresolvable",
+      "The account currency has no known minor-unit scale, so cost per purchase cannot be put on the same footing as the benchmark.",
+    );
+  }
   if (input.budgetChangeProposedSameWindow) {
     // One lever at a time: changing a cap and a budget together makes the
     // result of neither readable.
@@ -209,7 +236,18 @@ export function sizeBidChange(input: BidSizingInput): BidSizingOutcome {
     );
   }
 
-  const cpaMinor = (input.spend28d / input.purchases28d) * 100;
+  /*
+    Both operands at the account's own scale.
+
+    A fixed `* 100` here was only correct for two-decimal currencies. On JPY
+    (exponent 0) it inflated cost per purchase a hundredfold, so an ad set half
+    the benchmark — a raise — was read as fifty times it and cut instead; on
+    KWD (exponent 3) it understated it tenfold and reversed the same decision
+    the other way. The wrong side of the dead band is then a real bid amount
+    handed to the automatic executor.
+  */
+  const cpaMinor =
+    (input.spend28d / input.purchases28d) * 10 ** input.currencyExponent;
   const ratio = cpaMinor / input.spendUnitMinor;
   const rationale: string[] = [];
 

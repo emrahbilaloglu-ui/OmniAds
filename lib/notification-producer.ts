@@ -110,12 +110,30 @@ export async function produceNotificationsForBusiness(input: {
   const now = input.now ?? new Date();
   const occurredOn = now.toISOString().slice(0, 10);
 
+  /*
+    Bounded to the day being produced for, and typed rather than cast.
+
+    `readMetaAnomaliesForBusiness` picks its snapshot with
+    `MAX(snapshot_date)` and only narrows that to `<= endDate` when one is
+    given. Omitting it means "newest snapshot in the table", which is the
+    intended ceiling for a run anchored on `new Date()` — but this producer
+    accepts an injected `now`, so a past-dated run would have attached today's
+    anomalies to an older `occurredOn`. That is the same forward-leak
+    `lib/meta/daily-brief.ts` carried; passing `occurredOn` closes it here
+    before it can be reached rather than after.
+
+    The `as never` is gone with it. It silenced the compiler on exactly this
+    argument, so the missing bound could not have been caught by typechecking —
+    a cast that hides the shape of the call is how the same mistake survives in
+    two places.
+  */
   const anomalies = await readMetaAnomaliesForBusiness({
     businessId: input.businessId,
     activeOnly: true,
-  } as never).catch(() => null);
+    endDate: occurredOn,
+  }).catch(() => null);
 
-  const rows = (anomalies as { anomalies?: unknown[] } | null)?.anomalies ?? [];
+  const rows = anomalies?.anomalies ?? [];
   // Read once for the whole scan rather than per anomaly: the membership list
   // does not change between two rows of the same batch.
   const recipients = input.recipientUserId
@@ -124,24 +142,31 @@ export async function produceNotificationsForBusiness(input: {
   let created = 0;
   let skipped = 0;
 
-  for (const row of rows as Array<Record<string, string>>) {
+  /*
+    Iterated as what it is. This was `rows as Array<Record<string, string>>`,
+    which type-checked only because the read above was cast to `never` and the
+    rows were therefore untyped. `MetaAnomaly` already declares every field read
+    below — `id`, `type`, `scopeType`, `scopeId`, `severity` — so the assertion
+    bought nothing and cost the compiler its view of the loop.
+  */
+  for (const row of rows) {
     // Only alert on what is worth interrupting someone for. An info-level
     // anomaly is visible in the product; it is not a reason to send anything.
-    const severity = notificationSeverity(row.severity ?? "info");
+    const severity = notificationSeverity(row.severity);
     if (severity === "info") {
       skipped += 1;
       continue;
     }
 
     const event: NotificationEvent = {
-      eventType: eventType(row.type ?? ""),
+      eventType: eventType(row.type),
       severity,
       businessId: input.businessId,
       providerAccountId: input.providerAccountId ?? null,
-      entityType: row.scopeType ?? null,
-      entityId: row.scopeId ?? null,
+      entityType: row.scopeType,
+      entityId: row.scopeId,
       sourceKind: "meta_anomaly",
-      sourceId: row.id ?? "",
+      sourceId: row.id,
       occurredOn,
     };
 

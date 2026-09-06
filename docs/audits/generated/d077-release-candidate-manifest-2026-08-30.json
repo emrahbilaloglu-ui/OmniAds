@@ -1,31 +1,31 @@
 {
- "manifestHash": "fa33ea8071eee0fb719c5ed4fbb457591e30012b3cc2cab75bf009c00ec11b80",
+ "manifestHash": "508bfc790fb3fa844eb6e88d131313a73bb5ceea8d39e099d32567228ae93613",
  "hashAlgorithm": "sha256",
  "hashBasis": "sha256 over UTF-8 bytes of JSON.stringify(artifact, null, 1) of the artifact WITHOUT its embedded hash fields (the artifact object before {<hashField>, hashAlgorithm, hashBasis} are prepended)",
  "contract": "adsecute.d077.release-candidate-manifest.v3",
- "generatedAtUtc": "2026-09-06T11:28:42.846Z",
+ "generatedAtUtc": "2026-09-06T12:05:46.663Z",
  "branch": "codex/meta-v2-panel-fidelity",
  "supersededBranchLabel": "codex/meta-disabled-readiness-20260829",
- "head": "cae8c88660a598a73ab87a47ddf01e638462a241",
+ "head": "5081bd98b2f8033b1fba0f9fa6602cd374bb5afd",
  "baseMain": "babf158e150fd33057117b39b175da044ac62d2e",
  "originMain": "babf158e150fd33057117b39b175da044ac62d2e",
  "remoteDivergence": {
-  "aheadOfOriginMain": 47,
+  "aheadOfOriginMain": 48,
   "behindOriginMain": 0
  },
  "selfExclusion": "this manifest's own path (docs/audits/generated/d077-release-candidate-manifest-2026-08-30.json) is EXCLUDED from its entry list: a manifest cannot recursively pin its own final bytes; its external SHA-256 is reported in the final response and by Codex's own hashing",
- "gitPorcelainEntryCount": 19,
- "releaseDiffEntryCountIncludingSelf": 726,
- "expandedOnDiskCandidateFileCountIncludingSelf": 726,
- "pinnedNonSelfFileCount": 725,
+ "gitPorcelainEntryCount": 24,
+ "releaseDiffEntryCountIncludingSelf": 732,
+ "expandedOnDiskCandidateFileCountIncludingSelf": 732,
+ "pinnedNonSelfFileCount": 731,
  "historicalContext": "pre-task freeze was 217 porcelain entries / 265 files — historical context only, NOT the final tree",
  "classCounts": {
-  "tests_only": 294,
+  "tests_only": 299,
   "runtime": 249,
   "runtime_deletion": 2,
   "deploy_config": 1,
   "docs": 48,
-  "generated_evidence": 59,
+  "generated_evidence": 60,
   "migration": 2,
   "audit_script_non_runtime": 24,
   "script_ops_non_request_path": 46
@@ -393,15 +393,27 @@
   },
   {
    "path": "app/api/meta/automation/business-mode-atomicity.test.ts",
-   "git": "??",
+   "git": "A",
    "class": "tests_only",
    "sha256": "3e3e3c18a5172e7078ca5606184c80def6f1ee493863bca894cdc3952f597468"
+  },
+  {
+   "path": "app/api/meta/automation/control-row-bootstrap-ordering.test.ts",
+   "git": "??",
+   "class": "tests_only",
+   "sha256": "f961570da97e35705a1f6a08bd6658817a29c60bcb411a59ac02ee73f1649595"
   },
   {
    "path": "app/api/meta/automation/demo-fail-closed.test.ts",
    "git": "M",
    "class": "tests_only",
    "sha256": "4400ed947a1896383846533e02581ee0f55210b2166634b4e7c74dfa41b30dfc"
+  },
+  {
+   "path": "app/api/meta/automation/proposals-bid-baseline-wiring.test.ts",
+   "git": "??",
+   "class": "tests_only",
+   "sha256": "9f6864c27590810b20961ab4016e372f9d99b1f314579a92d24d939733f37ba3"
   },
   {
    "path": "app/api/meta/automation/proposals/budget-execution-paths.c3.test.ts",
@@ -419,7 +431,7 @@
    "path": "app/api/meta/automation/proposals/route.ts",
    "git": "M",
    "class": "runtime",
-   "sha256": "98800de30ac393557645bc97e85c24fb69df9a566ba917b75f939b49288b985d"
+   "sha256": "332b22c5eea9b47201fd783399e518870cef0efd9c1ecea743a44527fb2cb744"
   },
   {
    "path": "app/api/meta/automation/route.test.ts",
@@ -431,7 +443,7 @@
    "path": "app/api/meta/automation/route.ts",
    "git": "M",
    "class": "runtime",
-   "sha256": "fd48b1fbadfc21d617037f5ff83d491c305d69700fbd62e7d3c566e7bb5adbe6"
+   "sha256": "6c3f78c104a9a378e901bf634b915b384a3f4d25d59644097ff5df9e0024436b"
   },
   {
    "path": "app/api/meta/automation/rules-route.test.ts",
@@ -581,7 +593,7 @@
    "path": "app/c/[businessId]/meta/automation/page.tsx",
    "git": "M",
    "class": "runtime",
-   "sha256": "7ac86d7f56b9a77af49a3be571ba383f4a4fcf952b926a97fc45c473d99bea04"
+   "sha256": "03797f47d7c9adce115e9c0ceadc94771c8314d97a8093719c9e44b98d461fa5"
   },
   {
    "path": "app/compatibility-shims.route.test.tsx",
@@ -1215,21 +1227,27 @@
   },
   {
    "path": "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1118Z.log",
-   "git": "??",
+   "git": "A",
    "class": "generated_evidence",
    "sha256": "c8de5b3c0eaf997fae88349f334ed649422332862621649c2a0706ab47cb2766"
+  },
+  {
+   "path": "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1156Z.log",
+   "git": "??",
+   "class": "generated_evidence",
+   "sha256": "3566c040ccc30e127c3b9dfa9d0e4df682700966f9bebb2c1184e26166b87580"
   },
   {
    "path": "docs/audits/generated/d077-correction1-verification-ledger-2026-08-30.json",
    "git": "A",
    "class": "generated_evidence",
-   "sha256": "a1f214a062b265942597113585ec7360d20d61ce0807a51cb9ed89a606d403c0"
+   "sha256": "cd81cf7580bed1bfc963e65bc712b1c051b954c6eb01dbe10a16ac34d4d02789"
   },
   {
    "path": "docs/audits/generated/d077-database-recovery-approval-packet-2026-08-30.json",
    "git": "A",
    "class": "generated_evidence",
-   "sha256": "62af35ee13fd185a59c3d09f97f45263407fe7bd29fd7245cae8f3b06375d408"
+   "sha256": "1e2634d69216ffbd72694d4565a9abb82207cd10c179682d5bb97700a6ab2fdd"
   },
   {
    "path": "docs/audits/generated/d077-production-recovery-readonly-evidence-2026-08-30.json",
@@ -1241,7 +1259,7 @@
    "path": "docs/audits/generated/d077-release-deploy-approval-packet-2026-08-30.json",
    "git": "A",
    "class": "generated_evidence",
-   "sha256": "0fd13fd661a21f041d1fca390f0f7b32957daea54411550382088e68240a6e51"
+   "sha256": "e3653f69f5416bc388db687231d62f1c560c27571ef05a98ca451993b017bd15"
   },
   {
    "path": "docs/audits/generated/d078-hard-action-recompute-2026-08-30.json",
@@ -1691,7 +1709,7 @@
    "path": "docs/releases/2026-09-06-meta-operator-readiness-release-candidate.md",
    "git": "A",
    "class": "docs",
-   "sha256": "8f898f5dc518127d915dc6fa29182579bb0111f926eda7ba363b382a4dacce5a"
+   "sha256": "81573263dd7884a8c6a30aaec21008ab6fc6fe87278a13a02887548cdbd7a147"
   },
   {
    "path": "lib/api/meta.test.ts",
@@ -1833,7 +1851,7 @@
   },
   {
    "path": "lib/creative-decision-engine/__tests__/jobs/campaign-context-job.role-authority-withdrawal.test.ts",
-   "git": "??",
+   "git": "A",
    "class": "tests_only",
    "sha256": "8240c04997cbb435a6004c9b9a55c8b71facb3d412918260794ab05211bed3a5"
   },
@@ -2151,7 +2169,7 @@
   },
   {
    "path": "lib/launchpad/meta-launch-write-refusal-receipt.test.ts",
-   "git": "??",
+   "git": "A",
    "class": "tests_only",
    "sha256": "e30a26c84f7cbf195f05fce41456c775292bf88d80d292086611045ce9a25da2"
   },
@@ -2183,7 +2201,7 @@
    "path": "lib/meta/__tests__/d077-artifact-hash-contract.test.ts",
    "git": "A",
    "class": "tests_only",
-   "sha256": "6cdf78150220c79fe6449a595773421b15eecf023e62fb21f0945c5abc7a3a32"
+   "sha256": "23518e9b2eb9475e8ea4039ad3c92e60f9a9e69dffc1362c71316151229973c4"
   },
   {
    "path": "lib/meta/__tests__/d078-acceptance-guards.test.ts",
@@ -2402,6 +2420,12 @@
    "sha256": "4c260dd02040ddf31b1041feb88bf691c6d1d0654800ea2a3f1dd1106eab0863"
   },
   {
+   "path": "lib/meta/automation-proposal-bid-baseline.test.ts",
+   "git": "??",
+   "class": "tests_only",
+   "sha256": "95489e51e398bf46fd8ae6e029eccb52adf4d6d87bb590bbebd477ff52ed1c87"
+  },
+  {
    "path": "lib/meta/automation-proposal-execution.test.ts",
    "git": "M",
    "class": "tests_only",
@@ -2411,7 +2435,7 @@
    "path": "lib/meta/automation-proposal-execution.ts",
    "git": "M",
    "class": "runtime",
-   "sha256": "0ee27de78e9950e38a33d986b0636beeb3308dd7e79ee6826b5be23324b259cc"
+   "sha256": "0f6beea09fabfeb40f281002220257827d412d2cc8cc430a255d07be9ca1b663"
   },
   {
    "path": "lib/meta/automation-proposals.test.ts",
@@ -2480,6 +2504,12 @@
    "sha256": "0cc7d5d850461a3093fe037fa2d6d066ed58e799bbe7c3f984bf6f1e59885195"
   },
   {
+   "path": "lib/meta/bid-currency-exponent-wiring.test.ts",
+   "git": "??",
+   "class": "tests_only",
+   "sha256": "11e3e806c0875bddf40fceadf4784e02ec581949dc89e0107d9381bc4d8c32b1"
+  },
+  {
    "path": "lib/meta/bid-history-verb-title.db.test.ts",
    "git": "A",
    "class": "tests_only",
@@ -2513,7 +2543,7 @@
    "path": "lib/meta/bid-intent-projection.ts",
    "git": "A",
    "class": "runtime",
-   "sha256": "e8ee4269a81ac00635dd9159ab13fc756f1aa2a7c0b540c5b48dd08f42c2d922"
+   "sha256": "a87193a143ccd93ea85b3cad05782dd6c80a5cfe01ae52d13374274651277e54"
   },
   {
    "path": "lib/meta/bid-proposal-envelope.ts",
@@ -2537,13 +2567,13 @@
    "path": "lib/meta/bid-sizing-policy.test.ts",
    "git": "A",
    "class": "tests_only",
-   "sha256": "5d0090be404010154d59814dc895e585a27dc723037719bad54000967cbe01ee"
+   "sha256": "98215ca968f2d3ec85ab4f789afbe351e138ba90d15c934a0b84c71dd62c0faa"
   },
   {
    "path": "lib/meta/bid-sizing-policy.ts",
    "git": "A",
    "class": "runtime",
-   "sha256": "c4bff9179f2c4e8a8fc1f175e1dfd721361614880e8300677f42cd9ea60a4a72"
+   "sha256": "cadbaf5e333c7dd0ebe30188ad6df084558bd04d26d230b916388467bf56db33"
   },
   {
    "path": "lib/meta/budget-activation-readiness-server.ts",
@@ -2795,7 +2825,7 @@
    "path": "lib/meta/budget-proposal-write-context.ts",
    "git": "A",
    "class": "runtime",
-   "sha256": "9eb37c3ad29af440aa48a7776ff973e10a45eec66126dc7daf41af0edf763b30"
+   "sha256": "6b81081c91d98e8718688cfd33768873e5c24972fa92bbf0268661f276851e1c"
   },
   {
    "path": "lib/meta/budget-readiness-read-model.ts",
@@ -2984,8 +3014,14 @@
    "sha256": "4a014cfdd30d221b88950491fa6e77d03f24e483672f2706374cecf7c0a5b49e"
   },
   {
-   "path": "lib/meta/daily-brief-overnight-window.test.ts",
+   "path": "lib/meta/daily-brief-alert-window.test.ts",
    "git": "??",
+   "class": "tests_only",
+   "sha256": "386a4af8df3736fa9970053bf6e00153077761518f3d9f1ec82128a2a29d650d"
+  },
+  {
+   "path": "lib/meta/daily-brief-overnight-window.test.ts",
+   "git": "A",
    "class": "tests_only",
    "sha256": "fb004d276ca9a791f6a7d573985647a9454afcb0d0ec111201af1a81d4a87ebe"
   },
@@ -2999,7 +3035,7 @@
    "path": "lib/meta/daily-brief.ts",
    "git": "A",
    "class": "runtime",
-   "sha256": "f1427f48a462b6277b343fed59c0ec35e6b1aa082dffa0f9a0bd201b0efbb822"
+   "sha256": "0d0ce9c933cfdd72ea58fe71306d7b78201ceb273f7996cf30d5fe0ff73629f7"
   },
   {
    "path": "lib/meta/decision-availability-posture-independence.test.ts",
@@ -3095,7 +3131,7 @@
    "path": "lib/meta/delivery-evidence-wiring.test.ts",
    "git": "A",
    "class": "tests_only",
-   "sha256": "651bca88dae88294d3d098f251a18ac4ed83a1970363174bf92f21415526ab33"
+   "sha256": "28d7ad8ef0a0ecdeea54d11b2c17712edf65aaa8aee1c562ca9c8afc950e0301"
   },
   {
    "path": "lib/meta/engine-v1/state-rows.test.ts",
@@ -3633,7 +3669,7 @@
   },
   {
    "path": "lib/migrations.shopify-sync-window.test.ts",
-   "git": "??",
+   "git": "A",
    "class": "tests_only",
    "sha256": "d5de8d0d479e89f5e374b7eb3f7558954cde5819176ff94fc6d699aa1fd5fafb"
   },
@@ -3653,7 +3689,7 @@
    "path": "lib/notification-producer.ts",
    "git": "M",
    "class": "runtime",
-   "sha256": "c54306059b74ce19e5e851747b8d7ccc414df7a0e3b3b3b3ebf46c8d688539a4"
+   "sha256": "72a94ad92cdddedc334aaa0c12634637414040a34c4bff7acea5b8be3c695e99"
   },
   {
    "path": "lib/notification-store.ts",
@@ -3845,7 +3881,7 @@
    "path": "scripts/audits/d077-correction1-artifact-generator.ts",
    "git": "A",
    "class": "audit_script_non_runtime",
-   "sha256": "8884e04f57a14ec06bd311054aa51400d990dac768d36e5641264ea1c2aa929d"
+   "sha256": "6580cb411bc80e165db97687f8af101e61b8be2974ca3fb766d49be8e7449788"
   },
   {
    "path": "scripts/audits/d077-production-recovery-readonly-preflight.ts",
@@ -4085,7 +4121,7 @@
    "path": "scripts/check-release-owner-references.sh",
    "git": "M",
    "class": "script_ops_non_request_path",
-   "sha256": "16e13adc96b4a2e0cd5f5a8348a7c085f68e3012f239095bd7ecfab0c87a6ee5"
+   "sha256": "c4bb4959dfc5a63ef9bf7de02168126a303934096c46998eac7ccedac7b9a196"
   },
   {
    "path": "scripts/creative-decision-center/automatic-campaign-context-shadow.test.ts",

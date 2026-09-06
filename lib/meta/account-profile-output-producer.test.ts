@@ -17,6 +17,8 @@ import { describe, expect, it } from "vitest";
 import {
   accountProfileMeasuredScopeHold,
   accountProfileRetentionIdentity,
+  businessPooledMeasurementScope,
+  resolveAccountProfileMeasurementScope,
   type AccountProfileRetentionInputs,
 } from "@/lib/meta/account-profile-output-producer";
 import { reconcileProfileIdentityExpectation } from "@/lib/meta/budget-readiness-retention";
@@ -109,6 +111,12 @@ const inputs = (
     live aggregate — facts no identity may be stamped on.
   */
   measuredScope: "materialised",
+  /*
+    Only consulted while no account of the business has a scope of its own, and
+    the fixture above is materialised — so this reports the state a source that
+    was never asked reports, and it can never be read as `sole_account`.
+  */
+  populationBreadth: "unprobed",
   ...over,
 });
 
@@ -274,5 +282,136 @@ describe("the measured scope a verdict may be built on", () => {
       the three real states.
     */
     expect(accountProfileMeasuredScopeHold("unprobed")).toBeNull();
+  });
+
+  it("passes a warehouse that has never written ANY per-account scope", () => {
+    /*
+      That state is a fact about the WAREHOUSE, not about this account.
+      Refusing it would blank every healthy account until a calibration run —
+      the deploy-day regression this delivery has already had to repair twice.
+      The verdict is produced; what changes is the population it is measured
+      from, which is settled by the resolver below and never by this hold.
+    */
+    expect(
+      accountProfileMeasuredScopeHold("per_account_scopes_unwritten"),
+    ).toBeNull();
+  });
+});
+
+/**
+ * WHOSE EVIDENCE A BOOTSTRAP VERDICT RESTS ON.
+ *
+ * The state where no account of a business has a calibration scope of its own
+ * used to be answered from the BUSINESS-POOLED population and labelled
+ * `business_pooled`. The label was accurate and it granted authority anyway: an
+ * account with six mature converters beside a sibling with thirty-two was
+ * served — and had retained under its own `provider_account_id` — a `scale`
+ * verdict only the pooled thirty-eight could reach.
+ *
+ * The population is now always this account's. Only the READ that reaches it
+ * moves, and it moves on a fact proved from the warehouse rows.
+ */
+describe("the population a bootstrap verdict is measured from", () => {
+  const bootstrap = (
+    populationBreadth: AccountProfileRetentionInputs["populationBreadth"],
+  ) =>
+    resolveAccountProfileMeasurementScope({
+      status: "per_account_scopes_unwritten",
+      populationBreadth,
+      providerAccountId: ACCOUNT,
+      asOfDate: "2026-09-04",
+    });
+
+  it("never answers a named account from the business's pooled population", () => {
+    for (const breadth of [
+      "sole_account",
+      "multiple_accounts",
+      "unreadable",
+      "unprobed",
+    ] as const) {
+      const measurement = bootstrap(breadth);
+      expect(measurement.scope).toBe("account");
+      expect(measurement.providerAccountId).toBe(ACCOUNT);
+      expect(measurement.hold).toBeNull();
+    }
+  });
+
+  it("reads the pooled row only where it IS this account's rows", () => {
+    /*
+      The business's warehouse holds rows for no other ad account, so the pooled
+      `scope_id '*'` statement ran over exactly this account's rows. Reading it
+      borrows nothing and keeps the day's reading fixed.
+    */
+    const measurement = bootstrap("sole_account");
+    expect(measurement.basis).toBe("sole_account_pooled_rows");
+    expect(measurement.readProviderAccountId).toBeNull();
+    expect(measurement.why).toContain("nothing else");
+  });
+
+  it("scopes the reads to the account in every other case", () => {
+    for (const breadth of ["multiple_accounts", "unreadable", "unprobed"] as const) {
+      const measurement = bootstrap(breadth);
+      expect(measurement.basis).toBe("account_runtime_aggregate");
+      expect(measurement.readProviderAccountId).toBe(ACCOUNT);
+    }
+  });
+
+  it("gives the two bootstrap readings different identities", () => {
+    /*
+      A sole-account business's pooled row and a runtime aggregate over the same
+      rows carry identical NUMBERS. They are still reached differently — one is
+      fixed for the day and one is not — so a reader must be able to tell which
+      a retained verdict rested on, and the digest is where that lives.
+    */
+    const sole = accountProfileRetentionIdentity(
+      inputs({
+        measuredScope: "per_account_scopes_unwritten",
+        populationBreadth: "sole_account",
+      }),
+    );
+    const runtime = accountProfileRetentionIdentity(
+      inputs({
+        measuredScope: "per_account_scopes_unwritten",
+        populationBreadth: "multiple_accounts",
+      }),
+    );
+    expect(sole.sourceFingerprint).not.toBe(runtime.sourceFingerprint);
+
+    // And neither is the identity a materialised scope carries, so the first
+    // calibration run that covers this account ends the bootstrap reading by
+    // itself rather than by anyone remembering to invalidate it.
+    const materialised = accountProfileRetentionIdentity(inputs());
+    expect(materialised.sourceFingerprint).not.toBe(sole.sourceFingerprint);
+    expect(materialised.sourceFingerprint).not.toBe(runtime.sourceFingerprint);
+  });
+
+  it("keeps the two long-standing bases sharing one identity", () => {
+    /*
+      `measurementIdentityTag` spells `"account"` for a materialised scope and
+      for a source that answers the reads itself — the exact value the digest's
+      `measurementScope` field carried before it learned about the bootstrap
+      bases. That is what makes them share this fingerprint, and it is why this
+      change re-derives no verdict already retained on either of them. The
+      bootstrap bases are distinguished from both by the case above.
+    */
+    expect(accountProfileRetentionIdentity(inputs()).sourceFingerprint).toBe(
+      accountProfileRetentionIdentity(inputs({ measuredScope: "unprobed" }))
+        .sourceFingerprint,
+    );
+  });
+
+  it("labels a request that names no account as the business summary", () => {
+    /*
+      Kept, because a business-wide reading is useful and a reader should be
+      able to see that it is one. It grants nothing: a retained commercial
+      verdict is keyed on one `provider_account_id`, and this names none.
+    */
+    const summary = businessPooledMeasurementScope({ asOfDate: "2026-09-04" });
+    expect(summary.scope).toBe("business_pooled");
+    expect(summary.providerAccountId).toBeNull();
+    expect(summary.readProviderAccountId).toBeNull();
+    expect(summary.basis).toBe("business_pooled_rows");
+    expect(summary.materialisation).toBeNull();
+    expect(summary.hold).toBeNull();
   });
 });

@@ -205,6 +205,23 @@ describe("POST /api/launchpad/meta/launch", () => {
         id: "intent_1",
         status: "prepared",
         requestFingerprint: "fingerprint_1",
+        /*
+          The lineage a real prepared intent always carries.
+
+          `MetaLaunchIntent.lineage` is required and `mapMetaLaunchIntent`
+          always normalizes one; this mock used to omit it and the `as never`
+          cast hid that. It matters now that the handler composes the mandatory
+          pre-POST approval-standing read, which is asked OF this lineage. All
+          null is the standalone shape — an intent composed and confirmed on the
+          Launchpad screen — which is what every case in this file is, and it is
+          the shape the standing read answers for without touching the database.
+        */
+        lineage: {
+          sourceDecisionId: null,
+          sourceDecisionSnapshotId: null,
+          creativeBriefId: null,
+          sourceDraftId: null,
+        },
       },
     } as never);
     vi.mocked(intentStore.recordMetaLaunchIntentValidation).mockResolvedValue({

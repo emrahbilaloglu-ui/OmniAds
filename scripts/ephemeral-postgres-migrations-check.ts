@@ -3279,6 +3279,27 @@ async function main() {
     );
 
     /*
+      The DIRECT Launchpad create routes, whose pre-POST boundary was optional.
+
+      Both route files call the shared handler with no options, so until the
+      handler composed one, an approval withdrawn between two provider POSTs
+      was seen by nothing on the operator's own path. It is proved here because
+      the whole question is whether the CURRENT rows still say the brief is
+      reviewed: the intent stores the brief's id, `patchMetaCreativeBrief` is an
+      UPDATE, and the standing re-read is a SELECT.
+
+      Registered rather than left to a hand run: with the seam flag unset the
+      file reports "7 skipped", which reads green, so nothing would have caught
+      a regression of this exact guard.
+    */
+    await runChildVitest(
+      repoRoot,
+      databaseUrl,
+      path.join("lib", "launchpad", "direct-launch-standing-boundary.db.test.ts"),
+      "direct Launchpad create route approval-standing DB seam check",
+    );
+
+    /*
       The Writes journal names the verb the write actually was.
 
       A verified cost-cap change was journalled as `launch_adset` with the real

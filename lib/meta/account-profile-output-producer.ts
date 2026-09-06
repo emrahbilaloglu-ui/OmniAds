@@ -43,7 +43,7 @@
  * and a calibration profile are one commercial policy for the business, not a
  * per-account setting.
  *
- * AND THE MEASURED SIDE HAS TO BE THE DAY'S RETAINED READING, NOT A LIVE ONE.
+ * AND THE MEASURED SIDE PREFERS THE DAY'S RETAINED READING TO A LIVE ONE.
  * `lib/creative-decision-engine/jobs/calibration-job.ts` materialises one
  * calibration scope per selected ad account beside the pooled one, so a scoped
  * read is served from a row that is fixed for the day it speaks for — which is
@@ -51,11 +51,14 @@
  * When that scope has NOT been materialised the scoped readers still answer:
  * the funnel pack comes back empty and the calibration comes back from a
  * runtime aggregate recomputed on every read. Both are honest about this
- * account and neither is usable as an identity — an empty pack is
- * indistinguishable from a genuinely empty account, and a live aggregate moves
- * the moment the account's own sync writes a row. So this module asks the
- * warehouse which of the two it is holding, BEFORE it reads, and
- * `resolveAccountProfileMeasurementScope` turns the answer into a decision.
+ * account, and how usable they are as an IDENTITY depends on why the scope is
+ * missing — an empty pack is indistinguishable from a genuinely empty account,
+ * and a live aggregate moves the moment the account's own sync writes a row. So
+ * this module asks the warehouse which state it is in, BEFORE it reads, and
+ * `resolveAccountProfileMeasurementScope` turns the answer into a decision: an
+ * account the pass SKIPPED is refused by name, and a warehouse that has written
+ * no per-account scope for anybody is served from this account's own rows on
+ * the terms set out below.
  *
  * A MISS HAS TWO CAUSES AND ONLY ONE OF THEM IS ABOUT THE ACCOUNT. When
  * sibling accounts of the same business have their own scopes and this one does
@@ -64,13 +67,62 @@
  * business has one, the per-account dimension has never been written in this
  * warehouse — which is every business's state until the first run of the writer
  * that shipped in 058a1c8f6 — and refusing this account would say nothing about
- * this account while withholding a verdict the previous release served. In that
- * state the measured reads take their long-standing POOLED meaning, the
- * warehouse state they were read under is recorded in `measuredScope`, and the
- * identity below carries the population it implies — so nothing can read the
- * result as this account's own measurement, and the pooled verdict stops being
- * the latest one as soon as the pass writes this account's scope and a
- * differently-identified verdict is retained beside it.
+ * this account while withholding a verdict the previous release served.
+ *
+ * THAT SECOND STATE IS SERVED FROM THIS ACCOUNT'S OWN POPULATION, NEVER FROM
+ * THE BUSINESS'S. It used to be served from the pooled one, on the argument
+ * that the pooled reading was what the previous release computed and that
+ * labelling it `business_pooled` made it honest. The label was honest and the
+ * authority was not: an account with six mature converters beside a sibling
+ * with thirty-two was served the pooled thirty-eight, cleared the
+ * thirty-creative automation-quality floor its own six cannot, and had that
+ * verdict RETAINED under its own `provider_account_id` — where the budget
+ * loader and the execution reader re-derived the same pooled fingerprint and
+ * accepted it. A sibling's evidence became this account's hard-action
+ * eligibility. So the measured reads name this account in this state too, and
+ * they are reached one of two ways:
+ *
+ * - THE POOLED ROWS ARE THIS ACCOUNT'S ROWS, PROVEN. When the warehouse holds
+ *   no `meta_creative_daily` row of this business belonging to any other ad
+ *   account, the pooled `scope_id '*'` row was computed by the same statement
+ *   over exactly this account's rows. There is nothing to borrow, so the reads
+ *   take the pooled parameter — which keeps the funnel and by-kind packs the
+ *   previous release served. The proof is
+ *   `readBusinessAccountPopulationBreadth`, asked of the warehouse rows and not
+ *   of the assignment table, because a business can hold rows for an account it
+ *   no longer selects.
+ *
+ *   ON WHAT TERMS IT IS FIXED FOR THE DAY, which is narrower than "always".
+ *   `per_account_scopes_unwritten` is reached BOTH by a business whose pooled
+ *   `scope_id '*'` row exists and by one with no calibration row at all — the
+ *   presence probe deliberately excludes `'*'`, so zero rows lands here too.
+ *   Where the pooled row exists the reading comes from it and is fixed for the
+ *   day, as stable as a materialised scope. Where it does not,
+ *   `getAccountCalibration` falls through to a live pooled aggregate, exactly
+ *   as the pooled read has always done in that state, and the reading moves
+ *   with the account's own writes. The NUMBERS are this account's either way —
+ *   sole account means the same rows — so no authority turns on the
+ *   difference; only the identity's stability does.
+ * - OTHERWISE, THIS ACCOUNT'S OWN RUNTIME AGGREGATE. The scoped calibration
+ *   read misses the precomputed row and falls through to
+ *   `ACCOUNT_CALIBRATION_QUERY` filtered to this `provider_account_id`, so the
+ *   percentiles, the sample counts and the attributed AOV are computed from
+ *   this account's rows and nothing else. The funnel and by-kind packs are
+ *   precomputed-only and come back empty, which is honest — nobody has measured
+ *   them for this account — and which `hardActionEligibility` does not consult.
+ *
+ * THE SECOND OF THOSE HAS A VOLATILE IDENTITY, AND THAT IS A DELIBERATE TRADE.
+ * A runtime aggregate is recomputed on every read, so this account's own sync
+ * writing a row between projection and approval moves `sourceFingerprint` and
+ * the retained verdict stops agreeing with the reader's expectation. It is
+ * bounded to the window between deploying the per-account writer and the first
+ * calibration run, it affects only businesses that genuinely hold several ad
+ * accounts, and it is the same behaviour a materialised row already falls back
+ * to when its own source freshness has aged out (see the paragraph below on the
+ * two readings that still come from the live aggregate). A verdict that is
+ * CORRECT and occasionally re-derived is a defensible transitional cost; a
+ * verdict that is stable because it was computed from another account's
+ * evidence is not.
  *
  * The serve path in `app/api/meta/decisions-workspace/route.ts` resolves its
  * data source from the SAME function, so one response can never carry a
@@ -102,6 +154,7 @@ import { getDb } from "@/lib/db";
 import {
   WarehouseDataSource,
   type AccountScopeCalibrationMaterialisation,
+  type BusinessAccountPopulationBreadth,
   type BusinessTargetPack,
   type CreativeDecisionDataSource,
   type DecisionCalibrationProfileConfig,
@@ -179,7 +232,27 @@ export interface AccountProfileRetentionInputs {
    * nothing to check them against.
    */
   measuredScope: AccountProfileMeasuredScopeStatus;
+  /**
+   * Whether the business's warehouse rows belong to this account alone.
+   *
+   * Only consulted while NO account of the business has a calibration scope of
+   * its own: it is what decides whether the pooled precomputed row may be read
+   * as this account's own measurement (it can, when it was computed from this
+   * account's rows and nothing else) or whether the reads must be scoped to the
+   * account and answered from a runtime aggregate.
+   *
+   * `unprobed` is not a warehouse state: it is what this module records when the
+   * question was not put — because the calibration-scope state made it
+   * irrelevant, or because the data source models no warehouse — and it is
+   * never treated as `sole_account`.
+   */
+  populationBreadth: AccountProfilePopulationBreadth;
 }
+
+/** {@link BusinessAccountPopulationBreadth}, plus "the question was not put". */
+export type AccountProfilePopulationBreadth =
+  | BusinessAccountPopulationBreadth
+  | "unprobed";
 
 /**
  * Which population one set of inputs was READ FROM, derived rather than stored.
@@ -193,11 +266,12 @@ export interface AccountProfileRetentionInputs {
 export function accountProfileInputsMeasurementScope(
   inputs: Pick<
     AccountProfileRetentionInputs,
-    "measuredScope" | "providerAccountId" | "asOfDate"
+    "measuredScope" | "populationBreadth" | "providerAccountId" | "asOfDate"
   >,
 ): AccountProfileMeasurementScope {
   return resolveAccountProfileMeasurementScope({
     status: inputs.measuredScope,
+    populationBreadth: inputs.populationBreadth,
     providerAccountId: inputs.providerAccountId,
     asOfDate: inputs.asOfDate,
   });
@@ -221,8 +295,10 @@ export type AccountProfileMeasuredScopeStatus =
  * `materialised` and `unprobed` pass, and so does
  * `per_account_scopes_unwritten` — see
  * {@link resolveAccountProfileMeasurementScope} for why a warehouse that has
- * never written ANY per-account scope is answered from the pooled population
- * rather than refused.
+ * never written ANY per-account scope is answered from THIS ACCOUNT'S OWN
+ * population rather than refused. That state is a fact about the warehouse and
+ * not about the account, so refusing it would blank every healthy account until
+ * a cron ran; the answer it gets is measured from its own rows either way.
  *
  * `absent` and `unreadable` hold, with the reason in the name. They are two
  * different reasons and they are never merged: `absent` is the fact that
@@ -245,10 +321,41 @@ export function accountProfileMeasuredScopeHold(
 }
 
 export const ACCOUNT_PROFILE_MEASUREMENT_SCOPE_CONTRACT =
-  "meta.account-profile-measurement-scope.v1" as const;
+  "meta.account-profile-measurement-scope.v2" as const;
 
 /**
- * Which population one account's MEASURED facts are read from, why, and whether
+ * How the population a verdict is measured from is actually reached.
+ *
+ * `scope` says WHOSE evidence the verdict rests on. This says which read
+ * produced it, which is a different question and the one that decides whether
+ * the reading is fixed for the day.
+ *
+ * - `materialised_account_scope` — this account's own precomputed calibration
+ *   row. Fixed for the day it speaks for.
+ * - `sole_account_pooled_rows` — the business's pooled precomputed row, read as
+ *   this account's own because the warehouse holds rows for no other ad account
+ *   of this business, so the pooled statement ran over exactly this account's
+ *   rows. Fixed for the day, and borrows nothing.
+ * - `account_runtime_aggregate` — `ACCOUNT_CALIBRATION_QUERY` filtered to this
+ *   `provider_account_id`. This account's own rows, recomputed on every read,
+ *   so the identity it produces moves when this account's sync writes.
+ * - `business_pooled_rows` — the business's whole Meta footprint, for a caller
+ *   that named no physical account. A summary; it is never the basis of a
+ *   retained per-account verdict, because the producer requires an account.
+ * - `source_answers_directly` — an injected data source that models no
+ *   precomputed table answered the measured reads itself.
+ * - `withheld` — a hold applies and nothing was read.
+ */
+export type AccountProfileMeasurementBasis =
+  | "materialised_account_scope"
+  | "sole_account_pooled_rows"
+  | "account_runtime_aggregate"
+  | "business_pooled_rows"
+  | "source_answers_directly"
+  | "withheld";
+
+/**
+ * Which population one account's MEASURED facts are read from, how, and whether
  * that state forces a hold.
  *
  * WHAT THIS EXISTS TO STOP. Scoping the measured reads to the selected account
@@ -261,9 +368,21 @@ export const ACCOUNT_PROFILE_MEASUREMENT_SCOPE_CONTRACT =
  * retained-window regression this delivery already repaired once: a refusal
  * that moved from "while a job runs" to "until one runs".
  *
- * THE DISTINCTION THAT FIXES IT, and it is derivable from the warehouse rather
- * than assumed. `readAccountScopeCalibrationMaterialisation` reports whether
- * ANY account-named scope exists for the business, not just this account's:
+ * AND WHAT THE FIRST ANSWER TO IT GOT WRONG. That bootstrap state used to be
+ * answered from the BUSINESS-POOLED population, labelled `business_pooled` and
+ * let through — and a label is not an authority boundary. An account with six
+ * mature converters beside a sibling with thirty-two was served, and had
+ * RETAINED under its own `provider_account_id`, a `scale` verdict that only the
+ * pooled thirty-eight could reach. The budget loader and the execution reader
+ * re-derived the identical pooled fingerprint and accepted the row. Whatever
+ * the payload said about provenance, a sibling's evidence was this account's
+ * hard-action eligibility.
+ *
+ * THE DISTINCTIONS THAT FIX IT, both derived from the warehouse rather than
+ * assumed. `readAccountScopeCalibrationMaterialisation` reports whether ANY
+ * account-named scope exists for the business, not just this account's; and
+ * `readBusinessAccountPopulationBreadth` reports whether the business's
+ * warehouse rows belong to this account alone:
  *
  * - Sibling accounts have scopes and this one does not (`absent`). The pass
  *   covered the business and skipped this account — an account whose selection
@@ -272,37 +391,58 @@ export const ACCOUNT_PROFILE_MEASUREMENT_SCOPE_CONTRACT =
  *   the named hold is the honest answer.
  * - No account has one (`per_account_scopes_unwritten`). The per-account
  *   dimension does not exist in this warehouse at all, so refusing this account
- *   states nothing about this account. The previous release's answer here was
- *   the POOLED read, and continuing to serve it is not a regression. It is
- *   served as what it is: `scope: "business_pooled"`, with
- *   `providerAccountId: null`, so no reader can mistake it for this account's
- *   own measurement. It stops the moment the pass writes this account's scope,
- *   because the probe is re-run on every read and the retained identity carries
- *   the scope (see `accountProfileRetentionIdentity`).
+ *   states nothing about this account and would blank every healthy account
+ *   until a cron ran. The verdict is produced — from THIS ACCOUNT'S population,
+ *   reached one of two ways. Where the business's rows all belong to this
+ *   account, the pooled precomputed row IS this account's measurement and is
+ *   read as such (`sole_account_pooled_rows`), which keeps the reading fixed for
+ *   the day and keeps the funnel and by-kind packs the previous release served.
+ *   Otherwise the reads name the account and fall through to its own runtime
+ *   aggregate (`account_runtime_aggregate`).
  *
- * ON WHAT TERMS THE POOLED READ IS STABLE, stated rather than assumed. Where
- * the pass has written the business's `scope_id '*'` row — every business it
- * has ever covered — the pooled read is served from that row and is fixed for
- * the day. Where it has not, the pooled read falls through to the runtime
- * aggregate, exactly as the pooled read has ALWAYS done in that state; this
- * changes nothing about it, and the paragraph above on the two readings that
- * still come from the live aggregate covers it unchanged. What matters for the
- * contradiction this module exists to prevent is that the serve path and the
- * producer read the SAME population, and they do.
+ * ON WHAT TERMS EACH READING IS STABLE, stated rather than assumed. The
+ * materialised and sole-account-pooled bases are served from a precomputed row
+ * and are fixed for the day. The runtime aggregate is not: it is recomputed on
+ * every read, so a sync write between projection and approval moves the
+ * identity and the retained verdict is re-derived. That cost is bounded to
+ * multi-account businesses in the window before their first per-account
+ * calibration run, and it is the same fallback a materialised row already takes
+ * when its own source freshness has aged out. It is preferred to the
+ * alternative, which is a stable verdict computed from another account's
+ * evidence.
  *
- * The pooled reading is NOT an account-scoped answer wearing a different label.
- * On a multi-account business it really is the pooled population, which is why
- * it is named in every payload that carries it and why it lasts exactly one
- * calibration run.
+ * ONE FUNCTION, FOUR CALLERS. The producer, the reader's expectation, the
+ * read-through step and the serve path in
+ * `app/api/meta/decisions-workspace/route.ts` all resolve the scope here, so a
+ * response can never carry a differently-measured panel beside a retained
+ * verdict, or serve a verdict the producer refused.
  */
 export interface AccountProfileMeasurementScope {
   contractVersion: typeof ACCOUNT_PROFILE_MEASUREMENT_SCOPE_CONTRACT;
-  /** The warehouse fact this was decided from. */
-  materialisation: AccountProfileMeasuredScopeStatus;
-  /** Which population the measured reads draw from. */
+  /**
+   * The calibration-scope state this was decided from, or `null` when the
+   * caller named no physical account and the per-account question does not
+   * apply.
+   */
+  materialisation: AccountProfileMeasuredScopeStatus | null;
+  /** Whose evidence the measured facts are. */
   scope: "account" | "business_pooled";
-  /** The account those reads name, or `null` for the business's footprint. */
+  /** The account that population belongs to, or `null` for the business. */
   providerAccountId: string | null;
+  /**
+   * The `providerAccountId` the measured readers are actually called with.
+   *
+   * Usually the same as `providerAccountId`. It is `null` — a pooled read — in
+   * exactly one case where `scope` is still `"account"`: the business's
+   * warehouse rows belong to this account alone, so the pooled row was computed
+   * from this account's rows and reading it borrows nothing. Kept as its own
+   * field rather than folded into `providerAccountId`, because "whose evidence
+   * this is" and "which parameter the SQL was given" are different claims and
+   * conflating them is how the pooled reading passed for an account's own.
+   */
+  readProviderAccountId: string | null;
+  /** How that population is reached. */
+  basis: AccountProfileMeasurementBasis;
   /** {@link accountProfileMeasuredScopeHold} for this state. */
   hold: string | null;
   /** One sentence naming the state, for an operator rather than a log. */
@@ -311,6 +451,13 @@ export interface AccountProfileMeasurementScope {
 
 export function resolveAccountProfileMeasurementScope(input: {
   status: AccountProfileMeasuredScopeStatus;
+  /**
+   * Whether the business's warehouse rows belong to this account alone. Only
+   * consulted in the `per_account_scopes_unwritten` state; anything that is not
+   * `sole_account` — including a failed probe — sends the reads to the
+   * account's own runtime aggregate, which is always correct.
+   */
+  populationBreadth: AccountProfilePopulationBreadth;
   providerAccountId: string;
   asOfDate: string;
 }): AccountProfileMeasurementScope {
@@ -320,15 +467,24 @@ export function resolveAccountProfileMeasurementScope(input: {
     hold: accountProfileMeasuredScopeHold(input.status),
   } as const;
   if (input.status === "per_account_scopes_unwritten") {
+    const sole = input.populationBreadth === "sole_account";
     return {
       ...base,
-      scope: "business_pooled",
-      providerAccountId: null,
-      why:
-        `no ad account of this business has a calibration scope of its own on or before ${input.asOfDate}, `
-        + "so the per-account dimension has never been written here; the measured facts below are the "
-        + "business's whole Meta footprint pooled together, which is what the previous release read, and "
-        + "they become this account's own on the next calibration run",
+      scope: "account",
+      providerAccountId: input.providerAccountId,
+      // The one place a pooled READ carries an account-scoped population, and
+      // only because the two are the same rows.
+      readProviderAccountId: sole ? null : input.providerAccountId,
+      basis: sole ? "sole_account_pooled_rows" : "account_runtime_aggregate",
+      why: sole
+        ? `no ad account of this business has a calibration scope of its own on or before ${input.asOfDate}, `
+          + `and every warehouse row of this business belongs to ${input.providerAccountId}; the business's `
+          + "pooled calibration row was therefore computed from this account's rows and nothing else, so it "
+          + "is read as this account's own measurement"
+        : `no ad account of this business has a calibration scope of its own on or before ${input.asOfDate}, `
+          + `and this business holds warehouse rows for more than ${input.providerAccountId}; the measured `
+          + "facts below are computed from this account's own rows at read time, and they become a retained "
+          + "reading of the same rows on the next calibration run",
     };
   }
   if (input.status === "absent") {
@@ -336,6 +492,8 @@ export function resolveAccountProfileMeasurementScope(input: {
       ...base,
       scope: "account",
       providerAccountId: input.providerAccountId,
+      readProviderAccountId: input.providerAccountId,
+      basis: "withheld",
       why:
         `other ad accounts of this business have retained calibration scopes on or before ${input.asOfDate} `
         + `and ${input.providerAccountId} has none, so the calibration pass covered the business and `
@@ -347,6 +505,8 @@ export function resolveAccountProfileMeasurementScope(input: {
       ...base,
       scope: "account",
       providerAccountId: input.providerAccountId,
+      readProviderAccountId: input.providerAccountId,
+      basis: "withheld",
       why:
         "the calibration scope probe itself failed, so nothing is known about what the warehouse holds "
         + `for ${input.providerAccountId} on ${input.asOfDate}; this is a failed read and not the fact `
@@ -357,6 +517,11 @@ export function resolveAccountProfileMeasurementScope(input: {
     ...base,
     scope: "account",
     providerAccountId: input.providerAccountId,
+    readProviderAccountId: input.providerAccountId,
+    basis:
+      input.status === "materialised"
+        ? "materialised_account_scope"
+        : "source_answers_directly",
     why:
       input.status === "materialised"
         ? `${input.providerAccountId} has its own retained calibration scope on or before ${input.asOfDate}, `
@@ -366,8 +531,62 @@ export function resolveAccountProfileMeasurementScope(input: {
   };
 }
 
+/**
+ * The labelled pooled reading a caller that names NO physical account gets.
+ *
+ * A business-wide request has no per-account scope question to answer: it is
+ * the business's whole Meta footprint by construction, and saying so is more
+ * useful than publishing nothing.
+ *
+ * IT IS A SUMMARY, AND IT CANNOT BECOME AN ACCOUNT'S AUTHORITY — structurally,
+ * not by labelling. A commercial verdict only reaches a write through a row in
+ * `engine_v3_account_profile_output`, every such row is keyed on one
+ * `provider_account_id`, and the only producer of those rows takes an account
+ * and measures that account's own population. This function names no account,
+ * so no reading it describes is ever retained and no consumer can look one up
+ * by it. That is asserted at the route in
+ * `app/api/meta/bootstrap-account-population.db.test.ts`.
+ */
+export function businessPooledMeasurementScope(input: {
+  asOfDate: string;
+}): AccountProfileMeasurementScope {
+  return {
+    contractVersion: ACCOUNT_PROFILE_MEASUREMENT_SCOPE_CONTRACT,
+    materialisation: null,
+    scope: "business_pooled",
+    providerAccountId: null,
+    readProviderAccountId: null,
+    basis: "business_pooled_rows",
+    hold: null,
+    why:
+      `this request names no physical ad account, so the measured facts below are every Meta ad account `
+      + `this business owns, pooled together, as of ${input.asOfDate}; it is a business summary and no `
+      + "account's write authority is derived from it",
+  };
+}
+
 const digest = (value: unknown): string =>
   createHash("sha256").update(JSON.stringify(value)).digest("hex");
+
+/**
+ * The value the MEASURED digest carries for one measurement scope.
+ *
+ * `materialised_account_scope` and `source_answers_directly` are the two bases
+ * that existed when this field only knew the word `"account"`, and they still
+ * spell it — so every verdict already retained on a materialised scope keeps
+ * its identity and is not re-derived by this change. The bootstrap bases are
+ * new behaviour and get names of their own, which is what stops a pooled-read
+ * verdict and a materialised one from sharing a fingerprint on a business whose
+ * numbers happen to be identical.
+ */
+function measurementIdentityTag(
+  measurement: AccountProfileMeasurementScope,
+): string {
+  return measurement.basis === "materialised_account_scope"
+    || measurement.basis === "source_answers_directly"
+    ? measurement.scope
+    : `${measurement.scope}:${measurement.basis}`;
+}
 
 /**
  * The account's own currency, from the assignment the business actually holds.
@@ -424,13 +643,16 @@ export async function readAccountProfileRetentionInputs(
       is withheld for a reason that has nothing to do with its evidence.
 
       So the warehouse is asked directly, and its answer decides the scope of
-      the reads rather than only judging them afterwards: when NO account of
-      this business has a scope of its own, the pooled population is the one
-      this verdict has always been computed from, on the same terms it always
-      had. `resolveAccountProfileMeasurementScope` owns that decision and the
-      serve path resolves its own data source from the same function, so the two
+      the reads rather than only judging them afterwards. When NO account of
+      this business has a scope of its own, the reads are still THIS ACCOUNT'S —
+      served from the pooled precomputed row where that row was provably
+      computed from this account's rows and nothing else, and otherwise from
+      this account's own runtime aggregate.
+      `resolveAccountProfileMeasurementScope` owns that decision and the serve
+      path resolves its own data source from the same function, so the two
       cannot disagree. A source that does not model the precomputed table has no
-      answer to give and says nothing; the production source implements it.
+      answer to give and says nothing; the production source implements both
+      probes.
     */
     const measuredScope: AccountProfileMeasuredScopeStatus =
       dataSource.readAccountScopeCalibrationMaterialisation
@@ -440,8 +662,23 @@ export async function readAccountProfileRetentionInputs(
           providerAccountId: scope.providerAccountId,
         })
         : "unprobed";
+    /*
+      The population-equivalence proof, asked only where it can change the
+      answer. Everywhere else the account's own scope is either materialised or
+      irrelevant, and an unnecessary index probe on `meta_creative_daily` is a
+      cost this read does not need to pay.
+    */
+    const populationBreadth: AccountProfilePopulationBreadth =
+      measuredScope === "per_account_scopes_unwritten"
+        && dataSource.readBusinessAccountPopulationBreadth
+        ? await dataSource.readBusinessAccountPopulationBreadth({
+          businessId: scope.businessId,
+          providerAccountId: scope.providerAccountId,
+        })
+        : "unprobed";
     const measurement = resolveAccountProfileMeasurementScope({
       status: measuredScope,
+      populationBreadth,
       providerAccountId: scope.providerAccountId,
       asOfDate: scope.asOfDate,
     });
@@ -458,32 +695,34 @@ export async function readAccountProfileRetentionInputs(
         }),
         resolveEngineV3Flags(scope.businessId),
         /*
-          MEASURED, so scoped to the account this verdict is FOR — in every
-          state but the one where no account of the business has a scope yet,
-          where `measurement.providerAccountId` is null and both readers take
-          their long-standing business-wide meaning.
+          MEASURED, so read from the population this verdict is FOR — which is
+          always this account's, and is `measurement.readProviderAccountId`
+          rather than the account id itself for exactly one reason: where the
+          business's warehouse rows all belong to this account, the pooled
+          precomputed row was computed from those same rows, and reading it
+          keeps the day's reading fixed without borrowing anything.
 
-          Both readers default to the business's whole Meta footprint — the
-          precomputed `scope_id '*'` row, and a runtime aggregate over every
-          account the business owns. That default is right for a business-wide
-          surface and wrong for an account that HAS a scope of its own: the row
-          this produces is keyed on one `provider_account_id` and its
-          fingerprints are what a later reader checks the verdict against, so a
-          business-wide reading would let a SIBLING account's samples move this
-          account's identity and hand it a calibration it has no evidence for.
-          Naming the account makes the percentiles, the sample counts and the
-          attributed AOV this account's own; an account with none of its own
-          gets zeroes, which is the honest answer.
+          Both readers otherwise default to the business's whole Meta footprint
+          — the precomputed `scope_id '*'` row, and a runtime aggregate over
+          every account the business owns. That default is right for a
+          business-wide surface and wrong here: the row this produces is keyed
+          on one `provider_account_id` and its fingerprints are what a later
+          reader checks the verdict against, so a business-wide reading would
+          let a SIBLING account's samples move this account's identity and hand
+          it a calibration it has no evidence for. Naming the account makes the
+          percentiles, the sample counts and the attributed AOV this account's
+          own; an account with none of its own gets zeroes, which is the honest
+          answer.
         */
         dataSource.getAccountCalibration({
           businessId: scope.businessId,
           asOf: scope.asOfDate,
-          providerAccountId: measurement.providerAccountId,
+          providerAccountId: measurement.readProviderAccountId,
         }),
         dataSource.getAccountFunnelCalibration({
           businessId: scope.businessId,
           asOf: scope.asOfDate,
-          providerAccountId: measurement.providerAccountId,
+          providerAccountId: measurement.readProviderAccountId,
         }),
       ]);
     /*
@@ -513,6 +752,7 @@ export async function readAccountProfileRetentionInputs(
       funnelCalibration,
       observedShopifyAov,
       measuredScope,
+      populationBreadth,
     };
   } catch {
     return null;
@@ -570,19 +810,27 @@ export function accountProfileRetentionIdentity(
       ...scope,
       side: "measured",
       /*
-        WHICH POPULATION THE MEASURED HALF WAS READ FROM, in the digest.
+        WHICH POPULATION THE MEASURED HALF WAS READ FROM, AND HOW, in the
+        digest.
 
-        A single-account business's pooled reading and its account-scoped
-        reading are usually the same NUMBERS, so without this the two would
-        share a fingerprint and a verdict computed from the business's pooled
-        footprint would be indistinguishable from one computed from the
-        account's own retained scope. They are different evidence and they get
-        different identities. It is also what makes the transitional answer stop
-        by itself: the first calibration run that writes this account's scope
-        changes this value, so the pooled verdict no longer matches and a new
-        one is produced from the account's own facts.
+        Two readings can carry the same NUMBERS and still be different evidence.
+        A sole-account business's pooled row and its own account scope hold
+        identical values, and so does a runtime aggregate over the same rows —
+        so without this the three would share a fingerprint and a reader could
+        not tell which one a retained verdict rested on. Stamping the basis is
+        also what makes each transitional answer end by itself: the first
+        calibration run that writes this account's scope changes this value, the
+        bootstrap verdict stops matching, and a new one is produced from the
+        materialised reading.
+
+        `measurementIdentityTag` keeps the two long-standing bases spelling
+        exactly what they spelled before this field learned about the others, so
+        a verdict retained on a materialised scope — or by an injected source
+        that answers the reads itself — keeps the identity it already had.
       */
-      measurementScope: accountProfileInputsMeasurementScope(inputs).scope,
+      measurementScope: measurementIdentityTag(
+        accountProfileInputsMeasurementScope(inputs),
+      ),
       accountCurrency: inputs.accountCurrency,
       calibration: {
         campaignKind: calibration.campaignKind ?? null,
@@ -640,9 +888,9 @@ export function accountProfileRetentionIdentity(
  * retained, so offering it would report a stale disagreement as a commercial
  * one. The producer refuses the same cases by name, so no verdict exists for
  * this expectation to be missing from. A business whose per-account scopes have
- * never been written is NOT one of those states: its facts are the pooled
- * reading, as re-derivable as they have always been, and an expectation is
- * offered normally.
+ * never been written is NOT one of those states: its facts are this account's
+ * own rows, re-derived here by the same reads the producer made, and an
+ * expectation is offered normally.
  */
 export async function readAccountProfileRetentionIdentity(
   scope: AccountProfileRetentionScope,
@@ -664,13 +912,17 @@ export async function readAccountProfileRetentionIdentity(
  * other method is the real warehouse reader, unchanged.
  */
 class PinnedInputDataSource extends WarehouseDataSource {
-  /** The population the pinned facts were read from. Derived, never stored. */
+  /**
+   * The `providerAccountId` the pinned facts were READ with. Derived from the
+   * same function the pinned reads used, never stored, so the unpinned reads
+   * below cannot draw from a different population than the pinned ones.
+   */
   private readonly measurementProviderAccountId: string | null;
 
   constructor(private readonly pinned: AccountProfileRetentionInputs) {
     super();
     this.measurementProviderAccountId =
-      accountProfileInputsMeasurementScope(pinned).providerAccountId;
+      accountProfileInputsMeasurementScope(pinned).readProviderAccountId;
   }
 
   override async getBusinessTargetPack(): Promise<BusinessTargetPack | null> {
@@ -698,11 +950,11 @@ class PinnedInputDataSource extends WarehouseDataSource {
     the warehouse default — the whole business — so an account with no
     purchases of its own was handed a sibling's average order value and the
     canonical spend unit came out fully anchored on evidence this account does
-    not have. Each is re-scoped to the population the pinned facts above were
-    read from — the account the verdict is for, or, while no account of the
-    business has a scope of its own, the business's pooled footprint. Mixing the
-    two would put a pooled calibration beside an account-scoped AOV in one
-    verdict. When the account genuinely has none of its own, the answer is empty
+    not have. Each is re-scoped exactly as the pinned reads above were scoped —
+    `readProviderAccountId`, which names this account except where the pooled
+    rows have been proven to BE this account's rows. Mixing the two would put
+    one reading's calibration beside another reading's AOV in a single verdict.
+    When the account genuinely has no purchases of its own, the answer is empty
     rather than borrowed.
   */
   override async getAccountCalibrationAllKinds(input: {
@@ -813,10 +1065,12 @@ export async function produceRetainedAccountProfileOutputs(
     missing.
 
     A business whose per-account scopes have never been written reaches neither
-    refusal. Its measured facts are the pooled reading — the same one the
-    previous release computed this verdict from, re-derivable on exactly the
-    terms it already had — so a verdict IS produced, and the serve path resolves
-    the same population and shows the same one.
+    refusal. That state says nothing about this account, and refusing it would
+    withhold a verdict from every healthy account until a calibration run. Its
+    measured facts are THIS ACCOUNT'S — the pooled precomputed row where that
+    row was provably computed from this account's rows and nothing else, and
+    this account's own runtime aggregate otherwise — so a verdict IS produced,
+    and the serve path resolves the same population and shows the same one.
   */
   const scopeHold = accountProfileMeasuredScopeHold(inputs.measuredScope);
   if (scopeHold !== null) {

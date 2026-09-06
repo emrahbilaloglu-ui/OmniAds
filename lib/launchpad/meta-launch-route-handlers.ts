@@ -12,7 +12,14 @@
  * both callers at once.
  *
  * This is a move, not a rewrite. Every gate keeps its position and its reason,
- * and the two route files are now six lines each.
+ * and each route file is now an import, the `dynamic` export and a POST that
+ * forwards the request.
+ *
+ * Which is why the pre-POST boundary is composed HERE rather than left to the
+ * caller: a route that forwards a request and nothing else can pass no options,
+ * and until `mandatoryProviderMutationBoundary` below existed that meant the
+ * operator's own create had no approval-standing check between one provider
+ * POST and the next.
  */
 import { NextRequest, NextResponse } from "next/server";
 import {
@@ -34,7 +41,11 @@ import {
   buildMetaLaunchIntentErrorReceipt,
   buildMetaLaunchIntentValidationReceipt,
 } from "@/lib/launchpad/meta-launch-intent";
-import { MetaLaunchIntentLineageError } from "@/lib/launchpad/meta-launch-intent-lineage";
+import type { MetaLaunchIntentLineage } from "@/lib/launchpad/meta-launch-intent";
+import {
+  MetaLaunchIntentLineageError,
+  readMetaLaunchIntentApprovalStanding,
+} from "@/lib/launchpad/meta-launch-intent-lineage";
 import { prepareMetaLaunchIntentForExecution } from "@/lib/launchpad/meta-launch-intent-service";
 import { getMetaLaunchIntentCapability } from "@/lib/launchpad/meta-launch-intent-capability";
 import {
@@ -66,6 +77,7 @@ import {
   runMetaAddToExistingCreate,
   runMetaLaunchIntentCreate,
   type MetaLaunchExecutionOrigin,
+  type MetaLaunchProviderMutationVerdict,
 } from "@/lib/launchpad/meta-launch-execution";
 import {
   jsonError,
@@ -83,10 +95,79 @@ import { rejectIfLaunchpadDemoWrite } from "@/app/api/launchpad/meta/demo-write-
  *
  * Only the action log hears it. The intent's stored payload is the operator's
  * and is replayed untouched — see `meta-launch-execution.ts`.
+ *
+ * `beforeProviderMutation` is an ADDITIONAL requirement, never the boundary
+ * itself: `mandatoryProviderMutationBoundary` below composes it behind the
+ * approval-standing read that every create gets, whether or not its caller
+ * brought a hook. A caller that omits it (both route files do) still gets the
+ * standing check.
  */
 export type MetaLaunchHandlerOptions = Partial<
   Pick<MetaLaunchExecutionOrigin, "actionLogOrigin" | "requestedBy" | "beforeProviderMutation">
 >;
+
+/**
+ * The pre-POST boundary every create through this handler gets.
+ *
+ * ## The defect
+ *
+ * `beforeProviderMutation` used to be forwarded exactly as the caller supplied
+ * it, and `askProviderMutationBoundary` answers `allowed` for an absent hook.
+ * The two route files call these handlers with no options at all, so on the
+ * OPERATOR's own path — the one a person uses from Launchpad — the campaign
+ * POST, the ad set POST and every ad POST below ran under an approval read once
+ * in `prepareMetaLaunchIntentForExecution`, before the write context, the
+ * validation and a live provider preflight. Reproduced at the real endpoint: a
+ * brief withdrawn the instant the campaign create was answered still produced
+ * `<campaign>/adsets` and `<adset>/ads`. The scheduled runtime and the queue arm
+ * had each been given this check; the direct routes never had one.
+ *
+ * ## What is composed, and in which order
+ *
+ * The standing read runs FIRST and the caller's own hook second. That ordering
+ * is not arbitrary: the queue's hook is a write-ahead dispatch MARKER, and a
+ * withdrawn approval must not leave durable dispatch intent for a call that
+ * will not be made. `automation-proposal-execution.ts` orders its own pair the
+ * same way for the same reason.
+ *
+ * The queue arm therefore asks standing twice per POST — once in its own hook,
+ * once here. That is deliberate, and it is the cheaper mistake of the two: for
+ * a brief-bound intent each ask is one `SELECT … WHERE id = $3 LIMIT 1` against
+ * `meta_creative_briefs`, and for an intent with no staged lineage it is no
+ * query at all. Asking zero times is the defect this closes, and the queue's
+ * own read must not become dependent on this handler continuing to compose one.
+ * Both asks read the same current rows, so neither can answer `stands` for a
+ * withdrawal the other would catch.
+ *
+ * ## The intents this is a no-op for
+ *
+ * An intent binding neither a brief nor a decision snapshot was composed and
+ * confirmed on the Launchpad screen. There is no staged approval for a later
+ * edit to withdraw, so `readMetaLaunchIntentApprovalStanding` answers `stands`
+ * for it without a read — see its own docstring, which establishes why. This
+ * wrapper adds no rule of its own: refusing those launches for want of an
+ * approval that was never staged would blank every healthy operator create.
+ */
+function mandatoryProviderMutationBoundary(input: {
+  businessId: string;
+  providerAccountId: string;
+  lineage: MetaLaunchIntentLineage;
+  callerBoundary: (() => Promise<MetaLaunchProviderMutationVerdict>) | undefined;
+}): () => Promise<MetaLaunchProviderMutationVerdict> {
+  return async () => {
+    const standing = await readMetaLaunchIntentApprovalStanding({
+      businessId: input.businessId,
+      providerAccountId: input.providerAccountId,
+      lineage: input.lineage,
+    });
+    // The code, not the message: it is what the durable receipt quotes as
+    // `withheldReason`, and what an operator reading a half-built launch needs
+    // in order to tell a withdrawn approval from a gate somebody closed.
+    if (!standing.stands) return { allowed: false, reason: standing.code };
+    if (!input.callerBoundary) return true;
+    return input.callerBoundary();
+  };
+}
 
 type LaunchBody = {
   businessId?: string;
@@ -739,7 +820,13 @@ export async function handleMetaLaunchAction(
       options.actionLogOrigin ?? META_LAUNCHPAD_MANUAL_ACTION_LOG_ORIGIN,
     requestedBy:
       options.requestedBy === undefined ? access.userId : options.requestedBy,
-    beforeProviderMutation: options.beforeProviderMutation,
+    // Mandatory, and the caller's own hook is composed behind it.
+    beforeProviderMutation: mandatoryProviderMutationBoundary({
+      businessId: access.businessId,
+      providerAccountId,
+      lineage: prepared.intent.lineage,
+      callerBoundary: options.beforeProviderMutation,
+    }),
   });
   return NextResponse.json(outcome.body, { status: outcome.status });
 }
@@ -1166,7 +1253,13 @@ export async function handleMetaAddToExistingAction(
       options.actionLogOrigin ?? META_LAUNCHPAD_MANUAL_ACTION_LOG_ORIGIN,
     requestedBy:
       options.requestedBy === undefined ? access.userId : options.requestedBy,
-    beforeProviderMutation: options.beforeProviderMutation,
+    // Mandatory, and the caller's own hook is composed behind it.
+    beforeProviderMutation: mandatoryProviderMutationBoundary({
+      businessId: access.businessId,
+      providerAccountId,
+      lineage: prepared.intent.lineage,
+      callerBoundary: options.beforeProviderMutation,
+    }),
   });
   return NextResponse.json(outcome.body, { status: outcome.status });
 }

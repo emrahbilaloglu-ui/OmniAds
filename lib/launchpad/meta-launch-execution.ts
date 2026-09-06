@@ -20,6 +20,13 @@
  *   claim on something (an Automation queue row, say) can record write-ahead
  *   dispatch intent there and VETO the create if that record cannot be
  *   written, so "a call may be live" is always durable before it can be.
+ *   It is not this module's job to decide WHICH questions that boundary asks,
+ *   and both callers compose more than one into it. The shared route handler
+ *   puts the current approval-standing read in front of whatever hook its own
+ *   caller supplied (`mandatoryProviderMutationBoundary`), so a route that
+ *   passes no options still gets that read. The scheduled runtime composes its
+ *   own gate, mode and posture re-reads, then the same standing read, then its
+ *   dispatch marker, in that order.
  *
  * The return value is deliberately HTTP-shaped — `{ status, body }` — because
  * every caller needs exactly that: the routes answer with it directly, and a
@@ -145,8 +152,16 @@ export interface MetaLaunchExecutionOrigin {
    * reason the rest was withheld. Callers must therefore be idempotent — the
    * queue's dispatch marker already is, and returns true once written.
    *
-   * Absent means nobody is holding anything, which is the state a plain
-   * operator request is in.
+   * Optional in the TYPE, and supplied by every shipped caller. The two
+   * functions below have exactly two callers between them:
+   * `handleMetaLaunchAction` / `handleMetaAddToExistingAction`, which compose
+   * one whether or not their own caller passed anything, and
+   * `lib/meta/scheduled-launch-runtime.ts`, whose `ScheduledLaunchCreateRequest`
+   * declares it required. It stays optional here because this module cannot
+   * enforce what a boundary ASKS, and a required-but-empty hook would be a
+   * worse lie than an absent one; the enforcement lives at those two entry
+   * points, where the intent's lineage — the thing an approval is read from —
+   * is actually in hand.
    */
   beforeProviderMutation?: () => Promise<MetaLaunchProviderMutationVerdict>;
 }
@@ -169,6 +184,11 @@ type ProviderMutationBoundaryVerdict =
 async function askProviderMutationBoundary(
   hook: (() => Promise<MetaLaunchProviderMutationVerdict>) | undefined,
 ): Promise<ProviderMutationBoundaryVerdict> {
+  // Unreachable from either shipped caller — see `beforeProviderMutation` above
+  // for why both always supply a hook, and why this module does not try to make
+  // the absence impossible in the type. Kept as the honest answer for a hook
+  // that genuinely is not there rather than removed, so a future caller fails
+  // its own review instead of failing here.
   if (!hook) return { allowed: true };
   const verdict = await hook();
   if (verdict === true) return { allowed: true };
@@ -429,11 +449,26 @@ async function persistExecutionFailure(input: {
 }
 
 /**
- * The refusal a vetoed pre-POST marker produces.
+ * The refusal the FIRST pre-POST boundary answer produces.
  *
- * `409`, not `500`: nothing failed. A holder of the claim said the write must
- * not be entered, and it was not — the intent is left exactly where it was,
- * still executable by whoever can record their own dispatch.
+ * `409`, not `500`: nothing failed. The boundary said the write must not be
+ * entered, and it was not — the intent is left exactly where it was, still
+ * executable once whatever closed reopens.
+ *
+ * The MESSAGE follows the answer rather than assuming one shape of caller. An
+ * UNNAMED refusal is a bare `false` from the caller's hook, which today is the
+ * queue's dispatch marker failing to write — "the caller could not record
+ * dispatch intent" is exactly what that is. A NAMED one is not: it is whatever
+ * `withheldReason` says, and on the direct routes it is now reachable for an
+ * operator who holds no claim and stamps no marker at all, because the handler
+ * composes the approval-standing read into this boundary for every caller. The
+ * dispatch sentence would have been a plain falsehood on the one path a person
+ * actually reads, so a named refusal says that the boundary refused and quotes
+ * the reason instead of inventing a cause for it.
+ *
+ * The `code` is deliberately unchanged. `scheduled-launch-runtime.ts` branches
+ * on it (`boundaryVetoed`) and replaces this envelope with its own receipt, and
+ * `withheldReason` is where the gate has always been named.
  */
 function dispatchMarkerUnavailable(
   launchIntentId: string,
@@ -446,11 +481,12 @@ function dispatchMarkerUnavailable(
       ok: false,
       error: {
         code: "dispatch_marker_unavailable",
-        message:
-          "The caller could not record dispatch intent for this launch, so nothing was created on Meta.",
+        message: reason
+          ? `The pre-create boundary refused this launch (${reason}), so nothing was created on Meta.`
+          : "The caller could not record dispatch intent for this launch, so nothing was created on Meta.",
       },
-      // Which gate closed, when the caller named one. The boundary is asked the
-      // same question before every create, and only the first of them can still
+      // Which gate closed, when the boundary named one. It is asked the same
+      // question before every create, and only the first of them can still
       // answer before the intent is marked executing.
       withheldReason: reason,
       launchIntentId,

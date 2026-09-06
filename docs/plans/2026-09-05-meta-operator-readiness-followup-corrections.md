@@ -678,27 +678,125 @@ bound intent, and the source decision is immutable — the decision-only lineage
 exemption was closed rather than left safe by accident, and the seam's blanket
 duplicate-create trap was restored.
 
+## Round five — the two narrow follow-ups
+
+Reviewed at `812b106ae`. Two agents closed them, two **adversarial verifiers**
+re-drove both; neither was refuted, and both left small gaps that are closed
+below.
+
+### Follow-up 1 — the bootstrap exception restored sibling-derived authority · **CLOSED**
+
+Round four answered `per_account_scopes_unwritten` from the **pooled**
+population and labelled it `business_pooled`. The label was honest about
+provenance and was not an authority boundary: the producer still read with
+`providerAccountId: null` and persisted the verdict under the physical account
+id, and both budget consumers re-derived the same pooled fingerprint and
+accepted it. A(6) + B(32) granted A `scale`.
+
+The bootstrap state is now always measured from **the account's own
+population**, reached one of two ways and decided from warehouse facts rather
+than assumed. `readBusinessAccountPopulationBreadth` asks
+`meta_creative_daily` — not the assignment table, because a business can hold
+rows for an account it no longer selects — whether any other account has rows.
+If none does, the pooled row *was* computed over exactly this account's rows, so
+reading it borrows nothing (`sole_account_pooled_rows`); otherwise the read is
+filtered to this account (`account_runtime_aggregate`).
+`AccountProfileMeasurementScope` is contract v2 and now separates whose evidence
+it is (`scope`, `providerAccountId`) from which parameter the SQL was given
+(`readProviderAccountId`) — conflating those two is exactly how a pooled reading
+passed for an account's own.
+
+Measured: A(6) + B(32) in bootstrap → A serves its own 6, withholds Scale with
+`scale_calibration_below_floor`, and the retained row and both budget consumers
+say the same. Cut and Refresh stay granted, so it is isolation and not a
+blanking. A single-account business with 40 converters serves `resolved`,
+spend unit 26.36 from the store's AOV over the ROAS target, all three actions
+eligible, no hold.
+
+**Verifier gap, closed here.** The delivered acceptance exercised the new
+`account_runtime_aggregate` path only on an account *below* the floor, where a
+correct refusal and a blanking are indistinguishable. Case **(b2)** now serves
+`BOOT_LARGE` — 32 of its own converters, multi-account, bootstrap — and asserts
+a concrete answer through that same path. Forcing the basis back to the pooled
+reading fails 6 of the 8 cases, including (b2).
+
+**Verifier gap, closed here.** The `sole_account_pooled_rows` docstring claimed
+the reading is "fixed for the day" unconditionally. It is not: a business with
+*no* calibration row at all also reaches this state, and the pooled read then
+falls through to a live aggregate. The numbers are the account's either way, so
+no authority turns on it — only the identity's stability — and the docstring now
+says so.
+
+### Follow-up 2 — the standing boundary was optional on the direct routes · **CLOSED**
+
+Both Launchpad route files call the shared handler with no options, the handler
+forwarded `options.beforeProviderMutation` unchanged, and
+`askProviderMutationBoundary` opens with `if (!hook) return { allowed: true }`.
+So on the operator's own path every POST after the first ran with no fresh
+standing check — the queue arm was covered and the direct one was not.
+
+`mandatoryProviderMutationBoundary` now composes the check **in the shared
+handler**, so a caller passing nothing still gets it. Standing is asked first
+and the caller's own hook second, because that hook is a write-ahead dispatch
+marker and a withdrawn approval must not stamp dispatch intent for a call that
+will not be made. The queue arm therefore asks twice per POST; that is
+deliberate, so its own defence-in-depth read does not become conditional on this
+handler continuing to compose one. An intent with no staged lineage — composed
+and confirmed on the Launchpad screen — is answered `stands: true` without a
+read, so the standalone operator launch is unchanged.
+
+Proved by driving the **exported `POST` handlers**, not by injecting a boundary:
+withdrawal after the campaign POST withholds every later ad set and ad, the
+campaign that exists stays reported, the intent settles `partially_succeeded`
+naming the withdrawal, add-to-existing behaves the same across its target ×
+creative matrix, and an untouched approval still creates successfully.
+
+**Verifier gap, closed here.** The new proof was registered nowhere: with the
+seam flag unset it reported "7 skipped", which reads green. It now runs in
+`test:migrations-from-zero` as *direct Launchpad create route approval-standing
+DB seam check* and passed there. Its header also claimed every case drives the
+route when two of seven inject a hook to prove the composition; it now says
+five of seven and why the two exist.
+
+### Recorded limitations from this round
+
+- **Multi-account bootstrap has a volatile identity for one calibration cycle.**
+  The runtime aggregate moves when that account's own sync writes a row, so a
+  verdict retained at projection can be withheld at approval until the next read
+  re-derives it. Correct-but-volatile beats stable-but-wrong, it is bounded to
+  one cycle, and single-account businesses do not have it.
+- **The fail-closed `launch_approval_source_unreadable` branch is newly
+  reachable on the operator's own path** — a transient database fault between
+  two POSTs now settles a half-built launch. The branch itself is covered at
+  both the function and the boundary level; what is not covered is that specific
+  endpoint reaching it, and duplicating it a third time was judged not worth the
+  fixture. Stated rather than papered over.
+- **Unmeasured cost.** For multi-account businesses inside the bootstrap window
+  the anchor read becomes a 90-day percentile aggregate rather than one indexed
+  row lookup. It is account-filtered and therefore strictly cheaper than the
+  pooled query it replaces, but nobody has measured it at production scale.
+
 ## Gates
 
-| Gate | Round two (`d1746f1df`) | Round three (`058a1c8f6`) | Round four |
-|---|---|---|---|
-| `npx tsc --noEmit` | 0 | 0 | **0** |
-| `npm run lint` | 0 | 0 | **0** |
-| `scripts/verify-whitespace.sh` | PASS | PASS | **PASS** |
-| `npx vitest run` (full) | 17,448 passed / 2 failed | 17,551 / 3 | **17,590 passed / 8 failed** |
-| `npm run test:migrations-from-zero` | PASS | PASS | **PASS, exit 0** |
-| Mounted browser acceptance | card Apply at 1512 px | 1280 + 390 + 320 px | (unchanged this round) |
+| Gate | Round two | Round three | Round four | Round five |
+|---|---|---|---|---|
+| `npx tsc --noEmit` | 0 | 0 | 0 | **0** |
+| `npm run lint` | 0 | 0 | 0 | **0** |
+| `scripts/verify-whitespace.sh` | PASS | PASS | PASS | **PASS** |
+| `npx vitest run` (full) | 17,448 / 2 failed | 17,551 / 3 | 17,590 / 8 | **17,610 passed / 3 failed** |
+| `npm run test:migrations-from-zero` | PASS | PASS | PASS | **PASS, exit 0** |
 
-None of the eight failures is a regression, and each was checked individually:
+Round five's three failures are the release-evidence set, and nothing else:
+the two **D077** artifact-hash cases and the **`generalized-pit-replay`
+anchored-tier** case, which times out under full-suite parallel load and passes
+alone. The two slow cryptographic sealing suites that timed out in round four —
+`d080b-meta-budget-policy-simulation` and `d084-commercial-target-evidence` —
+both passed inside this run; per the reviewer's instruction they were not re-run
+separately to restate a known result.
 
-- **Two D077 artifact-hash cases** and **one `generalized-pit-replay` anchored-tier
-  case** — release evidence, kept deliberately separate. D077 pins a sha256 per
-  file in the cumulative release diff and is regenerated at release time.
-- **Five cases across `d080b-meta-budget-policy-simulation` and
-  `d084-commercial-target-evidence`** — both are cryptographic sealing suites
-  that time out under full-suite parallel load. Run alone this round they pass
-  **116/116 in 175 s** and **143/143 in 584 s** respectively. The
-  `generalized-pit-replay` failure is the same effect: 64/64 alone in 201 s.
+The migration gate now runs one more stage than it did last round: *direct
+Launchpad create route approval-standing DB seam check*, registered because with
+its seam flag unset that file reported "7 skipped" and read green.
 
 ## Explicitly unresolved
 

@@ -35,25 +35,31 @@
 // session cookie, against a REAL migrated ephemeral database:
 //
 //   1. TRANSITIONAL — no account of the business has a scope of its own. The
-//      operator gets the usable answer back, and it is LABELLED: `scope:
-//      "business_pooled"`, `providerAccountId: null`, on the anchor panel and
-//      on both budget-evidence directions. The retention producer reaches the
-//      same verdict from the same population instead of refusing, so the
-//      response and the retained row agree.
-//   2. The label is not sticky. One calibration run later the same account is
-//      served `scope: "account"`, and the retained verdict is a NEW row with a
-//      different source fingerprint — even though this single-account business's
-//      pooled and account-scoped numbers are identical, which is the only thing
-//      that could have let a pooled verdict masquerade as an account-scoped one.
+//      operator gets the usable answer back, measured from THIS ACCOUNT'S own
+//      population and labelled with the basis it was reached by. On a business
+//      whose warehouse rows all belong to one ad account that basis is
+//      `sole_account_pooled_rows`: the pooled `scope_id '*'` row was computed by
+//      the same statement over exactly this account's rows, so reading it
+//      borrows nothing and keeps the day's reading fixed. The retention
+//      producer reaches the same verdict from the same population instead of
+//      refusing, so the response and the retained row agree.
+//   2. The basis is not sticky. One calibration run later the same account is
+//      served `basis: "materialised_account_scope"`, and the retained verdict is
+//      a NEW row with a different source fingerprint — even though this
+//      single-account business's pooled and account-scoped numbers are
+//      identical, which is the only thing that could have let one reading
+//      masquerade as the other.
 //   3. GENUINE ABSENCE — sibling accounts have scopes and this one does not.
 //      That is still the named hold, on the panel and in the producer's
 //      refusals, and the sibling's own answer is untouched.
-//   4. THE POOLED ANSWER REALLY IS POOLED, on a business that pools. An account
-//      with 6 mature converters beside a sibling with 32 is served the pooled
-//      38 in the transitional state — the reading the previous release served —
-//      labelled `business_pooled`, with the retained verdict agreeing; and one
-//      calibration run later it is served its own 6 and Scale is withheld with
-//      the resolver's own `scale_calibration_below_floor`.
+//   4. A BUSINESS THAT REALLY POOLS IS NOT POOLED. An account with 6 mature
+//      converters beside a sibling with 32 is served its OWN 6 in the
+//      transitional state, and Scale is withheld with the resolver's own
+//      `scale_calibration_below_floor` — the same verdict it gets one
+//      calibration run later. This case used to assert the opposite: that the
+//      pooled 38 was served, labelled `business_pooled`, with the retained row
+//      agreeing. See the comment on that case for why that expectation was
+//      wrong.
 //   5. UNREADABLE — a probe that FAILED is not the fact that a scope is
 //      missing. It holds under its own code with its own sentence, and neither
 //      the code nor the sentence is the absent one's.
@@ -179,9 +185,11 @@ const SIB_SHOP = "anchor-scope-transition-sib.myshopify.test";
 
 /**
  * Two accounts whose evidence differs materially — 6 converters against 32 —
- * so the pooled reading is a THIRD number that belongs to neither. This is the
+ * so a pooled reading is a THIRD number that belongs to neither. This is the
  * fixture the original account-scope defect was found on, and it is what makes
- * "the transitional answer really is pooled" observable rather than asserted.
+ * "the transitional answer is measured from this account alone" observable
+ * rather than asserted: 6 and 38 are different, and only one of them clears the
+ * automation-quality floor.
  */
 const POOL_BUSINESS = "d0000000-0000-4000-8000-000000000913";
 const POOL_SMALL = "act_9100000000031";
@@ -698,7 +706,7 @@ describe.skipIf(!RUNNABLE)(
       }
     }, 60_000);
 
-    it("serves and retains a pooled answer, labelled, while no account has a scope", async () => {
+    it("serves and retains this account's own answer while no account has a scope", async () => {
       // THE PREMISE, MEASURED: this account's own scope really was written, and
       // the answer it produces is the one the operator is entitled to.
       expect((await scopeRows(SOLO_BUSINESS)).map((row) => row.scope_id)).toEqual([
@@ -731,16 +739,25 @@ describe.skipIf(!RUNNABLE)(
         ),
       ).toEqual(["scale:true:null", "cut:true:null", "refresh:true:null"]);
 
-      // 2. AND IT SAYS WHAT IT IS. Not an account-scoped measurement.
+      // 2. AND IT SAYS WHOSE MEASUREMENT IT IS, AND HOW IT WAS REACHED. This
+      //    business owns one ad account and the warehouse holds rows for no
+      //    other, so the pooled row IS this account's measurement and the
+      //    population is `account` — served from a precomputed row rather than
+      //    recomputed, which is what `sole_account_pooled_rows` names.
       expect(served.anchor.measurementScope).toMatchObject({
-        contractVersion: "meta.account-profile-measurement-scope.v1",
+        contractVersion: "meta.account-profile-measurement-scope.v2",
         materialisation: "per_account_scopes_unwritten",
-        scope: "business_pooled",
-        providerAccountId: null,
+        scope: "account",
+        providerAccountId: SOLO_ACCOUNT,
+        basis: "sole_account_pooled_rows",
+        readProviderAccountId: null,
         hold: null,
       });
       expect(String(served.anchor.measurementScope?.why)).toContain(
         "no ad account of this business has a calibration scope of its own",
+      );
+      expect(String(served.anchor.measurementScope?.why)).toContain(
+        "nothing else",
       );
 
       // 3. ON EVERY SURFACE THAT CARRIES THE NUMBER. A budget increase is
@@ -777,7 +794,7 @@ describe.skipIf(!RUNNABLE)(
       }
     }, 180_000);
 
-    it("stops serving the pooled answer the moment the account has its own scope", async () => {
+    it("moves off the bootstrap basis the moment the account has its own scope", async () => {
       const pooledRows = await retained(SOLO_BUSINESS, SOLO_ACCOUNT);
       expect(pooledRows).toHaveLength(3);
 
@@ -793,6 +810,8 @@ describe.skipIf(!RUNNABLE)(
         materialisation: "materialised",
         scope: "account",
         providerAccountId: SOLO_ACCOUNT,
+        basis: "materialised_account_scope",
+        readProviderAccountId: SOLO_ACCOUNT,
         hold: null,
       });
       for (const direction of ["increase", "decrease"] as const) {
@@ -804,13 +823,13 @@ describe.skipIf(!RUNNABLE)(
       /*
         AND THE RETAINED SIDE STOPS TOO, which is the harder half.
 
-        This business owns one ad account, so its pooled calibration and its
-        account-scoped calibration are the same NUMBERS: nothing in the measured
-        values could distinguish the two verdicts. The identity carries the
-        measurement scope itself, so the account-scoped verdict is a different
-        row rather than a re-observation of the pooled one — three new rows
-        beside the three that already existed, with fingerprints that share
-        nothing.
+        This business owns one ad account, so the pooled row this account's
+        bootstrap verdict was read from and its own materialised scope carry the
+        same NUMBERS: nothing in the measured values could distinguish the two
+        verdicts. The identity carries the BASIS the reading was reached by, so
+        the materialised verdict is a different row rather than a re-observation
+        of the bootstrap one — three new rows beside the three that already
+        existed, with fingerprints that share nothing.
       */
       await produceRetained({
         businessId: SOLO_BUSINESS,
@@ -831,12 +850,12 @@ describe.skipIf(!RUNNABLE)(
       expect(pooledFingerprints.size).toBe(1);
 
       /*
-        AND IT IS THE SCOPED ONE THAT READS AS CURRENT.
+        AND IT IS THE MATERIALISED ONE THAT READS AS CURRENT.
 
         `D086_PROFILE_LATEST_SQL` (lib/meta/budget-readiness-read-model.ts)
         ranks per action by `recorded_at DESC, effective_at DESC`, so "the
-        pooled verdict stops being served" is a claim about which row that
-        ordering picks. It picks the account-scoped one.
+        bootstrap verdict stops being served" is a claim about which row that
+        ordering picks. It picks the materialised-scope one.
       */
       const newest = (await db.getDb().query(
         `SELECT source_fingerprint
@@ -849,7 +868,7 @@ describe.skipIf(!RUNNABLE)(
       )) as Array<{ source_fingerprint: string }>;
       expect(scopedFingerprints.has(newest[0]!.source_fingerprint)).toBe(true);
       // The verdict itself is unchanged, because the account's own evidence is
-      // the same evidence. Only its provenance moved.
+      // the same evidence in both readings. Only its provenance moved.
       expect(
         afterRows.map((row) => `${row.action}:${row.eligible}:${row.blocker_code}`),
       ).toEqual([
@@ -878,6 +897,7 @@ describe.skipIf(!RUNNABLE)(
         materialisation: "absent",
         scope: "account",
         providerAccountId: SIB_UNCOVERED,
+        basis: "withheld",
         hold: "account_calibration_scope_not_materialised",
       });
       for (const direction of ["increase", "decrease"] as const) {
@@ -911,22 +931,43 @@ describe.skipIf(!RUNNABLE)(
         materialisation: "materialised",
         scope: "account",
         providerAccountId: SIB_COVERED,
+        basis: "materialised_account_scope",
       });
       expect(covered.anchor.explanation?.spendUnit).toBeCloseTo(26.363636, 5);
     }, 180_000);
 
-    it("names the pooled population as pooled on a business that really pools", async () => {
+    it("measures a business that really pools from this account alone", async () => {
       /*
-        THE ACCEPTED TRADE-OFF, MEASURED RATHER THAN ASSERTED.
+        THIS CASE USED TO ASSERT THE OPPOSITE, AND THE OLD EXPECTATION WAS
+        WRONG.
 
-        On a business with several ad accounts the transitional answer really is
-        the pooled one: this account carries 6 mature converters and its sibling
-        32, and the served lineage below reports 38. That is the reading the
-        previous release served, and it is served again here ONLY because the
-        per-account dimension does not exist yet — and only while wearing the
-        `business_pooled` label. What must never happen is that number arriving
-        dressed as this account's own measurement, or arriving without the
-        retained verdict agreeing with it.
+        It read: "names the pooled population as pooled on a business that
+        really pools", and it asserted `scope: "business_pooled"`, a served
+        lineage of 38 (this account's 6 plus its sibling's 32), and
+        `scale: eligible` — on the grounds that the pooled reading was what the
+        previous release served, that it lasted only until the next calibration
+        run, and that the `business_pooled` label made it honest.
+
+        The label was honest. The AUTHORITY was not, and a label is not an
+        authority boundary. Thirty-eight clears the thirty-creative
+        automation-quality floor that this account's own six cannot, so the
+        served panel granted Scale on evidence the account had not produced —
+        and the retention producer, reading the same pooled population, RETAINED
+        that verdict under this account's own `provider_account_id`. From there
+        `budget-proposal-source-loader` and `budget-proposal-server-readers`
+        re-derived the identical pooled fingerprint and accepted the row, so the
+        sibling's evidence reached the surface that authorises a provider write.
+        "It only lasts one calibration run" is a statement about duration, not
+        about correctness; account isolation was never an exception this
+        delivery accepted for the bootstrap window.
+
+        What is asserted now is the account's own six, in the same warehouse
+        state, with Scale withheld under the resolver's own code — and the two
+        actions that do not depend on the calibration floor still granted, so
+        the correction is an isolation fix and not a blanking. The full
+        acceptance, including the budget consumer and the ADEQUATELY evidenced
+        account that must keep working through the same state, is
+        `app/api/meta/bootstrap-account-population.db.test.ts`.
       */
       await dropPerAccountScopes(POOL_BUSINESS);
       expect((await scopeRows(POOL_BUSINESS)).map((row) => row.scope_id)).toEqual([
@@ -937,15 +978,20 @@ describe.skipIf(!RUNNABLE)(
       expect(pooled.anchor.status).toBe("resolved");
       expect(pooled.anchor.measurementScope).toMatchObject({
         materialisation: "per_account_scopes_unwritten",
-        scope: "business_pooled",
-        providerAccountId: null,
+        scope: "account",
+        providerAccountId: POOL_SMALL,
+        // This business holds warehouse rows for more than this account, so
+        // there is no equivalence to lean on and the reads are scoped to the
+        // account itself.
+        basis: "account_runtime_aggregate",
+        readProviderAccountId: POOL_SMALL,
         hold: null,
       });
-      // 6 + 32. The label is describing something true.
+      // 6, not 6 + 32.
       expect(
         pooled.anchor.explanation?.lineage.metaAttributedAovPurchaseCount90d,
-      ).toBe(38);
-      expect(pooled.anchor.explanation?.lineage.accountCpaSampleCount).toBe(38);
+      ).toBe(6);
+      expect(pooled.anchor.explanation?.lineage.accountCpaSampleCount).toBe(6);
       for (const direction of ["increase", "decrease"] as const) {
         expect(pooled.measurementScope[direction]).toEqual(
           pooled.anchor.measurementScope,
@@ -973,14 +1019,21 @@ describe.skipIf(!RUNNABLE)(
           blockerCode: servedByAction.get(row.action)!.blockerCode,
         });
       }
-      // Pooled, 38 samples clear the 30-creative automation-quality floor.
-      expect(servedByAction.get("scale")!.eligible).toBe(true);
+      // Six samples do not clear the 30-creative automation-quality floor, and
+      // the sibling's 32 are not this account's to spend.
+      expect(servedByAction.get("scale")!.eligible).toBe(false);
+      expect(servedByAction.get("scale")!.blockerCode).toBe(
+        "scale_calibration_below_floor",
+      );
+      // The rest of the answer is intact: this is isolation, not a hold.
+      expect(servedByAction.get("cut")!.eligible).toBe(true);
+      expect(servedByAction.get("refresh")!.eligible).toBe(true);
 
       /*
-        ONE CALIBRATION RUN LATER the borrow is over. The same account is served
-        its OWN six, and Scale is withheld with the resolver's own code — which
-        is the round-four behaviour, reached the moment the evidence to reach it
-        exists.
+        ONE CALIBRATION RUN LATER nothing about the verdict moves. The same
+        account is served its OWN six from a materialised scope instead of a
+        runtime aggregate, and Scale stays withheld under the resolver's own
+        code.
       */
       await calibrate(POOL_BUSINESS);
       const scoped = await serve(POOL_BUSINESS, POOL_SMALL);
@@ -988,6 +1041,7 @@ describe.skipIf(!RUNNABLE)(
         materialisation: "materialised",
         scope: "account",
         providerAccountId: POOL_SMALL,
+        basis: "materialised_account_scope",
       });
       expect(
         scoped.anchor.explanation?.lineage.metaAttributedAovPurchaseCount90d,
@@ -1056,6 +1110,7 @@ describe.skipIf(!RUNNABLE)(
         materialisation: "unreadable",
         scope: "account",
         providerAccountId: SOLO_ACCOUNT,
+        basis: "withheld",
         hold: "account_calibration_scope_unreadable",
       });
       expect(Object.keys(produced.refusals)).toEqual([

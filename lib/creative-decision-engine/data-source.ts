@@ -280,7 +280,54 @@ export interface CreativeDecisionDataSource {
     asOf: string;
     providerAccountId?: string | null;
   }): Promise<AccountScopeCalibrationMaterialisation>;
+
+  /**
+   * Whether this business's warehouse rows belong to this ad account ALONE.
+   *
+   * WHAT IT IS FOR. The pooled `scope_id '*'` calibration row is computed over
+   * every `meta_creative_daily` row the business owns. When the business owns
+   * rows for exactly ONE ad account, that pooled row is not an approximation of
+   * the account's own measurement — it IS the account's own measurement,
+   * computed by the same statement over the same rows. A caller that needs one
+   * account's population may then read the stable precomputed pooled row
+   * instead of recomputing a runtime aggregate, and it is not borrowing
+   * anything from anybody.
+   *
+   * THE PROOF IS FROM THE DATA, NOT FROM THE ASSIGNMENT TABLE. A business can
+   * hold warehouse rows for an account it no longer selects, and
+   * `business_provider_accounts` would not show it. The question asked here is
+   * whether any `meta_creative_daily` row of this business names a DIFFERENT
+   * provider account, which is the only thing that can make the pooled
+   * population wider than this account's.
+   *
+   * `unreadable` is a failed read and is never reported as either answer: the
+   * caller falls back to scoping the reads to the account itself, which is
+   * always correct and never borrows.
+   *
+   * Optional because a data source that models no warehouse has no such fact.
+   */
+  readBusinessAccountPopulationBreadth?(input: {
+    businessId: string;
+    providerAccountId: string;
+  }): Promise<BusinessAccountPopulationBreadth>;
 }
+
+/**
+ * Whether a business's warehouse rows come from one ad account or several.
+ *
+ * - `sole_account` — every row belongs to the named account, so the business's
+ *   pooled population and that account's population are the same rows.
+ * - `multiple_accounts` — at least one row belongs to a different account, so
+ *   the pooled population is wider than the named account's and a pooled read
+ *   would carry evidence this account did not produce.
+ * - `unreadable` — the question could not be answered, either because the probe
+ *   failed or because no account was named for the population to be compared
+ *   against. Nothing is established, and it is never treated as `sole_account`.
+ */
+export type BusinessAccountPopulationBreadth =
+  | "sole_account"
+  | "multiple_accounts"
+  | "unreadable";
 
 /**
  * The four states of one account's own precomputed calibration scope.
@@ -2961,6 +3008,45 @@ SELECT
   ) AS any_account_scope_present
 `;
 
+/*
+  Does ANY warehouse row of this business belong to some OTHER ad account?
+
+  TWO RANGES RATHER THAN ONE `<>`, and that is a performance fact rather than a
+  semantic one. `provider_account_id <> $2` under `business_id = $1` cannot seek
+  in `idx_meta_creative_daily_business_account_date`
+  (`business_id, provider_account_id, date DESC`): a btree has no skip scan, so
+  it would walk every index entry the named account owns before concluding that
+  none differs — which on a busy account is the whole account. `< $2` and `> $2`
+  are each a seekable range that stops at its first tuple, and they ask the same
+  question: `<`, `=` and `>` are exhaustive and mutually exclusive over the
+  index's own ordering, so `v <> $2` and `v < $2 OR v > $2` select the same rows.
+
+  `business_id` (TEXT) rather than `business_ref_id` (UUID) on purpose, for two
+  reasons. It is the indexed column, and it is the WIDER set: `business_ref_id`
+  is filled from a reference lookup that can leave NULL, and the calibration
+  statements filter on it. A business whose wider set names no other account
+  therefore certainly has no other account inside the narrower set the pooled
+  calibration row was computed from, so this probe can only ever be too strict —
+  it can withhold the equivalence, never assert one that is false.
+*/
+const READ_BUSINESS_ACCOUNT_POPULATION_BREADTH_QUERY = `
+SELECT
+  (
+    EXISTS (
+      SELECT 1
+      FROM meta_creative_daily
+      WHERE business_id = $1::text
+        AND provider_account_id < $2::text
+    )
+    OR EXISTS (
+      SELECT 1
+      FROM meta_creative_daily
+      WHERE business_id = $1::text
+        AND provider_account_id > $2::text
+    )
+  ) AS foreign_account_rows_present
+`;
+
 const READ_CAMPAIGN_MATURE_CREATIVE_COUNT_QUERY = `
 WITH per_creative AS (
   SELECT
@@ -5555,6 +5641,39 @@ export class WarehouseDataSource
     }
   }
 
+  /**
+   * Whether this business's warehouse rows belong to this account alone.
+   *
+   * Two seekable range probes in one statement. A throw is `unreadable` and is
+   * never reported as `sole_account`, because the only thing a caller does with
+   * `sole_account` is read the POOLED population in this account's name — a
+   * claim a failed read cannot support.
+   */
+  async readBusinessAccountPopulationBreadth(input: {
+    businessId: string;
+    providerAccountId: string;
+  }): Promise<BusinessAccountPopulationBreadth> {
+    const account = normalizedProviderAccountId(input.providerAccountId);
+    // A blank account names no population for the pooled rows to be equal TO,
+    // so the question cannot be put. That is not the fact that the business
+    // holds several accounts, and it is reported as its own answer.
+    if (account === null) return "unreadable";
+    try {
+      const rows = await getDb().query<Record<string, unknown>>(
+        READ_BUSINESS_ACCOUNT_POPULATION_BREADTH_QUERY,
+        [input.businessId, account],
+      );
+      const row = rows[0];
+      // A statement that returned no row answered nothing.
+      if (!row) return "unreadable";
+      return row.foreign_account_rows_present === true
+        ? "multiple_accounts"
+        : "sole_account";
+    } catch {
+      return "unreadable";
+    }
+  }
+
   async getAccountFunnelCalibration(input: {
     businessId: string;
     asOf: string;
@@ -6210,6 +6329,7 @@ export class AccountScopedDataSource implements CreativeDecisionDataSource {
   readonly getAccountFunnelCalibrationByKind?: CreativeDecisionDataSource["getAccountFunnelCalibrationByKind"];
   readonly getAccountFunnelCalibrationAllKinds?: CreativeDecisionDataSource["getAccountFunnelCalibrationAllKinds"];
   readonly readAccountScopeCalibrationMaterialisation?: CreativeDecisionDataSource["readAccountScopeCalibrationMaterialisation"];
+  readonly readBusinessAccountPopulationBreadth?: CreativeDecisionDataSource["readBusinessAccountPopulationBreadth"];
 
   constructor(
     private readonly base: CreativeDecisionDataSource,
@@ -6240,6 +6360,22 @@ export class AccountScopedDataSource implements CreativeDecisionDataSource {
     if (materialisation) {
       this.readAccountScopeCalibrationMaterialisation = (input) =>
         materialisation(this.scoped(input));
+    }
+    /*
+      Forwarded with the bound account as the DEFAULT, like every other read
+      here. This probe's `providerAccountId` is required rather than optional,
+      so `scoped` cannot supply it from an absent value — an explicit account
+      still wins, and a caller that names none gets the account this source is
+      bound to.
+    */
+    const breadth = base.readBusinessAccountPopulationBreadth?.bind(base);
+    if (breadth) {
+      this.readBusinessAccountPopulationBreadth = (input) =>
+        breadth({
+          ...input,
+          providerAccountId:
+            input.providerAccountId || this.boundProviderAccountId,
+        });
     }
   }
 

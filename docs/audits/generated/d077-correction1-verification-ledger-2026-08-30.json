@@ -1,9 +1,9 @@
 {
- "ledgerHash": "d3a8d8184753003f3da18fbbb9f5244f4e010185ecd1d02c6d5bf368a4448fe9",
+ "ledgerHash": "a639d626aea50ae74ed698481daaeb79fcb07b4e00a58d94f5c64c14bda95757",
  "hashAlgorithm": "sha256",
  "hashBasis": "sha256 over UTF-8 bytes of JSON.stringify(artifact, null, 1) of the artifact WITHOUT its embedded hash fields (the artifact object before {<hashField>, hashAlgorithm, hashBasis} are prepended)",
  "contract": "adsecute.d077.correction2-verification-ledger.v2",
- "generatedAtUtc": "2026-09-06T19:00:44.037Z",
+ "generatedAtUtc": "2026-09-06T19:40:31.566Z",
  "runtimeVersions": {
   "node": "v24.4.1",
   "npm": "11.4.2",
@@ -171,13 +171,13 @@
  },
  "runtimeVersionsScope": {
   "kind": "historical",
-  "sourceLedgerHash": "d94179220e3c0848068ba67d7ce8d104085af68a25ab5fcd9165952d8f55fd54",
-  "sourceGeneratedAtUtc": "2026-09-06T18:27:48.256Z",
+  "sourceLedgerHash": "d3a8d8184753003f3da18fbbb9f5244f4e010185ecd1d02c6d5bf368a4448fe9",
+  "sourceGeneratedAtUtc": "2026-09-06T19:00:44.037Z",
   "note": "Frozen earlier audit runtime observations, preserved with their original timestamps and validated by the unchanged historical provenance contract."
  },
  "packagingRuntimeVersions": {
   "actor": "codex",
-  "observedAtUtc": "2026-09-06T19:00:43.509Z",
+  "observedAtUtc": "2026-09-06T19:40:31.058Z",
   "node": "v24.4.1",
   "npm": "11.4.2",
   "pnpm": "11.19.0",
@@ -203,7 +203,7 @@
      "stderr": "",
      "spawnErrorCode": null,
      "spawnErrorMessage": null,
-     "observedAtUtc": "2026-09-06T19:00:42.935Z"
+     "observedAtUtc": "2026-09-06T19:40:30.483Z"
     },
     "resolution": "resolved",
     "resolvedPath": "/Users/harmelek/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/pnpm",
@@ -219,12 +219,12 @@
      "stderr": "",
      "spawnErrorCode": null,
      "spawnErrorMessage": null,
-     "observedAtUtc": "2026-09-06T19:00:43.258Z"
+     "observedAtUtc": "2026-09-06T19:40:30.809Z"
     },
     "reportedVersion": "11.19.0",
     "resultClass": "version_reported",
     "observationKind": "present_tense",
-    "observedAtUtc": "2026-09-06T19:00:43.258Z",
+    "observedAtUtc": "2026-09-06T19:40:30.809Z",
     "observationTimeCertainty": "exact",
     "cacheSafeReadOnly": true
    },
@@ -246,7 +246,7 @@
      "stderr": "",
      "spawnErrorCode": null,
      "spawnErrorMessage": null,
-     "observedAtUtc": "2026-09-06T19:00:43.264Z"
+     "observedAtUtc": "2026-09-06T19:40:30.814Z"
     },
     "resolution": "resolved",
     "resolvedPath": "/usr/local/bin/corepack",
@@ -262,12 +262,12 @@
      "stderr": "",
      "spawnErrorCode": null,
      "spawnErrorMessage": null,
-     "observedAtUtc": "2026-09-06T19:00:43.306Z"
+     "observedAtUtc": "2026-09-06T19:40:30.854Z"
     },
     "reportedVersion": "0.34.2",
     "resultClass": "version_reported",
     "observationKind": "present_tense",
-    "observedAtUtc": "2026-09-06T19:00:43.306Z",
+    "observedAtUtc": "2026-09-06T19:40:30.854Z",
     "observationTimeCertainty": "exact",
     "cacheSafeReadOnly": true
    },
@@ -281,7 +281,7 @@
      "exists": true,
      "observationErrorCode": null,
      "observationErrorMessage": null,
-     "observedAtUtc": "2026-09-06T19:00:43.307Z"
+     "observedAtUtc": "2026-09-06T19:40:30.854Z"
     },
     "resolution": "resolved",
     "resolvedPath": "/Users/harmelek/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/pnpm",
@@ -297,12 +297,12 @@
      "stderr": "",
      "spawnErrorCode": null,
      "spawnErrorMessage": null,
-     "observedAtUtc": "2026-09-06T19:00:43.507Z"
+     "observedAtUtc": "2026-09-06T19:40:31.056Z"
     },
     "reportedVersion": "11.19.0",
     "resultClass": "version_reported",
     "observationKind": "present_tense",
-    "observedAtUtc": "2026-09-06T19:00:43.507Z",
+    "observedAtUtc": "2026-09-06T19:40:31.056Z",
     "observationTimeCertainty": "exact",
     "cacheSafeReadOnly": true
    },
@@ -380,9 +380,9 @@
   {
    "stage": "canonical.database-seams-whole-shell",
    "command": "bash scripts/verify-database-seams.sh",
-   "startUtc": "2026-09-06T18:50:29.928802Z",
-   "endUtc": "2026-09-06T18:59:14.589725Z",
-   "durationSeconds": 524.594,
+   "startUtc": "2026-09-06T19:30:33.412310Z",
+   "endUtc": "2026-09-06T19:39:15.897776Z",
+   "durationSeconds": 522.46,
    "exitCode": 0,
    "counts": {
     "notApplicable": true,
@@ -394,33 +394,33 @@
    },
    "teardown": {
     "supervisedProcessGroupAbsent": true,
-    "processGroupId": 21528,
-    "readAtUtc": "2026-09-06T18:59:14.822963Z",
+    "processGroupId": 53740,
+    "readAtUtc": "2026-09-06T19:39:16.134349Z",
     "leftoverBeforeCleanup": [
      {
-      "pid": 28779,
+      "pid": 27847,
+      "command": "sleep 90"
+     },
+     {
+      "pid": 27873,
+      "command": "sleep 90"
+     },
+     {
+      "pid": 61029,
       "command": "sleep 900"
-     },
-     {
-      "pid": 95074,
-      "command": "sleep 90"
-     },
-     {
-      "pid": 95102,
-      "command": "sleep 90"
      }
     ],
     "terminatedOwnedSleepPids": [
-     28779,
-     95074,
-     95102
+     27847,
+     27873,
+     61029
     ]
    },
-   "sourceCommit": "726e9461965f4729b56974e65b717dddf11f005d",
+   "sourceCommit": "23531584158f358ddb2717f7af0473c6b6ad7968",
    "logFile": {
-    "path": "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1850Z.log",
-    "sha256": "0ea59cc4ef4110e564ebfd6aa86fd95102840d875dd06d2a9f27a61e8c530ab0",
-    "bytes": 661838
+    "path": "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1930Z.log",
+    "sha256": "31f22e97cef856fcdb5f6b222b479a472e679131deb2b6e635482dbf366e6792",
+    "bytes": 661875
    },
    "tail": [
     "  retryMaxBackoffMs: 4000",
@@ -455,7 +455,7 @@
     "[verify-db-seams] PASS — 40 stages"
    ],
    "originalCapturePath": {
-    "path": "/tmp/adsecute-codex-release-20260906/d077-canonical-database-seams-whole-shell-2026-09-06T1850Z.log",
+    "path": "/tmp/adsecute-codex-release-20260906/d077-canonical-database-seams-whole-shell-2026-09-06T1930Z.log",
     "note": "capture provenance ONLY — the temporary supervisor output path for this authoritative run; validated byte-identical to the repository copy before it was frozen; generator/test reads use only the portable retained copy"
    },
    "wholeShellProof": {
@@ -631,8 +631,8 @@
      "title": "Release owner references are current (LAST — the tree is final here)"
     },
     "finalPassLine": "[verify-db-seams] PASS — 40 stages",
-    "logSha256": "0ea59cc4ef4110e564ebfd6aa86fd95102840d875dd06d2a9f27a61e8c530ab0",
-    "logBytes": 661838,
+    "logSha256": "31f22e97cef856fcdb5f6b222b479a472e679131deb2b6e635482dbf366e6792",
+    "logBytes": 661875,
     "releaseBoundary": {
      "stageNumber": 26,
      "stageTitle": "Ordinary deploy refuses a cutover-required release",
@@ -3075,6 +3075,487 @@
     "2026-09-06T18:50:01.5826548Z    Duration  1189.16s (transform 50.34s, setup 49.09s, import 59.08s, tests 1315.28s, environment 46.04s)",
     "2026-09-06T18:50:01.5827587Z "
    ]
+  },
+  {
+   "stage": "historical.r11-packaging.r11-d077-contract",
+   "command": "npx vitest run lib/meta/__tests__/d077-artifact-hash-contract.test.ts --reporter=json --outputFile=/tmp/adsecute-codex-release-20260906/r11-d077-contract-report.json",
+   "startUtc": "2026-09-06T19:01:27.500143+00:00",
+   "endUtc": "2026-09-06T19:01:29.239687+00:00",
+   "durationSeconds": 1.739,
+   "exitCode": 0,
+   "counts": {
+    "numTotalTests": 21,
+    "numPassedTests": 21,
+    "numFailedTests": 0,
+    "numPendingTests": 0
+   },
+   "timeout": {
+    "configuredSeconds": null,
+    "timedOut": null,
+    "configuredSecondsNote": "Not captured by this original record."
+   },
+   "teardown": {
+    "processExited": true,
+    "scope": "Observed command return only; no process-group/listener census was captured."
+   },
+   "sourceContext": "R11 metadata tree later committed as 252e80cf489bf9f4d424e3e9ac90acc3b2edaa3e; this is not current R12 artifact acceptance.",
+   "logFile": {
+    "path": "/tmp/adsecute-codex-release-20260906/r11-d077-contract.log",
+    "sha256": "fa4556fcd408ac2c7e1a1e64f6b69eadc411d730afd40e74c9d952ce81b4616e",
+    "bytes": 90
+   },
+   "tail": [
+    "JSON report written to /tmp/adsecute-codex-release-20260906/r11-d077-contract-report.json"
+   ]
+  },
+  {
+   "stage": "release-r12.r12-native-projection-focused",
+   "command": "DATABASE_URL=postgresql://unused@127.0.0.1:1/unused npx vitest run lib/meta/native-projection-order.test.ts lib/meta/automation-proposals.test.ts lib/meta/effective-modes-read-failure.test.ts lib/meta/scheduled-ad-status-runtime.test.ts lib/meta/scheduled-launchpad-sweep-routing.test.ts --reporter=dot",
+   "startUtc": "2026-09-06T19:27:12.301110+00:00",
+   "endUtc": "2026-09-06T19:27:14.021379+00:00",
+   "durationSeconds": 1.720863,
+   "exitCode": 0,
+   "counts": {
+    "filesRequested": 5,
+    "testsPassed": 65
+   },
+   "timeout": {
+    "configuredSeconds": null,
+    "timedOut": false,
+    "configuredSecondsNote": "Not captured by this original record."
+   },
+   "teardown": {
+    "processExited": true,
+    "database": "mocked; unused loopback URL"
+   },
+   "logFile": {
+    "path": "/tmp/adsecute-codex-release-20260906/r12-native-projection-focused.log",
+    "bytes": 342,
+    "sha256": "f7b380b41339533da34cc4f04cc3605900e933f8fb9e58ce48e41b03c9508881"
+   },
+   "sourceContext": "R12 working tree before source freeze; no commit identity was captured by this test record.",
+   "tail": [
+    "",
+    " RUN  v4.1.5 /Users/harmelek/Adsecute",
+    "",
+    "·································································",
+    "",
+    " Test Files  5 passed (5)",
+    "      Tests  65 passed (65)",
+    "   Start at  22:27:12",
+    "   Duration  1.14s (transform 1.14s, setup 650ms, import 1.44s, tests 32ms, environment 0ms)",
+    ""
+   ]
+  },
+  {
+   "stage": "release-r12.r12-native-proposal-lifecycle",
+   "command": "Ephemeral PostgreSQL: node --import tsx --input-type=module -; invoke verifyNativeProposalLifecycleFixtures on actual native projection SQL",
+   "startUtc": "2026-09-06T19:28:02.285846+00:00",
+   "endUtc": "2026-09-06T19:28:03.315587+00:00",
+   "durationSeconds": 1.029396,
+   "exitCode": 0,
+   "counts": {
+    "assertionsPassed": 21
+   },
+   "timeout": {
+    "configuredSeconds": null,
+    "timedOut": false,
+    "configuredSecondsNote": "Not captured by this original record."
+   },
+   "teardown": {
+    "ephemeralPostgresStopped": true,
+    "dataDirectory": "/var/folders/ft/2b5f1_qn05g0rjscjj17n8fc0000gn/T/adsecute-native-projection-40emc9i1/pgdata",
+    "providerCalls": 0
+   },
+   "logFile": {
+    "path": "/tmp/adsecute-codex-release-20260906/r12-native-proposal-lifecycle.log",
+    "bytes": 1216,
+    "sha256": "f1f775d3220becc0ba2cb02d45a67ae6e59f57defbe1e04ae274b0619df4cc3c"
+   },
+   "sourceContext": "R12 working tree before source freeze; no commit identity was captured by this test record.",
+   "tail": [
+    "The files belonging to this database system will be owned by user \"harmelek\".",
+    "This user must also own the server process.",
+    "",
+    "The database cluster will be initialized with locale \"C\".",
+    "The default database encoding has accordingly been set to \"SQL_ASCII\".",
+    "The default text search configuration will be set to \"english\".",
+    "",
+    "Data page checksums are disabled.",
+    "",
+    "creating directory /var/folders/ft/2b5f1_qn05g0rjscjj17n8fc0000gn/T/adsecute-native-projection-40emc9i1/pgdata ... ok",
+    "creating subdirectories ... ok",
+    "selecting dynamic shared memory implementation ... posix",
+    "selecting default max_connections ... 100",
+    "selecting default shared_buffers ... 128MB",
+    "selecting default time zone ... Europe/Istanbul",
+    "creating configuration files ... ok",
+    "running bootstrap script ... ok",
+    "performing post-bootstrap initialization ... ok",
+    "syncing data to disk ... ok",
+    "",
+    "Success. You can now start the database server using:",
+    "",
+    "    '/opt/homebrew/opt/postgresql@16/bin/pg_ctl' -D /var/folders/ft/2b5f1_qn05g0rjscjj17n8fc0000gn/T/adsecute-native-projection-40emc9i1/pgdata -l logfile start",
+    "",
+    "waiting for server to start.... done",
+    "server started",
+    "PASS: 21 native proposal lifecycle PostgreSQL fixtures",
+    "waiting for server to shut down.... done",
+    "server stopped"
+   ]
+  },
+  {
+   "stage": "historical.r11-ci-success",
+   "command": "GitHub Actions CI run 34053631051",
+   "startUtc": "2026-09-06T19:02:57Z",
+   "endUtc": "2026-09-06T19:24:07Z",
+   "durationSeconds": 1270,
+   "timingBasis": "Envelope of 12 successful job timestamps from GitHub; workflow-level and retrieval timestamps were not captured.",
+   "exitCode": 0,
+   "counts": {
+    "successfulJobs": 12,
+    "expectedSkippedPrOnlyJobs": 4
+   },
+   "timeout": {
+    "configuredSeconds": null,
+    "timedOut": false
+   },
+   "teardown": {
+    "notApplicable": true,
+    "reason": "Remote GitHub Actions execution; no local process group."
+   },
+   "sourceCommit": "252e80cf489bf9f4d424e3e9ac90acc3b2edaa3e",
+   "ciReadback": {
+    "headSha": "252e80cf489bf9f4d424e3e9ac90acc3b2edaa3e",
+    "status": "completed",
+    "conclusion": "success",
+    "url": "https://github.com/emrahbilaloglu-ui/OmniAds/actions/runs/34053631051"
+   },
+   "ciReadbackFile": {
+    "path": "/tmp/adsecute-codex-release-20260906/ci-252e80cf4-final.json",
+    "sha256": "ee3a203a66da6e42ab4a99e40965498d162418520e6d725c9a7ec04aaae5f6a5"
+   },
+   "jobConclusions": [
+    {
+     "name": "database-seams",
+     "conclusion": "success"
+    },
+    {
+     "name": "d080-evidence-c3-c4",
+     "conclusion": "success"
+    },
+    {
+     "name": "d080-evidence-c5",
+     "conclusion": "success"
+    },
+    {
+     "name": "test-shard-2-of-4",
+     "conclusion": "success"
+    },
+    {
+     "name": "build",
+     "conclusion": "success"
+    },
+    {
+     "name": "typecheck",
+     "conclusion": "success"
+    },
+    {
+     "name": "test-shard-4-of-4",
+     "conclusion": "success"
+    },
+    {
+     "name": "test-shard-1-of-4",
+     "conclusion": "success"
+    },
+    {
+     "name": "d080-evidence-c6",
+     "conclusion": "success"
+    },
+    {
+     "name": "test-shard-3-of-4",
+     "conclusion": "success"
+    },
+    {
+     "name": "detect-runtime-changes",
+     "conclusion": "skipped"
+    },
+    {
+     "name": "d080-evidence-c7-c10",
+     "conclusion": "success"
+    },
+    {
+     "name": "test",
+     "conclusion": "success"
+    },
+    {
+     "name": "publish-web-image",
+     "conclusion": "skipped"
+    },
+    {
+     "name": "publish-worker-image",
+     "conclusion": "skipped"
+    },
+    {
+     "name": "skip-runtime-deploy",
+     "conclusion": "skipped"
+    }
+   ]
+  },
+  {
+   "stage": "release-r12.r12-launch-zero-write-claims",
+   "command": "python3 /tmp/adsecute-codex-release-20260906/run-launch-zero-write-claim-checks.py --pg-only",
+   "startUtc": "2026-09-06T19:28:28.605550+00:00",
+   "endUtc": "2026-09-06T19:28:29.645185+00:00",
+   "durationSeconds": 1.039413,
+   "exitCode": 0,
+   "counts": {
+    "assertionsPassed": 15
+   },
+   "timeout": {
+    "configuredSeconds": null,
+    "timedOut": false,
+    "configuredSecondsNote": "Not captured by this original record."
+   },
+   "teardown": {
+    "ephemeralPostgresStopped": true,
+    "dataDirectory": "/var/folders/ft/2b5f1_qn05g0rjscjj17n8fc0000gn/T/adsecute-launch-zero-write-z0ppkt48/pgdata",
+    "providerCalls": 0
+   },
+   "logFile": {
+    "path": "/tmp/adsecute-codex-release-20260906/r12-launch-zero-write-claims.log",
+    "bytes": 1563,
+    "sha256": "94a0e72da4cede50c20287e838d7f0a40fa0580d1632e107cb3fb927e6b53e32"
+   },
+   "commandLabelBeforeCorrection": "Ephemeral PostgreSQL: node --import tsx --input-type=module -; invoke verifyLaunchZeroWriteClaimFixtures on actual native projection SQL",
+   "method": "Isolated PostgreSQL; actual markMetaLaunchIntentExecuting/restoreMetaLaunchIntentBeforeProviderMutation via getDb/runDbTransaction; temporary tables.",
+   "sourceContext": "R12 working tree before source freeze; final assembled source 23531584158f358ddb2717f7af0473c6b6ad7968. No commit SHA was recorded by this run.",
+   "tail": [
+    "selecting default shared_buffers ... 128MB",
+    "selecting default time zone ... Europe/Istanbul",
+    "creating configuration files ... ok",
+    "running bootstrap script ... ok",
+    "performing post-bootstrap initialization ... ok",
+    "syncing data to disk ... ok",
+    "",
+    "Success. You can now start the database server using:",
+    "",
+    "    '/opt/homebrew/opt/postgresql@16/bin/pg_ctl' -D /var/folders/ft/2b5f1_qn05g0rjscjj17n8fc0000gn/T/adsecute-launch-zero-write-z0ppkt48/pgdata -l logfile start",
+    "",
+    "waiting for server to start.... done",
+    "server started",
+    "[startup] db_client_initialized {",
+    "  runtime: 'web',",
+    "  applicationName: 'omniads-web',",
+    "  poolMax: 10,",
+    "  queryTimeoutMs: 8000,",
+    "  connectionTimeoutMs: 10000,",
+    "  idleTimeoutMs: 30000,",
+    "  maxLifetimeSeconds: null,",
+    "  statementTimeoutMs: null,",
+    "  idleInTransactionSessionTimeoutMs: null,",
+    "  retryAttempts: 4,",
+    "  retryBackoffMs: 400,",
+    "  retryMaxBackoffMs: 4000",
+    "}",
+    "PASS: 15 launch zero-write claim PostgreSQL fixtures",
+    "waiting for server to shut down.... done",
+    "server stopped"
+   ]
+  },
+  {
+   "stage": "release-r12.r12-launch-unit-initial",
+   "command": "DATABASE_URL=postgresql://postgres@127.0.0.1:1/adsecute_unreachable npx vitest run lib/launchpad/meta-launch-zero-write-retry.test.ts --reporter=default --reporter=json --outputFile.json=/tmp/adsecute-codex-release-20260906/r12-launch-zero-write-initial-result.json > /tmp/adsecute-codex-release-20260906/r12-launch-zero-write-initial.log 2>&1",
+   "startUtc": "2026-09-06T19:24:28.623000+00:00",
+   "endUtc": "2026-09-06T19:24:29.164597+00:00",
+   "durationSeconds": 0.541597,
+   "exitCode": 0,
+   "counts": {
+    "total": 11,
+    "passed": 11,
+    "failed": 0
+   },
+   "timingBasis": "Vitest reporter runner start through last file end; outer supervisor timestamps not captured.",
+   "supervisorStartUtc": null,
+   "supervisorEndUtc": null,
+   "sourceContext": "R12 working tree before source freeze; final assembled source 23531584158f358ddb2717f7af0473c6b6ad7968. No commit SHA was recorded by this run.",
+   "timeout": {
+    "configuredSeconds": null,
+    "timedOut": false,
+    "configuredSecondsNote": "Wrapper timing/configuration not captured."
+   },
+   "teardown": {
+    "processExited": true,
+    "scope": "Observed tool exit only; no process census captured."
+   },
+   "logFile": {
+    "path": "/tmp/adsecute-codex-release-20260906/r12-launch-zero-write-initial.log",
+    "bytes": 385,
+    "sha256": "05a819627096ae02056ff509889c0b45b504937855801938f4d7d10bd2429970"
+   },
+   "vitestReport": {
+    "path": "/tmp/adsecute-codex-release-20260906/r12-launch-zero-write-initial-result.json",
+    "sha256": "4311c2e1a94609dd74b0f4d39f1430cc1b89a6b1b9cf350aedbc772dc3cd0ea0"
+   },
+   "tail": [
+    "",
+    " RUN  v4.1.5 /Users/harmelek/Adsecute",
+    "",
+    " ✓ lib/launchpad/meta-launch-zero-write-retry.test.ts (11 tests) 25ms",
+    "",
+    " Test Files  1 passed (1)",
+    "      Tests  11 passed (11)",
+    "   Start at  22:24:28",
+    "   Duration  520ms (transform 213ms, setup 103ms, import 251ms, tests 25ms, environment 0ms)",
+    "",
+    "JSON report written to /tmp/adsecute-codex-release-20260906/r12-launch-zero-write-initial-result.json"
+   ]
+  },
+  {
+   "stage": "release-r12.r12-launch-unit-related-followup",
+   "command": "DATABASE_URL=postgresql://postgres@127.0.0.1:1/adsecute_unreachable npx vitest run lib/meta/scheduled-launch-authority-boundary.test.ts --reporter=default --reporter=json --outputFile.json=/tmp/adsecute-codex-release-20260906/r12-launch-related-followup-result.json > /tmp/adsecute-codex-release-20260906/r12-launch-related-followup.log 2>&1",
+   "startUtc": "2026-09-06T19:28:30.037000+00:00",
+   "endUtc": "2026-09-06T19:28:30.577446+00:00",
+   "durationSeconds": 0.540446,
+   "exitCode": 0,
+   "counts": {
+    "total": 11,
+    "passed": 11,
+    "failed": 0
+   },
+   "timingBasis": "Vitest reporter runner start through last file end; outer supervisor timestamps not captured.",
+   "supervisorStartUtc": null,
+   "supervisorEndUtc": null,
+   "sourceContext": "R12 working tree before source freeze; final assembled source 23531584158f358ddb2717f7af0473c6b6ad7968. No commit SHA was recorded by this run.",
+   "timeout": {
+    "configuredSeconds": null,
+    "timedOut": false,
+    "configuredSecondsNote": "Wrapper timing/configuration not captured."
+   },
+   "teardown": {
+    "processExited": true,
+    "scope": "Observed tool exit only; no process census captured."
+   },
+   "logFile": {
+    "path": "/tmp/adsecute-codex-release-20260906/r12-launch-related-followup.log",
+    "bytes": 385,
+    "sha256": "d10a6c39186ea2c568bb0b61a5170b9160d478ee23e72aeb06540c8bc7692935"
+   },
+   "vitestReport": {
+    "path": "/tmp/adsecute-codex-release-20260906/r12-launch-related-followup-result.json",
+    "sha256": "2adb57958e56b599012e00886de314e67120800324370f8c79dcb6f6dbed63bf"
+   },
+   "latestExecutionSummary": {
+    "caseCount": 69,
+    "passed": 69,
+    "failed": 0,
+    "files": 7,
+    "singleFullRun": false,
+    "identity": "file and assertion ordinal across whole-file runs",
+    "sourceEvidence": {
+     "path": "/tmp/adsecute-codex-release-20260906/r12-launch-zero-write-validation.json",
+     "sha256": "38a50a92fc9996df42971ecd264e57e9255f4575542c700320dab9af8a1ec985"
+    }
+   },
+   "supplementalUntimedChecks": {
+    "typecheck": {
+     "initialExitCode": 2,
+     "initialErrors": "Four inferred-object fixture type errors in other owner's scripts/native-proposal-lifecycle-fixtures.ts; corrected by that owner.",
+     "finalCommand": "NODE_OPTIONS=--max-old-space-size=4096 npm run typecheck > /tmp/adsecute-codex-release-20260906/r12-launch-typecheck-final.log 2>&1",
+     "finalExitCode": 0
+    },
+    "lint": {
+     "command": "npx eslint lib/launchpad/meta-launch-execution.ts lib/launchpad/meta-launch-intent-store.ts lib/launchpad/meta-launch-intent-service.ts lib/launchpad/meta-launch-zero-write-retry.test.ts lib/meta/scheduled-launch-authority-boundary.test.ts scripts/launch-zero-write-claim-fixtures.ts scripts/ephemeral-postgres-decision-launch-chain-seam-child.ts > /tmp/adsecute-codex-release-20260906/r12-launch-final-lint.log 2>&1",
+     "exitCode": 0
+    },
+    "diffCheck": {
+     "command": "git diff --check",
+     "exitCode": 0
+    },
+    "timingBasis": "Observed tool exits; no supervisor timestamps captured. Initial typecheck failure is preserved, final source passed."
+   },
+   "tail": [
+    "",
+    " RUN  v4.1.5 /Users/harmelek/Adsecute",
+    "",
+    " ✓ lib/meta/scheduled-launch-authority-boundary.test.ts (11 tests) 30ms",
+    "",
+    " Test Files  1 passed (1)",
+    "      Tests  11 passed (11)",
+    "   Start at  22:28:30",
+    "   Duration  522ms (transform 211ms, setup 103ms, import 250ms, tests 30ms, environment 0ms)",
+    "",
+    "JSON report written to /tmp/adsecute-codex-release-20260906/r12-launch-related-followup-result.json"
+   ]
+  },
+  {
+   "stage": "diagnostic.r12.r12-launch-unit-related",
+   "command": "DATABASE_URL=postgresql://postgres@127.0.0.1:1/adsecute_unreachable npx vitest run lib/launchpad/meta-launch-intent-store.test.ts lib/meta/scheduled-launch-authority-boundary.test.ts lib/launchpad/meta-add-to-existing-authority-boundary.test.ts lib/meta/launch-create-boundary.test.ts app/api/launchpad/meta/launch/route.test.ts app/api/launchpad/meta/add-to-existing/route.test.ts --reporter=default --reporter=json --outputFile.json=/tmp/adsecute-codex-release-20260906/r12-launch-related-result.json > /tmp/adsecute-codex-release-20260906/r12-launch-related.log 2>&1",
+   "startUtc": "2026-09-06T19:26:51.402000+00:00",
+   "endUtc": "2026-09-06T19:26:52.199279+00:00",
+   "durationSeconds": 0.797279,
+   "exitCode": 1,
+   "counts": {
+    "total": 58,
+    "passed": 57,
+    "failed": 1
+   },
+   "timingBasis": "Vitest reporter runner start through last file end; outer supervisor timestamps not captured.",
+   "supervisorStartUtc": null,
+   "supervisorEndUtc": null,
+   "sourceContext": "R12 working tree before source freeze; this related run predates the restoration-mock/claim-timestamp fixture repair.",
+   "timeout": {
+    "configuredSeconds": null,
+    "timedOut": false,
+    "configuredSecondsNote": "Wrapper timing/configuration not captured."
+   },
+   "teardown": {
+    "processExited": true,
+    "scope": "Observed tool exit only; no process census captured."
+   },
+   "logFile": {
+    "path": "/tmp/adsecute-codex-release-20260906/r12-launch-related.log",
+    "bytes": 2189,
+    "sha256": "e31a165f9bd991d56a4423c9ac375c109316b70ebf9fafbc1db2cf8c945312b8"
+   },
+   "vitestReport": {
+    "path": "/tmp/adsecute-codex-release-20260906/r12-launch-related-result.json",
+    "sha256": "697bd479f2982972a8cbf0c19439a28a63c3b27a2d03c7f031199c977a98ea8c"
+   },
+   "evidenceRole": "diagnostic_failure_not_acceptance",
+   "tail": [
+    "     × withholds the campaign itself and settles the row as refused 3ms",
+    "",
+    "⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯",
+    "",
+    " FAIL  lib/meta/scheduled-launch-authority-boundary.test.ts > a gate closed before the first POST leaves the intent untouched > withholds the campaign itself and settles the row as refused",
+    "AssertionError: expected null to be 'mode_not_auto' // Object.is equality",
+    "",
+    "- Expected:",
+    "\"mode_not_auto\"",
+    "",
+    "+ Received:",
+    "null",
+    "",
+    " ❯ lib/meta/scheduled-launch-authority-boundary.test.ts:578:37",
+    "    576|",
+    "    577|     expect(posts(provider.calls)).toEqual([]);",
+    "    578|     expect(result.receipt.withheld).toBe(\"mode_not_auto\");",
+    "       |                                     ^",
+    "    579|     expect(result.receipt.providerMutationAttempted).toBe(false);",
+    "    580|   });",
+    "",
+    "⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯",
+    "",
+    "",
+    " Test Files  1 failed | 5 passed (6)",
+    "      Tests  1 failed | 57 passed (58)",
+    "   Start at  22:26:51",
+    "   Duration  680ms (transform 1.31s, setup 931ms, import 1.92s, tests 159ms, environment 0ms)",
+    "",
+    "JSON report written to /tmp/adsecute-codex-release-20260906/r12-launch-related-result.json"
+   ]
   }
  ],
  "historicalFailFirstEvidence": {
@@ -3883,26 +4364,26 @@
  "teardownReadback": {
   "canonicalSupervisor": {
    "supervisedProcessGroupAbsent": true,
-   "processGroupId": 21528,
-   "readAtUtc": "2026-09-06T18:59:14.822963Z",
+   "processGroupId": 53740,
+   "readAtUtc": "2026-09-06T19:39:16.134349Z",
    "leftoverBeforeCleanup": [
     {
-     "pid": 28779,
+     "pid": 27847,
+     "command": "sleep 90"
+    },
+    {
+     "pid": 27873,
+     "command": "sleep 90"
+    },
+    {
+     "pid": 61029,
      "command": "sleep 900"
-    },
-    {
-     "pid": 95074,
-     "command": "sleep 90"
-    },
-    {
-     "pid": 95102,
-     "command": "sleep 90"
     }
    ],
    "terminatedOwnedSleepPids": [
-    28779,
-    95074,
-    95102
+    27847,
+    27873,
+    61029
    ]
   },
   "scope": "Original supervisor teardown and subsequent matching-process-group cleanup are separate observations. Child database teardown output is retained in the raw log. This generator does not independently enumerate listeners.",

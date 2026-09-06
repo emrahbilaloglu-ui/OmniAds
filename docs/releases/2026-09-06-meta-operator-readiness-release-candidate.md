@@ -21,7 +21,28 @@ self-hash cycle.
 | divergence | 44 commits ahead, **0 behind** |
 | release diff | 281 files, +68,404 / −3,603 |
 
-## Current checkpoint — R11 source and validation
+## Current checkpoint — R12 source and validation
+
+The reviewed source is frozen at `23531584158f358ddb2717f7af0473c6b6ad7968`; final candidate
+source before evidence packaging is `23531584158f358ddb2717f7af0473c6b6ad7968`. The canonical
+record preserves the source identity that actually ran.
+
+R12 addresses the two valid review findings 3944979937 and 3944979939 at head 252e80cf4. Launchpad zero-write authority refusals durably restore only the invocation's own claim while preserving approval edits; real attempts, ambiguous results and partial outcomes never requeue. Native proposal projection atomically withdraws obsolete untouched pending cuts using an exact reversible system marker. A safe same-day return can be offered again with fresh decision lineage; operator refusals and consumed work remain terminal.
+
+Native proposal regressions passed 65/65 tests in five files. The actual projection SQL passed 21 PostgreSQL lifecycle assertions and its temporary cluster stopped. R11 CI run 34053631051 completed successfully at head 252e80cf489bf9f4d424e3e9ac90acc3b2edaa3e: all 12 eligible jobs passed, including both previously failing shards, with four expected PR-only jobs skipped. This is historical R11 acceptance, not final R12 CI or deployment proof. Launchpad claim/restore SQL passed 15 PostgreSQL assertions with confirmed cluster teardown. Unit evidence has 69 unique cases across seven files with latest passing executions: 11 new tests passed; the related run had 57 passes and one fixture failure; the complete affected 11-case file then passed after its restore mock and claim timestamp were updated. This is combined latest-case evidence, not a single 69-case run. The failed related run remains diagnostic evidence. Unit times come from Vitest reporter timestamps; exact outer timings are unavailable. Final typecheck and lint passed; the earlier fixture-type diagnostic is retained separately without attributing its failure to product code.
+
+The 19:30Z whole-shell run passed all 40 ordered stages, exit 0, in 522.46
+seconds. The supervisor observed its process group absent at 2026-09-06T19:39:16.134349Z.
+The prior R11 18:50Z capture and its 21-case artifact acceptance remain
+historical, as do the R10 18:18Z and R9 17:40Z captures, R11 final test
+head 2bff98ea and five older checks attributed to a605. None is relabelled as R12.
+Historical Claude runtime observations remain separate from current Codex
+probes. Final artifact, owner, lint and type checks follow packaging. Final-head
+CI and Codex review remain required before ordinary merge, exact-SHA image
+publication and deployment. This checkpoint does not claim deployment or
+advertising activation.
+
+## Prior checkpoint — R11 (historical)
 
 The reviewed source is frozen at `726e9461965f4729b56974e65b717dddf11f005d`; final candidate
 source before evidence packaging is `2bff98ea681ad22eb32f6e843754d65de00b7655`. The canonical
@@ -301,18 +322,18 @@ The sixth repin is different in kind from the first five, and the difference is
 the point. Those replaced a PASSING log whose child programs had changed. This
 one replaces a tree that FAILED the shell — see the round-4 section below.
 
-The canonical stage is the 18:50Z run on runtime/seam source freeze
-`726e9461965f4729b56974e65b717dddf11f005d`, retained at
-`docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1850Z.log`:
+The canonical stage is the 19:30Z run on runtime/seam source freeze
+`23531584158f358ddb2717f7af0473c6b6ad7968`, retained at
+`docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1930Z.log`:
 
 | | |
 |---|---|
-| Start / end (UTC) | 2026-09-06T18:50:29.928802Z → 2026-09-06T18:59:14.589725Z |
-| Duration | 524.594 s |
+| Start / end (UTC) | 2026-09-06T19:30:33.412310Z → 2026-09-06T19:39:15.897776Z |
+| Duration | 522.46 s |
 | Exit code | 0 |
 | Stage headers | 40 |
 | Final line | `[verify-db-seams] PASS — 40 stages` |
-| Bytes | 661,838 |
+| Bytes | 661,875 |
 
 The three registered seam children report their counts inside it, each with
 `skipped=0`: `direct Launchpad create route approval-standing` 7/7, `Meta History
@@ -320,11 +341,11 @@ bid verb title` 2/2, and the newly registered `Meta History bid write journal
 admission` 6/6 — the last being the direct evidence that five previously dormant
 database assertions now actually execute.
 
-Seventeen raw captures are retained without editing their bytes: 2026-08-30
+Eighteen raw captures are retained without editing their bytes: 2026-08-30
 (38-stage) and 2026-09-03 (40-stage) as earlier release evidence; 2026-09-06
 07:59Z, 10:30Z, 11:18Z, 11:56Z, 12:34Z, 13:17Z, 13:56Z, 14:43Z, 15:26Z,
-16:07Z, the failed 16:53Z attempt, 17:07Z, 17:40Z, 18:18Z and 18:50Z. The first thirteen same-day
-passing captures are superseded for the current tree; 18:50Z is the
+16:07Z, the failed 16:53Z attempt, 17:07Z, 17:40Z, 18:18Z, 18:50Z and 19:30Z. The first fourteen same-day
+passing captures are superseded for the current tree; 19:30Z is the
 current canonical capture. The 16:53Z attempt stopped at stage 15 with exit 1
 and is not acceptance evidence. Each capture describes its actual execution.
 

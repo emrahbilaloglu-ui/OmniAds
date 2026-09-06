@@ -144,6 +144,59 @@ beforeEach(() => {
 });
 
 describe("the unresolved-attempt lookup cannot be read", () => {
+  it.each(["unresolved_prior_attempt", "activation_already_consumed"] as const)(
+    "sends no POST and never settles the winner when the atomic claim reports %s",
+    async (blocked) => {
+      const settle = vi.fn(async () => undefined);
+      const result = await activate(journalDouble({
+        findUnresolved: async () => null,
+        claim: async () => ({ id: "winning-log", blocked }),
+        settle,
+      }));
+      expect(posted).toEqual([]);
+      expect(settle).not.toHaveBeenCalled();
+      expect(stored).toHaveLength(0);
+      expect(result).toMatchObject({ ok: true, receipt: { blockedReason: blocked,
+        steps: [expect.objectContaining({ actionLogId: "winning-log", claimOutcome: blocked }),
+          expect.anything(), expect.anything()] } });
+    },
+  );
+
+  it.each(["unresolved_prior_attempt", "activation_already_consumed"] as const)(
+    "does not overwrite a completed winner's receipt when a %s contender finishes last",
+    async (blocked) => {
+      let releaseLoser!: () => void;
+      let bothAtClaim!: () => void;
+      const loserMayFinish = new Promise<void>((resolve) => { releaseLoser = resolve; });
+      const bothArrived = new Promise<void>((resolve) => { bothAtClaim = resolve; });
+      let campaignClaims = 0;
+      const journal = journalDouble({
+        claim: async (input) => {
+          if (input.entityId !== "camp_1") return { id: `log_${input.entityId}` };
+          campaignClaims += 1;
+          if (campaignClaims === 1) {
+            await bothArrived;
+            return { id: "winner-campaign-log" };
+          }
+          bothAtClaim();
+          await loserMayFinish;
+          return { id: "winner-campaign-log", blocked };
+        },
+      });
+      const winner = activate(journal);
+      const loser = activate(journal);
+      await winner;
+      expect(stored).toHaveLength(1);
+      expect(stored[0]?.delivering).toBe(true);
+      releaseLoser();
+      const result = await loser;
+      expect(result).toMatchObject({ ok: true, receipt: { blockedReason: blocked } });
+      expect(posted).toEqual(["camp_1", "set_1", "ad_1"]);
+      expect(stored).toHaveLength(1);
+      expect(stored[0]?.delivering).toBe(true);
+    },
+  );
+
   it("sends no provider mutation and writes no claim", async () => {
     const result = await activate(journalDouble({
       // What a pool at its query ceiling does to this read. The production

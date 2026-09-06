@@ -50,6 +50,8 @@ import { verifyScheduledQueuePageFixtures } from "@/scripts/scheduled-queue-page
 import { verifyNativeProposalLifecycleFixtures } from "@/scripts/native-proposal-lifecycle-fixtures";
 import { verifyLaunchZeroWriteClaimFixtures } from "@/scripts/launch-zero-write-claim-fixtures";
 import { verifyDailyBriefLedgerWindowFixtures } from "@/scripts/daily-brief-ledger-window-fixtures";
+import { verifyHistoricalMetaTargetFixtures } from "@/scripts/historical-meta-target-fixtures";
+import { verifyLaunchActivationConcurrencyFixtures } from "@/scripts/launch-activation-concurrency-fixtures";
 import {
   deleteMetaLaunchDraft,
   upsertMetaLaunchDraft,
@@ -1278,6 +1280,12 @@ async function main() {
     verifyDailyBriefLedgerWindowFixtures((text, params) => getDb().query(text, params)),
   );
   console.log(`[${LABEL}] daily brief ledger windows: ${ledgerWindowCases} PostgreSQL cases passed`);
+  const historicalTargetCases = await runDbTransaction(() =>
+    verifyHistoricalMetaTargetFixtures((text, params) => getDb().query(text, params)),
+  );
+  console.log(`[${LABEL}] historical Meta targets: ${historicalTargetCases} PostgreSQL cases passed`);
+  const activationClaimCases = await verifyLaunchActivationConcurrencyFixtures(databaseUrl);
+  console.log(`[${LABEL}] activation claim concurrency: ${activationClaimCases} PostgreSQL cases passed`);
 
   const fixture = await seed();
   const provider = installProvider();

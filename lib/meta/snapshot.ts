@@ -2599,14 +2599,18 @@ export async function readLatestMetaDecisionSnapshot(input: {
 
   if (rows.length === 0) return null;
   const hydratedRecommendations = rows.map(hydrateRecommendation);
-  const currentCommercialTargets = await readMetaCommercialTargets(
+  // A historical brief must retain the target authority of the snapshot it
+  // actually selected, even if the ceiling is later. Range-picker reads keep
+  // checking current authority; their metric dates are not an as-of request.
+  const commercialTargets = await readMetaCommercialTargets(
     input.businessId,
+    snapshotCeiling ? { asOf: rows[0].snapshot_date } : undefined,
   ).catch(() => null);
   const commerciallyGuardedRecommendations = hydratedRecommendations.map(
     (recommendation) =>
       enforceMetaCommercialActionAuthority(
         recommendation,
-        currentCommercialTargets,
+        commercialTargets,
       ),
   );
   const campaignIds = Array.from(

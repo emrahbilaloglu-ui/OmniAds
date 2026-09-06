@@ -79,9 +79,9 @@ vi.mock("@/lib/launchpad/meta-validation", () => ({
 */
 vi.mock("@/lib/meta/ads-action-log", () => ({
   findUnresolvedMetaAdStatusActionLog: vi.fn(async () => null),
-  createMetaAdsActionLog: vi.fn(async (input: { adId: string }) => {
+  createMetaLaunchActivationActionClaim: vi.fn(async (input: { adId: string }) => {
     windows.duringClaim[input.adId]?.();
-    return { id: `log_${input.adId}` };
+    return { claimed: true, log: { id: `log_${input.adId}` } };
   }),
   completeMetaAdsActionLog: vi.fn(async () => undefined),
 }));
@@ -826,7 +826,7 @@ describe("the production scheduled runtime re-reads it too", () => {
     // the gate refuses in front of both.
     expect(posted).toEqual([]);
     expect(vi.mocked(adsWrite.resumeCampaign)).not.toHaveBeenCalled();
-    expect(vi.mocked(actionLog.createMetaAdsActionLog)).not.toHaveBeenCalled();
+    expect(vi.mocked(actionLog.createMetaLaunchActivationActionClaim)).not.toHaveBeenCalled();
     // And the older row is left exactly as it is, for a person to resolve.
     expect(vi.mocked(actionLog.completeMetaAdsActionLog)).not.toHaveBeenCalled();
 

@@ -40,7 +40,7 @@ import {
 } from "@/lib/meta/launch-activation-approval";
 import {
   completeMetaAdsActionLog,
-  createMetaAdsActionLog,
+  createMetaLaunchActivationActionClaim,
   findUnresolvedMetaAdStatusActionLog,
 } from "@/lib/meta/ads-action-log";
 import {
@@ -96,6 +96,8 @@ export type ActivationClaimOutcome =
   | "authority_refused"
   /** A previous attempt on this entity is still unresolved. Nothing was sent. */
   | "unresolved_prior_attempt"
+  /** This intent already activated the entity; a stale pre-read cannot replay it. */
+  | "activation_already_consumed"
   /**
    * The unresolved-attempt lookup itself could not be read. Nothing was sent.
    *
@@ -487,7 +489,14 @@ async function runActivation(
         id: intent.id,
         receipt: value,
       }).then(() => undefined));
-  await persist(receipt).catch(() => undefined);
+  const contended = [...claims.values()].some((claim) =>
+    claim.outcome === "unresolved_prior_attempt" || claim.outcome === "activation_already_consumed");
+  const ownsClaim = [...claims.values()].some((claim) => claim.actionLogId !== null
+    && ["activated", "ambiguous", "refused", "authority_refused"].includes(claim.outcome));
+  // A contender that owned no step must not replace the winner's durable
+  // summary with its blocked response. Runs with their own partial results
+  // still persist them, and the contender always receives its honest response.
+  if (!contended || ownsClaim) await persist(receipt).catch(() => undefined);
 
   return { ok: true, activation, receipt };
 }
@@ -591,7 +600,7 @@ export interface ActivationJournal {
     providerAccountId: string;
     entityId: string;
   }): Promise<{ id: string } | null>;
-  /** Write the claim. Returns null if it could not be written. */
+  /** Atomically recheck prior attempts and insert; null means claim unavailable. */
   claim(input: {
     businessId: string;
     providerAccountId: string;
@@ -601,7 +610,7 @@ export interface ActivationJournal {
     operatorUserId: string | null;
     /** What the entity was, read immediately before. The rollback record. */
     observed: { status: string | null; effectiveStatus: string | null };
-  }): Promise<{ id: string } | null>;
+  }): Promise<{ id: string; blocked?: "unresolved_prior_attempt" | "activation_already_consumed" } | null>;
   /** Terminalise the claim with what the provider actually did. */
   settle(input: {
     id: string;
@@ -621,7 +630,7 @@ export const defaultActivationJournal: ActivationJournal = {
       adId: input.entityId,
     }).then((row) => (row ? { id: row.id } : null)),
   claim: (input) =>
-    createMetaAdsActionLog({
+    createMetaLaunchActivationActionClaim({
       businessId: input.businessId,
       providerAccountId: input.providerAccountId,
       adId: input.entityId,
@@ -652,7 +661,9 @@ export const defaultActivationJournal: ActivationJournal = {
         },
         rollback: { operation: "set_status", status: input.observed.status },
       },
-    }).then((row) => ({ id: row.id })),
+    }).then((result) => result.claimed
+      ? { id: result.log.id }
+      : { id: result.log.id, blocked: result.reason }),
   settle: (input) =>
     completeMetaAdsActionLog({
       id: input.id,
@@ -806,6 +817,11 @@ function providerDeps(input: {
         });
         input.onClaim(key, { actionLogId: null, outcome: "claim_unavailable" });
         return { ok: false, reason: "activation_claim_unavailable" };
+      }
+      if (claim.blocked) {
+        claimsInFlight.set(key, { actionLogId: claim.id, outcome: claim.blocked, startedAt: 0, settled: true });
+        input.onClaim(key, { actionLogId: claim.id, outcome: claim.blocked });
+        return { ok: false, ambiguous: claim.blocked === "unresolved_prior_attempt", reason: claim.blocked };
       }
 
       const startedAt = Date.now();

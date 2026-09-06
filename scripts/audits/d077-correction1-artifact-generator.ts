@@ -99,17 +99,15 @@ import { execFileSync, spawnSync } from "node:child_process";
   validator, the intent store, the unattended pre-filter and the activation
   producer.
 
-  The current capture is the 17:40Z Codex-supervised run on runtime/seam
-  source freeze 6127c568ea2d223bf25c10779a65951e6f6efdea. R9 excludes future
-  launch decisions, preserves notification retries on recipient-read failure,
-  and applies the existing replay budget to every full-package D080B control.
-  This run reports 40 ordered headers, `PASS — 40 stages`, exit 0, 541.706 s.
-  Later test-only commits pin the query-window regression test already
-  present during this run and split independent D084 controls within their
-  existing per-case budget; neither file is executed by this canonical shell. Earlier captures preserve their own execution facts.
+  The current capture is the 18:18Z Codex-supervised run on source freeze
+  a99f2b1941d48691c4ba1c6cf6af81cfe5e6b775. R10 aligns native
+  decision freshness with the unattended sweep and preselects resume versus
+  activation authority before a queue claim consumes a confirmation.
+  This run reports 40 ordered headers, `PASS — 40 stages`, exit 0, 549.642 s.
+  Earlier captures preserve their own execution facts and source identities.
 */
 const PORTABLE_SHELL_LOG_PATH =
-  "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1740Z.log";
+  "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1818Z.log";
 
 /*
   The branch this candidate actually lives on, read from git rather than typed.

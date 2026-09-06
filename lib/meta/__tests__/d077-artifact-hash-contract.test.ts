@@ -608,10 +608,10 @@ describe("D077 artifact hash contract (fail-closed)", () => {
     /*
       Pinned invariants of the retained run itself.
 
-      RELEASE CANDIDATE — repinned to the 2026-09-06 17:40Z capture. These are
+      RELEASE CANDIDATE — repinned to the 2026-09-06 18:18Z capture. These are
       the bytes `bash scripts/verify-database-seams.sh` produced on reviewed
-      source freeze 6127c568ea2d223bf25c10779a65951e6f6efdea
-      (exit 0, 541.706 s, 40 stages).
+      source freeze a99f2b1941d48691c4ba1c6cf6af81cfe5e6b775
+      (exit 0, 549.642 s, 40 stages).
 
       Why a repin was required even though the header count did not move.
       `buildWholeShellProof` compares the ordered stage HEADINGS against the
@@ -635,14 +635,14 @@ describe("D077 artifact hash contract (fail-closed)", () => {
 
       The 2026-08-30 (38-stage) and 2026-09-03 (40-stage) logs are likewise
       retained and not relabelled. This log is frozen at
-      `docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1740Z.log`
+      `docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1818Z.log`
       and pinned with this same digest in the release-candidate manifest, which
       the assertion above checks — so these three cannot drift apart.
     */
     expect(recomputed.logSha256).toBe(
-      "108c819ee175c0ab3e148bfb4b7bb93f664b9eed407d6ed418caa2891e40c3d7",
+      "03c0c7532e64aad0d1d02548b29d5639bfe8f45af5cfcae5fd7482f235e0a0c4",
     );
-    expect(recomputed.logBytes).toBe(661068);
+    expect(recomputed.logBytes).toBe(661476);
     /*
       PRE-DEPLOY AUDIT — 38 -> 40, from a REGENERATED run. The two stages added
       are the D088 migration seam and the automation-OFF readback. The ledger,

@@ -21,7 +21,27 @@ self-hash cycle.
 | divergence | 44 commits ahead, **0 behind** |
 | release diff | 281 files, +68,404 / −3,603 |
 
-## Current checkpoint — R9 source and validation
+## Current checkpoint — R10 source and validation
+
+The reviewed source is frozen at `a99f2b1941d48691c4ba1c6cf6af81cfe5e6b775`; final candidate
+source before evidence packaging is `a99f2b1941d48691c4ba1c6cf6af81cfe5e6b775`. The canonical
+record preserves the source identity that actually ran.
+
+Native decisions and their proposal projection now complete before automatic queue selection. Failed refreshes hold only native ad cuts for affected businesses; unknown whole-chain failures hold that family across the sweep. Other families retain their independent path. Native projection SQL errors propagate into failed/retry bookkeeping. The shared resume verb is filtered by intent lineage and its own pause/creative auto mode before LIMIT and claim; a closed activation gate preserves pending confirmations.
+
+The actual PostgreSQL queue selector passed 12/12 cases, and 11 scheduled-runtime files passed 180/180 tests. Native/cron coverage has 80 unique tests with a latest passing result across the initial run and focused followups; it is not one full-suite run. An initial external PostgreSQL runner import failure and the initial cron fixture failures remain diagnostic records. R9 CI run 34050102513 completed successfully at head 6f7d22878, including both previously failing timeout shards; that proves R9, not final R10 CI. The initial native/cron run had 66 passes and 8 fixture failures (7 missing mock defaults plus 1 early polling assumption); focused followups passed 14 and 1 selected cases, with 28 and 41 respectively unselected. No full-suite rerun is inferred from those targeted results.
+
+The 18:18Z whole-shell run passed all 40 ordered stages, exit 0, in 549.642
+seconds. The supervisor observed its process group absent at 2026-09-06T18:27:13.942457Z.
+The prior R9 17:40Z capture, five checks attributed to a605 and its 21-case
+artifact acceptance remain historical evidence; none is relabelled as R10.
+Historical Claude runtime observations remain separate from current Codex
+probes. Final artifact, owner, lint and type checks follow packaging. Final-head
+CI and Codex review remain required before ordinary merge, exact-SHA image
+publication and deployment. This checkpoint does not claim deployment or
+advertising activation.
+
+## Prior checkpoint — R9 (historical)
 
 Runtime and seam source is frozen at `6127c568ea2d223bf25c10779a65951e6f6efdea`. Final test freeze
 `4197b6810453c3017d94659b07c4d635c9231c13` additionally pins the six-case query-window test that was
@@ -260,18 +280,18 @@ The sixth repin is different in kind from the first five, and the difference is
 the point. Those replaced a PASSING log whose child programs had changed. This
 one replaces a tree that FAILED the shell — see the round-4 section below.
 
-The canonical stage is the 17:40Z run on runtime/seam source freeze
-`6127c568ea2d223bf25c10779a65951e6f6efdea`, retained at
-`docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1740Z.log`:
+The canonical stage is the 18:18Z run on runtime/seam source freeze
+`a99f2b1941d48691c4ba1c6cf6af81cfe5e6b775`, retained at
+`docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1818Z.log`:
 
 | | |
 |---|---|
-| Start / end (UTC) | 2026-09-06T17:40:10.334243Z → 2026-09-06T17:49:11.970699Z |
-| Duration | 541.706 s |
+| Start / end (UTC) | 2026-09-06T18:18:03.959280Z → 2026-09-06T18:27:13.706529Z |
+| Duration | 549.642 s |
 | Exit code | 0 |
 | Stage headers | 40 |
 | Final line | `[verify-db-seams] PASS — 40 stages` |
-| Bytes | 661,068 |
+| Bytes | 661,476 |
 
 The three registered seam children report their counts inside it, each with
 `skipped=0`: `direct Launchpad create route approval-standing` 7/7, `Meta History
@@ -279,11 +299,11 @@ bid verb title` 2/2, and the newly registered `Meta History bid write journal
 admission` 6/6 — the last being the direct evidence that five previously dormant
 database assertions now actually execute.
 
-Fifteen raw captures are retained without editing their bytes: 2026-08-30
+Sixteen raw captures are retained without editing their bytes: 2026-08-30
 (38-stage) and 2026-09-03 (40-stage) as earlier release evidence; 2026-09-06
 07:59Z, 10:30Z, 11:18Z, 11:56Z, 12:34Z, 13:17Z, 13:56Z, 14:43Z, 15:26Z,
-16:07Z, the failed 16:53Z attempt, 17:07Z and 17:40Z. The first eleven same-day
-passing captures are superseded for the current tree; 17:40Z is the
+16:07Z, the failed 16:53Z attempt, 17:07Z, 17:40Z and 18:18Z. The first twelve same-day
+passing captures are superseded for the current tree; 18:18Z is the
 current canonical capture. The 16:53Z attempt stopped at stage 15 with exit 1
 and is not acceptance evidence. Each capture describes its actual execution.
 

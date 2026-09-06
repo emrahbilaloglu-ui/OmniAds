@@ -1,9 +1,9 @@
 {
- "ledgerHash": "9ecc0947e31548bb08835f3e138244b581c8c856b1ada6b83002708cbd3eabb2",
+ "ledgerHash": "d94179220e3c0848068ba67d7ce8d104085af68a25ab5fcd9165952d8f55fd54",
  "hashAlgorithm": "sha256",
  "hashBasis": "sha256 over UTF-8 bytes of JSON.stringify(artifact, null, 1) of the artifact WITHOUT its embedded hash fields (the artifact object before {<hashField>, hashAlgorithm, hashBasis} are prepended)",
  "contract": "adsecute.d077.correction2-verification-ledger.v2",
- "generatedAtUtc": "2026-09-06T17:52:05.162Z",
+ "generatedAtUtc": "2026-09-06T18:27:48.256Z",
  "runtimeVersions": {
   "node": "v24.4.1",
   "npm": "11.4.2",
@@ -171,13 +171,13 @@
  },
  "runtimeVersionsScope": {
   "kind": "historical",
-  "sourceLedgerHash": "6591900cc3aa8a14e2d03c9a4b01e3e77e975d09868a60cc6c0b860bab4e70cf",
-  "sourceGeneratedAtUtc": "2026-09-06T17:22:06.160Z",
+  "sourceLedgerHash": "9ecc0947e31548bb08835f3e138244b581c8c856b1ada6b83002708cbd3eabb2",
+  "sourceGeneratedAtUtc": "2026-09-06T17:52:05.162Z",
   "note": "Frozen earlier audit runtime observations, preserved with their original timestamps and validated by the unchanged historical provenance contract."
  },
  "packagingRuntimeVersions": {
   "actor": "codex",
-  "observedAtUtc": "2026-09-06T17:52:04.398Z",
+  "observedAtUtc": "2026-09-06T18:27:47.729Z",
   "node": "v24.4.1",
   "npm": "11.4.2",
   "pnpm": "11.19.0",
@@ -203,7 +203,7 @@
      "stderr": "",
      "spawnErrorCode": null,
      "spawnErrorMessage": null,
-     "observedAtUtc": "2026-09-06T17:52:03.650Z"
+     "observedAtUtc": "2026-09-06T18:27:47.118Z"
     },
     "resolution": "resolved",
     "resolvedPath": "/Users/harmelek/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/pnpm",
@@ -219,12 +219,12 @@
      "stderr": "",
      "spawnErrorCode": null,
      "spawnErrorMessage": null,
-     "observedAtUtc": "2026-09-06T17:52:04.111Z"
+     "observedAtUtc": "2026-09-06T18:27:47.472Z"
     },
     "reportedVersion": "11.19.0",
     "resultClass": "version_reported",
     "observationKind": "present_tense",
-    "observedAtUtc": "2026-09-06T17:52:04.111Z",
+    "observedAtUtc": "2026-09-06T18:27:47.472Z",
     "observationTimeCertainty": "exact",
     "cacheSafeReadOnly": true
    },
@@ -246,7 +246,7 @@
      "stderr": "",
      "spawnErrorCode": null,
      "spawnErrorMessage": null,
-     "observedAtUtc": "2026-09-06T17:52:04.117Z"
+     "observedAtUtc": "2026-09-06T18:27:47.478Z"
     },
     "resolution": "resolved",
     "resolvedPath": "/usr/local/bin/corepack",
@@ -262,12 +262,12 @@
      "stderr": "",
      "spawnErrorCode": null,
      "spawnErrorMessage": null,
-     "observedAtUtc": "2026-09-06T17:52:04.163Z"
+     "observedAtUtc": "2026-09-06T18:27:47.520Z"
     },
     "reportedVersion": "0.34.2",
     "resultClass": "version_reported",
     "observationKind": "present_tense",
-    "observedAtUtc": "2026-09-06T17:52:04.163Z",
+    "observedAtUtc": "2026-09-06T18:27:47.520Z",
     "observationTimeCertainty": "exact",
     "cacheSafeReadOnly": true
    },
@@ -281,7 +281,7 @@
      "exists": true,
      "observationErrorCode": null,
      "observationErrorMessage": null,
-     "observedAtUtc": "2026-09-06T17:52:04.164Z"
+     "observedAtUtc": "2026-09-06T18:27:47.520Z"
     },
     "resolution": "resolved",
     "resolvedPath": "/Users/harmelek/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/pnpm",
@@ -297,12 +297,12 @@
      "stderr": "",
      "spawnErrorCode": null,
      "spawnErrorMessage": null,
-     "observedAtUtc": "2026-09-06T17:52:04.397Z"
+     "observedAtUtc": "2026-09-06T18:27:47.727Z"
     },
     "reportedVersion": "11.19.0",
     "resultClass": "version_reported",
     "observationKind": "present_tense",
-    "observedAtUtc": "2026-09-06T17:52:04.397Z",
+    "observedAtUtc": "2026-09-06T18:27:47.727Z",
     "observationTimeCertainty": "exact",
     "cacheSafeReadOnly": true
    },
@@ -380,9 +380,9 @@
   {
    "stage": "canonical.database-seams-whole-shell",
    "command": "bash scripts/verify-database-seams.sh",
-   "startUtc": "2026-09-06T17:40:10.334243Z",
-   "endUtc": "2026-09-06T17:49:11.970699Z",
-   "durationSeconds": 541.706,
+   "startUtc": "2026-09-06T18:18:03.959280Z",
+   "endUtc": "2026-09-06T18:27:13.706529Z",
+   "durationSeconds": 549.642,
    "exitCode": 0,
    "counts": {
     "notApplicable": true,
@@ -393,32 +393,34 @@
     "timedOut": false
    },
    "teardown": {
-    "supervisedProcessGroupAbsent": false,
-    "processGroupId": 57608,
-    "readAtUtc": "2026-09-06T17:49:12.206497Z",
+    "supervisedProcessGroupAbsent": true,
+    "processGroupId": 92091,
+    "readAtUtc": "2026-09-06T18:27:13.942457Z",
     "leftoverBeforeCleanup": [
      {
-      "pid": 32384,
-      "command": "sleep 90"
-     },
-     {
-      "pid": 32410,
-      "command": "sleep 90"
-     },
-     {
-      "pid": 65527,
+      "pid": 246,
       "command": "sleep 900"
+     },
+     {
+      "pid": 66177,
+      "command": "sleep 90"
+     },
+     {
+      "pid": 66201,
+      "command": "sleep 90"
      }
     ],
     "terminatedOwnedSleepPids": [
-     65527
+     246,
+     66177,
+     66201
     ]
    },
-   "sourceCommit": "6127c568ea2d223bf25c10779a65951e6f6efdea",
+   "sourceCommit": "a99f2b1941d48691c4ba1c6cf6af81cfe5e6b775",
    "logFile": {
-    "path": "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1740Z.log",
-    "sha256": "108c819ee175c0ab3e148bfb4b7bb93f664b9eed407d6ed418caa2891e40c3d7",
-    "bytes": 661068
+    "path": "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1818Z.log",
+    "sha256": "03c0c7532e64aad0d1d02548b29d5639bfe8f45af5cfcae5fd7482f235e0a0c4",
+    "bytes": 661476
    },
    "tail": [
     "  retryMaxBackoffMs: 4000",
@@ -452,15 +454,8 @@
     "",
     "[verify-db-seams] PASS — 40 stages"
    ],
-   "postRunCleanupReadback": {
-    "readAtUtc": "2026-09-06T17:49:46.791716+00:00",
-    "processGroupId": 57608,
-    "terminatedOwnedSleeps": [],
-    "remainingGroupMembers": [],
-    "supervisedProcessGroupAbsent": true
-   },
    "originalCapturePath": {
-    "path": "/tmp/adsecute-codex-release-20260906/d077-canonical-database-seams-whole-shell-2026-09-06T1740Z.log",
+    "path": "/tmp/adsecute-codex-release-20260906/d077-canonical-database-seams-whole-shell-2026-09-06T1818Z.log",
     "note": "capture provenance ONLY — the temporary supervisor output path for this authoritative run; validated byte-identical to the repository copy before it was frozen; generator/test reads use only the portable retained copy"
    },
    "wholeShellProof": {
@@ -636,8 +631,8 @@
      "title": "Release owner references are current (LAST — the tree is final here)"
     },
     "finalPassLine": "[verify-db-seams] PASS — 40 stages",
-    "logSha256": "108c819ee175c0ab3e148bfb4b7bb93f664b9eed407d6ed418caa2891e40c3d7",
-    "logBytes": 661068,
+    "logSha256": "03c0c7532e64aad0d1d02548b29d5639bfe8f45af5cfcae5fd7482f235e0a0c4",
+    "logBytes": 661476,
     "releaseBoundary": {
      "stageNumber": 26,
      "stageTitle": "Ordinary deploy refuses a cutover-required release",
@@ -1814,6 +1809,479 @@
     "exactSummaryLines": " Test Files  1 passed (1)\n      Tests  10 passed (10)\n   Start at  20:37:58\n   Duration  341ms (transform 43ms, setup 124ms, import 44ms, tests 8ms, environment 0ms)",
     "outputNote": "Expected record_failed warning for dedupe lookup timed out was printed."
    }
+  },
+  {
+   "stage": "historical.r9-packaging.r9-d077-contract",
+   "command": "npx vitest run lib/meta/__tests__/d077-artifact-hash-contract.test.ts --reporter=json --outputFile=/tmp/adsecute-codex-release-20260906/r9-d077-contract-report.json",
+   "startUtc": "2026-09-06T17:52:28.163673+00:00",
+   "endUtc": "2026-09-06T17:52:29.483170+00:00",
+   "durationSeconds": 1.319,
+   "exitCode": 0,
+   "counts": {
+    "numTotalTests": 21,
+    "numPassedTests": 21,
+    "numFailedTests": 0,
+    "numPendingTests": 0
+   },
+   "timeout": {
+    "configuredSeconds": null,
+    "timedOut": null,
+    "configuredSecondsNote": "Not captured by this original record."
+   },
+   "teardown": {
+    "processExited": true,
+    "scope": "Observed command return only; no process-group/listener census was captured."
+   },
+   "sourceContext": "R9 metadata tree later committed as 6f7d22878fb711eabf48d885e787f2735a1f8001; this is not current R10 artifact acceptance.",
+   "logFile": {
+    "path": "/tmp/adsecute-codex-release-20260906/r9-d077-contract.log",
+    "sha256": "012372965c57c9bcf1ac6d37a346a91e073a10dd9b299273fa7a1084f2047d13",
+    "bytes": 89
+   },
+   "tail": [
+    "JSON report written to /tmp/adsecute-codex-release-20260906/r9-d077-contract-report.json"
+   ]
+  },
+  {
+   "stage": "release-r10.r10-scheduled-queue-page-fixtures-retry1",
+   "command": "Ephemeral PostgreSQL: node --import tsx --input-type=module -; invoke verifyScheduledQueuePageFixtures on actual pending-page SQL",
+   "startUtc": "2026-09-06T18:14:23.270263+00:00",
+   "endUtc": "2026-09-06T18:14:24.265409+00:00",
+   "durationSeconds": 0.994733,
+   "exitCode": 0,
+   "counts": {
+    "casesPassed": 12
+   },
+   "timeout": {
+    "configuredSeconds": null,
+    "timedOut": false,
+    "configuredSecondsNote": "Not captured by this original record."
+   },
+   "teardown": {
+    "ephemeralPostgresStopped": true,
+    "dataDirectory": "/var/folders/ft/2b5f1_qn05g0rjscjj17n8fc0000gn/T/adsecute-scheduled-page-82cpj5mo/pgdata",
+    "providerCalls": 0
+   },
+   "logFile": {
+    "path": "/tmp/adsecute-codex-release-20260906/r10-scheduled-queue-page-fixtures-retry1.log",
+    "bytes": 1205,
+    "sha256": "68126b15160bc56a7b7c66d37315e230e4f5d7dc91c0ac2fbf8d7932531086dc"
+   },
+   "sourceContext": "R10 working tree before commit; these unchanged source bytes were committed as a99f2b1941d48691c4ba1c6cf6af81cfe5e6b775.",
+   "tail": [
+    "The files belonging to this database system will be owned by user \"harmelek\".",
+    "This user must also own the server process.",
+    "",
+    "The database cluster will be initialized with locale \"C\".",
+    "The default database encoding has accordingly been set to \"SQL_ASCII\".",
+    "The default text search configuration will be set to \"english\".",
+    "",
+    "Data page checksums are disabled.",
+    "",
+    "creating directory /var/folders/ft/2b5f1_qn05g0rjscjj17n8fc0000gn/T/adsecute-scheduled-page-82cpj5mo/pgdata ... ok",
+    "creating subdirectories ... ok",
+    "selecting dynamic shared memory implementation ... posix",
+    "selecting default max_connections ... 100",
+    "selecting default shared_buffers ... 128MB",
+    "selecting default time zone ... Europe/Istanbul",
+    "creating configuration files ... ok",
+    "running bootstrap script ... ok",
+    "performing post-bootstrap initialization ... ok",
+    "syncing data to disk ... ok",
+    "",
+    "Success. You can now start the database server using:",
+    "",
+    "    '/opt/homebrew/opt/postgresql@16/bin/pg_ctl' -D /var/folders/ft/2b5f1_qn05g0rjscjj17n8fc0000gn/T/adsecute-scheduled-page-82cpj5mo/pgdata -l logfile start",
+    "",
+    "waiting for server to start.... done",
+    "server started",
+    "PASS: 12 scheduled queue page PostgreSQL fixtures",
+    "waiting for server to shut down.... done",
+    "server stopped"
+   ]
+  },
+  {
+   "stage": "release-r10.r10-scheduled-unit-checks",
+   "command": "DATABASE_URL=postgresql://unused@127.0.0.1:1/unused npx vitest run lib/meta/automation-proposals.test.ts lib/meta/budget-automation-configuration.test.ts lib/meta/budget-automation-runtime.test.ts lib/meta/scheduled-action-execution.test.ts lib/meta/scheduled-activation-runtime.test.ts lib/meta/scheduled-ad-status-runtime.test.ts lib/meta/scheduled-launch-authority-boundary.test.ts lib/meta/scheduled-launch-runtime.test.ts lib/meta/scheduled-launchpad-sweep-routing.test.ts lib/meta/scheduled-status-runtime.test.ts lib/meta/scheduled.test.ts --reporter=dot",
+   "startUtc": "2026-09-06T18:13:25.769588+00:00",
+   "endUtc": "2026-09-06T18:13:28.833678+00:00",
+   "durationSeconds": 3.064175,
+   "exitCode": 0,
+   "counts": {
+    "filesRequested": 11,
+    "testsPassed": 180
+   },
+   "timeout": {
+    "configuredSeconds": null,
+    "timedOut": false,
+    "configuredSecondsNote": "Not captured by this original record."
+   },
+   "teardown": {
+    "processExited": true,
+    "productionDatabaseBlockedByUnusedLoopback": true
+   },
+   "logFile": {
+    "path": "/tmp/adsecute-codex-release-20260906/r10-scheduled-unit-checks.log",
+    "bytes": 577,
+    "sha256": "24292815ba51b174d99e00842b6f98845fcf5a0cc731e5e3606f9122602315d1"
+   },
+   "sourceContext": "R10 working tree before commit; these unchanged source bytes were committed as a99f2b1941d48691c4ba1c6cf6af81cfe5e6b775.",
+   "tail": [
+    "",
+    " RUN  v4.1.5 /Users/harmelek/Adsecute",
+    "",
+    "····················································································································································································",
+    "",
+    " Test Files  11 passed (11)",
+    "      Tests  180 passed (180)",
+    "   Start at  21:13:26",
+    "   Duration  2.07s (transform 6.73s, setup 3.28s, import 7.71s, tests 1.33s, environment 1ms)",
+    ""
+   ]
+  },
+  {
+   "stage": "diagnostic.r10.r10-scheduled-queue-page-fixtures",
+   "command": "Ephemeral PostgreSQL: node --import tsx --input-type=module -; invoke verifyScheduledQueuePageFixtures on actual pending-page SQL",
+   "startUtc": "2026-09-06T18:13:24.305950+00:00",
+   "endUtc": "2026-09-06T18:13:25.767783+00:00",
+   "durationSeconds": 1.461521,
+   "exitCode": 1,
+   "counts": {
+    "notApplicable": true,
+    "reason": "Non-Vitest command; exit code and retained output are the acceptance record."
+   },
+   "timeout": {
+    "configuredSeconds": null,
+    "timedOut": false,
+    "configuredSecondsNote": "Not captured by this original record."
+   },
+   "teardown": {
+    "ephemeralPostgresStopped": true,
+    "dataDirectory": "/var/folders/ft/2b5f1_qn05g0rjscjj17n8fc0000gn/T/adsecute-scheduled-page-y5_lrchq/pgdata",
+    "providerCalls": 0
+   },
+   "logFile": {
+    "path": "/tmp/adsecute-codex-release-20260906/r10-scheduled-queue-page-fixtures.log",
+    "bytes": 1892,
+    "sha256": "0ea76881334ad59870bb5071c650be679badea2cdf5950bda4059e76032ac405"
+   },
+   "diagnosis": "Temporary external runner used an incompatible ES-module named import before SQL execution. Only that external import was corrected; no product code or SQL changed for the successful retry.",
+   "evidenceRole": "diagnostic_failure_not_acceptance",
+   "sourceContext": "R10 temporary external selector runner before its import correction; no SQL executed.",
+   "tail": [
+    "creating directory /var/folders/ft/2b5f1_qn05g0rjscjj17n8fc0000gn/T/adsecute-scheduled-page-y5_lrchq/pgdata ... ok",
+    "creating subdirectories ... ok",
+    "selecting dynamic shared memory implementation ... posix",
+    "selecting default max_connections ... 100",
+    "selecting default shared_buffers ... 128MB",
+    "selecting default time zone ... Europe/Istanbul",
+    "creating configuration files ... ok",
+    "running bootstrap script ... ok",
+    "performing post-bootstrap initialization ... ok",
+    "syncing data to disk ... ok",
+    "",
+    "Success. You can now start the database server using:",
+    "",
+    "    '/opt/homebrew/opt/postgresql@16/bin/pg_ctl' -D /var/folders/ft/2b5f1_qn05g0rjscjj17n8fc0000gn/T/adsecute-scheduled-page-y5_lrchq/pgdata -l logfile start",
+    "",
+    "waiting for server to start.... done",
+    "server started",
+    "file:///Users/harmelek/Adsecute/[eval1]:2",
+    "import { verifyScheduledQueuePageFixtures } from \"./scripts/scheduled-queue-page-fixtures.ts\";",
+    "         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^",
+    "SyntaxError: The requested module './scripts/scheduled-queue-page-fixtures.ts' does not provide an export named 'verifyScheduledQueuePageFixtures'",
+    "    at #_instantiate (node:internal/modules/esm/module_job:254:21)",
+    "    at async ModuleJob.run (node:internal/modules/esm/module_job:362:5)",
+    "    at async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:270:26)",
+    "    at async ModuleLoader.executeModuleJob (node:internal/modules/esm/loader:267:20)",
+    "    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:99:5)",
+    "",
+    "Node.js v24.4.1",
+    "waiting for server to shut down.... done",
+    "server stopped"
+   ]
+  },
+  {
+   "stage": "historical.r9-ci-success",
+   "command": "GitHub Actions CI run34050102513",
+   "startUtc": "2026-09-06T17:55:40Z",
+   "endUtc": "2026-09-06T18:16:40Z",
+   "durationSeconds": 1260,
+   "timingBasis": "Envelope of12 successful job timestamps from GitHub, not a fabricated workflow-level timestamp.",
+   "exitCode": 0,
+   "counts": {
+    "successfulJobs": 12,
+    "expectedSkippedPrOnlyJobs": 4
+   },
+   "timeout": {
+    "configuredSeconds": null,
+    "timedOut": false
+   },
+   "teardown": {
+    "notApplicable": true,
+    "reason": "Remote GitHub Actions execution; no local process group."
+   },
+   "sourceCommit": "6f7d22878fb711eabf48d885e787f2735a1f8001",
+   "ciReadback": {
+    "databaseId": 34050102513,
+    "headSha": "6f7d22878fb711eabf48d885e787f2735a1f8001",
+    "status": "completed",
+    "conclusion": "success",
+    "url": "https://github.com/emrahbilaloglu-ui/OmniAds/actions/runs/34050102513",
+    "observedAtUtc": "2026-09-06T18:18:17.225744+00:00"
+   },
+   "jobConclusions": [
+    {
+     "name": "database-seams",
+     "conclusion": "success"
+    },
+    {
+     "name": "build",
+     "conclusion": "success"
+    },
+    {
+     "name": "test-shard-3-of-4",
+     "conclusion": "success"
+    },
+    {
+     "name": "d080-evidence-c7-c10",
+     "conclusion": "success"
+    },
+    {
+     "name": "test-shard-2-of-4",
+     "conclusion": "success"
+    },
+    {
+     "name": "typecheck",
+     "conclusion": "success"
+    },
+    {
+     "name": "d080-evidence-c6",
+     "conclusion": "success"
+    },
+    {
+     "name": "d080-evidence-c5",
+     "conclusion": "success"
+    },
+    {
+     "name": "test-shard-1-of-4",
+     "conclusion": "success"
+    },
+    {
+     "name": "test-shard-4-of-4",
+     "conclusion": "success"
+    },
+    {
+     "name": "d080-evidence-c3-c4",
+     "conclusion": "success"
+    },
+    {
+     "name": "detect-runtime-changes",
+     "conclusion": "skipped"
+    },
+    {
+     "name": "test",
+     "conclusion": "success"
+    },
+    {
+     "name": "skip-runtime-deploy",
+     "conclusion": "skipped"
+    },
+    {
+     "name": "publish-web-image",
+     "conclusion": "skipped"
+    },
+    {
+     "name": "publish-worker-image",
+     "conclusion": "skipped"
+    }
+   ]
+  },
+  {
+   "stage": "diagnostic.r10.r10-native-fixture-diagnostic",
+   "command": "DATABASE_URL=postgresql://postgres@127.0.0.1:1/adsecute_unreachable npx vitest run app/api/sync/cron/route.test.ts lib/meta/native-projection-order.test.ts lib/creative-decision-engine/native-projection-retry.test.ts lib/creative-decision-engine/__tests__/jobs/native-ad-scheduled.test.ts --reporter=default --reporter=json --outputFile.json=/tmp/adsecute-codex-release-20260906/r10-native-refresh-result.json > /tmp/adsecute-codex-release-20260906/r10-native-refresh.log 2>&1",
+   "startUtc": "2026-09-06T18:10:32.459000+00:00",
+   "endUtc": "2026-09-06T18:13:16.283317+00:00",
+   "durationSeconds": 163.824317,
+   "timingBasis": "Vitest startTime and maximum testResults.endTime. Command-supervisor start/end were not captured; these are explicitly runner timestamps.",
+   "exitCode": 1,
+   "counts": {
+    "numTotalTests": 74,
+    "numPassedTests": 66,
+    "numFailedTests": 8,
+    "numPendingTests": 0
+   },
+   "timeout": {
+    "configuredSeconds": null,
+    "timedOut": false,
+    "note": "Command-level external timeout was not retained."
+   },
+   "teardown": {
+    "processExited": true,
+    "scope": "Observed exec return only; separate listener/group census not captured."
+   },
+   "logFile": {
+    "path": "/tmp/adsecute-codex-release-20260906/r10-native-refresh.log",
+    "sha256": "f20232990a0a70830283de1e89c64e29913516f0925c9b6d43644485bc205dd8",
+    "bytes": 39269
+   },
+   "sourceContext": "R10 working tree and test-fixture repairs before commit a99f2b1941d48691c4ba1c6cf6af81cfe5e6b775; each run retains its actual selected/unselected counts.",
+   "diagnosis": "Seven failures were absent sweep-mock defaults in a second cron fixture; one was a vi.waitFor1-second polling assumption for a callback reached after unrelated6-second work. Source/runtime review was unchanged; explicit fixture defaults and callback-entry synchronization repaired the tests.",
+   "evidenceRole": "diagnostic_failure_not_acceptance",
+   "tail": [
+    "    740|     new Date(),",
+    "    741|     { blockedNativeAdBusinessIds, blockAllNativeAdProposals },",
+    "    742|   ).catch((error: unknown) => ({",
+    "       |    ^",
+    "    743|     skipped: true as const,",
+    "    744|     reason: error instanceof Error ? error.name : \"budget_sweep_failed…",
+    " ❯ app/api/sync/cron/route.test.ts:1420:5",
+    "",
+    "⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/8]⎯",
+    "",
+    " FAIL  app/api/sync/cron/route.test.ts > POST /api/sync/cron Google Ads freshness receipt > rolls the WEAKEST business verdict up, so one stale business cannot be averaged away",
+    "TypeError: Cannot read properties of undefined (reading 'catch')",
+    " ❯ POST app/api/sync/cron/route.ts:742:4",
+    "    740|     new Date(),",
+    "    741|     { blockedNativeAdBusinessIds, blockAllNativeAdProposals },",
+    "    742|   ).catch((error: unknown) => ({",
+    "       |    ^",
+    "    743|     skipped: true as const,",
+    "    744|     reason: error instanceof Error ? error.name : \"budget_sweep_failed…",
+    " ❯ app/api/sync/cron/route.test.ts:1455:29",
+    "",
+    "⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/8]⎯",
+    "",
+    "",
+    " Test Files  1 failed | 3 passed (4)",
+    "      Tests  8 failed | 66 passed (74)",
+    "   Start at  21:10:32",
+    "   Duration  163.77s (transform 3.20s, setup 724ms, import 4.00s, tests 162.55s, environment 0ms)",
+    "",
+    "JSON report written to /tmp/adsecute-codex-release-20260906/r10-native-refresh-result.json"
+   ]
+  },
+  {
+   "stage": "release-r10.r10-native-fixture-followup",
+   "command": "DATABASE_URL=postgresql://postgres@127.0.0.1:1/adsecute_unreachable npx vitest run app/api/sync/cron/route.test.ts -t 'scopes the .*scheduler result|Google Ads freshness receipt' --reporter=default --reporter=json --outputFile.json=/tmp/adsecute-codex-release-20260906/r10-native-refresh-followup-result.json > /tmp/adsecute-codex-release-20260906/r10-native-refresh-followup.log 2>&1",
+   "startUtc": "2026-09-06T18:14:16.074000+00:00",
+   "endUtc": "2026-09-06T18:15:34.944253+00:00",
+   "durationSeconds": 78.870253,
+   "timingBasis": "Vitest startTime and maximum testResults.endTime. Command-supervisor start/end were not captured; these are explicitly runner timestamps.",
+   "exitCode": 0,
+   "counts": {
+    "numTotalTests": 42,
+    "numPassedTests": 14,
+    "numFailedTests": 0,
+    "numPendingTests": 28
+   },
+   "timeout": {
+    "configuredSeconds": null,
+    "timedOut": false,
+    "note": "Command-level external timeout was not retained."
+   },
+   "teardown": {
+    "processExited": true,
+    "scope": "Observed exec return only; separate listener/group census not captured."
+   },
+   "logFile": {
+    "path": "/tmp/adsecute-codex-release-20260906/r10-native-refresh-followup.log",
+    "sha256": "7e8c1a1496cb7ca5a4df363912828a3c2e3dd9ae09b8047a67ca9d7c766570e7",
+    "bytes": 21009
+   },
+   "sourceContext": "R10 working tree and test-fixture repairs before commit a99f2b1941d48691c4ba1c6cf6af81cfe5e6b775; each run retains its actual selected/unselected counts.",
+   "tail": [
+    "  nativeAdShadowJobReason: 'outside_slot',",
+    "  decisionOutcomesJobSkipped: true,",
+    "  decisionOutcomesJobReason: 'outside_slot',",
+    "  nativeAdOutcomesJobSkipped: true,",
+    "  nativeAdOutcomesJobReason: 'outside_slot',",
+    "  duplicateAdReconciliationScanned: 0,",
+    "  duplicateAdReconciliationReconciled: 0",
+    "}",
+    "",
+    " ✓ app/api/sync/cron/route.test.ts (42 tests | 28 skipped) 78185ms",
+    "     ✓ scopes the already_ran scheduler result to a native-only hold of false  6029ms",
+    "     ✓ scopes the outside_slot scheduler result to a native-only hold of false  6013ms",
+    "     ✓ scopes the no_enabled_businesses scheduler result to a native-only hold of false  6010ms",
+    "     ✓ scopes the no_meta_businesses scheduler result to a native-only hold of false  6014ms",
+    "     ✓ scopes the schema_not_ready scheduler result to a native-only hold of true  6011ms",
+    "     ✓ scopes the jobs_disabled scheduler result to a native-only hold of true  6014ms",
+    "     ✓ does not let a clean enqueue pass imply Google Ads is caught up when no day was re-read  6014ms",
+    "     ✓ does not report a converging window as complete  6012ms",
+    "     ✓ reports a settled window as complete and safe to stop polling  6011ms",
+    "     ✓ fails closed to a RETRYABLE unknown when the evidence is unavailable, without failing the tick  6015ms",
+    "     ✓ fails closed when the evidence read itself rejects  6011ms",
+    "     ✓ issues exactly ONE bulk read per business per pass, covering every scope in that one call  6013ms",
+    "     ✓ rolls the WEAKEST business verdict up, so one stale business cannot be averaged away  6015ms",
+    "",
+    " Test Files  1 passed (1)",
+    "      Tests  14 passed | 28 skipped (42)",
+    "   Start at  21:14:16",
+    "   Duration  78.77s (transform 281ms, setup 122ms, import 370ms, tests 78.18s, environment 0ms)",
+    "",
+    "JSON report written to /tmp/adsecute-codex-release-20260906/r10-native-refresh-followup-result.json"
+   ]
+  },
+  {
+   "stage": "release-r10.r10-native-soak-followup",
+   "command": "DATABASE_URL=postgresql://postgres@127.0.0.1:1/adsecute_unreachable npx vitest run app/api/sync/cron/route.test.ts -t 'awaits duplicate reconciliation before a soak-gate execution-error response' --reporter=default --reporter=json --outputFile.json=/tmp/adsecute-codex-release-20260906/r10-native-soak-followup-result.json > /tmp/adsecute-codex-release-20260906/r10-native-soak-followup.log 2>&1",
+   "startUtc": "2026-09-06T18:18:05.433000+00:00",
+   "endUtc": "2026-09-06T18:18:12.087457+00:00",
+   "durationSeconds": 6.654457,
+   "timingBasis": "Vitest startTime and maximum testResults.endTime. Command-supervisor start/end were not captured; these are explicitly runner timestamps.",
+   "exitCode": 0,
+   "counts": {
+    "numTotalTests": 42,
+    "numPassedTests": 1,
+    "numFailedTests": 0,
+    "numPendingTests": 41
+   },
+   "timeout": {
+    "configuredSeconds": null,
+    "timedOut": false,
+    "note": "Command-level external timeout was not retained."
+   },
+   "teardown": {
+    "processExited": true,
+    "scope": "Observed exec return only; separate listener/group census not captured."
+   },
+   "logFile": {
+    "path": "/tmp/adsecute-codex-release-20260906/r10-native-soak-followup.log",
+    "sha256": "dbe87743962252ad417c79e72b83820766d8e3e3354873e123c864385606358f",
+    "bytes": 973
+   },
+   "sourceContext": "R10 working tree and test-fixture repairs before commit a99f2b1941d48691c4ba1c6cf6af81cfe5e6b775; each run retains its actual selected/unselected counts.",
+   "tail": [
+    "",
+    " RUN  v4.1.5 /Users/harmelek/Adsecute",
+    "",
+    "stdout | app/api/sync/cron/route.test.ts > POST /api/sync/cron > awaits duplicate reconciliation before a soak-gate execution-error response",
+    "[startup] db_client_initialized {",
+    "  runtime: 'web',",
+    "  applicationName: 'omniads-web',",
+    "  poolMax: 10,",
+    "  queryTimeoutMs: 8000,",
+    "  connectionTimeoutMs: 10000,",
+    "  idleTimeoutMs: 30000,",
+    "  maxLifetimeSeconds: null,",
+    "  statementTimeoutMs: null,",
+    "  idleInTransactionSessionTimeoutMs: null,",
+    "  retryAttempts: 4,",
+    "  retryBackoffMs: 400,",
+    "  retryMaxBackoffMs: 4000",
+    "}",
+    "",
+    " ✓ app/api/sync/cron/route.test.ts (42 tests | 41 skipped) 6030ms",
+    "     ✓ awaits duplicate reconciliation before a soak-gate execution-error response  6028ms",
+    "",
+    " Test Files  1 passed (1)",
+    "      Tests  1 passed | 41 skipped (42)",
+    "   Start at  21:18:05",
+    "   Duration  6.57s (transform 260ms, setup 111ms, import 340ms, tests 6.03s, environment 0ms)",
+    "",
+    "JSON report written to /tmp/adsecute-codex-release-20260906/r10-native-soak-followup-result.json"
+   ]
   }
  ],
  "historicalFailFirstEvidence": {
@@ -2621,33 +3089,28 @@
  },
  "teardownReadback": {
   "canonicalSupervisor": {
-   "supervisedProcessGroupAbsent": false,
-   "processGroupId": 57608,
-   "readAtUtc": "2026-09-06T17:49:12.206497Z",
+   "supervisedProcessGroupAbsent": true,
+   "processGroupId": 92091,
+   "readAtUtc": "2026-09-06T18:27:13.942457Z",
    "leftoverBeforeCleanup": [
     {
-     "pid": 32384,
-     "command": "sleep 90"
-    },
-    {
-     "pid": 32410,
-     "command": "sleep 90"
-    },
-    {
-     "pid": 65527,
+     "pid": 246,
      "command": "sleep 900"
+    },
+    {
+     "pid": 66177,
+     "command": "sleep 90"
+    },
+    {
+     "pid": 66201,
+     "command": "sleep 90"
     }
    ],
    "terminatedOwnedSleepPids": [
-    65527
+    246,
+    66177,
+    66201
    ]
-  },
-  "canonicalPostRunCleanupReadback": {
-   "readAtUtc": "2026-09-06T17:49:46.791716+00:00",
-   "processGroupId": 57608,
-   "terminatedOwnedSleeps": [],
-   "remainingGroupMembers": [],
-   "supervisedProcessGroupAbsent": true
   },
   "scope": "Original supervisor teardown and subsequent matching-process-group cleanup are separate observations. Child database teardown output is retained in the raw log. This generator does not independently enumerate listeners.",
   "historicalCorrection2Context": {

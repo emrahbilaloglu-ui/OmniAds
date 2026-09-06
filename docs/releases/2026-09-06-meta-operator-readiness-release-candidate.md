@@ -21,7 +21,28 @@ self-hash cycle.
 | divergence | 44 commits ahead, **0 behind** |
 | release diff | 281 files, +68,404 / −3,603 |
 
-## Current checkpoint — R10 source and validation
+## Current checkpoint — R11 source and validation
+
+The reviewed source is frozen at `726e9461965f4729b56974e65b717dddf11f005d`; final candidate
+source before evidence packaging is `2bff98ea681ad22eb32f6e843754d65de00b7655`. The canonical
+record preserves the source identity that actually ran.
+
+The daily brief binds both overnight execution-window endpoints to UTC, so session timezone cannot widen or shorten the snapshot window. Shopify AOV currency proof now reads the same selected-store order/refund event days as its net ledger amounts: any missing currency withholds the unit, mixed currencies remain refused, and unrelated events or stores cannot block it. Target ROAS remains the only required commercial target. Effective-mode database read failures now propagate as unavailable evidence; an unknown override cannot be replaced by a runnable base mode.
+
+The daily-brief SQL passed 12 real PostgreSQL cases and its focused files passed 39 tests. The AOV reader passed 9 real PostgreSQL currency cases and 33 unit tests; the canonical AOV child additionally exercises 11 full-reader currency/ledger cases. Effective-mode coverage passed 109 tests across 8 files. The prior R10 CI shard 2 failure was traced to the coverage fixture comparing live-clock mobile renderings across a rounded-day boundary. The fixture now pins the existing probe clock and verifies mobile/adapter parity; all 36 cases passed locally without changing runtime code, timeouts or coverage counts. Exact outer timing for that run was not captured; its ledger entry explicitly uses Vitest reporter timestamps. R9 CI run 34050102513 remains a successful historical run; no final R11 CI or deployment is claimed. R10 CI run 34051881549 ultimately failed both test shards 2 and 3 and their required-test aggregator. Shard 3 recorded COGS 0.20 where the edited 0.35 was expected; the other three values matched. Initial-read/effect interleaving is an inference supported by source order and that assertion, not an independently forced reproduction. The test now waits for initial draft values and settles each edit while retaining exact PUT and fresh-read checks. Its full file passed 55/55; no product race, weakened assertion or timeout increase is claimed. That unit-only followup is the sole change between canonical source 726e946 and final test head 2bff98ea; it is not executed by the canonical shell. Original failures and complete CI readback remain diagnostic records.
+
+The 18:50Z whole-shell run passed all 40 ordered stages, exit 0, in 524.594
+seconds. The supervisor observed its process group absent at 2026-09-06T18:59:14.822963Z.
+The prior R10 18:18Z capture and its 21-case artifact acceptance remain
+historical, as do the R9 17:40Z capture and five checks attributed to a605.
+None is relabelled as R11.
+Historical Claude runtime observations remain separate from current Codex
+probes. Final artifact, owner, lint and type checks follow packaging. Final-head
+CI and Codex review remain required before ordinary merge, exact-SHA image
+publication and deployment. This checkpoint does not claim deployment or
+advertising activation.
+
+## Prior checkpoint — R10 (historical)
 
 The reviewed source is frozen at `a99f2b1941d48691c4ba1c6cf6af81cfe5e6b775`; final candidate
 source before evidence packaging is `a99f2b1941d48691c4ba1c6cf6af81cfe5e6b775`. The canonical
@@ -280,18 +301,18 @@ The sixth repin is different in kind from the first five, and the difference is
 the point. Those replaced a PASSING log whose child programs had changed. This
 one replaces a tree that FAILED the shell — see the round-4 section below.
 
-The canonical stage is the 18:18Z run on runtime/seam source freeze
-`a99f2b1941d48691c4ba1c6cf6af81cfe5e6b775`, retained at
-`docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1818Z.log`:
+The canonical stage is the 18:50Z run on runtime/seam source freeze
+`726e9461965f4729b56974e65b717dddf11f005d`, retained at
+`docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1850Z.log`:
 
 | | |
 |---|---|
-| Start / end (UTC) | 2026-09-06T18:18:03.959280Z → 2026-09-06T18:27:13.706529Z |
-| Duration | 549.642 s |
+| Start / end (UTC) | 2026-09-06T18:50:29.928802Z → 2026-09-06T18:59:14.589725Z |
+| Duration | 524.594 s |
 | Exit code | 0 |
 | Stage headers | 40 |
 | Final line | `[verify-db-seams] PASS — 40 stages` |
-| Bytes | 661,476 |
+| Bytes | 661,838 |
 
 The three registered seam children report their counts inside it, each with
 `skipped=0`: `direct Launchpad create route approval-standing` 7/7, `Meta History
@@ -299,11 +320,11 @@ bid verb title` 2/2, and the newly registered `Meta History bid write journal
 admission` 6/6 — the last being the direct evidence that five previously dormant
 database assertions now actually execute.
 
-Sixteen raw captures are retained without editing their bytes: 2026-08-30
+Seventeen raw captures are retained without editing their bytes: 2026-08-30
 (38-stage) and 2026-09-03 (40-stage) as earlier release evidence; 2026-09-06
 07:59Z, 10:30Z, 11:18Z, 11:56Z, 12:34Z, 13:17Z, 13:56Z, 14:43Z, 15:26Z,
-16:07Z, the failed 16:53Z attempt, 17:07Z, 17:40Z and 18:18Z. The first twelve same-day
-passing captures are superseded for the current tree; 18:18Z is the
+16:07Z, the failed 16:53Z attempt, 17:07Z, 17:40Z, 18:18Z and 18:50Z. The first thirteen same-day
+passing captures are superseded for the current tree; 18:50Z is the
 current canonical capture. The 16:53Z attempt stopped at stage 15 with exit 1
 and is not acceptance evidence. Each capture describes its actual execution.
 

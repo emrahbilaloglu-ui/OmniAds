@@ -99,15 +99,15 @@ import { execFileSync, spawnSync } from "node:child_process";
   validator, the intent store, the unattended pre-filter and the activation
   producer.
 
-  The current capture is the 18:18Z Codex-supervised run on source freeze
-  a99f2b1941d48691c4ba1c6cf6af81cfe5e6b775. R10 aligns native
-  decision freshness with the unattended sweep and preselects resume versus
-  activation authority before a queue claim consumes a confirmation.
-  This run reports 40 ordered headers, `PASS — 40 stages`, exit 0, 549.642 s.
+  The current capture is the 18:50Z Codex-supervised run on source freeze
+  726e9461965f4729b56974e65b717dddf11f005d. R11 preserves UTC brief boundaries,
+  exact ledger currency membership and failed effective-mode reads without
+  manufacturing commercial or scheduling authority.
+  This run reports 40 ordered headers, `PASS — 40 stages`, exit 0, 524.594 s.
   Earlier captures preserve their own execution facts and source identities.
 */
 const PORTABLE_SHELL_LOG_PATH =
-  "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1818Z.log";
+  "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1850Z.log";
 
 /*
   The branch this candidate actually lives on, read from git rather than typed.

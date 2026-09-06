@@ -146,8 +146,10 @@ REGISTRY=(
   "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1707Z.log|1|Retained whole-shell capture (40-stage run, 17:07Z, superseded): this guard announcing the token it scans for."
   # 17:40Z was canonical on runtime/seam source freeze 6127c568e after R9.
   "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1740Z.log|1|Retained whole-shell capture (40-stage run, 17:40Z, superseded): this guard announcing the token it scans for."
-  # 18:18Z is canonical on source freeze a99f2b194 after R10.
-  "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1818Z.log|1|Retained whole-shell capture (40-stage run, 18:18Z, CANONICAL): this guard announcing the token it scans for."
+  # 18:18Z was canonical on source freeze a99f2b194 after R10.
+  "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1818Z.log|1|Retained whole-shell capture (40-stage run, 18:18Z, superseded): this guard announcing the token it scans for."
+  # 18:50Z is canonical on source freeze 726e94619 after R11.
+  "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1850Z.log|1|Retained whole-shell capture (40-stage run, 18:50Z, CANONICAL): this guard announcing the token it scans for."
 )
 
 HISTORICAL_COUNTS=(

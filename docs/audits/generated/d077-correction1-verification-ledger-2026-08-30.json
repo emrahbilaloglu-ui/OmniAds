@@ -1,9 +1,9 @@
 {
- "ledgerHash": "d94179220e3c0848068ba67d7ce8d104085af68a25ab5fcd9165952d8f55fd54",
+ "ledgerHash": "d3a8d8184753003f3da18fbbb9f5244f4e010185ecd1d02c6d5bf368a4448fe9",
  "hashAlgorithm": "sha256",
  "hashBasis": "sha256 over UTF-8 bytes of JSON.stringify(artifact, null, 1) of the artifact WITHOUT its embedded hash fields (the artifact object before {<hashField>, hashAlgorithm, hashBasis} are prepended)",
  "contract": "adsecute.d077.correction2-verification-ledger.v2",
- "generatedAtUtc": "2026-09-06T18:27:48.256Z",
+ "generatedAtUtc": "2026-09-06T19:00:44.037Z",
  "runtimeVersions": {
   "node": "v24.4.1",
   "npm": "11.4.2",
@@ -171,13 +171,13 @@
  },
  "runtimeVersionsScope": {
   "kind": "historical",
-  "sourceLedgerHash": "9ecc0947e31548bb08835f3e138244b581c8c856b1ada6b83002708cbd3eabb2",
-  "sourceGeneratedAtUtc": "2026-09-06T17:52:05.162Z",
+  "sourceLedgerHash": "d94179220e3c0848068ba67d7ce8d104085af68a25ab5fcd9165952d8f55fd54",
+  "sourceGeneratedAtUtc": "2026-09-06T18:27:48.256Z",
   "note": "Frozen earlier audit runtime observations, preserved with their original timestamps and validated by the unchanged historical provenance contract."
  },
  "packagingRuntimeVersions": {
   "actor": "codex",
-  "observedAtUtc": "2026-09-06T18:27:47.729Z",
+  "observedAtUtc": "2026-09-06T19:00:43.509Z",
   "node": "v24.4.1",
   "npm": "11.4.2",
   "pnpm": "11.19.0",
@@ -203,7 +203,7 @@
      "stderr": "",
      "spawnErrorCode": null,
      "spawnErrorMessage": null,
-     "observedAtUtc": "2026-09-06T18:27:47.118Z"
+     "observedAtUtc": "2026-09-06T19:00:42.935Z"
     },
     "resolution": "resolved",
     "resolvedPath": "/Users/harmelek/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/pnpm",
@@ -219,12 +219,12 @@
      "stderr": "",
      "spawnErrorCode": null,
      "spawnErrorMessage": null,
-     "observedAtUtc": "2026-09-06T18:27:47.472Z"
+     "observedAtUtc": "2026-09-06T19:00:43.258Z"
     },
     "reportedVersion": "11.19.0",
     "resultClass": "version_reported",
     "observationKind": "present_tense",
-    "observedAtUtc": "2026-09-06T18:27:47.472Z",
+    "observedAtUtc": "2026-09-06T19:00:43.258Z",
     "observationTimeCertainty": "exact",
     "cacheSafeReadOnly": true
    },
@@ -246,7 +246,7 @@
      "stderr": "",
      "spawnErrorCode": null,
      "spawnErrorMessage": null,
-     "observedAtUtc": "2026-09-06T18:27:47.478Z"
+     "observedAtUtc": "2026-09-06T19:00:43.264Z"
     },
     "resolution": "resolved",
     "resolvedPath": "/usr/local/bin/corepack",
@@ -262,12 +262,12 @@
      "stderr": "",
      "spawnErrorCode": null,
      "spawnErrorMessage": null,
-     "observedAtUtc": "2026-09-06T18:27:47.520Z"
+     "observedAtUtc": "2026-09-06T19:00:43.306Z"
     },
     "reportedVersion": "0.34.2",
     "resultClass": "version_reported",
     "observationKind": "present_tense",
-    "observedAtUtc": "2026-09-06T18:27:47.520Z",
+    "observedAtUtc": "2026-09-06T19:00:43.306Z",
     "observationTimeCertainty": "exact",
     "cacheSafeReadOnly": true
    },
@@ -281,7 +281,7 @@
      "exists": true,
      "observationErrorCode": null,
      "observationErrorMessage": null,
-     "observedAtUtc": "2026-09-06T18:27:47.520Z"
+     "observedAtUtc": "2026-09-06T19:00:43.307Z"
     },
     "resolution": "resolved",
     "resolvedPath": "/Users/harmelek/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/pnpm",
@@ -297,12 +297,12 @@
      "stderr": "",
      "spawnErrorCode": null,
      "spawnErrorMessage": null,
-     "observedAtUtc": "2026-09-06T18:27:47.727Z"
+     "observedAtUtc": "2026-09-06T19:00:43.507Z"
     },
     "reportedVersion": "11.19.0",
     "resultClass": "version_reported",
     "observationKind": "present_tense",
-    "observedAtUtc": "2026-09-06T18:27:47.727Z",
+    "observedAtUtc": "2026-09-06T19:00:43.507Z",
     "observationTimeCertainty": "exact",
     "cacheSafeReadOnly": true
    },
@@ -380,9 +380,9 @@
   {
    "stage": "canonical.database-seams-whole-shell",
    "command": "bash scripts/verify-database-seams.sh",
-   "startUtc": "2026-09-06T18:18:03.959280Z",
-   "endUtc": "2026-09-06T18:27:13.706529Z",
-   "durationSeconds": 549.642,
+   "startUtc": "2026-09-06T18:50:29.928802Z",
+   "endUtc": "2026-09-06T18:59:14.589725Z",
+   "durationSeconds": 524.594,
    "exitCode": 0,
    "counts": {
     "notApplicable": true,
@@ -394,33 +394,33 @@
    },
    "teardown": {
     "supervisedProcessGroupAbsent": true,
-    "processGroupId": 92091,
-    "readAtUtc": "2026-09-06T18:27:13.942457Z",
+    "processGroupId": 21528,
+    "readAtUtc": "2026-09-06T18:59:14.822963Z",
     "leftoverBeforeCleanup": [
      {
-      "pid": 246,
+      "pid": 28779,
       "command": "sleep 900"
      },
      {
-      "pid": 66177,
+      "pid": 95074,
       "command": "sleep 90"
      },
      {
-      "pid": 66201,
+      "pid": 95102,
       "command": "sleep 90"
      }
     ],
     "terminatedOwnedSleepPids": [
-     246,
-     66177,
-     66201
+     28779,
+     95074,
+     95102
     ]
    },
-   "sourceCommit": "a99f2b1941d48691c4ba1c6cf6af81cfe5e6b775",
+   "sourceCommit": "726e9461965f4729b56974e65b717dddf11f005d",
    "logFile": {
-    "path": "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1818Z.log",
-    "sha256": "03c0c7532e64aad0d1d02548b29d5639bfe8f45af5cfcae5fd7482f235e0a0c4",
-    "bytes": 661476
+    "path": "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1850Z.log",
+    "sha256": "0ea59cc4ef4110e564ebfd6aa86fd95102840d875dd06d2a9f27a61e8c530ab0",
+    "bytes": 661838
    },
    "tail": [
     "  retryMaxBackoffMs: 4000",
@@ -455,7 +455,7 @@
     "[verify-db-seams] PASS — 40 stages"
    ],
    "originalCapturePath": {
-    "path": "/tmp/adsecute-codex-release-20260906/d077-canonical-database-seams-whole-shell-2026-09-06T1818Z.log",
+    "path": "/tmp/adsecute-codex-release-20260906/d077-canonical-database-seams-whole-shell-2026-09-06T1850Z.log",
     "note": "capture provenance ONLY — the temporary supervisor output path for this authoritative run; validated byte-identical to the repository copy before it was frozen; generator/test reads use only the portable retained copy"
    },
    "wholeShellProof": {
@@ -631,8 +631,8 @@
      "title": "Release owner references are current (LAST — the tree is final here)"
     },
     "finalPassLine": "[verify-db-seams] PASS — 40 stages",
-    "logSha256": "03c0c7532e64aad0d1d02548b29d5639bfe8f45af5cfcae5fd7482f235e0a0c4",
-    "logBytes": 661476,
+    "logSha256": "0ea59cc4ef4110e564ebfd6aa86fd95102840d875dd06d2a9f27a61e8c530ab0",
+    "logBytes": 661838,
     "releaseBoundary": {
      "stageNumber": 26,
      "stageTitle": "Ordinary deploy refuses a cutover-required release",
@@ -2282,6 +2282,799 @@
     "",
     "JSON report written to /tmp/adsecute-codex-release-20260906/r10-native-soak-followup-result.json"
    ]
+  },
+  {
+   "stage": "historical.r10-packaging.r10-d077-contract",
+   "command": "npx vitest run lib/meta/__tests__/d077-artifact-hash-contract.test.ts --reporter=json --outputFile=/tmp/adsecute-codex-release-20260906/r10-d077-contract-report.json",
+   "startUtc": "2026-09-06T18:28:17.322440+00:00",
+   "endUtc": "2026-09-06T18:28:18.813495+00:00",
+   "durationSeconds": 1.491,
+   "exitCode": 0,
+   "counts": {
+    "numTotalTests": 21,
+    "numPassedTests": 21,
+    "numFailedTests": 0,
+    "numPendingTests": 0
+   },
+   "timeout": {
+    "configuredSeconds": null,
+    "timedOut": null,
+    "configuredSecondsNote": "Not captured by this original record."
+   },
+   "teardown": {
+    "processExited": true,
+    "scope": "Observed command return only; no process-group/listener census was captured."
+   },
+   "sourceContext": "R10 metadata tree later committed as f5a7927886df2a4696634b0250f9bf6629dc41fc; this is not current R11 artifact acceptance.",
+   "logFile": {
+    "path": "/tmp/adsecute-codex-release-20260906/r10-d077-contract.log",
+    "sha256": "3b44d7899078621eb314b643254ae1ee4e1cb2f626953a8dedf998197c6ec6e2",
+    "bytes": 90
+   },
+   "tail": [
+    "JSON report written to /tmp/adsecute-codex-release-20260906/r10-d077-contract-report.json"
+   ]
+  },
+  {
+   "stage": "release-r11.r11-daily-brief-queue-page-fixtures",
+   "command": "Ephemeral PostgreSQL: node --import tsx --input-type=module -; invoke verifyDailyBriefLedgerWindowFixtures on actual ledger-window SQL",
+   "startUtc": "2026-09-06T18:44:47.627891+00:00",
+   "endUtc": "2026-09-06T18:44:48.946886+00:00",
+   "durationSeconds": 1.318534,
+   "exitCode": 0,
+   "counts": {
+    "casesPassed": 12
+   },
+   "timeout": {
+    "configuredSeconds": null,
+    "timedOut": false,
+    "configuredSecondsNote": "Not captured by this original record."
+   },
+   "teardown": {
+    "ephemeralPostgresStopped": true,
+    "dataDirectory": "/var/folders/ft/2b5f1_qn05g0rjscjj17n8fc0000gn/T/adsecute-ledger-window-yw77i7ei/pgdata",
+    "providerCalls": 0
+   },
+   "logFile": {
+    "path": "/tmp/adsecute-codex-release-20260906/r11-daily-brief-queue-page-fixtures.log",
+    "bytes": 1390,
+    "sha256": "680297b9c6dc675f2fec014ea0075007df8a6a48894b07e3de4aaaa899bca5d3"
+   },
+   "sourceContext": "R11 working tree before commit; these unchanged source bytes were committed as 726e9461965f4729b56974e65b717dddf11f005d.",
+   "tail": [
+    "The files belonging to this database system will be owned by user \"harmelek\".",
+    "This user must also own the server process.",
+    "",
+    "The database cluster will be initialized with locale \"C\".",
+    "The default database encoding has accordingly been set to \"SQL_ASCII\".",
+    "The default text search configuration will be set to \"english\".",
+    "",
+    "Data page checksums are disabled.",
+    "",
+    "creating directory /var/folders/ft/2b5f1_qn05g0rjscjj17n8fc0000gn/T/adsecute-ledger-window-yw77i7ei/pgdata ... ok",
+    "creating subdirectories ... ok",
+    "selecting dynamic shared memory implementation ... posix",
+    "selecting default max_connections ... 100",
+    "selecting default shared_buffers ... 128MB",
+    "selecting default time zone ... Europe/Istanbul",
+    "creating configuration files ... ok",
+    "running bootstrap script ... ok",
+    "performing post-bootstrap initialization ... ok",
+    "syncing data to disk ... ok",
+    "",
+    "Success. You can now start the database server using:",
+    "",
+    "    '/opt/homebrew/opt/postgresql@16/bin/pg_ctl' -D /var/folders/ft/2b5f1_qn05g0rjscjj17n8fc0000gn/T/adsecute-ledger-window-yw77i7ei/pgdata -l logfile start",
+    "",
+    "waiting for server to start.... done",
+    "server started",
+    "Expected old-query rejection: Ledger window changed with session zone America/New_York, asOf 2026-03-08: [{\"result_status\":\"applied\",\"count\":1},{\"result_status\":\"failed\",\"count\":3}]",
+    "PASS: 12 daily brief ledger window PostgreSQL fixtures",
+    "waiting for server to shut down.... done",
+    "server stopped"
+   ]
+  },
+  {
+   "stage": "release-r11.r11-daily-brief-unit-checks",
+   "command": "DATABASE_URL=postgresql://unused@127.0.0.1:1/unused npx vitest run lib/meta/daily-brief-actionable-state.test.ts lib/meta/daily-brief-alert-scope.test.ts lib/meta/daily-brief-alert-window.test.ts lib/meta/daily-brief-decision-scope.test.ts lib/meta/daily-brief-overnight-window.test.ts lib/meta/daily-brief-queue-read.test.ts lib/meta/daily-brief-snapshot-ceiling.test.ts lib/meta/daily-brief.test.ts --reporter=dot",
+   "startUtc": "2026-09-06T18:44:48.950838+00:00",
+   "endUtc": "2026-09-06T18:44:52.348633+00:00",
+   "durationSeconds": 3.397773,
+   "exitCode": 0,
+   "counts": {
+    "filesRequested": 8,
+    "testsPassed": 39
+   },
+   "timeout": {
+    "configuredSeconds": null,
+    "timedOut": false,
+    "configuredSecondsNote": "Not captured by this original record."
+   },
+   "teardown": {
+    "processExited": true,
+    "productionDatabaseBlockedByUnusedLoopback": true
+   },
+   "logFile": {
+    "path": "/tmp/adsecute-codex-release-20260906/r11-daily-brief-unit-checks.log",
+    "bytes": 290,
+    "sha256": "e8e003271ee33676d9298048d11d9a3844a3cb2a32112da4f46d1f940dd935df"
+   },
+   "sourceContext": "R11 working tree before commit; these unchanged source bytes were committed as 726e9461965f4729b56974e65b717dddf11f005d.",
+   "tail": [
+    "",
+    " RUN  v4.1.5 /Users/harmelek/Adsecute",
+    "",
+    "·······································",
+    "",
+    " Test Files  8 passed (8)",
+    "      Tests  39 passed (39)",
+    "   Start at  21:44:49",
+    "   Duration  2.71s (transform 2.33s, setup 1.37s, import 2.83s, tests 43ms, environment 1ms)",
+    ""
+   ]
+  },
+  {
+   "stage": "release-r11.r11-aov-currency-pg",
+   "command": "Ephemeral PostgreSQL: actual resolveObservedShopifyAov currency SQL; isolated tables and injected non-currency dependencies",
+   "startUtc": "2026-09-06T18:48:49.827415+00:00",
+   "endUtc": "2026-09-06T18:48:51.603578+00:00",
+   "durationSeconds": 1.775431,
+   "exitCode": 0,
+   "counts": {
+    "casesPassed": 9
+   },
+   "timeout": {
+    "configuredSeconds": null,
+    "timedOut": false,
+    "configuredSecondsNote": "Not captured by this original record."
+   },
+   "teardown": {
+    "ephemeralPostgresStopped": true,
+    "dataDirectory": "/var/folders/ft/2b5f1_qn05g0rjscjj17n8fc0000gn/T/adsecute-aov-currency-3cl_sfbk/pgdata",
+    "providerCalls": 0
+   },
+   "logFile": {
+    "path": "/tmp/adsecute-codex-release-20260906/r11-aov-currency-pg.log",
+    "bytes": 1961,
+    "sha256": "7ddf06106b5c8783ddb69ccbc66798ff21f016c3e0e4a5d3c18ee8340b6ccb15"
+   },
+   "sourceContext": "R11 working tree before commit; these unchanged source bytes were committed as 726e9461965f4729b56974e65b717dddf11f005d.",
+   "tail": [
+    "    '/opt/homebrew/opt/postgresql@16/bin/pg_ctl' -D /var/folders/ft/2b5f1_qn05g0rjscjj17n8fc0000gn/T/adsecute-aov-currency-3cl_sfbk/pgdata -l logfile start",
+    "",
+    "waiting for server to start.... done",
+    "server started",
+    "[startup] db_client_initialized {",
+    "  runtime: 'web',",
+    "  applicationName: 'omniads-web',",
+    "  poolMax: 10,",
+    "  queryTimeoutMs: 8000,",
+    "  connectionTimeoutMs: 10000,",
+    "  idleTimeoutMs: 30000,",
+    "  maxLifetimeSeconds: null,",
+    "  statementTimeoutMs: null,",
+    "  idleInTransactionSessionTimeoutMs: null,",
+    "  retryAttempts: 4,",
+    "  retryBackoffMs: 400,",
+    "  retryMaxBackoffMs: 4000",
+    "}",
+    "PASS 1: normalized known currency",
+    "PASS 2: null order currency retained",
+    "PASS 3: blank order currency retained",
+    "PASS 4: missing refund included by refund event day",
+    "PASS 5: mixed refund currency",
+    "PASS 6: known same-currency refund",
+    "PASS 7: non-AOV, out-of-window, sibling-store and business rows excluded",
+    "PASS 8: last local day included despite UTC next day",
+    "PASS 9: absent local date uses ledger timestamp fallback",
+    "PASS: 9 actual AOV currency reader PostgreSQL cases",
+    "waiting for server to shut down.... done",
+    "server stopped"
+   ]
+  },
+  {
+   "stage": "release-r11.r11-aov-unit",
+   "command": "DATABASE_URL=postgresql://unused@127.0.0.1:1/unused npx vitest run lib/creative-decision-engine/shopify-aov-source.test.ts --reporter=dot",
+   "startUtc": "2026-09-06T18:48:51.604132+00:00",
+   "endUtc": "2026-09-06T18:48:52.930643+00:00",
+   "durationSeconds": 1.326528,
+   "exitCode": 0,
+   "counts": {
+    "testsPassed": 33
+   },
+   "timeout": {
+    "configuredSeconds": null,
+    "timedOut": false,
+    "configuredSecondsNote": "Not captured by this original record."
+   },
+   "teardown": {
+    "processExited": true,
+    "productionDatabaseBlockedByUnusedLoopback": true
+   },
+   "logFile": {
+    "path": "/tmp/adsecute-codex-release-20260906/r11-aov-unit.log",
+    "bytes": 278,
+    "sha256": "6fdd4fb4d42ab7587fc3636721c792692d64fe97da883d53a57f0d95814fb43c"
+   },
+   "sourceContext": "R11 working tree before commit; these unchanged source bytes were committed as 726e9461965f4729b56974e65b717dddf11f005d.",
+   "tail": [
+    "",
+    " RUN  v4.1.5 /Users/harmelek/Adsecute",
+    "",
+    "·································",
+    "",
+    " Test Files  1 passed (1)",
+    "      Tests  33 passed (33)",
+    "   Start at  21:48:52",
+    "   Duration  544ms (transform 143ms, setup 166ms, import 135ms, tests 25ms, environment 0ms)",
+    ""
+   ]
+  },
+  {
+   "stage": "release-r11.r11-aov-lint",
+   "command": "npx eslint lib/creative-decision-engine/shopify-aov-source.ts lib/creative-decision-engine/shopify-aov-source.test.ts scripts/ephemeral-postgres-shopify-aov-coverage-seam-child.ts",
+   "startUtc": "2026-09-06T18:48:52.931130+00:00",
+   "endUtc": "2026-09-06T18:48:54.591506+00:00",
+   "durationSeconds": 1.660397,
+   "exitCode": 0,
+   "counts": {
+    "notApplicable": true,
+    "reason": "Non-Vitest command; exit code and retained output are the acceptance record."
+   },
+   "timeout": {
+    "configuredSeconds": null,
+    "timedOut": false,
+    "configuredSecondsNote": "Not captured by this original record."
+   },
+   "teardown": {
+    "processExited": true,
+    "productionDatabaseBlockedByUnusedLoopback": true
+   },
+   "logFile": {
+    "path": "/tmp/adsecute-codex-release-20260906/r11-aov-lint.log",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+   },
+   "sourceContext": "R11 working tree before commit; these unchanged source bytes were committed as 726e9461965f4729b56974e65b717dddf11f005d.",
+   "tail": []
+  },
+  {
+   "stage": "release-r11.r11-effective-modes-focused",
+   "command": "DATABASE_URL=postgresql://unused@127.0.0.1:1/unused npx vitest run lib/meta/effective-modes-read-failure.test.ts lib/meta/automation-control-plane.test.ts lib/meta/daily-brief.test.ts lib/meta/native-projection-order.test.ts lib/meta/scheduled-action-execution.test.ts lib/meta/launch-intent-producer.test.ts lib/meta/launch-intent-producer-query-window.test.ts lib/meta/launch-proposal-producer.test.ts --reporter=dot",
+   "startUtc": "2026-09-06T18:47:55.682632+00:00",
+   "endUtc": "2026-09-06T18:47:57.577402+00:00",
+   "durationSeconds": 1.894636,
+   "exitCode": 0,
+   "counts": {
+    "filesRequested": 8,
+    "testsPassed": 109
+   },
+   "timeout": {
+    "configuredSeconds": null,
+    "timedOut": false,
+    "configuredSecondsNote": "Not captured by this original record."
+   },
+   "teardown": {
+    "processExited": true,
+    "database": "mocked; unused loopback URL"
+   },
+   "logFile": {
+    "path": "/tmp/adsecute-codex-release-20260906/r11-effective-modes-focused.log",
+    "sha256": "8b4266b140f25bbd30f7daa09e5b7a491629095ea4ce2acb96634b5eb5879347",
+    "bytes": 432
+   },
+   "sourceContext": "R11 working tree before commit; these unchanged source bytes were committed as 726e9461965f4729b56974e65b717dddf11f005d.",
+   "tail": [
+    "",
+    " RUN  v4.1.5 /Users/harmelek/Adsecute",
+    "",
+    "·············································································································",
+    "",
+    " Test Files  8 passed (8)",
+    "      Tests  109 passed (109)",
+    "   Start at  21:47:56",
+    "   Duration  1.15s (transform 1.79s, setup 1.41s, import 2.39s, tests 64ms, environment 1ms)",
+    ""
+   ]
+  },
+  {
+   "stage": "release-r11.r11-payload-clock-fixture",
+   "command": "DATABASE_URL=postgresql://postgres@127.0.0.1:1/adsecute_unreachable NODE_OPTIONS=--max-old-space-size=4096 npx vitest run components/meta/decision-center/decision-payload-coverage.test.ts --reporter=default --reporter=json --outputFile.json=/tmp/adsecute-codex-release-20260906/r10-payload-clock-result.json > /tmp/adsecute-codex-release-20260906/r10-payload-clock.log 2>&1",
+   "startUtc": "2026-09-06T18:44:53.491000+00:00",
+   "endUtc": "2026-09-06T18:48:14.997409+00:00",
+   "durationSeconds": 201.506409,
+   "exitCode": 0,
+   "counts": {
+    "total": 36,
+    "passed": 36,
+    "failed": 0
+   },
+   "timestampBasis": "Vitest JSON reporter; supervisor start/end were not captured",
+   "supervisorStartUtc": null,
+   "supervisorEndUtc": null,
+   "vitestReportedDurationSeconds": 201.45,
+   "sourceContext": "R11 working tree before commit; these unchanged source bytes were committed as 726e9461965f4729b56974e65b717dddf11f005d.",
+   "sourceFileSha256": "4ce2a5a8c728a445b909601c0c86ebd7d403a3836e630881684e7e1111172572",
+   "teardown": {
+    "processExited": true,
+    "scope": "Observed tool exit; no process-group/listener census captured."
+   },
+   "timeout": {
+    "configuredSeconds": null,
+    "timedOut": false,
+    "configuredSecondsNote": "Test budgets unchanged; wrapper configuration not recorded."
+   },
+   "logFile": {
+    "path": "/tmp/adsecute-codex-release-20260906/r10-payload-clock.log",
+    "bytes": 503,
+    "sha256": "8fec11a2490b532f48cb19fe4799f88309dd715d1079614bcb764b766e26f095"
+   },
+   "tail": [
+    "",
+    " RUN  v4.1.5 /Users/harmelek/Adsecute",
+    "",
+    " ✓ components/meta/decision-center/decision-payload-coverage.test.ts (36 tests) 197964ms",
+    "     ✓ proves the pacing withholding from the route's arithmetic, not from another screen's name  326ms",
+    "",
+    " Test Files  1 passed (1)",
+    "      Tests  36 passed (36)",
+    "   Start at  21:44:53",
+    "   Duration  201.45s (transform 2.08s, setup 148ms, import 3.07s, tests 197.96s, environment 0ms)",
+    "",
+    "JSON report written to /tmp/adsecute-codex-release-20260906/r10-payload-clock-result.json"
+   ]
+  },
+  {
+   "stage": "release-r11.r11-manage-fixture",
+   "command": "DATABASE_URL=postgresql://postgres@127.0.0.1:1/adsecute_unreachable npx vitest run components/zero-base/manage/manage-flows.test.tsx --reporter=default --reporter=json --outputFile.json=/tmp/adsecute-codex-release-20260906/r11-manage-fixture-result.json > /tmp/adsecute-codex-release-20260906/r11-manage-fixture.log 2>&1",
+   "startUtc": "2026-09-06T18:55:13.916000+00:00",
+   "endUtc": "2026-09-06T18:55:16.023077+00:00",
+   "durationSeconds": 2.107077,
+   "exitCode": 0,
+   "counts": {
+    "total": 55,
+    "passed": 55,
+    "failed": 0
+   },
+   "timestampBasis": "Vitest JSON reporter; supervisor start/end not captured",
+   "supervisorStartUtc": null,
+   "supervisorEndUtc": null,
+   "vitestReportedDurationSeconds": 2.01,
+   "sourceContext": "Only the manage-flows unit fixture changed after canonical source 726e9461965f4729b56974e65b717dddf11f005d; its tested unchanged bytes were committed as 2bff98ea681ad22eb32f6e843754d65de00b7655. This file is not executed by the canonical shell.",
+   "sourceFileSha256": "b5f6131bfca751f425eafa57cfe1415980403589f2e202d7878fe324321704ce",
+   "teardown": {
+    "processExited": true,
+    "scope": "Observed tool exit; no process-group/listener census captured."
+   },
+   "timeout": {
+    "configuredSeconds": null,
+    "timedOut": false,
+    "configuredSecondsNote": "Test budgets unchanged; wrapper configuration not recorded."
+   },
+   "logFile": {
+    "path": "/tmp/adsecute-codex-release-20260906/r11-manage-fixture.log",
+    "bytes": 7288,
+    "sha256": "a9473d67d8d05527f10df0704f00003a1273f0abcaac52d6ef34048ae28e2493"
+   },
+   "tail": [
+    "",
+    "When testing, code that causes React state updates should be wrapped into act(...):",
+    "",
+    "act(() => {",
+    "  /* fire events that update state */",
+    "});",
+    "/* assert on the output */",
+    "",
+    "This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act",
+    "",
+    "stderr | components/zero-base/manage/manage-flows.test.tsx > WP-23 GA4 property and Search Console site selection > reassignment from one site to another is confirmed by the re-read",
+    "An update to IntegrationsClient inside a test was not wrapped in act(...).",
+    "",
+    "When testing, code that causes React state updates should be wrapped into act(...):",
+    "",
+    "act(() => {",
+    "  /* fire events that update state */",
+    "});",
+    "/* assert on the output */",
+    "",
+    "This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act",
+    "",
+    " ✓ components/zero-base/manage/manage-flows.test.tsx (55 tests) 926ms",
+    "",
+    " Test Files  1 passed (1)",
+    "      Tests  55 passed (55)",
+    "   Start at  21:55:14",
+    "   Duration  2.01s (transform 193ms, setup 125ms, import 236ms, tests 926ms, environment 618ms)",
+    "",
+    "JSON report written to /tmp/adsecute-codex-release-20260906/r11-manage-fixture-result.json"
+   ]
+  },
+  {
+   "stage": "diagnostic.r10-ci.r10-ci-test-shard-2-failure",
+   "command": "GitHub Actions test-shard-2-of-4 / Test, run 34051881549, job 101536848379",
+   "startUtc": "2026-09-06T18:29:33Z",
+   "endUtc": "2026-09-06T18:37:52Z",
+   "durationSeconds": 499,
+   "exitCode": 1,
+   "counts": {
+    "files": {
+     "failed": 1,
+     "passed": 317,
+     "skipped": 5,
+     "total": 323
+    },
+    "tests": {
+     "failed": 3,
+     "passed": 4507,
+     "skipped": 37,
+     "total": 4547
+    },
+    "durationSeconds": 465.36,
+    "start": "2026-09-06T18:30:05Z"
+   },
+   "timestampBasis": "GitHub job startedAt/completedAt; includes job setup and teardown, not just test execution.",
+   "exitCodeBasis": "Failed GitHub job; diagnostic evidence only.",
+   "sourceCommit": "f5a7927886df2a4696634b0250f9bf6629dc41fc",
+   "diagnosis": {
+    "classification": "unit fixture clock nondeterminism",
+    "verified": true,
+    "details": "Direct adapters already use fixed PROBE_NOW, but the real MetaPlatformPage passes Date.now() into its adapter and renders the resulting sync age on MOBILE. Baselines and later mutations straddled a rounded-day boundary during the census. No payload change was needed to change MOBILE.",
+    "unchangedPayloadLastSyncAt": "2026-03-13T07:07:00.000Z",
+    "samples": [
+     {
+      "now": "2026-09-06T18:30:05.000Z",
+      "syncedLabel": "synced 177d ago"
+     },
+     {
+      "now": "2026-09-06T18:37:50.000Z",
+      "syncedLabel": "synced 178d ago"
+     }
+    ]
+   },
+   "observedFailure": [
+    {
+     "name": "proves every withholding by changing the field and watching every surface",
+     "expected": [],
+     "actual": "74 unrelated leaves gain MOBILE"
+    },
+    {
+     "name": "pins the COMPLETE observed set for every entry that claims a field is absent somewhere",
+     "field": "MetaOsAdDecision.decisionId",
+     "expected": [
+      "EVIDENCE",
+      "INSPECTOR",
+      "callback"
+     ],
+     "actual": [
+      "EVIDENCE",
+      "INSPECTOR",
+      "MOBILE",
+      "callback"
+     ]
+    },
+    {
+     "name": "counts the leaves that reach nothing, and states what that count is NOT",
+     "expected": 295,
+     "actual": 221
+    }
+   ],
+   "teardown": {
+    "jobStatus": "completed",
+    "jobConclusion": "failure",
+    "scope": "Remote job completion only; no local process census implied."
+   },
+   "timeout": {
+    "configuredSeconds": null,
+    "timedOut": false,
+    "configuredSecondsNote": "Assertion failure, not a timeout."
+   },
+   "logFile": {
+    "path": "/tmp/adsecute-codex-release-20260906/ci-r10-shard2-failure-excerpt.log",
+    "bytes": 15803,
+    "sha256": "c5c8c4550896980b6c539418c82b76e6bf70a14d2510f3db8aa9058a9b002fdd"
+   },
+   "completeCiReadback": {
+    "path": "/tmp/adsecute-codex-release-20260906/ci-f5a792788-final.json",
+    "sha256": "1e2987230aceb8ff2c26989eb763467f85bfab79cee0936e30f21091d04714ca",
+    "observedAtUtc": "2026-09-06T18:52:21.853706+00:00",
+    "conclusion": "failure",
+    "jobs": [
+     {
+      "databaseId": 101536848277,
+      "name": "database-seams",
+      "conclusion": "success"
+     },
+     {
+      "databaseId": 101536848379,
+      "name": "test-shard-2-of-4",
+      "conclusion": "failure"
+     },
+     {
+      "databaseId": 101536848397,
+      "name": "typecheck",
+      "conclusion": "success"
+     },
+     {
+      "databaseId": 101536848408,
+      "name": "d080-evidence-c3-c4",
+      "conclusion": "success"
+     },
+     {
+      "databaseId": 101536848411,
+      "name": "d080-evidence-c7-c10",
+      "conclusion": "success"
+     },
+     {
+      "databaseId": 101536848425,
+      "name": "test-shard-4-of-4",
+      "conclusion": "success"
+     },
+     {
+      "databaseId": 101536848479,
+      "name": "d080-evidence-c5",
+      "conclusion": "success"
+     },
+     {
+      "databaseId": 101536848507,
+      "name": "test-shard-3-of-4",
+      "conclusion": "failure"
+     },
+     {
+      "databaseId": 101536848514,
+      "name": "test-shard-1-of-4",
+      "conclusion": "success"
+     },
+     {
+      "databaseId": 101536848524,
+      "name": "d080-evidence-c6",
+      "conclusion": "success"
+     },
+     {
+      "databaseId": 101536848564,
+      "name": "build",
+      "conclusion": "success"
+     },
+     {
+      "databaseId": 101536848952,
+      "name": "detect-runtime-changes",
+      "conclusion": "skipped"
+     },
+     {
+      "databaseId": 101539748624,
+      "name": "test",
+      "conclusion": "failure"
+     },
+     {
+      "databaseId": 101539761173,
+      "name": "publish-worker-image",
+      "conclusion": "skipped"
+     },
+     {
+      "databaseId": 101539761412,
+      "name": "skip-runtime-deploy",
+      "conclusion": "skipped"
+     },
+     {
+      "databaseId": 101539761478,
+      "name": "publish-web-image",
+      "conclusion": "skipped"
+     }
+    ]
+   },
+   "evidenceRole": "diagnostic_failure_not_acceptance",
+   "tail": [
+    "2026-09-06T18:37:50.9756393Z     4938|       expect(entry.why.length, key).toBeGreaterThan(40);",
+    "2026-09-06T18:37:50.9757061Z     4939|     }",
+    "2026-09-06T18:37:50.9757296Z ",
+    "2026-09-06T18:37:50.9757918Z ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯",
+    "2026-09-06T18:37:50.9758247Z ",
+    "2026-09-06T18:37:50.9760332Z  FAIL  components/meta/decision-center/decision-payload-coverage.test.ts > Meta Decision payload · every claim, proven against the running code > counts the leaves that reach nothing, and states what that count is NOT",
+    "2026-09-06T18:37:50.9762460Z AssertionError: expected 221 to be 295 // Object.is equality",
+    "2026-09-06T18:37:50.9762986Z ",
+    "2026-09-06T18:37:50.9763198Z - Expected",
+    "2026-09-06T18:37:50.9763607Z + Received",
+    "2026-09-06T18:37:50.9763822Z ",
+    "2026-09-06T18:37:50.9763994Z - 295",
+    "2026-09-06T18:37:50.9764353Z + 221",
+    "2026-09-06T18:37:50.9764539Z ",
+    "2026-09-06T18:37:50.9765408Z  ❯ components/meta/decision-center/decision-payload-coverage.test.ts:5175:28",
+    "2026-09-06T18:37:50.9766975Z     5173|     // stopped probing would drive this number up and every \"nothing c…",
+    "2026-09-06T18:37:50.9768125Z     5174|     // assertion in the file would still pass.",
+    "2026-09-06T18:37:50.9769138Z     5175|     expect(nowhere.length).toBe(NOWHERE_LEAVES);",
+    "2026-09-06T18:37:50.9769882Z        |                            ^",
+    "2026-09-06T18:37:50.9770388Z     5176|",
+    "2026-09-06T18:37:50.9771150Z     5177|     // And the subset that reaches the callback boundary without reach…",
+    "2026-09-06T18:37:50.9771706Z ",
+    "2026-09-06T18:37:50.9772107Z ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/3]⎯",
+    "2026-09-06T18:37:50.9772440Z ",
+    "2026-09-06T18:37:50.9775547Z ",
+    "2026-09-06T18:37:50.9798192Z  Test Files  1 failed | 317 passed | 5 skipped (323)",
+    "2026-09-06T18:37:50.9843728Z       Tests  3 failed | 4507 passed | 37 skipped (4547)",
+    "2026-09-06T18:37:50.9844779Z    Start at  18:30:05",
+    "2026-09-06T18:37:50.9845543Z    Duration  465.36s (transform 31.09s, setup 47.04s, import 68.77s, tests 758.98s, environment 25.29s)",
+    "2026-09-06T18:37:50.9845977Z "
+   ]
+  },
+  {
+   "stage": "diagnostic.r10-ci.r10-ci-test-shard-3-failure",
+   "command": "GitHub Actions test-shard-3-of-4 / Test, run 34051881549, job 101536848507",
+   "startUtc": "2026-09-06T18:29:33Z",
+   "endUtc": "2026-09-06T18:50:04Z",
+   "durationSeconds": 1231,
+   "exitCode": 1,
+   "counts": {
+    "files": {
+     "failed": 1,
+     "passed": 318,
+     "skipped": 3,
+     "total": 322
+    },
+    "tests": {
+     "failed": 1,
+     "passed": 4527,
+     "skipped": 52,
+     "total": 4580
+    },
+    "durationSeconds": 1189.16,
+    "start": "2026-09-06T18:30:12Z"
+   },
+   "timestampBasis": "GitHub job startedAt/completedAt; includes job setup and teardown, not just test execution.",
+   "exitCodeBasis": "Failed GitHub job; diagnostic evidence only.",
+   "sourceCommit": "f5a7927886df2a4696634b0250f9bf6629dc41fc",
+   "diagnosis": {
+    "classification": "mounted unit fixture readiness race",
+    "verifiedFacts": [
+     "The failing test waited only for initial field presence before the first edit.",
+     "BusinessClient performs asynchronous initial reads; BusinessView seeds controlled drafts in effects.",
+     "The first edited field retained its initial0.20 value while all later edited values matched.",
+     "Existing runtime costTouched guard prevents a later read from deliberately overwriting edits."
+    ],
+    "inference": "The fixture could type the first edit before initial read/effect work finished. This interleaving was not independently forced; the observed CI failure and source ordering support the narrow fixture repair. No product race is claimed fixed."
+   },
+   "observedFailure": {
+    "name": "saves the economics cost model and confirms the stored values by a fresh read",
+    "lineAtFailedHead": 424,
+    "field": "PUT /api/business-cost-model body.cogsPercent",
+    "expected": 0.35,
+    "actual": 0.2,
+    "otherEditedFields": "shippingPercent0.08,feePercent0.04,fixedCost3.5 all matched"
+   },
+   "teardown": {
+    "jobStatus": "completed",
+    "jobConclusion": "failure",
+    "scope": "Remote job completion only; no local process census implied."
+   },
+   "timeout": {
+    "configuredSeconds": null,
+    "timedOut": false,
+    "configuredSecondsNote": "Assertion failure, not a timeout."
+   },
+   "logFile": {
+    "path": "/tmp/adsecute-codex-release-20260906/ci-r10-shard3-failure-excerpt.log",
+    "bytes": 4823,
+    "sha256": "a50f46ae01de3984ec25aac256b647e6c686f98e2d8190d41a0ffbef42006c00"
+   },
+   "completeCiReadback": {
+    "path": "/tmp/adsecute-codex-release-20260906/ci-f5a792788-final.json",
+    "sha256": "1e2987230aceb8ff2c26989eb763467f85bfab79cee0936e30f21091d04714ca",
+    "observedAtUtc": "2026-09-06T18:52:21.853706+00:00",
+    "conclusion": "failure",
+    "jobs": [
+     {
+      "databaseId": 101536848277,
+      "name": "database-seams",
+      "conclusion": "success"
+     },
+     {
+      "databaseId": 101536848379,
+      "name": "test-shard-2-of-4",
+      "conclusion": "failure"
+     },
+     {
+      "databaseId": 101536848397,
+      "name": "typecheck",
+      "conclusion": "success"
+     },
+     {
+      "databaseId": 101536848408,
+      "name": "d080-evidence-c3-c4",
+      "conclusion": "success"
+     },
+     {
+      "databaseId": 101536848411,
+      "name": "d080-evidence-c7-c10",
+      "conclusion": "success"
+     },
+     {
+      "databaseId": 101536848425,
+      "name": "test-shard-4-of-4",
+      "conclusion": "success"
+     },
+     {
+      "databaseId": 101536848479,
+      "name": "d080-evidence-c5",
+      "conclusion": "success"
+     },
+     {
+      "databaseId": 101536848507,
+      "name": "test-shard-3-of-4",
+      "conclusion": "failure"
+     },
+     {
+      "databaseId": 101536848514,
+      "name": "test-shard-1-of-4",
+      "conclusion": "success"
+     },
+     {
+      "databaseId": 101536848524,
+      "name": "d080-evidence-c6",
+      "conclusion": "success"
+     },
+     {
+      "databaseId": 101536848564,
+      "name": "build",
+      "conclusion": "success"
+     },
+     {
+      "databaseId": 101536848952,
+      "name": "detect-runtime-changes",
+      "conclusion": "skipped"
+     },
+     {
+      "databaseId": 101539748624,
+      "name": "test",
+      "conclusion": "failure"
+     },
+     {
+      "databaseId": 101539761173,
+      "name": "publish-worker-image",
+      "conclusion": "skipped"
+     },
+     {
+      "databaseId": 101539761412,
+      "name": "skip-runtime-deploy",
+      "conclusion": "skipped"
+     },
+     {
+      "databaseId": 101539761478,
+      "name": "publish-web-image",
+      "conclusion": "skipped"
+     }
+    ]
+   },
+   "evidenceRole": "diagnostic_failure_not_acceptance",
+   "tail": [
+    "2026-09-06T18:50:01.5416492Z AssertionError: expected { …(5) } to deeply equal { …(5) }",
+    "2026-09-06T18:50:01.5417170Z ",
+    "2026-09-06T18:50:01.5417718Z - Expected",
+    "2026-09-06T18:50:01.5418171Z + Received",
+    "2026-09-06T18:50:01.5418452Z ",
+    "2026-09-06T18:50:01.5418659Z   {",
+    "2026-09-06T18:50:01.5419487Z     \"businessId\": \"55555555-5555-4555-8555-555555555555\",",
+    "2026-09-06T18:50:01.5420361Z -   \"cogsPercent\": 0.35,",
+    "2026-09-06T18:50:01.5421024Z +   \"cogsPercent\": 0.2,",
+    "2026-09-06T18:50:01.5421664Z     \"feePercent\": 0.04,",
+    "2026-09-06T18:50:01.5422278Z     \"fixedCost\": 3.5,",
+    "2026-09-06T18:50:01.5422924Z     \"shippingPercent\": 0.08,",
+    "2026-09-06T18:50:01.5423484Z   }",
+    "2026-09-06T18:50:01.5424080Z ",
+    "2026-09-06T18:50:01.5425104Z  ❯ components/zero-base/manage/manage-flows.test.tsx:424:23",
+    "2026-09-06T18:50:01.5710919Z     422|       (call) => call.method === \"PUT\" && call.url === \"/api/business-c…",
+    "2026-09-06T18:50:01.5712242Z     423|     );",
+    "2026-09-06T18:50:01.5713580Z     424|     expect(put?.body).toEqual({",
+    "2026-09-06T18:50:01.5715183Z        |                       ^",
+    "2026-09-06T18:50:01.5716343Z     425|       businessId: BIZ,",
+    "2026-09-06T18:50:01.5717544Z     426|       cogsPercent: 0.35,",
+    "2026-09-06T18:50:01.5718318Z ",
+    "2026-09-06T18:50:01.5718939Z ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯",
+    "2026-09-06T18:50:01.5719353Z ",
+    "2026-09-06T18:50:01.5719553Z ",
+    "2026-09-06T18:50:01.5740752Z  Test Files  1 failed | 318 passed | 3 skipped (322)",
+    "2026-09-06T18:50:01.5796296Z       Tests  1 failed | 4527 passed | 52 skipped (4580)",
+    "2026-09-06T18:50:01.5824849Z    Start at  18:30:12",
+    "2026-09-06T18:50:01.5826548Z    Duration  1189.16s (transform 50.34s, setup 49.09s, import 59.08s, tests 1315.28s, environment 46.04s)",
+    "2026-09-06T18:50:01.5827587Z "
+   ]
   }
  ],
  "historicalFailFirstEvidence": {
@@ -3090,26 +3883,26 @@
  "teardownReadback": {
   "canonicalSupervisor": {
    "supervisedProcessGroupAbsent": true,
-   "processGroupId": 92091,
-   "readAtUtc": "2026-09-06T18:27:13.942457Z",
+   "processGroupId": 21528,
+   "readAtUtc": "2026-09-06T18:59:14.822963Z",
    "leftoverBeforeCleanup": [
     {
-     "pid": 246,
+     "pid": 28779,
      "command": "sleep 900"
     },
     {
-     "pid": 66177,
+     "pid": 95074,
      "command": "sleep 90"
     },
     {
-     "pid": 66201,
+     "pid": 95102,
      "command": "sleep 90"
     }
    ],
    "terminatedOwnedSleepPids": [
-    246,
-    66177,
-    66201
+    28779,
+    95074,
+    95102
    ]
   },
   "scope": "Original supervisor teardown and subsequent matching-process-group cleanup are separate observations. Child database teardown output is retained in the raw log. This generator does not independently enumerate listeners.",

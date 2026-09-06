@@ -568,18 +568,32 @@ describe("D077 artifact hash contract (fail-closed)", () => {
     /*
       Pinned invariants of the retained run itself.
 
-      PRE-DEPLOY AUDIT — repinned to the 2026-09-03 capture. These are the
-      bytes `bash scripts/verify-database-seams.sh` produced on the final tree
-      (exit 0, 491.6s, 40 stages); the 2026-08-30 values described a 38-stage
-      script that no longer exists. The log is frozen at
-      `docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-03.log`
+      RELEASE CANDIDATE — repinned to the 2026-09-06 capture. These are the
+      bytes `bash scripts/verify-database-seams.sh` produced on THIS release's
+      tree (exit 0, 485 s, 40 stages, source revision 32a5ae332).
+
+      Why a repin was required even though the header count did not move.
+      `buildWholeShellProof` compares the ordered stage HEADINGS against the
+      current script; it deliberately does not bind the child PROGRAMS those
+      headings invoke. So an identical 40-header sequence proves the shape of
+      the script, not that this release's stages ran. The 2026-09-03 capture
+      predates the claim-race seam's capability repair, and it never executed
+      the newly registered `direct-launch-standing-boundary` child at all,
+      because that registration did not exist when it ran. Reusing it would
+      have been a pin without a run — exactly what the 2026-08-30 -> 2026-09-03
+      repin was made to avoid.
+
+      The 2026-08-30 (38-stage) and 2026-09-03 (40-stage) logs are retained
+      beside this one as the earlier runs' evidence and are not relabelled.
+      This log is frozen at
+      `docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06.log`
       and pinned with this same digest in the release-candidate manifest, which
       the assertion above checks — so these three cannot drift apart.
     */
     expect(recomputed.logSha256).toBe(
-      "6bc7f70e309ccd8b2cf5df06267bdf123179c38d6180fddf36c9ddab24bda653",
+      "b6105458184f6d53f464cf1cd7174c2a9f22dae4c4de51c8a0d9c0a4dcfa78cd",
     );
-    expect(recomputed.logBytes).toBe(505131);
+    expect(recomputed.logBytes).toBe(660592);
     /*
       PRE-DEPLOY AUDIT — 38 -> 40, from a REGENERATED run. The two stages added
       are the D088 migration seam and the automation-OFF readback. The ledger,

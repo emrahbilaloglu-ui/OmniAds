@@ -81,9 +81,50 @@ manifest. The tree was then settled — sources fixed, the 40-stage shell run to
 completion, and confirmed to leave the tree clean — and only then was
 `d077-correction1-artifact-generator.ts phase2` run **last**, in its own order:
 it refreshes the deploy packet's `expectedFinalTree` and re-hashes it, then
-writes the manifest excluding its own path. No hash was hand-edited. The
-whole-shell proof needed no new capture: the script still declares 40 stages and
-the retained 2026-09-03 log still carries 40 headers.
+writes the manifest excluding its own path. No hash was hand-edited.
+
+**The whole-shell proof was repinned to this release's own run, and the earlier
+claim that it needed no new capture was wrong.** `buildWholeShellProof` compares
+the ordered stage HEADINGS of a retained log against the current
+`scripts/verify-database-seams.sh`; it deliberately does not bind the child
+PROGRAMS those headings invoke. So "the 2026-09-03 log still carries 40 headers"
+established that the script's shape was unchanged and nothing more. That log
+could not speak for this candidate: it predates the claim-race seam's capability
+repair, and it never executed the newly registered
+`direct-launch-standing-boundary` child at all, because that registration did not
+exist when it ran.
+
+The canonical stage is now the real 2026-09-06 run of the current script,
+retained at
+`docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06.log`:
+
+| | |
+|---|---|
+| Source revision | tree of `32a5ae332` |
+| Start / end (UTC) | 2026-09-06T07:59:07 → 2026-09-06T08:07:12 |
+| Duration | 485.0 s |
+| Exit code | 0 |
+| Stage headers | 40 |
+| Final line | `[verify-db-seams] PASS — 40 stages` |
+| Bytes | 660,592 |
+
+It contains two occurrences of `direct Launchpad create route approval-standing`,
+which is the direct evidence that the newly registered child actually ran. The
+2026-08-30 (38-stage) and 2026-09-03 (40-stage) logs are retained beside it,
+unmodified, as the evidence of their own runs. Nothing was relabelled and no
+success line was edited.
+
+**One executed-source change post-dates that run, and it is named rather than
+glossed.** Retaining the log inside the repository required registering it in
+`scripts/check-release-owner-references.sh`, because each capture contains one
+occurrence of the token that guard scans for — the guard's own announcement of
+it. That registration cannot precede the log it registers, so the run could not
+have included it; the entries for the 2026-08-30 and 2026-09-03 captures have
+exactly the same property. The guard was therefore re-run standalone on the final
+tree: `npm run check:release-owner` → `PASS — 81 historical occurrence(s)
+frozen`, exit 0. Apart from that one registry entry, every change after the run
+is under `docs/` or is generated evidence, which the shell neither reads nor
+executes.
 
 The manifest's own `manifestHash` and `pinnedNonSelfFileCount` are recorded in
 the artifact itself and are deliberately not restated here: this document is one
@@ -145,9 +186,35 @@ adsecute-worker-1  ghcr.io/…/omniads-worker:3f0bf857a9dde41bf2d7f461ef24b5f2ce
 ```
 
 Older SHAs (`41311172d`, `8df9121ba`, `babf158e1`) are also present locally as
-deeper fallbacks. A rollback therefore does not depend on registry availability.
-GHCR could not be queried directly: this session's `gh` token lacks
-`read:packages`.
+deeper fallbacks.
+
+**An image on the host's disk does not by itself prove the supported rollback
+can run, and the earlier claim that "a rollback does not depend on registry
+availability" is withdrawn.** The supported rollback is a re-dispatch of
+`deploy-hetzner.yml` at the previous full SHA, and that workflow contains a
+mandatory, pre-host registry gate: *Verify registry access for the target images*
+(`.github/workflows/deploy-hetzner.yml:247-277`) logs in to GHCR and runs
+`docker manifest inspect` against both `omniads-web:<sha>` and
+`omniads-worker:<sha>`; if either manifest is unreadable it exits 1 before SSH is
+even prepared. That check reads the REGISTRY. It does not consult the host, so a
+layer cached on the host satisfies none of it.
+
+So the two facts are separate and only one of them is measured here:
+
+- **Measured.** Both images for `3f0bf857a` are present on the deploy host and
+  currently running, which is what makes an *unsupported* manual recovery
+  physically possible on that box.
+- **Not measured.** Whether the deploy token can read those manifests from GHCR
+  today. This session's `gh` token lacks `read:packages`, so the registry could
+  not be queried, and the gate uses `secrets.GITHUB_TOKEN` inside the workflow
+  rather than this token in any case. The only faithful proof is the gate's own
+  step succeeding in an actual run.
+
+Claiming registry independence from on-disk images would also invite the manual
+`docker compose` path, which this repository already records as a trap: the
+wrapper sets the release tag inline and never updates `/var/www/adsecute/.env`,
+so a bare `docker compose up` silently reverts production to whatever tag that
+file still holds.
 
 ## Production prerequisites, re-measured read-only
 
@@ -161,39 +228,92 @@ probe was rejected by PostgreSQL, so the read-only claim is proven, not stated.
 - **Serving freshness:** Meta ingest current for 12 of 13 businesses with
   selected Meta accounts.
 - **The 2026-09-03 "29 automated_missing" NO_GO is stale.** Re-measured
-  2026-09-06: **16**, verdict still NO_GO. Thirteen cleared unaided. Fresh
-  evidence at
+  2026-09-06: **16**, verdict still NO_GO. Thirteen cleared unaided. That
+  preflight is multi-provider, so its verdict is not this Meta candidate's
+  verdict; the rows are attributed under *Pre-existing, out-of-scope* below.
+  Fresh evidence at
   `docs/audits/generated/serving-freshness-current-preflight-2026-09-06.json`;
   the runbook section that said "unchanged" is corrected.
 - **Automation state recorded for later comparison** — settings, kill switches,
   rehearsal flags and write authority are unchanged by this candidate.
 
+## Source freeze and delivery HEAD
+
+**No Meta product source changed after `32a5ae332`.** That commit is the tree the
+canonical whole-shell run executed, and it is the source freeze for everything
+this candidate ships to production.
+
+Three files changed after it, none of them product code, each re-run on the final
+tree rather than assumed:
+
+| Post-freeze change | What it is | Re-run on the final tree |
+|---|---|---|
+| `scripts/audits/d077-correction1-artifact-generator.ts` | Release-evidence generator: retargets the canonical whole-shell stage at the 2026-09-06 log | `phase1` then `phase2`, in that order, exit 0 |
+| `lib/meta/__tests__/d077-artifact-hash-contract.test.ts` | The evidence contract's own pinned literals for that log | `d077-artifact-hash-contract`, 21/21 |
+| `scripts/check-release-owner-references.sh` | One registry entry for the retained log (a data table, not guard logic) | `npm run check:release-owner`, PASS, exit 0 |
+
+Everything else is under `docs/` or is generated evidence. The delivery HEAD is
+reported in the delivery message rather than written here: this document is one of
+the files the manifest pins, so naming the commit that contains the manifest
+inside the document would be a self-hash cycle. The historical baseline
+`RELEASE_BASE_SHA` / `deploy/PRODUCTION_BASELINE_SHA` identities are untouched.
+
+## Scope: one detour was opened and withdrawn
+
+A GA4 OAuth-principal repair was started during this phase and then withdrawn by
+the user as out of scope — this release is Meta-only. Its four file edits and one
+new test were reverted from the working tree and preserved as a recoverable patch
+outside the repository; nothing was committed, and the four files are byte-
+identical to `8f9f53af5`. It is recorded here so the candidate's diff is not
+mistaken for having ever contained it.
+
 ## Blockers and decisions for the reviewer
 
-1. **Grandmix GA4 — 16 `automated_missing`, verdict NO_GO.** Root cause read at
-   the row level: Grandmix's `ga4` credential has `refresh_token = NULL` with
-   its access token expired 2026-09-04 16:58:14, so every ten-minute tick
-   returns `skipped`. **Remedy:** an operator re-runs the GA4 OAuth connect in
-   the application. It needs no automation enablement and no advertising
-   account; it is interactive, so it was reported, not performed. Do **not**
-   clear it by writing cache rows — the documented fallback calls GA4 with the
-   same dead credential.
-2. **Tiles Workshop's Meta ingest has been dead since 2026-07-25** — 45
+1. **Tiles Workshop's Meta ingest has been dead since 2026-07-25** — 45
    dead-letter partitions, Facebook-side token invalidation, Decision Center
    serving six-week-old data. Pre-existing; this release neither causes nor
-   repairs it. **Decide explicitly** whether shipping with one of thirteen
+   repairs it. This is the one prerequisite in this list that is genuinely
+   Meta-scoped. **Decide explicitly** whether shipping with one of thirteen
    businesses dark is acceptable.
-3. **The runtime `release_gate` is currently BLOCKED** (Google Ads snapshot
-   freshness on canary businesses), so sync self-repair is inert in production.
-   It does **not** gate `deploy-hetzner.yml` — verified — but deploying on top of
-   it means the post-deploy artifact is produced against an already-failing gate
-   and will not distinguish a new regression from this standing one. Needs a
-   named owner decision.
-4. **No GHCR images exist for this candidate SHA**, and cannot until it is main's
-   head. Expected, recorded so it is not mistaken for a defect.
+2. **The runtime `release_gate` is currently BLOCKED**, so sync self-repair is
+   inert in production. The *cause* is out of scope (Google Ads snapshot
+   freshness on canary businesses — see below). The *consequence* is in scope and
+   is why it stays on this list: deploying on top of a already-failing gate means
+   the post-deploy artifact is produced against it and will not distinguish a new
+   regression from this standing one. It does **not** gate `deploy-hetzner.yml` —
+   verified against the workflow. Needs a named owner decision about how to read
+   the post-deploy artifact, not a gate change.
+
+## Pre-existing, out-of-scope: the non-Meta preflight findings
+
+These were measured read-only while re-checking production. They are **not**
+Meta-release prerequisites, they are **not** fixed, and they are **not** claimed
+to be. They are recorded so that a general multi-provider preflight reporting
+NO_GO is not misread as this candidate's verdict.
+
+- **The multi-provider serving-freshness preflight reports NO_GO** — 29
+  `automated_missing` on 2026-09-03, re-measured **16** on 2026-09-06 with the
+  verdict unchanged. It spans GA4, Google Ads and Search Console as well as Meta.
+  Its Meta-scoped rows are covered above; the remainder are listed here rather
+  than escalated. Evidence:
+  `docs/audits/generated/serving-freshness-current-preflight-2026-09-06.json`.
+- **Grandmix GA4 has no refresh token.** Read at the row level on 2026-09-06: the
+  `ga4` connection is `connected` at generation 11 with an access token and
+  `refresh_token IS NULL`, so each operator reconnect buys roughly an hour and no
+  offline refresh. An operator reconnect at 08:38 UTC restored access without
+  restoring a refresh token. A candidate code-level explanation was identified in
+  the property-selection write path; investigating or repairing it was withdrawn
+  as out of scope and **no fix is included in this release**. Do not clear the
+  symptom by writing cache rows — the documented fallback calls GA4 with the same
+  dead credential.
+- **Google Ads snapshot freshness on the canary businesses** is what holds the
+  runtime `release_gate` BLOCKED. Diagnosis was stopped when the scope was
+  corrected; no remedy is proposed and no threshold, mode or waiver is requested.
 
 ## Observations, not blockers
 
+- **No GHCR images exist for this candidate SHA**, and cannot until it is main's
+  head. That is the expected state before the merge, not an owner decision.
 - `deploy/PRODUCTION_BASELINE_SHA` is `28802cff0`, an **ancestor** of the
   deployed `3f0bf857a`. The schema-upgrade seam therefore exercises a superset
   of the real upgrade path — conservative, not wrong.

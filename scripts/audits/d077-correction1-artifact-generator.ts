@@ -38,13 +38,49 @@ import {
 import { execFileSync, spawnSync } from "node:child_process";
 
 /*
-  PRE-DEPLOY AUDIT: a NEW dated capture. The 2026-08-30 log describes a
-  38-stage script and is kept beside this one as the earlier run's evidence;
-  it does not describe the tree this release ships, and pointing the proof at
-  it while the script declares 40 stages would be a pin without a run.
+  RELEASE CANDIDATE: a NEW dated capture again, for the same reason as before
+  and one more.
+
+  The 2026-08-30 log describes a 38-stage script; the 2026-09-03 log describes
+  40. Both are kept beside this one as the earlier runs' evidence. A matching
+  HEADER COUNT is not proof that a release ran: `buildWholeShellProof` compares
+  the ordered stage headings against the current script, and it deliberately
+  does not bind the child PROGRAMS those headings invoke. The 2026-09-03 run
+  therefore cannot speak for this release — it predates the claim-race seam's
+  capability repair, and it never executed the newly registered
+  `direct-launch-standing-boundary` child at all, because that registration did
+  not exist when it ran.
+
+  This log is the real 2026-09-06 canonical run of the current script: 40
+  headers, `PASS — 40 stages`, exit 0, 485 s. Its source revision is the tree of
+  commit 32a5ae332; every commit after it changes only `docs/` and generated
+  evidence, which the shell neither reads nor executes.
 */
 const PORTABLE_SHELL_LOG_PATH =
-  "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-03.log";
+  "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06.log";
+
+/*
+  The branch this candidate actually lives on, read from git rather than typed.
+
+  Both artifacts carried the literal "codex/meta-disabled-readiness-20260829".
+  That was true when the D077 evidence was first generated and has not been true
+  since: this candidate is delivered on `codex/meta-v2-panel-fidelity`, and a
+  manifest is the identity artifact — naming the wrong branch in it is not a
+  cosmetic slip, it is the candidate identifying itself as something else.
+
+  Read live so it cannot drift again. The superseded value is recorded beside it
+  in `supersededBranchLabel` rather than deleted, because the two earlier
+  captures were genuinely produced under that name and relabelling them silently
+  is the failure mode this whole contract exists to prevent.
+
+  Deliberately NOT touched: `RELEASE_BASE_SHA`, `baseHead` and
+  `deploy/PRODUCTION_BASELINE_SHA`. Those are baseline identities, not the
+  candidate's, and correcting a branch label must not move them.
+*/
+const SUPERSEDED_BRANCH_LABEL = "codex/meta-disabled-readiness-20260829";
+const CANDIDATE_BRANCH = execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
+  encoding: "utf8",
+}).trim();
 
 const LEDGER_SOURCE_ENV = "D077_C1_LEDGER_SOURCE";
 const LEDGER2_SOURCE_ENV = "D077_C2_LEDGER_SOURCE";
@@ -500,7 +536,8 @@ function phase1() {
     },
     sourceTree: {
       repository: "emrahbilaloglu-ui/OmniAds",
-      branch: "codex/meta-disabled-readiness-20260829",
+      branch: CANDIDATE_BRANCH,
+      supersededBranchLabel: SUPERSEDED_BRANCH_LABEL,
       baseHead: "babf158e150fd33057117b39b175da044ac62d2e",
       proposal:
         "Commit the ENTIRE final corrected worktree as ONE release candidate commit, then fast-forward merge to main. The D073–D078 packages interleave in shared files (contracts, read models, lib/migrations.ts) and were verified as one tree; partial release was evaluated and rejected.",
@@ -879,7 +916,8 @@ function phase2() {
   const manifest = {
     contract: "adsecute.d077.release-candidate-manifest.v3",
     generatedAtUtc: new Date().toISOString(),
-    branch: "codex/meta-disabled-readiness-20260829",
+    branch: CANDIDATE_BRANCH,
+    supersededBranchLabel: SUPERSEDED_BRANCH_LABEL,
     head,
     baseMain: RELEASE_BASE_SHA,
     originMain: RELEASE_BASE_SHA,

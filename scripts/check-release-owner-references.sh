@@ -102,6 +102,11 @@ REGISTRY=(
   # path the ledger pins and refuses when it is absent.
   "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-08-30.log|1|Retained whole-shell capture (38-stage run): this guard announcing the token it scans for."
   "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-03.log|1|Retained whole-shell capture (40-stage run): this guard announcing the token it scans for."
+  # RELEASE CANDIDATE 2026-09-06: a third capture, not a replacement. The two
+  # above stay registered because they remain the evidence of their own runs;
+  # this one is the canonical run of the release candidate's tree. Same single
+  # self-reference, same reason.
+  "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06.log|1|Retained whole-shell capture (40-stage run, release candidate): this guard announcing the token it scans for."
 )
 
 HISTORICAL_COUNTS=(

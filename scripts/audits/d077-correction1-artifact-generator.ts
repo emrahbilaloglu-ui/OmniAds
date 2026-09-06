@@ -84,12 +84,15 @@ import { execFileSync, spawnSync } from "node:child_process";
   caught it as two launch rows where it expected one. So this capture is not
   merely the current run — it is the proof of that repair.
 
-  This log is the 13:17Z canonical run on the delivered tree: 40 headers,
-  `PASS — 40 stages`, exit 0, 488 s, with the three registered children
+  Seventh repin, for round 5: the bid dispatch and the entity-action handler
+  both changed, and seam children execute both.
+
+  This log is the 13:56Z canonical run on the delivered tree: 40 headers,
+  `PASS — 40 stages`, exit 0, 502 s, with the three registered children
   reporting 7/7, 2/2 and 6/6, each `skipped=0`.
 */
 const PORTABLE_SHELL_LOG_PATH =
-  "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1317Z.log";
+  "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1356Z.log";
 
 /*
   The branch this candidate actually lives on, read from git rather than typed.

@@ -129,7 +129,10 @@ REGISTRY=(
   # 13:17Z is canonical. The 12:34Z tree FAILED this shell once the round-4
   # carve-out landed — the decision-launch-chain child raised two launch rows
   # where it expected one — so this capture is also the proof of that repair.
-  "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1317Z.log|1|Retained whole-shell capture (40-stage run, 13:17Z, CANONICAL): this guard announcing the token it scans for."
+  "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1317Z.log|1|Retained whole-shell capture (40-stage run, 13:17Z, superseded): this guard announcing the token it scans for."
+  # 13:56Z is canonical: round 5 changed the bid dispatch and the entity
+  # action handler, both of which seam children execute.
+  "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1356Z.log|1|Retained whole-shell capture (40-stage run, 13:56Z, CANONICAL): this guard announcing the token it scans for."
 )
 
 HISTORICAL_COUNTS=(

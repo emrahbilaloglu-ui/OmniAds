@@ -151,17 +151,17 @@ The sixth repin is different in kind from the first five, and the difference is
 the point. Those replaced a PASSING log whose child programs had changed. This
 one replaces a tree that FAILED the shell — see the round-4 section below.
 
-The canonical stage is the 13:17Z run, retained at
-`docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1317Z.log`:
+The canonical stage is the 13:56Z run, retained at
+`docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1356Z.log`:
 
 | | |
 |---|---|
-| Start / end (UTC) | 2026-09-06T13:17:26 → 2026-09-06T13:25:34 |
-| Duration | 488.0 s |
+| Start / end (UTC) | 2026-09-06T13:56:00 → 2026-09-06T14:04:22 |
+| Duration | 502.0 s |
 | Exit code | 0 |
 | Stage headers | 40 |
 | Final line | `[verify-db-seams] PASS — 40 stages` |
-| Bytes | 661,046 |
+| Bytes | 661,047 |
 
 The three registered seam children report their counts inside it, each with
 `skipped=0`: `direct Launchpad create route approval-standing` 7/7, `Meta History
@@ -169,11 +169,11 @@ bid verb title` 2/2, and the newly registered `Meta History bid write journal
 admission` 6/6 — the last being the direct evidence that five previously dormant
 database assertions now actually execute.
 
-Eight captures are retained and none was relabelled or edited: 2026-08-30
+Nine captures are retained and none was relabelled or edited: 2026-08-30
 (38-stage) and 2026-09-03 (40-stage) as the earlier releases' evidence; 2026-09-06
 07:59Z (Phase 1 checkpoint), 10:30Z (PR open), 11:18Z (round 1), 11:56Z (round 2),
-12:34Z (round 3) and 13:17Z (this one, round 4). The six same-day captures are
-superseded rather than historical.
+12:34Z (round 3), 13:17Z (round 4) and 13:56Z (this one, round 5). The seven
+same-day captures are superseded rather than historical.
 Each is kept because it is truthful evidence of the tree it ran on — only the
 label moves, never the bytes.
 
@@ -399,6 +399,43 @@ their own id, so bootstrap now runs only for a `live` write authority; and
 `notification-producer.ts` carried `as never` on the same anomaly read, whose
 removal exposed a second unsound cast that had only type-checked because the
 first one blinded the compiler.
+
+## Review round 5 on PR #276
+
+CI on `8971347ae` was fully green across all eleven jobs — the fourth
+consecutive fully-green head. Codex Review completed on it with two findings.
+Across five rounds: 5 → 4 → 3 → 2 → 2 findings, and 3 → 2 → 0 → 0 → 1 at P1.
+
+| finding | fix |
+|---|---|
+| **P1** `automation-proposal-execution.ts` — the forwarded bid request carried only `bidAmountMinor`, so the handler wrote with no `expectedBidStrategy` and an ad set flipped cost-cap → bid-cap inside the handler's awaits would take the approved amount and report success under a strategy nobody approved | The checked strategy is threaded to `updateAdsetBidAmount`, matching the shape the scheduled runtime already used. Optional for the operator's own route, whose test asserts the exact input object and still passes. |
+| P2 `notification-store.ts` — the event row and the recipient fan-out were not atomic, so a mid-loop failure permanently omitted that recipient and everyone after, because the next run short-circuits on the dedupe key | The event insert and the whole loop run in one `runDbTransaction`. |
+
+**The P1 was a gap in this release's own round-2 fix.** That fix closed the
+window between proposal and approval by adding a baseline compare-and-set — but
+the check sits in the executor while the POST happens inside a handler the check
+never reaches. Moving a check earlier without carrying its result forward is the
+whole of the defect.
+
+**And the P2 fix introduced a regression that had to be repaired with it.**
+Atomicity is right, but it removed an accidental self-healing property: under the
+old code a mid-loop failure still committed the event row, so the next hourly run
+hit the dedupe short-circuit and carried on to every later anomaly. With no
+marker left behind, a DETERMINISTIC failure would be re-attempted every run, fail
+again, and abort the business's scan again — every later anomaly never produced,
+for as long as the cause persisted. The producer had no per-anomaly catch (its
+only three catches are elsewhere), so the failure is now contained to its own
+anomaly and counted under a new `failed` tally, deliberately NOT folded into
+`skipped`: skipped means "already produced", and reporting an undeliverable
+notification as routine deduplication is exactly how the severity-translation
+defect this producer was written to fix stayed invisible behind a reassuring
+zero.
+
+One comment corrected: binding the strategy makes the read-back prove it on a
+REAL write only — `updateAdsetBidAmount` returns from its dry-run branch before
+the comparison, so a rehearsal binds the field and checks nothing against it.
+That costs nothing, since a rehearsal reaches no provider write to be wrong
+about, but the sentence claimed otherwise.
 
 ## Review round 4 on PR #276 — and the gate catching a fix of mine
 

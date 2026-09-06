@@ -157,7 +157,21 @@ describe("an approved bid is re-proved against the live cap", () => {
       providerAccountId: "act_1",
       adsetId: ADSET,
     });
-    expect(await dispatchedBidBody()).toMatchObject({ bidAmountMinor: 1320 });
+    /*
+      The amount AND the strategy it was proved under.
+
+      The check above happens here; the POST happens inside the handler, after
+      its access check, account context, action log and provider preflight. A
+      body carrying the amount alone leaves that window open: the handler
+      writes what it is handed, and a write that verified only the number would
+      report an approved raise as a success under a strategy nobody approved.
+      `entity-action-bid-strategy-binding.test.ts` drives the rest of the
+      thread, down to `updateAdsetBidAmount`.
+    */
+    expect(await dispatchedBidBody()).toMatchObject({
+      bidAmountMinor: 1320,
+      expectedBidStrategy: "COST_CAP",
+    });
   });
 
   it("sends nothing when somebody moved the cap after the decision", async () => {

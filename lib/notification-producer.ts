@@ -15,6 +15,7 @@ import { getDb } from "@/lib/db";
 import { readMetaAnomaliesForBusiness } from "@/lib/meta/anomalies";
 import type { NotificationEvent } from "@/lib/notification-contract";
 import { recordNotificationEvent } from "@/lib/notification-store";
+import { logRuntimeWarn } from "@/lib/runtime-logging";
 
 /**
  * Who a business's notifications are for.
@@ -92,6 +93,14 @@ export interface NotificationProducerResult {
   scanned: number;
   created: number;
   skipped: number;
+  /**
+   * Anomalies whose event could not be recorded at all.
+   *
+   * Kept separate from `skipped` on purpose: skipped means "already produced
+   * on an earlier run", and folding a failure into it would report a
+   * notification nobody will ever receive as routine deduplication.
+   */
+  failed: number;
 }
 
 /**
@@ -141,6 +150,7 @@ export async function produceNotificationsForBusiness(input: {
     : await readNotificationRecipients(input.businessId);
   let created = 0;
   let skipped = 0;
+  let failed = 0;
 
   /*
     Iterated as what it is. This was `rows as Array<Record<string, string>>`,
@@ -170,7 +180,31 @@ export async function produceNotificationsForBusiness(input: {
       occurredOn,
     };
 
-    const result = await recordNotificationEvent({
+    /*
+      One anomaly's failure must not end the business's scan.
+
+      This became load-bearing when `recordNotificationEvent` was made atomic.
+      Before that, a fan-out that failed part way still COMMITTED the event
+      row, so the throw aborted this loop but the next hourly run hit the
+      dedupe short-circuit, counted the anomaly `skipped` and carried on to
+      every later one. The failure self-healed by leaving a marker behind.
+
+      Atomicity removes the marker, which is the point — a partially delivered
+      notification is worse than none. But it also removes the self-healing: a
+      DETERMINISTIC failure inside the fan-out (a statement timeout that always
+      fires, a constraint the row can never satisfy) would now be re-attempted
+      on every run, fail again, and abort the scan again, so every anomaly
+      after it in the list would never be produced. Head-of-line blocking, for
+      as long as the cause persists.
+
+      So the failure is contained to its own anomaly and counted. It is
+      deliberately NOT counted as `skipped`: skipped means "already produced",
+      and reporting a failure as that is how this kind of thing stays invisible.
+    */
+    let result: Awaited<ReturnType<typeof recordNotificationEvent>> | null =
+      null;
+    try {
+      result = await recordNotificationEvent({
       event,
       recipientUserId: input.recipientUserId,
       recipientUserIds: recipients,
@@ -179,12 +213,21 @@ export async function produceNotificationsForBusiness(input: {
         ? `/platforms/meta?businessId=${encodeURIComponent(input.businessId)}&focus=${encodeURIComponent(row.scopeId)}`
         : null,
       hourInRecipientTimezone: now.getUTCHours(),
-    });
+      });
+    } catch (error) {
+      failed += 1;
+      logRuntimeWarn("notification-producer", "record_failed", {
+        businessId: input.businessId,
+        sourceId: row.id,
+        message: error instanceof Error ? error.message : String(error),
+      });
+      continue;
+    }
     if (result.created) created += 1;
     else skipped += 1;
   }
 
-  return { scanned: rows.length, created, skipped };
+  return { scanned: rows.length, created, skipped, failed };
 }
 
 /**

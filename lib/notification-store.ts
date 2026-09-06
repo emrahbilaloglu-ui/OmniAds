@@ -16,7 +16,7 @@
  * No external channel is contacted from here. There is nothing to send to.
  */
 
-import { getDb } from "@/lib/db";
+import { getDb, runDbTransaction } from "@/lib/db";
 import {
   buildNotificationDedupeKey,
   isDelivered,
@@ -90,31 +90,6 @@ export async function recordNotificationEvent(input: {
     return { created: false, record: null };
   }
 
-  const inserted = (await sql.query(
-    `INSERT INTO notification_events (
-       business_id, provider_account_id, event_type, severity,
-       entity_type, entity_id, source_kind, source_id, occurred_on,
-       dedupe_key, deep_link
-     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::date, $10, $11)
-     ON CONFLICT (dedupe_key) DO NOTHING
-     RETURNING id::text AS id, created_at`,
-    [
-      input.event.businessId,
-      input.event.providerAccountId ?? null,
-      input.event.eventType,
-      input.event.severity,
-      input.event.entityType ?? null,
-      input.event.entityId ?? null,
-      input.event.sourceKind,
-      input.event.sourceId,
-      input.event.occurredOn,
-      dedupeKey,
-      input.deepLink ?? null,
-    ],
-  )) as unknown as Array<{ id: string; created_at: string }>;
-
-  if (!inserted[0]) return { created: false, record: null };
-
   const state: NotificationDeliveryState = decision.deliver
     ? "attempted"
     : "suppressed";
@@ -122,27 +97,76 @@ export async function recordNotificationEvent(input: {
   const recipients = input.recipientUserIds?.length
     ? [...new Set(input.recipientUserIds)]
     : [input.recipientUserId];
-  const deliveries: Array<{ id: string }> = [];
-  for (const recipient of recipients) {
-    const row = (await sql.query(
-      `INSERT INTO notification_deliveries (
-         notification_event_id, recipient_user_id, channel, state,
-         suppression_reason, attempts, attempted_at
-       ) VALUES ($1::uuid, $2, $3, $4, $5, $6, $7)
-       RETURNING id::text AS id`,
+
+  // ONE transaction for the event and every recipient's delivery.
+  //
+  // These were separate statements: the unique `notification_events` row
+  // committed first, then one delivery per recipient in a loop. A failure
+  // part-way down that loop — a membership whose user row was deleted between
+  // the recipient read and this write, or any transient database error — left
+  // the event committed with only the earlier recipients' deliveries beside
+  // it. The next producer run reads that dedupe key at the top of this
+  // function, returns `created: false` before attempting any delivery, and the
+  // recipient that failed plus everyone after them never receives that
+  // notification at all. Rolling the event back with the fan-out makes the run
+  // retryable: the dedupe key is absent again, so the next run re-attempts the
+  // whole set.
+  //
+  // `getDb()` is re-resolved inside the callback because that is what returns
+  // the transaction's client; the handle taken above belongs to the pool and
+  // its writes would not roll back with this block.
+  const committed = await runDbTransaction(async () => {
+    const tx = getDb();
+    const inserted = (await tx.query(
+      `INSERT INTO notification_events (
+         business_id, provider_account_id, event_type, severity,
+         entity_type, entity_id, source_kind, source_id, occurred_on,
+         dedupe_key, deep_link
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::date, $10, $11)
+       ON CONFLICT (dedupe_key) DO NOTHING
+       RETURNING id::text AS id, created_at`,
       [
-        inserted[0].id,
-        recipient,
-        NOTIFICATION_IN_APP_CHANNEL,
-        state,
-        decision.deliver ? null : decision.reason,
-        decision.deliver ? 1 : 0,
-        decision.deliver ? new Date().toISOString() : null,
+        input.event.businessId,
+        input.event.providerAccountId ?? null,
+        input.event.eventType,
+        input.event.severity,
+        input.event.entityType ?? null,
+        input.event.entityId ?? null,
+        input.event.sourceKind,
+        input.event.sourceId,
+        input.event.occurredOn,
+        dedupeKey,
+        input.deepLink ?? null,
       ],
-    )) as unknown as Array<{ id: string }>;
-    if (row[0]) deliveries.push(row[0]);
-  }
-  const delivery = deliveries;
+    )) as unknown as Array<{ id: string; created_at: string }>;
+
+    if (!inserted[0]) return null;
+
+    const deliveries: Array<{ id: string }> = [];
+    for (const recipient of recipients) {
+      const row = (await tx.query(
+        `INSERT INTO notification_deliveries (
+           notification_event_id, recipient_user_id, channel, state,
+           suppression_reason, attempts, attempted_at
+         ) VALUES ($1::uuid, $2, $3, $4, $5, $6, $7)
+         RETURNING id::text AS id`,
+        [
+          inserted[0].id,
+          recipient,
+          NOTIFICATION_IN_APP_CHANNEL,
+          state,
+          decision.deliver ? null : decision.reason,
+          decision.deliver ? 1 : 0,
+          decision.deliver ? new Date().toISOString() : null,
+        ],
+      )) as unknown as Array<{ id: string }>;
+      if (row[0]) deliveries.push(row[0]);
+    }
+    return { event: inserted[0], deliveries };
+  });
+
+  // A concurrent producer won the dedupe key; it owns the fan-out.
+  if (!committed) return { created: false, record: null };
 
   // Section 9: an attempt happened, or was withheld by quiet hours. Reported as
   // what it was -- a suppressed alert is not a delivered one.
@@ -158,15 +182,15 @@ export async function recordNotificationEvent(input: {
   return {
     created: true,
     record: {
-      id: inserted[0].id,
-      deliveryId: delivery[0]!.id,
+      id: committed.event.id,
+      deliveryId: committed.deliveries[0]!.id,
       businessId: input.event.businessId,
       eventType: input.event.eventType,
       severity: input.event.severity,
       state,
       deepLink: input.deepLink ?? null,
       occurredOn: input.event.occurredOn,
-      createdAt: inserted[0].created_at,
+      createdAt: committed.event.created_at,
     },
   };
 }

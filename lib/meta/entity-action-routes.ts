@@ -57,6 +57,7 @@ interface EntityActionBody {
   bidValue?: unknown;
   bidValueMinor?: unknown;
   bidAmountMinor?: unknown;
+  expectedBidStrategy?: unknown;
   dryRun?: unknown;
 }
 
@@ -876,6 +877,53 @@ function hasLegacyBidUnitField(body: EntityActionBody | null) {
   );
 }
 
+/**
+ * The strategy the amount was reasoned under, when the caller proved one.
+ *
+ * OPTIONAL, and absent from the operator's own apply-bid request: a person
+ * typing a cap on a decision card has proved nothing about the strategy beyond
+ * this request, so nothing is asserted on their behalf and their write is
+ * exactly the write it has always been.
+ *
+ * The approval queue is the caller that HAS proved one.
+ * `automation-proposal-execution.ts` reads the live cap and strategy and
+ * refuses a mismatch — but that check finishes before this handler's access
+ * check, account context, action log and provider preflight, and this handler
+ * writes whatever `bidAmountMinor` it is handed. An ad set moved from cost cap
+ * to bid cap inside that window would take the approved amount and verify it,
+ * and the operator would be told the raise they approved succeeded — under a
+ * strategy nobody approved it for. Carrying the checked strategy makes
+ * `updateAdsetBidAmount`'s read-back prove it too, which closes the window at
+ * the only boundary that sits after the POST.
+ *
+ * One carve-out, because the sentence above is otherwise too strong: the
+ * read-back proves it on a REAL write only. `updateAdsetBidAmount` returns from
+ * its dry-run branch before the strategy comparison, so a rehearsal — whether
+ * from `dryRunOnly` or from a business posture this function itself resolves as
+ * rehearsal — binds the field and checks nothing against it. That costs
+ * nothing, since a rehearsal reaches no provider write to be wrong about, and
+ * it is identical for the unattended runtime, which passes the same field with
+ * the same flag.
+ *
+ * Present-but-unusable is refused rather than ignored: dropping a malformed
+ * value would silently disable the very check the caller asked for, which is
+ * the defect this field exists to prevent.
+ */
+function expectedBidStrategyFromBody(body: EntityActionBody | null) {
+  if (
+    !body ||
+    !Object.prototype.hasOwnProperty.call(body, "expectedBidStrategy")
+  ) {
+    return { ok: true as const, value: null };
+  }
+  const value =
+    typeof body.expectedBidStrategy === "string"
+      ? body.expectedBidStrategy.trim()
+      : "";
+  if (!value) return { ok: false as const, value: null };
+  return { ok: true as const, value };
+}
+
 export async function handleMetaAdsetBidAction(
   request: NextRequest,
   context: RouteParams,
@@ -891,6 +939,14 @@ export async function handleMetaAdsetBidAction(
       hasLegacyBidUnitField(body)
         ? "bidAmountMinor is required; bidValue and bidValueMinor are not accepted for executable bid writes."
         : "bidAmountMinor must be a positive integer.",
+    );
+  }
+  const expectedBidStrategy = expectedBidStrategyFromBody(body);
+  if (!expectedBidStrategy.ok) {
+    return jsonError(
+      400,
+      "invalid_bid_strategy",
+      "expectedBidStrategy must be a non-empty string when provided.",
     );
   }
 
@@ -985,6 +1041,11 @@ export async function handleMetaAdsetBidAction(
     const result = await updateAdsetBidAmount(prepared.ctx, {
       adsetId: prepared.target.entityId,
       bidAmountMinor,
+      // Spread rather than passed as `undefined`, so a caller that proved no
+      // strategy hands the write the same input shape it always did.
+      ...(expectedBidStrategy.value
+        ? { expectedBidStrategy: expectedBidStrategy.value }
+        : {}),
       ...(dryRun
         ? { dryRun: true }
         : {

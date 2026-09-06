@@ -363,6 +363,27 @@ export async function executeMetaAutomationProposal(input: {
           businessId: input.businessId,
           providerAccountId: proposal.providerAccountId,
           bidAmountMinor: envelope.proposedMinorUnits,
+          /*
+            The strategy the check above just proved, carried to the write.
+
+            The compare-and-set happens HERE; the POST happens several awaits
+            later, inside the handler — after its access check, its account
+            context, its action log and a live provider preflight. An ad set
+            moved from cost cap to bid cap in that window still takes this
+            amount, and `updateAdsetBidAmount` verifying only the NUMBER would
+            report the approved raise as a success under a strategy nobody
+            approved it for. Handing the strategy over makes the handler bind
+            `expectedBidStrategy`, so the post-write read-back has to show it
+            too — the last boundary that sits after the POST.
+
+            The LIVE read's spelling, not the envelope's, and for the same
+            reason `scheduled-bid-runtime.ts` passes `baseline.bidStrategy`:
+            the warehouse says `bid_cap` where Meta says
+            `LOWEST_COST_WITH_BID_CAP`, and it is Meta's read-back that this
+            value is compared against. The family check above has already
+            proved the two are one strategy.
+          */
+          expectedBidStrategy: baseline.bidStrategy,
           ...(proposal.recId ? { recId: proposal.recId } : {}),
           ...(input.dryRunOnly ? { dryRun: true } : {}),
         }),

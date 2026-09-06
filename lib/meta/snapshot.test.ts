@@ -58,7 +58,18 @@ vi.mock("@/lib/meta/decision-stability", async (importOriginal) => {
 });
 
 vi.mock("@/lib/meta/anomalies", () => ({
+  // The projection of the delivery_stall detector the bid policy reads. Real,
+  // not stubbed: it is a pure filter over whatever the detector returned, and
+  // stubbing it would hide the very wiring these suites now exercise.
+  deliveryConstrainedAdsetIdsFrom: (anomalies: Array<{ type?: string; scopeType?: string; severity?: string; scopeId?: string }>) =>
+    new Set(
+      (anomalies ?? [])
+        .filter((a) => a?.type === "delivery_stall" && a?.scopeType === "adset"
+          && (a?.severity === "high" || a?.severity === "medium"))
+        .map((a) => a.scopeId as string),
+    ),
   detectAnomaliesForBusiness: vi.fn(),
+  detectAnomalyEvaluationForBusiness: vi.fn(),
 }));
 
 vi.mock("@/lib/meta/evidence-trail", () => ({
@@ -82,6 +93,16 @@ vi.mock("@/lib/meta/automation-proposals", () => ({
     expired: 0,
     ran: true,
   })),
+  /*
+    The launch and activation producers import these from the same module, and
+    a partial mock makes their import throw rather than their behaviour differ
+    — which is how one missing key took the whole suite down instead of one
+    case.
+  */
+  META_AUTOMATION_PROPOSAL_UNDECIDED_STATUSES: ["pending", "claimed"],
+  META_AUTOMATION_PROPOSAL_TTL_HOURS: 24,
+  META_AUTOMATION_PROPOSAL_PRIMARY_CAPTION: "Review before applying",
+  proposalActionLabel: () => "Create paused ad",
 }));
 
 // Budget proposal projection is another collaborator of the snapshot pipeline.
@@ -96,6 +117,30 @@ vi.mock("@/lib/meta/budget-proposal-producer", () => ({
     refusals: {},
   })),
   insertBudgetProposalRow: vi.fn(async () => null),
+}));
+
+// The bid producer is a collaborator on the same chain, mocked for the same
+// reason: its own SQL and envelope have dedicated tests, and letting it read
+// here would pollute this suite's captured decision rows.
+// The launch producer is on the same chain and mocked for the same reason.
+vi.mock("@/lib/meta/launch-proposal-producer", () => ({
+  projectMetaLaunchProposals: vi.fn(async () => ({
+    ran: true,
+    candidates: 0,
+    projected: 0,
+    refusals: {},
+  })),
+  insertLaunchProposalRow: vi.fn(async () => null),
+}));
+
+vi.mock("@/lib/meta/bid-proposal-producer", () => ({
+  projectMetaBidProposals: vi.fn(async () => ({
+    ran: true,
+    candidates: 0,
+    projected: 0,
+    refusals: {},
+  })),
+  insertBidProposalRow: vi.fn(async () => null),
 }));
 
 vi.mock("@/lib/meta/budget-proposal-source-loader", () => ({
@@ -147,6 +192,34 @@ const campaignContextSource = await import(
 );
 const anomalies = await import("@/lib/meta/anomalies");
 const evidenceTrail = await import("@/lib/meta/evidence-trail");
+
+/**
+ * The snapshot now takes the EVALUATION, not just the anomalies: the writer may
+ * resolve an open row only for a family this run actually judged. A family the
+ * detector skipped — a time-of-day gate, an unreadable profile — was not looked
+ * at, and absence from the payload is not evidence of recovery for it.
+ *
+ * These suites assert the "every family looked" case, so the helper names all
+ * seven and the old expectations keep their exact meaning.
+ */
+const ALL_ANOMALY_FAMILIES = [
+  "roas_drop_sudden",
+  "delivery_stall",
+  "policy_block",
+  "pacing_failure",
+  "cpm_spike",
+  "zero_conversions_with_spend",
+  "budget_exhausted_early",
+] as const;
+
+function anomalyEvaluation(
+  found: Awaited<
+    ReturnType<typeof anomalies.detectAnomalyEvaluationForBusiness>
+  >["anomalies"] = [],
+) {
+  return { anomalies: found, evaluatedTypes: [...ALL_ANOMALY_FAMILIES], skipped: [] };
+}
+
 const entitySignals = await import("@/lib/meta/entity-signals");
 const entitySignalsBackfill = await import("@/lib/meta/entity-signals-backfill");
 const commercialTargets = await import("@/lib/meta/commercial-targets");
@@ -229,6 +302,34 @@ function campaign(overrides: Partial<MetaCampaignRow> = {}) {
   } as unknown as MetaCampaignRow;
 }
 
+
+/**
+ * The snapshot's persisted rows, out of everything the run happened to query.
+ *
+ * `queryPayloads` records EVERY parameter the fake connection saw, and the
+ * snapshot now also reads guardrails and config history — whose parameters are
+ * plain strings, not JSON arrays of rows. Parsing them all and assuming JSON
+ * made this helper fail on a business id. It takes what parses as an array of
+ * rows and ignores the rest, which is what it was always trying to express.
+ */
+function persistedRows<T>(payloads: readonly unknown[]): T[] {
+  const rows: T[] = [];
+  for (const payload of payloads) {
+    if (Array.isArray(payload)) {
+      rows.push(...(payload as T[]));
+      continue;
+    }
+    if (typeof payload !== "string") continue;
+    try {
+      const parsed: unknown = JSON.parse(payload);
+      if (Array.isArray(parsed)) rows.push(...(parsed as T[]));
+    } catch {
+      // Not a row payload. A business id is not a defect.
+    }
+  }
+  return rows;
+}
+
 describe("meta snapshot job", () => {
   beforeEach(() => {
     vi.unstubAllEnvs();
@@ -309,7 +410,8 @@ describe("meta snapshot job", () => {
     vi.mocked(
       campaignContextSource.readCampaignContextLabelMap,
     ).mockResolvedValue(new Map());
-    vi.mocked(anomalies.detectAnomaliesForBusiness).mockResolvedValue([]);
+    vi.mocked(anomalies.detectAnomalyEvaluationForBusiness)
+      .mockResolvedValue(anomalyEvaluation());
     vi.mocked(entitySignals.readMetaEntityDecisionSignalsDaily).mockResolvedValue(new Map());
     vi.mocked(entitySignalsBackfill.runMetaSignalsBackfillForBusiness).mockResolvedValue({
       businessId: "biz_1",
@@ -605,9 +707,8 @@ describe("meta snapshot job", () => {
       state_reason: string | null;
       signal_quality: { stability?: { raw_decision_state: string; suppressed: boolean } };
     };
-    const firstRows = (firstRun.queryPayloads.flatMap((payload) =>
-      typeof payload === "string" ? (JSON.parse(payload) as PayloadRow[]) : (payload as PayloadRow[]),
-    ) ?? []).filter((row) => row?.kind === "recommendation");
+    const firstRows = persistedRows<PayloadRow>(firstRun.queryPayloads)
+      .filter((row) => row?.kind === "recommendation");
     expect(firstRows.length).toBeGreaterThan(0);
     // Every persisted recommendation carries stability memory.
     for (const row of firstRows) {
@@ -632,9 +733,8 @@ describe("meta snapshot job", () => {
     vi.mocked(db.getDb).mockReturnValue(secondRun.tag);
     await runMetaSnapshotForBusiness("biz_1", "2026-05-07");
 
-    const secondRows = (secondRun.queryPayloads.flatMap((payload) =>
-      typeof payload === "string" ? (JSON.parse(payload) as PayloadRow[]) : (payload as PayloadRow[]),
-    ) ?? []).filter((row) => row?.kind === "recommendation");
+    const secondRows = persistedRows<PayloadRow>(secondRun.queryPayloads)
+      .filter((row) => row?.kind === "recommendation");
     const held = secondRows.find(
       (row) =>
         row.scope_type === target.scope_type &&
@@ -725,7 +825,7 @@ describe("meta snapshot job", () => {
   it("persists anomaly rows alongside recommendation rows", async () => {
     const sql = makeSqlMock();
     vi.mocked(db.getDb).mockReturnValue(sql.tag);
-    vi.mocked(anomalies.detectAnomaliesForBusiness).mockResolvedValue([
+    vi.mocked(anomalies.detectAnomalyEvaluationForBusiness).mockResolvedValue(anomalyEvaluation([
       {
         id: "meta_anomaly_2026-05-06_campaign_cmp_1_roas_drop_sudden",
         type: "roas_drop_sudden",
@@ -739,14 +839,12 @@ describe("meta snapshot job", () => {
         diagnostics: ["Tracking interruption candidate"],
         detectedAt: "2026-05-06T03:00:00.000Z",
       },
-    ]);
+    ]));
 
     await runMetaSnapshotForBusiness("biz_1", "2026-05-06");
 
-    const payloads = sql.queryPayloads
-      .filter(Boolean)
-      .map((payload) => JSON.parse(String(payload)) as Array<Record<string, unknown>>);
-    const anomalyPayload = payloads.flat().find((row) => row.kind === "anomaly");
+    const anomalyPayload = persistedRows<Record<string, unknown>>(sql.queryPayloads)
+      .find((row) => row.kind === "anomaly");
 
     expect(anomalyPayload).toMatchObject({
       kind: "anomaly",
@@ -766,7 +864,7 @@ describe("meta snapshot job", () => {
 
     const recommendationPayload = sql.queryPayloads
       .filter(Boolean)
-      .map((payload) => JSON.parse(String(payload)) as Array<Record<string, unknown>>)
+      .map((payload) => persistedRows<Record<string, unknown>>([payload]))
       .flat()
       .find((row) => row.kind === "recommendation" && !String(row.rec_type).endsWith("_state"));
 
@@ -794,7 +892,7 @@ describe("meta snapshot job", () => {
 
     const rows = sql.queryPayloads
       .filter(Boolean)
-      .map((payload) => JSON.parse(String(payload)) as Array<Record<string, unknown>>)
+      .map((payload) => persistedRows<Record<string, unknown>>([payload]))
       .flat();
 
     expect(rows.some((row) => row.rec_type === "scenario_k1_mixed_config_rebuild")).toBe(true);
@@ -843,7 +941,7 @@ describe("meta snapshot job", () => {
 
     const rows = sql.queryPayloads
       .filter(Boolean)
-      .map((payload) => JSON.parse(String(payload)) as Array<Record<string, unknown>>)
+      .map((payload) => persistedRows<Record<string, unknown>>([payload]))
       .flat();
     const stateRows = rows.filter((row) => String(row.rec_type).endsWith("_state"));
 
@@ -906,7 +1004,7 @@ describe("meta snapshot job", () => {
 
     const rows = sql.queryPayloads
       .filter(Boolean)
-      .map((payload) => JSON.parse(String(payload)) as Array<Record<string, unknown>>)
+      .map((payload) => persistedRows<Record<string, unknown>>([payload]))
       .flat();
     const campaignStateRows = rows.filter((row) => row.scope_type === "campaign" && row.rec_type === "campaign_state");
     const adsetStateRows = rows.filter((row) => row.scope_type === "adset" && row.rec_type === "adset_state");
@@ -924,7 +1022,7 @@ describe("meta snapshot job", () => {
 
     const rows = sql.queryPayloads
       .filter(Boolean)
-      .map((payload) => JSON.parse(String(payload)) as Array<Record<string, unknown>>)
+      .map((payload) => persistedRows<Record<string, unknown>>([payload]))
       .flat();
     const campaignRows = rows.filter((row) => row.scope_type === "campaign" && row.scope_id === "cmp_1");
     const recTypes = new Set(campaignRows.map((row) => row.rec_type));
@@ -1228,8 +1326,8 @@ describe("meta snapshot job", () => {
   it("marks previously active anomalies resolved when absent on rerun", async () => {
     const sql = makeSqlMock();
     vi.mocked(db.getDb).mockReturnValue(sql.tag);
-    vi.mocked(anomalies.detectAnomaliesForBusiness)
-      .mockResolvedValueOnce([
+    vi.mocked(anomalies.detectAnomalyEvaluationForBusiness)
+      .mockResolvedValueOnce(anomalyEvaluation([
         {
           id: "meta_anomaly_2026-05-06_campaign_cmp_1_roas_drop_sudden",
           type: "roas_drop_sudden",
@@ -1243,8 +1341,8 @@ describe("meta snapshot job", () => {
           diagnostics: ["Recent bid change candidate"],
           detectedAt: "2026-05-06T03:00:00.000Z",
         },
-      ])
-      .mockResolvedValueOnce([]);
+      ]))
+      .mockResolvedValueOnce(anomalyEvaluation());
 
     await runMetaSnapshotForBusiness("biz_1", "2026-05-06");
     await runMetaSnapshotForBusiness("biz_1", "2026-05-06");
@@ -1254,7 +1352,14 @@ describe("meta snapshot job", () => {
         (text) =>
           text.includes("SET resolved_at = now()") &&
           text.includes("kind = 'anomaly'") &&
-          text.includes("resolved_at IS NULL"),
+          text.includes("resolved_at IS NULL") &&
+          /*
+            And scoped to the families this run actually evaluated. Absence
+            from the payload is evidence of recovery only for a family that
+            looked; a time-of-day gate means nobody looked, and resolving on
+            that used to close an operator's open anomaly with no fact change.
+          */
+          text.includes("rec_type = ANY("),
       ),
     ).toBe(true);
   });

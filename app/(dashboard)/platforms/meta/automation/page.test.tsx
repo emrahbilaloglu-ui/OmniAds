@@ -74,6 +74,10 @@ const payload: MetaAutomationControlPlane = {
       budgetMinHoursBetweenChanges: null,
       budgetMaxChangesPer7d: null,
       budgetMaxAccountConcentrationPct: null,
+      // Unstamped: no sizing policy version is bound to this fixture, which
+      // is the state every business is in until an operator saves one.
+      budgetSizingPolicyVersion: null,
+      bidSizingPolicyVersion: null,
       dryRunOnly: true,
       minRoasFloor: null,
       quietHours: null,
@@ -342,13 +346,16 @@ describe("Dashboard v2 exact Automation presentation", () => {
       + 1 current automatic-execution state card (desktop)
       + 2 D077 state-history recovery-readiness sections (desktop + mobile)
       + 2 D086 budget-readiness sections (desktop + mobile)
+      + 2 D087 budget-write-readiness sections (desktop + mobile)
+      = 14
+      + 1 confirmation-queue card on the MOBILE surface
 
-      Both additions are display-only articles on the EXISTING readiness surface;
-      neither adds a route, a dashboard or an affordance. The D077 pin predated
-      its own sections and was corrected in the D078 acceptance pass; this one is
-      updated in the same slice that adds the sections it counts.
+      The last line is the change: the queue is one component rendered twice,
+      once per surface, so its `<article className={confirmationCard}>` now
+      exists on both. Counted, not ranged — a range here would let the next
+      duplicated card in unnoticed.
     */
-    expect(html.match(/<article/g)).toHaveLength(14);
+    expect(html.match(/<article/g)).toHaveLength(15);
     // ...and the D086 sections are display-only on both surfaces.
     expect(html.match(/data-testid="budget-readiness"/g)).toHaveLength(2);
     /*
@@ -454,7 +461,8 @@ describe("Dashboard v2 exact Automation presentation", () => {
     expect(html).not.toContain("2.50");
     expect(html).not.toContain("00:00–07:00 ET");
     expect(html).not.toContain("±15%");
-    expect(html).toContain("Tier 1 — Supervised");
+    // The readiness state, named without the internal ladder's rung number.
+    expect(html).toContain("Supervised");
     expect(html).toContain("1 promotion record");
   });
 
@@ -557,8 +565,19 @@ describe("Dashboard v2 exact Automation presentation", () => {
      * plane could only be read back through the API. The launch row is
      * excluded on purpose — new spend has no decision type and never
      * automates, so a control there would offer a choice that does not exist.
+     *
+     * Sixteen now: the guardrails card gained a Save. The ROAS floor and the
+     * quiet window were persisted, server-enforced and unsettable from any
+     * screen, so in practice they belonged to whoever last edited the row.
+     *
+     * Eighteen now, and the two additions are both on the MOBILE pane:
+     *   +1  the Meta stop, which was visible there and inoperable;
+     *   +1  the unreadable queue's Retry, which was absent there entirely.
+     * Line by line: "+ New rule" (1), desktop Stop (1), desktop queue Retry
+     * (1), guardrails Save (1), twelve AUTO-03 segments (12), mobile Stop (1),
+     * mobile queue Retry (1) = 18.
      */
-    expect(html.match(/<button/g)).toHaveLength(15);
+    expect(html.match(/<button/g)).toHaveLength(18);
     expect(html.match(/data-ctl="gated:AUTO-03 mode"/g)).toHaveLength(4);
     expect(html).toContain('data-field="business-writes-control"');
     expect(html).toContain('data-control="retry-queue"');
@@ -573,8 +592,11 @@ describe("Dashboard v2 exact Automation presentation", () => {
         rows: [],
       }),
     );
-    // Two, plus the twelve AUTO-03 segments, which do not depend on the queue.
-    expect(proven.match(/<button/g)).toHaveLength(14);
+    // Three, plus the twelve AUTO-03 segments, which do not depend on the
+    // queue: "+ New rule", the Stop, and the guardrails Save — and now the
+    // mobile Stop, which is the same control on the other pane. Neither pane
+    // draws a Retry here, because a proven-empty queue has nothing to recover.
+    expect(proven.match(/<button/g)).toHaveLength(16);
     expect(proven).not.toContain('data-control="retry-queue"');
   });
 
@@ -959,7 +981,7 @@ describe("Dashboard v2 exact Automation presentation", () => {
     expect(html).toMatch(/data-field="business-writes"[^>]*>—/);
     expect(html).not.toMatch(/data-field="business-writes"[^>]*>ENABLED/);
     expect(html).toMatch(/data-field="readiness-tier">—/);
-    expect(html).not.toContain("Tier 1 — Supervised");
+    expect(html).not.toContain("Supervised");
     expect(html).toMatch(/guardrail-budget-change[\s\S]*?<strong>—<\/strong>/);
     expect(html).toMatch(
       /guardrail-actions-per-day[\s\S]*?<strong>—<\/strong>/,
@@ -1123,8 +1145,11 @@ describe("Dashboard v2 exact Automation presentation", () => {
       }),
     );
 
+    // Approve, Modify and Dismiss — on BOTH surfaces, because the queue is one
+    // component rendered twice. Six is three per pane, and the law it states is
+    // unchanged: no pane draws an armed control without a handler behind it.
     expect(html.match(/data-control="[a-z-]+"[^>]*disabled=""/g)).toHaveLength(
-      3,
+      6,
     );
   });
 
@@ -1233,7 +1258,16 @@ describe("Dashboard v2 exact Automation presentation", () => {
     expect(unproven).toContain('data-testid="confirmation-empty"');
   });
 
-  it("keeps the queue off the read-only mobile surface", () => {
+  /*
+    REWRITTEN to the NEW law, not loosened.
+    OLD law: "the queue is kept off the read-only mobile surface."
+    NEW law: the confirmation queue is CARRIED on the mobile surface, with the
+    same three controls the desktop pane draws and the same disabled rule.
+    The old decision meant an operator away from a desk could watch a proposal
+    expire and do nothing about it; the approved plan requires Approve
+    reachable at 320px.
+  */
+  it("carries the confirmation queue on the mobile surface", () => {
     const mobile = mobileMarkup(
       renderWithQueue(
         queueModel({
@@ -1244,23 +1278,79 @@ describe("Dashboard v2 exact Automation presentation", () => {
       ),
     );
 
-    expect(mobile).not.toContain("Approve");
-    expect(mobile).not.toContain("<button");
-    expect(mobile).toContain('data-read-only="true"');
+    expect(mobile).toContain("Approve &amp; apply</button>");
+    expect(mobile).toContain(">Modify</button>");
+    expect(mobile).toContain(">Dismiss</button>");
+    expect(mobile).toContain('data-read-only="false"');
+
+    // Disabled exactly when `!onProposalControl || !canMutate ||
+    // pendingProposalId !== null`. This render binds no handler, so all three
+    // are inert — and inert is rendered, never hidden.
+    for (const control of ["approve", "modify", "dismiss"]) {
+      expect(mobile, control).toMatch(
+        new RegExp(`data-control="${control}"[^>]*disabled=""`),
+      );
+    }
+
+    // Arming automatic execution is still desktop-and-admin-only; the mobile
+    // pane's BudgetWriteReadinessSection stays on `surface: "mobile_read_only"`.
+    expect(mobile).not.toContain("budget-activation-enable");
+    expect(mobile).not.toContain("budget-preparation-form");
+  });
+
+  it("suffixes every duplicated DOM id by surface, so neither pane collides", () => {
+    /*
+      Both panes are in the DOM at every width — only CSS hides one — so an
+      unsuffixed `proposal-note-<id>` or `stop-confirm-input` would be a real
+      duplicate id, and therefore an accessibility defect rather than a test
+      artifact. Both ids only exist after an interaction (a row being modified,
+      a confirmation being opened), so this reads the source: the law is that
+      neither template can be written WITHOUT the surface.
+    */
+    const source = readFileSync(
+      "app/(dashboard)/platforms/meta/automation/automation-view.tsx",
+      "utf8",
+    );
+
+    expect(source).toContain("id={`proposal-note-${row.id}-${surface}`}");
+    expect(source).toContain(
+      "htmlFor={`proposal-note-${row.id}-${surface}`}",
+    );
+    expect(source).toContain("id={`stop-confirm-input-${surface}`}");
+    expect(source).toContain("htmlFor={`stop-confirm-input-${surface}`}");
+    // And no unsuffixed survivor anywhere.
+    expect(source).not.toContain("`proposal-note-${row.id}`");
+
+    // The two rendered panes are addressable and distinct.
+    const html = renderWithQueue(
+      queueModel({
+        readCompleteness: "complete",
+        count: "1",
+        rows: [queuedRow],
+      }),
+    );
+    expect(
+      html.match(/class="[^"]*confirmationCard[^"]*" data-surface="(\w+)"/g),
+    ).toHaveLength(2);
+    expect(html).toContain('data-surface="desktop"');
+    expect(html).toContain('data-surface="mobile"');
   });
 
   it("uses only persisted per-kind modes, never fabricates progress, and keeps launches manual", () => {
     const html = render();
 
     expect(html).toContain("Budget changes ≤ +15%");
-    expect(html).toContain("Tier 2 · Backtest");
+    // The operator's own words for the mode, not a rung on a ladder they
+    // never see: the label is what appears on the control that decides
+    // whether this product touches their money.
+    expect(html).toContain("Semi-automatic · you confirm each change");
     expect(html).toContain("Backtest contract required before auto-execute.");
     expect(html).toContain("Pause / resume");
     expect(html).toMatch(
       /data-decision-type="pause"[\s\S]*?<span[^>]*>—<\/span>/,
     );
     expect(html).toContain("Creative rotation");
-    expect(html).toContain("Tier 3 · Auto-execute");
+    expect(html).toContain("Automatic · applied within your guardrails");
     expect(html).toContain("Manual · by design");
     expect(html).toContain("New spend never automates.");
     expect(html).not.toContain("18 / 30");
@@ -1564,11 +1654,20 @@ describe("Dashboard v2 exact Automation presentation", () => {
      * the activated account on every path, so the site that was added to let
      * an operator PREPARE cannot be the site that ENABLES. The two actions are
      * named separately below so a rename cannot merge them.
+     *
+     * SIX, and why the sixth is safe. `set_guardrail_policy` only ever
+     * TIGHTENS or clears two limits — the ROAS floor below which a pause may
+     * be proposed, and the quiet window during which an alert may not
+     * interrupt. It enables nothing, binds no account, and reaches no
+     * provider. It was added because both values were persisted,
+     * server-enforced and unsettable from any screen, which made them belong
+     * to whoever last edited the row rather than to the operator.
      */
-    expect(source.match(/method: "POST"/g)).toHaveLength(5);
+    expect(source.match(/method: "POST"/g)).toHaveLength(6);
     expect(source).toContain('action: "set_decision_type_mode"');
     expect(source).toContain('action: "set_budget_auto_execution"');
     expect(source).toContain('action: "save_budget_automation_config"');
+    expect(source).toContain('action: "set_guardrail_policy"');
     expect(source).toMatch(
       /fetch\(`\/api\/meta\/automation\/proposals\?\$\{query\.toString\(\)\}`, \{\s*method: "POST"/,
     );
@@ -1721,7 +1820,17 @@ describe("Dashboard v2 exact Automation presentation", () => {
     expect(authorized).not.toContain('data-testid="rule-composer"');
   });
 
-  it("mounts a handler-free read-only surface at the 768px contract", () => {
+  /*
+    REWRITTEN to the NEW law, not loosened.
+    OLD law: "a handler-free READ-ONLY surface at the 768px contract" — no
+    button anywhere on the mobile pane.
+    NEW law: the mobile pane carries exactly two operable things, the emergency
+    stop and the confirmation queue, and nothing else. Everything the old test
+    protected against — a guardrail form, a rule composer, an autonomy ladder,
+    a budget-activation control leaking onto a phone — is asserted absent
+    below, one by one, rather than by a blanket "no <button>".
+  */
+  it("carries the stop and the queue, and nothing else, at the 768px contract", () => {
     const html = render();
     const mobile = mobileMarkup(html);
     const css = readFileSync(
@@ -1729,10 +1838,34 @@ describe("Dashboard v2 exact Automation presentation", () => {
       "utf8",
     );
 
-    expect(mobile).toContain('data-read-only="true"');
-    expect(mobile).toContain("Read-only");
-    expect(mobile).not.toContain("<button");
-    expect(mobile).not.toContain("onClick");
+    expect(mobile).toContain('data-read-only="false"');
+    // The emergency control, reachable whenever this surface is.
+    expect(mobile).toContain('data-testid="mobile-stop-control"');
+    expect(mobile).toMatch(/data-stop-trigger=""[^>]*data-surface="mobile"/);
+    // ...and it is `aria-disabled`, never `disabled`, so a refused operator
+    // can still reach the reason from the keyboard at 320px.
+    expect(mobile).not.toMatch(/data-stop-trigger=""[\s\S]{0,200}?\sdisabled=""/);
+    expect(mobile).toContain('data-surface="mobile"');
+    expect(mobile).toContain("Needs your confirmation");
+
+    // Everything that stays on desktop.
+    expect(mobile).not.toContain('data-collection="guardrails"');
+    expect(mobile).not.toContain('data-testid="rule-composer"');
+    expect(mobile).not.toContain("+ New rule");
+    expect(mobile).not.toContain("Autonomy ladder");
+    expect(mobile).not.toContain('data-ctl="gated:AUTO-03 mode"');
+    expect(mobile).not.toContain("budget-activation-enable");
+    // The H19/H20 reference markers are desktop-only: those artboards are
+    // 1440px frames where `.mobileSurface` is `display: none`, so a mobile
+    // duplicate would add a graded node with no contract behind it.
+    expect(mobile).not.toContain('data-ctl="gated:AUTO-01A engage"');
+    expect(mobile).not.toContain('data-ctl="gated:AUTO-02 release"');
+
+    // The Meta-only scope sentence, verbatim.
+    expect(mobile).toContain(
+      "no control on this screen stops Google Ads writes",
+    );
+
     expect(css).toContain("@media (max-width: 1023px)");
     expect(css).toMatch(
       /@media \(max-width: 1023px\)[\s\S]*?\.desktopSurface \{[\s\S]*?display: none/,
@@ -1741,5 +1874,74 @@ describe("Dashboard v2 exact Automation presentation", () => {
       /@media \(max-width: 1023px\)[\s\S]*?\.mobileSurface \{[\s\S]*?display: grid/,
     );
     expect(css).toContain("@media (min-width: 1024px)");
+  });
+});
+
+describe("the guardrails an operator could read and not set", () => {
+  /*
+    `minRoasFloor` decides whether a pause is proposed at all, and quiet hours
+    decide when an alert may interrupt someone. Both are persisted, both are
+    enforced on the server, and neither had a control anywhere — which in
+    practice made them belong to whoever last edited the row directly. The
+    route has accepted `set_guardrail_policy` all along; nothing sent it.
+  */
+  function withGuardrails(
+    guardrails: Partial<MetaAutomationControlPlane["businessControl"]["guardrails"]>,
+    viewer?: React.ComponentProps<typeof MetaAutomationView>["viewer"],
+  ) {
+    return renderToStaticMarkup(
+      <MetaAutomationView
+        payload={{
+          ...payload,
+          businessControl: {
+            ...payload.businessControl,
+            guardrails: { ...payload.businessControl.guardrails, ...guardrails },
+          },
+        }}
+        providerAccountId="act_1"
+        viewer={viewer}
+      />,
+    );
+  }
+
+  it("seeds each control from what is stored", () => {
+    const html = withGuardrails({
+      minRoasFloor: 1.4,
+      quietHours: { start: "22:00", end: "07:00", timezone: "Europe/Istanbul" },
+    });
+    expect(html).toContain('data-testid="guardrail-policy-form"');
+    expect(html).toContain('value="1.4"');
+    expect(html).toContain('value="22:00"');
+    expect(html).toContain('value="Europe/Istanbul"');
+  });
+
+  it("leaves the controls empty when nothing is stored, and says blank clears", () => {
+    // An operator who wants automation to consider every losing entity should
+    // not have to invent a number to say so.
+    const html = withGuardrails({ minRoasFloor: null, quietHours: null });
+    expect(html).toContain("Blank clears");
+    expect(html).toContain('data-testid="guardrail-roas-floor"');
+  });
+
+  it("keeps the read-only rows the card always had", () => {
+    const html = withGuardrails({ minRoasFloor: 1.4 });
+    expect(html).toContain('data-field="guardrail-roas-floor"');
+    expect(html).toContain('data-field="guardrail-quiet-hours"');
+  });
+
+  it("offers no control to a viewer who may not mutate", () => {
+    const html = withGuardrails(
+      { minRoasFloor: 1.4 },
+      // The real envelope, built the way the page builds it: a reviewer is
+      // read-only whatever the release posture says.
+      buildAutomationViewerEnvelope({
+        role: "admin",
+        reviewerReadOnly: true,
+        writeAuthority: "live",
+      }),
+    );
+    expect(html).toContain('data-can-mutate="false"');
+    // Every input disabled, not merely styled as such.
+    expect(html).toMatch(/data-testid="guardrail-roas-floor"[^>]*disabled/);
   });
 });

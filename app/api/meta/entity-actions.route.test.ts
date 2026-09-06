@@ -15,6 +15,28 @@ vi.mock("@/lib/integrations", () => ({
 
 vi.mock("@/lib/meta/automation-write-guard", () => ({
   rejectIfMetaWritesBlocked: vi.fn(),
+  // The shared posture every write family now reads. Unblocked and NOT
+  // rehearsing: these suites assert on real provider calls, and a rehearsing
+  // posture would turn every one of them into a dry run.
+  readMetaWritePosture: vi.fn(async () => ({
+    blocked: false, rehearsal: false, reason: null, message: null,
+  })),
+  metaWriteBlockedResponse: vi.fn((posture: { reason: string | null; message: string | null }) =>
+    // The real refusal envelope, so a caller reading `error.code` sees what the
+    // shipped helper actually answers with.
+    new Response(
+      JSON.stringify({
+        ok: false,
+        error: {
+          code: "kill_switch_engaged",
+          message: posture?.message ?? "Meta writes are disabled by kill switch.",
+          reason: posture?.reason ?? null,
+        },
+      }),
+      { status: 503, headers: { "content-type": "application/json" } },
+    )),
+  metaWriteIsRehearsal: (input: { posture: { rehearsal: boolean }; requestedDryRun: boolean }) =>
+    input.posture.rehearsal || input.requestedDryRun === true,
 }));
 
 vi.mock("@/lib/meta/account-context", () => ({
@@ -195,6 +217,10 @@ describe("Meta entity write routes", () => {
         connectionGeneration: "1:connected",
       },
       "cmp_1",
+      // The pre-POST re-check. Composing a write takes time, and an operator can
+      // engage the STOP or shut the capability in it; this hook is the last point
+      // at which a re-read can prevent the write rather than describe it.
+      expect.objectContaining({ beforeMutationAttempt: expect.any(Function) }),
     );
     expect(logs.createMetaAdsActionLog).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -335,6 +361,10 @@ describe("Meta entity write routes", () => {
         connectionGeneration: "1:connected",
       },
       "adset_1",
+      // The pre-POST re-check. Composing a write takes time, and an operator can
+      // engage the STOP or shut the capability in it; this hook is the last point
+      // at which a re-read can prevent the write rather than describe it.
+      expect.objectContaining({ beforeMutationAttempt: expect.any(Function) }),
     );
     expect(logs.createMetaAdsActionLog).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -447,6 +477,10 @@ describe("Meta entity write routes", () => {
         connectionGeneration: "1:connected",
       },
       "cmp_1",
+      // The pre-POST re-check. Composing a write takes time, and an operator can
+      // engage the STOP or shut the capability in it; this hook is the last point
+      // at which a re-read can prevent the write rather than describe it.
+      expect.objectContaining({ beforeMutationAttempt: expect.any(Function) }),
     );
     expect(logs.createMetaAdsActionLog).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -491,6 +525,10 @@ describe("Meta entity write routes", () => {
         connectionGeneration: "1:connected",
       },
       "adset_1",
+      // The pre-POST re-check. Composing a write takes time, and an operator can
+      // engage the STOP or shut the capability in it; this hook is the last point
+      // at which a re-read can prevent the write rather than describe it.
+      expect.objectContaining({ beforeMutationAttempt: expect.any(Function) }),
     );
     expect(logs.createMetaAdsActionLog).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -631,17 +669,97 @@ describe("Meta entity write routes", () => {
         // generation the token was read under. The native branch predates it.
         connectionGeneration: "1:connected",
       },
-      { adsetId: "adset_1", bidAmountMinor: 2200 },
+      // The bid write carries the same pre-POST re-check as a status write:
+      // a cap is money too.
+      expect.objectContaining({
+        adsetId: "adset_1",
+        bidAmountMinor: 2200,
+        beforeMutationAttempt: expect.any(Function),
+      }),
     );
+    /*
+      The TRUE verb, and the compatibility that keeps old rows readable.
+
+      This asserted `launch_adset` — the verb the handler used to write while
+      carrying the real operation one level down — so Meta History titled a
+      verified cap change "Launch Adset | Broad prospecting". `bid` was always
+      legal (MetaAdsActionKind, the CHECK, and the unattended sweep all use it).
+      `operation: "apply_bid"` still travels in the payload, because every
+      reader that disambiguated the old spelling by it must keep working; the
+      reader half is driven in lib/meta/bid-history-verb-title.db.test.ts.
+    */
     expect(logs.createMetaAdsActionLog).toHaveBeenCalledWith(
       expect.objectContaining({
-        action: "launch_adset",
+        action: "bid",
         source: "manual_operator_v1",
         recIdOrigin: "rec_bid",
         payloadRequest: expect.objectContaining({
           action_origin: "manual_operator_v1",
           manual_confirmation: "explicit_operator_confirmation",
+          operation: "apply_bid",
+          scope_type: "adset",
         }),
+      }),
+    );
+  });
+
+  it("names the bid outcome, instead of leaving the card to guess", async () => {
+    /*
+      The status handler returned `{outcome, durable, reference}` and this one
+      did not. The ceremony normalises an absent `outcome` to
+      `provider_outcome_ambiguous` on purpose — inferring success from
+      `ok: true` is exactly the inference that rule forbids — so a bid write
+      that verified against its own read-back and settled `success` in the
+      action log still told the operator "Outcome unknown · No receipt · do
+      not retry". Observed in the mounted product before this fix.
+    */
+    const response = await applyBid.POST(
+      request({ businessId: "biz_1", bidAmountMinor: 2200, recId: "rec_bid" }),
+      { params: Promise.resolve({ adsetId: "adset_1" }) },
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload).toMatchObject({
+      ok: true,
+      outcome: "verified",
+      durable: true,
+      reference: "log_1",
+    });
+  });
+
+  it("journals the account this write belongs to, so History can find it", async () => {
+    /*
+      Both manual handlers used to omit `providerAccountId`, so the action-log
+      row landed with `provider_account_id` NULL. `history-read-model.ts`
+      filters its action-log branch on `provider_account_id = $2` — on purpose,
+      so a row with no account lineage fails closed rather than leaking across
+      accounts — and the consequence was that a successful operator write never
+      appeared in Meta History's Writes journal at all. The receipt was durable
+      and invisible. Asserted for both handlers, because both had it wrong.
+    */
+    await applyBid.POST(
+      request({ businessId: "biz_1", bidAmountMinor: 2200, recId: "rec_bid" }),
+      { params: Promise.resolve({ adsetId: "adset_1" }) },
+    );
+    expect(logs.createMetaAdsActionLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "bid",
+        businessId: "biz_1",
+        providerAccountId: "act_1",
+      }),
+    );
+
+    vi.mocked(logs.createMetaAdsActionLog).mockClear();
+    await campaignPause.POST(
+      request({ businessId: "biz_1", recId: "rec_1" }),
+      { params: Promise.resolve({ campaignId: "cmp_1" }) },
+    );
+    expect(logs.createMetaAdsActionLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "pause",
+        businessId: "biz_1",
+        providerAccountId: "act_1",
       }),
     );
   });
@@ -750,12 +868,18 @@ describe("Meta entity write routes", () => {
   });
 
   it("blocks entity writes before target lookup and action logging when the business kill switch is engaged", async () => {
-    vi.mocked(writeGuard.rejectIfMetaWritesBlocked).mockResolvedValueOnce(
-      NextResponse.json(
-        { ok: false, error: { code: "kill_switch_engaged" } },
-        { status: 503 },
-      ),
-    );
+    /*
+      The route reads the POSTURE now, not just a block verdict, because it
+      needs the other half of the answer — whether the business is rehearsing —
+      to decide `dryRun` on the server instead of trusting the request body.
+      A blocked posture still refuses at exactly the same point.
+    */
+    vi.mocked(writeGuard.readMetaWritePosture).mockResolvedValueOnce({
+      blocked: true,
+      rehearsal: true,
+      reason: "business_kill_switch",
+      message: "Meta writes are disabled by business kill switch.",
+    });
 
     const response = await campaignPause.POST(
       request({ businessId: "biz_1", recId: "rec_1" }),

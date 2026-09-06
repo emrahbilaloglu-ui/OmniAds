@@ -83,11 +83,30 @@ function parseGate(raw: string | undefined): boolean {
 export function readMetaReleaseGates(
   env: MetaGateEnv = process.env,
 ): MetaReleaseGates {
+  const automationLiveWrites = parseGate(env.META_AUTOMATION_LIVE_WRITES);
   return {
     launchpadExecution: parseGate(env.META_LAUNCHPAD_EXECUTION),
-    decisionWorkflowUi: parseGate(env.META_DECISION_WORKFLOW_UI),
-    automationStopUi: parseGate(env.META_AUTOMATION_STOP_UI),
-    automationLiveWrites: parseGate(env.META_AUTOMATION_LIVE_WRITES),
+    /*
+      One capability, one reading.
+
+      The decision workflow and the mutation ceremony are two halves of the same
+      write path, and they were gated by two further variables that no
+      environment ever set. Three independent spellings of one capability is how
+      `/platforms/meta` came to offer controls `/c/:id/meta/decisions` did not.
+      They now follow the single environment capability, and what a viewer may
+      actually do is decided by `resolveMetaWriteCapability` on the server.
+    */
+    decisionWorkflowUi: automationLiveWrites,
+    /*
+      STOP is deliberately NOT a capability.
+
+      Engaging or releasing the business kill switch — and seeing its state —
+      must stay reachable when provider writes are closed, because that is
+      exactly when an operator reaches for it. Role, reviewer and demo checks
+      still apply on the route.
+    */
+    automationStopUi: true,
+    automationLiveWrites,
     publicShareMint: parseGate(env.META_PUBLIC_SHARE_MINT),
     accountPicker: parseGate(env.META_ACCOUNT_PICKER),
   };

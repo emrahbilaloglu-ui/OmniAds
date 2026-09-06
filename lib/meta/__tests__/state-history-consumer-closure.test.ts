@@ -169,6 +169,51 @@ const STATE_HISTORY_REFERENCE_LEDGER: ReadonlyArray<{
   { file: "lib/meta/budget-production-path.c3.test.ts", category: "test", count: 1 },
   { file: "lib/meta/budget-no-fabricated-defaults.test.ts", category: "test", count: 1 },
   { file: "app/api/meta/automation/proposals/budget-execution-paths.c3.test.ts", category: "test", count: 1 },
+  /*
+    OPERATOR-READINESS 2026-09-05 — the sizing projection source, classified.
+
+    `intent-projection-context.ts` is a content reader in the D075 sense and
+    the reason the budget and bid sizing policies have anything to reason from.
+    Two literals, one query: the canonical owner-and-amount read. It is
+    latest-per-entity (`DISTINCT ON (entity_type, entity_id) … ORDER BY
+    observed_at DESC, captured_at DESC, created_at DESC, id DESC`),
+    cutoff-bounded by the snapshot date, and presence-guarded, so an absent
+    winner is excluded rather than resurrected. It serves no entity CONTENT to
+    a surface: it returns owned minor units, an owner mode and a currency, and
+    withholds when ownership is not provable.
+
+    The other two are its proofs — a unit test and the throwaway-database seam
+    that runs the same query against a migrated schema.
+  */
+  { file: "lib/meta/intent-projection-context.ts", category: "content-reader", count: 2 },
+  { file: "lib/meta/intent-projection-context.test.ts", category: "test", count: 2 },
+  { file: "scripts/ephemeral-postgres-intent-projection-seam-child.ts", category: "harness", count: 2 },
+  /*
+    OPERATOR-READINESS 2026-09-05 — the end-to-end economics seam.
+
+    It seeds the retained budget truth the sizing policies reason from and then
+    calls the REAL snapshot rather than restating any of its arithmetic. The
+    fixture no longer writes this table itself: the state rows and the
+    observation run now go through the shipped capture chain
+    (`queueMetaSyncPartition`, `persistMetaRawSnapshot`,
+    `persistMetaEntityObservation`), which is what lets
+    `readMeasuredBudgetHistory` attest a complete run instead of returning
+    null. The one remaining literal is prose in a comment; the seam issues no
+    production query of its own.
+  */
+  { file: "scripts/ephemeral-postgres-economics-bid-chain-seam-child.ts", category: "harness", count: 1 },
+  /*
+    OPERATOR-READINESS 2026-09-05 — the mounted Decision Center harness.
+
+    It builds a throwaway workspace in which the product's own Decision Center
+    renders a populated lane, so the card-level Apply can be driven in a real
+    browser instead of at a SQL seam. Two literals, both fixture: the comment
+    naming the composite foreign key, and the INSERT that satisfies it — the
+    row has to exist for `readMeasuredBudgetHistory` to attest anything, and
+    its observation run has to exist first. It issues no production query over
+    this table; the shipped snapshot does that.
+  */
+  { file: "scripts/meta-decision-card-apply-harness.ts", category: "harness", count: 2 },
 ];
 const LEDGER = new Map(
   STATE_HISTORY_REFERENCE_LEDGER.map((entry) => [entry.file, entry]),

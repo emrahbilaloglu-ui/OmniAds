@@ -20,6 +20,7 @@ import {
   type MutationCeremonySeed,
   type PreflightAnswer,
 } from "@/components/zero-base/meta/decisions/mutation-ceremony-panel";
+import type { MutationAction } from "@/lib/zero-base/meta/mutation-ceremony";
 import { ZeroBasePortalHost } from "@/components/zero-base/portal/portal-host";
 import { buildDecisionsViewModel } from "@/lib/zero-base/meta/decisions-presentation";
 import {
@@ -41,9 +42,14 @@ const NOW = new Date("2026-08-11T12:00:00.000Z");
 
 function row(overrides: Partial<DecisionRow> = {}): DecisionRow {
   return {
-    id: "ad:ad-1",
+    // A served DISPLAY id, in the shape the engine actually produces. The
+    // panel must never send this to the preflight: `parseDecisionKey` refuses
+    // `structure-…` / `bid-…` outright with `decision_not_actionable`.
+    id: "structure-ad-1",
+    // The row's grain identity. This, and only this, is the decision key.
+    decisionKey: "ad:ad-1",
     // DecisionLevel has no "ad" member; an ad-grain decision is served at
-    // adset level with an ad-keyed id, which is what the preflight parses.
+    // adset level with an ad-keyed identity, which is what the preflight parses.
     level: "adset",
     title: "Ad 1",
     decision: "Scale up",
@@ -103,6 +109,7 @@ function readyPreflight(overrides: Partial<Extract<PreflightAnswer, { ok: true }
 function mount(
   seedOverrides: Partial<MutationCeremonySeed> = {},
   rowOverrides: Partial<DecisionRow> = {},
+  offeredActions?: readonly MutationAction[],
 ) {
   const preflight = vi.fn<MutationCeremonySeed["preflight"]>(
     async () => readyPreflight() as PreflightAnswer,
@@ -125,7 +132,11 @@ function mount(
   };
   render(
     <ZeroBasePortalHost>
-      <MutationCeremonyPanel row={row(rowOverrides)} seed={seed} />
+      <MutationCeremonyPanel
+        row={row(rowOverrides)}
+        seed={seed}
+        {...(offeredActions ? { offeredActions } : {})}
+      />
     </ZeroBasePortalHost>,
   );
   return { preflight, dispatch };
@@ -209,6 +220,39 @@ describe("posture refuses before anything is offered", () => {
     );
     expect(document.querySelectorAll("[data-mutation-action]").length).toBe(0);
   });
+
+  it("withholds every control from a row with no grain identity", async () => {
+    // An account-grain row, or one whose provider ids never resolved, has no
+    // decision-bound key. Drawing a control here would be drawing one whose
+    // only possible answer is `decision_not_actionable`.
+    const { preflight } = mount({}, { decisionKey: null });
+    expect(document.querySelector("[data-mutation-denied]")!.textContent).toMatch(
+      /does not name a single campaign or ad set/,
+    );
+    expect(document.querySelectorAll("[data-mutation-action]").length).toBe(0);
+    expect(preflight).not.toHaveBeenCalled();
+  });
+});
+
+/* ------------------------------------------------------ the offered verbs */
+
+describe("only the verbs the caller was given are drawn", () => {
+  it("draws exactly the server's own verb when the caller names one", () => {
+    // The Decision Center passes `[operatorApply.action]`. A campaign or ad-set
+    // card used to draw all four, so an operator was offered "duplicate" at a
+    // grain that has no endpoint and the route answers `unsupported_action`.
+    mount({}, {}, ["pause"]);
+    expect(document.querySelectorAll("[data-mutation-action]").length).toBe(1);
+    expect(document.querySelector('[data-mutation-action="pause"]')).not.toBeNull();
+    for (const absent of ["resume", "bid", "duplicate"]) {
+      expect(document.querySelector(`[data-mutation-action="${absent}"]`), absent).toBeNull();
+    }
+  });
+
+  it("draws nothing at all when the caller names no verb", () => {
+    mount({}, {}, []);
+    expect(document.querySelectorAll("[data-mutation-action]").length).toBe(0);
+  });
 });
 
 /* ------------------------------------------------------------ the ordering */
@@ -225,7 +269,22 @@ describe("the ordered state machine", () => {
       "businessId",
       "decisionKey",
     ]);
+    // The row's grain identity, NOT its display id ("structure-ad-1"). This is
+    // the law that changed: the panel used to send `row.id`, so every
+    // card-level Apply came back 422 `decision_not_actionable`.
     expect(preflight.mock.calls[0][0]).toMatchObject({ decisionKey: "ad:ad-1", action: "pause" });
+    expect(preflight.mock.calls[0][0].decisionKey).not.toBe("structure-ad-1");
+  });
+
+  it("sends the same decision-bound key at dispatch time as at the first check", async () => {
+    const { preflight, dispatch } = mount();
+    const user = userEvent.setup();
+    const dialog = await reachConfirm(user);
+    await user.click(within(dialog).getByRole("button", { name: "pause" }));
+
+    await waitFor(() => expect(dispatch).toHaveBeenCalled());
+    expect(preflight).toHaveBeenCalledTimes(2);
+    expect(preflight.mock.calls[1][0].decisionKey).toBe("ad:ad-1");
   });
 
   it("preflights before it ever offers a confirmation", async () => {

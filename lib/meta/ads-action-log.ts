@@ -29,6 +29,8 @@ import {
 export type MetaAdsActionKind =
   | "pause"
   | "resume"
+  /** An ad-set bid amount change. Never a status, never a budget. */
+  | "bid"
   | "duplicate"
   | "launch_campaign"
   | "launch_adset"
@@ -1672,6 +1674,52 @@ export async function createMetaAdsActionLog(
     occurredAt: new Date().toISOString(),
   });
   return claim;
+}
+
+/** Activation shares the manual/native ad-status entity lock; the provider runs after commit. */
+export async function createMetaLaunchActivationActionClaim(
+  input: CreateMetaAdsActionLogInput & { providerAccountId: string; launchIntentId: string },
+): Promise<
+  | { claimed: true; log: MetaAdsActionLogRow }
+  | { claimed: false; reason: "unresolved_prior_attempt" | "activation_already_consumed"; log: MetaAdsActionLogRow }
+> {
+  if (!input.businessId.trim() || !input.providerAccountId.trim() || !input.adId.trim()
+    || input.action !== "resume" || input.source !== "launch_activation_v1"
+    || !["campaign", "adset", "ad"].includes(String(input.payloadRequest?.scope_type))) {
+    throw new TypeError("Launch activation requires an exact entity-scoped resume claim.");
+  }
+  const result = await runDbTransaction(async () => {
+    const sql = getDb();
+    await sql.query(LOCK_META_AD_STATUS_ACTION_CLAIM_QUERY, [metaAdStatusActionClaimKey(input)]);
+    const unresolved = await findUnresolvedMetaAdStatusActionLog(input);
+    if (unresolved) return { claimed: false as const, reason: "unresolved_prior_attempt" as const, log: unresolved };
+
+    // A contender can carry an old PAUSED read even after the winner completed.
+    // Consume this intent's successful activation independently of that read.
+    const completed = (await sql`
+      SELECT * FROM meta_ads_action_log
+      WHERE business_id = ${input.businessId}
+        AND provider_account_id = ${input.providerAccountId}
+        AND ad_id = ${input.adId}
+        AND launch_intent_id = ${input.launchIntentId}
+        AND source = 'launch_activation_v1'
+        AND action = 'resume'
+        AND payload_request->>'scope_type' = ${String(input.payloadRequest?.scope_type)}
+        AND status = 'success'
+        AND NOT COALESCE(payload_request->>'dry_run' = 'true', dry_run, false)
+      ORDER BY requested_at DESC
+      LIMIT 1
+    `) as MetaAdsActionLogDbRow[];
+    if (completed[0]) return { claimed: false as const, reason: "activation_already_consumed" as const, log: mapActionLogRow(completed[0]) };
+    return { claimed: true as const, log: await insertMetaAdsActionLog(input) };
+  });
+  // Instrumentation is outside the claim transaction, as in the manual/native
+  // status claim. A best-effort sink failure cannot abort a durable claim.
+  if (result.claimed) await recordProductInstrumentationEvent({
+    businessId: input.businessId, scope: "business", eventName: "guarded_action_confirmed",
+    surface: "meta_decision_inspector", outcome: "ok", provider: "meta", occurredAt: new Date().toISOString(),
+  });
+  return result;
 }
 
 export const CREATE_DECISION_ORIGIN_META_ADS_ACTION_LOG_QUERY = `

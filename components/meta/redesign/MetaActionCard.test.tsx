@@ -215,7 +215,16 @@ describe("MetaActionCard lean decision row", () => {
       />,
     );
     expect(html).toContain('data-row-signal="blocker"');
-    expect(html).toContain("No Empirical Outcome Model");
+    /*
+      The row shows one blocker line, and it is no longer whichever research
+      condition happened to be pushed first. `no_empirical_outcome_model` and
+      its family are true of nearly every row and are conditions of our
+      methodology, not of these ads; they still travel in the readiness payload
+      and still render in the inspector. What the row says instead is the one
+      thing the operator can act on.
+    */
+    expect(html).toContain("Gathering evidence — apply it yourself");
+    expect(html).not.toContain("No Empirical Outcome Model");
     expect(html).toContain("data-row-warn-line");
     expect(html).toContain("Automation blocked");
     expect(html).not.toContain("data-automation-readiness");

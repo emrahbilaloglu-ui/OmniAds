@@ -1336,16 +1336,27 @@ describe("generalized PIT replay — freeze/verify (self-consistency + rederivat
     // Cleanup is proven, not assumed.
     expect(existsSync(attackDir)).toBe(false);
     /*
-      420s: the FIRST rederivation of the 44 MB package dominates this case —
-      the three attacks that follow reuse it. Measured 286.6s under the
-      2026-09-03 release-candidate gate (`--fileParallelism=false
-      --maxWorkers=1`, the entire suite serialized onto one worker rather
-      than this file's normal parallel slot); 180_000 was tuned against the
-      parallel-run cost and fired AFTER a complete, passing run. 420_000
-      keeps headroom above the serialized measurement without masking a
-      genuine hang.
+      120s. The FIRST rederivation of the 44 MB package still dominates this
+      case — the three attacks that follow reuse it through the verifier's
+      memo — but that rederivation is no longer quadratic. It used to answer
+      every one of the 108,556 (decision, horizon) outcome cells by scanning
+      all 89,433 frozen creative-day tuples, and rebuild each account's role
+      timeline by re-scanning every business's tuples once per evaluated day;
+      both now scan only the composite key's own bucket (see
+      `buildCreativeDayTupleIndex` / `buildAccountTupleIndex` in the runner —
+      narrowing only, with the identity guards intact, so the sums keep their
+      frozen ADDITION ORDER and the rederived hashes are byte-identical).
+
+      Measured on this case: 295.7s -> 7.4s standalone, and 27.1s inside a
+      complete `npx vitest run` (1263 files, 11-way pool) — the run it used
+      to time out in. The bound was 420_000, tuned against the 286.6s the
+      quadratic version cost under the serialized 2026-09-03 gate; with the
+      real cost gone that headroom would only hide a regression. 120_000
+      matches the two other artifact-sized cases in this file and still
+      leaves ~4x margin over the loaded measurement, so a genuine hang fails
+      fast.
     */
-  }, 420_000);
+  }, 120_000);
 
   it("the honest boundary is declared: attested raw evidence is not offline-verifiable and the contract says so", () => {
     const artifact = assembledFixture();
@@ -1764,7 +1775,8 @@ describe("generalized PIT replay — UI truth on REAL frozen replay states", () 
 
   The evidence artifact records the SHA-256 of every source file it was frozen
   against. Four days of D079/D081/D084 and campaign-role-removal work have
-  moved seven of those eighteen files, so the frozen package no longer
+  moved seven of those eighteen files — and the 2026-09-06 account-scoping
+  correction has moved an eighth — so the frozen package no longer
   describes the engine on disk — a true and important fact that must be stated
   rather than discovered as an unrelated assertion failure.
 
@@ -1790,6 +1802,19 @@ describe("generalized PIT replay — frozen package drift ledger", () => {
     // Pre-deploy audit: the upsert conflict target moved to the legacy key so
     // the migration stays survivable by the previous application image.
     "lib/creative-decision-engine/jobs/campaign-context-job.ts",
+    /*
+      Meta operator readiness, 2026-09-06: the account-scoped measured evidence
+      correction. `getAccountCalibration` and its funnel twin read the pooled
+      `account/*` scope for a verdict keyed on ONE provider account, so a
+      sibling account's samples moved this account's retained profile identity
+      and could supply calibration it had no evidence for. The readers now take
+      an optional providerAccountId threaded into both the precomputed lookup
+      and the runtime SQL. The replay's own inputs are unchanged — the pooled
+      scope still answers an unscoped call byte for byte — but the file's hash
+      has moved and this ledger records that rather than letting it surface as
+      an unrelated assertion failure.
+    */
+    "lib/creative-decision-engine/data-source.ts",
     // The runner and its own test, edited alongside the work above.
     "scripts/creative-decision-center/generalized-pit-replay.ts",
     "scripts/creative-decision-center/generalized-pit-replay.test.ts",

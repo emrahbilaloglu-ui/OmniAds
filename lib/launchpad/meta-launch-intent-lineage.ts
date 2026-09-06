@@ -194,3 +194,123 @@ export async function verifyMetaLaunchIntentLineage(input: {
 
   return lineage;
 }
+
+/** Every way the check below can say the staged approval no longer stands. */
+export type MetaLaunchIntentApprovalWithdrawalCode =
+  | MetaLaunchIntentLineageError["code"]
+  | "launch_approval_source_unreadable";
+
+export type MetaLaunchIntentApprovalStanding =
+  | { stands: true }
+  | {
+      stands: false;
+      code: MetaLaunchIntentApprovalWithdrawalCode;
+      message: string;
+    };
+
+/**
+ * Does the approval this intent was staged under STILL stand?
+ *
+ * `verifyMetaLaunchIntentLineage` runs once, inside `createMetaLaunchIntent`.
+ * After that the intent stores the brief's ID, and an ID does not change when
+ * the brief behind it does: `patchMetaCreativeBrief` writes whatever status the
+ * patch states and forces `draft` on any content edit that states none, while
+ * every immutability check on the way to a create — account, operation,
+ * idempotency key, request fingerprint, the four lineage ids — still matches
+ * afterwards. So a review withdrawn between the staging and the provider POST
+ * was not seen by anything.
+ *
+ * This asks the original question again, of the CURRENT rows, and it asks it
+ * through the same function that asked it the first time rather than a second
+ * copy of the rule.
+ *
+ * ## Which of those refusals can really answer "withdrawn"
+ *
+ * `verifyMetaLaunchIntentLineage` can raise six codes, but for an intent that
+ * is already STORED only one of them is reachable, and claiming the guard
+ * covers "exactly what counted as not approvable at creation" overstated it:
+ *
+ * - `creative_brief_not_reviewed` is the live one. It is what an explicit
+ *   revert to `draft` produces, and what a content edit that states no status
+ *   produces — the shipped UPDATE forces `draft` in that second case. An edit
+ *   that re-states `reviewed` deliberately does NOT produce it.
+ * - `creative_brief_not_found` and `source_draft_not_found` cannot happen while
+ *   the intent exists: `meta_launch_intents.creative_brief_id` and
+ *   `.source_draft_id` are both `REFERENCES … ON DELETE RESTRICT`, so neither
+ *   row can be deleted out from under a binding intent.
+ * - `source_decision_mismatch` cannot happen to a brief-bound intent either.
+ *   A brief's `source_decision_id` / `source_snapshot_id` are written only by
+ *   the INSERT in `creative-brief-store.ts`; its single UPDATE never touches
+ *   them, and `parsePatchMetaCreativeBriefRequest` refuses any patch that so
+ *   much as names `sourceDecision` (`source_decision_immutable`).
+ *
+ * The unreachable three stay coded, and stay covered, as defence in depth: this
+ * function is the guard, not the schema, and a later migration that relaxed one
+ * of those constraints must find the question already being asked rather than
+ * find this read silently unable to answer it.
+ *
+ * An edit that leaves the brief `reviewed` and its source decision unchanged is
+ * NOT a withdrawal: nothing here reads the brief's text, its version or its
+ * review timestamp, so re-reviewing an edited brief keeps the launch runnable.
+ *
+ * ## The intents that bind no brief
+ *
+ * An intent binding neither a brief nor a decision snapshot was composed and
+ * confirmed on the Launchpad screen. Its authority is the operator confirmation
+ * stored inside its own request payload, and that payload still hashing to
+ * `request_fingerprint` — which the callers re-check for themselves — is what
+ * proves the confirmation was not swapped for another. There is no staged
+ * approval for a later edit to withdraw, so it is answered without a read.
+ *
+ * An intent binding a DECISION SNAPSHOT and no brief is a different thing, and
+ * it used to take the same exemption. `createMetaLaunchIntent` accepts that
+ * shape, `READY_LAUNCH_INTENT_SQL` makes it queue-eligible, and the approval it
+ * was staged under is the decision snapshot itself — so it is asked the same
+ * question as everything else, which is what makes `source_decision_not_found`
+ * and the snapshot arm of `source_decision_mismatch` reachable codes rather
+ * than advertised ones. The exemption was safe only because the sole writer of
+ * decision lineage today happens to join a brief; safe by accident is not safe.
+ *
+ * The key is the SOURCES that can be re-resolved — a brief, or a snapshot — and
+ * that is exact rather than lenient. A lineage naming a decision but no
+ * snapshot is not a third case to answer for: `createMetaLaunchIntent` runs
+ * `verifyMetaLaunchIntentLineage` before it inserts and refuses that shape with
+ * `source_decision_snapshot_required`, so no stored intent carries it, and the
+ * code stays coded for the same defence-in-depth reason as the three above.
+ *
+ * A read that fails is not "unchanged". It returns `launch_approval_source_unreadable`,
+ * because an approval nobody can read is not an approval anything may write under.
+ */
+export async function readMetaLaunchIntentApprovalStanding(input: {
+  businessId: string;
+  providerAccountId: string;
+  lineage: MetaLaunchIntentLineage;
+}): Promise<MetaLaunchIntentApprovalStanding> {
+  if (
+    !input.lineage.creativeBriefId
+    && !input.lineage.sourceDecisionSnapshotId
+  ) {
+    return { stands: true };
+  }
+  try {
+    await verifyMetaLaunchIntentLineage({
+      businessId: input.businessId,
+      providerAccountId: input.providerAccountId,
+      sourceDecisionId: input.lineage.sourceDecisionId,
+      sourceDecisionSnapshotId: input.lineage.sourceDecisionSnapshotId,
+      creativeBriefId: input.lineage.creativeBriefId,
+      sourceDraftId: input.lineage.sourceDraftId,
+    });
+    return { stands: true };
+  } catch (error) {
+    if (error instanceof MetaLaunchIntentLineageError) {
+      return { stands: false, code: error.code, message: error.message };
+    }
+    return {
+      stands: false,
+      code: "launch_approval_source_unreadable",
+      message:
+        "The approval this launch was staged under could not be read, so nothing was created on Meta.",
+    };
+  }
+}

@@ -1,6 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  Fragment,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -93,7 +100,10 @@ import { formatCurrency } from "@/lib/briefing/utils";
 import { emitProductInstrumentation } from "@/lib/product-instrumentation-client";
 import { useTierZeroFreshness } from "@/components/states/useTierZeroFreshness";
 import { measuredAsOf } from "@/lib/tier-zero-as-of";
-import { MutationCeremonyPanel } from "@/components/zero-base/meta/decisions/mutation-ceremony-panel";
+import {
+  MutationCeremonyPanel,
+  type MutationCeremonySeed,
+} from "@/components/zero-base/meta/decisions/mutation-ceremony-panel";
 import { buildMutationCeremonySeed } from "@/components/zero-base/meta/decisions/mutation-ceremony-seed";
 import { toDecisionRow } from "@/lib/zero-base/meta/decisions-presentation";
 import {
@@ -841,7 +851,21 @@ export function metaActionFailureMessage(
 ) {
   const record = actionPayloadRecord(payload);
   const error = actionPayloadRecord(record?.error);
-  if (error?.code === "kill_switch_engaged") {
+  /*
+    The server now names which posture refused, so this must stop reading every
+    503 as a kill switch. An operator who has engaged no STOP was being told one
+    was engaged.
+  */
+  if (
+    error?.code === "release_capability_closed"
+    || error?.reason === "release_capability_closed"
+  ) {
+    return "Live Meta writes are not enabled in this environment, so nothing was sent.";
+  }
+  if (
+    error?.code === "kill_switch_engaged"
+    && error?.reason !== "release_capability_closed"
+  ) {
     return "Meta writes are temporarily disabled (kill switch). Try again later.";
   }
   if (typeof record?.message === "string" && record.message.trim()) {
@@ -1189,6 +1213,7 @@ function MetaMobileEvidenceScreen({
   targetRoas,
   moneyCurrency,
   onBack,
+  ceremony,
 }: {
   item: MetaDrillItem;
   /**
@@ -1201,6 +1226,12 @@ function MetaMobileEvidenceScreen({
   targetRoas: number | null | undefined;
   moneyCurrency: string | null | undefined;
   onBack: () => void;
+  /**
+   * The open manual action sheet, when this drilled row is the one it belongs
+   * to. The control that opens it is `inspector.manualAction` — the SAME
+   * object the desktop inspector renders, composed once by the page.
+   */
+  ceremony?: ReactNode;
 }) {
   if (item.mode === "anomaly") {
     const citationItems = item.anomaly.diagnostics
@@ -1247,7 +1278,8 @@ function MetaMobileEvidenceScreen({
             </p>
             <MetaMobileCitationList items={citationItems} />
             <div className="ad-mobile-desktop-note">
-              Act on desktop — this device is read-only by design.
+              An anomaly is a condition, not a change to apply: it carries no
+              operator verb on either surface.
             </div>
           </div>
         </div>
@@ -1344,8 +1376,49 @@ function MetaMobileEvidenceScreen({
               <div>{mobileDisplay(inspector.provenance)}</div>
             </section>
           ) : null}
+          {/*
+            The manual action, from the inspector object the DESKTOP renders.
+
+            Not a second control: `inspector.manualAction` is composed once by
+            the page from the served `operatorApply`, the decision-bound key,
+            the viewer, the STOP and the mutation gate, and the desktop
+            inspector draws this exact object. It is present-and-refusing for
+            the same reason there: the reason must not leave with the control.
+          */}
+          {inspector?.manualAction ? (
+            <div
+              className="ad-mobile-manual-action"
+              data-mobile-manual-action={rec.id}
+            >
+              <button
+                aria-disabled={
+                  inspector.manualAction.refusalReason ? true : undefined
+                }
+                data-mobile-apply={rec.id}
+                data-surface="mobile"
+                onClick={
+                  inspector.manualAction.refusalReason
+                    ? undefined
+                    : inspector.manualAction.onOpen
+                }
+                type="button"
+              >
+                {/* Same fallback the desktop inspector applies. */}
+                {mobileDisplay(inspector.manualAction.label) === "—"
+                  ? "Open manual action"
+                  : mobileDisplay(inspector.manualAction.label)}
+              </button>
+            </div>
+          ) : null}
+          {inspector?.manualAction?.refusalReason ? (
+            <p data-mobile-apply-refusal={rec.id} data-tone="caution">
+              {inspector.manualAction.refusalReason}
+            </p>
+          ) : null}
+          {ceremony}
           <div className="ad-mobile-desktop-note">
-            Act on desktop — this device is read-only by design.
+            The engine's own routed action stays on the desktop pane; the
+            operator verb above applies here, through the same server ceremony.
           </div>
         </div>
       </div>
@@ -1370,6 +1443,27 @@ function mobileToneAttr(
   return "caution";
 }
 
+/**
+ * The operator's own manual write, offered where a served row names one.
+ *
+ * Byte-for-byte the shape the desktop inspector already carries
+ * (`MetaDecisionCenterExactViewModel["inspector"]["manualAction"]`), because it
+ * is the SAME affordance reached from a different place. Present-and-refusing
+ * rather than absent: a control that disappears takes its reason with it, and
+ * the surface then reads as a product with no manual path at all.
+ *
+ * It is not the engine's authority. `actionLabel` above stays exactly what the
+ * engine said and still routes where it always routed; this is
+ * `manual_operator_v1` — the concrete verb the server stamped in
+ * `operatorApply`, executed through the same ceremony, the same preflight, the
+ * same typed confirmation and the same server-named endpoint the desktop uses.
+ */
+interface MetaMobileManualAction {
+  label: string;
+  refusalReason: string | null;
+  onOpen?: () => void;
+}
+
 interface MetaMobileQueueRowModel {
   id: string;
   name: MetaDecisionCenterExactDisplayValue;
@@ -1392,6 +1486,8 @@ interface MetaMobileQueueRowModel {
   chips?: readonly MetaDecisionCenterExactDisplayValue[];
   actionLabel?: MetaDecisionCenterExactDisplayValue;
   onOpen?: () => void;
+  /** Absent when the server named no operator verb for this row. */
+  manualAction?: MetaMobileManualAction;
 }
 
 /**
@@ -1403,6 +1499,29 @@ interface MetaMobileQueueRowModel {
  * mobile could report "2" where the same payload gave the desktop 60.
  */
 function mobileQueueRows(
+  viewModel: MetaDecisionCenterExactViewModel,
+  scope: MetaDecisionCenterExactScope,
+  lane: MetaLaneView,
+  /**
+   * The operator's manual write for one row id, or `undefined` when the server
+   * named no verb for it.
+   *
+   * Injected rather than derived here: the answer is a page-level fact — the
+   * served `operatorApply`, the decision-bound key, the viewer, the STOP and
+   * the mutation gate — and re-deriving any of it inside a presentation helper
+   * would be a second opinion about who may write.
+   */
+  manualActionFor?: (rowId: string) => MetaMobileManualAction | undefined,
+): MetaMobileQueueRowModel[] {
+  const rows = mobileQueueRowsForLane(viewModel, scope, lane);
+  if (!manualActionFor) return rows;
+  return rows.map((row) => {
+    const manualAction = manualActionFor(row.id);
+    return manualAction ? { ...row, manualAction } : row;
+  });
+}
+
+function mobileQueueRowsForLane(
   viewModel: MetaDecisionCenterExactViewModel,
   scope: MetaDecisionCenterExactScope,
   lane: MetaLaneView,
@@ -1707,8 +1826,13 @@ function MetaMobileCreativeEvidenceScreen({
             </details>
           ) : null}
           <div className="ad-mobile-desktop-note">
-            {mobileDisplay(viewModel.provenance)} · Act on desktop — this device
-            is read-only by design.
+            {/*
+              Creative-grain writes are the native ad path, which this surface
+              does not project. Stated as the specific absence it is, rather
+              than as a device-wide law the Decisions rows no longer follow.
+            */}
+            {mobileDisplay(viewModel.provenance)} · Creative writes are not
+            offered on this device; this screen is the complete evidence.
           </div>
         </div>
       </div>
@@ -1721,9 +1845,18 @@ function MetaMobileCreativeEvidenceScreen({
  * desktop renders.
  *
  * It carries the server's own decision label, money line, chips and action
- * caption, and exactly one control: open evidence. The action caption is TEXT,
- * never a button — writes are desktop-only, and that law is enforced here by
- * never wiring `onPrimary`, not by hiding a disabled control.
+ * caption. The action caption stays TEXT and still says `· desktop`, because
+ * it is the ENGINE's routed action — a review handoff whose destination
+ * (Launchpad, the evidence drawer) is drawn on the desktop pane only, and that
+ * has not changed. `onPrimary` is still never wired here.
+ *
+ * What did change is the operator's own authority. When the server stamped a
+ * concrete verb on this row (`operatorApply`), the card offers the SAME manual
+ * action sheet the desktop offers, under the same `manual_operator_v1`
+ * authority, the same server preflight and the same typed confirmation. The
+ * control is present and refusing when a gate is shut, so a reviewer, a guest
+ * or an engaged STOP reads the reason on the card instead of finding a surface
+ * that silently offers nothing.
  */
 function MetaMobileQueueRow({
   id,
@@ -1739,6 +1872,7 @@ function MetaMobileQueueRow({
   chips,
   actionLabel,
   onOpen,
+  manualAction,
 }: {
   id: string;
   name: MetaDecisionCenterExactDisplayValue;
@@ -1753,6 +1887,7 @@ function MetaMobileQueueRow({
   chips?: readonly MetaDecisionCenterExactDisplayValue[];
   actionLabel?: MetaDecisionCenterExactDisplayValue;
   onOpen?: () => void;
+  manualAction?: MetaMobileManualAction;
 }) {
   const moneyLine = [mobileDisplay(money), mobileDisplay(moneySub)]
     .filter((value) => value !== "—")
@@ -1798,6 +1933,31 @@ function MetaMobileQueueRow({
           </button>
         ) : null}
       </div>
+      {manualAction ? (
+        /*
+          `aria-disabled`, never `disabled`: a refused control that leaves the
+          tab order takes its reason out of reach of the operator who most
+          needs it. Same choice the automation pane's STOP trigger makes.
+        */
+        <div className="ad-mobile-manual-action" data-mobile-manual-action={id}>
+          <button
+            aria-disabled={manualAction.refusalReason ? true : undefined}
+            data-mobile-apply={id}
+            data-surface="mobile"
+            onClick={
+              manualAction.refusalReason ? undefined : manualAction.onOpen
+            }
+            type="button"
+          >
+            {manualAction.label}
+          </button>
+        </div>
+      ) : null}
+      {manualAction?.refusalReason ? (
+        <p data-mobile-apply-refusal={id} data-tone="caution">
+          {manualAction.refusalReason}
+        </p>
+      ) : null}
     </article>
   );
 }
@@ -1872,9 +2032,7 @@ function MetaMobileAuthorityPanel({ posture }: { posture: MetaMobilePosture }) {
       <b>Viewer authority</b>
       <div>
         role {posture.viewerRole ?? "—"} ·{" "}
-        {posture.viewerReadOnlyReason
-          ? "read-only"
-          : "write-capable on desktop"}
+        {posture.viewerReadOnlyReason ? "read-only" : "write-capable"}
       </div>
       {posture.viewerReadOnlyReason ? (
         <div>{posture.viewerReadOnlyReason}</div>
@@ -1882,9 +2040,21 @@ function MetaMobileAuthorityPanel({ posture }: { posture: MetaMobilePosture }) {
       {posture.killSwitchReason ? (
         <div>kill switch: {posture.killSwitchReason}</div>
       ) : null}
+      {/*
+        The law, as it now stands.
+
+        This used to read "This device is read-only by design: it shows every
+        decision the desktop shows and executes none of them." That was true of
+        the surface and false of the product: the same operator, the same
+        authority and the same server ceremony were one viewport away, so a
+        buyer holding a phone was told to go and find a desktop. The sentence
+        follows the behaviour — a read-only viewer still reads a read-only
+        sentence, because for them nothing changed.
+      */}
       <div>
-        This device is read-only by design: it shows every decision the desktop
-        shows and executes none of them.
+        {posture.viewerReadOnlyReason
+          ? "This device shows every decision the desktop shows and executes none of them."
+          : "This device shows every decision the desktop shows, and applies the ones that name a change through the same server ceremony the desktop uses: manual_operator_v1, a typed confirmation, a re-checked target and a durable receipt."}
       </div>
     </section>
   );
@@ -1929,6 +2099,69 @@ function MetaMobileWithheldPanel({ posture }: { posture: MetaMobilePosture }) {
 }
 
 /**
+ * The manual write ceremony, on whichever surface the operator is on.
+ *
+ * Extracted so desktop and mobile are two RENDERS of one truth rather than two
+ * implementations of it — the same law the automation pane's `MetaStopControl`
+ * follows. Every piece of authority it needs still lives in `MetaPlatformPage`
+ * and is passed down: one `manualCeremonyRec`, one server-built seed, one
+ * `offeredActions` list taken from the server's own `operatorApply`. A second
+ * seed here would be a second answer to "what is a withheld preflight", and the
+ * disagreement would be about whether a provider write happened.
+ *
+ * `surface` decides two things and nothing else: which DOM id this render
+ * carries, and which surface the markers name. Both panes are in the DOM at
+ * every width — only CSS hides one — so an unsuffixed id would be a real
+ * duplicate, exactly as `anchorId="automatic-execution-control-mobile"` avoids
+ * on the automation pane.
+ */
+function MetaManualCeremonySheet({
+  surface,
+  rec,
+  seed,
+  onClose,
+}: {
+  surface: "desktop" | "mobile";
+  rec: MetaRecommendation;
+  seed: MutationCeremonySeed;
+  onClose: () => void;
+}) {
+  return (
+    <div
+      aria-label="Manual action"
+      className={
+        surface === "mobile"
+          ? "meta-manual-ceremony meta-manual-ceremony--mobile"
+          : "meta-manual-ceremony"
+      }
+      data-meta-manual-ceremony={rec.id}
+      data-surface={surface}
+      id={
+        surface === "mobile"
+          ? "meta-manual-ceremony-mobile"
+          : "meta-manual-ceremony"
+      }
+      role="dialog"
+    >
+      <button onClick={onClose} type="button">
+        Close manual action
+      </button>
+      <MutationCeremonyPanel
+        row={toDecisionRow(rec)}
+        /*
+          Exactly the verb `serverOperatorApplyForRec` named, never the panel's
+          own default four: a campaign or ad-set card used to offer "duplicate",
+          which has no endpoint at that grain and the route answers
+          `unsupported_action`.
+        */
+        offeredActions={rec.operatorApply ? [rec.operatorApply.action] : []}
+        seed={seed}
+      />
+    </div>
+  );
+}
+
+/**
  * The mobile Decision surface.
  *
  * WHAT CHANGED AND WHY: this used to render its own reduced truth — legacy
@@ -1962,6 +2195,9 @@ function MetaMobileDecisionsScreen({
   loadingMoreCreatives,
   nextCreativeLimit,
   onLoadMoreCreatives,
+  manualActionFor,
+  ceremonyRowId,
+  ceremony,
 }: {
   businessName?: string | null;
   viewModel: MetaDecisionCenterExactViewModel;
@@ -1984,13 +2220,25 @@ function MetaMobileDecisionsScreen({
   loadingMoreCreatives: boolean;
   nextCreativeLimit: number;
   onLoadMoreCreatives: () => void;
+  /**
+   * The operator's manual write for one row id, resolved by the page.
+   *
+   * Not a mobile-only capability: it is the same `operatorApply` verb, the
+   * same decision-bound key and the same gates the desktop card and the
+   * desktop inspector read, handed down so this surface can render them
+   * instead of asserting that they do not exist here.
+   */
+  manualActionFor?: (rowId: string) => MetaMobileManualAction | undefined;
+  /** The row whose ceremony is open, so the sheet renders beside its card. */
+  ceremonyRowId?: string | null;
+  ceremony?: ReactNode;
 }) {
   const [inventoryOpen, setInventoryOpen] = useState(false);
   const counts = viewModel.counts ?? {};
   const creativeLaneCounts = viewModel.operatorSummary?.scopeCounts?.creatives;
   const identity = viewModel.identity ?? {};
   const actCount = loading || error ? "—" : mobileDisplay(counts.action);
-  const rows = mobileQueueRows(viewModel, scope, lane);
+  const rows = mobileQueueRows(viewModel, scope, lane, manualActionFor);
   if (loading || error) {
     return (
       <section
@@ -2138,8 +2386,8 @@ function MetaMobileDecisionsScreen({
             <article className="ad-mobile-anomaly" data-tone="info">
               <b>No active anomaly.</b>
               <div>
-                Rows still open evidence on mobile; execution stays
-                desktop-only.
+                Rows still open evidence, and the ones naming a change still
+                offer the manual action sheet.
               </div>
             </article>
           ) : (
@@ -2152,8 +2400,13 @@ function MetaMobileDecisionsScreen({
               >
                 <b>Anomaly:</b> {anomaly.title}
                 <div>
-                  detected {mobileTimestamp(anomaly.detectedAt)} · read evidence
-                  on mobile, act on desktop
+                  {/*
+                    An anomaly is a condition, not a change to apply: it carries
+                    no `operatorApply` on either surface, so the caption names
+                    the read rather than a device.
+                  */}
+                  detected {mobileTimestamp(anomaly.detectedAt)} · read the
+                  evidence
                 </div>
               </button>
             ))
@@ -2234,7 +2487,16 @@ function MetaMobileDecisionsScreen({
           )}
 
           {rows.map((row) => (
-            <MetaMobileQueueRow key={row.id} {...row} />
+            <Fragment key={row.id}>
+              <MetaMobileQueueRow {...row} />
+              {/*
+                The ceremony, beside the card that opened it. One sheet, one
+                open row: the page owns `manualCeremonyRec`, so pressing the
+                control on a second card moves this sheet rather than opening
+                a second one.
+              */}
+              {ceremony && ceremonyRowId === row.id ? ceremony : null}
+            </Fragment>
           ))}
 
           {scope === "creatives" && canLoadMoreCreatives ? (
@@ -2324,8 +2586,10 @@ function MetaMobileDecisionsScreen({
           <MetaMobileWithheldPanel posture={posture} />
 
           <div className="ad-mobile-desktop-note">
-            Writes are desktop-only — rows here open evidence, never a pause
-            button. Hit targets ≥44px.
+            Rows here open evidence, and a decision that names a change carries
+            the same manual action sheet the desktop carries — the server
+            re-proves the target, the STOP and the current entity state before
+            anything is sent. Hit targets ≥44px.
           </div>
         </div>
       </div>
@@ -4688,6 +4952,25 @@ export function MetaPlatformPage({
       openOverlayForRec(rec, mode);
       return;
     }
+    /*
+      The operator's own authority, offered where the engine withholds its.
+
+      A campaign or ad-set row carries no decision-origin execution contract, so
+      the served action stays `review`. That is the engine speaking about
+      itself, and it used to be the end of the road: the primary control said
+      "Recommendation is review-only" and a buyer reading "pause this ad set"
+      had to leave for Ads Manager to do it.
+
+      When the server named a concrete verb (`operatorApply`) the ceremony is
+      opened instead. It is a different authority, not a promotion of this one:
+      `manual_operator_v1`, a typed confirmation, and a server that re-proves
+      the target, the capability, the rehearsal posture, the STOP and the
+      current entity state before it POSTs anything.
+    */
+    if (rec.operatorApply && mutationUiEnabled && toDecisionRow(rec).decisionKey !== null) {
+      setManualCeremonyRec(rec);
+      return;
+    }
     setNotice({
       tone: "info",
       title: "Recommendation is review-only.",
@@ -5171,34 +5454,75 @@ export function MetaPlatformPage({
         },
       })
     : null;
+  /*
+   * Whether the drilled row can reach the ceremony at all.
+   *
+   * Both conditions come from the server: `operatorApply` is the verb it named,
+   * and the decision-bound key is the row's own grain identity. Without either
+   * one the sheet could only preflight a key `parseDecisionKey` refuses, so it
+   * is withheld with a stated reason rather than opened onto a certain 422.
+   */
+  const drillRec = drillItem && drillItem.mode !== "anomaly" ? drillItem.rec : null;
   /**
    * The manual action sheet's posture for the selected row.
    *
-   * Two independent refusals, and the more specific one wins: a reviewer or a
-   * read-only workspace is told about THEM, and only then is the gate reported.
+   * Independent refusals, and the more specific one wins: a reviewer or a
+   * read-only workspace is told about THEM, then the gate, and only then what
+   * this particular row does or does not authorize.
    * Absent entirely when nothing is selected — there is no row to act on.
    */
+  /**
+   * The manual action sheet's posture for ONE row, wherever it is asked about.
+   *
+   * The inspector asked this inline and the mobile stage did not ask it at all,
+   * which is how one surface came to claim writes were desktop-only while the
+   * other opened the ceremony from the same served row. One function now
+   * answers for every caller: the desktop inspector, the mobile evidence screen
+   * and every mobile card. Nothing is re-derived — `operatorApply` is the verb
+   * the server stamped, `decisionKey` is the row's own grain identity, and the
+   * three gates are the workspace's own.
+   *
+   * `null` in, `null` out is deliberate: with no row selected there is nothing
+   * to be refused ABOUT.
+   */
+  const manualActionForRec = (
+    rec: MetaRecommendation | null,
+  ): NonNullable<
+    NonNullable<MetaDecisionCenterExactViewModel["inspector"]>["manualAction"]
+  > => {
+    const operatorApply = rec?.operatorApply ?? null;
+    const decisionKey = rec ? toDecisionRow(rec).decisionKey : null;
+    const killSwitchEngaged = Boolean(
+      workspaceQuery.data?.system.killSwitchEngaged,
+    );
+    return {
+      label: "Open manual action",
+      refusalReason: isViewerReadOnly
+        ? viewerReadOnlyReason
+        : killSwitchEngaged
+          ? "Meta writes are stopped for this workspace, so no manual action can be prepared."
+          : !mutationUiEnabled
+            ? "The manual action sheet is not enabled on this workspace yet. The decision and its evidence are shown above."
+            : rec && !operatorApply
+              ? "This decision names no change to apply, so no manual action can be prepared. The decision and its evidence are shown above."
+              : rec && decisionKey === null
+                ? "This decision does not name a single campaign or ad set, so no manual action can be prepared."
+                : null,
+      onOpen:
+        mutationUiEnabled &&
+        !isViewerReadOnly &&
+        !killSwitchEngaged &&
+        rec !== null &&
+        operatorApply !== null &&
+        decisionKey !== null
+          ? () => setManualCeremonyRec(rec)
+          : undefined,
+    };
+  };
   const inspectorManualAction: NonNullable<
     MetaDecisionCenterExactViewModel["inspector"]
   >["manualAction"] = selectedDecisionKey
-    ? {
-        label: "Open manual action",
-        refusalReason: isViewerReadOnly
-          ? viewerReadOnlyReason
-          : workspaceQuery.data?.system.killSwitchEngaged
-            ? "Meta writes are stopped for this workspace, so no manual action can be prepared."
-            : !mutationUiEnabled
-              ? "The manual action sheet is not enabled on this workspace yet. The decision and its evidence are shown above."
-              : null,
-        onOpen:
-          mutationUiEnabled &&
-          !isViewerReadOnly &&
-          !workspaceQuery.data?.system.killSwitchEngaged &&
-          drillItem &&
-          drillItem.mode !== "anomaly"
-            ? () => setManualCeremonyRec(drillItem.rec)
-            : undefined,
-      }
+    ? manualActionForRec(drillRec)
     : null;
   /*
    * The per-row ownership chip, attached after the adapter has built the rows.
@@ -5246,6 +5570,87 @@ export function MetaPlatformPage({
     workspace: workspaceQuery.data,
     viewerReadOnlyReason,
   });
+  /**
+   * The way back from a served row id to the recommendation the server stamped.
+   *
+   * The mobile stage renders presentation rows, and a presentation row carries
+   * no `operatorApply`. These are the same three arrays `servedDecisionKeys`
+   * reads, which is what makes the lookup total over every structure lane the
+   * adapter projects: Action, Needs Resolution, Watching and Non-sales are all
+   * splits of these, by the OS lane the server assigned.
+   */
+  const servedRecsById = new Map<string, MetaRecommendation>();
+  for (const recommendation of [
+    ...exactActionRows,
+    ...exactWatchingRows,
+    ...exactNonSalesRows,
+  ]) {
+    servedRecsById.set(recommendation.id, recommendation);
+  }
+  /**
+   * The manual action a mobile card offers, or nothing at all.
+   *
+   * `undefined` when the server named no verb for the row: there is no
+   * capability to refuse, and a disabled control on every one of sixty rows
+   * would be noise, not a reason. When it did name one, the control is drawn
+   * with the server's own token in the label and the shared posture behind it —
+   * so a reviewer, a guest or an engaged STOP gets the control and the reason,
+   * not silence.
+   */
+  const mobileManualActionFor = (
+    rowId: string,
+  ): MetaMobileManualAction | undefined => {
+    const recommendation = servedRecsById.get(rowId);
+    const operatorApply = recommendation?.operatorApply ?? null;
+    if (!recommendation || !operatorApply) return undefined;
+    return {
+      ...manualActionForRec(recommendation),
+      // The server's own verb, verbatim. Nothing here renames a write.
+      label: `Apply · ${operatorApply.action}`,
+    };
+  };
+  /**
+   * The ceremony's server bindings, built ONCE for both renders.
+   *
+   * Two seeds would be two answers to "what is a withheld preflight" and "what
+   * is an unnamed dispatch outcome", and the disagreement would be about
+   * whether a provider write happened. Absent unless the server-read gate is
+   * open, so on a shipped workspace neither pane constructs it and no request
+   * it could make is ever issued.
+   */
+  const manualCeremonySeed =
+    manualCeremonyRec && mutationUiEnabled
+      ? buildMutationCeremonySeed({
+          businessId,
+          viewer: {
+            // The served viewer, forwarded. The panel refuses on its own
+            // authority as well; this is what it refuses ABOUT.
+            isReviewer: workspaceQuery.data?.viewer?.isReviewer ?? false,
+            /*
+             * A demo workspace is a property of the BUSINESS, not of the
+             * served viewer envelope — which carries `isReviewer` and
+             * `readOnly` and nothing about demo. The payload's own evidence
+             * source is where the product records it, and a false here would
+             * be a claim rather than a reading, so the served token decides.
+             */
+            demo: pulseQuery.data?.dataReadiness?.evidenceSource === "demo",
+            role: workspaceQuery.data?.viewer?.role ?? null,
+          },
+          newMutationId: () =>
+            typeof crypto !== "undefined" && "randomUUID" in crypto
+              ? crypto.randomUUID()
+              : `${manualCeremonyRec.id}:${Date.now()}`,
+        })
+      : null;
+  const manualCeremonySheetFor = (surface: "desktop" | "mobile") =>
+    manualCeremonyRec && manualCeremonySeed ? (
+      <MetaManualCeremonySheet
+        onClose={() => setManualCeremonyRec(null)}
+        rec={manualCeremonyRec}
+        seed={manualCeremonySeed}
+        surface={surface}
+      />
+    ) : null;
 
   /**
    * The server's verdict on this decision's Launchpad route, taken once.
@@ -5450,6 +5855,17 @@ export function MetaPlatformPage({
           targetRoas={targetRoas}
           moneyCurrency={moneyCurrency}
           onBack={() => setDrillItem(null)}
+          /*
+            The evidence screen and the queue screen are mutually exclusive, so
+            one mobile surface id can never be in the DOM twice.
+          */
+          ceremony={
+            manualCeremonyRec &&
+            drillItem.mode !== "anomaly" &&
+            manualCeremonyRec.id === drillItem.rec.id
+              ? manualCeremonySheetFor("mobile")
+              : null
+          }
         />
       ) : (
         <MetaMobileDecisionsScreen
@@ -5476,6 +5892,9 @@ export function MetaPlatformPage({
           onOpenAnomaly={(anomaly) =>
             setDrillItem({ mode: "anomaly", anomaly })
           }
+          manualActionFor={mobileManualActionFor}
+          ceremonyRowId={manualCeremonyRec?.id ?? null}
+          ceremony={manualCeremonySheetFor("mobile")}
         />
       )}
 
@@ -5751,55 +6170,16 @@ export function MetaPlatformPage({
           />
         ) : null}
         {/*
-          The manual action sheet.
+          The manual action sheet, desktop render.
 
           Mounted only when the operator asked for it AND the server-read gate
           is open: `ZERO_BASE_MUTATION_UI_ENABLED` defaults off, so on a shipped
           workspace this is never constructed and no request it could make is
-          ever issued. The row is mapped through the same `toDecisionRow` the
-          ceremony's other caller uses, so both drive the panel with one shape.
+          ever issued. The mobile stage renders the SAME component with the SAME
+          seed and the same open row; `surface` only suffixes the DOM id, since
+          both panes are in the DOM at every width.
         */}
-        {manualCeremonyRec && mutationUiEnabled ? (
-          <div
-            aria-label="Manual action"
-            className="meta-manual-ceremony"
-            data-meta-manual-ceremony={manualCeremonyRec.id}
-            role="dialog"
-          >
-            <button
-              onClick={() => setManualCeremonyRec(null)}
-              type="button"
-            >
-              Close manual action
-            </button>
-            <MutationCeremonyPanel
-              row={toDecisionRow(manualCeremonyRec)}
-              seed={buildMutationCeremonySeed({
-                businessId,
-                viewer: {
-                  // The served viewer, forwarded. The panel refuses on its own
-                  // authority as well; this is what it refuses ABOUT.
-                  isReviewer: workspaceQuery.data?.viewer?.isReviewer ?? false,
-                  /*
-                   * A demo workspace is a property of the BUSINESS, not of the
-                   * served viewer envelope — which carries `isReviewer` and
-                   * `readOnly` and nothing about demo. The payload's own
-                   * evidence source is where the product records it, and a
-                   * false here would be a claim rather than a reading, so the
-                   * served token is what decides.
-                   */
-                  demo:
-                    pulseQuery.data?.dataReadiness?.evidenceSource === "demo",
-                  role: workspaceQuery.data?.viewer?.role ?? null,
-                },
-                newMutationId: () =>
-                  typeof crypto !== "undefined" && "randomUUID" in crypto
-                    ? crypto.randomUUID()
-                    : `${manualCeremonyRec.id}:${Date.now()}`,
-              })}
-            />
-          </div>
-        ) : null}
+        {manualCeremonySheetFor("desktop")}
 
         {activeScope === "creatives" && canLoadMoreCreatives ? (
           <div data-meta-load-more-creatives>

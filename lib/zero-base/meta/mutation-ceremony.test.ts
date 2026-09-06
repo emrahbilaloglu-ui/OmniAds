@@ -221,9 +221,18 @@ describe("terminal outcomes", () => {
     expect(TERMINAL_COPY.failed.body).toMatch(/Nothing was altered/);
     expect(TERMINAL_COPY.provider_outcome_ambiguous.body).toMatch(/Do not retry/);
     expect(TERMINAL_COPY.silent_failure.body).toMatch(/unknown/i);
-    // Four distinct outcomes, four distinct sentences.
+    /*
+      A rehearsed write is its own outcome.
+
+      There were four; there are five, because `dry_run` was previously
+      indistinguishable from a real success on the receipt — the ceremony read
+      `ok` and said "verified" for a write that deliberately never reached
+      Meta. Each outcome still gets its own sentence: an operator has to be
+      able to tell a rehearsal from a change.
+    */
+    expect(TERMINAL_COPY.dry_run.body).toMatch(/rehearsal|dry run|not sent/i);
     const bodies = Object.values(TERMINAL_COPY).map((copy) => copy.body);
-    expect(new Set(bodies).size).toBe(4);
+    expect(new Set(bodies).size).toBe(5);
   });
 });
 

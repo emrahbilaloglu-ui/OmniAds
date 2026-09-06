@@ -9,11 +9,12 @@ import {
   isCampaignRoleUnresolved,
   withCreativeCampaignLabelContext,
 } from "../campaign-label-guard";
-import { WarehouseDataSource } from "../data-source";
+import { AccountScopedDataSource, WarehouseDataSource } from "../data-source";
 import { decideCreative } from "../engine";
-import { resolveEngineV3Flags } from "../feature-flags";
+import { resolveEngineV3Flags, type EngineV3Flags } from "../feature-flags";
 import {
   ENGINE_VERSION,
+  type AccountDecisionProfile,
   type DecisionProfileScope,
   type DecisionAuthorityBlocker,
   type CreativeInput,
@@ -60,6 +61,11 @@ type JobRunIdRow = Record<string, unknown> & {
 type RowIdByCreativeRow = Record<string, unknown> & {
   creative_id: unknown;
   id: unknown;
+};
+
+type ProviderAccountByCreativeRow = Record<string, unknown> & {
+  creative_id: unknown;
+  provider_account_id: unknown;
 };
 
 type SnapshotRow = Record<string, unknown> & {
@@ -267,6 +273,49 @@ DO UPDATE SET
   computed_at = EXCLUDED.computed_at,
   updated_at = now()
 RETURNING id, creative_id, label, confidence
+`;
+
+/*
+  The physical ad account each creative belongs to, in the same preference order
+  `listCreativeInputs` hydrates from: the newest lifecycle row for the creative
+  first (the row the decision snapshot links to), and only for a creative that
+  has none, the newest warehouse day inside the 29-day window the runtime
+  hydration itself reads. `NULLIF(btrim(...), '')` is what makes "no account"
+  and "a blank account" the same absence, so the caller falls back to the
+  business-wide profile in both.
+*/
+const READ_PROVIDER_ACCOUNT_BY_CREATIVE_QUERY = `
+WITH lifecycle_binding AS (
+  SELECT DISTINCT ON (creative_id)
+    creative_id,
+    NULLIF(btrim(provider_account_id), '') AS provider_account_id
+  FROM engine_v3_creative_lifecycle_daily
+  WHERE business_ref_id = $1::uuid
+    AND engine_version = $2
+    AND creative_id = ANY($3::text[])
+    AND as_of_date <= $4::date
+  ORDER BY creative_id, as_of_date DESC, computed_at DESC
+),
+warehouse_binding AS (
+  SELECT DISTINCT ON (creative_id)
+    creative_id,
+    NULLIF(btrim(provider_account_id), '') AS provider_account_id
+  FROM meta_creative_daily
+  WHERE business_ref_id = $1::uuid
+    AND creative_id = ANY($3::text[])
+    AND date BETWEEN ($4::date - INTERVAL '29 days') AND $4::date
+  ORDER BY creative_id, date DESC, updated_at DESC
+)
+SELECT
+  COALESCE(lifecycle_binding.creative_id, warehouse_binding.creative_id)
+    AS creative_id,
+  COALESCE(
+    lifecycle_binding.provider_account_id,
+    warehouse_binding.provider_account_id
+  ) AS provider_account_id
+FROM lifecycle_binding
+FULL OUTER JOIN warehouse_binding
+  ON warehouse_binding.creative_id = lifecycle_binding.creative_id
 `;
 
 // decision_snapshot_id uses ON DELETE SET NULL for events, so stale
@@ -477,7 +526,18 @@ export async function runDecisionsJob(
       await db.query("SAVEPOINT engine_v3_decisions_job_work");
       try {
         const dataSource = new WarehouseDataSource();
-        const profile = await resolveAccountDecisionProfile({
+        /*
+          THE BUSINESS-WIDE PROFILE, which is still resolved and still resolved
+          FIRST, for two reasons that are not the per-ad decisions below.
+
+          It is the profile for a creative that names no physical account, and
+          there is nothing else it could honestly be. And `getDataHealth` on the
+          next line reuses the calibration metadata this call leaves on
+          `dataSource` (see `buildCalibrationDataLayerHealth`), so the read that
+          precedes it decides which calibration's freshness the job reports as
+          the business's. That has to stay the business's `scope_id '*'` read.
+        */
+        const businessProfile = await resolveAccountDecisionProfile({
           businessId: input.businessId,
           asOf: input.asOf,
           dataSource,
@@ -491,6 +551,77 @@ export async function runDecisionsJob(
           businessId: input.businessId,
           asOf: input.asOf,
         });
+        /*
+          ONE PROFILE PER PHYSICAL AD ACCOUNT, because these decisions are.
+
+          `listCreativeInputs` is business-wide and must be: every creative the
+          business runs gets a decision. But a business can hold several Meta ad
+          accounts, and every measured read `resolveAccountDecisionProfile`
+          makes — the account calibration and its kind-segmented variants, the
+          funnel pack, and the live Meta-attributed AOV it falls back to —
+          defaults to the business's whole Meta footprint. Deciding all of them
+          against that one pooled profile lets one account's samples set
+          another's thresholds.
+
+          Driven before this change against a migrated database, on a business
+          holding account A (six creatives, ROAS 3.60) and account B (thirty-two
+          creatives), moving ONLY B's revenue moved A's RETAINED per-ad reason:
+
+            before  "[near scale] ROAS 3.60 (28d) above commercial target (164%)
+                     - spend 280 / purchases 28 below scale floor
+                     (need spend >=14, >=30); observe."
+            after   "... (need spend >=76, >=30); observe."
+
+          A's own facts were untouched. The floor an operator is told account A
+          must clear was set by account B's revenue, through the pooled
+          Meta-attributed AOV behind the spend unit; the same pooling sets
+          `bottomQuartileRatio` and `severeLoserRatio` from percentiles over
+          both accounts' creatives.
+
+          `AccountScopedDataSource` is the same wrapper the served
+          commercial-anchor panel uses in
+          `app/api/meta/decisions-workspace/route.ts`, so the serving and
+          retention paths now measure at the same physical-account scope. It
+          scopes the MEASURED reads only: the target pack, the decision
+          calibration profile and the engine flags stay business-level, because
+          a target ROAS is one commercial policy for the business rather than a
+          per-account setting.
+
+          A SEPARATE `WarehouseDataSource` PER ACCOUNT, deliberately. The
+          instance remembers the last calibration read it made, and
+          `getDataHealth` above consumes that memory; an account-scoped read on
+          the shared instance would leave one account's calibration standing in
+          for the business's data health.
+
+          THE ACCOUNT COMES FROM THE WAREHOUSE, NOT FROM `CreativeInput`.
+          `CreativeInput` declares an optional `providerAccountId`, and neither
+          reader behind `listCreativeInputs` populates it —
+          `mapLifecycleHydrationRow` and `mapCreativeHydrationRow` in
+          `lib/creative-decision-engine/data-source.ts` both build the object
+          without that field — so reading it here would leave every creative
+          unscoped and this whole change inert. `readProviderAccountIdByCreative`
+          reads the binding from the same rows the inputs were hydrated from.
+        */
+        const accountByCreative = await readProviderAccountIdByCreative({
+          businessId: input.businessId,
+          asOf: input.asOf,
+          creativeIds: creativeInputs.map(
+            (creativeInput) => creativeInput.creativeId,
+          ),
+        });
+        const profileByAccount = await resolveProfilesByProviderAccount({
+          businessId: input.businessId,
+          asOf: input.asOf,
+          flags,
+          providerAccountIds: [...accountByCreative.values()],
+        });
+        const profileFor = (
+          creativeInput: CreativeInput,
+        ): AccountDecisionProfile => {
+          const account = accountByCreative.get(creativeInput.creativeId);
+          if (!account) return businessProfile;
+          return profileByAccount.get(account) ?? businessProfile;
+        };
         const campaignLabelsById = await readCreativeCampaignRolesById({
           businessId: input.businessId,
           asOf: input.asOf,
@@ -507,7 +638,7 @@ export async function runDecisionsJob(
               decision: applyCreativeCampaignLabelGuard({
                 decision: decideCreative(
                   inputWithCampaignKind,
-                  profile,
+                  profileFor(creativeInput),
                   dataHealth,
                 ),
                 input: inputWithCampaignKind,
@@ -553,7 +684,7 @@ export async function runDecisionsJob(
               businessId: input.businessId,
               asOf: input.asOf,
               jobRunId,
-              scope: profile.scope,
+              scope: profileFor(creativeInput).scope,
               creativeInput,
               decision,
               rawLabel:
@@ -565,11 +696,22 @@ export async function runDecisionsJob(
               computedAt,
             }),
         );
-        const pruneResult = await pruneStaleDecisionSnapshots({
+        /*
+          PRUNING IS PER SCOPE, and the scope is a different axis from the
+          physical account the reads above were scoped to.
+          `resolveAccountDecisionProfile` narrows the scope only when it is
+          handed a `campaignId`, which this job never does, so each profile
+          resolved above reports the same `{type: "account", id: "*"}` — "the
+          account level rather than a campaign's". Grouping the ids by the scope
+          their own profile carries, rather than pruning every scope with one
+          profile's, keeps each DELETE matched to the rows it is allowed to
+          delete if that ever stops being true.
+        */
+        const pruneResult = await pruneStaleSnapshotsPerScope({
           businessId: input.businessId,
           asOf: input.asOf,
-          scope: profile.scope,
-          currentCreativeIds: creativeIds,
+          decisions,
+          scopeFor: (creativeInput) => profileFor(creativeInput).scope,
         });
         const upsertedSnapshots = await upsertDecisionSnapshots(snapshotRows);
         const snapshotsWritten = upsertedSnapshots.size;
@@ -864,6 +1006,102 @@ async function upsertDecisionSnapshots(rows: DecisionSnapshotPayloadRow[]) {
   );
 }
 
+/**
+ * The physical ad account each of these creatives belongs to.
+ *
+ * WHY THIS EXISTS RATHER THAN `CreativeInput.providerAccountId`. That field is
+ * declared optional on the type and is left undefined by both readers behind
+ * `listCreativeInputs`: `mapLifecycleHydrationRow` and
+ * `mapCreativeHydrationRow` in `lib/creative-decision-engine/data-source.ts`
+ * construct the input without it. Scoping on it would silently scope nothing.
+ *
+ * WHY THESE TWO SOURCES, IN THIS ORDER. It mirrors `listCreativeInputs` itself.
+ * Its preferred reader is `engine_v3_creative_lifecycle_daily`, selected
+ * `DISTINCT ON (creative_id)` newest-first, and every such row carries the
+ * account it was computed for — so the account here is the account of the very
+ * lifecycle row the decision snapshot then links to through
+ * `findLatestLifecycleRowIdsByCreative`. Its fallback reader hydrates straight
+ * from `meta_creative_daily` over the trailing 29 days, which is the second
+ * branch, bounded to that same window so the lookup stays on
+ * `idx_meta_creative_daily_creative (creative_id, date DESC)`.
+ *
+ * A creative with no row in either, or whose row carries a blank account, is
+ * absent from the map. The caller answers those with the business-wide profile,
+ * which is the only honest reading for a creative that names no account.
+ */
+async function readProviderAccountIdByCreative(input: {
+  businessId: string;
+  asOf: string;
+  creativeIds: string[];
+}): Promise<Map<string, string>> {
+  if (input.creativeIds.length === 0) return new Map();
+
+  const rows = await getDb().query<ProviderAccountByCreativeRow>(
+    READ_PROVIDER_ACCOUNT_BY_CREATIVE_QUERY,
+    [input.businessId, ENGINE_VERSION, input.creativeIds, input.asOf],
+  );
+
+  return new Map(
+    rows.flatMap((row) => {
+      const creativeId = toStringOrNull(row.creative_id);
+      const providerAccountId = toStringOrNull(row.provider_account_id);
+      return creativeId === null || providerAccountId === null
+        ? []
+        : [[creativeId, providerAccountId] as const];
+    }),
+  );
+}
+
+/**
+ * One account decision profile per distinct physical ad account named by these
+ * creatives, each resolved with its MEASURED reads scoped to that account.
+ *
+ * `null`, blank and whitespace-only account ids are not accounts and are not
+ * resolved: a creative that names no physical account has nothing to scope to,
+ * and the caller answers those with the business-wide profile.
+ *
+ * Each account gets its own `WarehouseDataSource` because the class remembers
+ * the last calibration read it made and `getDataHealth` consumes that memory,
+ * so sharing one instance would let an account-scoped read stand in for the
+ * business's data health. `AccountScopedDataSource` scopes only the measured
+ * reads; `getBusinessTargetPack` and `getDecisionCalibrationProfile` are
+ * forwarded unchanged, because they are configured commercial policy for the
+ * business rather than per-account settings.
+ */
+async function resolveProfilesByProviderAccount(input: {
+  businessId: string;
+  asOf: string;
+  flags: EngineV3Flags;
+  providerAccountIds: ReadonlyArray<string | null | undefined>;
+}): Promise<Map<string, AccountDecisionProfile>> {
+  const accounts = [
+    ...new Set(
+      input.providerAccountIds.flatMap((account) => {
+        const trimmed = account?.trim();
+        return trimmed ? [trimmed] : [];
+      }),
+    ),
+  ];
+  const resolved = await Promise.all(
+    accounts.map(
+      async (account) =>
+        [
+          account,
+          await resolveAccountDecisionProfile({
+            businessId: input.businessId,
+            asOf: input.asOf,
+            dataSource: new AccountScopedDataSource(
+              new WarehouseDataSource(),
+              account,
+            ),
+            flags: input.flags,
+          }),
+        ] as const,
+    ),
+  );
+  return new Map(resolved);
+}
+
 async function pruneStaleDecisionSnapshots(input: {
   businessId: string;
   asOf: string;
@@ -893,6 +1131,68 @@ async function pruneStaleDecisionSnapshots(input: {
   return {
     prunedSnapshots: toIntegerOrNull(row?.pruned_snapshot_count) ?? 0,
     prunedEvents: toIntegerOrNull(row?.pruned_event_count) ?? 0,
+    skippedBecauseEmptyPayload: false,
+  };
+}
+
+/**
+ * Prunes yesterday's leftover snapshots one calibration scope at a time, using
+ * for each scope only the creative ids that were decided under it.
+ *
+ * `pruneStaleDecisionSnapshots` deletes the rows of one `(scope_type,
+ * scope_id)` that are absent from the id list it is given, so a list that mixed
+ * scopes would delete another scope's live rows. Today every profile this job
+ * resolves reports the same scope and this collapses to the single statement it
+ * replaced; the grouping is what keeps that true rather than assumed.
+ *
+ * An empty decision set prunes nothing at all — exactly as the single statement
+ * did — because an empty payload is indistinguishable from "the upstream read
+ * failed" and must never be read as "the business has no live creatives".
+ */
+async function pruneStaleSnapshotsPerScope(input: {
+  businessId: string;
+  asOf: string;
+  decisions: readonly DecisionComputation[];
+  scopeFor: (creativeInput: CreativeInput) => DecisionProfileScope;
+}): Promise<DecisionSnapshotPruneResult> {
+  const groups = new Map<
+    string,
+    { scope: DecisionProfileScope; creativeIds: string[] }
+  >();
+  for (const { input: creativeInput } of input.decisions) {
+    const scope = input.scopeFor(creativeInput);
+    const key = `${scope.type} ${scope.id}`;
+    const group = groups.get(key);
+    if (group) {
+      group.creativeIds.push(creativeInput.creativeId);
+    } else {
+      groups.set(key, { scope, creativeIds: [creativeInput.creativeId] });
+    }
+  }
+
+  if (groups.size === 0) {
+    return {
+      prunedSnapshots: 0,
+      prunedEvents: 0,
+      skippedBecauseEmptyPayload: true,
+    };
+  }
+
+  let prunedSnapshots = 0;
+  let prunedEvents = 0;
+  for (const group of groups.values()) {
+    const result = await pruneStaleDecisionSnapshots({
+      businessId: input.businessId,
+      asOf: input.asOf,
+      scope: group.scope,
+      currentCreativeIds: group.creativeIds,
+    });
+    prunedSnapshots += result.prunedSnapshots;
+    prunedEvents += result.prunedEvents;
+  }
+  return {
+    prunedSnapshots,
+    prunedEvents,
     skippedBecauseEmptyPayload: false,
   };
 }

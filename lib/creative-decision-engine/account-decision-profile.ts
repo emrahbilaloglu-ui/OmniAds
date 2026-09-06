@@ -9,6 +9,10 @@ import {
   MIN_CAMPAIGN_CALIBRATION_SAMPLE,
 } from "./config";
 import { ENGINE_PRESET_MULTIPLIERS } from "./engine-presets";
+import {
+  observedShopifyAovIsUsable,
+  type ObservedShopifyAovEvidence,
+} from "./shopify-aov-source";
 import { NATIVE_AD_ACCOUNT_AOV_PURCHASE_SAMPLE_FLOOR } from "./config-values";
 import {
   classifyMetaAovQuality,
@@ -253,10 +257,24 @@ function resolveSpendUnitProfile(input: {
   targetPack: BusinessTargetPack | null;
   accountBaselines: AccountCalibration;
   attributionAovAdjustmentMultiplier: number;
+  /**
+   * The store's own AOV, already proven usable (account currency, closed
+   * window, order floor) by `resolveObservedShopifyAov`. Optional: an account
+   * with no connected store resolves exactly as it did before.
+   */
+  observedShopifyAov?: ObservedShopifyAovEvidence | null;
 }): SpendUnitProfile {
+  const observed = input.observedShopifyAov ?? null;
+  const observedAovMajor =
+    observed && observedShopifyAovIsUsable(observed)
+      ? observed.aovMinor / 10 ** observed.currencyExponent
+      : null;
   const resolution = resolveSpendUnit({
     targetCpa: input.targetPack?.targetCpa ?? null,
     operatorAovAssumption: input.targetPack?.operatorAovAssumption ?? null,
+    observedShopifyAov: observedAovMajor,
+    observedShopifyAovOrderCount: observed?.orderCount ?? 0,
+    observedShopifyAovStatus: observed?.status ?? null,
     metaAttributedAovMean90d: input.accountBaselines.metaAttributedAovMean90d,
     metaAttributedAovPurchaseCount90d:
       input.accountBaselines.metaAttributedAovPurchaseCount90d,
@@ -275,9 +293,21 @@ function resolveSpendUnitProfile(input: {
     freshness !== "unknown" &&
     typeof targetUpdatedAt === "string" &&
     Number.isFinite(Date.parse(targetUpdatedAt));
+  /*
+    `observed_shopify_aov` belongs in this list, and was missing from it.
+
+    Every member here is a rung whose spend unit is derived THROUGH the target
+    pack, so an untrustworthy or stale pack has to demote it. The store rung is
+    the merchant's own average order value divided by `targetPack.targetRoas` —
+    the pack is load-bearing in exactly the same way — but it was omitted, so
+    while the rung was unreachable at serve time nobody noticed that it alone
+    would have escaped both the provenance demotion and the staleness warning.
+    Making the rung reachable without this line would have shipped that hole.
+  */
   const usesCommercialThreshold =
     resolution.source === "target_cpa" ||
     resolution.source === "operator_aov" ||
+    resolution.source === "observed_shopify_aov" ||
     resolution.source === "meta_derived_aov" ||
     resolution.source === "break_even_aov";
   const commercialThresholdLacksTrustedProvenance =
@@ -650,6 +680,12 @@ export async function resolveAccountDecisionProfile(input: {
   flags?: EngineV3Flags;
   campaignId?: string;
   commercialStopLossAovAuthority?: CommercialStopLossAovAuthorityInput | null;
+  /**
+   * Observed store AOV, resolved by the caller so this function keeps doing no
+   * IO of its own. Absent means the structure path resolves the spend unit
+   * exactly as it did before this source existed.
+   */
+  observedShopifyAov?: ObservedShopifyAovEvidence | null;
 }): Promise<AccountDecisionProfile> {
   const targetPack = await input.dataSource.getBusinessTargetPack({
     businessId: input.businessId,
@@ -757,6 +793,7 @@ export async function resolveAccountDecisionProfile(input: {
   const canonicalSpendUnitProfile = resolveSpendUnitProfile({
     targetPack,
     accountBaselines,
+    observedShopifyAov: input.observedShopifyAov ?? null,
     attributionAovAdjustmentMultiplier,
   });
   const flags = input.flags ?? (await resolveEngineV3Flags(input.businessId));

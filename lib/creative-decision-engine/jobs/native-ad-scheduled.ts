@@ -1,5 +1,6 @@
 import { getDb, type DbClient } from "@/lib/db";
 import { getActiveBusinesses } from "@/lib/sync/active-businesses";
+import { projectNativeAdProposals } from "@/lib/meta/automation-proposals";
 import { READ_AD_HYDRATION_COMPLETENESS_RECEIPTS_QUERY } from "../data-source";
 import { inspectEvaluationStoreSchemaCapability } from "../evaluation-store";
 import { listEnabledBusinessIds } from "../feature-flags";
@@ -27,12 +28,57 @@ import {
 import { engineV3JobsDisabled } from "./job-switch";
 
 export const NATIVE_AD_SHADOW_DAILY_UTC_START_HOUR = 3;
+
+/**
+ * The two slots the native chain produces in, and why a second one is needed.
+ *
+ * Native `cut` decisions are withheld when their inputs are older than 12
+ * hours. Producing once at 03:00 UTC therefore meant that from 15:00 onwards
+ * every native cut was refused for staleness — not because the evidence was
+ * meaningfully old, but because nothing had produced since morning. The
+ * freshness threshold is right; the cadence was not.
+ *
+ * A second slot needs no schema change and no new job name. What it needs is
+ * for "has this job succeeded" to be answerable per slot rather than per day,
+ * which is what the `since` window below does.
+ */
+export const NATIVE_AD_SHADOW_SLOT_HOURS = [3, 15] as const;
+
+/** The start of the slot window `now` falls in, or null before the first. */
+export function nativeAdShadowSlotStart(now: Date): Date | null {
+  const hour = now.getUTCHours();
+  let slot: number | null = null;
+  for (const candidate of NATIVE_AD_SHADOW_SLOT_HOURS) {
+    if (hour >= candidate) slot = candidate;
+  }
+  if (slot === null) return null;
+  const start = new Date(now);
+  start.setUTCHours(slot, 0, 0, 0);
+  return start;
+}
 export const NATIVE_AD_OPERATOR_RESPONSE_RETRY_COOLDOWN_MS = 60 * 60 * 1_000;
+
+/**
+ * The queue projection, recorded as a run of its own.
+ *
+ * It is the one step of this chain that had no record at all, and without one
+ * the chain cannot tell "projected" from "threw": the three producer jobs
+ * report `previous_success` for the rest of the slot, the whole chain then
+ * reports `already_ran`, and a projection that failed once is never attempted
+ * again for that slot. The native cuts stay durable and unqueued, and the
+ * operator sees an empty queue with nothing anywhere saying why.
+ *
+ * The second slot needed no new job name because it reused the producers' own
+ * records. This step has none to reuse.
+ */
+export const AD_PROPOSAL_PROJECTION_JOB_NAME =
+  "engine_v3_native_ad_proposal_projection_shadow_job" as const;
 
 const NATIVE_AD_SHADOW_JOB_NAMES = [
   AD_CALIBRATION_JOB_NAME,
   AD_DECISIONS_JOB_NAME,
   AD_OPERATOR_RESPONSE_JOB_NAME,
+  AD_PROPOSAL_PROJECTION_JOB_NAME,
 ] as const;
 
 type NativeAdShadowJobName = (typeof NATIVE_AD_SHADOW_JOB_NAMES)[number];
@@ -60,12 +106,31 @@ export interface NativeAdScheduledStep<TResult> {
   errorMessage: string | null;
 }
 
+/** What a completed projection has to say for itself. */
+export interface ProposalProjectionResult {
+  projected: number;
+}
+
 export interface NativeAdShadowBusinessResult {
   businessId: string;
   businessName: string | null;
   calibration: NativeAdScheduledStep<AdCalibrationJobResult>;
   decisions: NativeAdScheduledStep<AdDecisionsJobResult>;
   operatorResponse: NativeAdScheduledStep<AdOperatorResponseJobResult>;
+  /**
+   * The confirmation-queue projection of the decisions THIS chain published.
+   *
+   * It belongs here rather than in the structure snapshot because ordering is
+   * the whole problem: the cron runs the snapshot first, so a projection there
+   * could only ever read the previous slot's native decisions. Running it after
+   * publication means the morning's decisions reach the queue in the morning.
+   *
+   * It reports like the other three steps because it now IS one. As a bare
+   * `{ projected, ran } | null` there was no way to say that a projection had
+   * been attempted and failed, so nothing retried it and no surface could name
+   * the reason the queue was empty.
+   */
+  proposalProjection: NativeAdScheduledStep<ProposalProjectionResult>;
 }
 
 export interface NativeAdShadowChainDueResult {
@@ -219,6 +284,23 @@ CROSS JOIN assigned_accounts
 `;
 
 export interface NativeAdShadowScheduleOptions {
+  /**
+   * The confirmation-queue projection, injectable for the same reason every
+   * other reader here is: these suites drive doubles, and a projection that
+   * opened its own connection would fail them for a reason unrelated to the
+   * chain. Production uses the real one.
+   */
+  projectProposals?: typeof projectNativeAdProposals;
+  /**
+   * The projection's own run record, injectable for the same reason.
+   *
+   * It is what makes a failed projection retryable at all, so a suite that
+   * drives the chain has to be able to see what was recorded without a
+   * connection.
+   */
+  recordProjectionRun?: (
+    input: ProposalProjectionRunRecord,
+  ) => Promise<void>;
   jobsDisabled?: () => boolean;
   inspectSchema?: () => Promise<NativeAdShadowSchemaReadiness>;
   listEnabledIds?: () => Promise<readonly string[]>;
@@ -230,6 +312,8 @@ export interface NativeAdShadowScheduleOptions {
     businessIds: readonly string[];
     asOf: string;
     decisionCutoff: string;
+    /** The slot window's start; the caller has always passed it. */
+    since?: string | null;
   }) => Promise<Map<string, Set<NativeAdShadowJobName>>>;
   readOperatorResponseRetryBackoffs?: (input: {
     businessIds: readonly string[];
@@ -413,6 +497,16 @@ export async function readSuccessfulNativeJobs(
     businessIds: readonly string[];
     asOf: string;
     decisionCutoff: string;
+    /**
+     * The slot window's start. A run that finished before it does not count
+     * as this slot's run.
+     *
+     * Without it the question is "did this job succeed today", and the answer
+     * at 15:00 is always yes because 03:00 already ran — so the second slot
+     * would report `already_ran` and produce nothing, every day. Omitting it
+     * keeps the day-level meaning for every caller that wants it.
+     */
+    since?: string | null;
   },
   db: DbClient = getDb(),
 ) {
@@ -429,6 +523,7 @@ export async function readSuccessfulNativeJobs(
         AND engine_version = $3
         AND job_name = ANY($4::text[])
         AND started_at <= $5::timestamptz
+        AND ($6::timestamptz IS NULL OR started_at >= $6::timestamptz)
     ), effective_runs AS (
       SELECT
         run.*,
@@ -474,6 +569,7 @@ export async function readSuccessfulNativeJobs(
       NATIVE_AD_ENGINE_VERSION,
       NATIVE_AD_SHADOW_JOB_NAMES,
       input.decisionCutoff,
+      input.since ?? null,
     ],
   );
   const result = new Map<string, Set<NativeAdShadowJobName>>();
@@ -537,16 +633,33 @@ export async function readSuccessfulNativeJobs(
     }
     jobs.add(AD_DECISIONS_JOB_NAME);
 
+    /*
+      The operator response and the queue projection are SIBLINGS of the
+      decisions step, not a chain. Both read what the decisions job wrote and
+      neither reads the other, so the short-circuit that used to stand here
+      made a failed operator response hide a completed projection — and the
+      next tick would re-project a queue that was already filled.
+
+      `ranAfterDependency` against the decisions run is what proves either one
+      belongs to THIS slot's decisions rather than an earlier day's.
+    */
     const operatorResponse = businessRows.get(AD_OPERATOR_RESPONSE_JOB_NAME);
     if (
-      operatorResponse?.status !== "success" ||
-      jobRunId(operatorResponse) === null ||
-      !ranAfterDependency(operatorResponse, decisions)
+      operatorResponse?.status === "success" &&
+      jobRunId(operatorResponse) !== null &&
+      ranAfterDependency(operatorResponse, decisions)
     ) {
-      result.set(businessId, jobs);
-      continue;
+      jobs.add(AD_OPERATOR_RESPONSE_JOB_NAME);
     }
-    jobs.add(AD_OPERATOR_RESPONSE_JOB_NAME);
+
+    const projection = businessRows.get(AD_PROPOSAL_PROJECTION_JOB_NAME);
+    if (
+      projection?.status === "success" &&
+      jobRunId(projection) !== null &&
+      ranAfterDependency(projection, decisions)
+    ) {
+      jobs.add(AD_PROPOSAL_PROJECTION_JOB_NAME);
+    }
     result.set(businessId, jobs);
   }
   return closeNativeJobDependencies(result);
@@ -689,6 +802,10 @@ function closeNativeJobDependencies(
     }
     if (!jobs.has(AD_DECISIONS_JOB_NAME)) {
       jobs.delete(AD_OPERATOR_RESPONSE_JOB_NAME);
+      // The projection reads the decisions table. Without a usable decisions
+      // run for this slot there is nothing it could have projected, whatever
+      // its own row says.
+      jobs.delete(AD_PROPOSAL_PROJECTION_JOB_NAME);
     }
     result.set(businessId, jobs);
   }
@@ -778,6 +895,142 @@ async function dependencySatisfied(input: {
   });
 }
 
+/** What the projection's own `engine_v3_job_runs` row is built from. */
+export interface ProposalProjectionRunRecord {
+  businessId: string;
+  asOf: string;
+  status: "success" | "failed" | "skipped";
+  startedAt: string;
+  finishedAt: string;
+  rowCount: number | null;
+  errorMessage: string | null;
+  dependencyRunId: string | null;
+}
+
+/**
+ * The projection's own run row.
+ *
+ * One terminal row written after the fact: the projection is a single
+ * statement with no intermediate state worth a `running` row, and the only
+ * question asked of it is whether this slot's queue was filled.
+ *
+ * A record that cannot be written is left unwritten rather than thrown. The
+ * slot then stays outstanding and the next tick projects again, which the
+ * insert's `ON CONFLICT ... WHERE status = 'pending'` makes safe; failing the
+ * whole chain over its own bookkeeping would be the worse of the two.
+ */
+async function recordNativeProposalProjectionRun(
+  input: ProposalProjectionRunRecord,
+) {
+  const startedMs = Date.parse(input.startedAt);
+  const finishedMs = Date.parse(input.finishedAt);
+  await getDb().query(
+    `
+    INSERT INTO engine_v3_job_runs (
+      job_name, business_ref_id, business_id, as_of_date, engine_version,
+      status, dependency_run_id, started_at, finished_at, duration_ms,
+      row_count, error_message
+    ) VALUES (
+      $1, $2::uuid, $3, $4::date, $5,
+      $6, $7::uuid, $8::timestamptz, $9::timestamptz, $10,
+      $11, $12
+    )
+    `,
+    [
+      AD_PROPOSAL_PROJECTION_JOB_NAME,
+      input.businessId,
+      input.businessId,
+      input.asOf,
+      NATIVE_AD_ENGINE_VERSION,
+      input.status,
+      input.dependencyRunId,
+      input.startedAt,
+      input.finishedAt,
+      Number.isFinite(startedMs) && Number.isFinite(finishedMs)
+        ? Math.max(0, finishedMs - startedMs)
+        : null,
+      input.rowCount,
+      input.errorMessage,
+    ],
+  );
+}
+
+async function runProposalProjection(input: {
+  business: ScheduledBusiness;
+  asOf: string;
+  dependencyRunId: string | null;
+  options: NativeAdShadowScheduleOptions;
+}): Promise<NativeAdScheduledStep<ProposalProjectionResult>> {
+  const startedAt = new Date().toISOString();
+  let outcome: Awaited<ReturnType<typeof projectNativeAdProposals>> | null =
+    null;
+  let thrown: string | null = null;
+  try {
+    outcome = await (
+      input.options.projectProposals ?? projectNativeAdProposals
+    )({
+      businessId: input.business.id,
+      snapshotDate: input.asOf,
+    });
+  } catch (error) {
+    thrown = error instanceof Error ? error.message : String(error);
+  }
+  /*
+    Three outcomes, and the middle one is the reason this record exists.
+
+    A completed projection is `success`. Manual standing mode is `skipped`:
+    nothing was projected and nothing should have been, but a family flipped to
+    semi-automatic later in the same slot must still fill the queue, so the
+    name must not enter this slot's successful set. Everything else — a throw,
+    an absent schema, an unreadable standing mode — is `failed`, which is what
+    keeps the slot outstanding until the queue actually has the decisions.
+  */
+  const status: ProposalProjectionRunRecord["status"] =
+    outcome === null
+      ? "failed"
+      : outcome.withheld === null && outcome.ran
+        ? "success"
+        : outcome.withheld === "standing_mode_manual"
+          ? "skipped"
+          : "failed";
+  const errorMessage =
+    status === "success"
+      ? null
+      : (thrown ?? outcome?.withheld ?? "projection_not_ran");
+  const record: ProposalProjectionRunRecord = {
+    businessId: input.business.id,
+    asOf: input.asOf,
+    status,
+    startedAt,
+    finishedAt: new Date().toISOString(),
+    rowCount: outcome?.projected ?? null,
+    errorMessage,
+    dependencyRunId: input.dependencyRunId,
+  };
+  try {
+    await (
+      input.options.recordProjectionRun ?? recordNativeProposalProjectionRun
+    )(record);
+  } catch (error) {
+    console.warn("[native-ad-shadow] proposal_projection_run_unrecorded", {
+      businessId: input.business.id,
+      asOf: input.asOf,
+      status,
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
+  return {
+    status,
+    source: "ran",
+    result:
+      status === "success" && outcome
+        ? { projected: outcome.projected }
+        : null,
+    reason: errorMessage,
+    errorMessage,
+  };
+}
+
 async function runBusinessChain(input: {
   business: ScheduledBusiness;
   asOf: string;
@@ -847,12 +1100,42 @@ async function runBusinessChain(input: {
             failedStep<AdOperatorResponseJobResult>,
           );
 
+  /*
+    The queue projection, once THIS slot's decisions exist.
+
+    The predicate was `decisions.status === "success"`, which is true only on
+    the tick that RAN the decisions job. Every later tick of the same slot
+    reports `previous_success`, so a projection that threw was never attempted
+    again and the native cuts sat durable and unqueued until the next day.
+    `previous_success` means the rows this projection reads are already there,
+    which is exactly when it should run.
+
+    A failed decisions step still blocks it: projecting then would queue the
+    previous slot's rows, which is the ordering defect this call was moved
+    here to fix.
+  */
+  const decisionsPublished =
+    decisions.status === "success" || decisions.status === "previous_success";
+  const proposalProjection = !decisionsPublished
+    ? dependencyBlockedStep<ProposalProjectionResult>(
+        "upstream_native_decisions_not_published",
+      )
+    : input.previousSuccesses.has(AD_PROPOSAL_PROJECTION_JOB_NAME)
+      ? previousSuccessStep<ProposalProjectionResult>()
+      : await runProposalProjection({
+          business: input.business,
+          asOf: input.asOf,
+          dependencyRunId: decisions.result?.jobRunId ?? null,
+          options: input.options,
+        });
+
   return {
     businessId: input.business.id,
     businessName: input.business.name,
     calibration,
     decisions,
     operatorResponse,
+    proposalProjection,
   };
 }
 
@@ -866,7 +1149,8 @@ export async function runNativeAdShadowChainForActiveBusinessesIfDue(
   if ((options.jobsDisabled ?? engineV3JobsDisabled)()) {
     return { ...base, skipped: true, reason: "jobs_disabled" };
   }
-  if (now.getUTCHours() < NATIVE_AD_SHADOW_DAILY_UTC_START_HOUR) {
+  const slotStart = nativeAdShadowSlotStart(now);
+  if (slotStart === null) {
     return { ...base, skipped: true, reason: "outside_slot" };
   }
 
@@ -906,11 +1190,18 @@ export async function runNativeAdShadowChainForActiveBusinessesIfDue(
     return { ...base, skipped: true, reason: "no_meta_businesses" };
   }
 
+  /*
+    Completion is asked about THIS slot, and the same window goes to all three
+    jobs from one place so calibration, decisions and operator-response cannot
+    disagree about which slot they are in. `closeNativeJobDependencies` keeps
+    its own semantics: it still closes dependencies by name within the day.
+  */
   const successes = closeNativeJobDependencies(
     await (options.readSuccessfulJobs ?? readSuccessfulNativeJobs)({
       businessIds: businesses.map((business) => business.id),
       asOf,
       decisionCutoff: now.toISOString(),
+      since: slotStart.toISOString(),
     }),
   );
   const allComplete = businesses.every((business) => {

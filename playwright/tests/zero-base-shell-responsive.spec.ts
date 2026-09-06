@@ -375,11 +375,17 @@ for (const width of [1440, 1280, 768, 390, 320]) {
  * The Meta-only scope of the stop, whichever composition is on screen.
  *
  * `MetaAutomationView` ships two: below 1024px `.desktopSurface` is hidden and
- * a read-only `.mobileSurface` takes over. Both state the same thing — the
- * sentence is the law — but only the desktop one carries H19's
- * `data-el="google-posture-row"` marker, because H19 is a 1440px artboard.
- * Asserting the marker at every width would fail on a surface that is telling
- * the operator exactly what it must.
+ * `.mobileSurface` takes over. Both state the same thing — the sentence is the
+ * law — but only the desktop one carries H19's `data-el="google-posture-row"`
+ * marker, because H19 is a 1440px artboard. Asserting the marker at every
+ * width would fail on a surface that is telling the operator exactly what it
+ * must.
+ *
+ * The mobile half's second claim CHANGED. It used to be `data-read-only="true"`,
+ * and that was the product decision this pass reversed: an operator who needs
+ * to stop Meta writes is very often not at a desktop, so the emergency control
+ * was visible and inoperable. It is now `"false"`, and the stop is asserted
+ * operable and keyboard-reachable at every width the surface exists at.
  */
 async function expectStopScopeIsMetaOnly(
   page: import("@playwright/test").Page,
@@ -395,8 +401,42 @@ async function expectStopScopeIsMetaOnly(
   const mobile = page.locator('[data-testid="meta-mobile-automation"]');
   await expect(mobile).toBeVisible();
   await expect(mobile).toContainText(sentence);
-  // And it is read-only, which is the other half of what mobile promises.
-  await expect(mobile).toHaveAttribute("data-read-only", "true");
+  await expect(mobile).toHaveAttribute("data-read-only", "false");
+
+  /*
+   * The stop, operable rather than merely present.
+   *
+   * `aria-disabled`, never `disabled` — the same law the desktop triggers
+   * already state: a `disabled` button leaves the tab order, so a refused
+   * operator cannot reach the control to read the reason it refuses, and the
+   * reason is the whole point of keeping it on screen.
+   */
+  const trigger = mobile.locator("[data-stop-trigger]");
+  await expect(trigger).toBeVisible();
+  expect(await trigger.evaluate((node) => node.hasAttribute("disabled"))).toBe(
+    false,
+  );
+  await trigger.focus();
+  expect(await trigger.evaluate((node) => node === document.activeElement)).toBe(
+    true,
+  );
+
+  /*
+   * And the confirmation queue, which used to be absent from this pane
+   * entirely.
+   *
+   * The harness supplies no proposals and no `onProposalControl`, so what is
+   * on screen here is the queue's UNREADABLE state — deliberately asserted as
+   * that rather than as rows, because asserting "Approve is visible" against a
+   * fixture that serves none would be asserting a fiction. Its Retry is the
+   * control the pane must carry, and it is present, inert (no handler) and
+   * reachable.
+   */
+  const queue = mobile.locator('article[data-surface="mobile"]');
+  await expect(queue).toBeVisible();
+  await expect(queue).toContainText(/needs your confirmation/i);
+  const retry = queue.locator('[data-control="retry-queue"]');
+  await expect(retry).toBeVisible();
 }
 
 /**
@@ -448,9 +488,13 @@ for (const width of [1440, 390, 320]) {
       }
 
       /*
-       * The guardrails and the autonomy ladder are the desktop composition's.
-       * The mobile surface is read-only by design and draws neither, which is
-       * why it carries `data-read-only` rather than a disabled copy of them.
+       * The guardrails and the autonomy ladder stay the desktop composition's.
+       *
+       * This scoping is unchanged and is deliberate. The mobile pane gained the
+       * two controls an operator may need away from a desk — the stop and the
+       * confirmation queue — and nothing else: setting a guardrail, composing a
+       * rule or moving the autonomy ladder is not an emergency act, and a
+       * disabled copy of them on a phone would teach the wrong thing.
        */
       if (width >= 1024) {
         const guardrails = page.locator('[data-collection="guardrails"]');

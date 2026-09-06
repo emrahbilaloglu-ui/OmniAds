@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
+import type { NativeAdShadowBusinessResult } from "@/lib/creative-decision-engine/jobs/native-ad-scheduled";
 
 vi.mock("@/lib/sync/active-businesses", () => ({
   getActiveBusinesses: vi.fn(),
@@ -16,6 +17,10 @@ vi.mock("@/lib/sync/google-ads-sync", () => ({
 
 vi.mock("@/lib/meta/scheduled", () => ({
   runMetaSnapshotJobIfDue: vi.fn(),
+}));
+
+vi.mock("@/lib/meta/budget-automation-scheduled", () => ({
+  runMetaBudgetAutomationSweepIfDue: vi.fn(),
 }));
 
 vi.mock("@/lib/meta/decision-responses", async (importOriginal) => {
@@ -90,6 +95,7 @@ const activeBusinesses = await import("@/lib/sync/active-businesses");
 const metaSync = await import("@/lib/sync/meta-sync");
 const googleSync = await import("@/lib/sync/google-ads-sync");
 const metaScheduled = await import("@/lib/meta/scheduled");
+const budgetScheduled = await import("@/lib/meta/budget-automation-scheduled");
 const decisionResponses = await import("@/lib/meta/decision-responses");
 const outcomeAccrual = await import("@/lib/meta/outcome-accrual");
 vi.mock("@/lib/sync/db-growth-fence", async (importOriginal) => {
@@ -225,6 +231,25 @@ const emptyDuplicateSweepResult = {
   results: [],
 };
 
+function nativeBusinessResult(
+  businessId: string,
+  overrides: Partial<NativeAdShadowBusinessResult> = {},
+): NativeAdShadowBusinessResult {
+  const step = {
+    status: "success" as const,
+    source: "ran" as const,
+    result: null,
+    reason: null,
+    errorMessage: null,
+  };
+  return {
+    businessId, businessName: null,
+    calibration: { ...step }, decisions: { ...step },
+    operatorResponse: { ...step }, proposalProjection: { ...step },
+    ...overrides,
+  };
+}
+
 describe("POST /api/sync/cron", () => {
   const savedCronEnv = { ...process.env };
   beforeEach(() => {
@@ -253,6 +278,9 @@ describe("POST /api/sync/cron", () => {
       skipped: true,
       reason: "outside_slot",
       snapshotDate: "2026-04-15",
+    });
+    vi.mocked(budgetScheduled.runMetaBudgetAutomationSweepIfDue).mockResolvedValue({
+      skipped: true, reason: "release_gate_closed",
     });
     vi.mocked(decisionResponses.runMetaDecisionIgnoredMarkerIfDue).mockResolvedValue({
       skipped: true,
@@ -650,9 +678,11 @@ describe("POST /api/sync/cron", () => {
 
   it("awaits duplicate reconciliation before a soak-gate execution-error response", async () => {
     process.env.SYNC_CRON_ENFORCE_SOAK_GATE = "true";
-    vi.mocked(soakGate.runSyncSoakGate).mockRejectedValueOnce(
-      new Error("soak execution failed"),
-    );
+    const soakStarted = deferred<void>();
+    vi.mocked(soakGate.runSyncSoakGate).mockImplementationOnce(async () => {
+      soakStarted.resolve();
+      throw new Error("soak execution failed");
+    });
     const sweep = deferred<typeof emptyDuplicateSweepResult>();
     vi.mocked(
       duplicateReconciliation.runMetaAdDuplicateReconciliationSweep,
@@ -670,9 +700,8 @@ describe("POST /api/sync/cron", () => {
       return response;
     });
 
-    await vi.waitFor(() => {
-      expect(soakGate.runSyncSoakGate).toHaveBeenCalledTimes(1);
-    });
+    await soakStarted.promise;
+    expect(soakGate.runSyncSoakGate).toHaveBeenCalledTimes(1);
     expect(responseSettled).toBe(false);
 
     sweep.resolve(emptyDuplicateSweepResult);
@@ -810,6 +839,96 @@ describe("POST /api/sync/cron", () => {
     spy.mockRestore();
   });
 
+  it("waits for native decision and proposal refresh before the automation sweep", async () => {
+    const started = deferred<void>();
+    const refresh = deferred<Awaited<ReturnType<typeof creativeDecisionEngine.runNativeAdShadowChainForActiveBusinessesIfDue>>>();
+    vi.mocked(creativeDecisionEngine.runNativeAdShadowChainForActiveBusinessesIfDue)
+      .mockImplementation(async () => {
+        started.resolve();
+        return refresh.promise;
+      });
+
+    const responsePromise = POST(new NextRequest("http://localhost/api/sync/cron", {
+      method: "POST", headers: { authorization: "Bearer secret" },
+    }));
+    await started.promise;
+    const sweepStartedBeforeRefresh = vi.mocked(budgetScheduled.runMetaBudgetAutomationSweepIfDue)
+      .mock.calls.length > 0;
+    refresh.resolve({
+      skipped: false, asOf: "2026-04-15", engineVersion: "v3-ad-test",
+      results: [nativeBusinessResult("biz_1")],
+    } as never);
+    expect((await responsePromise).status).toBe(200);
+    expect(sweepStartedBeforeRefresh).toBe(false);
+    expect(budgetScheduled.runMetaBudgetAutomationSweepIfDue).toHaveBeenCalledWith(
+      expect.any(Date), { blockedNativeAdBusinessIds: [], blockAllNativeAdProposals: false },
+    );
+  });
+
+  it.each([
+    ["decisions", "failed"],
+    ["decisions", "dependency_blocked"],
+    ["proposalProjection", "failed"],
+    ["proposalProjection", "skipped"],
+  ] as const)("limits a %s %s refresh hold to that business's native proposals", async (job, status) => {
+    const broken = nativeBusinessResult("biz_1");
+    if (job === "decisions") {
+      broken.decisions = { ...broken.decisions, status, reason: "refresh unavailable" };
+    } else {
+      broken.proposalProjection = { ...broken.proposalProjection, status, reason: "refresh unavailable" };
+    }
+    vi.mocked(creativeDecisionEngine.runNativeAdShadowChainForActiveBusinessesIfDue)
+      .mockResolvedValue({
+        skipped: false, asOf: "2026-04-15", engineVersion: "v3-ad-test",
+        results: [broken, nativeBusinessResult("biz_2")],
+      } as never);
+    const response = await POST(new NextRequest("http://localhost/api/sync/cron", {
+      method: "POST", headers: { authorization: "Bearer secret" },
+    }));
+    expect(response.status).toBe(200);
+    expect(budgetScheduled.runMetaBudgetAutomationSweepIfDue).toHaveBeenCalledWith(
+      expect.any(Date), { blockedNativeAdBusinessIds: ["biz_1"], blockAllNativeAdProposals: false },
+    );
+  });
+
+  it("keeps refreshed proposals usable when only operator response recording fails", async () => {
+    const result = nativeBusinessResult("biz_1");
+    result.decisions.status = "previous_success";
+    result.proposalProjection = { ...result.proposalProjection, status: "previous_success" };
+    result.operatorResponse = { ...result.operatorResponse, status: "failed" };
+    vi.mocked(creativeDecisionEngine.runNativeAdShadowChainForActiveBusinessesIfDue)
+      .mockResolvedValue({
+        skipped: false, asOf: "2026-04-15", engineVersion: "v3-ad-test", results: [result],
+      } as never);
+    await POST(new NextRequest("http://localhost/api/sync/cron", {
+      method: "POST", headers: { authorization: "Bearer secret" },
+    }));
+    expect(budgetScheduled.runMetaBudgetAutomationSweepIfDue).toHaveBeenCalledWith(
+      expect.any(Date), { blockedNativeAdBusinessIds: [], blockAllNativeAdProposals: false },
+    );
+  });
+
+  it.each([
+    ["already_ran", false],
+    ["outside_slot", false],
+    ["no_enabled_businesses", false],
+    ["no_meta_businesses", false],
+    ["schema_not_ready", true],
+    ["jobs_disabled", true],
+  ] as const)("scopes the %s scheduler result to a native-only hold of %s", async (reason, blockAllNativeAdProposals) => {
+    vi.mocked(creativeDecisionEngine.runNativeAdShadowChainForActiveBusinessesIfDue)
+      .mockResolvedValue({
+        skipped: true, reason, asOf: "2026-04-15", engineVersion: "v3-ad-test",
+      } as never);
+    const response = await POST(new NextRequest("http://localhost/api/sync/cron", {
+      method: "POST", headers: { authorization: "Bearer secret" },
+    }));
+    expect(response.status).toBe(200);
+    expect(budgetScheduled.runMetaBudgetAutomationSweepIfDue).toHaveBeenCalledWith(
+      expect.any(Date), { blockedNativeAdBusinessIds: [], blockAllNativeAdProposals },
+    );
+  });
+
   it("does not fail cron when the native ad shadow chain fails", async () => {
     vi.mocked(
       creativeDecisionEngine.runNativeAdShadowChainForActiveBusinessesIfDue,
@@ -828,6 +947,9 @@ describe("POST /api/sync/cron", () => {
       skipped: true,
       reason: "failed",
     });
+    expect(budgetScheduled.runMetaBudgetAutomationSweepIfDue).toHaveBeenCalledWith(
+      expect.any(Date), { blockedNativeAdBusinessIds: [], blockAllNativeAdProposals: true },
+    );
     expect(spy).toHaveBeenCalledWith(
       "[sync-cron] native_ad_shadow_job_failed",
       expect.any(Error),
@@ -1173,6 +1295,9 @@ describe("POST /api/sync/cron Google Ads freshness receipt", () => {
       reason: "not_due",
       runDate: "2026-07-26",
     } as never);
+    vi.mocked(budgetScheduled.runMetaBudgetAutomationSweepIfDue).mockResolvedValue({
+      skipped: true, reason: "release_gate_closed",
+    });
     for (const job of [
       creativeDecisionEngine.runEngineV3ProducerChainForActiveBusinessesIfDue,
       creativeDecisionEngine.runNativeAdShadowChainForActiveBusinessesIfDue,

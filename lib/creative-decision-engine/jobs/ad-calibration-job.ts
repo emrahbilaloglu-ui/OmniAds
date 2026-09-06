@@ -1,8 +1,14 @@
 import {
+  observedShopifyAovIsUsable,
+  resolveObservedShopifyAov,
+  type ObservedShopifyAovEvidence,
+} from "../shopify-aov-source";
+import {
   resolveMetaFunnelCohort,
   type MetaFunnelCohort,
 } from "@/lib/meta/funnel-cohort";
 import { META_CANONICAL_METRIC_SCHEMA_VERSION } from "@/lib/meta/canonical-metrics";
+import { resolveMinorUnitExponent } from "@/lib/currency/iso-4217-minor-units";
 import { getDb, runDbTransaction, type DbClient } from "@/lib/db";
 import { canonicalSha256 } from "../canonical-evaluation";
 import {
@@ -136,10 +142,29 @@ export interface NativeAdAccountAovEvidence {
 }
 
 export type NativeAdSpendUnitAuthorityBasis =
-  "target_cpa" | "operator_aov" | "physical_account_purchase_aov_90d";
+  | "target_cpa"
+  | "operator_aov"
+  /**
+   * The store's own average order value, divided by the configured Target ROAS.
+   *
+   * Placed between the operator's typed assumption and Meta's attributed view
+   * of the same quantity: it is a measurement rather than a decision, so it does
+   * not displace a configured target, and it is the merchant's settled revenue
+   * rather than an attribution estimate, so it precedes one.
+   */
+  | "observed_shopify_aov"
+  | "physical_account_purchase_aov_90d";
 
 export interface NativeAdSpendUnitAuthority {
-  contractVersion: "engine-v3-native-ad-spend-unit-authority.v1";
+  /**
+   * `.v2` added `observedShopifyAovEvidence`. Rows written under `.v1` are read
+   * unchanged and are not backfilled: the field is absent there because the
+   * evidence did not exist when they were minted, which is a different fact
+   * from "it was looked for and was not usable".
+   */
+  contractVersion:
+    | "engine-v3-native-ad-spend-unit-authority.v1"
+    | "engine-v3-native-ad-spend-unit-authority.v2";
   status: "ready" | "blocked";
   basis: NativeAdSpendUnitAuthorityBasis | null;
   businessId: string;
@@ -150,6 +175,15 @@ export interface NativeAdSpendUnitAuthority {
   targetAuthorityHash: string;
   baseSpendUnit: number | null;
   accountAovEvidence: NativeAdAccountAovEvidence;
+  /**
+   * The store-side observation, kept beside the Meta-attributed one and never
+   * merged into it. They answer the same question from different books, and an
+   * operator reading a blocked authority needs to see which book was consulted.
+   *
+   * Absent on `.v1` rows; `null` on `.v2` when the store was consulted and the
+   * result was not usable — the status inside says why.
+   */
+  observedShopifyAovEvidence?: ObservedShopifyAovEvidence | null;
   authorityHash: string;
 }
 
@@ -439,6 +473,19 @@ export interface ComputeNativeAdCalibrationInput {
   computationCutoff: string;
   sourceRows: NativeAdCalibrationSourceRow[];
   targetAuthority: NativeAdTargetAuthorityInput | null;
+  /**
+   * The store's own observed average order value, resolved by the caller.
+   *
+   * The IO belongs to the caller — this function is pure — but the evidence
+   * has to arrive, and it did not: `buildNativeAdSpendUnitAuthority` accepted
+   * this parameter from the day it was written and every call site omitted it,
+   * so the `observed_shopify_aov` basis was unreachable and a business with
+   * only a target ROAS had no spend unit at all.
+   *
+   * `undefined` means the store was never consulted (a `.v1`-shaped
+   * authority); `null` means it was and produced nothing usable.
+   */
+  observedShopifyAovEvidence?: ObservedShopifyAovEvidence | null;
 }
 
 export interface AdCalibrationJobInput {
@@ -498,6 +545,17 @@ export interface AdCalibrationJobRuntimeOptions {
   transaction?: <T>(fn: () => Promise<T>) => Promise<T>;
   businessGuard?: typeof getBusinessGuardFailure;
   resolveFlags?: (businessId: string) => Promise<EngineV3Flags>;
+  /**
+   * The store's observed average order value, per ad account.
+   *
+   * Injectable for the same reason every other reader here is: this job's
+   * tests drive a SQL double that answers a fixed set of statements, and a
+   * reader that opens its own connection would fail them for a reason that
+   * has nothing to do with calibration. Production uses the real resolver.
+   */
+  resolveObservedAov?: (
+    input: Parameters<typeof resolveObservedShopifyAov>[0],
+  ) => Promise<ObservedShopifyAovEvidence | null | undefined>;
 }
 
 export class NativeAdHistoricalCalibrationUnsafeError extends Error {
@@ -1156,7 +1214,10 @@ FROM jsonb_to_recordset($1::jsonb) AS row(
 export const LIST_NATIVE_AD_PROVIDER_BINDINGS_SQL = `
 SELECT DISTINCT
   binding.provider_account_ref_id::text AS provider_account_ref_id,
-  binding.provider_account_id
+  binding.provider_account_id,
+  -- The account's own currency, carried so the caller can resolve a store
+  -- benchmark in the SAME currency. No conversion is ever performed.
+  account.currency AS account_currency
 FROM business_provider_accounts binding
 JOIN provider_accounts account
   ON account.id = binding.provider_account_ref_id
@@ -1769,9 +1830,28 @@ function nativeAdSpendUnitAuthorityGenerationContent(
     asOfCutoff: _evidenceCutoff,
     ...accountAovContent
   } = accountAovEvidence;
+  /*
+    The store observation joins the generation content under the same rule as
+    the account evidence above: its own read clock is stripped, because when it
+    was read is not part of what was read. Its window, order count, currency and
+    amounts are, so a changed observation changes the hash.
+  */
+  const observed = authorityContent.observedShopifyAovEvidence;
+  const observedContent =
+    observed === undefined
+      ? undefined
+      : observed === null
+        ? null
+        : (() => {
+            const { knowledgeAsOf: _knowledgeAsOf, ...rest } = observed;
+            return rest;
+          })();
   return {
     ...authorityContent,
     accountAovEvidence: accountAovContent,
+    ...(observedContent === undefined
+      ? {}
+      : { observedShopifyAovEvidence: observedContent }),
   };
 }
 
@@ -1786,6 +1866,12 @@ function buildNativeAdSpendUnitAuthority(input: {
   targetAuthority: ResolvedNativeAdTargetAuthority;
   currencyAdmission: NativeAdCalibrationCurrencyAdmission;
   timezoneAdmission: NativeAdCalibrationTimezoneAdmission;
+  /**
+   * Resolved by the caller, which is where the IO belongs. Undefined means the
+   * store was never consulted (a `.v1`-shaped authority); null means it was and
+   * produced nothing usable.
+   */
+  observedShopifyAovEvidence?: ObservedShopifyAovEvidence | null;
 }): NativeAdSpendUnitAuthorityBuild {
   const accountCurrency = input.currencyAdmission.accountCurrency;
   const cutoffSafeFinalizedRows = input.rows.filter(
@@ -1921,6 +2007,34 @@ function buildNativeAdSpendUnitAuthority(input: {
   const accountDimensionsReady =
     input.currencyAdmission.status === "ready" &&
     input.timezoneAdmission.status === "ready";
+  /*
+    Cutoff safety for the store observation, and why the window alone is not
+    enough.
+
+    Shopify restates old orders: a refund recorded today changes the net revenue
+    of a window that closed weeks ago. An observation whose window ended before
+    the cutoff can therefore still carry knowledge the cutoff could not have
+    had. All three clocks must be at or before it.
+  */
+  const observedEvidence = input.observedShopifyAovEvidence ?? null;
+  const observedShopifyAovCutoffSafe =
+    observedEvidence !== null &&
+    observedEvidence.window !== null &&
+    observedEvidence.window.to <= input.asOfCutoff.slice(0, 10) &&
+    (observedEvidence.observedAt === null ||
+      observedEvidence.observedAt <= input.asOfCutoff) &&
+    observedEvidence.knowledgeAsOf <= input.asOfCutoff;
+  const observedShopifyAovMajor =
+    observedEvidence && observedShopifyAovIsUsable(observedEvidence)
+      ? observedEvidence.aovMinor / 10 ** observedEvidence.currencyExponent
+      : 0;
+  const observedShopifyAovUsable =
+    observedShopifyAovCutoffSafe &&
+    observedEvidence !== null &&
+    observedShopifyAovIsUsable(observedEvidence) &&
+    observedEvidence.currency === accountCurrency &&
+    positiveFinite(observedShopifyAovMajor);
+
   let basis: NativeAdSpendUnitAuthorityBasis | null = null;
   let baseSpendUnit: number | null = null;
   if (
@@ -1943,6 +2057,23 @@ function buildNativeAdSpendUnitAuthority(input: {
       input.targetAuthority.targetRoas;
   } else if (
     accountDimensionsReady &&
+    observedShopifyAovUsable &&
+    input.targetAuthority.targetRoasAuthority &&
+    positiveFinite(input.targetAuthority.targetRoas)
+  ) {
+    /*
+      The merchant's own settled revenue, before Meta's attributed view of it.
+
+      Its currency was matched against the ad account, its window is closed
+      store days, and its order floor was cleared upstream — this branch only
+      divides. The cutoff test below is the same one every other evidence lane
+      passes: an observation the cutoff could not have known is not evidence for
+      that cutoff, however old its window says it is.
+    */
+    basis = "observed_shopify_aov";
+    baseSpendUnit = observedShopifyAovMajor / input.targetAuthority.targetRoas;
+  } else if (
+    accountDimensionsReady &&
     accountAovEvidence.status === "ready" &&
     positiveFinite(accountAovEvidence.meanAov) &&
     input.targetAuthority.targetRoasAuthority &&
@@ -1953,7 +2084,10 @@ function buildNativeAdSpendUnitAuthority(input: {
       accountAovEvidence.meanAov / input.targetAuthority.targetRoas;
   }
   const content: Omit<NativeAdSpendUnitAuthority, "authorityHash"> = {
-    contractVersion: "engine-v3-native-ad-spend-unit-authority.v1",
+    contractVersion:
+      observedEvidence === undefined
+        ? "engine-v3-native-ad-spend-unit-authority.v1"
+        : "engine-v3-native-ad-spend-unit-authority.v2",
     status: basis === null ? "blocked" : "ready",
     basis,
     businessId: input.businessId,
@@ -1964,6 +2098,9 @@ function buildNativeAdSpendUnitAuthority(input: {
     targetAuthorityHash: input.targetAuthority.authorityHash,
     baseSpendUnit,
     accountAovEvidence,
+    ...(input.observedShopifyAovEvidence === undefined
+      ? {}
+      : { observedShopifyAovEvidence: observedEvidence }),
   };
   const authority: NativeAdSpendUnitAuthority = {
     ...content,
@@ -2042,6 +2179,9 @@ export function computeNativeAdCalibrationBatch(
     targetAuthority,
     currencyAdmission,
     timezoneAdmission,
+    // Forwarded rather than omitted. Every call site dropped it, which made
+    // the observed-Shopify basis unreachable in production.
+    observedShopifyAovEvidence: input.observedShopifyAovEvidence,
   });
   const spendUnitAuthority = spendUnitAuthorityBuild.authority;
   const peerObservationRows =
@@ -3156,6 +3296,13 @@ function providerBindingsFromRows(rows: Record<string, unknown>[]) {
         row.provider_account_id,
         "provider_account_id",
       ),
+      // Optional by absence: a binding read before this column was selected
+      // simply has no currency, and the store benchmark then yields nothing.
+      accountCurrency:
+        typeof row.account_currency === "string"
+        && row.account_currency.trim().length > 0
+          ? row.account_currency.trim().toUpperCase()
+          : null,
     }))
     .sort((left, right) =>
       `${left.providerAccountRefId}\u0000${left.providerAccountId}`.localeCompare(
@@ -3362,6 +3509,27 @@ export async function runAdCalibrationJob(
             computationCutoff,
           ],
         );
+        /*
+          The store's observed average order value, for THIS account.
+
+          Resolved here because this is where the IO belongs and where the
+          account's currency is known — the benchmark is in the ad account's
+          own currency and no conversion is performed, so a store selling in
+          another currency yields nothing rather than a translated guess. A
+          currency with no ISO exponent yields nothing for the same reason: a
+          number whose scale is unknown is not a number.
+        */
+        const accountCurrency = binding.accountCurrency ?? null;
+        const exponent = resolveMinorUnitExponent(accountCurrency);
+        const observedShopifyAovEvidence = await (
+          options.resolveObservedAov ?? resolveObservedShopifyAov
+        )({
+          businessId: input.businessId,
+          accountCurrency,
+          currencyExponent:
+            exponent.status === "resolved" ? exponent.exponent : null,
+        }).catch(() => null);
+
         const batch = computeNativeAdCalibrationBatch({
           businessId: input.businessId,
           providerAccountRefId: binding.providerAccountRefId,
@@ -3372,6 +3540,7 @@ export async function runAdCalibrationJob(
           targetAuthority: targetRow
             ? mapNativeAdTargetAuthorityRow(targetRow)
             : null,
+          observedShopifyAovEvidence,
         });
         const replacement = await replaceNativeAdCalibrationBatch(
           { batch, jobRunId },

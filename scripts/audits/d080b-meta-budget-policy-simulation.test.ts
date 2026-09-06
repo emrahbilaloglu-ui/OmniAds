@@ -335,7 +335,12 @@ describe("D080B — lanes never blend", () => {
   });
 });
 
-describe("C1 — the fifteen independently authored lies that v1 accepted", () => {
+// Every case in this block replays the same 247,050-proposal package, including
+// the positive and section-audit controls. CI run 34048550680 measured the
+// positive control at 15,048 ms and neighboring attacks at 15,052–15,734 ms.
+// Apply the attacks' existing 90 s bound to the whole replay block; leaving the
+// other replays on the global 15 s default made equivalent work fail under load.
+describe("C1 — the fifteen independently authored lies that v1 accepted", { timeout: 90_000 }, () => {
   const attack = (mutate: (a: Record<string, any>) => void) => {
     const a = clone();
     mutate(a);

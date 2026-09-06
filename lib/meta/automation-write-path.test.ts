@@ -48,6 +48,28 @@ describe("exactly one provider-write path out of Automation", () => {
     expect(callers).toEqual([THE_WRITE_PATH]);
   });
 
+  it("names the guarded Launchpad handlers in exactly one module", () => {
+    /**
+     * The same law, extended to the families that arrived after it.
+     *
+     * A `launch` row and an activation `resume` row dispatch by forwarding to
+     * the extracted Launchpad handlers. That is the whole reason those bodies
+     * were moved out of `app/`, and it is only safe while there is ONE module
+     * doing the forwarding — a second caller would be a second create path
+     * with its own idea of the gates.
+     */
+    for (const handlerModule of [
+      "@/lib/launchpad/meta-launch-route-handlers",
+      "@/lib/meta/launch-activation-route-handlers",
+    ]) {
+      const callers = SUBSYSTEM_FILES.filter((file) =>
+        sourceOf(file).includes(handlerModule),
+      );
+
+      expect(callers, handlerModule).toEqual([THE_WRITE_PATH]);
+    }
+  });
+
   it("invokes that handler from exactly one module", () => {
     const invocations = SUBSYSTEM_FILES.flatMap((file) => {
       const matches = sourceOf(file).match(

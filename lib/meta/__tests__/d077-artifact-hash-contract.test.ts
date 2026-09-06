@@ -32,11 +32,13 @@ import {
   deriveScopedChange,
   isStrictIsoUtc,
   validatePnpmProvenance,
+  validateProbe,
   type ExecutedStep,
   type ExistenceObservation,
   type PathLookupProbe,
   type PnpmProvenance,
   type ProbeMeasurement,
+  type ProvenanceProbe,
   type RawSpawnResult,
 } from "@/scripts/audits/d077-provenance-contract";
 
@@ -290,6 +292,17 @@ describe("D077 artifact hash contract (fail-closed)", () => {
       runtimeVersions: Record<string, unknown> & {
         pnpmProvenance?: PnpmProvenance;
       };
+      generatedAtUtc: string;
+      runtimeVersionsScope: {
+        kind: string;
+        sourceLedgerHash: string;
+        sourceGeneratedAtUtc: string;
+      };
+      packagingRuntimeVersions: Record<string, unknown> & {
+        actor: string;
+        observedAtUtc: string;
+        pnpmProbes: ProvenanceProbe[];
+      };
     };
     expect(ledger.runtimeVersions, "ledger lacks runtimeVersions").toBeTruthy();
     for (const key of ["node", "npm", "pnpm", "vitest", "postgres", "tsc"]) {
@@ -319,6 +332,33 @@ describe("D077 artifact hash contract (fail-closed)", () => {
     expect(retained.observationKind).toBe("retained");
     expect(retained.cacheSafeReadOnly).toBe("not_rerun");
     expect(retained).toEqual(RETAINED_C4_PROBE);
+    expect(ledger.runtimeVersionsScope.kind).toBe("historical");
+    expect(ledger.runtimeVersionsScope.sourceLedgerHash).toMatch(/^[0-9a-f]{64}$/);
+    expect(Date.parse(ledger.runtimeVersionsScope.sourceGeneratedAtUtc)).toBeLessThanOrEqual(
+      Date.parse(ledger.generatedAtUtc),
+    );
+    const current = ledger.packagingRuntimeVersions;
+    expect(current.actor).toBe("codex");
+    for (const key of ["node", "npm", "pnpm", "vitest", "postgres", "tsc"]) {
+      expect(typeof current[key], `current ${key}`).toBe("string");
+      expect(String(current[key]).trim().length, `current ${key}`).toBeGreaterThan(0);
+    }
+    expect(current.pnpmProbes.map((probe) => probe.probeId).sort()).toEqual(
+      provenance.presentTenseProbes.map((probe) => probe.probeId).sort(),
+    );
+    expect(isStrictIsoUtc(current.observedAtUtc)).toBe(true);
+    expect(Date.parse(current.observedAtUtc)).toBeLessThanOrEqual(Date.parse(ledger.generatedAtUtc));
+    for (const probe of current.pnpmProbes) {
+      validateProbe(probe);
+      if (probe.observedAtUtc !== null)
+        expect(Date.parse(probe.observedAtUtc)).toBeLessThanOrEqual(Date.parse(current.observedAtUtc));
+    }
+    // New environment results remain bound to their real command output.
+    const tampered = JSON.parse(JSON.stringify(
+      current.pnpmProbes.find((probe) => probe.resultClass === "version_reported"),
+    )) as ProvenanceProbe;
+    tampered.reportedVersion = "invented-version";
+    expect(() => validateProbe(tampered)).toThrow();
   });
 
   it("the provenance contract rejects contradictory fixtures", () => {
@@ -568,18 +608,41 @@ describe("D077 artifact hash contract (fail-closed)", () => {
     /*
       Pinned invariants of the retained run itself.
 
-      PRE-DEPLOY AUDIT — repinned to the 2026-09-03 capture. These are the
-      bytes `bash scripts/verify-database-seams.sh` produced on the final tree
-      (exit 0, 491.6s, 40 stages); the 2026-08-30 values described a 38-stage
-      script that no longer exists. The log is frozen at
-      `docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-03.log`
+      RELEASE CANDIDATE — repinned to the 2026-09-06 20:37Z capture. These are
+      the bytes `bash scripts/verify-database-seams.sh` produced on reviewed
+      source freeze 444597262e7d271a0f46dcd93d2a80cdfe326e7f
+      (exit 0, 551.384 s, 40 stages).
+
+      Why a repin was required even though the header count did not move.
+      `buildWholeShellProof` compares the ordered stage HEADINGS against the
+      current script; it deliberately does not bind the child PROGRAMS those
+      headings invoke. So an identical 40-header sequence proves the shape of
+      the script, not that this release's stages ran. The 2026-09-03 capture
+      predates the claim-race seam's capability repair, and it never executed
+      the newly registered `direct-launch-standing-boundary` child at all,
+      because that registration did not exist when it ran. Reusing it would
+      have been a pin without a run — exactly what the 2026-08-30 -> 2026-09-03
+      repin was made to avoid.
+
+      The same reasoning forced a SECOND repin within 2026-09-06. The 07:59Z
+      capture was canonical at the Phase 1 checkpoint; preparing the PR then
+      registered `bid-history-writes-journal.db.test.ts` (five of its six cases
+      had been seam-gated while registered in no runner, so they ran nowhere)
+      and made `runChildVitest` refuse a skipped or short child. Those change
+      what the stage EXECUTES while leaving all 40 headings identical — the
+      exact blind spot above — so the 07:59Z log cannot speak for this tree
+      either. It is retained as the evidence of its own run.
+
+      The 2026-08-30 (38-stage) and 2026-09-03 (40-stage) logs are likewise
+      retained and not relabelled. This log is frozen at
+      `docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T2037Z.log`
       and pinned with this same digest in the release-candidate manifest, which
       the assertion above checks — so these three cannot drift apart.
     */
     expect(recomputed.logSha256).toBe(
-      "6bc7f70e309ccd8b2cf5df06267bdf123179c38d6180fddf36c9ddab24bda653",
+      "1ce50e542110c5461e8e5908b897f9cc882444d69499c8344cf5f02f92d037a3",
     );
-    expect(recomputed.logBytes).toBe(505131);
+    expect(recomputed.logBytes).toBe(662047);
     /*
       PRE-DEPLOY AUDIT — 38 -> 40, from a REGENERATED run. The two stages added
       are the D088 migration seam and the automation-OFF readback. The ledger,

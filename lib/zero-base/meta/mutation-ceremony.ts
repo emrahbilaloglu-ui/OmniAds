@@ -18,6 +18,7 @@
  *    execute route: a single endpoint taking an action name is one validation
  *    bug away from performing an action nobody reviewed.
  */
+import { readMetaReleaseGates } from "@/lib/meta/release-gates";
 import type { WidthBucket } from "@/lib/zero-base/instrumentation-schema";
 
 export type MutationGrain = "campaign" | "adset" | "ad";
@@ -54,13 +55,19 @@ export const MUTATION_UI_FLAG = "ZERO_BASE_MUTATION_UI_ENABLED";
 /**
  * Whether the manual write UI exists at all.
  *
- * Read on the server only, and default OFF: an unset, empty, or any-other-value
- * environment means off. The flag is set in no environment file, so this
- * returns false everywhere unless somebody deliberately exports it for a single
- * process.
+ * Read on the server only. This used to be a third independent spelling of one
+ * capability: `ZERO_BASE_MUTATION_UI_ENABLED` was set in no environment file, so
+ * the manual action sheet was unreachable everywhere while the routes behind it
+ * had no gate at all. It now follows the single environment capability that the
+ * rest of the write path reads, and the legacy variable is honoured only as an
+ * explicit local override for a single process.
+ *
+ * This decides what the product OFFERS. What a viewer may actually do is
+ * decided per business by `resolveMetaWriteCapability` on the server.
  */
 export function isMutationUiEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
-  return env[MUTATION_UI_FLAG]?.trim() === "true";
+  if (env[MUTATION_UI_FLAG]?.trim() === "true") return true;
+  return readMetaReleaseGates(env).automationLiveWrites;
 }
 
 /**
@@ -90,6 +97,16 @@ export type ConfirmationLevel = "none" | "acknowledge" | "typed_phrase";
 
 export type TerminalOutcome =
   | "verified"
+  /**
+   * The write was rehearsed, not made.
+   *
+   * `guardrails_json.dryRunOnly` is a business-level posture the server reads
+   * at the write boundary, so an operator can complete the whole ceremony and
+   * have nothing reach Meta. Folding that into `verified` would tell them a
+   * change was applied that was not; folding it into `failed` would tell them
+   * something went wrong when the guardrail did exactly its job.
+   */
+  | "dry_run"
   | "failed"
   | "silent_failure"
   | "provider_outcome_ambiguous";
@@ -160,6 +177,11 @@ export function confirmationFor(action: MutationAction): ConfirmationLevel {
     case "pause":
       return "acknowledge";
     case "duplicate":
+      return "acknowledge";
+    case "launch":
+      // A launch creates PAUSED, so nothing begins spending on confirmation;
+      // acknowledgement matches what the act actually does. Activating it
+      // afterwards is a separate, explicitly authorized step.
       return "acknowledge";
     case "resume":
     case "bid":
@@ -300,7 +322,12 @@ export function resolveCeremony(input: CeremonyInput): CeremonyState {
  */
 export function receiptAvailable(outcome: TerminalOutcome, durable: boolean): boolean {
   if (!durable) return false;
-  return outcome === "verified" || outcome === "failed" || outcome === "silent_failure";
+  return (
+    outcome === "verified" ||
+    outcome === "dry_run" ||
+    outcome === "failed" ||
+    outcome === "silent_failure"
+  );
 }
 
 /**
@@ -310,13 +337,20 @@ export function receiptAvailable(outcome: TerminalOutcome, durable: boolean): bo
  * retrying could double it. D067 requires the outcome be reconciled first.
  */
 export function retryAllowed(outcome: TerminalOutcome): boolean {
-  return outcome === "failed";
+  // A rehearsal may be re-run: nothing was applied, so nothing can be doubled.
+  return outcome === "failed" || outcome === "dry_run";
 }
 
 export const TERMINAL_COPY: Record<TerminalOutcome, { title: string; body: string }> = {
   verified: {
     title: "Applied and verified",
     body: "Meta confirmed the change and we re-read it back.",
+  },
+  dry_run: {
+    title: "Rehearsed, not applied",
+    body:
+      "Rehearsal mode is on for this business, so the request stopped before Meta. " +
+      "Turn rehearsal off in Automation to apply changes for real.",
   },
   failed: {
     title: "Not applied",

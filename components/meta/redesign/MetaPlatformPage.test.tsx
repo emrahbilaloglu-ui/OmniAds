@@ -687,7 +687,9 @@ describe("MetaPlatformPage", () => {
     expect(html).toContain('data-meta-exact-lane="action"');
     expect(html).toContain("Policy delivery block");
     expect(html).toContain("ASC Prospecting");
-    expect(html).toContain("Writes are desktop-only");
+    expect(html).toContain(
+      "the same manual action sheet the desktop carries",
+    );
     expect(html).not.toContain("Mobile diagnostic summary unavailable");
     expect(state.queryKeys).toContainEqual([
       "meta-decisions-workspace",
@@ -3260,7 +3262,7 @@ describe("mobile decision surface parity", () => {
     expect(mobile).toContain("TheSwaf · Act now 4");
   });
 
-  it("offers exactly one control per row — evidence — and never a write", () => {
+  it("offers evidence on every row, and a write only where the server named one", () => {
     state.lanePayload = metaLanePayload({
       actionNow: [metaRec({ id: "rec_1", title: "Row One" })],
       counts: {
@@ -3280,10 +3282,26 @@ describe("mobile decision surface parity", () => {
     const rowStart = mobile.indexOf('data-mobile-row-id="rec_1"');
     const row = mobile.slice(rowStart, mobile.indexOf("</article>", rowStart));
     expect(row).toContain("Read evidence →");
+    /*
+      RESTATED LAW. This used to assert that mobile offered exactly one control
+      and that the stage said "Writes are desktop-only". It no longer does: a
+      row whose server payload names an `operatorApply` verb now carries the
+      SAME manual action sheet the desktop carries, under the same
+      `manual_operator_v1` authority and the same typed confirmation.
+
+      `rec_1` is a campaign row with no `proposedAction`, so
+      `serverOperatorApplyForRec` returns null for it and no apply control is
+      drawn — which is what this case still pins: the control follows the
+      server's verb, not the device. The positive case, the STOP case and the
+      guest case are driven in
+      components/meta/redesign/mobile-card-apply-ceremony.test.tsx.
+    */
     expect(row).not.toContain("Pause");
-    expect(row).not.toContain("Apply bid");
+    expect(row).not.toContain("Apply ·");
     expect(row).not.toContain("Resume");
-    expect(mobile).toContain("Writes are desktop-only");
+    expect(row).not.toContain("data-mobile-apply=");
+    expect(mobile).not.toContain("Writes are desktop-only");
+    expect(mobile).toContain("the same manual action sheet the desktop carries");
   });
 
   it("states viewer authority and the served source posture beside the rows", () => {

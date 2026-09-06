@@ -19,6 +19,7 @@ vi.mock("@/lib/meta/reviewer-write-guard", () => ({
   rejectIfReviewerReadOnly: vi.fn(() => null),
 }));
 vi.mock("@/lib/meta/automation-control-plane", () => ({
+  ensureBusinessControlRow: vi.fn(async () => ({ created: false })),
   engageMetaAutomationKillSwitch: vi.fn(),
   releaseMetaAutomationKillSwitch: vi.fn(),
   setMetaAutomationDecisionTypeMode: vi.fn(),

@@ -46,6 +46,7 @@
  * in this table means exactly one thing: an operator may approve it, and
  * approving calls the existing guarded handler.
  */
+import { resolveEffectiveMetaModes } from "@/lib/meta/automation-control-plane";
 import { getDb, runDbTransaction } from "@/lib/db";
 import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 import { readMetaAutomationProposalRoasFloor } from "@/lib/meta/automation-guardrail-policy";
@@ -55,9 +56,67 @@ import {
   parseBudgetProposalEnvelope,
   type BudgetProposalEnvelope,
 } from "@/lib/meta/budget-proposal-runtime";
+import {
+  bidEnvelopeForProposalRow,
+  parseBidProposalEnvelope,
+  type BidProposalEnvelope,
+} from "@/lib/meta/bid-proposal-envelope";
 
 /** Grains the queue can aim a guarded write at. */
-export type MetaAutomationProposalScope = "campaign" | "adset";
+/**
+ * The grains a proposal can be about.
+ *
+ * `ad` was in the database CHECK from the beginning and in no producer: the
+ * native chain writes thousands of authorized ad-level `cut` decisions a day
+ * and none of them reached a surface an operator could act on. It is a real
+ * grain here now; what differs is the write path, which carries an immutable
+ * per-attempt journal and therefore stays operator-approved.
+ */
+export type MetaAutomationProposalScope = "campaign" | "adset" | "ad";
+
+/**
+ * The queued actions unattended execution may take, and therefore the ones the
+ * daily cap must count.
+ *
+ * It lives here rather than beside the sweep because the atomic claim in this
+ * module has to count the SAME families the sweep dispatches. They were two
+ * different lists: the claim counted `proposed_action = 'budget'` while the
+ * sweep also executed pause and resume, so a cap of three permitted three
+ * budget writes AND three more pauses on every tick — the cap an operator set
+ * to bound money-moving actions bounded one third of them.
+ *
+ * `bid` is here now. It was excluded because no queue row could prove an
+ * amount — the row carried a verb and a target and an executor would have had
+ * to invent the size of the change. `bid_envelope_json` is that amount, the
+ * database refuses a `bid` row without one, and the same daily cap that bounds
+ * a budget change now bounds a cap change, because both move money.
+ *
+ * `launch` is here now too, and the reason it was absent has been answered
+ * rather than waived. It said creating an entity without an operator is a
+ * different authorization than changing one that already exists — which is
+ * true, so the authorization it named now exists and can be pointed at: the
+ * creative standing mode set to `auto`, the separate `META_LAUNCHPAD_EXECUTION`
+ * gate open with no missing step in the `launchpad_create` safety family, and
+ * the intent's OWN stored payload, staged and confirmed by a person in
+ * Launchpad and replayed byte for byte. Nothing here decides what to advertise;
+ * it decides only whether an approved intent may be executed unattended. Every
+ * create is still PAUSED, and turning it on remains a separate decision behind
+ * a separate stored approval.
+ *
+ * `duplicate` stays absent. It creates an entity with no intent behind it, so
+ * there is no stored authorization for an unattended path to read.
+ *
+ * Being on this list makes a launch both COUNTED and dispatchable, and the
+ * counting half binds first: a launch consumes the same daily allowance as a
+ * budget write, because it spends the account's money just as surely.
+ */
+export const AUTOMATABLE_PROPOSAL_ACTIONS = [
+  "budget",
+  "bid",
+  "launch",
+  "pause",
+  "resume",
+] as const;
 
 /**
  * What raised the row.
@@ -69,6 +128,16 @@ export type MetaAutomationProposalScope = "campaign" | "adset";
 export const META_AUTOMATION_PROPOSAL_ORIGINS = [
   "engine_decision",
   "automation_rule",
+  /*
+    A person's own decision, recorded in Launchpad.
+
+    The database has accepted this origin since the launch slice widened the
+    CHECK, and `launch-proposal-producer.ts` writes it — but this union never
+    learned about it, so a row the queue really does hold could not be typed.
+    A launch names an approved asset, copy and destination, and none of those
+    is an engine recommendation or a rule firing.
+  */
+  "operator_action",
 ] as const;
 export type MetaAutomationProposalOrigin =
   (typeof META_AUTOMATION_PROPOSAL_ORIGINS)[number];
@@ -305,6 +374,30 @@ export interface MetaAutomationProposal {
    */
   budgetEnvelope: BudgetProposalEnvelope | null;
   /**
+   * The same fact for a `bid` row: which ad set, from what, to what.
+   *
+   * Non-null only when the stored envelope parses, its own arithmetic holds
+   * and it names this row. The database refuses a `bid` row without one, so a
+   * null here means the value was edited or copied from another proposal —
+   * and the executor refuses rather than writing an amount it cannot vouch for.
+   */
+  bidEnvelope: BidProposalEnvelope | null;
+  /**
+   * The launch intent this row is about, when it is about one.
+   *
+   * A `launch` row has no meaning without it and the database refuses one
+   * (`meta_automation_proposals_launch_lineage`). An operator-staged `resume`
+   * row carries it too, and that is the only thing separating "turn on what
+   * this launch created" from an ordinary un-pause: the two share a verb, so
+   * anything deciding how the row may be dispatched has to read this field
+   * rather than `proposedAction` — see `decisionTypeForProposal`.
+   *
+   * Null on a pre-migration read exactly as the claim fields are, which is a
+   * different fact from "this row names no intent"; a reader that must have
+   * the lineage refuses instead of executing without it.
+   */
+  launchIntentId: string | null;
+  /**
    * The current (or last) execution claim.
    *
    * `null` on a database that has not run the claim migration yet, which is a
@@ -347,12 +440,24 @@ export function proposalActionLabel(
   action: MutationAction,
   scopeType: MetaAutomationProposalScope,
 ): string {
-  const entity = scopeType === "campaign" ? "campaign" : "ad set";
+  /*
+    Three grains, not two.
+
+    `ad` used to fold into "ad set" here because no producer raised an ad-grain
+    row. The native cut projection and the activation producer both do now, and
+    an activation tagged "Resume ad set" would name the wrong entity on the one
+    screen an operator uses to decide whether to approve it.
+  */
+  const entity =
+    scopeType === "campaign" ? "campaign" : scopeType === "ad" ? "ad" : "ad set";
   switch (action) {
     case "pause":
       return `Pause ${entity}`;
     case "resume":
       return `Resume ${entity}`;
+    case "launch":
+      // The intent names its own destination, so the tag names the act.
+      return "Create paused ad";
     case "bid":
       return `Apply bid`;
     case "duplicate":
@@ -515,6 +620,10 @@ interface ProposalDbRow {
   receipt_json: unknown;
   /** D088. Absent on a pre-migration read; the mapper then yields null. */
   budget_envelope_json?: unknown;
+  /** The bid amount envelope. Absent the same way on a pre-migration read. */
+  bid_envelope_json?: unknown;
+  /** The launch intent behind a `launch` or an operator-staged `resume` row. */
+  launch_intent_id?: string | null;
   /** Absent (undefined) on a database that predates the claim migration. */
   claim_token?: string | null;
   claimed_by?: string | null;
@@ -580,6 +689,29 @@ function mapProposalRow(row: ProposalDbRow): MetaAutomationProposal {
         engineVersion: row.engine_version,
       },
     ),
+    /*
+      The same two proofs the budget envelope gets: the fingerprint says it was
+      not edited, the identity check says it was not copied from another row —
+      where it would re-fingerprint perfectly and name another ad set's cap.
+    */
+    bidEnvelope: bidEnvelopeForProposalRow(
+      parseBidProposalEnvelope(row.bid_envelope_json ?? null),
+      {
+        id: row.id,
+        businessId: row.business_id,
+        providerAccountId: row.provider_account_id,
+        scopeType: row.scope_type,
+        scopeId: row.scope_id,
+      },
+    ),
+    /*
+      Read the same way the claim fields are, and for the same reason: on a
+      database that has not run the lineage migration the column is absent, so
+      the row still reads and this comes back null. Null therefore means "not
+      known here", not "this row names no intent", and the executor refuses
+      rather than dispatching a launch whose intent it cannot name.
+    */
+    launchIntentId: row.launch_intent_id ?? null,
     claimToken: row.claim_token ?? null,
     claimedBy: row.claimed_by ?? null,
     claimedAt: row.claimed_at ? new Date(row.claimed_at).toISOString() : null,
@@ -605,7 +737,7 @@ const PROPOSAL_BASE_COLUMNS = `
  * the same way the claim columns do: the row still reads, the envelope is null,
  * and a budget approval refuses rather than dispatching without one.
  */
-const PROPOSAL_BUDGET_COLUMNS = `budget_envelope_json`;
+const PROPOSAL_BUDGET_COLUMNS = `budget_envelope_json, bid_envelope_json`;
 
 /** The claim columns, cast to text so a UUID arrives as the key it is used as. */
 const PROPOSAL_CLAIM_COLUMNS = `
@@ -613,8 +745,18 @@ const PROPOSAL_CLAIM_COLUMNS = `
   claimed_at, dispatch_started_at
 `;
 
+/**
+ * The launch lineage, its own group so it degrades on its own.
+ *
+ * It arrived in a later migration than the claim and envelope columns, so a
+ * database can legitimately have those and not this one. Casting to text hands
+ * the UUID over as the string the intent id is used as everywhere else.
+ */
+const PROPOSAL_LAUNCH_COLUMNS = `launch_intent_id::text AS launch_intent_id`;
+
 const PROPOSAL_COLUMNS =
-  `${PROPOSAL_BASE_COLUMNS}, ${PROPOSAL_CLAIM_COLUMNS}, ${PROPOSAL_BUDGET_COLUMNS}`;
+  `${PROPOSAL_BASE_COLUMNS}, ${PROPOSAL_CLAIM_COLUMNS}, ` +
+  `${PROPOSAL_BUDGET_COLUMNS}, ${PROPOSAL_LAUNCH_COLUMNS}`;
 
 /** PostgreSQL's `undefined_column`. */
 function isUndefinedColumnError(error: unknown): boolean {
@@ -879,9 +1021,30 @@ export async function projectMetaAutomationProposals(input: {
   businessId: string;
   snapshotDate: string;
   now?: Date;
+  /** Injectable so the projection stays testable without a control plane. */
+  readModes?: typeof resolveEffectiveMetaModes;
 }): Promise<ProjectMetaAutomationProposalsResult> {
   if (!(await proposalsReady())) {
     return { projected: 0, expired: 0, ran: false };
+  }
+
+  /*
+    The standing mode decides whether a queue row is wanted at all.
+
+    In manual mode the operator applies from the decision card; a confirmation
+    queue that fills up behind them is a second inbox nobody asked for, and one
+    they would have to dismiss row by row. Semi-automatic and automatic are the
+    two modes whose whole shape is "it arrives here first", so those are the two
+    that project.
+
+    An unreadable mode is `manual` — the safe reading, and the one
+    `resolveEffectiveMetaModes` already gives.
+  */
+  const modes = await (input.readModes ?? resolveEffectiveMetaModes)(
+    input.businessId,
+  );
+  if (modes.pause === "manual") {
+    return { projected: 0, expired: 0, ran: true };
   }
   // Read the floor before anything else happens. "I could not read the floor"
   // is not "there is no floor", and projecting under a guardrail this process
@@ -1064,7 +1227,298 @@ export async function projectMetaAutomationProposals(input: {
     ],
   )) as Array<{ id: string }>;
 
+  /*
+    The native ad projection does NOT run here.
+
+    It used to, and the ordering made it useless: this projection is called
+    from the structure snapshot, and the cron runs the native ad chain
+    AFTERWARDS. So it read the previous slot's native decisions every time —
+    the morning's decisions never entered the queue in the morning, and by the
+    afternoon it was reading them while the afternoon's own decisions were
+    again still unwritten.
+
+    It is now `projectNativeAdProposals`, called by the native chain once that
+    chain has actually published. Same statement, same idempotency; the only
+    change is that it runs after the rows it reads exist.
+  */
   return { projected: rows.length, expired, ran: true };
+}
+
+/**
+ * The native ad decisions, which had no producer at all.
+ *
+ * The creative chain writes an ad-grain `cut` with its own `authorized_action`
+ * — the field that says the engine's authority survived every blocker — and
+ * nothing has ever turned one into something an operator could act on. Both
+ * conditions are required here: a `cut` label whose authority was withheld is
+ * a diagnosis, not a proposal, and projecting it would offer an action the
+ * engine deliberately refused to authorize.
+ *
+ * A failed read or write rejects; the native chain must retry an incomplete
+ * projection before unattended execution can use its queue.
+ */
+/**
+ * Project the native ad decisions this business just published.
+ *
+ * Called by the native chain, per business, AFTER it has written
+ * `engine_v3_ad_decision_snapshots_daily` for the day — which is the whole
+ * point: run from the structure snapshot, as it was, it could only ever see
+ * the previous slot's decisions.
+ *
+ * Idempotent by construction. The insert's ON CONFLICT targets the projection's
+ * own unique key (business, account, decision key, rec type, snapshot date).
+ * Pending rows are refreshed or withdrawn as the current decision changes.
+ * Only our untouched system-withdrawn rows can be offered again; operator
+ * decisions and provider attempts retain their terminal or in-flight state.
+ * Safe to call again for one account, or for all of them.
+ */
+export async function projectNativeAdProposals(input: {
+  businessId: string;
+  snapshotDate: string;
+  providerAccountId?: string | null;
+  ttlInterval?: string;
+}): Promise<{
+  projected: number;
+  ran: boolean;
+  /**
+   * Why nothing was projected, when nothing was.
+   *
+   * The caller used to see only `{ projected, ran }` and could not tell a
+   * complete answer from a withheld one, so it recorded every outcome the
+   * same way and a projection that never happened looked like one that had.
+   * `standing_mode_manual` is a complete answer — in manual mode the operator
+   * applies from the card and a queue filling up behind them is a second inbox
+   * nobody asked for — but it is not a permanent one: a family flipped to
+   * semi-automatic mid-slot must still fill the queue, so the chain records it
+   * as outstanding rather than done.
+   */
+  withheld:
+    | "schema_not_ready"
+    | "standing_mode_manual"
+    | "standing_mode_unreadable"
+    | null;
+}> {
+  if (!(await proposalsReady())) {
+    return { projected: 0, ran: false, withheld: "schema_not_ready" };
+  }
+  const modes = await resolveEffectiveMetaModes(input.businessId).catch(() => null);
+  // Same standing-mode gate the pause projection applies: in manual mode the
+  // operator applies from the card, and a queue filling up behind them is a
+  // second inbox nobody asked for.
+  if (!modes || modes.pause === "manual") {
+    return {
+      projected: 0,
+      ran: modes !== null,
+      withheld: modes === null
+        ? "standing_mode_unreadable"
+        : "standing_mode_manual",
+    };
+  }
+  const projected = await projectNativeAdPauseProposals({
+    businessId: input.businessId,
+    snapshotDate: input.snapshotDate,
+    providerAccountId: input.providerAccountId?.trim() || null,
+    ttlInterval:
+      input.ttlInterval ?? `${META_AUTOMATION_PROPOSAL_TTL_HOURS} hours`,
+  });
+  return { projected, ran: true, withheld: null };
+}
+
+const NATIVE_PROJECTION_WITHDRAWAL_NOTE = "native_ad_decision_withdrawn";
+
+/** Only expiry caused by this projection is reversible; never an operator act. */
+function nativeProjectionWithdrawalPredicate(alias: "decided" | "meta_automation_proposals") {
+  return `${alias}.status = 'expired'
+    AND ${alias}.origin = 'engine_decision'
+    AND ${alias}.rec_type = 'native_ad_cut'
+    AND ${alias}.scope_type = 'ad'
+    AND ${alias}.proposed_action = 'pause'
+    AND ${alias}.decision_note IS NOT DISTINCT FROM '${NATIVE_PROJECTION_WITHDRAWAL_NOTE}'
+    AND ${alias}.claim_token IS NULL
+    AND ${alias}.claimed_at IS NULL
+    AND ${alias}.claimed_by IS NULL
+    AND ${alias}.dispatch_started_at IS NULL
+    AND ${alias}.decided_by IS NULL
+    AND ${alias}.decided_at IS NULL
+    AND ${alias}.receipt_json IS NULL`;
+}
+
+/** One atomic statement: the source read, withdrawal and re-offer share a snapshot. */
+export const NATIVE_AD_PAUSE_PROJECTION_SQL = `
+      WITH latest_decisions AS MATERIALIZED (
+        SELECT DISTINCT ON (d.provider_account_id, d.ad_id) d.*
+          FROM engine_v3_ad_decision_snapshots_daily d
+         WHERE d.business_id = $1::text
+           AND d.as_of_date = $2::date
+           AND ($5::text IS NULL OR d.provider_account_id = $5)
+         -- Choose the current verdict before asking whether it remains a cut.
+         ORDER BY d.provider_account_id, d.ad_id, d.computed_at DESC, d.id DESC
+      ), decisions AS MATERIALIZED (
+        SELECT d.ad_id,
+               /*
+                 The snapshot row's own id, carried so the unattended executor
+                 can rebuild the decision-origin request this row came from.
+                 Without it the scheduled path could not name the decision it
+                 was acting on, and the decision-origin contract refuses a
+                 request that cannot.
+               */
+               d.id::text AS snapshot_id,
+               d.creative_id,
+               d.provider_account_id,
+               d.evaluation_id::text AS rec_id,
+               d.as_of_date,
+               d.engine_version,
+               d.reason,
+               d.decision_hash,
+               d.roas,
+               d.spend,
+               d.effective_target_roas,
+               dim.ad_name_current AS entity_label
+          FROM latest_decisions d
+          JOIN meta_ad_dimensions dim
+            ON dim.business_id = d.business_id
+           AND dim.provider_account_id = d.provider_account_id
+           AND dim.ad_id = d.ad_id
+         WHERE d.label = 'cut'
+           AND d.authorized_action = 'cut'
+           -- The identity the ad write must present. Without it the dispatch
+           -- builder withholds, so a row that could never execute is never
+           -- offered.
+           AND NULLIF(BTRIM(d.creative_id), '') IS NOT NULL
+           AND COALESCE(UPPER(dim.ad_status), '') <> 'PAUSED'
+      ), withdrawn AS (
+        UPDATE meta_automation_proposals pending
+           SET status = 'expired',
+               decision_note = '${NATIVE_PROJECTION_WITHDRAWAL_NOTE}',
+               expires_at = NOW(),
+               updated_at = NOW()
+         WHERE pending.business_id = $1::uuid
+           AND pending.snapshot_date = $2::date
+           AND ($5::text IS NULL OR pending.provider_account_id = $5)
+           AND pending.status = 'pending'
+           AND pending.origin = 'engine_decision'
+           AND pending.rec_type = 'native_ad_cut'
+           AND pending.scope_type = 'ad'
+           AND pending.proposed_action = 'pause'
+           AND pending.claim_token IS NULL
+           AND pending.claimed_at IS NULL
+           AND pending.claimed_by IS NULL
+           AND pending.dispatch_started_at IS NULL
+           AND pending.decided_by IS NULL
+           AND pending.decided_at IS NULL
+           AND pending.receipt_json IS NULL
+           AND NOT EXISTS (
+             SELECT 1 FROM decisions current_cut
+              WHERE current_cut.provider_account_id = pending.provider_account_id
+                AND 'ad:' || current_cut.ad_id = pending.decision_key
+           )
+        RETURNING pending.id
+      )
+      INSERT INTO meta_automation_proposals (
+        business_id, provider_account_id, origin, decision_key, scope_type,
+        scope_id, rec_id, rec_type, snapshot_date, engine_version,
+        decision_label, proposed_action, action_label, primary_caption,
+        entity_label, reason, evidence_label, evidence_ref, expires_at, status
+      )
+      SELECT $1::uuid,
+             provider_account_id,
+             'engine_decision',
+             'ad:' || ad_id,
+             'ad',
+             ad_id,
+             rec_id,
+             'native_ad_cut',
+             as_of_date,
+             engine_version,
+             'cut',
+             'pause',
+             'Pause ad',
+             $3,
+             NULLIF(BTRIM(entity_label), ''),
+             reason,
+             NULL,
+             jsonb_build_object(
+               'recId', rec_id,
+               'recType', 'native_ad_cut',
+               'snapshotDate', as_of_date::text,
+               'engineVersion', engine_version,
+               'decisionKey', 'ad:' || ad_id,
+               'creativeId', creative_id,
+               'decisionHash', decision_hash,
+               -- The decision-origin lineage an unattended write must present.
+               'snapshotId', snapshot_id,
+               'evaluationId', rec_id,
+               'evidence', jsonb_build_object(
+                 'roas', roas,
+                 'spend', spend,
+                 'targetRoas', effective_target_roas
+               )
+             ),
+             NOW() + $4::interval,
+             'pending'
+        FROM decisions d
+       WHERE NOT EXISTS (
+         SELECT 1 FROM meta_automation_proposals decided
+          WHERE decided.business_id = $1::uuid
+            AND decided.provider_account_id = d.provider_account_id
+            AND decided.decision_key = 'ad:' || d.ad_id
+            AND decided.snapshot_date = d.as_of_date
+            AND decided.status NOT IN (${META_AUTOMATION_PROPOSAL_UNDECIDED_STATUS_SQL})
+            AND NOT (${nativeProjectionWithdrawalPredicate("decided")})
+       )
+         AND NOT EXISTS (
+           SELECT 1 FROM meta_automation_proposals held
+            WHERE held.business_id = $1::uuid
+              AND held.provider_account_id = d.provider_account_id
+              AND held.decision_key = 'ad:' || d.ad_id
+              AND held.proposed_action = 'pause'
+              AND held.status IN (${META_AUTOMATION_PROPOSAL_OPEN_STATUS_SQL})
+              AND NOT (
+                held.status = 'pending'
+                AND held.origin = 'engine_decision'
+                AND held.rec_type = 'native_ad_cut'
+                AND held.snapshot_date = d.as_of_date
+              )
+         )
+      ON CONFLICT (business_id, provider_account_id, decision_key, rec_type, snapshot_date)
+      DO UPDATE SET
+        status = 'pending',
+        rec_id = EXCLUDED.rec_id,
+        engine_version = EXCLUDED.engine_version,
+        decision_label = EXCLUDED.decision_label,
+        reason = EXCLUDED.reason,
+        evidence_ref = EXCLUDED.evidence_ref,
+        entity_label = EXCLUDED.entity_label,
+        expires_at = EXCLUDED.expires_at,
+        decision_note = NULL,
+        updated_at = NOW()
+      WHERE meta_automation_proposals.origin = 'engine_decision'
+        AND meta_automation_proposals.scope_type = 'ad'
+        AND meta_automation_proposals.proposed_action = 'pause'
+        AND (
+          meta_automation_proposals.status = 'pending'
+          OR (${nativeProjectionWithdrawalPredicate("meta_automation_proposals")})
+        )
+      RETURNING id
+    `;
+
+async function projectNativeAdPauseProposals(input: {
+  businessId: string;
+  snapshotDate: string;
+  providerAccountId: string | null;
+  ttlInterval: string;
+}): Promise<number> {
+  const rows = await getDb().query<{ id: string }>(
+    NATIVE_AD_PAUSE_PROJECTION_SQL,
+    [
+      input.businessId,
+      input.snapshotDate,
+      META_AUTOMATION_PROPOSAL_PRIMARY_CAPTION,
+      input.ttlInterval,
+      input.providerAccountId,
+    ],
+  );
+  return rows.length;
 }
 
 export interface ReadMetaAutomationProposalsResult {
@@ -1277,7 +1731,10 @@ export async function claimScheduledMetaAutomationProposal(input: {
          FROM meta_automation_proposals
         WHERE business_id = $1::uuid
           AND provider_account_id = $2
-          AND proposed_action = 'budget'
+          -- EVERY family this sweep can dispatch, not just budget. Counting one
+          -- of three meant the cap bounded a third of the automatic actions an
+          -- operator thought it bounded.
+          AND proposed_action = ANY($4::text[])
           AND (
             (status = 'approved'
               AND decided_at >= $3::timestamptz - interval '24 hours'
@@ -1287,7 +1744,8 @@ export async function claimScheduledMetaAutomationProposal(input: {
               AND COALESCE(decided_at, claimed_at, updated_at)
                 >= $3::timestamptz - interval '24 hours')
           )`,
-      [input.businessId, input.providerAccountId, now.toISOString()],
+      [input.businessId, input.providerAccountId, now.toISOString(),
+        [...AUTOMATABLE_PROPOSAL_ACTIONS]],
     );
     const used = Number(rows[0]?.used);
     if (!Number.isSafeInteger(used) || used < 0) {

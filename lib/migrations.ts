@@ -66,6 +66,67 @@ let loggedMigrationSkip = false;
 const DEFAULT_MIGRATION_TIMEOUT_MS = 60_000;
 type MigrationBatchQuery = Promise<unknown>;
 const DESTRUCTIVE_COLUMN_DROP_LOCK_TIMEOUT_MS = 2_000;
+
+/**
+ * Give every pre-deploy `shopify_sync_state` row the proof the PREVIOUS
+ * release already granted it.
+ *
+ * `latest_successful_sync_window_start`/`_end` are added by this same migration
+ * and written only by the success paths in `lib/sync/shopify-sync.ts`, so on the
+ * deploy every row that already exists holds NULLs. Without this statement a
+ * store whose recent span is load-bearing — a historical backfill that has not
+ * yet walked up to the window's last day — stops producing an observed average
+ * order value, and with it the derived CPA benchmark, until its next successful
+ * recent-orders pass. That is the very refusal the column pair exists to
+ * remove, moved from "while a sync is running" to "until a sync runs", so it is
+ * closed here rather than left to heal by itself.
+ *
+ * The predicate is a pure RE-STATEMENT of what the release before this one
+ * already accepted as proof (`recentOrderSpanIsProven`, removed from
+ * `lib/creative-decision-engine/shopify-aov-source.ts` in the same change):
+ * the last recorded attempt is a success, and that attempt's own window end IS
+ * the success-only `ready_through_date` beside it. It therefore cannot grant
+ * coverage the previous release withheld — it can only stop this release from
+ * withdrawing coverage the previous one granted.
+ *
+ * The statuses are spelled out rather than imported from
+ * `OBSERVED_SHOPIFY_AOV_SUCCESSFUL_SYNC_STATUSES`. A migration is a frozen
+ * historical statement; if that constant later grows a value, this backfill
+ * must keep meaning what the old proof meant.
+ *
+ * The pair it writes is exactly what a success path would have written. Every
+ * success call site sets `latest_sync_window_start`/`_end` and the retained
+ * pair to the same two dates, with `ready_through_date` equal to that end — the
+ * recent orders pass (`shopify-sync.ts:887-916`), both historical chunks
+ * (`:752-780`, `:781-806`) and the recent returns pass on its success branch
+ * (`:946-980`). The values are therefore the same for all four sync targets,
+ * which is why this is not restricted to one of them.
+ *
+ * Safe on the rows it must not touch:
+ * - Both retained columns must be NULL, so a value a real pass wrote is never
+ *   overwritten, and a second run of this statement matches nothing. Idempotent
+ *   by construction rather than by a marker.
+ * - `latest_sync_status` must be a FINISHED status, so a row whose last attempt
+ *   is `running` or a provider failure reason gets nothing invented for it.
+ *   Those rows keep their NULLs and are refused exactly as the previous release
+ *   refused them.
+ * - The recent returns pass writes `ready_through_date` even when it failed
+ *   (`shopify-sync.ts:946-980`), which is a `ready_through_date` no pass
+ *   earned — but it writes `latest_sync_status = 'failed'` beside it, so that
+ *   row is excluded here too.
+ */
+export const SHOPIFY_SYNC_STATE_RETAINED_WINDOW_BACKFILL_SQL = `
+  UPDATE shopify_sync_state
+     SET latest_successful_sync_window_start = latest_sync_window_start,
+         latest_successful_sync_window_end = ready_through_date
+   WHERE latest_successful_sync_window_start IS NULL
+     AND latest_successful_sync_window_end IS NULL
+     AND latest_sync_window_start IS NOT NULL
+     AND ready_through_date IS NOT NULL
+     AND latest_sync_window_end = ready_through_date
+     AND latest_sync_window_start <= ready_through_date
+     AND lower(btrim(latest_sync_status)) IN ('succeeded', 'ready')
+`;
 const AUTHORITY_BLOCKER_CHECK_VALUES_SQL = DECISION_AUTHORITY_BLOCKERS.map(
   (value) => `'${value.replaceAll("'", "''")}'`,
 ).join(", ");
@@ -5326,12 +5387,22 @@ export async function runMigrations(options?: {
                 AND pg_get_constraintdef(c.oid) LIKE '%launch_campaign%'
                 AND pg_get_constraintdef(c.oid) LIKE '%launch_adset%'
                 AND pg_get_constraintdef(c.oid) LIKE '%launch_ad%'
+                AND pg_get_constraintdef(c.oid) LIKE '%bid%'
             ) THEN
+              ALTER TABLE meta_ads_action_log
+                DROP CONSTRAINT IF EXISTS meta_ads_action_log_action_check;
               ALTER TABLE meta_ads_action_log
                 ADD CONSTRAINT meta_ads_action_log_action_check
                 CHECK (action IN (
                   'pause',
                   'resume',
+                  /*
+                    An ad-set bid amount change, journalled like every other
+                    write. It is deliberately its own verb: the pause/resume
+                    triggers above key on their own two, and a bid row must not
+                    fall into a status row's contract.
+                  */
+                  'bid',
                   'duplicate',
                   'launch_campaign',
                   'launch_adset',
@@ -5339,7 +5410,25 @@ export async function runMigrations(options?: {
                 ));
             END IF;
           END
-          $$`.catch(() => {}),
+          $$`,
+        /*
+          NO `.catch(() => {})` on this one, unlike its neighbours in this
+          group.
+
+          Swallowing a failure here used to be harmless: the widening only ever
+          ADDED a verb nothing wrote yet. It is not harmless now. The operator
+          bid-apply route journals `action: "bid"`
+          (lib/meta/entity-action-routes.ts:957), and the pre-widening CHECK
+          rejects that value at INSERT — so a lock timeout on this statement
+          would leave production announcing a successful migration while every
+          bid apply an operator performs fails at the journal write, with the
+          provider call already made.
+
+          Failing the migration loudly is the correct outcome: it is
+          recoverable, and it happens before the release serves anyone. Five of
+          the seven statement groups in this file already abort for the same
+          reason.
+        */
         sql`CREATE TABLE IF NOT EXISTS discount_codes (
           id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           code        TEXT NOT NULL UNIQUE,
@@ -11361,6 +11450,8 @@ export async function runMigrations(options?: {
           latest_sync_status       TEXT,
           latest_sync_window_start DATE,
           latest_sync_window_end   DATE,
+          latest_successful_sync_window_start DATE,
+          latest_successful_sync_window_end   DATE,
           last_error               TEXT,
           updated_at               TIMESTAMPTZ NOT NULL DEFAULT now(),
           PRIMARY KEY (business_id, provider_account_id, sync_target)
@@ -11371,6 +11462,74 @@ export async function runMigrations(options?: {
         ),
         sql`ALTER TABLE shopify_sync_state
           ADD COLUMN IF NOT EXISTS cursor_value TEXT`.catch(() => {}),
+        /*
+          The window the LAST SUCCESSFUL pass actually covered.
+
+          `latest_sync_window_start` and `latest_sync_window_end` are written by
+          running, cancelled and failed attempts as well as successful ones, so
+          they say what was ATTEMPTED, not what was read. Coverage readers had
+          to withhold the whole recent span for the duration of any ordinary
+          running pass, because the only start on the row belonged to an attempt
+          that had proved nothing yet.
+
+          At run time these two are written ONLY from the success paths in
+          `lib/sync/shopify-sync.ts`, and COALESCE-preserved through every
+          unsuccessful attempt, so a still-valid proven window stays readable
+          while a refresh is in flight.
+
+          The one other writer is the backfill below, which is part of this same
+          migration. Every row that already exists on the deploy would otherwise
+          hold NULLs and lose coverage it had the day before, so the backfill
+          restates the proof the previous release granted those rows. It touches
+          only rows whose retained pair is NULL and whose last attempt finished.
+
+          Ordered, not a batch array: a batch ISSUES its statements
+          concurrently, and "add the column, then backfill it" is only a
+          migration if the add happens first.
+        */
+        /*
+          NO `.catch(() => {})` on these three steps, and none on the group —
+          unlike the `shopify_sync_state` statements above them.
+
+          Swallowing a failure here does not leave a nicety undone, it lets the
+          deploy announce a successful migration for a release whose code
+          cannot run. Both columns are named unconditionally by the code this
+          same change ships: `upsertShopifySyncState` INSERTs them on every
+          sync (`lib/shopify/sync-state.ts:205-206`), so a lock timeout on
+          either ALTER — the session sets one, see `SET lock_timeout` at the
+          top of this function — leaves every subsequent Shopify sync failing
+          at its state write; and `readOrderSyncCoverage` SELECTs them
+          (`lib/creative-decision-engine/shopify-aov-source.ts:396-397`) behind
+          a bare `catch { return null }`, so the same missing columns silently
+          degrade EVERY store's observed AOV, and the CPA benchmark derived
+          from it, to unavailable with no error recorded anywhere.
+
+          The backfill is on the same footing rather than a best-effort extra.
+          It is the statement that stops this release WITHDRAWING coverage the
+          previous one granted (see the constant's own comment); swallowed, it
+          returns every pre-deploy store to the exact refusal this change
+          exists to remove, and nothing re-runs it.
+
+          Failing the migration loudly is the correct outcome: it is
+          recoverable, and it happens before the release serves anyone.
+
+          Safe on a first-ever run: `shopify_sync_state` is created earlier in
+          this same batch with both columns already in its column list, and the
+          migration client serializes statements in the order they are issued
+          (`createMigrationDb`), so the table is present by the time these run.
+          The ALTERs are then no-ops and the backfill a zero-row UPDATE.
+        */
+        orderedMigrationSteps([
+          () =>
+            sql`ALTER TABLE shopify_sync_state
+              ADD COLUMN IF NOT EXISTS latest_successful_sync_window_start DATE`,
+          () =>
+            sql`ALTER TABLE shopify_sync_state
+              ADD COLUMN IF NOT EXISTS latest_successful_sync_window_end DATE`,
+          // The pre-deploy rows, given the proof the PREVIOUS release already
+          // granted them. See the constant's own comment for the predicate.
+          () => sql.query(SHOPIFY_SYNC_STATE_RETAINED_WINDOW_BACKFILL_SQL),
+        ]),
         sql`CREATE INDEX IF NOT EXISTS idx_shopify_sync_state_business
           ON shopify_sync_state (business_id, updated_at DESC)`.catch(() => {}),
         sql`CREATE TABLE IF NOT EXISTS platform_overview_daily_summary (
@@ -12378,6 +12537,293 @@ export async function runMigrations(options?: {
         sql`CREATE INDEX IF NOT EXISTS idx_meta_ads_action_log_launch_intent
           ON meta_ads_action_log (launch_intent_id, requested_at ASC)
           WHERE launch_intent_id IS NOT NULL`,
+        /*
+          ── The activation approval, which creating an entity is not ──
+
+          `requested_status = 'PAUSED'` is not a relaxable default: an intent
+          may only ever CREATE something paused. That is deliberate, and it
+          means the intent carries no authority to turn what it created on.
+          Activation is a second, separate decision, and this column is where
+          it is recorded.
+
+          NULL is the meaningful default and the safe one: an intent with no
+          approval can be activated by an operator and by nobody else. The
+          scheduled path reads this column and refuses without it, so an
+          absent approval can never be read as a granted one.
+
+          The CHECK is only that it is an object. The binding shape — the
+          request fingerprint it must still match, the approved asset, scope
+          and destination, the approver, the expiry — is validated in one
+          module before dispatch, because half of it is a comparison against
+          the live intent rather than a property of the value.
+        */
+        /*
+          ── Which structure snapshot slots have actually completed ──
+
+          The snapshot's own "did today's run cover everything" question is
+          answered by looking for rows it would have written. That is a good
+          second defence and a poor first one: it cannot tell a slot that ran
+          from a slot that has not, so a second daily slot would look complete
+          the moment the first one finished, and the catch-up would never run.
+
+          `engine_v3_job_runs` cannot carry this. It has no provider-account
+          column — it is the shared record of three creative/native jobs — and
+          adding one would give the column a different meaning per job.
+
+          The row-coverage query stays as the second check. This table only
+          answers "has THIS (business, account, day, slot) succeeded".
+        */
+        sql`CREATE TABLE IF NOT EXISTS meta_structure_snapshot_runs (
+          business_id         TEXT NOT NULL,
+          provider_account_id TEXT NOT NULL,
+          as_of_date          DATE NOT NULL,
+          slot                SMALLINT NOT NULL CHECK (slot BETWEEN 0 AND 23),
+          status              TEXT NOT NULL
+            CHECK (status IN ('running', 'success', 'failed', 'skipped')),
+          source_max_date     DATE,
+          started_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          finished_at         TIMESTAMPTZ,
+          PRIMARY KEY (business_id, provider_account_id, as_of_date, slot)
+        )`,
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_structure_snapshot_runs_day
+          ON meta_structure_snapshot_runs (as_of_date DESC, slot)`,
+        sql`ALTER TABLE meta_launch_intents
+          ADD COLUMN IF NOT EXISTS activation_approval_json JSONB`,
+        /*
+          ── What the last activation attempt actually did ──
+
+          The approval above authorizes an activation; this records the one
+          that ran. They are deliberately separate columns: an approval that
+          was consumed is still the approval, and a receipt that says the ad
+          set blocked is not a revocation.
+
+          Without this, a half-activated hierarchy existed only in the HTTP
+          response. Reload the page and a campaign that is now on, under an ad
+          set that is not, looked exactly like an intent nobody had touched —
+          the single worst thing to be wrong about, because the difference is
+          whether money is being spent.
+        */
+        sql`ALTER TABLE meta_launch_intents
+          ADD COLUMN IF NOT EXISTS activation_receipt_json JSONB`,
+        sql`DO $$
+        BEGIN
+          IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint c
+            JOIN pg_class t ON t.oid = c.conrelid
+            JOIN pg_namespace n ON n.oid = t.relnamespace
+            WHERE n.nspname = current_schema()
+              AND t.relname = 'meta_launch_intents'
+              AND c.conname = 'meta_launch_intents_activation_receipt_object'
+          ) THEN
+            ALTER TABLE meta_launch_intents
+              ADD CONSTRAINT meta_launch_intents_activation_receipt_object
+              CHECK (
+                activation_receipt_json IS NULL
+                OR jsonb_typeof(activation_receipt_json) = 'object'
+              );
+          END IF;
+        END $$`,
+        sql`DO $$
+        BEGIN
+          IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint c
+            JOIN pg_class t ON t.oid = c.conrelid
+            JOIN pg_namespace n ON n.oid = t.relnamespace
+            WHERE n.nspname = current_schema()
+              AND t.relname = 'meta_launch_intents'
+              AND c.conname = 'meta_launch_intents_activation_approval_object'
+          ) THEN
+            ALTER TABLE meta_launch_intents
+              ADD CONSTRAINT meta_launch_intents_activation_approval_object
+              CHECK (
+                activation_approval_json IS NULL
+                OR jsonb_typeof(activation_approval_json) = 'object'
+              );
+          END IF;
+        END $$`,
+      ]);
+
+      /*
+        ── The operator's own origin, and the creative launch action ──
+
+        Placed here, after `meta_launch_intents` exists, because the new column
+        carries a foreign key to it. Running it up in the proposals block would
+        have failed silently: that block swallows errors, so the column would
+        simply not have been added and every launch row would have been refused
+        later by a constraint whose column was missing.
+
+        Both widenings replace a constraint rather than add a second one, because
+        a CHECK cannot be relaxed in place.
+
+        `operator_action` exists because the operator may now stage a concrete
+        change from a decision card. Such a row has no rule and needs no engine
+        lineage, so the lineage constraint gets its own arm rather than being
+        forced through the engine arm with invented ids.
+
+        `launch` exists because a creative reuse or test launch executes through
+        a launch intent, and a queue row naming one must point at it.
+        `launch_intent_id` is nullable so every existing row keeps its meaning;
+        the lineage rule requires it only for the action that has no meaning
+        without it.
+
+        The activation lineage rule answers a hazard the launch rule does not
+        cover. Turning on what a launch created is raised as `resume`, a verb
+        the engine already uses for ordinary un-pausing, and the two are
+        indistinguishable from the action alone: an activation read as an
+        ordinary resume is armed by the pause standing mode and dispatched by
+        the status runtimes, with no activation approval, no campaign -> ad set
+        -> ad ordering and no way back to the intent that authorized it. The
+        arm is `origin <> 'operator_action'` so every engine-raised and
+        rule-raised `resume` row keeps its meaning untouched; only a row the
+        operator's own path stages must be able to name its intent.
+
+        Nothing is backfilled. Existing `engine_decision` rows satisfy the new
+        constraints unchanged, which is what makes this safe to apply while rows
+        are in flight.
+      */
+      await runMigrationBatchSequentially([
+        sql`ALTER TABLE meta_automation_proposals
+          ADD COLUMN IF NOT EXISTS launch_intent_id UUID
+            REFERENCES meta_launch_intents(id) ON DELETE RESTRICT`,
+        sql`DO $$
+        BEGIN
+          IF EXISTS (
+            SELECT 1 FROM pg_constraint c
+            JOIN pg_class t ON t.oid = c.conrelid
+            JOIN pg_namespace n ON n.oid = t.relnamespace
+            WHERE n.nspname = current_schema()
+              AND t.relname = 'meta_automation_proposals'
+              AND c.conname = 'meta_automation_proposals_origin_check'
+          ) THEN
+            ALTER TABLE meta_automation_proposals
+              DROP CONSTRAINT meta_automation_proposals_origin_check;
+          END IF;
+          ALTER TABLE meta_automation_proposals
+            ADD CONSTRAINT meta_automation_proposals_origin_check
+            CHECK (origin IN ('engine_decision', 'automation_rule', 'operator_action'));
+
+          IF EXISTS (
+            SELECT 1 FROM pg_constraint c
+            JOIN pg_class t ON t.oid = c.conrelid
+            JOIN pg_namespace n ON n.oid = t.relnamespace
+            WHERE n.nspname = current_schema()
+              AND t.relname = 'meta_automation_proposals'
+              AND c.conname = 'meta_automation_proposals_origin_lineage'
+          ) THEN
+            ALTER TABLE meta_automation_proposals
+              DROP CONSTRAINT meta_automation_proposals_origin_lineage;
+          END IF;
+          ALTER TABLE meta_automation_proposals
+            ADD CONSTRAINT meta_automation_proposals_origin_lineage
+            CHECK (
+              (origin = 'engine_decision'
+                 AND rule_id IS NULL AND dedupe_key IS NULL
+                 AND rec_id IS NOT NULL AND rec_type IS NOT NULL
+                 AND engine_version IS NOT NULL AND decision_label IS NOT NULL)
+              OR
+              (origin = 'automation_rule'
+                 AND rule_id IS NOT NULL AND dedupe_key IS NOT NULL
+                 AND rec_id IS NULL AND rec_type IS NULL
+                 AND engine_version IS NULL AND decision_label IS NULL)
+              OR
+              (origin = 'operator_action'
+                 AND rule_id IS NULL AND dedupe_key IS NULL)
+            );
+
+          IF EXISTS (
+            SELECT 1 FROM pg_constraint c
+            JOIN pg_class t ON t.oid = c.conrelid
+            JOIN pg_namespace n ON n.oid = t.relnamespace
+            WHERE n.nspname = current_schema()
+              AND t.relname = 'meta_automation_proposals'
+              AND c.conname = 'meta_automation_proposals_action_budget_check'
+          ) THEN
+            ALTER TABLE meta_automation_proposals
+              DROP CONSTRAINT meta_automation_proposals_action_budget_check;
+          END IF;
+          ALTER TABLE meta_automation_proposals
+            ADD CONSTRAINT meta_automation_proposals_action_budget_check
+            CHECK (proposed_action IN (
+              'pause', 'resume', 'bid', 'duplicate', 'budget', 'launch'
+            ));
+
+          IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint c
+            JOIN pg_class t ON t.oid = c.conrelid
+            JOIN pg_namespace n ON n.oid = t.relnamespace
+            WHERE n.nspname = current_schema()
+              AND t.relname = 'meta_automation_proposals'
+              AND c.conname = 'meta_automation_proposals_launch_lineage'
+          ) THEN
+            ALTER TABLE meta_automation_proposals
+              ADD CONSTRAINT meta_automation_proposals_launch_lineage
+              CHECK (proposed_action <> 'launch' OR launch_intent_id IS NOT NULL);
+          END IF;
+
+          IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint c
+            JOIN pg_class t ON t.oid = c.conrelid
+            JOIN pg_namespace n ON n.oid = t.relnamespace
+            WHERE n.nspname = current_schema()
+              AND t.relname = 'meta_automation_proposals'
+              AND c.conname = 'meta_automation_proposals_activation_lineage'
+          ) THEN
+            ALTER TABLE meta_automation_proposals
+              ADD CONSTRAINT meta_automation_proposals_activation_lineage
+              CHECK (
+                proposed_action <> 'resume'
+                OR origin <> 'operator_action'
+                OR launch_intent_id IS NOT NULL
+              );
+          END IF;
+        END $$;`,
+        /*
+          ── The amount a queued bid row is about ──
+
+          `bid` has been in the action CHECK since the table was created and no
+          row could ever prove a number: the queue carried a verb and a target
+          id, and an executor asked to raise a cap would have had to invent the
+          amount from a sentence. That is why unattended bid execution was
+          excluded rather than implemented.
+
+          It mirrors the budget envelope exactly, including the constraint that
+          matters — a `bid` row without one cannot exist. A nullable column with
+          a hopeful reader would let a row reach a dispatcher with nothing in
+          it, and the dispatcher would have to decide what to do about a bid
+          change of unknown size.
+        */
+        sql`ALTER TABLE meta_automation_proposals
+          ADD COLUMN IF NOT EXISTS bid_envelope_json JSONB`,
+        sql`DO $$
+        BEGIN
+          IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint c
+            JOIN pg_class t ON t.oid = c.conrelid
+            JOIN pg_namespace n ON n.oid = t.relnamespace
+            WHERE n.nspname = current_schema()
+              AND t.relname = 'meta_automation_proposals'
+              AND c.conname = 'meta_automation_proposals_bid_envelope_object'
+          ) THEN
+            ALTER TABLE meta_automation_proposals
+              ADD CONSTRAINT meta_automation_proposals_bid_envelope_object
+              CHECK (
+                bid_envelope_json IS NULL
+                OR jsonb_typeof(bid_envelope_json) = 'object'
+              );
+          END IF;
+          IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint c
+            JOIN pg_class t ON t.oid = c.conrelid
+            JOIN pg_namespace n ON n.oid = t.relnamespace
+            WHERE n.nspname = current_schema()
+              AND t.relname = 'meta_automation_proposals'
+              AND c.conname = 'meta_automation_proposals_bid_envelope_required'
+          ) THEN
+            ALTER TABLE meta_automation_proposals
+              ADD CONSTRAINT meta_automation_proposals_bid_envelope_required
+              CHECK (proposed_action <> 'bid' OR bid_envelope_json IS NOT NULL);
+          END IF;
+        END $$;`,
       ]);
 
       // ── Automatic campaign context (D033): daily inferred campaign role ──
@@ -12450,6 +12896,121 @@ export async function runMigrations(options?: {
         sql`CREATE INDEX IF NOT EXISTS idx_engine_v3_campaign_context_account_campaign
           ON engine_v3_campaign_context_daily
           (business_id, provider_account_id, campaign_id, as_of_date DESC)`,
+      ]);
+
+      /*
+        ── Retained campaign-role authority ──
+
+        (Not part of the read-only capability study that first described this
+        table; that slice deliberately added no migration, and its audit still
+        checks that it did not. This is the migration the study said would be
+        needed, written here where migrations live.)
+
+        The budget proposal source loader reads this table to decide whether a
+        campaign's Main/Test/Mixed role can authorise an account-scoped budget
+        change. Its DDL existed only inside `lib/meta/budget-readiness-retention.ts`,
+        which nothing but an audit script ever applies — so in production the
+        table did not exist, the loader's read failed, `unknown` raised nothing,
+        and the entire budget path was inert for a reason no surface could show.
+
+        It is NOT the same shape as `engine_v3_campaign_context_daily` above and
+        cannot be replaced by it. The daily context row is mutable inference with
+        a nullable account; this is an append-only authority record with a
+        contract, both hashes, both clocks, a provenance and a non-empty account.
+        Renaming one to the other would have widened authority rather than
+        repaired it.
+
+        Existing rows: there are none, and none are backfilled. An authority
+        record has to be captured under its own contract at the time the role was
+        resolved; manufacturing one now from a daily row would assert an
+        evidentiary claim nobody made.
+      */
+      await runMigrationBatchSequentially([
+        sql`CREATE TABLE IF NOT EXISTS engine_v3_campaign_role_authority (
+          id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          contract            TEXT        NOT NULL,
+          business_id         TEXT        NOT NULL,
+          provider_account_id TEXT        NOT NULL,
+          campaign_id         TEXT        NOT NULL,
+          as_of_date          DATE        NOT NULL,
+          inferred_kind       TEXT        NOT NULL,
+          kind_source         TEXT        NOT NULL,
+          resolver_version    TEXT        NOT NULL,
+          confidence_class    TEXT        NOT NULL,
+          evidence_hash       TEXT        NOT NULL,
+          input_hash          TEXT        NOT NULL,
+          effective_at        TIMESTAMPTZ NOT NULL,
+          recorded_at         TIMESTAMPTZ NOT NULL,
+          provenance          TEXT        NOT NULL,
+          created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (business_id, provider_account_id, campaign_id, as_of_date, resolver_version),
+          CHECK (provider_account_id <> ''),
+          CHECK (contract <> '')
+        )`,
+        sql`CREATE INDEX IF NOT EXISTS idx_engine_v3_campaign_role_authority_latest
+          ON engine_v3_campaign_role_authority
+          (business_id, provider_account_id, campaign_id, as_of_date DESC, recorded_at DESC)`,
+      ]);
+
+      /*
+        ── Retained account profile output ──
+
+        The other half of the same defect. `budget-proposal-source-loader.ts`
+        and the execution refresh in `budget-proposal-server-readers.ts` both
+        run `D086_PROFILE_LATEST_SQL` over this table to find the canonical
+        commercial verdict for the exact action being proposed. Its DDL existed
+        only inside `lib/meta/budget-readiness-retention.ts`, which nothing but
+        an audit script applies, so in production the relation did not exist:
+        the statement raised 42P01, the loader read that error as `unknown`,
+        and every budget candidate was refused with
+        `composition_sources_unavailable` — the whole budget arm inert for a
+        reason no surface could show. Registering the role authority table
+        alone left the loader one missing relation short of ever producing a
+        row.
+
+        The statement is the pack's own, byte for byte, so the two definitions
+        cannot drift; the pack itself is still never executed.
+
+        Existing rows: there are none, and none are backfilled. A commercial
+        verdict has to be projected from the profile the engine actually
+        resolved, under the identity of the inputs it ran on;
+        `lib/meta/account-profile-output-producer.ts` is what writes them.
+      */
+      await runMigrationBatchSequentially([
+        sql`CREATE TABLE IF NOT EXISTS engine_v3_account_profile_output (
+     id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+     contract              TEXT        NOT NULL,
+     -- The canonical profile contract the verdict came from. r3's query and
+     -- classifier both required this column and the DDL never created it, so
+     -- the statement failed SQLSTATE 42703 against a real cluster.
+     profile_contract      TEXT        NOT NULL,
+     business_id           TEXT        NOT NULL,
+     provider_account_id   TEXT        NOT NULL,
+     action                TEXT        NOT NULL CHECK (action IN ('scale','cut','refresh')),
+     engine_epoch          TEXT        NOT NULL,
+     engine_version        TEXT        NOT NULL,
+     input_fingerprint     TEXT        NOT NULL,
+     source_fingerprint    TEXT        NOT NULL,
+     eligible              BOOLEAN     NOT NULL,
+     blocker_code          TEXT,
+     anchor_source         TEXT,
+     anchor_confidence     TEXT,
+     spend_unit            DOUBLE PRECISION,
+     commercial_anchor_provenance TEXT,
+     as_of_date            DATE        NOT NULL,
+     effective_at          TIMESTAMPTZ NOT NULL,
+     recorded_at           TIMESTAMPTZ NOT NULL,
+     created_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
+     -- r1's identity omitted engine_version and source_fingerprint, so two
+     -- genuinely different verdicts collapsed onto one row and the later write
+     -- would have silently lost or conflicted with the earlier one.
+     UNIQUE (business_id, provider_account_id, action, engine_epoch, engine_version,
+             input_fingerprint, source_fingerprint, as_of_date),
+     CHECK ((eligible AND blocker_code IS NULL) OR (NOT eligible AND blocker_code IS NOT NULL))
+   )`,
+        sql`CREATE INDEX IF NOT EXISTS idx_engine_v3_account_profile_output_latest
+     ON engine_v3_account_profile_output
+        (business_id, provider_account_id, action, recorded_at DESC, effective_at DESC)`,
       ]);
 
       // ── Engine v3 rollout feature flags (NULL = inherit env default) ─────

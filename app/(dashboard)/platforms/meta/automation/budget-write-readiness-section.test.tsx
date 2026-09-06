@@ -91,7 +91,10 @@ describe("D087 — the budget write panel is truthful and unpressable", () => {
     expect(html).toContain('data-blocker-code="global_gate_closed"');
     expect(html).toContain("The production live-write capability is still closed.");
     expect(html).toContain('data-blocker-code="budget_mode_not_auto"');
-    expect(html).toContain("Set Budget to Tier 3 — Auto-execute.");
+    // The blocker is stated in the operator's own vocabulary; "Tier 3" was a
+    // rung on an internal readiness ladder appearing on a control that decides
+    // whether this product spends money.
+    expect(html).toContain("Set Budget to Automatic.");
   });
 
   it("offers no DISPATCH affordance; its controls change a CONTROL ROW, not a budget", () => {
@@ -222,23 +225,31 @@ describe("D088 C2 — the ceremony calls the real admin route", () => {
     const html = renderToStaticMarkup(<BudgetWriteReadinessSection readiness={model()} authorization={ADMIN_DESKTOP} />);
     expect(html).toContain('data-field="master-switch-scope"');
     expect(html).toContain("business-wide master switch");
-    expect(html).toContain("Tier 3");
+    // The second key, named the way the control that sets it is now labelled.
+    expect(html).toContain("standing mode set to Automatic");
     // And it must not describe itself as budget-scoped in the heading.
     expect(html).not.toContain("Budget change capability");
   });
 
-  it("a READ-ONLY mobile surface renders NO actionable control", () => {
+  it("a `mobile_read_only` AUTHORIZATION renders NO actionable control", () => {
     /*
-      PRE-DEPLOY AUDIT: the mobile pane declares `data-read-only="true"` and
-      says "Read-only" on screen, and it used to render the same live Enable
-      and Disable buttons as the desktop pane.
+      PRE-DEPLOY AUDIT: this section used to render the same live Enable and
+      Disable buttons on the mobile pane as on the desktop one.
+
+      The name of the law moved but the law did not. The mobile pane is no
+      longer read-only — it carries the Meta stop and the confirmation queue —
+      so the refusal now names the CONTROL rather than the pane. What is
+      unchanged, and is the guard, is that a `"mobile_read_only"` authorization
+      draws nothing actionable: arming automatic execution stays
+      desktop-and-admin-only, and `buildBudgetMasterSwitchAuthorization`
+      refuses that surface unconditionally.
     */
     const html = renderToStaticMarkup(
       <BudgetWriteReadinessSection
         readiness={model()}
         authorization={{
           canConfigure: false, canDisable: false,
-          reason: "This is the read-only mobile view. Open Automation on a desktop browser to change automatic execution.",
+          reason: "Automatic execution is changed only in the desktop workspace. Open Automation on a desktop browser to change it.",
           reasonCode: "read_only_surface", surface: "mobile_read_only",
         }}
       />,
@@ -250,7 +261,8 @@ describe("D088 C2 — the ceremony calls the real admin route", () => {
     ]) {
       expect(html, control).not.toContain(control);
     }
-    // The STATUS is still fully rendered — read-only is not blind.
+    // The STATUS is still fully rendered — refused is not blind.
+    expect(html).toContain("desktop workspace");
     expect(html).toContain('data-field="business-master-switch"');
     expect(html).toContain('data-field="effective-write"');
     expect(html).toContain('data-field="master-switch-refusal"');

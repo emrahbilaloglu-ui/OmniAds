@@ -110,14 +110,116 @@ describe("PRE-DEPLOY — every unattended Meta write is behind the master gate",
       .filter((entry) => entry.calls.length > 0);
 
     /*
-      `budget-proposal-server-readers.ts` is the module that actually holds
-      `updateEntityBudget`; the scheduled sweep reaches a mutation only
-      through it, and it is reached only after the sweep's gate chain. Both
-      are listed so a NEW writer appearing in this closure fails loudly.
+      Four modules, and only four.
+
+      `budget-proposal-server-readers.ts` holds `updateEntityBudget`;
+      `scheduled-status-runtime.ts` holds the status primitives for a queued
+      campaign or ad-set pause or resume; `scheduled-bid-runtime.ts` holds
+      `updateAdsetBidAmount` for a queued cap change; and
+      `scheduled-ad-status-runtime.ts` holds `pauseAd`/`resumeAd` for the
+      AD-grain rows the native chain raises — the grain the sweep used to
+      exclude because it could not drive a decision-origin write.
+
+      Each is reached only after the sweep's gate chain, and each is named here
+      so a FIFTH writer appearing in this closure fails loudly rather than
+      arriving unannounced. Adding one is meant to be a deliberate edit of this
+      list, which is what the two cases below then hold it to.
     */
     expect(writers.map((entry) => entry.file)).toEqual([
+      /*
+        Six now, and the two new ones are the creative family finally having an
+        unattended path at all.
+
+        `meta-launch-execution.ts` holds the create primitives a queued launch
+        drives; `launch-intent-activation.ts` holds the ordered, read-back
+        activation sequence. Both are reached only through
+        `scheduled-launch-runtime.ts` / `scheduled-activation-runtime.ts`, which
+        carry the same chain the other writers do AND the Launchpad execution
+        gate on top of it — the case below holds them to it.
+      */
+      "lib/launchpad/meta-launch-execution.ts",
       "lib/meta/budget-proposal-server-readers.ts",
+      "lib/meta/launch-intent-activation.ts",
+      "lib/meta/scheduled-ad-status-runtime.ts",
+      "lib/meta/scheduled-bid-runtime.ts",
+      "lib/meta/scheduled-status-runtime.ts",
     ]);
+  });
+
+  it("the ad writer carries the gate AND the decision-origin lifecycle", () => {
+    /*
+      The ad grain has a second obligation the other three do not: an
+      unattended ad write is a decision-origin write, and a decision-origin
+      write that cannot name its snapshot, evaluation, engine version and
+      decision hash is not one. Both obligations are asserted from the source.
+    */
+    const code = stripComments(
+      readFileSync("lib/meta/scheduled-ad-status-runtime.ts", "utf8"));
+    // The shared chain.
+    expect(code).toContain("evaluateScheduledAuthority(");
+    expect(code).toContain("beforeMutationAttempt");
+    expect(code).toContain("throw new Error(verdict.refusal)");
+    expect(code).toContain("readMetaWritePosture(");
+    expect(code).toContain("control_state_unavailable");
+    expect(code).toContain("manual_confirmation_absent");
+    // The decision-origin lifecycle, not the status one.
+    expect(code).toContain("createDecisionOriginMetaAdsActionLog(");
+    expect(code).toContain("runServerDecisionOriginAdActionPreflight(");
+    expect(code).toContain("completeDecisionOriginMetaAdsActionLog(");
+    expect(code).toContain("markDecisionOriginActionReconciliationRequired(");
+    // And it refuses rather than inventing what it cannot prove.
+    expect(code).toContain("decision_lineage_absent");
+    expect(code).toContain("creative_identity_mismatch");
+    // It never reaches the operator's HTTP handler.
+    expect(code).not.toContain("handleMetaAdStatusAction");
+  });
+
+  it("the bid writer carries the same gate the status writer does", () => {
+    /*
+      A new writer in the closure above is on probation until it proves it
+      answers to the same chain. This is that proof, asserted from the source
+      rather than from a claim: the scheduled authority, the pre-POST hook, the
+      throw that actually stops the request, and the two refusals that must
+      never be defaults.
+
+      It also re-reads the ad set's own bid state, which the status writer has
+      no equivalent of: a cap amount is meaningless without the strategy it
+      sits on, and both can move between the decision and the write.
+    */
+    const code = stripComments(
+      readFileSync("lib/meta/scheduled-bid-runtime.ts", "utf8"));
+    expect(code).toContain("evaluateScheduledAuthority(");
+    expect(code).toContain("beforeMutationAttempt");
+    expect(code).toContain("throw new Error(verdict.refusal)");
+    expect(code).toContain("control_state_unavailable");
+    expect(code).toContain("manual_confirmation_absent");
+    // The shared posture, not a literal.
+    expect(code).toContain("readMetaWritePosture(");
+    // And the live baseline, before anything is composed.
+    expect(code).toContain("readMetaAdsetBidState(");
+    expect(code).toContain("bid_baseline_changed");
+    expect(code).toContain("bid_strategy_not_writable");
+    // An amount it cannot vouch for is never written.
+    expect(code).toContain("bid_envelope_absent");
+  });
+
+  it("the status writer re-proves its authority immediately before the POST", () => {
+    /*
+      Being on the list above is not a licence. The status runtime reaches a
+      provider directly, so the gate it carries is asserted here in the same
+      breath: it evaluates the scheduled authority, it hands the write
+      primitive a pre-POST hook, and that hook throws — which is what stops the
+      request — rather than logging and continuing.
+    */
+    const code = stripComments(
+      readFileSync("lib/meta/scheduled-status-runtime.ts", "utf8"));
+    expect(code).toContain("evaluateScheduledAuthority(");
+    expect(code).toContain("beforeMutationAttempt");
+    expect(code).toContain("throw new Error(verdict.refusal)");
+    // A posture it could not read is a refusal, never a default-open.
+    expect(code).toContain("control_state_unavailable");
+    // And it never speaks for an operator.
+    expect(code).toContain("manual_confirmation_absent");
   });
 
   it("the scheduled sweep carries the whole master gate chain", () => {
@@ -136,11 +238,27 @@ describe("PRE-DEPLOY — every unattended Meta write is behind the master gate",
     expect(code).toContain("verdict.dryRunOnly !== false");
   });
 
-  it("readGates requires BOTH keys: the master switch and the budget Tier 3 mode", () => {
+  it("readGates requires BOTH keys: the master switch and the row's own auto mode", () => {
     const code = stripComments(
       readFileSync("lib/meta/budget-proposal-server-readers.ts", "utf8"));
     expect(code).toContain("control.businessControl.autoExecutionEnabled === true");
-    expect(code).toContain('budgetMode === "auto"');
+    /*
+      The second key used to be the literal `budget` mode, because budget was
+      the only action the sweep could take. The queue now carries pause and
+      resume as well, so the mode read is the one belonging to THIS row's
+      family — still a standing `auto`, still required, and now the right
+      question. The family is derived from the proposal rather than passed in,
+      so no caller can nominate a family the row is not in.
+
+      It is derived from the WHOLE proposal, not from its verb. An activation
+      row — turning on what a Launchpad intent created — is raised as `resume`
+      and is indistinguishable from an ordinary un-pause by its action alone;
+      only its launch lineage says it belongs to the creative family. Reading
+      the verb here would let an operator who armed unattended pausing dispatch
+      an activation they never armed.
+    */
+    expect(code).toContain('standingMode === "auto"');
+    expect(code).toContain("decisionTypeForProposal(proposal)");
     // And a business explicitly placed in the read-only tier is never swept.
     expect(code).toContain('control.businessControl.readinessTier !== "read_only"');
     // A control row that was never persisted is not an enablement.

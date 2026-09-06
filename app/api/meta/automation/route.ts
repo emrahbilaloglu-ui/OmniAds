@@ -7,6 +7,7 @@ import {
   releaseMetaAutomationKillSwitch,
   setMetaAutomationDecisionTypeMode,
   setMetaAutomationGuardrailPolicy,
+  ensureBusinessControlRow,
   getMetaAutomationControlPlane,
   getMetaWriteBlockState,
   writeActivityLedgerRow,
@@ -32,7 +33,7 @@ import { fetchAssignedAccountIds } from "@/lib/meta/creatives-fetchers";
 import { resolveMetaCreativesAccountScope } from "@/lib/meta/creatives-warehouse";
 import { rejectIfAutomationDemoWrite } from "./demo-write-authority";
 import { rejectIfMetaGateClosed } from "@/lib/meta/release-gate-guard";
-import { getDb } from "@/lib/db";
+import { getDb, runDbTransaction } from "@/lib/db";
 import {
   disableBudgetAutoExecution,
   setBudgetAutoExecutionEnabled,
@@ -228,6 +229,7 @@ export async function POST(request: NextRequest) {
     action !== "engage_kill_switch" &&
     action !== "release_kill_switch" &&
     action !== "set_decision_type_mode" &&
+    action !== "set_business_mode" &&
     action !== "set_budget_auto_execution" &&
     action !== "save_budget_automation_config" &&
     action !== "set_guardrail_policy" &&
@@ -238,7 +240,7 @@ export async function POST(request: NextRequest) {
     return jsonError(
       400,
       "unsupported_automation_action",
-      "Only engage_kill_switch, release_kill_switch, set_decision_type_mode, set_budget_auto_execution, save_budget_automation_config, set_guardrail_policy, create_rule, set_rule_active and evaluate_rules are supported from Automation.",
+      "Only engage_kill_switch, release_kill_switch, set_decision_type_mode, set_business_mode, set_budget_auto_execution, save_budget_automation_config, set_guardrail_policy, create_rule, set_rule_active and evaluate_rules are supported from Automation.",
     );
   }
 
@@ -260,7 +262,8 @@ export async function POST(request: NextRequest) {
     because standing down must never be harder than standing up.
   */
   const armsAutoExecution =
-    action === "set_decision_type_mode" && body?.mode === "auto";
+    (action === "set_decision_type_mode" || action === "set_business_mode") &&
+    body?.mode === "auto";
   const access = await requireBusinessAccess({
     request,
     businessId,
@@ -281,6 +284,7 @@ export async function POST(request: NextRequest) {
   const REVIEWER_ACTION_LABELS: Record<string, string> = {
     release_kill_switch: "automation_kill_switch_release",
     set_decision_type_mode: "automation_decision_type_mode",
+    set_business_mode: "automation_business_mode",
     set_guardrail_policy: "automation_guardrail_policy",
     engage_kill_switch: "automation_kill_switch_engage",
     create_rule: "automation_rule_create",
@@ -313,6 +317,29 @@ export async function POST(request: NextRequest) {
     REVIEWER_ACTION_LABELS[action] ?? "automation_kill_switch_engage",
   );
   if (demoBlocked) return demoBlocked;
+
+  /*
+    Same reason as the Automation page: without a persisted control row every
+    Meta write is refused `control_state_unavailable`, so a deliberate operator
+    action on this surface creates the default-closed row it needs.
+
+    BELOW the reviewer and demo gates, not above them. This is itself a durable
+    write — `ensureBusinessControlRow` runs an INSERT against
+    `meta_automation_business_controls` — and running it first meant a reviewer
+    session (403 `reviewer_read_only`), a demo workspace (403
+    `demo_business_read_only`) and an unreadable demo flag (503
+    `demo_status_unverified`) each persisted the initial control state on their
+    way to being refused. That contradicts what those refusals promise, and it
+    stamped `updated_by` with an actor the server had just decided has no write
+    authority at all. Every caller that still reaches this line cleared all
+    three gates, so no legitimate operator loses the row: the action paths
+    below — the fail-safe STOP, PREPARE, and everything after account
+    resolution — all run after it, exactly as before.
+  */
+  await ensureBusinessControlRow({
+    businessId: access.membership.businessId,
+    userId: access.session.user.id,
+  }).catch(() => null);
 
   /*
     THE FAIL-SAFE STOP, ahead of every dependency it does not need.
@@ -473,6 +500,19 @@ export async function POST(request: NextRequest) {
   }
 
   const VALID_MODES: MetaAutomationDecisionMode[] = ["manual", "semi_auto", "auto"];
+  if (action === "set_business_mode") {
+    const mode = body?.mode;
+    if (
+      typeof mode !== "string" ||
+      !VALID_MODES.includes(mode as MetaAutomationDecisionMode)
+    ) {
+      return jsonError(
+        400,
+        "invalid_business_mode",
+        "mode must be manual|semi_auto|auto.",
+      );
+    }
+  }
   let cleanApprovalThreshold: number | null | undefined;
   if (action === "set_decision_type_mode") {
     const decisionType = body?.decisionType;
@@ -689,6 +729,53 @@ export async function POST(request: NextRequest) {
         ...(cleanApprovalThreshold === undefined
           ? {}
           : { cleanApprovalThreshold }),
+      });
+    } else if (action === "set_business_mode") {
+      /*
+        One switch, four rows.
+
+        The operator asks for "this business runs semi-automatically"; the
+        product stores that per decision type because that is where every
+        consumer reads it. Writing the four rows here — rather than inventing a
+        fifth business-level column that would then disagree with them — keeps
+        one source of truth. A per-type override afterwards is still allowed and
+        the surface then reads "custom".
+
+        Sequential, not concurrent: each write appends a promotion record and an
+        activity-ledger row, and interleaving them would produce an audit trail
+        whose order does not match what happened.
+
+        ONE transaction, because a partial business mode is worse than none.
+        Each call used to commit on its own, so a failure on the second, third
+        or fourth type answered 500 with the earlier types already changed. On
+        `auto` that is the dangerous half: the caller reads a failed request as
+        "nothing was armed" while one or more unattended action families are in
+        fact armed, and the single business mode this action advertises is left
+        as a custom mixture nobody asked for. Every statement inside
+        `setMetaAutomationDecisionTypeMode` — the mode upsert, the promotion
+        record and the ledger row — reaches the database through `getDb()`,
+        which returns the transaction's own client while `runDbTransaction` is
+        on the stack, so all twelve rows commit together or none of them do
+        without the control plane needing to know it is in a transaction.
+
+        The cost falls on a database where the additive-column migrations have
+        not run: `withAdditiveColumnFallback` retries a `42703` with the
+        pre-migration column list, and a failed statement poisons the
+        transaction around it, so there this action now fails whole instead of
+        degrading. That is the right trade here — all four writes name the same
+        columns, so the fallback was all-or-nothing anyway — and the
+        single-type action above keeps its ungrouped, degrading behaviour.
+      */
+      await runDbTransaction(async () => {
+        for (const decisionType of META_AUTOMATION_DECISION_TYPES) {
+          await setMetaAutomationDecisionTypeMode({
+            businessId: access.membership.businessId,
+            userId: access.session.user.id,
+            decisionType,
+            mode: body?.mode as MetaAutomationDecisionMode,
+            reason: body?.reason,
+          });
+        }
       });
     } else if (action === "set_guardrail_policy") {
       await setMetaAutomationGuardrailPolicy({

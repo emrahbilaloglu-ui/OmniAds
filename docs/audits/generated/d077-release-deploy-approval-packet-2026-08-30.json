@@ -1,10 +1,10 @@
 {
- "packetHash": "e81e72d732d8db2912d3e922f9232f908ad4d23fc134c11514aa0d38eb81b959",
+ "packetHash": "c130808eb292c600144c56fcf4b36d605df91553f7798063991231faf0e90bd6",
  "hashAlgorithm": "sha256",
  "hashBasis": "sha256 over UTF-8 bytes of JSON.stringify(artifact, null, 1) of the artifact WITHOUT its embedded hash fields (the artifact object before {<hashField>, hashAlgorithm, hashBasis} are prepended)",
  "contract": "adsecute.d077.release-deploy-approval-packet.v2",
  "status": "PREPARED_AWAITING_OPERATOR_APPROVAL — no commit, push, dispatch, or deploy performed; submitted for Codex independent acceptance — not self-accepted",
- "generatedAtUtc": "2026-09-03T20:43:52.607Z",
+ "generatedAtUtc": "2026-09-06T20:47:43.205Z",
  "decision": "NO_GO",
  "blockerLedger": {
   "cleared": [
@@ -22,7 +22,8 @@
  },
  "sourceTree": {
   "repository": "emrahbilaloglu-ui/OmniAds",
-  "branch": "codex/meta-disabled-readiness-20260829",
+  "branch": "codex/meta-v2-panel-fidelity",
+  "supersededBranchLabel": "codex/meta-disabled-readiness-20260829",
   "baseHead": "babf158e150fd33057117b39b175da044ac62d2e",
   "proposal": "Commit the ENTIRE final corrected worktree as ONE release candidate commit, then fast-forward merge to main. The D073–D078 packages interleave in shared files (contracts, read models, lib/migrations.ts) and were verified as one tree; partial release was evaluated and rejected.",
   "commitStrategy": "single commit -> ff-merge to main; NO commit is made by this preflight",
@@ -31,18 +32,19 @@
    "path": "docs/audits/generated/d077-release-candidate-manifest-2026-08-30.json",
    "generationOrderContract": "the manifest is generated LAST by this same inspected generator (phase2), after this packet and every other pinned file is final; it excludes its own path and pins this packet's exact bytes. Its entry counts must equal expectedFinalTree below (asserted at generation).",
    "expectedFinalTree": {
-    "pinnedNonSelfFileCount": 521,
+    "pinnedNonSelfFileCount": 776,
     "classCounts": {
-     "tests_only": 193,
-     "runtime": 174,
+     "tests_only": 322,
+     "runtime": 250,
      "runtime_deletion": 2,
      "deploy_config": 1,
-     "docs": 39,
-     "generated_evidence": 55,
+     "docs": 48,
+     "generated_evidence": 74,
      "migration": 2,
      "audit_script_non_runtime": 24,
-     "script_ops_non_request_path": 31
-    }
+     "script_ops_non_request_path": 53
+    },
+    "historicalContext": "pre-task freeze was 217 porcelain entries / 265 files — historical only, NOT the final tree"
    }
   }
  },

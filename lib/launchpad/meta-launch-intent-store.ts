@@ -27,6 +27,17 @@ type MetaLaunchIntentDbRow = {
   validation_receipt_json: MetaLaunchIntentValidationReceipt | null;
   result_receipt_json: MetaLaunchIntentResultReceipt | null;
   error_receipt_json: MetaLaunchIntentErrorReceipt | null;
+  /**
+   * The separate authorization to turn on what this intent created.
+   *
+   * `unknown` rather than a shape: it is validated against the live intent in
+   * one module, and a type here would invite reading it as trustworthy simply
+   * because it parsed. NULL — the state every existing row is in — means an
+   * operator may activate and nothing else may.
+   */
+  activation_approval_json: unknown;
+  /** The last activation attempt's receipt. NULL until one has run. */
+  activation_receipt_json: unknown;
   created_by: string | null;
   created_at: string;
   updated_at: string;
@@ -81,6 +92,8 @@ function mapMetaLaunchIntent(row: MetaLaunchIntentDbRow): MetaLaunchIntent {
     validationReceipt: row.validation_receipt_json,
     resultReceipt: row.result_receipt_json,
     errorReceipt: row.error_receipt_json,
+    activationApproval: row.activation_approval_json ?? null,
+    activationReceipt: row.activation_receipt_json ?? null,
     createdBy: row.created_by,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -296,10 +309,117 @@ export async function recordMetaLaunchIntentValidation(input: {
       updated_at = NOW()
     WHERE business_id = ${input.businessId}
       AND id = ${input.id}
-      AND status = 'prepared'
+      /*
+        Both prepared and ready, exactly like the two siblings below
+        (recordMetaLaunchIntentWriteBlocked and
+        recordMetaLaunchIntentPreExecutionFailure).
+
+        Validation moves an intent from prepared to ready BEFORE the first
+        provider POST, so a create refused at the pre-POST boundary — a
+        withdrawn approval, or a gate that closed — leaves a ready intent that
+        reached nobody. Admitting only prepared here meant the operator's re-run
+        of that same launch threw MetaLaunchIntentTransitionError on its way
+        back through validation, which is an unhandled 500 rather than the clean
+        refusal the caller is written for. Nothing here starts a write:
+        markMetaLaunchIntentExecuting is the only writer of started_at and it
+        still demands ready.
+
+        No backticks in this comment on purpose — it sits inside a tagged
+        template literal, where one would end the SQL string.
+      */
+      AND status IN ('prepared', 'ready')
     RETURNING *
   `) as MetaLaunchIntentDbRow[];
-  return requireUpdatedIntent(rows, "Launch intent is not in prepared state.");
+  return requireUpdatedIntent(
+    rows,
+    "Launch intent is not in a state that can record validation.",
+  );
+}
+
+/**
+ * Record — or revoke — the approval that lets an activation run unattended.
+ *
+ * The column and its reader shipped together and nothing could write one, so
+ * every row's approval was NULL and the scheduled path could only refuse. This
+ * is the writer.
+ *
+ * It takes the whole document, built and validated elsewhere, and it never
+ * merges: an approval is a single statement about a single payload, and
+ * patching a field of one would produce an approval nobody gave.
+ *
+ * It also never clears. Storing NULL was how "this is operator-only again" used
+ * to be said, and it said it by making the row identical to one nobody had ever
+ * approved — so the withdrawal left no trace, and the route's compare-and-set,
+ * whose version IS this document, could not tell a revoked intent from a fresh
+ * one and let an approval built before the revocation land after it. Withdrawal
+ * is now a document of its own (`buildActivationRevocation`), and this writer
+ * refuses the value that erased it. A caller with nothing to store should not be
+ * calling a writer at all, so this throws rather than quietly doing nothing.
+ */
+export async function recordMetaLaunchIntentActivationApproval(input: {
+  businessId: string;
+  id: string;
+  approval: unknown;
+}): Promise<MetaLaunchIntent> {
+  if (
+    input.approval === null
+    || input.approval === undefined
+    || typeof input.approval !== "object"
+    || Array.isArray(input.approval)
+  ) {
+    // The column's own CHECK allows an object or NULL; this narrows it to the
+    // object, at the only place in the application that writes it.
+    throw new MetaLaunchIntentTransitionError(
+      "An activation approval must be recorded as a document; the column is never cleared.",
+    );
+  }
+  const sql = getDb();
+  const rows = (await sql`
+    UPDATE meta_launch_intents
+    SET activation_approval_json = ${JSON.stringify(input.approval)}::jsonb,
+        updated_at = NOW()
+    WHERE business_id = ${input.businessId}
+      AND id = ${input.id}
+      /*
+        Only a launch that produced something can be approved for activation.
+
+        A prepared or failed intent has nothing to turn on, and an approval
+        sitting on one would be an authorization waiting for entities that may
+        never exist in the shape it names.
+      */
+      AND status IN ('succeeded', 'partially_succeeded')
+    RETURNING *
+  `) as MetaLaunchIntentDbRow[];
+  return requireUpdatedIntent(
+    rows,
+    "Launch intent has not created anything that can be approved for activation.",
+  );
+}
+
+/**
+ * Store the receipt of one activation attempt.
+ *
+ * No status transition and no guard on the current status. Activation does not
+ * move the intent's own lifecycle — the launch already succeeded or partially
+ * succeeded, and turning its entities on does not change which of those it
+ * was. Refusing to record a receipt because the status was unexpected would
+ * throw away the only durable evidence that provider calls were made.
+ */
+export async function recordMetaLaunchIntentActivation(input: {
+  businessId: string;
+  id: string;
+  receipt: unknown;
+}): Promise<MetaLaunchIntent> {
+  const sql = getDb();
+  const rows = (await sql`
+    UPDATE meta_launch_intents
+    SET activation_receipt_json = ${JSON.stringify(input.receipt)}::jsonb,
+        updated_at = NOW()
+    WHERE business_id = ${input.businessId}
+      AND id = ${input.id}
+    RETURNING *
+  `) as MetaLaunchIntentDbRow[];
+  return requireUpdatedIntent(rows, "Launch intent not found.");
 }
 
 export async function markMetaLaunchIntentExecuting(input: {
@@ -313,9 +433,64 @@ export async function markMetaLaunchIntentExecuting(input: {
     WHERE business_id = ${input.businessId}
       AND id = ${input.id}
       AND status = 'ready'
-    RETURNING *
+    RETURNING *, started_at::text AS started_at
   `) as MetaLaunchIntentDbRow[];
   return requireUpdatedIntent(rows, "Launch intent is not ready for execution.");
+}
+
+/**
+ * Undo only the caller's claim whose action logs prove no provider dispatch.
+ * The full-precision started_at text is the claim version; pg's Date mapping
+ * would lose microseconds. Approval edits do not change that version and are
+ * deliberately preserved. A different claim, receipt or unresolved log holds.
+ */
+export const RESTORE_META_LAUNCH_INTENT_PRE_PROVIDER_QUERY = `
+  UPDATE meta_launch_intents AS intent
+  SET status = 'ready', started_at = NULL, completed_at = NULL, updated_at = NOW()
+  WHERE intent.business_id = $1::uuid
+    AND intent.id = $2::uuid
+    AND intent.request_fingerprint = $3
+    AND intent.started_at = $4::timestamptz
+    AND intent.status = 'executing'
+    AND intent.result_receipt_json IS NULL
+    AND intent.error_receipt_json IS NULL
+    AND EXISTS (
+      SELECT 1 FROM meta_ads_action_log AS current_log
+      WHERE current_log.id = $5::uuid
+        AND current_log.business_id = intent.business_id
+        AND current_log.launch_intent_id = intent.id
+    )
+    AND NOT EXISTS (
+      SELECT 1 FROM meta_ads_action_log AS log
+      WHERE log.launch_intent_id = intent.id
+        AND (
+          log.business_id IS DISTINCT FROM intent.business_id
+          OR log.status IS DISTINCT FROM 'failure'
+          OR log.error_code IS DISTINCT FROM 'provider_mutation_withheld'
+          OR log.payload_response IS DISTINCT FROM '{"provider_mutation_attempted":false}'::jsonb
+          OR log.resulting_ad_id IS NOT NULL
+          OR log.verification_payload IS NOT NULL
+          OR log.verified_at IS NOT NULL
+        )
+    )
+  RETURNING intent.*
+`;
+
+export async function restoreMetaLaunchIntentBeforeProviderMutation(input: {
+  businessId: string;
+  id: string;
+  requestFingerprint: string;
+  startedAt: string;
+  refusedActionLogId: string;
+}): Promise<MetaLaunchIntent> {
+  if (typeof input.startedAt !== "string" || !input.startedAt) {
+    throw new MetaLaunchIntentTransitionError("Launch execution claim is unavailable.");
+  }
+  const rows = await getDb().query<MetaLaunchIntentDbRow>(
+    RESTORE_META_LAUNCH_INTENT_PRE_PROVIDER_QUERY,
+    [input.businessId, input.id, input.requestFingerprint, input.startedAt, input.refusedActionLogId],
+  );
+  return requireUpdatedIntent(rows, "Launch execution claim has changed or cannot prove zero provider writes.");
 }
 
 export async function recordMetaLaunchIntentWriteBlocked(input: {

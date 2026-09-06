@@ -32,31 +32,72 @@
  *   handler already supports this mode; wiring the persisted guardrail to it is
  *   what makes "approving executes inside the guardrails above" true rather
  *   than decorative.
+ *
+ * The Launchpad families arrived the same way. A `launch` row and an activation
+ * `resume` row are dispatched by forwarding to the extracted Launchpad handlers
+ * — `handleMetaLaunchAction` / `handleMetaAddToExistingAction` and
+ * `handleMetaLaunchIntentActivateAction` — which is why those bodies were moved
+ * out of `app/` at all. Nothing about a create or an activation is reimplemented
+ * here, and this module still imports no provider client and no action log.
+ *
+ * The one thing a caller of those handlers has to supply for itself is the
+ * pre-POST boundary. The handler asks it before every provider create, and only
+ * the caller knows whether the claim it is dispatching under — and the approval
+ * the payload was staged under — still hold at that moment. Both are answered
+ * by `beforeProviderMutation` in the launch branch below, the second through
+ * the same shipped lineage read the intent was created against rather than a
+ * second copy of the rule, and neither ever manufactures an authority.
+ *
+ * A bid row asks for one more, for the same reason: the amount it carries is a
+ * percentage of a cap that can move between the decision and the approval, and
+ * `handleMetaAdsetBidAction` writes whatever amount it is handed. The live
+ * baseline is therefore read through an injected reader and compared before
+ * dispatch, in the exact terms `scheduled-bid-runtime.ts` uses. That is a
+ * pre-write check, not a second write path — nothing here contacts a provider.
  */
 import { NextRequest } from "next/server";
 
 import {
   handleMetaEntityPauseAction,
+  handleMetaAdsetBidAction,
   handleMetaEntityResumeAction,
 } from "@/lib/meta/entity-action-routes";
+import {
+  handleMetaAddToExistingAction,
+  handleMetaLaunchAction,
+} from "@/lib/launchpad/meta-launch-route-handlers";
+import { handleMetaLaunchIntentActivateAction } from "@/lib/meta/launch-activation-route-handlers";
+import { readMetaLaunchIntentApprovalStanding } from "@/lib/launchpad/meta-launch-intent-lineage";
+import type { MetaLaunchIntent } from "@/lib/launchpad/meta-launch-intent";
 import type {
   MetaAutomationProposal,
   MetaAutomationProposalReceipt,
 } from "@/lib/meta/automation-proposals";
+import { handleMetaAdStatusAction } from "@/lib/meta/ads-action-routes";
+import { bidStrategyFamily } from "@/lib/meta/bid-sizing-policy";
 import { buildDispatchDescriptor } from "@/lib/zero-base/meta/dispatch-contract";
 import type { BudgetProposalExecutionResult } from "@/lib/meta/budget-proposal-runtime";
 
 const PARAM_NAME: Record<MetaAutomationProposal["scopeType"], string> = {
   campaign: "campaignId",
   adset: "adsetId",
+  ad: "adId",
 };
 
 /**
- * Actions this module may hand to the entity-action handler.
+ * Actions this module may hand to the entity-action handler as a descriptor.
  *
- * `bid` and `duplicate` are absent on purpose: the first needs an
- * operator-entered amount no proposal proves, and the second exists only at ad
- * grain, whose write path is the decision-origin contract.
+ * `bid` was here for a reason that has since stopped being true — it needed an
+ * amount no proposal could prove — and it is now handled by its own branch
+ * below, from the row's persisted envelope rather than from an operator's
+ * typing. `duplicate` is still absent: it exists only at ad grain, whose write
+ * path is the decision-origin contract.
+ *
+ * `launch` is likewise handled by its own branch, and so is the `resume` that
+ * carries a `launchIntentId`. An activation resume is NOT a status write on
+ * something the engine was watching — it turns on a hierarchy a launch just
+ * created — so sending it to this descriptor would resume an entity through a
+ * path that knows nothing about ordering, read-back or the intent's receipt.
  */
 type ExecutableProposalAction = "pause" | "resume";
 
@@ -86,6 +127,33 @@ export interface ExecuteProposalResult {
   receipt: MetaAutomationProposalReceipt;
 }
 
+/**
+ * A refusal that reached no handler, said in the receipt's own vocabulary.
+ *
+ * `withheld` is the field every downstream reader uses to tell a refusal from
+ * an attempt, so a branch that decides not to dispatch has to fill it rather
+ * than return a bare failure.
+ */
+function withheldResult(input: {
+  reason: string;
+  dryRunOnly: boolean;
+  dispatchedAt: string;
+  receiptKey: string | null;
+}): ExecuteProposalResult {
+  return {
+    ok: false,
+    receipt: {
+      httpStatus: 422,
+      response: null,
+      dryRun: input.dryRunOnly,
+      dispatchedAt: input.dispatchedAt,
+      endpoint: null,
+      withheld: input.reason,
+      receiptKey: input.receiptKey,
+    },
+  };
+}
+
 export async function executeMetaAutomationProposal(input: {
   request: NextRequest;
   businessId: string;
@@ -112,6 +180,50 @@ export async function executeMetaAutomationProposal(input: {
     dryRunOnly: boolean;
     claimToken: string | null;
   }) => Promise<BudgetProposalExecutionResult>;
+  /**
+   * The intent a Launchpad row points at, read by the caller and injected.
+   *
+   * The queue row knows it is a launch; only the intent knows WHICH launch —
+   * its operation, its idempotency key and the payload the operator's own
+   * fingerprint was taken over. Reading any of that from the row instead would
+   * let a stale projection create something the operator never composed.
+   */
+  launchIntent?: (launchIntentId: string) => Promise<MetaLaunchIntent | null>;
+  /**
+   * The ad set's LIVE bid state, read by the caller and injected.
+   *
+   * A bid envelope is a percentage of a number that was current when the
+   * decision was made. An operator can move the cap — or leave the cap
+   * strategy entirely — in Ads Manager between then and the moment somebody
+   * clicks Approve, and a queued "+10%, 1000 → 1100" applied against a live cap
+   * of 1300 is a REDUCTION nobody approved. `scheduled-bid-runtime.ts` reads
+   * the baseline immediately before its write for exactly this reason; the
+   * manual path had no equivalent, and the handler it forwards to takes the
+   * amount on trust.
+   *
+   * Injected rather than read here because this module reaches no provider
+   * client — see the note at the top of the file, and the two guards that
+   * assert it (`automation-write-path.test.ts`,
+   * `automation-proposal-execution.test.ts`). `null` means the read did not
+   * produce a state, which is a refusal and never an assumption that the
+   * baseline still holds.
+   */
+  readBidBaseline?: (input: {
+    providerAccountId: string;
+    adsetId: string;
+  }) => Promise<{
+    bidAmountMinor: number | null;
+    bidStrategy: string | null;
+  } | null>;
+  /**
+   * Write-ahead dispatch intent, fired at the handler's own pre-POST boundary.
+   *
+   * The Launchpad handlers refuse the create or the activation outright when
+   * this answers false, so a claim that can no longer be marked cannot cause a
+   * provider write nobody could account for afterwards. Absent for the pause
+   * family, whose boundary marks before the handler is entered at all.
+   */
+  markDispatchStarted?: () => Promise<boolean>;
   now?: Date;
 }): Promise<ExecuteProposalResult> {
   const dispatchedAt = (input.now ?? new Date()).toISOString();
@@ -160,6 +272,328 @@ export async function executeMetaAutomationProposal(input: {
     };
   }
 
+  /*
+    An approved BID row, with the amount the server proved.
+
+    `buildDispatchDescriptor` asks an operator to TYPE a bid amount, which is
+    right on a decision card and wrong here: this row already carries an
+    envelope naming the exact minor units, bound to the row's identity and
+    fingerprinted. Asking again would invite a different number than the one
+    that was approved.
+
+    It goes through the same guarded `apply-bid` handler an operator's own
+    entry uses, under the same manual origin and confirmation — both true
+    statements: a person clicked Approve on this row.
+  */
+  if (proposal.proposedAction === "bid") {
+    const envelope = proposal.bidEnvelope;
+    if (!envelope || proposal.scopeType !== "adset") {
+      return {
+        ok: false,
+        receipt: {
+          httpStatus: 422,
+          response: null,
+          dryRun: input.dryRunOnly,
+          dispatchedAt,
+          endpoint: null,
+          withheld: "bid_envelope_absent",
+          receiptKey,
+        },
+      };
+    }
+    /*
+      The live baseline, re-proved before the amount is dispatched.
+
+      An envelope proves what was true when the decision was made; it cannot
+      prove it is still true when an operator gets round to approving it. The
+      unattended runtime settles that with a fresh read and three refusals, and
+      the manual path forwarded `proposedMinorUnits` with no such compare — so
+      an approved "+10%, 1000 → 1100" applied against a cap somebody had since
+      moved to 1300 went out as a 15% CUT under the operator's own
+      confirmation. `handleMetaAdsetBidAction` cannot catch it: it takes
+      `bidAmountMinor` as given and never reads the current cap.
+
+      Same predicate and same three answers as `scheduled-bid-runtime.ts`, in
+      the same order, so one stale bid is not `bid_baseline_changed` on the
+      sweep and a silent 15% cut on approval. The family comparison is
+      `bidStrategyFamily` itself rather than a second copy of it — the
+      warehouse's `bid_cap` and Meta's `LOWEST_COST_WITH_BID_CAP` are one
+      strategy. A missing reader is its own answer: it says the caller wired no
+      baseline read, which is a different fact from a read that failed, and it
+      still refuses — dispatching an unproven amount is the defect itself.
+    */
+    const withheldBid = (reason: string) =>
+      withheldResult({ reason, dryRunOnly: input.dryRunOnly, dispatchedAt, receiptKey });
+    if (!input.readBidBaseline) return withheldBid("bid_baseline_reader_unavailable");
+    const baseline = await input
+      .readBidBaseline({
+        providerAccountId: proposal.providerAccountId,
+        // The envelope's own ad set, which `bidEnvelopeForProposalRow` has
+        // already proved is this row's — the same id the runtime reads.
+        adsetId: envelope.entityId,
+      })
+      .catch(() => null);
+    if (!baseline) return withheldBid("bid_baseline_unreadable");
+    const liveFamily = bidStrategyFamily(baseline.bidStrategy);
+    if (
+      liveFamily === null
+      || liveFamily !== bidStrategyFamily(envelope.bidStrategyType)
+    ) {
+      // Either the strategy no longer owns a writable amount, or it is not the
+      // strategy this amount was reasoned under.
+      return withheldBid("bid_strategy_not_writable");
+    }
+    if (baseline.bidAmountMinor === null) return withheldBid("bid_baseline_unreadable");
+    if (baseline.bidAmountMinor !== envelope.currentMinorUnits) {
+      // Somebody moved the cap since the decision, so the approved amount is a
+      // percentage of a number that is no longer current. Refused rather than
+      // recomputed: sizing a bid here is the producer's job, and the operator
+      // approved this number against the evidence on the card.
+      return withheldBid("bid_baseline_changed");
+    }
+    const path = `/api/meta/adsets/${proposal.scopeId}/apply-bid`;
+    const bidRequest = new NextRequest(
+      new URL(path, input.request.nextUrl.origin),
+      {
+        method: "POST",
+        headers: forwardedHeaders(input.request),
+        body: JSON.stringify({
+          actionOrigin: "manual_operator_v1",
+          manualConfirmation: "explicit_operator_confirmation",
+          businessId: input.businessId,
+          providerAccountId: proposal.providerAccountId,
+          bidAmountMinor: envelope.proposedMinorUnits,
+          /*
+            The strategy the check above just proved, carried to the write.
+
+            The compare-and-set happens HERE; the POST happens several awaits
+            later, inside the handler — after its access check, its account
+            context, its action log and a live provider preflight. An ad set
+            moved from cost cap to bid cap in that window still takes this
+            amount, and `updateAdsetBidAmount` verifying only the NUMBER would
+            report the approved raise as a success under a strategy nobody
+            approved it for. Handing the strategy over makes the handler bind
+            `expectedBidStrategy`, so the post-write read-back has to show it
+            too — the last boundary that sits after the POST.
+
+            The LIVE read's spelling, not the envelope's, and for the same
+            reason `scheduled-bid-runtime.ts` passes `baseline.bidStrategy`:
+            the warehouse says `bid_cap` where Meta says
+            `LOWEST_COST_WITH_BID_CAP`, and it is Meta's read-back that this
+            value is compared against. The family check above has already
+            proved the two are one strategy.
+          */
+          expectedBidStrategy: baseline.bidStrategy,
+          /*
+            The cap the check above just proved, carried to the write as well.
+
+            The strategy is protected by a POST-WRITE read-back, which cannot
+            protect the amount: by read-back time the write has overwritten it,
+            so the number verified is the number sent. This value is compared
+            instead against a live read taken immediately BEFORE the POST — the
+            last await before the request goes out — so a cap moved during the
+            handler's access check, account context, action log or provider
+            preflight is refused rather than overwritten. Without it the
+            approved "+10%, 1200 → 1320" still went out over somebody's 1500 as
+            a 12% cut, and verified.
+
+            The LIVE read's number, not `envelope.currentMinorUnits`, for the
+            same reason as the strategy beside it: what the write compares
+            against is Meta's own answer. The equality above has already proved
+            the two are the same number.
+          */
+          expectedCurrentBidAmountMinor: baseline.bidAmountMinor,
+          ...(proposal.recId ? { recId: proposal.recId } : {}),
+          ...(input.dryRunOnly ? { dryRun: true } : {}),
+        }),
+      },
+    );
+    const bidResponse = await handleMetaAdsetBidAction(bidRequest, {
+      params: Promise.resolve({ adsetId: proposal.scopeId }),
+    });
+    const bidPayload = (await bidResponse.json().catch(() => null)) as unknown;
+    return {
+      ok: bidResponse.status < 400
+        && (bidPayload as { ok?: boolean } | null)?.ok === true,
+      receipt: {
+        httpStatus: bidResponse.status,
+        response: bidPayload,
+        dryRun: input.dryRunOnly,
+        dispatchedAt,
+        endpoint: path,
+        withheld: null,
+        receiptKey,
+      },
+    };
+  }
+
+  /*
+    An approved LAUNCH row, executed by the Launchpad handler an operator's own
+    review screen posts to.
+
+    Before this branch the row fell through to `unsupported_action`, and the
+    boundary settled that withheld answer as `failed` — so approving a launch
+    destroyed the queue row and created nothing. The row is not the authority
+    here and never composes anything: the operation, the idempotency key and
+    the payload all come from the intent, whose stored payload is replayed
+    field for field because `metaLaunchIntentRequestFingerprint` hashes it
+    whole. Recomposing it to look like a queue dispatch would be refused by the
+    intent service as `launch_intent_contract_mismatch`.
+  */
+  if (proposal.proposedAction === "launch") {
+    const withheld = (reason: string) =>
+      withheldResult({ reason, dryRunOnly: input.dryRunOnly, dispatchedAt, receiptKey });
+    if (!proposal.launchIntentId) return withheld("launch_intent_absent");
+    if (!input.launchIntent) return withheld("launch_intent_reader_unavailable");
+    /*
+      The guardrail the screen shows above the queue, honoured by refusing.
+
+      Every other family can answer `dryRunOnly` by rehearsing. A create
+      cannot: `launch-write.ts` has no dry-run path, because a campaign that
+      was not created has no id to read back. Dispatching anyway would make the
+      guardrail decorative for the one family where it is most expensive to
+      ignore.
+    */
+    if (input.dryRunOnly) return withheld("dry_run_guardrail");
+    const intent = await input
+      .launchIntent(proposal.launchIntentId)
+      .catch(() => null);
+    if (!intent) return withheld("launch_intent_unreadable");
+
+    const addToExisting = intent.operation === "add_to_existing";
+    const path = addToExisting
+      ? "/api/launchpad/meta/add-to-existing"
+      : "/api/launchpad/meta/launch";
+    const launchRequest = new NextRequest(
+      new URL(path, input.request.nextUrl.origin),
+      {
+        method: "POST",
+        headers: forwardedHeaders(input.request),
+        body: JSON.stringify({
+          actionOrigin: "launchpad_manual_v1",
+          manualConfirmation: "explicit_operator_confirmation",
+          businessId: input.businessId,
+          providerAccountId: intent.providerAccountId,
+          idempotencyKey: intent.idempotencyKey,
+          launchIntentId: intent.id,
+          /*
+            The two handlers read the stored payload differently — the create
+            takes it whole under `payload`, add-to-existing reads its own
+            fields off the body — so it is handed over in the shape each one
+            normalizes back to the very payload the fingerprint was taken over.
+          */
+          ...(addToExisting
+            ? intent.requestPayload
+            : { payload: intent.requestPayload }),
+        }),
+      },
+    );
+    /*
+      The pre-POST boundary an approved launch row is dispatched under.
+
+      It used to be the dispatch marker alone. A launch is three or more
+      provider POSTs separated by read-backs, and the handler's own approval
+      read happens once, before the write context, the validation and a live
+      provider preflight — so an operator who un-reviewed the brief in any of
+      those gaps had the rest of the launch built for them anyway. The marker
+      cannot see that: it answers about this claim, not about the approval the
+      payload was staged under.
+
+      Both are asked here, in that order, and the marker is only fired for a
+      create that is still authorized — a withdrawn approval must not leave
+      write-ahead dispatch intent for a call that will not be made. Nothing
+      about WHAT authorizes this arm changes: the body above still carries the
+      operator's own `launchpad_manual_v1` confirmation, and this read never
+      supplies one. `false` is returned unchanged so a marker that could not be
+      written still refuses exactly as it did.
+    */
+    const beforeProviderMutation = async () => {
+      const standing = await readMetaLaunchIntentApprovalStanding({
+        businessId: input.businessId,
+        providerAccountId: intent.providerAccountId,
+        lineage: intent.lineage,
+      });
+      if (!standing.stands) {
+        return { allowed: false as const, reason: standing.code };
+      }
+      if (!input.markDispatchStarted) return true;
+      return input.markDispatchStarted();
+    };
+    const launchResponse = addToExisting
+      ? await handleMetaAddToExistingAction(launchRequest, {
+          beforeProviderMutation,
+        })
+      : await handleMetaLaunchAction(launchRequest, {
+          beforeProviderMutation,
+        });
+    const launchPayload = (await launchResponse.json().catch(() => null)) as unknown;
+    return {
+      ok: launchResponse.status < 400
+        && (launchPayload as { ok?: boolean } | null)?.ok === true,
+      receipt: {
+        httpStatus: launchResponse.status,
+        response: launchPayload,
+        dryRun: input.dryRunOnly,
+        dispatchedAt,
+        endpoint: path,
+        withheld: null,
+        receiptKey,
+      },
+    };
+  }
+
+  /*
+    An approved ACTIVATION row — a `resume` that names the intent it turns on.
+
+    `resume` alone would go to the entity handler below, which resumes one
+    entity and knows nothing about the campaign above it. Activation is the
+    ordered, read-back, journalled sequence in `launch-intent-activation.ts`,
+    and an ad reading ACTIVE under a paused parent shows to nobody. The lineage
+    on the row is what tells the two apart, which is why it is checked before
+    the descriptor path and not after it.
+  */
+  if (proposal.proposedAction === "resume" && proposal.launchIntentId) {
+    const withheld = (reason: string) =>
+      withheldResult({ reason, dryRunOnly: input.dryRunOnly, dispatchedAt, receiptKey });
+    // An activation cannot be rehearsed either: the whole value of the step is
+    // the effective status coming back ACTIVE, which a dry run cannot produce.
+    if (input.dryRunOnly) return withheld("dry_run_guardrail");
+    const path = `/api/launchpad/meta/intents/${proposal.launchIntentId}/activate`;
+    const activateRequest = new NextRequest(
+      new URL(path, input.request.nextUrl.origin),
+      {
+        method: "POST",
+        headers: forwardedHeaders(input.request),
+        body: JSON.stringify({
+          actionOrigin: "manual_operator_v1",
+          manualConfirmation: "explicit_operator_confirmation",
+          businessId: input.businessId,
+        }),
+      },
+    );
+    const activateResponse = await handleMetaLaunchIntentActivateAction(
+      activateRequest,
+      { params: Promise.resolve({ id: proposal.launchIntentId }) },
+      { beforeProviderMutation: input.markDispatchStarted },
+    );
+    const activatePayload = (await activateResponse
+      .json()
+      .catch(() => null)) as unknown;
+    return {
+      ok: activateResponse.status < 400
+        && (activatePayload as { ok?: boolean } | null)?.ok === true,
+      receipt: {
+        httpStatus: activateResponse.status,
+        response: activatePayload,
+        dryRun: input.dryRunOnly,
+        dispatchedAt,
+        endpoint: path,
+        withheld: null,
+        receiptKey,
+      },
+    };
+  }
+
   if (!isExecutable(proposal.proposedAction)) {
     return {
       ok: false,
@@ -175,13 +609,25 @@ export async function executeMetaAutomationProposal(input: {
     };
   }
 
+  /*
+    The creative identity an ad write must present.
+
+    The ad route resolves the true target and refuses unless the creative it
+    finds still matches the one presented — which is the check that makes a
+    stale row unable to pause a different ad than the one it was raised about.
+    The projection persists the identity the decision was made on; nothing here
+    invents it, and an ad row without one is withheld by the builder.
+  */
+  const creativeId = typeof proposal.evidenceRef?.creativeId === "string"
+    ? proposal.evidenceRef.creativeId
+    : null;
   const built = buildDispatchDescriptor({
     businessId: input.businessId,
     target: {
       grain: proposal.scopeType,
       entityId: proposal.scopeId,
       providerAccountId: proposal.providerAccountId,
-      creativeId: null,
+      creativeId,
       parentId: null,
     },
     action: proposal.proposedAction,
@@ -221,16 +667,29 @@ export async function executeMetaAutomationProposal(input: {
     params: Promise.resolve({ [paramName]: proposal.scopeId }),
   };
 
+  /*
+    Ad grain goes to the ad handler, which is a different write with a
+    different journal: it resolves the true target, refuses unless the creative
+    identity it finds still matches the one presented, and records an immutable
+    per-attempt event before the single POST. Sending an ad row to the entity
+    handler would hit a route that does not exist for it.
+  */
   const response =
-    proposal.proposedAction === "pause"
-      ? await handleMetaEntityPauseAction(forwarded, context, {
-          scopeType: proposal.scopeType,
-          paramName,
-        })
-      : await handleMetaEntityResumeAction(forwarded, context, {
-          scopeType: proposal.scopeType,
-          paramName,
-        });
+    proposal.scopeType === "ad"
+      ? await handleMetaAdStatusAction(
+          forwarded,
+          { params: Promise.resolve({ adId: proposal.scopeId }) },
+          proposal.proposedAction,
+        )
+      : proposal.proposedAction === "pause"
+        ? await handleMetaEntityPauseAction(forwarded, context, {
+            scopeType: proposal.scopeType,
+            paramName,
+          })
+        : await handleMetaEntityResumeAction(forwarded, context, {
+            scopeType: proposal.scopeType,
+            paramName,
+          });
 
   const payload = (await response.json().catch(() => null)) as unknown;
   const ok = response.status < 400 && (payload as { ok?: boolean } | null)?.ok === true;

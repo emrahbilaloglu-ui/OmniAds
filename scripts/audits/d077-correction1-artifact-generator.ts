@@ -20,8 +20,6 @@ import { readFileSync, writeFileSync, existsSync, statSync } from "node:fs";
 import { buildWholeShellProof } from "@/scripts/audits/d077-whole-shell-proof";
 import {
   CODEX_FALLBACK_PNPM_PATH,
-  CORRECTION3_MUTATION_COMMAND,
-  CORRECTION3_MUTATION_WHEN,
   COREPACK_TRACKED_PATHS,
   SCOPED_INSPECTION_NOTE,
   assertPortableRepoRelativePath,
@@ -31,6 +29,7 @@ import {
   classifyRawResolverOutcome,
   deriveScopedChange,
   validatePnpmProvenance,
+  validateProbe,
   type PnpmProvenance,
   type ProvenanceProbe,
   type RawSpawnResult,
@@ -38,17 +37,105 @@ import {
 import { execFileSync, spawnSync } from "node:child_process";
 
 /*
-  PRE-DEPLOY AUDIT: a NEW dated capture. The 2026-08-30 log describes a
-  38-stage script and is kept beside this one as the earlier run's evidence;
-  it does not describe the tree this release ships, and pointing the proof at
-  it while the script declares 40 stages would be a pin without a run.
+  RELEASE CANDIDATE: a NEW dated capture again, for the same reason as before
+  and one more.
+
+  The 2026-08-30 log describes a 38-stage script; the 2026-09-03 log describes
+  40. Both are kept beside this one as the earlier runs' evidence. A matching
+  HEADER COUNT is not proof that a release ran: `buildWholeShellProof` compares
+  the ordered stage headings against the current script, and it deliberately
+  does not bind the child PROGRAMS those headings invoke. The 2026-09-03 run
+  therefore cannot speak for this release — it predates the claim-race seam's
+  capability repair, and it never executed the newly registered
+  `direct-launch-standing-boundary` child at all, because that registration did
+  not exist when it ran.
+
+  The 07:59Z capture of 2026-09-06 was canonical for the Phase 1 checkpoint and
+  is kept beside this one, but it is SUPERSEDED rather than historical: between
+  the two runs the seam's CHILDREN changed. `bid-history-writes-journal.db.test.ts`
+  was registered (five of its six cases had been gated on
+  `ADSECUTE_EPHEMERAL_DB_SEAM` while registered in no runner, so they executed
+  nowhere), and `runChildVitest` began reading the JSON report back to refuse a
+  skipped or short child. Both are exactly the kind of child-program change a
+  header comparison cannot see, which is why reusing the earlier log would have
+  repeated the error this comment was written about.
+
+  The 10:30Z capture was canonical when the PR was opened, and is superseded for
+  the third time by the same rule: addressing the review's five findings changed
+  `lib/migrations.ts` and `campaign-context-job.ts`, both of which the seam's
+  children execute. Three repins in one day is not churn — it is the rule doing
+  its job, because on each occasion the 40 headings were byte-identical and a
+  header comparison alone would have accepted a log that no longer described
+  what ran.
+
+  Superseded a fourth time by the second review round, which changed the bid
+  sizing policy that one of the seam's children exercises. Each repin has the
+  same cause and the same justification: the 40 headings were byte-identical
+  every time, so nothing but a fresh run can bind what actually executed.
+
+  Superseded a fifth time by the third review round, which changed the
+  launch-intent producers that the decision-launch-chain seam child exercises.
+
+  The sixth repin is different in kind from the first five, and worth naming.
+  Those replaced a PASSING log whose child programs had changed. This one
+  replaces a tree that FAILED the shell: the round-4 carve-out re-offered a
+  launch whose approval had been withdrawn, and the decision-launch-chain child
+  caught it as two launch rows where it expected one. So this capture is not
+  merely the current run — it is the proof of that repair.
+
+  Seventh repin, for round 5: the bid dispatch and the entity-action handler
+  both changed, and seam children execute both.
+
+  Eighth repin, for round 6: the provider write client gained a pre-POST
+  compare-and-set and the daily brief stopped reaching the queue reader, both
+  of which seam children execute.
+
+  Ninth repin, for round 7: the activation-approval route gained a
+  compare-and-set under an advisory lock, the profile-output producer stopped
+  short-circuiting on a partial set, and the Automation page's bootstrap moved
+  onto the viewer's own mutation authority.
+
+  Tenth repin: closing the activation-approval NULL race changed the approval
+  validator, the intent store, the unattended pre-filter and the activation
+  producer.
+
+  The current capture is the 20:37Z Codex-supervised run on source freeze
+  444597262e7d271a0f46dcd93d2a80cdfe326e7f. This run includes the reviewed
+  R14 source corrections described in the release-candidate checkpoint.
+  Its execution evidence remains bound to the source that actually ran.
+  This run reports 40 ordered headers, `PASS — 40 stages`, exit 0, 551.384 s.
+  Earlier captures preserve their own execution facts and source identities.
 */
 const PORTABLE_SHELL_LOG_PATH =
-  "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-03.log";
+  "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T2037Z.log";
+
+/*
+  The branch this candidate actually lives on, read from git rather than typed.
+
+  Both artifacts carried the literal "codex/meta-disabled-readiness-20260829".
+  That was true when the D077 evidence was first generated and has not been true
+  since: this candidate is delivered on `codex/meta-v2-panel-fidelity`, and a
+  manifest is the identity artifact — naming the wrong branch in it is not a
+  cosmetic slip, it is the candidate identifying itself as something else.
+
+  Read live so it cannot drift again. The superseded value is recorded beside it
+  in `supersededBranchLabel` rather than deleted, because the two earlier
+  captures were genuinely produced under that name and relabelling them silently
+  is the failure mode this whole contract exists to prevent.
+
+  Deliberately NOT touched: `RELEASE_BASE_SHA`, `baseHead` and
+  `deploy/PRODUCTION_BASELINE_SHA`. Those are baseline identities, not the
+  candidate's, and correcting a branch label must not move them.
+*/
+const SUPERSEDED_BRANCH_LABEL = "codex/meta-disabled-readiness-20260829";
+const CANDIDATE_BRANCH = execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
+  encoding: "utf8",
+}).trim();
 
 const LEDGER_SOURCE_ENV = "D077_C1_LEDGER_SOURCE";
 const LEDGER2_SOURCE_ENV = "D077_C2_LEDGER_SOURCE";
 const FAILFIRST_DIR_ENV = "D077_C2_FAILFIRST_DIR";
+const HISTORICAL_RUNTIME_SOURCE_ENV = "D077_HISTORICAL_RUNTIME_SOURCE";
 const EVIDENCE_PATH =
   "docs/audits/generated/d077-production-recovery-readonly-evidence-2026-08-30.json";
 const MANIFEST_PATH =
@@ -211,25 +298,24 @@ function versions() {
   // The tri-state is DERIVED from the recorded metadata by the shared
   // contract helper — generator and validator cannot disagree.
   const inspectionChanged = deriveScopedChange(inspectedPaths);
-  const pnpmProvenance: PnpmProvenance = validatePnpmProvenance({
-    presentTenseProbes: probes,
-    correction3CorepackMutation: {
-      occurred: true,
-      command: CORRECTION3_MUTATION_COMMAND,
-      when: CORRECTION3_MUTATION_WHEN,
-      restored: false,
-      preMutationValue: "UNKNOWN",
-    },
-    earlierRetainedStagesRuntime: "UNKNOWN",
-    correction5ProhibitedMutationCommandExecuted: false,
-    corepackTrackedStateChanged: inspectionChanged,
-    corepackScopedInspection: {
-      inspectedPaths,
-      changed: inspectionChanged,
-      scopeNote: SCOPED_INSPECTION_NOTE,
-    },
-    globalHostStateClaim: "attestation_only",
-  });
+  // The original audit binds the earlier Claude shell's unresolved pnpm
+  // result. Codex resolves pnpm now: preserve that frozen observation and
+  // validate today's measured probes separately, without altering PATH or
+  // weakening the historical package's exact outcome contract.
+  for (const probe of probes) validateProbe(probe);
+  const historicalRuntimeSource = process.env[HISTORICAL_RUNTIME_SOURCE_ENV];
+  if (!historicalRuntimeSource)
+    throw new Error(`${HISTORICAL_RUNTIME_SOURCE_ENV} must point at the retained ledger`);
+  const historicalLedger = JSON.parse(readFileSync(historicalRuntimeSource, "utf8")) as Record<string, unknown> & {
+    ledgerHash: string;
+    generatedAtUtc: string;
+    runtimeVersions: Record<string, unknown> & { pnpmProvenance: PnpmProvenance };
+  };
+  const { ledgerHash, hashAlgorithm, hashBasis, ...historicalBody } = historicalLedger;
+  if (hashAlgorithm !== "sha256" || hashBasis !== HASH_BASIS ||
+      sha256Utf8(JSON.stringify(historicalBody, null, 1)) !== ledgerHash)
+    throw new Error("retained runtime source ledger hash failed independent recomputation");
+  validatePnpmProvenance(historicalLedger.runtimeVersions.pnpmProvenance);
   const pnpmSummary =
     probes.find(
       (probe) =>
@@ -242,16 +328,35 @@ function versions() {
         probe.probeId === "codex-fallback-pnpm",
     )?.reportedVersion ??
     "UNKNOWN";
-  return {
+  const packagingRuntimeVersions = {
+    actor: "codex",
+    observedAtUtc: nowUtc(),
     node: process.version,
     npm: v("npm --version"),
-    pnpm: `${pnpmSummary} (present-tense probe; see pnpmProvenance — earlier-stage runtime UNKNOWN)`,
+    pnpm: pnpmSummary,
     vitest: v("npx vitest --version"),
     postgres: v("/opt/homebrew/opt/postgresql@16/bin/postgres --version"),
     tsc: v("npx tsc --version"),
-    pnpmProvenance,
+    pnpmProbes: probes,
+    probeBindingNote:
+      "Probe IDs preserve the shared command bindings. The legacy claude-shell-pnpm ID names the pnpm PATH lookup; these current measurements were taken by Codex, not Claude.",
+    corepackScopedInspection: {
+      inspectedPaths,
+      changed: inspectionChanged,
+      scopeNote: SCOPED_INSPECTION_NOTE,
+    },
     pnpmLayoutNote:
       "supplemental context only: node_modules is a pnpm layout (.bin entries are #!/bin/sh shims) — the reason the seam entrypoint fix exists",
+  };
+  return {
+    runtimeVersions: historicalLedger.runtimeVersions,
+    runtimeVersionsScope: {
+      kind: "historical",
+      sourceLedgerHash: historicalLedger.ledgerHash,
+      sourceGeneratedAtUtc: historicalLedger.generatedAtUtc,
+      note: "Frozen earlier audit runtime observations, preserved with their original timestamps and validated by the unchanged historical provenance contract.",
+    },
+    packagingRuntimeVersions,
   };
 }
 
@@ -432,7 +537,7 @@ function phase1() {
   (wholeShell as Record<string, unknown>).originalCapturePath = {
     path: originalCapturePath,
     note:
-      "capture provenance ONLY — the ephemeral Claude-session location where the supervisor wrote the log during the one authoritative run; validated byte-identical to the repository copy before the copy was frozen; no generator/test read path opens it after the freeze",
+      "capture provenance ONLY — the temporary supervisor output path for this authoritative run; validated byte-identical to the repository copy before it was frozen; generator/test reads use only the portable retained copy",
   };
   wholeShell.counts = {
     notApplicable: true,
@@ -443,11 +548,11 @@ function phase1() {
   // Chronology: observations are collected FIRST; generatedAtUtc is
   // stamped strictly afterwards so it can never predate a present-tense
   // observation.
-  const runtimeVersions = versions();
+  const runtimeEvidence = versions();
   const ledger = {
     contract: "adsecute.d077.correction2-verification-ledger.v2",
     generatedAtUtc: new Date().toISOString(),
-    runtimeVersions,
+    ...runtimeEvidence,
     stageSchema:
       "every entry in `stages`: {stage, command, startUtc, endUtc, durationSeconds, exitCode, counts (parsed vitest counts OR {notApplicable:true, reason}), timeout:{configuredSeconds, timedOut}, teardown (readback string or {notApplicable:true, reason}), tail}",
     equivalenceMapping: {
@@ -461,12 +566,16 @@ function phase1() {
     historicalFailFirstEvidence,
     supplementalCorrection1Records,
     teardownReadback: {
-      taskOwnedProcesses: "none remain (verified after the final stage; exact commands in the final response)",
-      ephemeralDatabaseListeners: "none remain (seam clusters tear down in their traps)",
-      preExistingTunnel:
-        "127.0.0.1:15432 SSH tunnel (pid 38894) found running before this task, never started/stopped/touched by it",
-      claudeEvidenceScratchpad:
-        "INTENTIONALLY RETAINED at the session scratchpad d077/ directory: it holds the raw fail-first logs (embedded above by content and hash), runner sources and planner logs. It is retained evidence, NOT ephemeral database/process residue; nothing in it is a secret.",
+      canonicalSupervisor: wholeShell.teardown,
+      canonicalPostRunCleanupReadback: wholeShell.postRunCleanupReadback,
+      scope:
+        "Original supervisor teardown and subsequent matching-process-group cleanup are separate observations. Child database teardown output is retained in the raw log. This generator does not independently enumerate listeners.",
+      historicalCorrection2Context: {
+        preExistingTunnel:
+          "HISTORICAL observation from correction 2: a pre-existing 127.0.0.1:15432 SSH tunnel (pid 38894) was left untouched. It is not a current process readback.",
+        claudeEvidenceScratchpad:
+          "HISTORICAL correction-1/2 Claude scratchpad held the original fail-first logs and runner sources. Embedded fail-first contents and their hashes are preserved; no current Claude execution or scratchpad liveness is asserted.",
+      },
     },
   };
   const ledgerHash = writeHashed(LEDGER_PATH, "ledgerHash", ledger);
@@ -500,7 +609,8 @@ function phase1() {
     },
     sourceTree: {
       repository: "emrahbilaloglu-ui/OmniAds",
-      branch: "codex/meta-disabled-readiness-20260829",
+      branch: CANDIDATE_BRANCH,
+      supersededBranchLabel: SUPERSEDED_BRANCH_LABEL,
       baseHead: "babf158e150fd33057117b39b175da044ac62d2e",
       proposal:
         "Commit the ENTIRE final corrected worktree as ONE release candidate commit, then fast-forward merge to main. The D073–D078 packages interleave in shared files (contracts, read models, lib/migrations.ts) and were verified as one tree; partial release was evaluated and rejected.",
@@ -879,7 +989,8 @@ function phase2() {
   const manifest = {
     contract: "adsecute.d077.release-candidate-manifest.v3",
     generatedAtUtc: new Date().toISOString(),
-    branch: "codex/meta-disabled-readiness-20260829",
+    branch: CANDIDATE_BRANCH,
+    supersededBranchLabel: SUPERSEDED_BRANCH_LABEL,
     head,
     baseMain: RELEASE_BASE_SHA,
     originMain: RELEASE_BASE_SHA,

@@ -46,11 +46,13 @@ import {
   READ_NATIVE_DECISION_GENERATION_QUERY,
 } from "@/lib/meta/decisions-workspace-read-model";
 import { createControlledExperimentRegistryStore } from "@/lib/meta/controlled-experiment-registry";
+import { D086_REQUIRED_PROFILE_COLUMNS } from "@/lib/meta/budget-readiness-retention";
 
 const FORBIDDEN_PORTS = new Set([15432, 5432]);
 const EPHEMERAL_DB_NAME = "adsecute_migrations_from_zero";
 const EPHEMERAL_DB_USER = "postgres";
 const REQUIRED_TABLES = [
+  "engine_v3_account_profile_output",
   "engine_v3_decision_snapshots_daily",
   "engine_v3_decision_outcomes_daily",
   "engine_v3_decision_evaluation_contexts",
@@ -93,6 +95,15 @@ const REQUIRED_TABLES = [
   "meta_ads_duplicate_reconciliation_observations",
 ] as const;
 const REQUIRED_COLUMNS: ReadonlyArray<{ table: string; column: string }> = [
+  /*
+    The success-only retained bounds the Shopify order-coverage proof reads.
+
+    Without them `readOrderSyncCoverage`'s SELECT throws and its catch returns
+    null, which the seam child treats as a hard failure — this only makes the
+    diagnosis say which column is missing instead of "coverage unreadable".
+  */
+  { table: "shopify_sync_state", column: "latest_successful_sync_window_start" },
+  { table: "shopify_sync_state", column: "latest_successful_sync_window_end" },
   { table: "engine_v3_decision_snapshots_daily", column: "raw_label" },
   {
     table: "engine_v3_decision_snapshots_daily",
@@ -1090,6 +1101,117 @@ async function runChildScript(
   if (exitCode !== 0) {
     throw new Error(`${runLabel} exited with code ${exitCode}.`);
   }
+
+  log(`${runLabel} exited clean.`);
+}
+
+/**
+ * The same thing, for a seam-guarded vitest file.
+ *
+ * A few claims are about SQL the application ships but no seam child owns — the
+ * Meta History title expression is one: it is extracted from
+ * `META_HISTORY_READ_SQL` at run time and executed by PostgreSQL over a VALUES
+ * list, so the test runs whatever the shipped expression currently says. That
+ * needs a connection and no schema, which makes a vitest file the right shape
+ * and `runChildScript` the wrong spawner — it invokes `node --import tsx`
+ * directly. The environment is identical, `ADSECUTE_EPHEMERAL_DB_SEAM=1`
+ * included, because outside a seam `DATABASE_URL` in this repository points at
+ * PRODUCTION and the file refuses to run without it.
+ */
+async function runChildVitest(
+  repoRoot: string,
+  databaseUrl: string,
+  testPath: string,
+  runLabel: string,
+  expectedPassingTests: number,
+): Promise<void> {
+  log(`running ${runLabel}...`);
+  /*
+    A SKIPPED child is not a pass, and the exit code cannot tell them apart.
+
+    Every file registered here gates itself on `ADSECUTE_EPHEMERAL_DB_SEAM`, so
+    a future edit that renames the flag, or a `describe.skipIf` whose predicate
+    silently stops matching, produces a child that exits 0 having executed no
+    assertions at all — and this runner announced "exited clean". That is the
+    precise failure `scripts/verify-database-seams.sh` warns about in its own
+    header: "a skipped database test reads exactly like a pass."
+
+    So the JSON report is read back and the PASSING count must equal what the
+    caller declared, the same way `scripts/ephemeral-postgres-breakdown-dimension-seam.ts`
+    has always done it. An exit code is a floor, not evidence.
+  */
+  const reportPath = path.join(
+    fs.mkdtempSync(path.join(os.tmpdir(), "d077-child-vitest-")),
+    "report.json",
+  );
+  const child = spawn(
+    process.execPath,
+    /*
+      The package's own JS entry, not `node_modules/.bin/vitest`.
+
+      That path is a POSIX shell wrapper; handing it to `process.execPath`
+      makes node parse `basedir=$(dirname ...)` as JavaScript and die with
+      "SyntaxError: missing ) after argument list" before the test is reached.
+    */
+    [
+      path.join("node_modules", "vitest", "vitest.mjs"),
+      "run",
+      testPath,
+      "--reporter=json",
+      `--outputFile=${reportPath}`,
+    ],
+    {
+      cwd: repoRoot,
+      stdio: "inherit",
+      env: {
+        ...process.env,
+        DATABASE_URL: databaseUrl,
+        DATABASE_URL_UNPOOLED: databaseUrl,
+        PGHOST: "127.0.0.1",
+        PGDATABASE: EPHEMERAL_DB_NAME,
+        PGUSER: EPHEMERAL_DB_USER,
+        ENABLE_RUNTIME_MIGRATIONS: "1",
+        ADSECUTE_EPHEMERAL_DB_SEAM: "1",
+      },
+    },
+  );
+
+  const exitCode = await new Promise<number>((resolve, reject) => {
+    child.once("error", reject);
+    child.once("exit", (code) => resolve(code ?? 1));
+  });
+
+  if (exitCode !== 0) {
+    throw new Error(`${runLabel} exited with code ${exitCode}.`);
+  }
+
+  if (!fs.existsSync(reportPath)) {
+    throw new Error(`${runLabel}: vitest wrote no JSON report.`);
+  }
+  const report = JSON.parse(fs.readFileSync(reportPath, "utf8")) as {
+    numTotalTests?: number;
+    numPassedTests?: number;
+    numPendingTests?: number;
+    numFailedTests?: number;
+  };
+  log(
+    `${runLabel} report: total=${report.numTotalTests} ` +
+      `passed=${report.numPassedTests} skipped=${report.numPendingTests} ` +
+      `failed=${report.numFailedTests}`,
+  );
+  if ((report.numFailedTests ?? 0) !== 0) {
+    throw new Error(`${runLabel}: ${report.numFailedTests} test(s) failed.`);
+  }
+  if ((report.numPendingTests ?? 0) !== 0) {
+    throw new Error(
+      `${runLabel}: ${report.numPendingTests} test(s) SKIPPED — a skipped database test is not a pass.`,
+    );
+  }
+  if ((report.numPassedTests ?? 0) !== expectedPassingTests) {
+    throw new Error(
+      `${runLabel}: expected ${expectedPassingTests} passing tests, saw ${report.numPassedTests}.`,
+    );
+  }
   log(`${runLabel} exited clean.`);
 }
 
@@ -1167,6 +1289,295 @@ async function assertNativeSchemaCapabilities(
         `capability not ready: ${check.name}: ${check.issues.join(", ")}`,
       );
     }
+  }
+}
+
+
+/**
+ * The proposal lineage widening, and the reason it needs watching.
+ *
+ * `launch_intent_id` carries a foreign key to `meta_launch_intents`, and the
+ * batch it lives in swallows its own errors. Run before that table exists, the
+ * statement fails, the error is discarded, and the release ships a schema where
+ * every launch proposal is refused by a constraint whose column is missing —
+ * silently, and only at runtime. So the column is asserted here, together with
+ * the two constraint vocabularies it travels with.
+ */
+async function assertProposalLineageWidening(
+  client: Client,
+  failures: string[],
+): Promise<void> {
+  const { rows: columnRows } = await client.query<{ exists: boolean }>(
+    `SELECT EXISTS (
+       SELECT 1 FROM information_schema.columns
+       WHERE table_schema = 'public'
+         AND table_name = 'meta_automation_proposals'
+         AND column_name = 'launch_intent_id'
+     ) AS exists`,
+  );
+  if (columnRows[0]?.exists) {
+    log("proposal launch_intent_id column present");
+  } else {
+    failures.push(
+      "meta_automation_proposals.launch_intent_id is missing — its FK target probably did not exist when the ALTER ran",
+    );
+  }
+
+  const { rows: fkRows } = await client.query<{ count: string }>(
+    `SELECT count(*)::text AS count
+       FROM pg_constraint c
+       JOIN pg_class t ON t.oid = c.conrelid
+       JOIN pg_class r ON r.oid = c.confrelid
+      WHERE t.relname = 'meta_automation_proposals'
+        AND r.relname = 'meta_launch_intents'
+        AND c.contype = 'f'`,
+  );
+  if (Number(fkRows[0]?.count ?? "0") === 1) {
+    log("proposal launch_intent_id references meta_launch_intents");
+  } else {
+    failures.push("launch_intent_id does not reference meta_launch_intents");
+  }
+
+  const { rows: checkRows } = await client.query<{
+    conname: string;
+    definition: string;
+  }>(
+    `SELECT c.conname, pg_get_constraintdef(c.oid) AS definition
+       FROM pg_constraint c
+       JOIN pg_class t ON t.oid = c.conrelid
+      WHERE t.relname = 'meta_automation_proposals' AND c.contype = 'c'`,
+  );
+  const byName = new Map(checkRows.map((row) => [row.conname, row.definition]));
+  const origin = byName.get("meta_automation_proposals_origin_check") ?? "";
+  if (origin.includes("operator_action")) {
+    log("proposal origin accepts operator_action");
+  } else {
+    failures.push("origin check does not accept operator_action");
+  }
+  const action = byName.get("meta_automation_proposals_action_budget_check") ?? "";
+  if (action.includes("launch")) {
+    log("proposal action accepts launch");
+  } else {
+    failures.push("proposed_action check does not accept launch");
+  }
+  // The arm that already existed must still hold: widening must not relax it.
+  const lineage = byName.get("meta_automation_proposals_origin_lineage") ?? "";
+  if (lineage.includes("engine_decision") && lineage.includes("operator_action")) {
+    log("proposal lineage keeps the engine arm and adds the operator arm");
+  } else {
+    failures.push("origin lineage lost an arm during the widening");
+  }
+  if (byName.has("meta_automation_proposals_launch_lineage")) {
+    log("a launch proposal must name its launch intent");
+  } else {
+    failures.push("launch rows are not required to carry a launch intent");
+  }
+}
+
+/**
+ * The retained campaign-role authority the budget path reads.
+ *
+ * Its DDL used to live only in an audit module, so production had no such
+ * table: the reader threw, the caller turned that into `unknown`, and no budget
+ * proposal could be produced. Asserted here so it cannot quietly go missing
+ * again.
+ */
+async function assertRoleAuthorityRetention(
+  client: Client,
+  failures: string[],
+): Promise<void> {
+  const required = [
+    "contract", "business_id", "provider_account_id", "campaign_id",
+    "as_of_date", "inferred_kind", "kind_source", "resolver_version",
+    "confidence_class", "evidence_hash", "input_hash", "effective_at",
+    "recorded_at", "provenance",
+  ];
+  const { rows } = await client.query<{ column_name: string }>(
+    `SELECT column_name FROM information_schema.columns
+      WHERE table_schema = 'public'
+        AND table_name = 'engine_v3_campaign_role_authority'`,
+  );
+  const present = new Set(rows.map((row) => row.column_name));
+  const missing = required.filter((column) => !present.has(column));
+  if (rows.length === 0) {
+    failures.push("engine_v3_campaign_role_authority does not exist");
+  } else if (missing.length > 0) {
+    failures.push(
+      `engine_v3_campaign_role_authority is missing: ${missing.join(", ")}`,
+    );
+  } else {
+    log("campaign-role authority retention table present with every read column");
+  }
+}
+
+/**
+ * The other table the budget path reads and nothing used to write.
+
+ * `engine_v3_account_profile_output` carries the day's commercial verdict per
+ * canonical action. It was described in the D086 pack, never applied, and the
+ * loader's read of it failed into `composition_sources_unavailable` — so no
+ * budget candidate could be admitted at all, for a reason no surface showed.
+ * The migration and the producer both exist now; this is the assertion that
+ * the schema a real deploy builds actually carries every column the reader
+ * names.
+ */
+async function assertAccountProfileOutputRetention(
+  client: Client,
+  failures: string[],
+): Promise<void> {
+  const required = [...D086_REQUIRED_PROFILE_COLUMNS];
+  const { rows } = await client.query<{ column_name: string }>(
+    `SELECT column_name FROM information_schema.columns
+      WHERE table_schema = 'public'
+        AND table_name = 'engine_v3_account_profile_output'`,
+  );
+  const present = new Set(rows.map((row) => row.column_name));
+  const missing = required.filter((column) => !present.has(column));
+  if (rows.length === 0) {
+    failures.push("engine_v3_account_profile_output does not exist");
+  } else if (missing.length > 0) {
+    failures.push(
+      `engine_v3_account_profile_output is missing: ${missing.join(", ")}`,
+    );
+  } else {
+    log("account profile output retention table present with every read column");
+  }
+}
+
+/**
+ * The activation approval, and the thing it must never become.
+ *
+ * `requested_status = 'PAUSED'` is what makes a launch intent unable to turn
+ * on what it created. If that CHECK ever loosened, creating and activating
+ * would collapse into one authorization and the approval column would be
+ * decoration. Both are asserted together for that reason.
+ */
+async function assertActivationApproval(
+  client: Client,
+  failures: string[],
+): Promise<void> {
+  const { rows } = await client.query<{ is_nullable: string; data_type: string }>(
+    `SELECT is_nullable, data_type
+       FROM information_schema.columns
+      WHERE table_schema = 'public'
+        AND table_name = 'meta_launch_intents'
+        AND column_name = 'activation_approval_json'`,
+  );
+  const column = rows[0];
+  if (!column) {
+    failures.push("meta_launch_intents.activation_approval_json is missing");
+  } else if (column.is_nullable !== "YES") {
+    // NULL means "operator only", which every existing row must keep.
+    failures.push("activation_approval_json is NOT NULL, so old rows cannot mean 'operator only'");
+  } else if (column.data_type !== "jsonb") {
+    failures.push(`activation_approval_json is ${column.data_type}, not jsonb`);
+  } else {
+    log("launch intents carry a nullable activation approval");
+  }
+
+  /*
+    The receipt of the activation that ran, which is a different fact.
+
+    An approval authorizes; a receipt records. Kept in separate columns
+    deliberately: a consumed approval is still the approval, and a receipt
+    saying the ad set blocked is not a revocation of anything.
+  */
+  const { rows: receiptRows } = await client.query<{
+    is_nullable: string; data_type: string;
+  }>(
+    `SELECT is_nullable, data_type
+       FROM information_schema.columns
+      WHERE table_schema = 'public'
+        AND table_name = 'meta_launch_intents'
+        AND column_name = 'activation_receipt_json'`,
+  );
+  const receipt = receiptRows[0];
+  if (!receipt) {
+    failures.push("meta_launch_intents.activation_receipt_json is missing");
+  } else if (receipt.is_nullable !== "YES") {
+    // NULL is "no activation has run", which every existing row is.
+    failures.push("activation_receipt_json is NOT NULL, so old rows claim an activation");
+  } else if (receipt.data_type !== "jsonb") {
+    failures.push(`activation_receipt_json is ${receipt.data_type}, not jsonb`);
+  } else {
+    log("launch intents carry a nullable activation receipt");
+  }
+
+  const { rows: checks } = await client.query<{ definition: string }>(
+    `SELECT pg_get_constraintdef(c.oid) AS definition
+       FROM pg_constraint c
+       JOIN pg_class t ON t.oid = c.conrelid
+      WHERE t.relname = 'meta_launch_intents' AND c.contype = 'c'`,
+  );
+  const all = checks.map((row) => row.definition).join(" ");
+  if (all.includes("requested_status") && all.includes("'PAUSED'")) {
+    log("a launch intent still may only create something paused");
+  } else {
+    failures.push("the PAUSED-only creation rule is gone; creating and activating have merged");
+  }
+}
+
+/**
+ * The per-slot completion record the second daily snapshot depends on.
+ *
+ * Its primary key is the whole point: without the slot in the key, the 15:00
+ * catch-up would collide with the 03:00 run's row and be reported as already
+ * done.
+ */
+async function assertStructureSnapshotRuns(
+  client: Client,
+  failures: string[],
+): Promise<void> {
+  const { rows } = await client.query<{ attname: string }>(
+    `SELECT a.attname
+       FROM pg_index i
+       JOIN pg_class t ON t.oid = i.indrelid
+       JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = ANY(i.indkey)
+      WHERE t.relname = 'meta_structure_snapshot_runs' AND i.indisprimary`,
+  );
+  const key = new Set(rows.map((row) => row.attname));
+  const required = ["business_id", "provider_account_id", "as_of_date", "slot"];
+  const missing = required.filter((column) => !key.has(column));
+  if (rows.length === 0) {
+    failures.push("meta_structure_snapshot_runs does not exist");
+  } else if (missing.length > 0) {
+    failures.push(
+      `the snapshot run key is missing ${missing.join(", ")}, so slots would collide`,
+    );
+  } else {
+    log("structure snapshot runs are keyed per business, account, day and slot");
+  }
+
+  /*
+    `source_max_date` must be NULLABLE, and that is not a formality.
+
+    It records the newest source day a run actually READ. A run that could not
+    read one has no honest value to write, and a NOT NULL column would force it
+    to invent one — which is exactly the defect this column was added to end:
+    the requested snapshot date was being stored as though it were an
+    observation, so a slot whose sources had not moved looked freshly covered.
+  */
+  const { rows: sourceColumn } = await client.query<{
+    is_nullable: string;
+    data_type: string;
+  }>(
+    `SELECT is_nullable, data_type
+       FROM information_schema.columns
+      WHERE table_schema = 'public'
+        AND table_name = 'meta_structure_snapshot_runs'
+        AND column_name = 'source_max_date'`,
+  );
+  const source = sourceColumn[0];
+  if (!source) {
+    failures.push("meta_structure_snapshot_runs.source_max_date is missing");
+  } else if (source.is_nullable !== "YES") {
+    failures.push(
+      "source_max_date is NOT NULL, so a run that read nothing would have to invent a date",
+    );
+  } else if (source.data_type !== "date") {
+    failures.push(`source_max_date is ${source.data_type}, not date`);
+  } else {
+    log("a snapshot run may record no source date rather than inventing one");
   }
 }
 
@@ -1383,6 +1794,11 @@ async function assertSchema(databaseUrl: string): Promise<string[]> {
     }
 
     await assertNativeSchemaCapabilities(client, failures);
+    await assertProposalLineageWidening(client, failures);
+    await assertRoleAuthorityRetention(client, failures);
+    await assertAccountProfileOutputRetention(client, failures);
+    await assertActivationApproval(client, failures);
+    await assertStructureSnapshotRuns(client, failures);
 
     const { rows: tableRows } = await client.query<{ table_name: string }>(
       `SELECT table_name
@@ -2746,6 +3162,25 @@ async function main() {
       "native-ad decision-fact ownership DB seam check",
     );
 
+    /*
+      The sizing projection's own queries, against the real schema.
+
+      This module shipped broken and green: its unit test mocked the database
+      and fed rows named after columns that do not exist, so every statement
+      raised 42703, the error was swallowed, and the projection returned every
+      recommendation unchanged. A mocked row agrees with any schema; only
+      PostgreSQL refuses one.
+    */
+    await runChildScript(
+      repoRoot,
+      databaseUrl,
+      path.join(
+        "scripts",
+        "ephemeral-postgres-intent-projection-seam-child.ts",
+      ),
+      "sizing projection source DB seam check",
+    );
+
     await runChildScript(
       repoRoot,
       databaseUrl,
@@ -2754,6 +3189,211 @@ async function main() {
         "ephemeral-postgres-duplicate-ad-reconciliation-seam-child.ts",
       ),
       "duplicate-ad reconciliation DB seam check",
+    );
+
+    /*
+      The bid arm's own SQL, which is the part a mock cannot answer: the typed
+      candidate query reads real payload columns, and the database — not a
+      hopeful reader — is what refuses a `bid` row with no amount on it.
+    */
+    await runChildScript(
+      repoRoot,
+      databaseUrl,
+      path.join("scripts", "ephemeral-postgres-bid-queue-seam-child.ts"),
+      "bid queue DB seam check",
+    );
+
+    /*
+      The two economic chains, end to end, through the REAL producers.
+
+      Both were previously proved only by seams that minted their own
+      `target_value`, and that is what hid the defect: the bid projection
+      persisted a payload the candidate query could never select, so no
+      snapshot-produced bid intent had ever become a queue row. This child
+      seeds facts and calls the shipped snapshot, the shipped candidate
+      readers and the shipped producers, so a payload mismatch fails here
+      instead of being invisible until an operator notices an empty queue.
+    */
+    await runChildScript(
+      repoRoot,
+      databaseUrl,
+      path.join(
+        "scripts",
+        "ephemeral-postgres-economics-bid-chain-seam-child.ts",
+      ),
+      "economics and bid chain DB seam check",
+    );
+
+    /*
+      The card-level Apply, on real storage.
+
+      Its key derivation is a claim about a stored JSON blob surviving the read
+      path, and the defect it pins was not a data question at all: the ceremony
+      sent a display identity where the server demands
+      `campaign|adset|ad:<id>`, so every Apply on a decision card was refused
+      before anything could be written.
+    */
+    await runChildScript(
+      repoRoot,
+      databaseUrl,
+      path.join(
+        "scripts",
+        "ephemeral-postgres-decision-card-apply-seam-child.ts",
+      ),
+      "decision card apply DB seam check",
+    );
+
+    /*
+      Shopify order-window coverage.
+
+      The freshness clock took MAX(latest_successful_sync_at) across every sync
+      target, so a returns pass that finished an hour ago vouched for orders
+      last read five days ago. Only a real database can show that the coverage
+      proof reads the recorded windows rather than the presence of rows — and
+      that an expanded recent window written by a running or failed repair
+      cannot borrow an earlier pass's success end.
+    */
+    await runChildScript(
+      repoRoot,
+      databaseUrl,
+      path.join(
+        "scripts",
+        "ephemeral-postgres-shopify-aov-coverage-seam-child.ts",
+      ),
+      "Shopify order coverage DB seam check",
+    );
+
+    /*
+      The slot outcome recorded from what was ATTEMPTED, not from what is
+      required.
+
+      A retry that runs only the outstanding accounts and then throws as a whole
+      used to fail every required account — including the one that had already
+      succeeded, whose slot row was overwritten and whose work the next tick
+      then redid. Only a real database shows that, because the damage is an
+      ON CONFLICT DO UPDATE on the run table's own primary key.
+    */
+    await runChildScript(
+      repoRoot,
+      databaseUrl,
+      path.join("scripts", "ephemeral-postgres-slot-retry-scope-seam-child.ts"),
+      "slot retry scope DB seam check",
+    );
+
+    /*
+      The complete activation identity set, and the approval re-read.
+
+      Activation took only the first ad set and the first ad of a launch and
+      still called itself delivering. It also validated the stored approval once,
+      from the intent it loaded at the start, so a revocation mid-sequence could
+      not stop the next POST. Both are claims about persisted state across
+      steps, which is why they are proved here rather than only in memory.
+
+      It now also drives the real resume primitives against an in-process
+      provider double and proves that a revocation committed during the journal
+      claim, or inside the primitive's own preflight, yields zero POSTs and a
+      settled failure row. Three awaits used to stand between the last authority
+      question and the request.
+    */
+    await runChildScript(
+      repoRoot,
+      databaseUrl,
+      path.join(
+        "scripts",
+        "ephemeral-postgres-activation-identity-seam-child.ts",
+      ),
+      "activation identity, approval and pre-POST boundary DB seam check",
+    );
+
+    /*
+      Decision to staged intent to queue row to create to activation.
+
+      The launch family shipped complete and unreachable: nothing turned a
+      decision into the staged intent its queue producer selects. This child
+      starts from an eligible published decision — not a hand-inserted row —
+      and walks the whole chain through the shipped producers and routes,
+      including the rerun that must duplicate neither the intent nor the
+      provider entity.
+
+      It then runs the same chain with nobody at the queue: creative mode
+      `auto`, the account-bound scheduled authority, the real sweep, one PAUSED
+      provider entity and no activation. The staged intent carries
+      `launchpad_decision_staged_v1`, not a fabricated operator confirmation —
+      which is the whole reason the auto arm could not simply reuse the manual
+      authority.
+    */
+    await runChildScript(
+      repoRoot,
+      databaseUrl,
+      path.join(
+        "scripts",
+        "ephemeral-postgres-decision-launch-chain-seam-child.ts",
+      ),
+      "decision to launch chain DB seam check",
+    );
+
+    /*
+      The DIRECT Launchpad create routes, whose pre-POST boundary was optional.
+
+      Both route files call the shared handler with no options, so until the
+      handler composed one, an approval withdrawn between two provider POSTs
+      was seen by nothing on the operator's own path. It is proved here because
+      the whole question is whether the CURRENT rows still say the brief is
+      reviewed: the intent stores the brief's id, `patchMetaCreativeBrief` is an
+      UPDATE, and the standing re-read is a SELECT.
+
+      Registered rather than left to a hand run: with the seam flag unset the
+      file reports "7 skipped", which reads green, so nothing would have caught
+      a regression of this exact guard.
+    */
+    await runChildVitest(
+      repoRoot,
+      databaseUrl,
+      path.join("lib", "launchpad", "direct-launch-standing-boundary.db.test.ts"),
+      "direct Launchpad create route approval-standing DB seam check",
+      7,
+    );
+
+    /*
+      The Writes journal names the verb the write actually was.
+
+      A verified cost-cap change was journalled as `launch_adset` with the real
+      verb one level down in `payload_request.operation`, and the journal titles
+      a row from the action column — so an operator's receipt for a bid apply
+      read "Launch Adset". The route writes `bid` now, but every row already in
+      the table keeps the old shape forever, so the READER has to answer for
+      both spellings. The title expression is extracted from the shipped SQL and
+      executed by PostgreSQL, which is why this needs a database at all.
+    */
+    await runChildVitest(
+      repoRoot,
+      databaseUrl,
+      path.join("lib", "meta", "bid-history-verb-title.db.test.ts"),
+      "Meta History bid verb title DB seam check",
+      2,
+    );
+
+    /*
+      The Writes journal ADMITS a bid row — the other half of the verb story,
+      and until now the half nothing ran.
+
+      `lib/meta/bid-history-writes-journal.db.test.ts` gates five of its six
+      cases on `describe.runIf(ADSECUTE_EPHEMERAL_DB_SEAM === "1")`, and it was
+      registered nowhere: not here, not in any sibling seam runner, not in
+      package.json. Under `npx vitest run` the flag is unset, so those five
+      reported as skipped and the file reported green on the strength of its one
+      static assertion. A release note that called this "the lane the 40-stage
+      seam shell runs — and it passed" was describing a run that never happened.
+
+      Registering it is the fix; `runChildVitest` asserting the passing COUNT is
+      what stops the same thing recurring silently.
+    */
+    await runChildVitest(
+      repoRoot,
+      databaseUrl,
+      path.join("lib", "meta", "bid-history-writes-journal.db.test.ts"),
+      "Meta History bid write journal admission DB seam check",
+      6,
     );
 
     // The null-versus-zero contract rests on a claim about the SCHEMA — that a

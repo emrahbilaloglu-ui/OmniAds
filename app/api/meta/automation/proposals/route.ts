@@ -58,7 +58,11 @@ import { BUDGET_PROPOSAL_ACTION } from "@/lib/meta/budget-proposal-runtime";
 import { createBudgetProposalServerRuntime } from "@/lib/meta/budget-proposal-server-runtime";
 import { runClaimedProposalExecution } from "@/lib/meta/budget-execution-lifecycle";
 import { createBudgetServerReaders } from "@/lib/meta/budget-proposal-server-readers";
-import { buildMetaBudgetWriteContextForProposal } from "@/lib/meta/budget-proposal-write-context";
+import {
+  buildMetaBudgetWriteContextForProposal,
+  readProposalBidBaseline,
+} from "@/lib/meta/budget-proposal-write-context";
+import { getMetaLaunchIntent } from "@/lib/launchpad/meta-launch-intent-store";
 import { MANUAL_CONFIRMATION } from "@/lib/zero-base/meta/dispatch-contract";
 
 export const dynamic = "force-dynamic";
@@ -472,11 +476,19 @@ async function approve(input: {
       "Automation control state could not be verified, so no proposal can be approved.",
     );
   }
-  if (control.businessControl.readinessTier !== "manual_review") {
+  /*
+    `readiness_tier` has no application writer anywhere in this repository, so
+    its value is always the column default. Requiring exactly `manual_review`
+    here therefore passed by accident rather than by decision, and would have
+    begun refusing every approval the moment anything wrote a different tier.
+    The tier now has one meaning — `read_only` forbids writes — and the standing
+    mode is what decides whether a queue row may be approved.
+  */
+  if (control.businessControl.readinessTier === "read_only") {
     return jsonError(
       409,
-      "supervision_tier_mismatch",
-      "The confirmation queue executes only under the Tier 1 supervised readiness tier.",
+      "supervision_tier_read_only",
+      "This business is set to read-only, so no proposal can be approved.",
     );
   }
 
@@ -555,9 +567,33 @@ async function approve(input: {
     contact (a shut gate, a missing confirmation, an inadmissible composition),
     and an operator reading the row could not tell those from a real dispatch.
     The pause family keeps its own marker: its handler has no such boundary.
+
+    Nor for a Launchpad row — a `launch`, or the `resume` that names the intent
+    it activates. Both cross a long chain of pre-provider refusals inside their
+    handler (a closed execution gate, a demo workspace, rehearsal, validation,
+    the fresh creative preflight), and until this branch existed a launch row
+    was stamped as dispatched while the executor answered `unsupported_action`
+    and nothing was ever sent. They take the marker through
+    `markDispatchStarted` below, which the handler fires immediately before its
+    first provider call and which VETOES that call when it cannot be written.
   */
-  const budgetApproval = input.proposal.proposedAction === BUDGET_PROPOSAL_ACTION;
-  const dispatchMarked = budgetApproval
+  const marksAtItsOwnBoundary =
+    input.proposal.proposedAction === BUDGET_PROPOSAL_ACTION
+    || input.proposal.proposedAction === "launch"
+    /*
+      `bid` joins them, because it too can refuse BEFORE any provider call.
+
+      The executor now re-reads the live cap and withholds on
+      `bid_baseline_changed` / `bid_strategy_not_writable` / a failed read —
+      all of them ahead of the handler. Stamping a dispatch before that would
+      leave a row reading as though a provider write may have been attempted
+      when nothing was sent, which is the same pathology this file's header
+      records for launch rows.
+    */
+    || input.proposal.proposedAction === "bid"
+    || (input.proposal.proposedAction === "resume"
+      && input.proposal.launchIntentId !== null);
+  const dispatchMarked = marksAtItsOwnBoundary
     ? true
     : await markMetaAutomationProposalDispatchStarted({
       businessId: input.businessId,
@@ -590,6 +626,52 @@ async function approve(input: {
       proposal: input.proposal,
       dryRunOnly,
       receiptKey: claim.claimToken,
+      /*
+        The live cap, read at the manual boundary the way the scheduled sweep
+        reads it at its own.
+
+        Injected rather than imported. `automation-write-path.test.ts` asserts
+        that no module in this subsystem — this file included — so much as
+        mentions the Meta write client by name, and it checks the SOURCE TEXT,
+        so even naming it in a comment trips the guard. That crudeness is the
+        point: it catches a second write path that a type signature would not.
+        The read therefore lives behind `readProposalBidBaseline`, in the one
+        module on the proposal path sanctioned to hold that import.
+
+        Omitting it is not a safe default: without a reader the executor
+        refuses every bid row, which would consume the operator's proposal and
+        settle it `failed` with no remedy.
+      */
+      readBidBaseline: async ({ providerAccountId, adsetId }) =>
+        readProposalBidBaseline({
+          businessId: input.businessId,
+          providerAccountId,
+          adsetId,
+        }),
+      /*
+        The intent behind a Launchpad row, bound to THIS business.
+
+        The executor is handed a reader, not an id it could resolve itself, so
+        a launch row can never reach an intent belonging to a business the
+        approving operator has no membership in.
+      */
+      launchIntent: async (launchIntentId) =>
+        getMetaLaunchIntent({
+          businessId: input.businessId,
+          id: launchIntentId,
+        }).catch(() => null),
+      /*
+        The write-ahead marker, fired from inside the Launchpad handler at the
+        boundary before its first provider call, and refusing the call when it
+        cannot be recorded. Same compare-and-set the pause family takes above,
+        moved to the only place that can tell a refusal from an attempt.
+      */
+      markDispatchStarted: async () =>
+        Boolean(await markMetaAutomationProposalDispatchStarted({
+          businessId: input.businessId,
+          proposalId: input.proposal.id,
+          claimToken: claim.claimToken,
+        }).catch(() => null)),
       /*
         D088 C3: the CONCRETE budget runtime, and the SHARED lifecycle.
 

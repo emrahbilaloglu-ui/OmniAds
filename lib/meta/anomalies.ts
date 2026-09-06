@@ -9,6 +9,21 @@ export const META_ANOMALY_TYPES = [
   "policy_block",
   "pacing_failure",
   "cpm_spike",
+  /*
+    Two failures the existing five could not see.
+
+    `pacing_failure` catches a campaign spending too SLOWLY. Nothing caught the
+    opposite — a daily budget gone by mid-morning, which for the rest of the
+    day is a campaign that cannot buy anything and a competitor auction it is
+    absent from.
+
+    And nothing at all caught the most expensive shape there is: real money
+    spent, zero purchases. A ROAS drop needs a previous ROAS to drop from; an
+    account that has never converted has none, so its worst days were invisible
+    to every detector here.
+  */
+  "zero_conversions_with_spend",
+  "budget_exhausted_early",
 ] as const;
 
 export type MetaAnomalyType = (typeof META_ANOMALY_TYPES)[number];
@@ -44,6 +59,25 @@ export interface DetectAnomaliesInput {
   businessId: string;
   snapshotDate: string;
   calibrationContext?: MetaCalibrationContext | null;
+  /**
+   * What this account considers a meaningful loss, and when its day starts.
+   *
+   * Both new detectors need a number, and neither may invent one: "$50 with no
+   * purchases" means something different on an account whose average order is
+   * $30 and one whose average order is $400. The spend floor is the loss
+   * budget the commercial targets already define — the CPA baseline times the
+   * account's own risk posture — and the day fraction is measured in the
+   * business's own timezone, because "by mid-morning" is a local sentence.
+   *
+   * Absent, both detectors produce nothing. A default here would be a
+   * universal threshold wearing a profile's clothes.
+   */
+  profile?: {
+    /** Spend at which zero purchases stops being a small sample. */
+    lossBudgetSpend?: number | null;
+    /** IANA zone the business's day is measured in. */
+    timezone?: string | null;
+  } | null;
   now?: Date;
 }
 
@@ -51,6 +85,66 @@ export interface ReadMetaAnomaliesResult {
   anomalies: MetaAnomaly[];
   snapshotDate: string | null;
   count: number;
+}
+
+/**
+ * Why a detector family produced nothing without having judged anything.
+ *
+ * - `time_of_day_gate`: the wall clock is outside the window in which this
+ *   family's question can be answered. A pacing verdict at 02:00 and an
+ *   early-exhaustion verdict at 23:00 are both meaningless, so the detector
+ *   declines rather than guessing.
+ * - `profile_input_unavailable`: the threshold this family measures against —
+ *   the business's loss budget, its IANA timezone — is absent or unreadable,
+ *   and inventing one would be this module choosing what a business considers
+ *   a bad day.
+ */
+export type MetaAnomalyEvaluationSkipReason =
+  | "time_of_day_gate"
+  | "profile_input_unavailable";
+
+export interface MetaAnomalyEvaluationSkip {
+  type: MetaAnomalyType;
+  reason: MetaAnomalyEvaluationSkipReason;
+  detail: string;
+}
+
+/**
+ * What one detection run looked at, as distinct from what it found.
+ *
+ * `anomalies` alone cannot carry that. A family absent from the list has two
+ * unrelated causes — it was evaluated and the condition is over, or it was
+ * never evaluated — and the writer treats absence as grounds for stamping
+ * `resolved_at`. Resolution means "we looked and it is no longer true"; a
+ * time-of-day gate means "we did not look". Every member of
+ * `META_ANOMALY_TYPES` appears in exactly one of `evaluatedTypes` and
+ * `skipped`, so a caller can always tell which sentence applies.
+ */
+export interface MetaAnomalyEvaluation {
+  anomalies: MetaAnomaly[];
+  /** Families this run judged. An absent row from one of these is a finding. */
+  evaluatedTypes: MetaAnomalyType[];
+  /** Families this run could not judge. An absent row from one of these is silence. */
+  skipped: MetaAnomalyEvaluationSkip[];
+}
+
+/**
+ * One family's result, before it is labelled with the family's own name.
+ *
+ * Every gate that can make a detector decline lives INSIDE that detector and
+ * is expressed through this type, so there is exactly one predicate per family
+ * rather than one in the detector and a copy at the call site that can drift
+ * away from it.
+ */
+type DetectorOutcome =
+  | { evaluated: true; anomalies: MetaAnomaly[] }
+  | { evaluated: false; reason: MetaAnomalyEvaluationSkipReason; detail: string };
+
+function notEvaluated(
+  reason: MetaAnomalyEvaluationSkipReason,
+  detail: string,
+): DetectorOutcome {
+  return { evaluated: false, reason, detail };
 }
 
 type CampaignDailyRow = {
@@ -63,6 +157,7 @@ type CampaignDailyRow = {
   revenue: unknown;
   impressions: unknown;
   daily_budget: unknown;
+  purchases: unknown;
 };
 
 type AdsetDailyRow = {
@@ -198,6 +293,51 @@ function detectedAtFor(snapshotDate: string, now: Date) {
   return `${snapshotDate}T23:59:59.000Z`;
 }
 
+function positiveOrNull(value: unknown): number | null {
+  const parsed = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+/**
+ * How much of the business's OWN day has passed.
+ *
+ * `timeOfDayProgress` measures the UTC day, which is the right clock for a
+ * UTC-dated snapshot and the wrong one for the sentence "the budget was gone
+ * by mid-morning". A business in Los Angeles is eight hours from agreeing with
+ * UTC about when its morning is.
+ *
+ * No zone, no answer. Substituting UTC would be quietly reporting somebody
+ * else's morning as theirs.
+ */
+function localDayProgress(
+  snapshotDate: string,
+  now: Date,
+  timezone: string | null | undefined,
+): number | null {
+  if (!timezone?.trim()) return null;
+  let parts: Intl.DateTimeFormatPart[];
+  try {
+    parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: timezone,
+      year: "numeric", month: "2-digit", day: "2-digit",
+      hour: "2-digit", minute: "2-digit", hour12: false,
+    }).formatToParts(now);
+  } catch {
+    // An unknown zone is unreadable, not UTC.
+    return null;
+  }
+  const part = (type: string) =>
+    parts.find((entry) => entry.type === type)?.value ?? "";
+  const localDate = `${part("year")}-${part("month")}-${part("day")}`;
+  if (snapshotDate < localDate) return 1;
+  if (snapshotDate > localDate) return 0;
+  const hour = Number(part("hour"));
+  const minute = Number(part("minute"));
+  if (!Number.isFinite(hour) || !Number.isFinite(minute)) return null;
+  // 24 formats midnight as "24" in some locales; both mean the day just began.
+  return Math.max(0, Math.min(1, ((hour % 24) * 60 + minute) / (24 * 60)));
+}
+
 function timeOfDayProgress(snapshotDate: string, now: Date) {
   const today = now.toISOString().slice(0, 10);
   if (snapshotDate < today) return 1;
@@ -281,7 +421,19 @@ async function fetchAnomalyInputs(input: { businessId: string; snapshotDate: str
         spend,
         revenue,
         impressions,
-        daily_budget
+        daily_budget,
+        /*
+          The warehouse counts purchases in conversions.
+
+          There is no purchases column on this table and never was, so this
+          SELECT raised 42703 on every run -- and the caller swallows a failed
+          detection into an empty list (snapshot.ts catches it into []). The
+          symptom was not an error anywhere: it was that no Meta account ever
+          produced a single anomaly, of any type. delivery_stall among them,
+          which is why the bid path could never find the delivery evidence a
+          cap raise requires.
+        */
+        conversions AS purchases
       FROM meta_campaign_daily
       WHERE business_id = ${input.businessId}
         AND date BETWEEN ${start28}::date AND ${input.snapshotDate}::date
@@ -467,8 +619,18 @@ function detectPacingFailures(input: {
   snapshotDate: string;
   detectedAt: string;
   progress: number;
-}) {
-  if (input.progress <= 0.6) return [];
+}): DetectorOutcome {
+  /*
+    Too early in the day to accuse anything of pacing badly, so this run does
+    not look. `notEvaluated`, not an empty list: the difference is what stops a
+    rerun at breakfast from resolving the finding a rerun at teatime made.
+  */
+  if (input.progress <= 0.6) {
+    return notEvaluated(
+      "time_of_day_gate",
+      `only ${Math.round(input.progress * 100)}% of the UTC day has passed; a pacing judgement needs more than 60%`,
+    );
+  }
   const anomalies: MetaAnomaly[] = [];
   for (const [campaignId, rows] of groupBy(input.rows, (row) => row.campaign_id)) {
     const latest = latestByDate(rows);
@@ -498,7 +660,168 @@ function detectPacingFailures(input: {
       }),
     );
   }
-  return anomalies;
+  return { evaluated: true, anomalies };
+}
+
+/**
+ * Real money, no purchases.
+ *
+ * The most expensive failure a Meta account has, and until now no detector saw
+ * it: `roas_drop_sudden` needs a previous ROAS to fall from, so an account or
+ * campaign that has never converted produced no signal at all — its worst
+ * fortnight looked exactly like its best one.
+ *
+ * The threshold is the account's OWN loss budget, not a number chosen here.
+ * Below it, zero purchases is a small sample and saying anything would be
+ * noise; above it, the campaign has spent what this business decided it was
+ * willing to lose learning something, and learned that nobody bought.
+ *
+ * The window is 7 closed days, not today: an account with a long
+ * consideration cycle would otherwise be accused of failing every morning.
+ *
+ * Without the loss budget the family is NOT EVALUATED — the threshold gate
+ * lives here rather than at the call site so there is one place that decides
+ * whether this run looked, and it is the same place that decides what it saw.
+ */
+function detectZeroConversionSpend(input: {
+  rows: CampaignDailyRow[];
+  snapshotDate: string;
+  detectedAt: string;
+  lossBudgetSpend: number | null;
+}): DetectorOutcome {
+  if (input.lossBudgetSpend === null) {
+    return notEvaluated(
+      "profile_input_unavailable",
+      "no loss budget is configured for this business, so there is no spend floor to judge zero purchases against",
+    );
+  }
+  const lossBudgetSpend = input.lossBudgetSpend;
+  const anomalies: MetaAnomaly[] = [];
+  const windowStart = addDaysToISO(input.snapshotDate, -7);
+  const windowEnd = addDaysToISO(input.snapshotDate, -1);
+  for (const [campaignId, rows] of groupBy(input.rows, (row) => row.campaign_id)) {
+    const latest = latestByDate(rows);
+    if (!latest || !isActiveStatus(latest.campaign_status)) continue;
+    const window = rows.filter(
+      (row) => row.date >= windowStart && row.date <= windowEnd,
+    );
+    if (window.length === 0) continue;
+    const spend = sum(window, (row) => row.spend);
+    const purchases = sum(window, (row) => row.purchases);
+    const revenue = sum(window, (row) => row.revenue);
+    // Purchases AND revenue: a conversion the pixel counted without a value,
+    // or a value without a count, is still a conversion. Neither is "nothing".
+    if (purchases > 0 || revenue > 0) continue;
+    if (spend < lossBudgetSpend) continue;
+
+    const overBudget = ratio(spend, lossBudgetSpend);
+    anomalies.push(
+      makeAnomaly({
+        snapshotDate: input.snapshotDate,
+        type: "zero_conversions_with_spend",
+        scopeType: "campaign",
+        scopeId: campaignId,
+        scopeLabel: latest.campaign_name ?? campaignId,
+        // Two loss budgets spent with nothing to show is not a worse version
+        // of the same problem; it is a different conversation.
+        severity: overBudget >= 2 ? "high" : "medium",
+        title: "Spending with no purchases",
+        detail: `$${rounded(spend)} spent over 7 closed days with no recorded purchase, against a $${rounded(lossBudgetSpend)} loss budget.`,
+        diagnostics: [
+          "Conversion tracking may not be recording purchases for this campaign.",
+          "Targeting or creative may be reaching people who do not buy.",
+          "The offer or landing page may not convert the traffic being bought.",
+        ],
+        detectedAt: input.detectedAt,
+        entityStatus: normalizeStatus(latest.campaign_status),
+      }),
+    );
+  }
+  return { evaluated: true, anomalies };
+}
+
+/**
+ * The daily budget gone before the day is.
+ *
+ * `pacing_failure` is the opposite failure — a campaign spending too slowly —
+ * and this is its missing twin. A budget exhausted at 30% of the day means the
+ * campaign is absent from the auction for the other 70%, and the day's results
+ * describe a morning rather than a day.
+ *
+ * The day fraction is measured in the BUSINESS's timezone, because "by
+ * mid-morning" is a local sentence and Meta bills against the ad account's own
+ * day. Without a zone there is no local morning to speak of, and this family is
+ * then NOT EVALUATED rather than assuming UTC.
+ *
+ * Three separate states, and the caller has to be able to tell them apart:
+ * evaluated and clean, evaluated and found something, and not evaluated at all.
+ * The last one covers most of the clock — before 20% of the local day and
+ * after 90% of it there is no honest early-exhaustion judgement to make, and a
+ * PAST snapshot date is permanently in the second of those (`localDayProgress`
+ * returns 1 for any date behind the local one). Reporting that as "clean" is
+ * what made a same-day rerun at 22:00 resolve a finding an 08:00 run made.
+ */
+function detectEarlyBudgetExhaustion(input: {
+  rows: CampaignDailyRow[];
+  snapshotDate: string;
+  detectedAt: string;
+  /** How much of the local day has passed, 0–1; null when the zone is unusable. */
+  localProgress: number | null;
+}): DetectorOutcome {
+  if (input.localProgress === null) {
+    return notEvaluated(
+      "profile_input_unavailable",
+      "the business has no usable IANA timezone, so there is no local day to measure the spend against",
+    );
+  }
+  const localProgress = input.localProgress;
+  // Before a fifth of the day there is not enough day to be early in, and after
+  // nine tenths of it "early" has stopped meaning anything.
+  if (localProgress <= 0.2 || localProgress >= 0.9) {
+    return notEvaluated(
+      "time_of_day_gate",
+      `${Math.round(localProgress * 100)}% of the local day has passed; early exhaustion is only judgeable between 20% and 90%`,
+    );
+  }
+  const anomalies: MetaAnomaly[] = [];
+  for (const [campaignId, rows] of groupBy(input.rows, (row) => row.campaign_id)) {
+    const latest = latestByDate(rows);
+    if (!latest || latest.date !== input.snapshotDate) continue;
+    if (!isActiveStatus(latest.campaign_status)) continue;
+    const budget = toNumber(latest.daily_budget);
+    const spendToday = toNumber(latest.spend);
+    if (budget <= 0) continue;
+    const consumed = ratio(spendToday, budget);
+    /*
+      Spent faster than the clock, and nearly all of it.
+
+      Both conditions matter. A campaign at 95% of budget at 90% of the day is
+      pacing correctly; one at 95% at 30% of the day has stopped buying for
+      most of it.
+    */
+    if (consumed < 0.9 || consumed <= localProgress * 1.5) continue;
+
+    anomalies.push(
+      makeAnomaly({
+        snapshotDate: input.snapshotDate,
+        type: "budget_exhausted_early",
+        scopeType: "campaign",
+        scopeId: campaignId,
+        scopeLabel: latest.campaign_name ?? campaignId,
+        severity: localProgress <= 0.5 ? "high" : "medium",
+        title: "Budget spent early",
+        detail: `$${rounded(spendToday)} of a $${rounded(budget)} daily budget was spent by ${Math.round(localProgress * 100)}% of the local day.`,
+        diagnostics: [
+          "Delivery is front-loading and the campaign is absent later in the day.",
+          "The daily budget may be below what this audience can absorb.",
+          "Bid strategy or schedule may be concentrating spend into a short window.",
+        ],
+        detectedAt: input.detectedAt,
+        entityStatus: normalizeStatus(latest.campaign_status),
+      }),
+    );
+  }
+  return { evaluated: true, anomalies };
 }
 
 function detectCpmSpikes(input: {
@@ -543,7 +866,64 @@ function detectCpmSpikes(input: {
   return anomalies;
 }
 
-export async function detectAnomaliesForBusiness(input: DetectAnomaliesInput): Promise<MetaAnomaly[]> {
+/**
+ * The ad sets whose delivery is measurably limited, from anomalies already found.
+ *
+ * A bid cap may only be RAISED when delivery is actually constrained —
+ * otherwise a higher cap just pays more for the same result. The sizing policy
+ * has always required that evidence and the snapshot always passed an empty
+ * set, so no cap increase could ever be produced.
+ *
+ * This is a projection of the EXISTING `delivery_stall` detector, not a second
+ * opinion about delivery: one detector, one definition, and the card and the
+ * bid intent cite the same fact. Medium and high only — a low-severity stall is
+ * visible in the product and is not evidence enough to spend more per result.
+ */
+export function deliveryConstrainedAdsetIdsFrom(
+  anomalies: readonly MetaAnomaly[],
+): Set<string> {
+  return new Set(
+    anomalies
+      .filter((anomaly) =>
+        anomaly.type === "delivery_stall"
+        && anomaly.scopeType === "adset"
+        && (anomaly.severity === "high" || anomaly.severity === "medium")
+        && anomaly.scopeId.trim().length > 0)
+      .map((anomaly) => anomaly.scopeId),
+  );
+}
+
+/**
+ * Every detector, and an honest account of which of them actually looked.
+ *
+ * ## What is and is not pure here
+ *
+ * FOUR families are pure functions of `meta_campaign_daily`, `meta_adset_daily`
+ * and `meta_ad_daily`: `roas_drop_sudden`, `delivery_stall`, `policy_block` and
+ * `cpm_spike`. Given the same warehouse rows they return the same anomalies,
+ * `detectedAt` aside, however many times this runs.
+ *
+ * THREE additionally read something that is not in those tables:
+ * - `pacing_failure` reads the wall clock (the UTC day fraction);
+ * - `budget_exhausted_early` reads the wall clock AND the business timezone;
+ * - `zero_conversions_with_spend` reads the business's loss budget.
+ *
+ * Those three are stable across a rerun only when the extra inputs agree, and
+ * on a normal day they do not: `input.now` defaults to `new Date()`, so a
+ * second run at a different hour puts two of them outside their gate. That is
+ * correct for DETECTION — a pacing judgement at 02:00 is meaningless — and it
+ * is precisely why the result carries `evaluatedTypes`/`skipped` instead of a
+ * bare list. The writer must not read "this family said nothing" as "this
+ * family's finding is over" when the family never spoke.
+ *
+ * No detector reads `meta_decision_snapshots_daily` or any other record of a
+ * previous run, and none may start: a "don't repeat yesterday's anomaly"
+ * filter would make the second run of a day silently drop a decision the first
+ * one made. `lib/meta/snapshot-rerun-stability.test.ts` pins that.
+ */
+export async function detectAnomalyEvaluationForBusiness(
+  input: DetectAnomaliesInput,
+): Promise<MetaAnomalyEvaluation> {
   void input.calibrationContext;
   const snapshotDate = normalizeDate(input.snapshotDate);
   const now = input.now ?? new Date();
@@ -553,6 +933,9 @@ export async function detectAnomaliesForBusiness(input: DetectAnomaliesInput): P
     snapshotDate,
   });
 
+  const lossBudgetSpend = positiveOrNull(input.profile?.lossBudgetSpend);
+  const localProgress = localDayProgress(snapshotDate, now, input.profile?.timezone);
+
   const scopeStatusById = new Map<string, string | null>();
   for (const [campaignId, rows] of groupBy(campaignRows, (row) => row.campaign_id)) {
     scopeStatusById.set(campaignId, normalizeStatus(latestByDate(rows)?.campaign_status));
@@ -561,23 +944,89 @@ export async function detectAnomaliesForBusiness(input: DetectAnomaliesInput): P
     scopeStatusById.set(adsetId, normalizeStatus(latestByDate(rows)?.adset_status));
   }
 
-  return [
-    ...detectRoasDrops({ rows: campaignRows, snapshotDate, detectedAt }),
-    ...detectDeliveryStalls({ rows: adsetRows, snapshotDate, detectedAt }),
-    ...detectPolicyBlocks({ rows: adRows, snapshotDate, detectedAt, scopeStatusById }),
-    ...detectPacingFailures({
+  /*
+    One entry per family in `META_ANOMALY_TYPES`, checked below so a family
+    added to that list without a detector here fails loudly rather than being
+    silently unresolvable forever.
+  */
+  const outcomes: Array<[MetaAnomalyType, DetectorOutcome]> = [
+    ["roas_drop_sudden", {
+      evaluated: true,
+      anomalies: detectRoasDrops({ rows: campaignRows, snapshotDate, detectedAt }),
+    }],
+    ["delivery_stall", {
+      evaluated: true,
+      anomalies: detectDeliveryStalls({ rows: adsetRows, snapshotDate, detectedAt }),
+    }],
+    ["policy_block", {
+      evaluated: true,
+      anomalies: detectPolicyBlocks({ rows: adRows, snapshotDate, detectedAt, scopeStatusById }),
+    }],
+    ["cpm_spike", {
+      evaluated: true,
+      anomalies: detectCpmSpikes({ rows: campaignRows, snapshotDate, detectedAt }),
+    }],
+    ["pacing_failure", detectPacingFailures({
       rows: campaignRows,
       snapshotDate,
       detectedAt,
       progress: timeOfDayProgress(snapshotDate, now),
-    }),
-    ...detectCpmSpikes({ rows: campaignRows, snapshotDate, detectedAt }),
-  ].sort(
+    })],
+    ["zero_conversions_with_spend", detectZeroConversionSpend({
+      rows: campaignRows, snapshotDate, detectedAt, lossBudgetSpend,
+    })],
+    ["budget_exhausted_early", detectEarlyBudgetExhaustion({
+      rows: campaignRows, snapshotDate, detectedAt, localProgress,
+    })],
+  ];
+
+  const covered = new Set(outcomes.map(([type]) => type));
+  const uncovered = META_ANOMALY_TYPES.filter((type) => !covered.has(type));
+  if (uncovered.length > 0) {
+    /*
+      A family with no detector would be reported as neither evaluated nor
+      skipped, and the writer would then never resolve its rows — an anomaly
+      stuck open for the life of the account. Throwing is the right failure:
+      the snapshot's caller catches it, logs `anomaly_detection_failed` and
+      resolves nothing, which is loud in the log and safe in the data.
+    */
+    throw new Error(
+      `meta anomaly families without a detector: ${uncovered.join(", ")}`,
+    );
+  }
+
+  const anomalies: MetaAnomaly[] = [];
+  const evaluatedTypes: MetaAnomalyType[] = [];
+  const skipped: MetaAnomalyEvaluationSkip[] = [];
+  for (const [type, outcome] of outcomes) {
+    if (outcome.evaluated) {
+      evaluatedTypes.push(type);
+      anomalies.push(...outcome.anomalies);
+      continue;
+    }
+    skipped.push({ type, reason: outcome.reason, detail: outcome.detail });
+  }
+
+  anomalies.sort(
     (left, right) =>
       severityRank(right.severity) - severityRank(left.severity) ||
       left.scopeLabel.localeCompare(right.scopeLabel) ||
       left.type.localeCompare(right.type),
   );
+  return { anomalies, evaluatedTypes, skipped };
+}
+
+/**
+ * The anomalies alone, for callers that only display them.
+ *
+ * Anything that WRITES must use `detectAnomalyEvaluationForBusiness` instead:
+ * this shape cannot say whether an absent family was judged clean or never
+ * judged, and a writer that resolves on absence needs to know.
+ */
+export async function detectAnomaliesForBusiness(
+  input: DetectAnomaliesInput,
+): Promise<MetaAnomaly[]> {
+  return (await detectAnomalyEvaluationForBusiness(input)).anomalies;
 }
 
 function diagnosticsFrom(value: unknown) {

@@ -249,7 +249,6 @@ export async function executeBudgetWrite(
   const sanitized = sanitizeBudgetWriteRequestForJournal(
     rawRequest as Record<string, unknown>,
   );
-  const nowMs = deps.nowMs();
 
   // --- idempotency, before anything else ----------------------------------
   const existing = await deps.journal.findByIdempotency(
@@ -287,6 +286,20 @@ export async function executeBudgetWrite(
   } catch {
     providerBaseline = null;
   }
+
+  /*
+    The clock is sampled HERE, after the baseline read, not before it.
+
+    The preflight refuses `baseline.readAtMs > nowMs` as `provider_baseline_stale`
+    — a baseline stamped after the moment being evaluated cannot be evidence for
+    it. That is correct, but this function used to sample its clock several
+    awaits earlier, before the provider GET. Against an instant test double the
+    two timestamps landed in the same millisecond and nothing showed; against a
+    real account, where the GET takes more than zero milliseconds, EVERY budget
+    write was refused before any POST. The read belongs to this attempt, so the
+    evaluation instant has to be at or after it.
+  */
+  const nowMs = deps.nowMs();
 
   const preflight = evaluateBudgetWritePreflight({
     request,

@@ -12,6 +12,7 @@ import {
   countAutomationRuleFirings,
   listAutomationRules,
 } from "@/lib/meta/automation-rules-store";
+import { readMetaReleaseGates } from "@/lib/meta/release-gates";
 
 export type MetaAutomationReadinessControlTier =
   "read_only" | "manual_review" | "backtest_candidate" | "auto_execute";
@@ -60,6 +61,18 @@ export interface MetaAutomationGuardrails {
   budgetMinHoursBetweenChanges: number | null;
   budgetMaxChangesPer7d: number | null;
   budgetMaxAccountConcentrationPct: number | null;
+  /*
+    Which sizing policies this business's configuration is bound to.
+
+    A sizing policy is an operating decision — the bands, the ladder, the
+    damping — and a build that changed it must not silently start proposing
+    different amounts against a configuration nobody re-approved. The producer
+    refuses when the stamped version is not the one it implements, so an
+    unstamped business (every business today) proposes nothing until an
+    operator saves their automation configuration.
+  */
+  budgetSizingPolicyVersion: string | null;
+  bidSizingPolicyVersion: string | null;
   /**
    * The ROAS below which automation may propose a pause, as persisted for this
    * business. `null` when no operator has committed one — the screen then
@@ -348,10 +361,33 @@ export interface MetaWriteBlockState {
     | "control_state_unavailable"
     /** An enforced guard rule refused this write. Additive; never removes a block. */
     | "automation_guard_rule"
+    /** The environment capability for live Meta writes is not open. */
+    | "release_capability_closed"
+    /** The business is deliberately parked in the read-only readiness tier. */
+    | "readiness_tier_read_only"
     | null;
   message: string | null;
   /** Set only when `reason === "automation_guard_rule"`. */
   guardRule?: { id: string; name: string } | null;
+  /**
+   * Whether this business is in rehearsal, and every write must stop before Meta.
+   *
+   * NOT a block, and the distinction is the whole point. A rehearsal write
+   * still happens — it reads the entity back, journals a receipt and tells the
+   * operator what would have been written — it just never posts. Refusing it
+   * outright would take away the one safe way to try a change; letting it
+   * through as a real write would be worse.
+   *
+   * The client's `dryRun` can only ADD to this. `guardrails.dryRunOnly` is a
+   * persisted posture and a request that omits the flag must not escape it,
+   * which is exactly what happened before: every entity and ad route read
+   * `dryRun` from the request body alone, so an operator request with the field
+   * omitted reached a provider POST while the business was in rehearsal.
+   *
+   * `true` whenever the posture could not be read, for the same reason every
+   * other unknown here fails closed.
+   */
+  rehearsal: boolean;
 }
 
 export interface MetaEffectiveWriteGovernance {
@@ -449,6 +485,8 @@ export const DEFAULT_META_AUTOMATION_GUARDRAILS: MetaAutomationGuardrails = {
   budgetMinHoursBetweenChanges: null,
   budgetMaxChangesPer7d: null,
   budgetMaxAccountConcentrationPct: null,
+  budgetSizingPolicyVersion: null,
+  bidSizingPolicyVersion: null,
   // No seeded guardrail. An unset ROAS floor or quiet-hours window is a fact
   // about this business, and inventing one under the design's caption would be
   // worse than the em dash it replaces.
@@ -621,6 +659,16 @@ function normalizeGuardrails(
     budgetMaxChangesPer7d: toPositiveNumberOrNull(record.budgetMaxChangesPer7d),
     budgetMaxAccountConcentrationPct:
       toPositiveFiniteNumberOrNull(record.budgetMaxAccountConcentrationPct),
+    budgetSizingPolicyVersion:
+      typeof record.budgetSizingPolicyVersion === "string"
+      && record.budgetSizingPolicyVersion.trim().length > 0
+        ? record.budgetSizingPolicyVersion.trim()
+        : null,
+    bidSizingPolicyVersion:
+      typeof record.bidSizingPolicyVersion === "string"
+      && record.bidSizingPolicyVersion.trim().length > 0
+        ? record.bidSizingPolicyVersion.trim()
+        : null,
     dailyAutoActionCap:
       toPositiveNumberOrNull(record.dailyAutoActionCap) ??
       DEFAULT_META_AUTOMATION_GUARDRAILS.dailyAutoActionCap,
@@ -1753,6 +1801,163 @@ export async function setMetaAutomationDecisionTypeMode(input: {
 }
 
 /**
+ * The four standing modes, resolved for one business.
+ *
+ * A missing row is `manual`, which is the safe reading: an operator who has
+ * never chosen a mode has not consented to anything being queued or executed
+ * on their behalf. This is the ONLY place the default is decided, so a caller
+ * cannot accidentally read an absent row as something more permissive.
+ * A failed read rejects: callers must report modes unavailable or defer work,
+ * rather than mistake an unreadable persisted setting for an absent one.
+ */
+export async function resolveEffectiveMetaModes(
+  businessId: string,
+): Promise<Record<MetaAutomationDecisionType, MetaAutomationDecisionMode>> {
+  const rows = await readDecisionTypeModes(businessId);
+  const modes = {} as Record<MetaAutomationDecisionType, MetaAutomationDecisionMode>;
+  for (const decisionType of META_AUTOMATION_DECISION_TYPES) {
+    modes[decisionType] =
+      rows.find((row) => row.decisionType === decisionType)?.mode ?? "manual";
+  }
+  return modes;
+}
+
+/** One standing mode; successful absence is `manual`, unreadable rejects. */
+export async function resolveEffectiveMetaMode(
+  businessId: string,
+  decisionType: MetaAutomationDecisionType,
+): Promise<MetaAutomationDecisionMode> {
+  return (await resolveEffectiveMetaModes(businessId))[decisionType];
+}
+
+/**
+ * Create the business control row if it does not exist, default-closed.
+ *
+ * Every Meta write requires a persisted row (`getMetaWriteBlockState` refuses
+ * `control_state_unavailable` without one), so a business that has never
+ * visited Automation cannot act at all. Creating the row is not an
+ * authorization: STOP stays clear but `auto_execution_enabled` is FALSE,
+ * `dryRunOnly` is TRUE, and no ceiling is stated.
+ *
+ * The spend ceiling is written as an EXPLICIT null pair rather than left
+ * absent. `normalizeGuardrails` treats an absent ceiling as the packaged
+ * default — 5000 minor EUR — and none of the accounts this product serves is
+ * denominated in EUR, so an absent ceiling would make every budget intent fail
+ * `policy_spend_ceiling_currency_mismatch` with no visible cause. An explicit
+ * null pair takes the "cleared" branch instead: no ceiling is claimed, and the
+ * budget sizing producer refuses to size until an operator states one in the
+ * account's own currency.
+ */
+export async function ensureBusinessControlRow(input: {
+  businessId: string;
+  userId?: string | null;
+}): Promise<{ created: boolean }> {
+  const businessId = input.businessId.trim();
+  if (!businessId) return { created: false };
+  const sql = getDb();
+  const guardrails = JSON.stringify({
+    dryRunOnly: true,
+    perActionSpendCeilingMinor: null,
+    perActionSpendCeilingCurrency: null,
+  });
+  const rows = (await sql`
+    INSERT INTO meta_automation_business_controls (
+      business_id,
+      kill_switch_engaged,
+      auto_execution_enabled,
+      guardrails_json,
+      updated_by,
+      updated_at
+    )
+    VALUES (
+      ${businessId}, FALSE, FALSE, ${guardrails}::jsonb,
+      ${input.userId ?? null}, NOW()
+    )
+    ON CONFLICT (business_id) DO NOTHING
+    RETURNING business_id
+  `) as Array<{ business_id: string }>;
+  return { created: rows.length > 0 };
+}
+
+/**
+ * What this workspace may do to Meta right now — one server reading.
+ *
+ * Before this existed the same question was answered by three independent
+ * environment flags (`ZERO_BASE_MUTATION_UI_ENABLED`, `META_DECISION_WORKFLOW_UI`
+ * and `META_AUTOMATION_LIVE_WRITES`) read in different places, which is why one
+ * route family offered controls the other did not. Both families now take this
+ * object as props.
+ *
+ * It is deliberately fail-closed: an unreadable control row yields
+ * `verified: false` and `writeBlocked: true`. "Not read_only" is never by
+ * itself an authorization.
+ *
+ * STOP is exempt on purpose. Engaging or releasing the business kill switch,
+ * and seeing its state, must stay reachable even when provider-write capability
+ * is closed — an operator locks the doors precisely when everything else is
+ * refusing.
+ */
+export interface MetaWriteCapability {
+  contractVersion: "meta-write-capability.v1";
+  businessId: string;
+  /** `META_AUTOMATION_LIVE_WRITES` — the environment capability. */
+  capabilityOpen: boolean;
+  /** Absent rows read `manual`; null means the required read failed. */
+  effectiveModes: Record<MetaAutomationDecisionType, MetaAutomationDecisionMode> | null;
+  /** `guardrails_json.dryRunOnly` — true means every write is a rehearsal. */
+  rehearsal: boolean;
+  stop: { engaged: boolean; reason: string | null };
+  /** `readiness_tier === "read_only"` forbids writes in every mode. */
+  readOnlyTier: boolean;
+  launchpadExecution: boolean;
+  /** The server's own refusal, from `getMetaWriteBlockState`. */
+  writeBlocked: boolean;
+  blockReason: string | null;
+  /** False when a required read failed; callers must treat it as blocked. */
+  verified: boolean;
+  /** STOP management stays reachable regardless of the rest. */
+  stopControlAvailable: true;
+}
+
+export async function resolveMetaWriteCapability(input: {
+  businessId: string;
+  env?: NodeJS.ProcessEnv;
+}): Promise<MetaWriteCapability> {
+  const businessId = input.businessId.trim();
+  const env = input.env ?? process.env;
+  const gates = readMetaReleaseGates(env);
+  const [blockState, control, modes] = await Promise.all([
+    getMetaWriteBlockState({ businessId }).catch(() => null),
+    readBusinessControlState(businessId).catch(() => null),
+    resolveEffectiveMetaModes(businessId).catch(() => null),
+  ]);
+  const verified = blockState !== null && control !== null && modes !== null;
+  const guardrails = control?.controlPersisted
+    ? control.control.guardrails
+    : DEFAULT_META_AUTOMATION_GUARDRAILS;
+  return {
+    contractVersion: "meta-write-capability.v1",
+    businessId,
+    capabilityOpen: gates.automationLiveWrites,
+    effectiveModes: modes,
+    // An unread guardrail is a rehearsal, not a live write.
+    rehearsal: verified ? guardrails.dryRunOnly !== false : true,
+    stop: {
+      engaged: control?.control.killSwitchEngaged ?? false,
+      reason: control?.control.killSwitchReason ?? null,
+    },
+    readOnlyTier: control?.control.readinessTier === "read_only",
+    launchpadExecution: gates.launchpadExecution,
+    writeBlocked: verified ? blockState!.blocked : true,
+    blockReason: verified
+      ? blockState!.reason
+      : "control_state_unavailable",
+    verified,
+    stopControlAvailable: true,
+  };
+}
+
+/**
  * Persist the business's guardrail policy: the ROAS floor below which a pause
  * may be proposed, and the quiet-hours window during which provider writes are
  * refused.
@@ -1965,7 +2170,14 @@ export async function getMetaAutomationControlPlane(input: {
         businessControl.source === "persisted" &&
         !businessControl.killSwitchEngaged &&
         businessControl.autoExecutionEnabled &&
-        businessControl.readinessTier === "auto_execute" &&
+        /*
+          `readiness_tier` has no application writer, so its value is always the
+          column default `manual_review`. Requiring `auto_execute` here made
+          this banner structurally unreachable while the scheduled sweep — which
+          never consulted the tier — would in fact run. The two now agree: the
+          tier forbids writes only when it says `read_only`.
+        */
+        businessControl.readinessTier !== "read_only" &&
         !businessControl.guardrails.dryRunOnly,
       writeEndpointsBlocked:
         globalKillSwitchEngaged ||
@@ -2034,6 +2246,7 @@ export async function getMetaWriteBlockState(input: {
       blocked: true,
       reason: "demo_business_read_only",
       message: "Meta writes are disabled for synthetic demo businesses.",
+      rehearsal: true,
     };
   }
   if (isGlobalMetaAdsWriteKillSwitchEngaged(env)) {
@@ -2041,6 +2254,7 @@ export async function getMetaWriteBlockState(input: {
       blocked: true,
       reason: "META_ADS_WRITE_KILL_SWITCH",
       message: "Meta writes are disabled by global kill switch.",
+      rehearsal: true,
     };
   }
 
@@ -2061,7 +2275,7 @@ export async function getMetaWriteBlockState(input: {
   */
   const isVitest = env.VITEST === "true" && env.NODE_ENV !== "production";
   if (isVitest && env.META_AUTOMATION_WRITE_GUARD_TEST_READS !== "1") {
-    return { blocked: false, reason: null, message: null };
+    return { blocked: false, reason: null, message: null, rehearsal: false };
   }
 
   let controlState: Awaited<ReturnType<typeof readBusinessControlState>>;
@@ -2073,6 +2287,7 @@ export async function getMetaWriteBlockState(input: {
       reason: "control_state_unavailable",
       message:
         "Meta writes are temporarily blocked because automation control state could not be verified.",
+      rehearsal: true,
     };
   }
   if (!controlState.businessFound) {
@@ -2081,6 +2296,7 @@ export async function getMetaWriteBlockState(input: {
       reason: "control_state_unavailable",
       message:
         "Meta writes are temporarily blocked because automation control state could not be verified.",
+      rehearsal: true,
     };
   }
   if (controlState.isDemoBusiness) {
@@ -2088,6 +2304,7 @@ export async function getMetaWriteBlockState(input: {
       blocked: true,
       reason: "demo_business_read_only",
       message: "Meta writes are disabled for synthetic demo businesses.",
+      rehearsal: true,
     };
   }
   if (!controlState.controlPersisted) {
@@ -2096,6 +2313,7 @@ export async function getMetaWriteBlockState(input: {
       reason: "control_state_unavailable",
       message:
         "Meta writes are blocked because this business has no persisted automation control state.",
+      rehearsal: true,
     };
   }
   const control = controlState.control;
@@ -2106,6 +2324,48 @@ export async function getMetaWriteBlockState(input: {
       message:
         control.killSwitchReason ||
         "Meta writes are disabled by business kill switch.",
+      rehearsal: true,
+    };
+  }
+
+  /*
+    THE ENVIRONMENT CAPABILITY, at the same choke point as everything else.
+
+    This gate was written, exported and never consulted by the server that
+    actually reaches Meta: `readMetaReleaseGates` decided what the SCREENS
+    offered, and the write path never asked. So a request built by hand, a
+    stale tab, or any caller that skipped the UI could reach a provider POST
+    with the capability shut — which is the one thing a release capability
+    exists to prevent.
+
+    It is a block rather than a rehearsal downgrade, because a closed
+    capability is not "try this safely", it is "this build may not write here".
+  */
+  if (readMetaReleaseGates(env).automationLiveWrites !== true) {
+    return {
+      blocked: true,
+      reason: "release_capability_closed",
+      message:
+        "Live Meta writes are not enabled in this environment, so nothing was sent.",
+      rehearsal: true,
+    };
+  }
+
+  /*
+    THE READ-ONLY TIER, which had two consumers and no enforcement.
+
+    `readiness_tier` is the operator's own statement about what this business
+    may do, and `read_only` means one thing. Until now the only place that
+    honoured it was the scheduled budget reader, so a business deliberately
+    parked in it could still be written to by hand.
+  */
+  if (control.readinessTier === "read_only") {
+    return {
+      blocked: true,
+      reason: "readiness_tier_read_only",
+      message:
+        "This business is set to read-only, so no Meta write was attempted.",
+      rehearsal: true,
     };
   }
 
@@ -2132,6 +2392,7 @@ export async function getMetaWriteBlockState(input: {
         reason: "control_state_unavailable",
         message:
           "Meta writes are temporarily blocked because automation guard rules could not be verified.",
+        rehearsal: true,
       };
     }
   }
@@ -2146,6 +2407,7 @@ export async function getMetaWriteBlockState(input: {
       reason: "automation_guard_rule",
       message: guardBlock.reason,
       guardRule: { id: guardBlock.ruleId, name: guardBlock.ruleName },
+      rehearsal: true,
     };
   }
 
@@ -2173,8 +2435,22 @@ export async function getMetaWriteBlockState(input: {
       reason: "automation_guard_rule",
       message: quietHoursBlock.reason,
       guardRule: null,
+      rehearsal: true,
     };
   }
 
-  return { blocked: false, reason: null, message: null };
+  /*
+    Not blocked — but possibly rehearsing.
+
+    `dryRunOnly` is a persisted guardrail and the plan makes it the ONE meaning
+    of rehearsal for every write family. `!== false` rather than `=== true`:
+    the shipped default is rehearsal, and a guardrail row that could not state
+    the field must not be read as permission to reach Meta.
+  */
+  return {
+    blocked: false,
+    reason: null,
+    message: null,
+    rehearsal: control.guardrails.dryRunOnly !== false,
+  };
 }

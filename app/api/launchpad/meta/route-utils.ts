@@ -175,10 +175,15 @@ export function rejectIfLaunchpadReviewerReadOnly(
  * softened: `rejectIfLaunchpadExecutionGated` below reads both facts itself and
  * has no injection point.
  */
+export type LaunchpadExecutionOperation =
+  | "launchpad_launch"
+  | "launchpad_add_to_existing"
+  | "launchpad_activate_intent";
+
 export function launchpadExecutionRefusal(input: {
   gateOpen: boolean;
   missingSafetySteps: readonly string[];
-  operation: "launchpad_launch" | "launchpad_add_to_existing";
+  operation: LaunchpadExecutionOperation;
 }) {
   if (!input.gateOpen) {
     return jsonError(
@@ -200,7 +205,7 @@ export function launchpadExecutionRefusal(input: {
 }
 
 export function rejectIfLaunchpadExecutionGated(
-  operation: "launchpad_launch" | "launchpad_add_to_existing",
+  operation: LaunchpadExecutionOperation,
 ) {
   const gateOpen = readMetaReleaseGates().launchpadExecution;
   /**
@@ -222,7 +227,19 @@ export function rejectIfLaunchpadExecutionGated(
    * land before account resolution, credential reads and any provider contact,
    * so a replayed POST against a misconfigured environment costs nothing.
    */
-  const missing = missingSteps(writeFamily("launchpad_create"));
+  /*
+    Activation answers to its OWN family record.
+
+    `launchpad_create` declares its rollback step not-applicable on the grounds
+    that every create is PAUSED and nothing begins spending. Activation is the
+    write that ends that, so checking it against the create's declaration would
+    let it pass on a reason that is false of it.
+  */
+  const missing = missingSteps(writeFamily(
+    operation === "launchpad_activate_intent"
+      ? "launchpad_activation"
+      : "launchpad_create",
+  ));
   const refusal = launchpadExecutionRefusal({
     gateOpen,
     missingSafetySteps: missing,

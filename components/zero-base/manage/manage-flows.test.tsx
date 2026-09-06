@@ -9,7 +9,7 @@
  */
 import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, configure, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, configure, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 /**
  * These flows are two round trips deep — a write, then an independent re-read —
@@ -289,6 +289,15 @@ describe("WP-23 team members", () => {
 });
 
 describe("WP-23 business settings", () => {
+  async function renderBusiness(role = "admin") {
+    // Field presence is the first paint, not completion of the asynchronous
+    // reads and effects that seed the controlled drafts. Flush that initial
+    // work before any settings flow types its first edit.
+    await act(async () => {
+      render(<BusinessClient businessId={BIZ} role={role} />);
+    });
+  }
+
   function stubBusiness(current: { name: string; currency: string }, patched?: { name: string; currency: string }) {
     let state = current;
     stub((call) => {
@@ -308,7 +317,7 @@ describe("WP-23 business settings", () => {
 
   it("REGRESSION: shows the stored name and currency", async () => {
     stubBusiness({ name: "Grandmix", currency: "TRY" });
-    render(<BusinessClient businessId={BIZ} role="admin" />);
+    await renderBusiness();
     await waitFor(() => {
       expect((document.querySelector("[data-business-name]") as HTMLInputElement)?.value).toBe("Grandmix");
     });
@@ -317,7 +326,7 @@ describe("WP-23 business settings", () => {
 
   it("saves both fields together and confirms by re-read", async () => {
     stubBusiness({ name: "Grandmix", currency: "TRY" }, { name: "Grandmix EU", currency: "EUR" });
-    render(<BusinessClient businessId={BIZ} role="admin" />);
+    await renderBusiness();
     await waitFor(() => expect(document.querySelector("[data-business-name]")).not.toBeNull());
 
     await typeAndSettle("[data-business-name]", "Grandmix EU");
@@ -368,7 +377,7 @@ describe("WP-23 business settings", () => {
 
   it("refuses a too-short name without a request, as the route would", async () => {
     stubBusiness({ name: "Grandmix", currency: "TRY" });
-    render(<BusinessClient businessId={BIZ} role="admin" />);
+    await renderBusiness();
     await waitFor(() => expect(document.querySelector("[data-business-name]")).not.toBeNull());
     type("[data-business-name]", "A");
     click("[data-settings-save]");
@@ -407,12 +416,18 @@ describe("WP-23 business settings", () => {
       return { body: {} };
     });
 
-    render(<BusinessClient businessId={BIZ} role="admin" />);
-    await waitFor(() => expect(document.querySelector('[data-cost-field="cogsPercent"]')).not.toBeNull());
-    type('[data-cost-field="cogsPercent"]', "35");
-    type('[data-cost-field="shippingPercent"]', "8");
-    type('[data-cost-field="feePercent"]', "4");
-    type('[data-cost-field="fixedCost"]', "3.5");
+    await renderBusiness();
+    await waitFor(() => {
+      for (const [field, value] of Object.entries({
+        cogsPercent: "20", shippingPercent: "5", feePercent: "3", fixedCost: "2",
+      })) {
+        expect(document.querySelector(`[data-cost-field="${field}"]`)).toHaveValue(value);
+      }
+    });
+    await typeAndSettle('[data-cost-field="cogsPercent"]', "35");
+    await typeAndSettle('[data-cost-field="shippingPercent"]', "8");
+    await typeAndSettle('[data-cost-field="feePercent"]', "4");
+    await typeAndSettle('[data-cost-field="fixedCost"]', "3.5");
     click("[data-cost-model-save]");
 
     await waitFor(() => {
@@ -437,7 +452,7 @@ describe("WP-23 business settings", () => {
 
   it("a non-admin sees the values read-only with the reason", async () => {
     stubBusiness({ name: "Grandmix", currency: "TRY" });
-    render(<BusinessClient businessId={BIZ} role="reviewer" />);
+    await renderBusiness("reviewer");
     await waitFor(() => expect(document.querySelector("[data-settings-readonly]")).not.toBeNull());
     expect(document.querySelector("[data-settings-blocked]")!.textContent).toMatch(/admin role/);
     expect(document.querySelector("[data-settings-save]")).toBeNull();

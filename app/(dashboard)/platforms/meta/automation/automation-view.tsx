@@ -14,6 +14,7 @@ import type {
 import {
   resolveStopCeremony,
   STOP_PREFLIGHT_MAX_AGE_MS,
+  type StopCeremonyState,
 } from "@/lib/zero-base/meta/automation-posture";
 import type {
   MetaAutomationProposal,
@@ -137,17 +138,27 @@ interface LedgerResultPresentation {
 
 const UNKNOWN = "—";
 
+/*
+  Said in the operator's language, not the ladder's.
+
+  "Tier 2" is a rung on an internal readiness ladder, and it appeared on the
+  one control that decides whether this product touches somebody's money. An
+  operator choosing how their ads are managed is choosing between doing it
+  themselves, confirming each change, and letting it run — three sentences
+  they can act on. The internal tier names still exist where they belong: on
+  the readiness state, which is a diagnosis rather than a choice.
+*/
 const READINESS_LABELS: Record<MetaAutomationReadinessControlTier, string> = {
-  read_only: "Tier 0 — Read only",
-  manual_review: "Tier 1 — Supervised",
-  backtest_candidate: "Tier 2 — Backtest candidate",
-  auto_execute: "Tier 3 — Auto-execute",
+  read_only: "Read only",
+  manual_review: "Supervised",
+  backtest_candidate: "Backtest candidate",
+  auto_execute: "Cleared for automatic",
 };
 
 const MODE_LABELS: Record<MetaAutomationDecisionMode, string> = {
-  manual: "Tier 1 · Supervised",
-  semi_auto: "Tier 2 · Backtest",
-  auto: "Tier 3 · Auto-execute",
+  manual: "Manual · you apply each change",
+  semi_auto: "Semi-automatic · you confirm each change",
+  auto: "Automatic · applied within your guardrails",
 };
 
 /** The ladder's three rungs, in the order the server declares them. */
@@ -159,16 +170,16 @@ const AUTONOMY_MODES: readonly MetaAutomationDecisionMode[] = [
 
 /** What each rung says ON the segment; `MODE_LABELS` is its accessible name. */
 const MODE_SEGMENT_LABELS: Record<MetaAutomationDecisionMode, string> = {
-  manual: "Tier 1",
-  semi_auto: "Tier 2",
-  auto: "Tier 3",
+  manual: "Manual",
+  semi_auto: "Semi-automatic",
+  auto: "Automatic",
 };
 
 const ACTIVATION_BLOCKER_LABELS: Record<BudgetActivationCondition, string> = {
   control_row_absent: "Save this business's automation guardrails.",
   global_gate_closed: "The production live-write capability is still closed.",
   business_stop_engaged: "Release the business emergency stop.",
-  budget_mode_not_auto: "Set Budget to Tier 3 — Auto-execute.",
+  budget_mode_not_auto: "Set Budget to Automatic.",
   dry_run_guardrail_engaged: "Turn off dry-run-only in the saved guardrails.",
   canonical_fact_retention_not_ready:
     "Historical canonical-decision retention is not yet proven.",
@@ -984,6 +995,16 @@ function AutomationAccountPicker({
   );
 }
 
+/**
+ * Which pane a shared control is being drawn into.
+ *
+ * Not a permission. Authority is decided by `viewer`, by `resolveStopCeremony`
+ * and by the routes; this only chooses reference markers and DOM-id suffixes.
+ * The one place a surface IS an authority is
+ * `buildBudgetMasterSwitchAuthorization`, which takes its own literal.
+ */
+type AutomationSurface = "desktop" | "mobile";
+
 export function MetaAutomationView({
   payload,
   providerAccountId = null,
@@ -1376,6 +1397,24 @@ export function MetaAutomationView({
   );
 
   const guardrails = guardrailsFor(payload, liveWritesRefusalReason);
+  // The persisted values themselves, not the formatted rows above: the form
+  // has to seed from what is stored, and an unread control seeds from nothing.
+  const payloadGuardrails = hasServedBusinessControl(payload)
+    ? payload!.businessControl.guardrails
+    : null;
+  /*
+    The same channel every other mutation on this body uses.
+
+    This component owns none of the payload state — the page does — so a save
+    re-reads the control plane and publishes the result upward rather than
+    holding a second copy that could disagree with the one on screen.
+  */
+  const onGuardrailPolicySaved = useCallback(async () => {
+    if (!businessId || !providerAccountId) return;
+    const next = await readAutomation({ businessId, providerAccountId })
+      .catch(() => null);
+    if (next) onRulesChanged?.(next);
+  }, [businessId, providerAccountId, onRulesChanged]);
   const autonomy = autonomyFor(payload);
   const readiness = readinessFor(payload);
   const promotionCount = promotionCountFor(payload);
@@ -1649,336 +1688,26 @@ export function MetaAutomationView({
               setting — a stop that cannot be lifted is the trap the gate was
               written to avoid.
             */}
-            {/*
-              The reading this confirmation is made against, and its age.
-
-              `sections.businessControl` is the server's own per-section
-              provenance: the instant the read was ATTEMPTED, and the error code
-              when it failed. Stated on screen because a typed confirmation is a
-              confirmation of a READING — an operator who types the phrase
-              against a reading from half an hour ago has confirmed a screen.
-            */}
-            <p
-              className={styles.killNote}
-              data-field="stop-preflight"
-              data-stop-preflight={
-                payload?.sections?.businessControl?.status ?? "unproven"
-              }
-              data-stop-preflight-at={
-                payload?.sections?.businessControl?.observedAt ?? undefined
-              }
-            >
-              Control-plane reading{" "}
-              {payload?.sections?.businessControl
-                ? `${payload.sections.businessControl.status} at ${payload.sections.businessControl.observedAt}`
-                : "not served by this payload"}
-              . A confirmation older than{" "}
-              {Math.round(STOP_PREFLIGHT_MAX_AGE_MS / 60000)} minutes is
-              refused.
-            </p>
-            <div
-              className={styles.killRow}
-              data-field="business-writes-control"
-            >
-              {stopEngaged ? (
-                <button
-                  type="button"
-                  className={styles.killAction}
-                  data-ctl="gated:AUTO-02 release"
-                  data-stop-trigger=""
-                  /*
-                   * `aria-disabled`, never `disabled`.
-                   *
-                   * A `disabled` button leaves the tab order, so the operator
-                   * cannot reach the control to read the reason it refuses —
-                   * and the reason is the whole point of keeping it on screen.
-                   * The same choice the account-scope control and the date
-                   * picker already make, and the responsive gate's
-                   * "reachable from the keyboard" law measures it.
-                   */
-                  aria-disabled={
-                    Boolean(stopCeremony.blocker) ||
-                    !viewer.canMutate ||
-                    stopPending
-                      ? true
-                      : undefined
-                  }
-                  data-stop-refused={
-                    Boolean(stopCeremony.blocker) || !viewer.canMutate
-                      ? ""
-                      : undefined
-                  }
-                  title={
-                    stopCeremony.blocker?.message ??
-                    (viewer.canMutate
-                      ? undefined
-                      : (viewer.reason ?? undefined))
-                  }
-                  onClick={() => {
-                    if (
-                      stopCeremony.blocker ||
-                      !viewer.canMutate ||
-                      stopPending
-                    )
-                      return;
-                    setStopTyped("");
-                    setStopAborted(null);
-                    setStopConfirm("release");
-                  }}
-                >
-                  {stopPending ? "Releasing…" : "Release the stop"}
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  className={styles.killAction}
-                  /*
-                   * The manifest's own key, prefix included.
-                   *
-                   * `docs/zero-base-design/v3/export/interaction-manifest.json`
-                   * states `k: "gated:AUTO-01A engage"`, and the key IS the
-                   * `data-ctl` value — the `gated:` prefix is part of the
-                   * contract, not a state this body chooses. An earlier
-                   * revision invented `live:`/`disabled:AUTOMATION-STOP`, which
-                   * left the anatomy gate unable to find the control it was
-                   * looking for. Whether the control is currently refused is
-                   * carried by `aria-disabled` and `data-stop-engage-refused`,
-                   * where a state belongs.
-                   */
-                  data-ctl="gated:AUTO-01A engage"
-                  data-stop-trigger=""
-                  data-stop-engage-refused={
-                    stopEngageRefusalReason ? "" : undefined
-                  }
-                  // `aria-disabled` rather than `disabled` — see the release
-                  // trigger above for why the control must stay focusable.
-                  aria-disabled={
-                    Boolean(stopCeremony.blocker) ||
-                    Boolean(stopEngageRefusalReason) ||
-                    !viewer.canMutate ||
-                    stopPending
-                      ? true
-                      : undefined
-                  }
-                  data-stop-refused={
-                    Boolean(stopCeremony.blocker) ||
-                    Boolean(stopEngageRefusalReason) ||
-                    !viewer.canMutate
-                      ? ""
-                      : undefined
-                  }
-                  title={
-                    stopCeremony.blocker?.message ??
-                    stopEngageRefusalReason ??
-                    viewer.reason ??
-                    undefined
-                  }
-                  onClick={() => {
-                    if (
-                      stopCeremony.blocker ||
-                      stopEngageRefusalReason ||
-                      !viewer.canMutate ||
-                      stopPending
-                    )
-                      return;
-                    setStopTyped("");
-                    setStopAborted(null);
-                    setStopConfirm("engage");
-                  }}
-                >
-                  {stopPending ? "Stopping…" : "Stop Meta writes"}
-                </button>
-              )}
-            </div>
-            {/*
-              The typed confirmation, for BOTH directions.
-
-              Releasing re-enables spend, so it is exactly as worth typing as
-              stopping. The phrase is checked against the direction the operator
-              opened, not against whatever the payload says now — a payload that
-              changed underneath would otherwise accept a phrase for the other
-              direction.
-            */}
-            {stopConfirm ? (
-              <form
-                className={styles.killNote}
-                data-stop-confirm={stopConfirm}
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  const direction = stopConfirm;
-                  if (
-                    stopTyped.trim().toUpperCase() !== stopPhraseFor(direction)
-                  )
-                    return;
-                  /*
-                   * Re-resolved at SUBMIT, against the payload as it is now and
-                   * the clock as it is now.
-                   *
-                   * The render-time resolution is a statement about the moment
-                   * the form opened. Typing takes time: the preflight can age
-                   * past `STOP_PREFLIGHT_MAX_AGE_MS` while the operator is
-                   * typing, and nothing re-renders when a clock passes a
-                   * boundary — so without this the confirmation would be made
-                   * against a reading the surface itself would now refuse. And
-                   * if the payload moved, the direction the operator opened may
-                   * no longer be the one the system permits; posting it anyway
-                   * would act on a state that changed after they read it.
-                   */
-                  const atSubmit = resolveStopCeremony({
-                    intent: direction,
-                    viewer: {
-                      role: viewer.role,
-                      isReviewer: viewer.reviewerReadOnly,
-                      demo: viewer.demo,
-                    },
-                    currentlyEngaged: sectionIsComplete(
-                      payload,
-                      "businessControl",
-                    )
-                      ? stopEngaged
-                      : null,
-                    gateClosedReason: stopEngageRefusalReason ?? null,
-                    preflight: payload?.sections?.businessControl ?? null,
-                    readBack: null,
-                    now: Date.now(),
-                  });
-                  if (atSubmit.blocker) {
-                    setStopConfirm(null);
-                    setStopTyped("");
-                    setStopAborted(atSubmit.blocker.message);
-                    return;
-                  }
-                  // The direction the system currently permits must still be
-                  // the one being confirmed. `stopIntent` is derived from the
-                  // payload, so this is the payload-moved case.
-                  if (stopIntent !== direction) {
-                    setStopConfirm(null);
-                    setStopTyped("");
-                    setStopAborted(
-                      direction === "engage"
-                        ? "Meta automation was already stopped while this confirmation was open, so nothing was sent. Re-read the state and choose again."
-                        : "Meta automation was already running again while this confirmation was open, so nothing was sent. Re-read the state and choose again.",
-                    );
-                    return;
-                  }
-                  setStopAborted(null);
-                  setStopConfirm(null);
-                  onStopControl(
-                    direction === "engage"
-                      ? "engage_kill_switch"
-                      : "release_kill_switch",
-                  );
-                }}
-              >
-                <label>
-                  Type <b>{stopPhraseFor(stopConfirm)}</b> to{" "}
-                  {stopConfirm === "engage"
-                    ? "stop Meta automation for this business"
-                    : "resume Meta automation for this business"}
-                  <input
-                    aria-label={`Type ${stopPhraseFor(stopConfirm)} to confirm`}
-                    autoComplete="off"
-                    data-stop-confirm-input=""
-                    onChange={(event) => setStopTyped(event.target.value)}
-                    value={stopTyped}
-                  />
-                </label>
-                <span>
-                  <button
-                    data-stop-confirm-submit=""
-                    disabled={
-                      stopTyped.trim().toUpperCase() !==
-                      stopPhraseFor(stopConfirm)
-                    }
-                    type="submit"
-                  >
-                    {stopConfirm === "engage"
-                      ? "Stop Meta automation"
-                      : "Resume"}
-                  </button>
-                  <button
-                    data-stop-confirm-cancel=""
-                    onClick={() => setStopConfirm(null)}
-                    type="button"
-                  >
-                    Cancel
-                  </button>
-                </span>
-              </form>
-            ) : null}
-            {/*
-              The refusal, addressable and beside the control rather than
-              instead of it.
-
-              The control stays on screen because a control that vanishes
-              teaches an operator there is nothing here to reach for — the same
-              law this card already applies to the gate. What the refusal
-              removes is the ABILITY, not the affordance: the trigger is
-              `aria-disabled`, carries the reason as its title, stays in the
-              tab order so that reason can be reached, and its handler returns
-              before opening the confirmation.
-            */}
-            {stopCeremony.blocker ? (
-              <p
-                className={styles.killNote}
-                data-stop-blocked={stopCeremony.blocker.code}
-                role="note"
-              >
-                {stopCeremony.blocker.message}
-              </p>
-            ) : null}
-            {/*
-              A confirmation that was abandoned because the state moved.
-              `role="status"`, not `alert`: nothing went wrong and nothing was
-              sent — the operator is being told why the form closed.
-            */}
-            {stopAborted ? (
-              <p className={styles.killNote} data-stop-aborted="" role="status">
-                {stopAborted}
-              </p>
-            ) : null}
-            {stopEngageRefusalReason &&
-            !stopEngaged &&
-            !stopCeremony.blocker ? (
-              <p
-                className={styles.killNote}
-                data-field="stop-engage-refusal"
-                role="note"
-              >
-                {stopEngageRefusalReason}
-              </p>
-            ) : null}
-            {/*
-              The only two things that may announce an outcome.
-
-              `showStatusBanner` is true exactly when a read-back was taken and
-              AGREED with the intent. Anything else — a failed re-read, a
-              re-read that answered the other way — is the unconfirmed banner,
-              because claiming either outcome there is a guess about whether
-              spend is still running.
-            */}
-            {stopOutcome?.showStatusBanner ? (
-              <p className={styles.killNote} data-stop-status="" role="status">
-                {stopOutcome.statusMessage}
-              </p>
-            ) : stopOutcome?.statusMessage ? (
-              <p
-                className={styles.killNote}
-                data-stop-unconfirmed=""
-                role="status"
-              >
-                {stopOutcome.statusMessage}
-              </p>
-            ) : null}
-            {stopError ? (
-              <p
-                className={styles.killNote}
-                data-field="stop-error"
-                role="status"
-              >
-                {stopError}
-              </p>
-            ) : null}
+            <MetaStopControl
+              surface="desktop"
+              payload={payload}
+              viewer={viewer}
+              stopEngaged={stopEngaged}
+              stopPending={stopPending}
+              stopError={stopError}
+              stopConfirm={stopConfirm}
+              stopTyped={stopTyped}
+              stopAborted={stopAborted}
+              stopIntent={stopIntent}
+              stopCeremony={stopCeremony}
+              stopOutcome={stopOutcome}
+              stopEngageRefusalReason={stopEngageRefusalReason}
+              stopPhraseFor={stopPhraseFor}
+              setStopConfirm={setStopConfirm}
+              setStopTyped={setStopTyped}
+              setStopAborted={setStopAborted}
+              onStopControl={onStopControl}
+            />
             <p
               className={styles.killNote}
               data-field="kill-switch-scope"
@@ -2056,6 +1785,24 @@ export function MetaAutomationView({
                 </div>
               ))}
             </div>
+            {/*
+              Two of those rows were readable and unsettable.
+
+              The ROAS floor gates whether a pause is even proposed, and quiet
+              hours decide when an alert may interrupt someone — both persisted,
+              both server-enforced, and neither reachable from any screen. The
+              route has accepted `set_guardrail_policy` all along; nothing sent
+              it. A limit an operator cannot set is a limit that belongs to
+              whoever last edited the database.
+            */}
+            <GuardrailPolicyForm
+              businessId={businessId}
+              providerAccountId={providerAccountId}
+              canMutate={viewer.canMutate}
+              minRoasFloor={payloadGuardrails?.minRoasFloor ?? null}
+              quietHours={payloadGuardrails?.quietHours ?? null}
+              onSaved={onGuardrailPolicySaved}
+            />
           </article>
 
           <article className={styles.readinessCard}>
@@ -2083,284 +1830,24 @@ export function MetaAutomationView({
           </article>
         </div>
 
-        <article className={styles.confirmationCard}>
-          <div className={styles.confirmationHeader}>
-            <h2>Needs your confirmation</h2>
-            <span
-              className={styles.confirmationCount}
-              data-field="confirmation-count"
-            >
-              {proposals.count}
-            </span>
-            <span className={styles.confirmationHint}>
-              engine proposals wait here — nothing executes without you at Tier
-              1
-            </span>
-          </div>
-          {proposals.rows.length > 0 ? (
-            proposals.rows.map((row) => (
-              <div key={row.id}>
-                <div className={styles.proposalRow} data-proposal-id={row.id}>
-                  <span className={styles.proposalAction} data-tone={row.tone}>
-                    {row.action}
-                  </span>
-                  <div className={styles.proposalBody}>
-                    <p className={styles.proposalEntity}>{row.entity}</p>
-                    <p className={styles.proposalWhy}>{row.why}</p>
-                  </div>
-                  <span className={styles.proposalEvidence}>
-                    {row.evidence}
-                  </span>
-                  <span className={styles.proposalExpiry}>
-                    expires {row.expires}
-                  </span>
-                  <div className={styles.proposalControls}>
-                    <button
-                      type="button"
-                      className={styles.proposalPrimary}
-                      data-tone={row.tone}
-                      data-control="approve"
-                      disabled={
-                        !onProposalControl ||
-                        !canMutate ||
-                        pendingProposalId !== null
-                      }
-                      onClick={() => onProposalControl?.(row.id, "approve")}
-                    >
-                      {row.primaryCaption}
-                    </button>
-                    <button
-                      type="button"
-                      className={styles.proposalSecondary}
-                      data-control="modify"
-                      aria-expanded={modifyingProposalId === row.id}
-                      disabled={
-                        !onProposalControl ||
-                        !canMutate ||
-                        pendingProposalId !== null
-                      }
-                      onClick={() => {
-                        setModificationNote("");
-                        setModifyingProposalId(
-                          modifyingProposalId === row.id ? null : row.id,
-                        );
-                      }}
-                    >
-                      Modify
-                    </button>
-                    <button
-                      type="button"
-                      className={styles.proposalTertiary}
-                      data-control="dismiss"
-                      disabled={
-                        !onProposalControl ||
-                        !canMutate ||
-                        pendingProposalId !== null
-                      }
-                      onClick={() => onProposalControl?.(row.id, "dismiss")}
-                    >
-                      Dismiss
-                    </button>
-                  </div>
-                </div>
-                {modifyingProposalId === row.id ? (
-                  <div
-                    className={styles.proposalModify}
-                    data-testid="proposal-modify"
-                  >
-                    <label htmlFor={`proposal-note-${row.id}`}>
-                      What should happen instead
-                    </label>
-                    <input
-                      id={`proposal-note-${row.id}`}
-                      type="text"
-                      value={modificationNote}
-                      onChange={(event) =>
-                        setModificationNote(event.target.value)
-                      }
-                    />
-                    <button
-                      type="button"
-                      className={styles.proposalSecondary}
-                      data-control="modify-submit"
-                      disabled={
-                        !onProposalControl ||
-                        !canMutate ||
-                        pendingProposalId !== null ||
-                        modificationNote.trim().length === 0
-                      }
-                      onClick={() => {
-                        onProposalControl?.(
-                          row.id,
-                          "modify",
-                          modificationNote.trim(),
-                        );
-                        setModifyingProposalId(null);
-                        setModificationNote("");
-                      }}
-                    >
-                      Record modification
-                    </button>
-                  </div>
-                ) : null}
-              </div>
-            ))
-          ) : (
-            // "Nothing needs confirmation" and "the queue could not be read"
-            // are different facts and only one of them may be offered a
-            // recovery. The proven-empty state renders exactly what it always
-            // did; the unreadable one gets the em dash AND the control that
-            // re-runs the read, because a failure with no way back is a dead
-            // end an operator can only escape by reloading the page.
-            <div
-              className={styles.confirmationEmpty}
-              data-testid="confirmation-empty"
-              // Proven empty means the queue read completed AND the server
-              // proved nothing is being held. A claimed row being dispatched
-              // right now, a reconcile row awaiting reconciliation, or a hold
-              // count that could not be read at all each keep this `false`.
-              data-proven-empty={queueProvenEmpty ? "true" : "false"}
-            >
-              {/*
-                The em dash stays in BOTH states: the count badge above already
-                separates a proven `0` from an unproven `—`, and changing this
-                cell's own copy is a design decision this change has no mandate
-                to make. What changes is only that the unreadable state now has
-                a way back.
-              */}
-              <span>{UNKNOWN}</span>
-              {queueProvenEmpty ? null : (
-                <button
-                  type="button"
-                  className={styles.readRetry}
-                  data-control="retry-queue"
-                  disabled={!onRetryRead}
-                  onClick={onRetryRead}
-                >
-                  Retry
-                </button>
-              )}
-            </div>
-          )}
-          {proposalNotice ? (
-            <p
-              className={styles.proposalError}
-              data-field="proposal-notice"
-              data-tone="notice"
-              role="status"
-            >
-              {proposalNotice}
-            </p>
-          ) : null}
-          {proposalError ? (
-            <p className={styles.proposalError} role="status">
-              {proposalError}
-            </p>
-          ) : null}
-          {/*
-            The server said this viewer may not write, so the refusal is stated
-            once, here, beside the controls it explains — rather than arriving
-            as a 403 after a click. It is the SERVER's sentence and the SERVER's
-            code, restated verbatim: re-wording either would describe a guard
-            this surface does not own.
-
-            No new happy-path chrome: `canMutate` is true on every canonical
-            render, so this element does not exist there at all.
-          */}
-          {!viewer.canMutate && viewer.reason ? (
-            <p
-              className={styles.sectionFootnote}
-              role="status"
-              data-field="viewer-refusal"
-              data-reason-code={viewer.reasonCode ?? ""}
-            >
-              {viewer.reason}
-            </p>
-          ) : null}
-          {/*
-            What the queue is holding but cannot offer. `claimed` is a dispatch
-            in flight and `reconcile` is an outcome nobody has confirmed; the
-            invariant keeps the second one pending with retry forbidden, so the
-            only correct thing this screen can do is say so. Neither is
-            approvable, so neither appears as a row — and before this the
-            operator was simply told `0`.
-
-            Renders only when there is something to say. A queue with no holds
-            draws nothing, so the canonical state is untouched.
-          */}
-          {queueHolds === null ? (
-            <p
-              className={styles.sectionFootnote}
-              role="status"
-              data-field="queue-holds"
-              data-holds="unreadable"
-            >
-              held proposals could not be counted, so this queue is not proven
-              empty — a dispatch in progress or a row awaiting reconciliation
-              would not be visible here
-            </p>
-          ) : queueHolds.claimed > 0 || queueHolds.reconcile > 0 ? (
-            <p
-              className={styles.sectionFootnote}
-              role="status"
-              data-field="queue-holds"
-              data-holds="present"
-              data-claimed={queueHolds.claimed}
-              data-reconcile={queueHolds.reconcile}
-            >
-              {queueHolds.claimed > 0 ? (
-                <span data-field="queue-holds-claimed">
-                  {queueHolds.claimed} dispatch in progress
-                </span>
-              ) : null}
-              {queueHolds.claimed > 0 && queueHolds.reconcile > 0
-                ? " · "
-                : null}
-              {queueHolds.reconcile > 0 ? (
-                <span data-field="queue-holds-reconcile">
-                  {queueHolds.reconcile} reconciliation required — retry is
-                  forbidden until it is reconciled
-                </span>
-              ) : null}
-            </p>
-          ) : null}
-          {/*
-            The middle clause is a claim about evidence, so it is only made
-            when the evidence exists. A decision whose ledger INSERT failed is
-            still recorded — on the proposal row itself, with its receipt and
-            its receipt key — but it is NOT in the ledger, and printing the
-            promise anyway is what turned a swallowed error into a lie. Every
-            other state renders the design's own sentence, unchanged.
-          */}
-          <p
-            className={styles.sectionFootnote}
-            data-field="queue-footnote"
-            data-ledger-evidence={ledgerEvidence}
-          >
-            {ledgerEvidence === "unavailable" ? (
-              <>
-                approving executes inside the guardrails above · the last
-                decision could not be written to the activity ledger — its
-                receipt is on the proposal record · expired proposals
-                re-evaluate on the next snapshot
-              </>
-            ) : ledgerEvidence === "no_evidence" ? (
-              // Nothing proves the ledger works and nothing proves it failed.
-              // The two clauses that are still true are printed; the one that
-              // is a claim about evidence is not made at all.
-              <>
-                approving executes inside the guardrails above · expired
-                proposals re-evaluate on the next snapshot
-              </>
-            ) : (
-              <>
-                approving executes inside the guardrails above · every outcome
-                lands in the ledger with a receipt · expired proposals
-                re-evaluate on the next snapshot
-              </>
-            )}
-          </p>
-        </article>
+        <ConfirmationQueue
+          surface="desktop"
+          proposals={proposals}
+          canMutate={canMutate}
+          onProposalControl={onProposalControl}
+          pendingProposalId={pendingProposalId}
+          proposalError={proposalError}
+          proposalNotice={proposalNotice}
+          modifyingProposalId={modifyingProposalId}
+          setModifyingProposalId={setModifyingProposalId}
+          modificationNote={modificationNote}
+          setModificationNote={setModificationNote}
+          queueHolds={queueHolds}
+          queueProvenEmpty={queueProvenEmpty}
+          onRetryRead={onRetryRead}
+          viewer={viewer}
+          ledgerEvidence={ledgerEvidence}
+        />
 
         <details className={styles.advancedAutomation}>
           <summary>
@@ -2577,8 +2064,8 @@ export function MetaAutomationView({
             */}
                 <p className={styles.sectionFootnote} data-field="mode-posture">
                   {liveWritesRefusalReason
-                    ? `Setting a tier records the intent in this workspace. It is not a Meta write, and it does not enable auto-execution: ${liveWritesRefusalReason}`
-                    : "Setting a tier records the intent in this workspace. It is not a Meta write; execution still runs through the confirmation queue."}
+                    ? `Choosing a mode records it in this workspace. It is not a Meta write, and it does not enable automatic execution: ${liveWritesRefusalReason}`
+                    : "Choosing a mode records it in this workspace. It is not a Meta write; execution still runs through the confirmation queue."}
                 </p>
               </article>
             </div>
@@ -2676,18 +2163,29 @@ export function MetaAutomationView({
       <section
         className={styles.mobileSurface}
         data-testid="meta-mobile-automation"
-        data-read-only="true"
+        /*
+          No longer read-only, and it must not claim to be.
+
+          The pane used to render `data-read-only="true"` and say automation
+          controls were desktop-only. An operator who needs to STOP Meta writes,
+          or to approve a proposal before it expires, is very often not at a
+          desktop — so the emergency control was visible and inoperable, and the
+          confirmation queue was absent entirely. Both are here now; what stays
+          on desktop is stated below rather than implied by an absence.
+        */
+        data-read-only="false"
         aria-labelledby="automation-mobile-title"
       >
         <div className={styles.mobileHeading}>
           <p className={styles.mobileEyebrow}>Automation status</p>
-          <span className={styles.mobileReadOnly}>Read-only</span>
         </div>
         <h1 id="automation-mobile-title">Meta authority</h1>
         <p className={styles.mobileIntro}>
-          Current server-read status. Automation controls are available only in
-          the desktop workspace. Everything here governs Meta writes only; no
-          control on this screen stops Google Ads writes.
+          Current server-read status. The Meta stop and the confirmation queue
+          are operable here; guardrails, rules, the autonomy ladder and
+          automatic execution are set in the desktop workspace. Everything here
+          governs Meta writes only; no control on this screen stops Google Ads
+          writes.
         </p>
         <dl className={styles.mobileFacts}>
           <div>
@@ -2707,18 +2205,72 @@ export function MetaAutomationView({
             <dd>{providerAccountId || UNKNOWN}</dd>
           </div>
         </dl>
+        {/*
+          STOP first, before anything else on this pane. It is the emergency
+          control, and the plan's §1.5 requires it reachable whenever the
+          surface is. This is the same component the desktop pane renders,
+          reading the same state — opening the confirmation here opens the same
+          one there, because there is one `stopConfirm`, not one per pane.
+        */}
+        <div className={styles.mobileStop} data-testid="mobile-stop-control">
+          <MetaStopControl
+            surface="mobile"
+            payload={payload}
+            viewer={viewer}
+            stopEngaged={stopEngaged}
+            stopPending={stopPending}
+            stopError={stopError}
+            stopConfirm={stopConfirm}
+            stopTyped={stopTyped}
+            stopAborted={stopAborted}
+            stopIntent={stopIntent}
+            stopCeremony={stopCeremony}
+            stopOutcome={stopOutcome}
+            stopEngageRefusalReason={stopEngageRefusalReason}
+            stopPhraseFor={stopPhraseFor}
+            setStopConfirm={setStopConfirm}
+            setStopTyped={setStopTyped}
+            setStopAborted={setStopAborted}
+            onStopControl={onStopControl}
+          />
+        </div>
+        <ConfirmationQueue
+          surface="mobile"
+          proposals={proposals}
+          canMutate={canMutate}
+          onProposalControl={onProposalControl}
+          pendingProposalId={pendingProposalId}
+          proposalError={proposalError}
+          proposalNotice={proposalNotice}
+          modifyingProposalId={modifyingProposalId}
+          setModifyingProposalId={setModifyingProposalId}
+          modificationNote={modificationNote}
+          setModificationNote={setModificationNote}
+          queueHolds={queueHolds}
+          queueProvenEmpty={queueProvenEmpty}
+          onRetryRead={onRetryRead}
+          viewer={viewer}
+          ledgerEvidence={ledgerEvidence}
+        />
         <details className={styles.systemDiagnostics}>
           <summary>Readiness details</summary>
           <p>
             Historical evidence, storage health and budget execution readiness.
-            This mobile view remains read-only.
+            None of these carry a control on either surface.
           </p>
           <div className={styles.systemDiagnosticsBody}>
             <StateHistoryRecoverySection readiness={stateHistoryReadiness} />
             <BudgetReadinessSection readiness={budgetReadiness} />
-            {/* The mobile pane declares itself read-only; it carries no form. */}
+            {/*
+              Automatic execution stays desktop-and-admin-only even though the
+              pane is now operable: `buildBudgetMasterSwitchAuthorization` is an
+              allowlist whose single grant requires `surface === "desktop"`, and
+              `"mobile_read_only"` is refused unconditionally. Arming automatic
+              spend is not an emergency control and does not belong on a phone.
+            */}
             <BudgetWriteReadinessSection
               readiness={budgetWriteReadiness}
+              anchorId="automatic-execution-control-mobile"
               authorization={buildBudgetMasterSwitchAuthorization({
                 viewer,
                 surface: "mobile_read_only",
@@ -2819,6 +2371,215 @@ async function readProposalQueue(input: {
   );
   if (!response.ok) return UNAVAILABLE_QUEUE;
   return parseProposalQueue(await response.json().catch(() => null));
+}
+
+
+/**
+ * The two guardrails an operator could read and not set.
+ *
+ * `minRoasFloor` decides whether a pause is proposed at all, and quiet hours
+ * decide when an alert may interrupt someone. Both are persisted, both are
+ * enforced on the server, and until now neither had a control — so in practice
+ * they belonged to whoever last edited the row directly.
+ *
+ * Blank clears. That is the same shape the route already accepts (`null` to
+ * clear) and it keeps "no floor" expressible: an operator who wants automation
+ * to consider every losing entity should not have to invent a number to say so.
+ */
+function GuardrailPolicyForm({
+  businessId,
+  providerAccountId,
+  canMutate,
+  minRoasFloor,
+  quietHours,
+  onSaved,
+}: {
+  businessId: string | null;
+  providerAccountId: string | null;
+  canMutate: boolean;
+  minRoasFloor: number | null;
+  quietHours: { start: string; end: string; timezone: string } | null;
+  onSaved: () => void | Promise<void>;
+}) {
+  const [floor, setFloor] = useState(
+    minRoasFloor === null ? "" : String(minRoasFloor),
+  );
+  const [start, setStart] = useState(quietHours?.start ?? "");
+  const [end, setEnd] = useState(quietHours?.end ?? "");
+  const [zone, setZone] = useState(quietHours?.timezone ?? "");
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+
+  const ready = Boolean(businessId && providerAccountId && canMutate);
+  const trimmedFloor = floor.trim();
+  const parsedFloor = trimmedFloor === "" ? null : Number(trimmedFloor);
+  const floorValid = parsedFloor === null
+    || (Number.isFinite(parsedFloor) && parsedFloor > 0);
+  // A window needs all three or none of them: two thirds of a quiet window is
+  // not a window, and the route refuses it.
+  const windowParts = [start.trim(), end.trim(), zone.trim()];
+  const windowValid = windowParts.every((part) => part === "")
+    || windowParts.every((part) => part !== "");
+
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!ready || busy || !floorValid || !windowValid) return;
+    setBusy(true);
+    setMessage(null);
+    const query = new URLSearchParams({
+      businessId: businessId!,
+      providerAccountId: providerAccountId!,
+    });
+    try {
+      const response = await fetch(`/api/meta/automation?${query.toString()}`, {
+        method: "POST",
+        cache: "no-store",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "set_guardrail_policy",
+          minRoasFloor: parsedFloor,
+          quietHours: windowParts[0]
+            ? { start: windowParts[0], end: windowParts[1], timezone: windowParts[2] }
+            : null,
+          reason: "Set from the Automation guardrails card.",
+        }),
+      });
+      const body = (await response.json().catch(() => null)) as {
+        ok?: boolean; error?: { message?: string };
+      } | null;
+      if (!response.ok || body?.ok === false) {
+        setMessage(
+          body?.error?.message
+          ?? "The guardrail policy could not be saved, and nothing was changed.",
+        );
+        return;
+      }
+      setMessage("Saved.");
+      await onSaved();
+    } catch {
+      setMessage("The request did not reach the server; nothing was changed.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const inputStyle: React.CSSProperties = {
+    padding: "5px 8px",
+    borderRadius: 6,
+    border: "1px solid var(--border, #e5e7eb)",
+    width: "100%",
+    minWidth: 0,
+    boxSizing: "border-box",
+    fontSize: 12,
+  };
+
+  return (
+    <form
+      data-testid="guardrail-policy-form"
+      data-can-mutate={String(ready)}
+      onSubmit={submit}
+      style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid var(--border, #e5e7eb)" }}
+    >
+      <p style={{ margin: 0, fontSize: 12, fontWeight: 600 }}>
+        Set the pause floor and quiet hours
+      </p>
+      <p style={{ margin: "4px 0 0", fontSize: 11.5, opacity: 0.85 }}>
+        Blank clears. With no floor, automation may propose a pause for any
+        entity its evidence supports.
+      </p>
+      <div style={{ display: "grid", gap: 8, margin: "8px 0 0" }}>
+        <label style={{ display: "grid", gap: 3, fontSize: 11.5 }}>
+          Min ROAS floor (pause)
+          <input
+            type="text"
+            inputMode="decimal"
+            data-testid="guardrail-roas-floor"
+            value={floor}
+            onChange={(event) => setFloor(event.target.value)}
+            disabled={!ready || busy}
+            aria-label="Min ROAS floor"
+            aria-invalid={!floorValid}
+            style={inputStyle}
+          />
+        </label>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1.4fr", gap: 6 }}>
+          <label style={{ display: "grid", gap: 3, fontSize: 11.5 }}>
+            Quiet from
+            <input
+              type="text"
+              placeholder="22:00"
+              data-testid="guardrail-quiet-start"
+              value={start}
+              onChange={(event) => setStart(event.target.value)}
+              disabled={!ready || busy}
+              aria-label="Quiet hours start"
+              style={inputStyle}
+            />
+          </label>
+          <label style={{ display: "grid", gap: 3, fontSize: 11.5 }}>
+            until
+            <input
+              type="text"
+              placeholder="07:00"
+              data-testid="guardrail-quiet-end"
+              value={end}
+              onChange={(event) => setEnd(event.target.value)}
+              disabled={!ready || busy}
+              aria-label="Quiet hours end"
+              style={inputStyle}
+            />
+          </label>
+          <label style={{ display: "grid", gap: 3, fontSize: 11.5 }}>
+            in timezone
+            <input
+              type="text"
+              placeholder="Europe/Istanbul"
+              data-testid="guardrail-quiet-timezone"
+              value={zone}
+              onChange={(event) => setZone(event.target.value)}
+              disabled={!ready || busy}
+              aria-label="Quiet hours timezone"
+              style={inputStyle}
+            />
+          </label>
+        </div>
+      </div>
+      {!floorValid ? (
+        <p data-field="guardrail-floor-invalid" style={{ margin: "6px 0 0", fontSize: 11.5 }}>
+          A floor is a positive number, or blank to clear it.
+        </p>
+      ) : null}
+      {!windowValid ? (
+        <p data-field="guardrail-window-invalid" style={{ margin: "6px 0 0", fontSize: 11.5 }}>
+          A quiet window needs a start, an end and a timezone — or none of them.
+        </p>
+      ) : null}
+      <button
+        type="submit"
+        data-testid="guardrail-policy-save"
+        disabled={!ready || busy || !floorValid || !windowValid}
+        aria-disabled={!ready || busy || !floorValid || !windowValid}
+        style={{
+          margin: "8px 0 0",
+          padding: "6px 10px",
+          borderRadius: 6,
+          border: "1px solid var(--border, #e5e7eb)",
+          background: "transparent",
+          fontSize: 12,
+          cursor: ready && !busy ? "pointer" : "not-allowed",
+          opacity: ready && !busy && floorValid && windowValid ? 1 : 0.55,
+        }}
+      >
+        Save guardrail policy
+      </button>
+      {message ? (
+        <p data-field="guardrail-policy-message" style={{ margin: "6px 0 0", fontSize: 11.5 }}>
+          {message}
+        </p>
+      ) : null}
+    </form>
+  );
 }
 
 async function readAutomation(input: {
@@ -3812,8 +3573,18 @@ export function BudgetWriteReadinessSection({
   readiness,
   authorization,
   onActivationChanged,
+  anchorId = "automatic-execution-control",
 }: {
   readiness: BudgetWriteReadinessModel | null;
+  /*
+    The anchor this section answers to, because two panes now render it.
+
+    The desktop pane keeps the canonical id its own "Review setup and execution
+    controls" link points at; the mobile pane takes a scoped one. Two elements
+    sharing an id is not cosmetic here — the link would jump to whichever the
+    browser found first, which at 390px is the hidden desktop copy.
+  */
+  anchorId?: string;
   /*
     PRE-DEPLOY AUDIT: who is looking, decided on the SERVER.
 
@@ -3868,8 +3639,8 @@ export function BudgetWriteReadinessSection({
       if (payload?.ok) {
         setActivationMessage(
           enabled
-            ? "Automatic execution enabled for this account. Budget is the only " +
-                "decision type with an automatic executor, and it also needs Tier 3."
+            ? "Automatic execution enabled for this account. Each decision " +
+                "type also needs its own standing mode set to Automatic."
             : "Automatic execution disabled for this business.",
         );
         setActivationPhrase("");
@@ -3890,7 +3661,7 @@ export function BudgetWriteReadinessSection({
   if (!readiness) {
     return (
       <article
-        id="automatic-execution-control"
+        id={anchorId}
         data-testid="budget-write-readiness-unavailable"
         data-display-only="true"
         style={{
@@ -3937,7 +3708,7 @@ export function BudgetWriteReadinessSection({
     execution.activatedProviderAccountId === readiness.providerAccountId;
   return (
     <article
-      id="automatic-execution-control"
+      id={anchorId}
       data-testid="budget-write-readiness"
       data-display-only="true"
       data-execution-enabled={String(execution.executionEnabled)}
@@ -3968,10 +3739,9 @@ export function BudgetWriteReadinessSection({
         This is the business-wide master switch for automatic Meta execution.
         Two keys are required and both are server-checked on every run: this
         master switch, and the decision type&rsquo;s own standing mode set to
-        Tier 3 · Auto-execute. Budget is the only decision type with an
-        automatic executor today; turning this on never makes pause, bid, or
-        creative write by themselves, and every operator-approved write keeps
-        its own approval.
+        Automatic. Budget, pause and resume have automatic executors; turning
+        this on never makes bid or creative write by themselves, and every
+        operator-approved write keeps its own approval.
       </p>
       {/*
         PRE-DEPLOY AUDIT — SIX separate facts, not one word.
@@ -4836,5 +4606,721 @@ function BudgetPreparationForm({
         </p>
       ) : null}
     </form>
+  );
+}
+
+/**
+ * The Meta STOP, rendered on whichever surface the operator is on.
+ *
+ * Extracted so that desktop and mobile are two RENDERS of one truth rather
+ * than two implementations of it. Every piece of state it reads still lives in
+ * `MetaAutomationView` and is passed down: a second `useState` here would be a
+ * stop that only one pane believes in, which is the exact defect the state's
+ * own comment in that component warns about. Opening the confirmation on one
+ * pane therefore opens it on the other, because there is one `stopConfirm`.
+ *
+ * `surface` decides two things and nothing else: which reference markers are
+ * carried (H19/H20 are 1440px artboards, so `data-ctl` stays on desktop — a
+ * mobile duplicate would add a graded node with no contract behind it), and
+ * how the duplicated DOM ids are suffixed. Both panes are in the DOM at every
+ * width; only CSS hides one, so an unsuffixed id would be a real duplicate.
+ */
+function MetaStopControl({
+  surface,
+  payload,
+  viewer,
+  stopEngaged,
+  stopPending,
+  stopError,
+  stopConfirm,
+  stopTyped,
+  stopAborted,
+  stopIntent,
+  stopCeremony,
+  stopOutcome,
+  stopEngageRefusalReason,
+  stopPhraseFor,
+  setStopConfirm,
+  setStopTyped,
+  setStopAborted,
+  onStopControl,
+}: {
+  surface: AutomationSurface;
+  payload: AutomationPayload | null;
+  viewer: AutomationViewerEnvelope;
+  stopEngaged: boolean;
+  stopPending: boolean;
+  stopError: string | null;
+  stopConfirm: "engage" | "release" | null;
+  stopTyped: string;
+  stopAborted: string | null;
+  stopIntent: "engage" | "release";
+  stopCeremony: StopCeremonyState;
+  stopOutcome: StopCeremonyState | null;
+  stopEngageRefusalReason: string | null;
+  stopPhraseFor: (direction: "engage" | "release") => string;
+  setStopConfirm: (next: "engage" | "release" | null) => void;
+  setStopTyped: (next: string) => void;
+  setStopAborted: (next: string | null) => void;
+  onStopControl: (
+    action: "engage_kill_switch" | "release_kill_switch",
+  ) => void;
+}) {
+  /*
+   * `aria-disabled`, never `disabled`.
+   *
+   * A `disabled` button leaves the tab order, so the operator cannot reach the
+   * control to read the reason it refuses — and the reason is the whole point
+   * of keeping it on screen. The same choice the account-scope control and the
+   * date picker already make, and the responsive gate's "reachable from the
+   * keyboard" law measures it, on both panes.
+   */
+  const releaseRefused = Boolean(stopCeremony.blocker) || !viewer.canMutate;
+  const releaseTriggerProps = {
+    type: "button" as const,
+    className: styles.killAction,
+    "data-stop-trigger": "",
+    "data-surface": surface,
+    "aria-disabled": releaseRefused || stopPending ? true : undefined,
+    "data-stop-refused": releaseRefused ? "" : undefined,
+    title:
+      stopCeremony.blocker?.message ??
+      (viewer.canMutate ? undefined : (viewer.reason ?? undefined)),
+    onClick: () => {
+      if (releaseRefused || stopPending) return;
+      setStopTyped("");
+      setStopAborted(null);
+      setStopConfirm("release");
+    },
+  };
+  const releaseLabel = stopPending ? "Releasing…" : "Release the stop";
+
+  const engageRefused =
+    Boolean(stopCeremony.blocker) ||
+    Boolean(stopEngageRefusalReason) ||
+    !viewer.canMutate;
+  const engageTriggerProps = {
+    type: "button" as const,
+    className: styles.killAction,
+    "data-stop-trigger": "",
+    "data-surface": surface,
+    "data-stop-engage-refused": stopEngageRefusalReason ? "" : undefined,
+    "aria-disabled": engageRefused || stopPending ? true : undefined,
+    "data-stop-refused": engageRefused ? "" : undefined,
+    title:
+      stopCeremony.blocker?.message ??
+      stopEngageRefusalReason ??
+      viewer.reason ??
+      undefined,
+    onClick: () => {
+      if (engageRefused || stopPending) return;
+      setStopTyped("");
+      setStopAborted(null);
+      setStopConfirm("engage");
+    },
+  };
+  const engageLabel = stopPending ? "Stopping…" : "Stop Meta writes";
+
+  return (
+    <>
+      {/*
+        The reading this confirmation is made against, and its age.
+
+        `sections.businessControl` is the server's own per-section
+        provenance: the instant the read was ATTEMPTED, and the error code
+        when it failed. Stated on screen because a typed confirmation is a
+        confirmation of a READING — an operator who types the phrase
+        against a reading from half an hour ago has confirmed a screen.
+      */}
+      <p
+        className={styles.killNote}
+        data-field="stop-preflight"
+        data-surface={surface}
+        data-stop-preflight={
+          payload?.sections?.businessControl?.status ?? "unproven"
+        }
+        data-stop-preflight-at={
+          payload?.sections?.businessControl?.observedAt ?? undefined
+        }
+      >
+        Control-plane reading{" "}
+        {payload?.sections?.businessControl
+          ? `${payload.sections.businessControl.status} at ${payload.sections.businessControl.observedAt}`
+          : "not served by this payload"}
+        . A confirmation older than{" "}
+        {Math.round(STOP_PREFLIGHT_MAX_AGE_MS / 60000)} minutes is
+        refused.
+      </p>
+      <div
+        className={styles.killRow}
+        data-field="business-writes-control"
+        data-surface={surface}
+      >
+        {stopEngaged
+          ? /*
+               One set of trigger behaviour, two tags.
+
+               The tags differ by exactly one attribute — H19/H20's `data-ctl`
+               marker, which stays on the DESKTOP instance because those are
+               1440px artboards where `.mobileSurface` is `display: none`; a
+               mobile duplicate would add a graded node with no contract behind
+               it. Everything an operator can actually do is in
+               `releaseTriggerProps`, written once, so the two panes cannot
+               drift.
+             */
+            surface === "desktop"
+            ? (
+              <button {...releaseTriggerProps} data-ctl="gated:AUTO-02 release">
+                {releaseLabel}
+              </button>
+            )
+            : <button {...releaseTriggerProps}>{releaseLabel}</button>
+          : surface === "desktop"
+            ? (
+              /*
+               * The manifest's own key, prefix included.
+               *
+               * `docs/zero-base-design/v3/export/interaction-manifest.json`
+               * states `k: "gated:AUTO-01A engage"`, and the key IS the
+               * `data-ctl` value — the `gated:` prefix is part of the
+               * contract, not a state this body chooses. An earlier revision
+               * invented `live:`/`disabled:AUTOMATION-STOP`, which left the
+               * anatomy gate unable to find the control it was looking for.
+               * Whether the control is currently refused is carried by
+               * `aria-disabled` and `data-stop-engage-refused`, where a state
+               * belongs.
+               */
+              <button {...engageTriggerProps} data-ctl="gated:AUTO-01A engage">
+                {engageLabel}
+              </button>
+            )
+            : <button {...engageTriggerProps}>{engageLabel}</button>}
+      </div>
+      {/*
+        The typed confirmation, for BOTH directions.
+
+        Releasing re-enables spend, so it is exactly as worth typing as
+        stopping. The phrase is checked against the direction the operator
+        opened, not against whatever the payload says now — a payload that
+        changed underneath would otherwise accept a phrase for the other
+        direction.
+      */}
+      {stopConfirm ? (
+        <form
+          className={styles.killNote}
+          data-stop-confirm={stopConfirm}
+          data-surface={surface}
+          onSubmit={(event) => {
+            event.preventDefault();
+            const direction = stopConfirm;
+            if (
+              stopTyped.trim().toUpperCase() !== stopPhraseFor(direction)
+            )
+              return;
+            /*
+             * Re-resolved at SUBMIT, against the payload as it is now and
+             * the clock as it is now.
+             *
+             * The render-time resolution is a statement about the moment
+             * the form opened. Typing takes time: the preflight can age
+             * past `STOP_PREFLIGHT_MAX_AGE_MS` while the operator is
+             * typing, and nothing re-renders when a clock passes a
+             * boundary — so without this the confirmation would be made
+             * against a reading the surface itself would now refuse. And
+             * if the payload moved, the direction the operator opened may
+             * no longer be the one the system permits; posting it anyway
+             * would act on a state that changed after they read it.
+             */
+            const atSubmit = resolveStopCeremony({
+              intent: direction,
+              viewer: {
+                role: viewer.role,
+                isReviewer: viewer.reviewerReadOnly,
+                demo: viewer.demo,
+              },
+              currentlyEngaged: sectionIsComplete(
+                payload,
+                "businessControl",
+              )
+                ? stopEngaged
+                : null,
+              gateClosedReason: stopEngageRefusalReason ?? null,
+              preflight: payload?.sections?.businessControl ?? null,
+              readBack: null,
+              now: Date.now(),
+            });
+            if (atSubmit.blocker) {
+              setStopConfirm(null);
+              setStopTyped("");
+              setStopAborted(atSubmit.blocker.message);
+              return;
+            }
+            // The direction the system currently permits must still be
+            // the one being confirmed. `stopIntent` is derived from the
+            // payload, so this is the payload-moved case.
+            if (stopIntent !== direction) {
+              setStopConfirm(null);
+              setStopTyped("");
+              setStopAborted(
+                direction === "engage"
+                  ? "Meta automation was already stopped while this confirmation was open, so nothing was sent. Re-read the state and choose again."
+                  : "Meta automation was already running again while this confirmation was open, so nothing was sent. Re-read the state and choose again.",
+              );
+              return;
+            }
+            setStopAborted(null);
+            setStopConfirm(null);
+            onStopControl(
+              direction === "engage"
+                ? "engage_kill_switch"
+                : "release_kill_switch",
+            );
+          }}
+        >
+          <label htmlFor={`stop-confirm-input-${surface}`}>
+            Type <b>{stopPhraseFor(stopConfirm)}</b> to{" "}
+            {stopConfirm === "engage"
+              ? "stop Meta automation for this business"
+              : "resume Meta automation for this business"}
+            <input
+              aria-label={`Type ${stopPhraseFor(stopConfirm)} to confirm`}
+              id={`stop-confirm-input-${surface}`}
+              autoComplete="off"
+              data-stop-confirm-input=""
+              onChange={(event) => setStopTyped(event.target.value)}
+              value={stopTyped}
+            />
+          </label>
+          <span>
+            <button
+              data-stop-confirm-submit=""
+              disabled={
+                stopTyped.trim().toUpperCase() !==
+                stopPhraseFor(stopConfirm)
+              }
+              type="submit"
+            >
+              {stopConfirm === "engage"
+                ? "Stop Meta automation"
+                : "Resume"}
+            </button>
+            <button
+              data-stop-confirm-cancel=""
+              onClick={() => setStopConfirm(null)}
+              type="button"
+            >
+              Cancel
+            </button>
+          </span>
+        </form>
+      ) : null}
+      {/*
+        The refusal, addressable and beside the control rather than
+        instead of it.
+
+        The control stays on screen because a control that vanishes
+        teaches an operator there is nothing here to reach for — the same
+        law this card already applies to the gate. What the refusal
+        removes is the ABILITY, not the affordance: the trigger is
+        `aria-disabled`, carries the reason as its title, stays in the
+        tab order so that reason can be reached, and its handler returns
+        before opening the confirmation.
+      */}
+      {stopCeremony.blocker ? (
+        <p
+          className={styles.killNote}
+          data-stop-blocked={stopCeremony.blocker.code}
+          role="note"
+        >
+          {stopCeremony.blocker.message}
+        </p>
+      ) : null}
+      {/*
+        A confirmation that was abandoned because the state moved.
+        `role="status"`, not `alert`: nothing went wrong and nothing was
+        sent — the operator is being told why the form closed.
+      */}
+      {stopAborted ? (
+        <p className={styles.killNote} data-stop-aborted="" role="status">
+          {stopAborted}
+        </p>
+      ) : null}
+      {stopEngageRefusalReason &&
+      !stopEngaged &&
+      !stopCeremony.blocker ? (
+        <p
+          className={styles.killNote}
+          data-field="stop-engage-refusal"
+          role="note"
+        >
+          {stopEngageRefusalReason}
+        </p>
+      ) : null}
+      {/*
+        The only two things that may announce an outcome.
+
+        `showStatusBanner` is true exactly when a read-back was taken and
+        AGREED with the intent. Anything else — a failed re-read, a
+        re-read that answered the other way — is the unconfirmed banner,
+        because claiming either outcome there is a guess about whether
+        spend is still running.
+      */}
+      {stopOutcome?.showStatusBanner ? (
+        <p className={styles.killNote} data-stop-status="" role="status">
+          {stopOutcome.statusMessage}
+        </p>
+      ) : stopOutcome?.statusMessage ? (
+        <p
+          className={styles.killNote}
+          data-stop-unconfirmed=""
+          role="status"
+        >
+          {stopOutcome.statusMessage}
+        </p>
+      ) : null}
+      {stopError ? (
+        <p
+          className={styles.killNote}
+          data-field="stop-error"
+          role="status"
+        >
+          {stopError}
+        </p>
+      ) : null}
+    </>
+  );
+}
+
+
+/**
+ * The confirmation queue, rendered on whichever surface the operator is on.
+ *
+ * Same law as `MetaStopControl`: one source of state in `MetaAutomationView`,
+ * two renders. `surface` exists only to suffix the modify-note id — both panes
+ * are in the DOM at every width, so `proposal-note-<id>` alone would be a
+ * duplicate id and therefore an accessibility defect, not merely a test
+ * artifact.
+ *
+ * The write itself is still `onProposalControl`, which lives on the page and
+ * refuses on `viewer.canMutate` before anything reaches the wire.
+ */
+function ConfirmationQueue({
+  surface,
+  proposals,
+  canMutate,
+  onProposalControl,
+  pendingProposalId,
+  proposalError,
+  proposalNotice,
+  modifyingProposalId,
+  setModifyingProposalId,
+  modificationNote,
+  setModificationNote,
+  queueHolds,
+  queueProvenEmpty,
+  onRetryRead,
+  viewer,
+  ledgerEvidence,
+}: {
+  surface: AutomationSurface;
+  proposals: AutomationProposalsModel;
+  canMutate: boolean;
+  onProposalControl?: (
+    proposalId: string,
+    control: ProposalControl,
+    note?: string,
+  ) => void;
+  pendingProposalId: string | null;
+  proposalError: string | null;
+  proposalNotice: string | null;
+  modifyingProposalId: string | null;
+  setModifyingProposalId: (next: string | null) => void;
+  modificationNote: string;
+  setModificationNote: (next: string) => void;
+  queueHolds: MetaAutomationProposalHoldCounts | null;
+  queueProvenEmpty: boolean;
+  onRetryRead?: () => void;
+  viewer: AutomationViewerEnvelope;
+  ledgerEvidence: "complete" | "unavailable" | "no_evidence";
+}) {
+  return (
+      <article className={styles.confirmationCard} data-surface={surface}>
+        <div className={styles.confirmationHeader}>
+          <h2>Needs your confirmation</h2>
+          <span
+            className={styles.confirmationCount}
+            data-field="confirmation-count"
+          >
+            {proposals.count}
+          </span>
+          <span className={styles.confirmationHint}>
+            engine proposals wait here — nothing executes without you at Tier
+            1
+          </span>
+        </div>
+        {proposals.rows.length > 0 ? (
+          proposals.rows.map((row) => (
+            <div key={row.id}>
+              <div className={styles.proposalRow} data-proposal-id={row.id}>
+                <span className={styles.proposalAction} data-tone={row.tone}>
+                  {row.action}
+                </span>
+                <div className={styles.proposalBody}>
+                  <p className={styles.proposalEntity}>{row.entity}</p>
+                  <p className={styles.proposalWhy}>{row.why}</p>
+                </div>
+                <span className={styles.proposalEvidence}>
+                  {row.evidence}
+                </span>
+                <span className={styles.proposalExpiry}>
+                  expires {row.expires}
+                </span>
+                <div className={styles.proposalControls}>
+                  <button
+                    type="button"
+                    className={styles.proposalPrimary}
+                    data-tone={row.tone}
+                    data-control="approve"
+                    disabled={
+                      !onProposalControl ||
+                      !canMutate ||
+                      pendingProposalId !== null
+                    }
+                    onClick={() => onProposalControl?.(row.id, "approve")}
+                  >
+                    {row.primaryCaption}
+                  </button>
+                  <button
+                    type="button"
+                    className={styles.proposalSecondary}
+                    data-control="modify"
+                    aria-expanded={modifyingProposalId === row.id}
+                    disabled={
+                      !onProposalControl ||
+                      !canMutate ||
+                      pendingProposalId !== null
+                    }
+                    onClick={() => {
+                      setModificationNote("");
+                      setModifyingProposalId(
+                        modifyingProposalId === row.id ? null : row.id,
+                      );
+                    }}
+                  >
+                    Modify
+                  </button>
+                  <button
+                    type="button"
+                    className={styles.proposalTertiary}
+                    data-control="dismiss"
+                    disabled={
+                      !onProposalControl ||
+                      !canMutate ||
+                      pendingProposalId !== null
+                    }
+                    onClick={() => onProposalControl?.(row.id, "dismiss")}
+                  >
+                    Dismiss
+                  </button>
+                </div>
+              </div>
+              {modifyingProposalId === row.id ? (
+                <div
+                  className={styles.proposalModify}
+                  data-testid="proposal-modify"
+                >
+                  <label htmlFor={`proposal-note-${row.id}-${surface}`}>
+                    What should happen instead
+                  </label>
+                  <input
+                    id={`proposal-note-${row.id}-${surface}`}
+                    type="text"
+                    value={modificationNote}
+                    onChange={(event) =>
+                      setModificationNote(event.target.value)
+                    }
+                  />
+                  <button
+                    type="button"
+                    className={styles.proposalSecondary}
+                    data-control="modify-submit"
+                    disabled={
+                      !onProposalControl ||
+                      !canMutate ||
+                      pendingProposalId !== null ||
+                      modificationNote.trim().length === 0
+                    }
+                    onClick={() => {
+                      onProposalControl?.(
+                        row.id,
+                        "modify",
+                        modificationNote.trim(),
+                      );
+                      setModifyingProposalId(null);
+                      setModificationNote("");
+                    }}
+                  >
+                    Record modification
+                  </button>
+                </div>
+              ) : null}
+            </div>
+          ))
+        ) : (
+          // "Nothing needs confirmation" and "the queue could not be read"
+          // are different facts and only one of them may be offered a
+          // recovery. The proven-empty state renders exactly what it always
+          // did; the unreadable one gets the em dash AND the control that
+          // re-runs the read, because a failure with no way back is a dead
+          // end an operator can only escape by reloading the page.
+          <div
+            className={styles.confirmationEmpty}
+            data-testid="confirmation-empty"
+            // Proven empty means the queue read completed AND the server
+            // proved nothing is being held. A claimed row being dispatched
+            // right now, a reconcile row awaiting reconciliation, or a hold
+            // count that could not be read at all each keep this `false`.
+            data-proven-empty={queueProvenEmpty ? "true" : "false"}
+          >
+            {/*
+              The em dash stays in BOTH states: the count badge above already
+              separates a proven `0` from an unproven `—`, and changing this
+              cell's own copy is a design decision this change has no mandate
+              to make. What changes is only that the unreadable state now has
+              a way back.
+            */}
+            <span>{UNKNOWN}</span>
+            {queueProvenEmpty ? null : (
+              <button
+                type="button"
+                className={styles.readRetry}
+                data-control="retry-queue"
+                disabled={!onRetryRead}
+                onClick={onRetryRead}
+              >
+                Retry
+              </button>
+            )}
+          </div>
+        )}
+        {proposalNotice ? (
+          <p
+            className={styles.proposalError}
+            data-field="proposal-notice"
+            data-tone="notice"
+            role="status"
+          >
+            {proposalNotice}
+          </p>
+        ) : null}
+        {proposalError ? (
+          <p className={styles.proposalError} role="status">
+            {proposalError}
+          </p>
+        ) : null}
+        {/*
+          The server said this viewer may not write, so the refusal is stated
+          once, here, beside the controls it explains — rather than arriving
+          as a 403 after a click. It is the SERVER's sentence and the SERVER's
+          code, restated verbatim: re-wording either would describe a guard
+          this surface does not own.
+
+          No new happy-path chrome: `canMutate` is true on every canonical
+          render, so this element does not exist there at all.
+        */}
+        {!viewer.canMutate && viewer.reason ? (
+          <p
+            className={styles.sectionFootnote}
+            role="status"
+            data-field="viewer-refusal"
+            data-reason-code={viewer.reasonCode ?? ""}
+          >
+            {viewer.reason}
+          </p>
+        ) : null}
+        {/*
+          What the queue is holding but cannot offer. `claimed` is a dispatch
+          in flight and `reconcile` is an outcome nobody has confirmed; the
+          invariant keeps the second one pending with retry forbidden, so the
+          only correct thing this screen can do is say so. Neither is
+          approvable, so neither appears as a row — and before this the
+          operator was simply told `0`.
+
+          Renders only when there is something to say. A queue with no holds
+          draws nothing, so the canonical state is untouched.
+        */}
+        {queueHolds === null ? (
+          <p
+            className={styles.sectionFootnote}
+            role="status"
+            data-field="queue-holds"
+            data-holds="unreadable"
+          >
+            held proposals could not be counted, so this queue is not proven
+            empty — a dispatch in progress or a row awaiting reconciliation
+            would not be visible here
+          </p>
+        ) : queueHolds.claimed > 0 || queueHolds.reconcile > 0 ? (
+          <p
+            className={styles.sectionFootnote}
+            role="status"
+            data-field="queue-holds"
+            data-holds="present"
+            data-claimed={queueHolds.claimed}
+            data-reconcile={queueHolds.reconcile}
+          >
+            {queueHolds.claimed > 0 ? (
+              <span data-field="queue-holds-claimed">
+                {queueHolds.claimed} dispatch in progress
+              </span>
+            ) : null}
+            {queueHolds.claimed > 0 && queueHolds.reconcile > 0
+              ? " · "
+              : null}
+            {queueHolds.reconcile > 0 ? (
+              <span data-field="queue-holds-reconcile">
+                {queueHolds.reconcile} reconciliation required — retry is
+                forbidden until it is reconciled
+              </span>
+            ) : null}
+          </p>
+        ) : null}
+        {/*
+          The middle clause is a claim about evidence, so it is only made
+          when the evidence exists. A decision whose ledger INSERT failed is
+          still recorded — on the proposal row itself, with its receipt and
+          its receipt key — but it is NOT in the ledger, and printing the
+          promise anyway is what turned a swallowed error into a lie. Every
+          other state renders the design's own sentence, unchanged.
+        */}
+        <p
+          className={styles.sectionFootnote}
+          data-field="queue-footnote"
+          data-ledger-evidence={ledgerEvidence}
+        >
+          {ledgerEvidence === "unavailable" ? (
+            <>
+              approving executes inside the guardrails above · the last
+              decision could not be written to the activity ledger — its
+              receipt is on the proposal record · expired proposals
+              re-evaluate on the next snapshot
+            </>
+          ) : ledgerEvidence === "no_evidence" ? (
+            // Nothing proves the ledger works and nothing proves it failed.
+            // The two clauses that are still true are printed; the one that
+            // is a claim about evidence is not made at all.
+            <>
+              approving executes inside the guardrails above · expired
+              proposals re-evaluate on the next snapshot
+            </>
+          ) : (
+            <>
+              approving executes inside the guardrails above · every outcome
+              lands in the ledger with a receipt · expired proposals
+              re-evaluate on the next snapshot
+            </>
+          )}
+        </p>
+      </article>
   );
 }

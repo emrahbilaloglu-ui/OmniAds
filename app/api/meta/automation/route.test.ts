@@ -21,6 +21,7 @@ vi.mock("@/lib/meta/creatives-fetchers", () => ({
 }));
 
 vi.mock("@/lib/meta/automation-control-plane", () => ({
+  ensureBusinessControlRow: vi.fn(async () => ({ created: false })),
   engageMetaAutomationKillSwitch: vi.fn(),
   releaseMetaAutomationKillSwitch: vi.fn(),
   setMetaAutomationDecisionTypeMode: vi.fn(),
@@ -107,6 +108,10 @@ describe("GET /api/meta/automation", () => {
           budgetMinHoursBetweenChanges: null,
           budgetMaxChangesPer7d: null,
           budgetMaxAccountConcentrationPct: null,
+          // Unstamped: no sizing policy version is bound to this fixture, which
+          // is the state every business is in until an operator saves one.
+          budgetSizingPolicyVersion: null,
+          bidSizingPolicyVersion: null,
           minRoasFloor: null,
           quietHours: null,
         },
@@ -128,6 +133,7 @@ describe("GET /api/meta/automation", () => {
       blocked: true,
       reason: "business_kill_switch",
       message: "Owner paused automation.",
+      rehearsal: true,
     });
     vi.mocked(controlPlane.engageMetaAutomationKillSwitch).mockResolvedValue({
       businessId: BUSINESS_ID,
@@ -151,6 +157,10 @@ describe("GET /api/meta/automation", () => {
         budgetMinHoursBetweenChanges: null,
         budgetMaxChangesPer7d: null,
         budgetMaxAccountConcentrationPct: null,
+        // Unstamped: no sizing policy version is bound to this fixture, which
+        // is the state every business is in until an operator saves one.
+        budgetSizingPolicyVersion: null,
+        bidSizingPolicyVersion: null,
         minRoasFloor: null,
         quietHours: null,
       },
@@ -180,6 +190,10 @@ describe("GET /api/meta/automation", () => {
         budgetMinHoursBetweenChanges: null,
         budgetMaxChangesPer7d: null,
         budgetMaxAccountConcentrationPct: null,
+        // Unstamped: no sizing policy version is bound to this fixture, which
+        // is the state every business is in until an operator saves one.
+        budgetSizingPolicyVersion: null,
+        bidSizingPolicyVersion: null,
         minRoasFloor: null,
         quietHours: null,
       },

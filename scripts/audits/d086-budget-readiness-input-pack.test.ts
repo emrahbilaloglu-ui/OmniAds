@@ -255,11 +255,35 @@ describe("D086 — honesty rules", () => {
     expect(published().preparedMigrations.applied).toBe(false);
     expect(published().preparedMigrations.statements).toBe(D086_ADDITIVE_MIGRATION_SQL.length);
     expect(published().preparedMigrations.sqlDigest).toBe(d086Digest(D086_ADDITIVE_MIGRATION_SQL));
-    // Not registered anywhere a deploy would run them.
+    // The PACK is not registered anywhere a deploy would run it.
     const migrations = readFileSync(d086TrustedPath("lib/migrations.ts"), "utf8");
     expect(migrations).not.toContain("D086_ADDITIVE_MIGRATION_SQL");
-    expect(migrations).not.toContain("engine_v3_account_profile_output");
-    expect(migrations).not.toContain("engine_v3_campaign_role_authority");
+    /*
+      Two tables are exceptions, and both are corrections rather than leaks.
+
+      This pack described `engine_v3_campaign_role_authority` and
+      `engine_v3_account_profile_output`; nothing ever applied it, so in
+      production neither existed. The budget proposal source loader reads both.
+      Each read failed, each failure became `unknown` or
+      `composition_sources_unavailable`, and no budget proposal could be
+      produced at all — for a reason no surface could show. Both are now
+      created by real migrations owned by the automation delivery, and both
+      have a real producer writing them.
+
+      The definitions must not drift apart, so the audit checks each is the
+      same statement rather than checking the table is absent. The pack itself
+      is still unapplied: nothing here runs `D086_ADDITIVE_MIGRATION_SQL`.
+    */
+    const normalise = (sql: string) => sql.replace(/\s+/g, " ").trim();
+    for (const table of [
+      "engine_v3_campaign_role_authority",
+      "engine_v3_account_profile_output",
+    ]) {
+      const packDdl = D086_ADDITIVE_MIGRATION_SQL.find((statement) =>
+        statement.includes(`CREATE TABLE IF NOT EXISTS ${table}`));
+      expect(packDdl, `the pack still describes ${table}`).toBeTruthy();
+      expect(normalise(migrations)).toContain(normalise(packDdl!));
+    }
   });
 
   it("every prepared statement is additive and idempotent", () => {

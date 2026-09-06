@@ -124,9 +124,7 @@ describe("D087 C1 — the adapter re-checks the baseline immediately before POST
     vi.restoreAllMocks();
     vi.unstubAllEnvs();
     vi.stubGlobal("fetch", vi.fn());
-    vi.mocked(controlPlane.getMetaWriteBlockState).mockResolvedValue({
-      blocked: false, reason: null, message: null,
-    });
+    vi.mocked(controlPlane.getMetaWriteBlockState).mockResolvedValue({ blocked: false, reason: null, message: null, rehearsal: false });
   });
 
   it("writes ONCE, with the exact field and body, when the pre-POST read still matches", async () => {
@@ -257,9 +255,7 @@ describe("budget currency: the account's, verified, never the request's", () => 
     vi.restoreAllMocks();
     vi.unstubAllEnvs();
     vi.stubGlobal("fetch", vi.fn());
-    vi.mocked(controlPlane.getMetaWriteBlockState).mockResolvedValue({
-      blocked: false, reason: null, message: null,
-    });
+    vi.mocked(controlPlane.getMetaWriteBlockState).mockResolvedValue({ blocked: false, reason: null, message: null, rehearsal: false });
   });
 
   it("never asks a campaign or ad-set GET for a currency field", async () => {

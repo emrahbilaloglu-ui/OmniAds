@@ -713,11 +713,9 @@ describe("meta automation control plane", () => {
 
     const block = await getMetaWriteBlockState({ businessId: BUSINESS_ID });
 
-    expect(block).toEqual({
-      blocked: true,
+    expect(block).toEqual({ blocked: true,
       reason: "demo_business_read_only",
-      message: "Meta writes are disabled for synthetic demo businesses.",
-    });
+      message: "Meta writes are disabled for synthetic demo businesses.", rehearsal: true });
   });
 
   it("blocks the immutable demo business id without depending on DB state or the test bypass", async () => {
@@ -725,11 +723,9 @@ describe("meta automation control plane", () => {
       businessId: ` ${DEMO_BUSINESS_ID} `,
     });
 
-    expect(block).toEqual({
-      blocked: true,
+    expect(block).toEqual({ blocked: true,
       reason: "demo_business_read_only",
-      message: "Meta writes are disabled for synthetic demo businesses.",
-    });
+      message: "Meta writes are disabled for synthetic demo businesses.", rehearsal: true });
     expect(db.getDb).not.toHaveBeenCalled();
   });
 
@@ -740,12 +736,10 @@ describe("meta automation control plane", () => {
 
     const block = await getMetaWriteBlockState({ businessId: BUSINESS_ID });
 
-    expect(block).toEqual({
-      blocked: true,
+    expect(block).toEqual({ blocked: true,
       reason: "control_state_unavailable",
       message:
-        "Meta writes are temporarily blocked because automation control state could not be verified.",
-    });
+        "Meta writes are temporarily blocked because automation control state could not be verified.", rehearsal: true });
   });
 
   it("keeps decisions readable but blocks writes when the business has no persisted controls", async () => {
@@ -777,12 +771,10 @@ describe("meta automation control plane", () => {
     });
     await expect(
       getMetaWriteBlockState({ businessId: BUSINESS_ID }),
-    ).resolves.toEqual({
-      blocked: true,
+    ).resolves.toEqual({ blocked: true,
       reason: "control_state_unavailable",
       message:
-        "Meta writes are blocked because this business has no persisted automation control state.",
-    });
+        "Meta writes are blocked because this business has no persisted automation control state.", rehearsal: true });
   });
 
   it("fails closed when business kill-switch state cannot be verified", async () => {
@@ -830,7 +822,14 @@ describe("enforced guard rules at the write boundary", () => {
     kill_switch_reason: null,
     auto_execution_enabled: false,
     readiness_tier: "manual_review",
-    guardrails_json: {},
+    /*
+      A LIVE guardrail row, not the shipped default.
+
+      `dryRunOnly` defaults to rehearsal, so an empty guardrail object means
+      "this business rehearses" — correct, and not what this block is about.
+      Stating it keeps these cases measuring the guard-rule verdict.
+    */
+    guardrails_json: { dryRunOnly: false },
     updated_at: "2026-08-17T08:00:00.000Z",
     updated_by: "user_1",
   };
@@ -871,6 +870,15 @@ describe("enforced guard rules at the write boundary", () => {
     vi.clearAllMocks();
     vi.unstubAllEnvs();
     vi.stubEnv("META_AUTOMATION_WRITE_GUARD_TEST_READS", "1");
+    /*
+      This block is about GUARD RULES, so the capability is open for it.
+
+      The capability gate refuses before any guard rule is read, which is the
+      right order — a build that may not write at all should not be reporting
+      which rule would have stopped it — but it means a suite that leaves the
+      capability shut can only ever observe that one refusal.
+    */
+    vi.stubEnv("META_AUTOMATION_LIVE_WRITES", "true");
   });
 
   it("hard-blocks a provider write inside the guard window", async () => {
@@ -898,7 +906,7 @@ describe("enforced guard rules at the write boundary", () => {
       at: new Date("2026-08-16T18:00:00.000Z"),
     });
 
-    expect(block).toEqual({ blocked: false, reason: null, message: null });
+    expect(block).toEqual({ blocked: false, reason: null, message: null, rehearsal: false });
   });
 
   it("keeps an un-migrated database on its existing behaviour", async () => {
@@ -912,7 +920,7 @@ describe("enforced guard rules at the write boundary", () => {
       at: new Date("2026-08-16T08:00:00.000Z"),
     });
 
-    expect(block).toEqual({ blocked: false, reason: null, message: null });
+    expect(block).toEqual({ blocked: false, reason: null, message: null, rehearsal: false });
   });
 
   it("fails closed when guard rules cannot be read at all", async () => {

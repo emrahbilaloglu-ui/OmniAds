@@ -11,7 +11,12 @@
 //   - primaryActionLabel: honest copy - execute verbs only for controls
 //     that execute; review framing for controls that open the drill drawer.
 import type { MetaLaunchMode } from "@/components/meta/redesign/types";
-import type { MetaRecommendation } from "@/lib/meta/recommendations";
+import { executableBidIntentMinorUnits } from "@/lib/meta/bid-intent-contract";
+import { proposedActionForRecommendation } from "@/lib/meta/recommendations";
+import type {
+  MetaRecommendation,
+  MetaRecOperatorApply,
+} from "@/lib/meta/recommendations";
 
 export type MetaRecActionKind =
   | "route_launchpad_rebuild"
@@ -149,20 +154,30 @@ export function serverDecisionLabelForRec(
 }
 
 export function serverLaunchModeForRec(
-  rec: Pick<MetaRecommendation, "type" | "kind" | "level">,
+  rec: Pick<MetaRecommendation, "type" | "kind" | "level" | "targetValue">,
 ): MetaLaunchMode | null {
   if (rec.kind === "anomaly" || rec.kind === "state") return null;
   const type = String(rec.type ?? "");
   if (REBUILD_TYPES.has(type)) return "rebuild";
   if (DUPLICATE_TYPES.has(type)) return "duplicate";
-  if (rec.level === "adset" && type === "bid_value_guidance") return "apply_bid";
+  /*
+    The same correction as `proposedActionForRecommendation`.
+
+    This tested `type === "bid_value_guidance"` at ad-set grain, which no
+    producer emits, so the served `launchMode` said `null` for every ad set
+    that actually carried a validated cap raise. The intent decides, not the
+    label: `executableBidIntentMinorUnits` asks the queue's own question.
+  */
+  if (rec.level === "adset" && executableBidIntentMinorUnits(rec.targetValue) !== null) {
+    return "apply_bid";
+  }
   return null;
 }
 
 export function serverActionKindForRec(
   rec: Pick<
     MetaRecommendation,
-    "type" | "kind" | "level" | "proposedAction" | "decisionState"
+    "type" | "kind" | "level" | "proposedAction" | "decisionState" | "targetValue"
   >,
 ): MetaRecActionKind {
   if (rec.kind === "anomaly" || rec.kind === "state") return "review_drill";
@@ -231,6 +246,72 @@ export function serverPrimaryActionLabelForRec(
   }
 }
 
+/**
+ * What the OPERATOR may apply from this row, with their own authority.
+ *
+ * Deliberately separate from `serverActionKindForRec`, which answers a
+ * different question: what the ENGINE authorizes. The engine withholds its own
+ * authority from campaign and ad-set rows because they do not carry the
+ * immutable decision-origin execution contract that canonical Ad decisions do,
+ * and that stays true. But a media buyer reading a row that says "reduce budget
+ * pressure or pause this ad set" and finding no way to pause it inside the
+ * product is being asked to keep a second browser tab open — which is where
+ * mistakes come from.
+ *
+ * So this offers the concrete typed verb the engine already named in
+ * `proposedAction`, executed under `manual_operator_v1` with an explicit typed
+ * confirmation. It is a capability, not a recommendation: the row still shows
+ * the engine's own authority chip beside it, and the server re-checks the
+ * capability, rehearsal posture, STOP, account binding and current entity state
+ * immediately before the provider POST regardless of what this returns.
+ */
+export function serverOperatorApplyForRec(
+  rec: Pick<
+    MetaRecommendation,
+    "kind" | "level" | "proposedAction" | "campaignId" | "adsetId" | "targetValue"
+  >,
+): MetaRecOperatorApply {
+  // An anomaly or a state row describes a condition, not a change to make.
+  if (rec.kind === "anomaly" || rec.kind === "state") return null;
+  /*
+    Derived when the stored row does not carry one.
+
+    A recommendation is stamped when it is built and the sizing passes attach
+    their intents afterwards, so every row persisted before that ordering was
+    corrected carries a validated amount and no `proposedAction`. Re-asking
+    here reads the row's OWN target value with the same predicate the stamp
+    uses — it invents nothing, and a row that already carries an action keeps
+    it, because `proposedActionForRecommendation` returns that first.
+  */
+  const proposed = proposedActionForRecommendation(rec as MetaRecommendation);
+  if (!proposed) return null;
+
+  const grain =
+    rec.level === "adset" ? "adset" : rec.level === "campaign" ? "campaign" : null;
+  if (!grain) return null;
+  const entityId = (grain === "adset" ? rec.adsetId : rec.campaignId)?.trim();
+  if (!entityId) return null;
+
+  if (proposed.kind === "pause" || proposed.kind === "resume") {
+    return { action: proposed.kind, grain, entityId };
+  }
+  if (proposed.kind === "apply_bid") {
+    // Bid amount lives on an ad set. A campaign-grain bid has no endpoint and
+    // must not be offered as though it did.
+    if (grain !== "adset") return null;
+    if (!Number.isSafeInteger(proposed.bidAmountMinor) || proposed.bidAmountMinor <= 0) {
+      return null;
+    }
+    return {
+      action: "bid",
+      grain: "adset",
+      entityId,
+      bidAmountMinor: proposed.bidAmountMinor,
+    };
+  }
+  return null;
+}
+
 export interface MetaRecEntityMetricsSource {
   /** Keyed by entity id (campaign or adset id). */
   spend?: number | null;
@@ -264,16 +345,65 @@ function compactAccountBadge(accountId: string | null | undefined) {
   return `${value.slice(0, 4)}…${value.slice(-5)}`;
 }
 
+/**
+ * Blockers that belong in diagnostics, not on the row.
+ *
+ * These are conditions of the automation research programme — a controlled
+ * causal estimate, a randomized assignment, a treatment receipt. They are real
+ * and they are checked, but they are also true of essentially every row, and
+ * they are the FIRST thing pushed onto the blocker list. The result was that
+ * an operator scanning their decisions read "Automation blocked · Controlled
+ * causal evidence is missing" on line after line — a sentence about our
+ * methodology where they expected a sentence about their ads.
+ *
+ * Nothing is hidden: the full list still travels in `automationReadiness` and
+ * still renders in the inspector. What changes is which one gets the row's one
+ * line. An operational blocker — an unresolved campaign role, a missing
+ * commercial target, no executor — is something they can act on today, so it
+ * wins. When only these remain, the row says so in one honest sentence
+ * instead of naming one of them at random.
+ */
+const PROGRAMMATIC_BLOCKERS = new Set([
+  "no_empirical_outcome_model",
+  "missing_controlled_causal_evidence",
+  "missing_valid_treatment_receipt",
+  "missing_valid_random_assignment",
+  "missing_valid_control_estimate",
+  "insufficient_empirical_sample",
+  "empirical_precision_below_floor",
+  "missing_holdout_plan",
+  "missing_post_action_monitor",
+]);
+
 function serverRowPresentationForRec(
   rec: MetaRecommendation,
   source?: MetaRecRowPresentationSource | null,
 ): NonNullable<MetaRecommendation["rowPresentation"]> {
   const readiness = rec.automationReadiness;
-  const firstBlocker = readiness?.blockers?.find((blocker) => blocker.trim().length > 0) ?? null;
+  const present = readiness?.blockers?.filter((blocker) => blocker.trim().length > 0)
+    ?? [];
+  const operational = present.find((blocker) => !PROGRAMMATIC_BLOCKERS.has(blocker));
+  const firstBlocker = operational ?? (present.length > 0
+    // One sentence for the whole family, because naming one member of it tells
+    // the operator nothing the others would not have.
+    ? "automation_evidence_incomplete"
+    : null);
   const hasBlocker = Boolean(firstBlocker);
   const hasShield = !hasBlocker && readiness?.operatorReviewRequired === true;
   const signal = hasBlocker ? "blocker" : hasShield ? "shield" : null;
-  const blockerLabel = firstBlocker ? compactTitle(firstBlocker) : null;
+  /*
+    The synthetic family code carries its own sentence.
+
+    Everything else is title-cased from a code, which reads acceptably for an
+    operational blocker ("Campaign Context Unresolved"). Doing that here would
+    produce "Automation Evidence Incomplete" — a phrase that still says nothing
+    the operator can do about it, which is the whole thing this replaced.
+  */
+  const blockerLabel = firstBlocker === "automation_evidence_incomplete"
+    ? "Gathering evidence — apply it yourself"
+    : firstBlocker
+      ? compactTitle(firstBlocker)
+      : null;
   const shieldLabel = hasShield ? "Operator protection active" : null;
   const autoBadge = readiness?.tier === "auto_execute" && readiness.autoExecuteEligible === true;
   const warnLine = hasBlocker
@@ -312,6 +442,10 @@ export function annotateMetaRecPresentation(
       ...rec,
       decisionLabel: serverDecisionLabelForRec(rec),
       actionKind: serverActionKindForRec(rec),
+      // The engine's authority and the operator's capability, side by side and
+      // never conflated. `actionKind` says what the engine authorizes;
+      // `operatorApply` says what the operator may do with their own.
+      operatorApply: serverOperatorApplyForRec(rec),
       primaryActionLabel: serverPrimaryActionLabelForRec(rec),
       rowPresentation: serverRowPresentationForRec(rec, rowPresentationSource),
       metrics: rec.metrics ?? metrics ?? null,

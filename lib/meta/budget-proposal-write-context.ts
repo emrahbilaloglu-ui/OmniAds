@@ -9,7 +9,7 @@
  * `null` rather than a context missing the field the guard depends on.
  */
 import { getMetaAccountContext } from "@/lib/meta/account-context";
-import type { MetaAdsWriteContext } from "@/lib/meta/ads-write";
+import { readMetaAdsetBidState, type MetaAdsWriteContext } from "@/lib/meta/ads-write";
 
 /**
  * The budget-specific refinement: the same write context, plus the account's
@@ -115,5 +115,45 @@ export async function buildMetaBudgetWriteContextForProposal(input: {
     accessToken: credentials.accessToken,
     connectionGeneration: credentials.connectionGeneration,
     accountCurrency,
+  };
+}
+
+/**
+ * The ad set's LIVE bid, for a compare-and-set before a manual approval writes.
+ *
+ * Why it lives here rather than in the route. `executeMetaAutomationProposal`
+ * takes `readBidBaseline` as an injected dependency precisely so the executor
+ * never reaches the provider itself, and the route that supplies it is one of
+ * the modules `automation-write-path.test.ts` forbids from importing
+ * `@/lib/meta/ads-write` at all. This module is already the sanctioned place
+ * where that import is allowed on the proposal path, so the reader is exported
+ * from here and the route stays clean.
+ *
+ * Why it exists at all. The scheduled bid runtime re-reads the live cap before
+ * writing (`lib/meta/scheduled-bid-runtime.ts`); the manual approval path did
+ * not, so a queued +10% from 1000 to 1100 became an unintended CUT once the
+ * live cap had moved to 1300. Wiring it is not optional: without a reader the
+ * executor refuses every bid row outright, which would consume the operator's
+ * proposal and settle it `failed` without a remedy.
+ *
+ * `null` is a refusal, never "the baseline still holds" — an unreadable
+ * account, an unbuildable context and a failed provider read all collapse to it
+ * deliberately.
+ */
+export async function readProposalBidBaseline(input: {
+  businessId: string;
+  providerAccountId: string;
+  adsetId: string;
+}): Promise<{ bidAmountMinor: number | null; bidStrategy: string | null } | null> {
+  const ctx = await buildMetaWriteContextForProposal({
+    businessId: input.businessId,
+    providerAccountId: input.providerAccountId,
+  });
+  if (!ctx) return null;
+  const state = await readMetaAdsetBidState(ctx, input.adsetId).catch(() => null);
+  if (!state || !state.ok) return null;
+  return {
+    bidAmountMinor: state.bidAmountMinor,
+    bidStrategy: state.bidStrategy,
   };
 }

@@ -202,8 +202,18 @@ export interface BudgetMasterSwitchAuthorization {
 export const BUDGET_MASTER_SWITCH_ADMIN_REFUSAL =
   "Changing automatic execution requires admin access on this business.";
 
+/*
+ * Names the CONTROL it refuses, not the pane.
+ *
+ * "This is the read-only mobile view" stopped being true the moment the mobile
+ * pane gained the Meta stop and the confirmation queue. What is still true —
+ * and is the guard `buildBudgetMasterSwitchAuthorization` exists to hold — is
+ * that arming automatic execution is a desktop-and-admin act. Only the sentence
+ * changed here; the `"mobile_read_only"` literal, the allowlist conjunction and
+ * the refusal ordering below are untouched.
+ */
 export const BUDGET_MASTER_SWITCH_MOBILE_REFUSAL =
-  "This is the read-only mobile view. Open Automation on a desktop browser to change automatic execution.";
+  "Automatic execution is changed only in the desktop workspace. Open Automation on a desktop browser to change it.";
 
 /**
  * PRE-DEPLOY AUDIT — the render that started this correction pass. The

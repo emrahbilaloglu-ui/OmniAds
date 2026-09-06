@@ -110,11 +110,7 @@ describe("Meta ads write client", () => {
     vi.restoreAllMocks();
     vi.unstubAllEnvs();
     vi.stubGlobal("fetch", vi.fn());
-    vi.mocked(controlPlane.getMetaWriteBlockState).mockResolvedValue({
-      blocked: false,
-      reason: null,
-      message: null,
-    });
+    vi.mocked(controlPlane.getMetaWriteBlockState).mockResolvedValue({ blocked: false, reason: null, message: null, rehearsal: false });
   });
 
   it("pauseAd returns verified live success with its exact POST attempt receipt", async () => {
@@ -249,6 +245,7 @@ describe("Meta ads write client", () => {
       blocked: true,
       reason: "business_kill_switch",
       message: "Writes are blocked.",
+      rehearsal: true,
     });
     const beforeMutationAttempt = vi.fn(async () => undefined);
 

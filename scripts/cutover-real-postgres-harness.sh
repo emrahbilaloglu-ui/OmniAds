@@ -2220,13 +2220,23 @@ fi
 # the ways a credential can move that must still stop the cutover dead.
 credential_case() {
   local mode="$1" db="$2" hostname="$3"
-  local host
-  seed_database "${db}"
-  host="$(new_host "${hostname}")"
-  mkdir -p "${host}/tmp-work"
+  local host phase out rc
+  seed_database "${db}" || return $?
+  host="$(new_host "${hostname}")" || return $?
+  mkdir -p "${host}/tmp-work" || return $?
   for phase in preflight quiesce fingerprint-pre migrate verify-contract; do
-    run_phase "${host}" "${phase}" DB_NAME="${db}" \
-      HARNESS_MIGRATE_CREDENTIALS="${mode}" >/dev/null 2>&1 || true
+    # A failed prerequisite is not a census refusal. Keep its actual diagnosis
+    # and stop here: swallowing it made fingerprint-post report only an empty
+    # phase chain, after the error that caused it had already been discarded.
+    if out="$(run_phase "${host}" "${phase}" DB_NAME="${db}" \
+      HARNESS_MIGRATE_CREDENTIALS="${mode}")"; then
+      :
+    else
+      rc=$?
+      fail "credential case '${mode}' prerequisite '${phase}' failed (exit ${rc}): ${out}"
+      dump_phase_diagnostics "${host}" "credential-${mode}-${phase}"
+      return "${rc}"
+    fi
   done
   printf '%s' "${host}"
 }

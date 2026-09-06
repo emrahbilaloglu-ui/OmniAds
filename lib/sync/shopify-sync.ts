@@ -764,6 +764,11 @@ export async function syncShopifyCommerceReports(
                 ordersChunk.endDate >= historical.targetEndDate ? "ready" : "succeeded",
               latestSyncWindowStart: ordersChunk.startDate,
               latestSyncWindowEnd: ordersChunk.endDate,
+              // The chunk this pass FINISHED. Written only here, on the success
+              // branch, so a later running or failed attempt cannot make its own
+              // window look like something we read.
+              latestSuccessfulSyncWindowStart: ordersChunk.startDate,
+              latestSuccessfulSyncWindowEnd: ordersChunk.endDate,
               lastError: null,
               lastResultSummary: {
                 orderRows: historicalOrdersResult.orders,
@@ -789,6 +794,8 @@ export async function syncShopifyCommerceReports(
                 returnsChunk.endDate >= historical.targetEndDate ? "ready" : "succeeded",
               latestSyncWindowStart: returnsChunk.startDate,
               latestSyncWindowEnd: returnsChunk.endDate,
+              latestSuccessfulSyncWindowStart: returnsChunk.startDate,
+              latestSuccessfulSyncWindowEnd: returnsChunk.endDate,
               lastError: null,
               lastResultSummary: {
                 returnRows: historicalReturnsResult.returns,
@@ -891,6 +898,20 @@ export async function syncShopifyCommerceReports(
         latestSyncStatus: "succeeded",
         latestSyncWindowStart: window.startDate,
         latestSyncWindowEnd: window.endDate,
+        /*
+          The receipt half of this write, beside `readyThroughDate` and
+          `latestSuccessfulSyncAt`.
+
+          The two columns above are overwritten by the next attempt the moment
+          it starts, including a webhook repair whose window is expanded
+          BACKWARD to reach an old order (`lib/shopify/webhooks.ts:183-191`).
+          These two are not: they keep saying which days a pass actually read
+          until another pass actually reads some, so a coverage reader can hold
+          a still-valid proven window through an ordinary refresh instead of
+          withdrawing it for the duration.
+        */
+        latestSuccessfulSyncWindowStart: window.startDate,
+        latestSuccessfulSyncWindowEnd: window.endDate,
         lastError: null,
         lastResultSummary: result.reconciliation,
       });
@@ -942,6 +963,18 @@ export async function syncShopifyCommerceReports(
         latestSyncStatus: returnsResult.success ? "succeeded" : "failed",
         latestSyncWindowStart: window.startDate,
         latestSyncWindowEnd: window.endDate,
+        /*
+          Conditional, unlike `readyThroughDate` two fields up.
+
+          This single upsert serves both outcomes, and the returns row's
+          `readyThroughDate` is written even on failure — a pre-existing quirk
+          this change deliberately does not copy. A window is retained here only
+          when the pass that read it actually succeeded; otherwise the columns
+          are left NULL and the upsert preserves whatever an earlier successful
+          returns pass proved.
+        */
+        latestSuccessfulSyncWindowStart: returnsResult.success ? window.startDate : null,
+        latestSuccessfulSyncWindowEnd: returnsResult.success ? window.endDate : null,
         lastError: returnsResult.success ? null : returnsResult.reason,
         lastResultSummary: result.reconciliation,
       });

@@ -91,6 +91,13 @@ export const META_FAILURE_CODES = [
   // the uncontracted ratchet holds rather than being raised: the route is a
   // 410 by design, forever.
   "campaign_labels_retired",
+  /*
+    The daily brief refuses a request that names no business. Contracted here
+    rather than raising the uncontracted ratchet: a code an operator can meet
+    should carry the sentence they read, and this one is a genuine caller
+    error with an obvious remedy.
+  */
+  "business_id_required",
   // D071 contracts the codes its demo branches emit, so the uncontracted
   // ratchet holds rather than being raised.
   "demo_journal_not_recorded",
@@ -156,6 +163,12 @@ interface FailureDescriptor {
 }
 
 export const META_FAILURES: Readonly<Record<MetaFailureCode, FailureDescriptor>> = {
+  business_id_required: {
+    message:
+      "This read needs to know which business it is for, and the request named none. Choose a business and try again.",
+    state: "refused",
+    operatorActionable: true,
+  },
   campaign_labels_retired: {
     message:
       "Manual campaign labels are retired. Campaign roles are inferred automatically per account; there is nothing to fetch or save here.",

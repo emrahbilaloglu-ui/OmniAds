@@ -137,6 +137,7 @@ const proposalFor = (shape: Shape): MetaAutomationProposal => ({
   reason: "typed budget intent", evidenceLabel: null, evidenceRef: {},
   expiresAt: "2026-09-01T00:00:00.000Z", status: "claimed",
   decidedBy: ACTOR, decidedAt: null, decisionNote: null, receipt: null,
+  bidEnvelope: null,
   budgetEnvelope: buildBudgetProposalEnvelope({
     proposalId: "11111111-1111-4111-8111-111111111111",
     businessId: BIZ, providerAccountId: "act_123",
@@ -152,6 +153,7 @@ const proposalFor = (shape: Shape): MetaAutomationProposal => ({
     engineVersion: "v3", decisionHash: "e".repeat(64),
     decisionAt: "2026-08-30T00:00:00.000Z",
   }),
+  launchIntentId: null,
   claimToken: "77777777-7777-4777-8777-777777777777",
   claimedBy: ACTOR, claimedAt: null, dispatchStartedAt: null,
   createdAt: "2026-08-30T10:00:00.000Z", updatedAt: "2026-08-30T10:00:00.000Z",
@@ -288,9 +290,7 @@ describe("D088 C1 — the real runtime composition, mocked transport", () => {
     */
     vi.stubEnv(CAMPAIGN_CONTEXT_AUTHORITY_RESOLVER_VERSION_ENV,
       CAMPAIGN_CONTEXT_RESOLVER_VERSION);
-    vi.mocked(controlPlane.getMetaWriteBlockState).mockResolvedValue({
-      blocked: false, reason: null, message: null,
-    });
+    vi.mocked(controlPlane.getMetaWriteBlockState).mockResolvedValue({ blocked: false, reason: null, message: null, rehearsal: false });
   });
 
   it.each([["CBO campaign", CBO], ["ABO ad set", ABO]] as const)(

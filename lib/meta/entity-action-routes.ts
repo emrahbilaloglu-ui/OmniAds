@@ -1,9 +1,18 @@
 import { resolveMetaAccountAuthority } from "@/lib/meta/account-context";
 import { NextRequest, NextResponse } from "next/server";
 import { requireBusinessAccess } from "@/lib/access";
+import {
+  metaWriteFailureAnswer,
+  metaWriteTerminalAnswer,
+} from "@/lib/meta/write-outcome";
 import { getDb } from "@/lib/db";
 import { getIntegration } from "@/lib/integrations";
-import { rejectIfMetaWritesBlocked } from "@/lib/meta/automation-write-guard";
+import {
+  metaWriteBlockedResponse,
+  metaWriteIsRehearsal,
+  readMetaWritePosture,
+  type MetaWritePosture,
+} from "@/lib/meta/automation-write-guard";
 import { rejectIfReviewerReadOnly } from "@/lib/meta/reviewer-write-guard";
 import {
   getMetaAccountContext,
@@ -48,6 +57,8 @@ interface EntityActionBody {
   bidValue?: unknown;
   bidValueMinor?: unknown;
   bidAmountMinor?: unknown;
+  expectedBidStrategy?: unknown;
+  expectedCurrentBidAmountMinor?: unknown;
   dryRun?: unknown;
 }
 
@@ -528,10 +539,21 @@ async function prepareEntityAction(input: {
   const reviewerBlocked = rejectIfReviewerReadOnly(access, `${input.scopeType}_${input.action}`);
   if (reviewerBlocked) return { ok: false as const, response: reviewerBlocked };
 
-  const blocked = await rejectIfMetaWritesBlocked({
+  /*
+    The server's posture, read once and carried.
+
+    Previously this only asked "is it blocked" and threw the answer away. The
+    other half — whether the business is REHEARSING — never left this function,
+    so every handler below decided `dryRun` from the request body alone and a
+    request that omitted the flag reached a real provider POST while the
+    business's own guardrail said rehearse.
+  */
+  const posture = await readMetaWritePosture({
     businessId: access.membership.businessId,
   });
-  if (blocked) return { ok: false as const, response: blocked };
+  if (posture.blocked) {
+    return { ok: false as const, response: metaWriteBlockedResponse(posture) };
+  }
 
   const target = await resolveMetaEntityActionTarget({
     businessId: access.membership.businessId,
@@ -620,6 +642,47 @@ async function prepareEntityAction(input: {
     requestedBy: requestedByFromAccess(access),
     target,
     ctx: ctxResult.ctx,
+    posture,
+  };
+}
+
+/**
+ * Re-prove the posture immediately before the one provider POST.
+ *
+ * The checks above ran at the top of the request. Resolving the target,
+ * building the write context and running the preflight all take time, and in
+ * that time an operator can engage the STOP or an admin can turn the
+ * capability off. This hook runs after every adapter-side check and
+ * immediately before the request begins — the last point at which a re-read
+ * can prevent a write rather than describe one.
+ *
+ * A throw here means no request was made at all.
+ */
+function beforeEntityProviderPost(input: {
+  businessId: string;
+  /** What the first read decided, so a change of posture is visible as one. */
+  rehearsalAtEntry: boolean;
+}): () => Promise<void> {
+  return async () => {
+    const posture = await readMetaWritePosture({ businessId: input.businessId });
+    if (posture.blocked) {
+      throw Object.assign(
+        new Error(posture.message ?? "Meta writes were blocked before the request."),
+        { code: posture.reason ?? "kill_switch_engaged" },
+      );
+    }
+    /*
+      Rehearsal turned on between the entry check and here.
+
+      Refusing is the only honest answer: this call was composed as a live
+      write, and downgrading it now would send a dry run whose receipt claims
+      to be the operator's requested action.
+    */
+    if (posture.rehearsal && !input.rehearsalAtEntry) {
+      throw Object.assign(new Error("Rehearsal was engaged before this write."), {
+        code: "dry_run_guardrail",
+      });
+    }
   };
 }
 
@@ -662,8 +725,34 @@ async function handleMetaEntityStatusAction(
   });
   if (!prepared.ok) return prepared.response;
 
+  /*
+    THE SERVER decides whether this reaches Meta.
+
+    `dryRunFromBody` is what the client ASKED for; the persisted guardrail is
+    what the business COMMITTED to. Or-ing them means a request may always
+    rehearse and may never decline to.
+  */
+  const dryRun = metaWriteIsRehearsal({
+    posture: prepared.posture,
+    requestedDryRun: dryRunFromBody(body),
+  });
+
   const log = await createMetaAdsActionLog({
     businessId: prepared.businessId,
+    /*
+      The account this write belongs to. It used to be omitted.
+
+      `meta_ads_action_log` then took the row with `provider_account_id` NULL,
+      and `history-read-model.ts` filters its action-log branch on
+      `action_log.provider_account_id = $2` — deliberately, so a row with no
+      account lineage fails closed rather than leaking across accounts. The
+      consequence was that a successful operator pause, resume or bid write
+      never appeared in Meta History's Writes journal at all: the receipt was
+      durable and invisible. The throwing guard inside `createMetaAdsActionLog`
+      only demands the id for AD-grain manual status claims, which is why the
+      campaign and ad-set path went silently unlineaged.
+    */
+    providerAccountId: prepared.ctx.providerAccountId,
     adId: prepared.target.entityId,
     creativeId: null,
     action: input.action,
@@ -675,7 +764,12 @@ async function handleMetaEntityStatusAction(
       endpoint: `/${prepared.target.entityId}`,
       scope_type: input.scopeType,
       body: { status: input.action === "pause" ? "PAUSED" : "ACTIVE" },
-      dry_run: dryRunFromBody(body),
+      dry_run: dryRun,
+      // What the client asked for, kept beside what the server decided, so a
+      // receipt can never be read as the operator having chosen a rehearsal
+      // they did not choose.
+      dry_run_requested: dryRunFromBody(body),
+      dry_run_source: prepared.posture.rehearsal ? "business_guardrail" : "request",
       rec_id_origin: recIdOriginFromBody(body),
       action_origin: META_ENTITY_MANUAL_ACTION_ORIGIN,
       manual_confirmation: META_ENTITY_MANUAL_CONFIRMATION,
@@ -684,23 +778,27 @@ async function handleMetaEntityStatusAction(
 
   const startedAt = Date.now();
   try {
-    const options = dryRunFromBody(body) ? { dryRun: true } : undefined;
+    /*
+      A rehearsal never posts, so it needs no pre-POST re-check; a live write
+      always does. Passing the hook unconditionally would make the dry-run
+      verification path read the control plane for nothing.
+    */
+    const options = dryRun
+      ? { dryRun: true }
+      : {
+        beforeMutationAttempt: beforeEntityProviderPost({
+          businessId: prepared.businessId,
+          rehearsalAtEntry: prepared.posture.rehearsal,
+        }),
+      };
     const result =
       input.scopeType === "campaign"
         ? input.action === "pause"
-          ? options
-            ? await pauseCampaign(prepared.ctx, prepared.target.entityId, options)
-            : await pauseCampaign(prepared.ctx, prepared.target.entityId)
-          : options
-            ? await resumeCampaign(prepared.ctx, prepared.target.entityId, options)
-            : await resumeCampaign(prepared.ctx, prepared.target.entityId)
+          ? await pauseCampaign(prepared.ctx, prepared.target.entityId, options)
+          : await resumeCampaign(prepared.ctx, prepared.target.entityId, options)
         : input.action === "pause"
-          ? options
-            ? await pauseAdset(prepared.ctx, prepared.target.entityId, options)
-            : await pauseAdset(prepared.ctx, prepared.target.entityId)
-          : options
-            ? await resumeAdset(prepared.ctx, prepared.target.entityId, options)
-            : await resumeAdset(prepared.ctx, prepared.target.entityId);
+          ? await pauseAdset(prepared.ctx, prepared.target.entityId, options)
+          : await resumeAdset(prepared.ctx, prepared.target.entityId, options);
 
     if (!result.ok) {
       await completeFailure({ logId: log.id, startedAt, result });
@@ -708,8 +806,13 @@ async function handleMetaEntityStatusAction(
         {
           ok: false,
           error: result.error,
+          message: result.error?.message,
           metaHttpStatus: result.httpStatus,
           providerOutcome: result.providerOutcome ?? null,
+          ...metaWriteFailureAnswer({
+            providerOutcome: result.providerOutcome,
+            logId: log.id,
+          }),
           mutationAttempt: result.mutationAttempt ?? null,
           retryAllowed:
             isProviderOutcomeAmbiguous(result) ||
@@ -738,6 +841,13 @@ async function handleMetaEntityStatusAction(
       status: result.verifiedStatus,
       dryRun: result.dryRun === true,
       wouldHaveWritten: result.wouldHaveWritten ?? null,
+      // The terminal answer the ceremony reads. Derived from the row just
+      // written, not from the absence of an error.
+      ...metaWriteTerminalAnswer({
+        dryRun: result.dryRun === true,
+        logStatus: "success",
+        logId: log.id,
+      }),
     });
   } catch (error) {
     const message = sanitizeErrorMessage(error);
@@ -768,6 +878,87 @@ function hasLegacyBidUnitField(body: EntityActionBody | null) {
   );
 }
 
+/**
+ * The strategy the amount was reasoned under, when the caller proved one.
+ *
+ * OPTIONAL, and absent from the operator's own apply-bid request: a person
+ * typing a cap on a decision card has proved nothing about the strategy beyond
+ * this request, so nothing is asserted on their behalf and their write is
+ * exactly the write it has always been.
+ *
+ * The approval queue is the caller that HAS proved one.
+ * `automation-proposal-execution.ts` reads the live cap and strategy and
+ * refuses a mismatch — but that check finishes before this handler's access
+ * check, account context, action log and provider preflight, and this handler
+ * writes whatever `bidAmountMinor` it is handed. An ad set moved from cost cap
+ * to bid cap inside that window would take the approved amount and verify it,
+ * and the operator would be told the raise they approved succeeded — under a
+ * strategy nobody approved it for. Carrying the checked strategy makes
+ * `updateAdsetBidAmount`'s read-back prove it too, which closes the window at
+ * the only boundary that sits after the POST.
+ *
+ * One carve-out, because the sentence above is otherwise too strong: the
+ * read-back proves it on a REAL write only. `updateAdsetBidAmount` returns from
+ * its dry-run branch before the strategy comparison, so a rehearsal — whether
+ * from `dryRunOnly` or from a business posture this function itself resolves as
+ * rehearsal — binds the field and checks nothing against it. That costs
+ * nothing, since a rehearsal reaches no provider write to be wrong about, and
+ * it is identical for the unattended runtime, which passes the same field with
+ * the same flag.
+ *
+ * Present-but-unusable is refused rather than ignored: dropping a malformed
+ * value would silently disable the very check the caller asked for, which is
+ * the defect this field exists to prevent.
+ */
+function expectedBidStrategyFromBody(body: EntityActionBody | null) {
+  if (
+    !body ||
+    !Object.prototype.hasOwnProperty.call(body, "expectedBidStrategy")
+  ) {
+    return { ok: true as const, value: null };
+  }
+  const value =
+    typeof body.expectedBidStrategy === "string"
+      ? body.expectedBidStrategy.trim()
+      : "";
+  if (!value) return { ok: false as const, value: null };
+  return { ok: true as const, value };
+}
+
+/**
+ * The cap the caller proved the ad set was on when it sized this change.
+ *
+ * Same shape and same rules as the strategy field above, for the other half of
+ * the same window. Carrying the strategy closed the strategy race at the only
+ * boundary that sits AFTER the POST — a read-back. That boundary cannot close
+ * the amount race, because by read-back time the write has already overwritten
+ * the amount and the number it verifies is its own. So this value goes to
+ * `updateAdsetBidAmount`, which compares it against a live read taken
+ * immediately BEFORE the POST and refuses rather than overwriting a cap
+ * somebody moved during this handler's access check, account context, action
+ * log or provider preflight.
+ *
+ * OPTIONAL, and absent from the operator's own apply-bid request: a person
+ * typing a cap on a decision card proved nothing about the current one, and
+ * their write is exactly the write it has always been — including making no
+ * extra provider request. Present-but-unusable is refused rather than ignored,
+ * for the same reason as the strategy: silently dropping the value would
+ * disable the very check the caller asked for.
+ */
+function expectedCurrentBidAmountFromBody(body: EntityActionBody | null) {
+  if (
+    !body ||
+    !Object.prototype.hasOwnProperty.call(body, "expectedCurrentBidAmountMinor")
+  ) {
+    return { ok: true as const, value: null };
+  }
+  const value = body.expectedCurrentBidAmountMinor;
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value <= 0) {
+    return { ok: false as const, value: null };
+  }
+  return { ok: true as const, value };
+}
+
 export async function handleMetaAdsetBidAction(
   request: NextRequest,
   context: RouteParams,
@@ -783,6 +974,22 @@ export async function handleMetaAdsetBidAction(
       hasLegacyBidUnitField(body)
         ? "bidAmountMinor is required; bidValue and bidValueMinor are not accepted for executable bid writes."
         : "bidAmountMinor must be a positive integer.",
+    );
+  }
+  const expectedBidStrategy = expectedBidStrategyFromBody(body);
+  if (!expectedBidStrategy.ok) {
+    return jsonError(
+      400,
+      "invalid_bid_strategy",
+      "expectedBidStrategy must be a non-empty string when provided.",
+    );
+  }
+  const expectedCurrentBidAmount = expectedCurrentBidAmountFromBody(body);
+  if (!expectedCurrentBidAmount.ok) {
+    return jsonError(
+      400,
+      "invalid_expected_bid_amount",
+      "expectedCurrentBidAmountMinor must be a positive integer of minor units when provided.",
     );
   }
 
@@ -809,11 +1016,51 @@ export async function handleMetaAdsetBidAction(
     );
   }
 
+  // Same rule as the status handler: the client may ask to rehearse and may
+  // not decline to. A bid cap is money too.
+  const dryRun = metaWriteIsRehearsal({
+    posture: prepared.posture,
+    requestedDryRun: dryRunFromBody(body),
+  });
+
   const log = await createMetaAdsActionLog({
     businessId: prepared.businessId,
+    // Same lineage, same reason: without it the applied bid is missing from
+    // Meta History's Writes journal. See the status handler above.
+    providerAccountId: prepared.ctx.providerAccountId,
     adId: prepared.target.entityId,
     creativeId: null,
-    action: "launch_adset",
+    /*
+      The true verb.
+
+      This wrote `launch_adset` and carried the real operation down in
+      `payload_request.operation`, so Meta History's Writes journal titled a
+      verified cap change "Launch Adset | Broad prospecting" — a bid apply
+      presented to the operator as a launch.
+
+      `bid` is legal here AS OF THIS RELEASE, and only as of it. An earlier
+      revision of this comment said it "has always been legal", citing
+      `MetaAdsActionKind`, the `meta_ads_action_log_action_check` CHECK and the
+      unattended sweep. None of the three holds against the build this release
+      replaces: on `origin/main` the union in `lib/meta/ads-action-log.ts` has
+      no `bid` member, the CHECK in `lib/migrations.ts` does not list it, and
+      `lib/meta/scheduled-bid-runtime.ts` does not exist. All three arrive
+      together in this release, which is why the CHECK widening it ships is
+      load-bearing rather than tidying, and why that widening is the one
+      statement in its group that must not fail silently.
+
+      `operation: "apply_bid"` stays in the payload below, unchanged: every
+      reader that disambiguated the old spelling by it keeps working, and the
+      compatibility is proved in both directions rather than assumed, by two
+      seam-guarded tests that both exist:
+      `lib/meta/bid-history-verb-title.db.test.ts` runs the shipped title
+      expression over an old-shaped row and a new-shaped row, and
+      `lib/meta/bid-history-writes-journal.db.test.ts` reads both rows back
+      through `readMetaHistoryJournal` against the migrated schema, which is
+      what covers the join that decides whether a bid row reaches the journal
+      at all.
+    */
+    action: "bid",
     source: META_ENTITY_MANUAL_ACTION_ORIGIN,
     requestedBy: prepared.requestedBy,
     recIdOrigin: recIdOriginFromBody(body),
@@ -823,7 +1070,9 @@ export async function handleMetaAdsetBidAction(
       scope_type: "adset",
       operation: "apply_bid",
       body: { bid_amount: bidAmountMinor, currency: bidCurrency },
-      dry_run: dryRunFromBody(body),
+      dry_run: dryRun,
+      dry_run_requested: dryRunFromBody(body),
+      dry_run_source: prepared.posture.rehearsal ? "business_guardrail" : "request",
       rec_id_origin: recIdOriginFromBody(body),
       action_origin: META_ENTITY_MANUAL_ACTION_ORIGIN,
       manual_confirmation: META_ENTITY_MANUAL_CONFIRMATION,
@@ -835,7 +1084,24 @@ export async function handleMetaAdsetBidAction(
     const result = await updateAdsetBidAmount(prepared.ctx, {
       adsetId: prepared.target.entityId,
       bidAmountMinor,
-      ...(dryRunFromBody(body) ? { dryRun: true } : {}),
+      // Spread rather than passed as `undefined`, so a caller that proved no
+      // strategy hands the write the same input shape it always did.
+      ...(expectedBidStrategy.value
+        ? { expectedBidStrategy: expectedBidStrategy.value }
+        : {}),
+      // Same spread, same reason: a caller that proved no current cap hands
+      // the write the input shape it always did, and no pre-POST read happens.
+      ...(expectedCurrentBidAmount.value !== null
+        ? { expectedCurrentBidAmountMinor: expectedCurrentBidAmount.value }
+        : {}),
+      ...(dryRun
+        ? { dryRun: true }
+        : {
+          beforeMutationAttempt: beforeEntityProviderPost({
+            businessId: prepared.businessId,
+            rehearsalAtEntry: prepared.posture.rehearsal,
+          }),
+        }),
     });
     if (!result.ok) {
       await completeFailure({ logId: log.id, startedAt, result });
@@ -845,6 +1111,11 @@ export async function handleMetaAdsetBidAction(
           error: result.error,
           metaHttpStatus: result.httpStatus,
           providerOutcome: result.providerOutcome ?? null,
+          // The failure half of the same answer, for the same reason.
+          ...metaWriteFailureAnswer({
+            providerOutcome: result.providerOutcome,
+            logId: log.id,
+          }),
           mutationAttempt: result.mutationAttempt ?? null,
           retryAllowed:
             isProviderOutcomeAmbiguous(result) ||
@@ -873,6 +1144,24 @@ export async function handleMetaAdsetBidAction(
       bidAmountMinor: result.verifiedBidAmount,
       dryRun: result.dryRun === true,
       wouldHaveWritten: result.wouldHaveWritten ?? null,
+      /*
+        The terminal answer, which this handler used to omit.
+
+        The status handler returns it and the ceremony reads it
+        (`mutation-ceremony-seed.ts`): an absent `outcome` is normalised to
+        `provider_outcome_ambiguous`, deliberately, because inferring success
+        from `ok: true` is the inference that guard exists to forbid. The
+        consequence here was that a bid write which verified against its own
+        read-back and settled `success` in the action log still told the
+        operator "Outcome unknown · No receipt · do not retry" — a durable,
+        verified write reported as unresolved. Derived from the row just
+        written, exactly as the status handler derives it.
+      */
+      ...metaWriteTerminalAnswer({
+        dryRun: result.dryRun === true,
+        logStatus: "success",
+        logId: log.id,
+      }),
     });
   } catch (error) {
     const message = sanitizeErrorMessage(error);

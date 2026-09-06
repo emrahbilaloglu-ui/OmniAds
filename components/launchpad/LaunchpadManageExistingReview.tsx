@@ -1,6 +1,6 @@
 "use client";
 
-import { PauseCircle, ShieldCheck } from "lucide-react";
+import { PauseCircle, PlayCircle } from "lucide-react";
 import type { MetaCreativeRow } from "@/components/creatives/metricConfig";
 import { resolveLaunchpadAdActionId } from "@/lib/launchpad/recent-ad-actions";
 
@@ -14,7 +14,7 @@ export function LaunchpadManageExistingReview({
   onRun,
 }: {
   selectedCreatives: MetaCreativeRow[];
-  onRun: (action: "pause", rows: MetaCreativeRow[]) => void;
+  onRun: (action: "pause" | "resume", rows: MetaCreativeRow[]) => void;
 }) {
   const activeRows = selectedCreatives.filter(
     (creative) => normalizeMetaAdStatus(creative.effectiveStatus) === "ACTIVE",
@@ -33,7 +33,8 @@ export function LaunchpadManageExistingReview({
       <div>
         <h2 className="text-[15px] font-semibold text-[var(--ink)]">Manage existing ads</h2>
         <p className="text-[13px] text-[var(--muted)]">
-          Current authority is limited to pausing active ads. ACTIVE transitions are not exposed.
+          Pause and activation both apply to the exact selected Meta ad IDs. Campaign and
+          ad-set structure is never changed here.
         </p>
       </div>
 
@@ -74,22 +75,43 @@ export function LaunchpadManageExistingReview({
           </div>
         </div>
 
-        <div className="rounded-[8px] border border-[var(--warn-bd)] bg-[var(--warn-bg)] p-4">
+        {/*
+          Activation, offered rather than described.
+
+          The panel used to list the contract activation "would require" — a
+          fresh preflight, verified parents, a halt on drift — as the reason no
+          control was rendered. Every one of those checks is implemented and
+          runs on this exact request: the route re-reads the ad from Meta,
+          refuses a creative that no longer matches, and refuses unless the
+          parent ad set AND campaign are both effectively active. So the button
+          exists, and the sentence below says what the server will check rather
+          than what somebody would have to build.
+        */}
+        <div className="border border-[var(--border)] bg-[var(--surface)] p-4">
           <div className="flex items-start gap-3">
-            <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-[6px] border border-[var(--warn-bd)] bg-[var(--surface)] text-[var(--warn)]">
-              <ShieldCheck className="h-5 w-5" />
+            <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-[6px] bg-[var(--ok-bg)] text-[var(--ok)]">
+              <PlayCircle className="h-5 w-5" />
             </span>
             <div className="min-w-0 flex-1">
-              <div className="flex flex-wrap items-center gap-2">
-                <p className="text-[14px] font-semibold text-[var(--ink)]">Resume / Publish ACTIVE</p>
-                <span className="chip chip--warn">Proposed/contract required</span>
-              </div>
+              <p className="text-[14px] font-semibold text-[var(--ink)]">Activate selected paused ads</p>
               <p className="mt-1 text-[13px] text-[var(--muted)]">
-                {pausedRows.length} paused ad{pausedRows.length === 1 ? "" : "s"} selected. Activation is unavailable in the current Launchpad UI contract.
+                {pausedRows.length} paused ad{pausedRows.length === 1 ? "" : "s"} will be set to ACTIVE.
               </p>
-              <p className="mt-3 text-[12px] leading-relaxed text-[var(--warn)]">
-                Required contract: fresh activation preflight, exposure summary, verified child activation, campaign-last activation, and halt on drift or ambiguous outcome. No one-click control is rendered.
+              <p className="mt-2 text-[12px] leading-relaxed text-[var(--muted)]">
+                Before each write the account billing, the ad&apos;s live state, its creative
+                identity and both parents&apos; effective status are re-read from Meta. An ad
+                whose ad set or campaign is paused is refused by name rather than left
+                looking published.
               </p>
+              <button
+                type="button"
+                className="btn btn--primary mt-4"
+                disabled={pausedRows.length === 0 || missingActionIds.length > 0}
+                onClick={() => onRun("resume", pausedRows)}
+              >
+                <PlayCircle className="h-4 w-4" />
+                Activate selected ({pausedRows.length})
+              </button>
             </div>
           </div>
         </div>

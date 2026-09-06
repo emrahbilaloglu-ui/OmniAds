@@ -113,11 +113,7 @@ describe("Meta launch write client", () => {
     vi.restoreAllMocks();
     vi.clearAllMocks();
     vi.stubGlobal("fetch", vi.fn());
-    vi.mocked(controlPlane.getMetaWriteBlockState).mockResolvedValue({
-      blocked: false,
-      reason: null,
-      message: null,
-    });
+    vi.mocked(controlPlane.getMetaWriteBlockState).mockResolvedValue({ blocked: false, reason: null, message: null, rehearsal: false });
   });
 
   it("createCampaign creates a paused OUTCOME_SALES campaign and verifies it", async () => {

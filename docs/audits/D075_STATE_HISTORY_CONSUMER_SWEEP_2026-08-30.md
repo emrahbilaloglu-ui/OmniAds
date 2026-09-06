@@ -494,3 +494,64 @@ already-classified D077 planner/executor family.
 The regression fixture pins that predecessor-presence query while proving that
 capture order cannot erase distinct transitions observed in a different order.
 It opens no production connection.
+
+## Addendum — 2026-09-05 operator-readiness sizing projection
+
+`lib/meta/intent-projection-context.ts` (new, 2) — CONTENT READER
+
+The budget and bid sizing policies need a canonical current amount and a proven
+owner, and this is where both come from. Its predecessor read
+`meta_campaign_config_history` for columns that do not exist there
+(`budget_owner_mode`, `budget_raw_minor_units`, `budget_field`, `changed_at`),
+so every read failed as `42703`, was swallowed, and no typed intent could be
+produced from a real source.
+
+The two literals are one query. It is latest-per-entity per the D075 serving
+corollary — `DISTINCT ON (entity_type, entity_id)` ordered by `observed_at
+DESC, captured_at DESC, created_at DESC, id DESC` — bounded by the snapshot
+date, and presence-guarded, so an absent winner is excluded rather than
+resurrected behind it. Ownership is taken from `budget_origin` and matched
+against the entity's OWN grain: an ad set under a CBO campaign carries the
+campaign's amount in its own observation, and attributing that to the ad set
+double-counted the account. It serves no entity content to a surface; it
+returns owned minor units, an owner mode and a currency, and withholds when
+ownership is not provable.
+
+`lib/meta/intent-projection-context.test.ts` (new, 2) — TEST
+
+Schema-aware: it asserts on the shape the reader produces and carries a
+forbidden-column guard so a return to the non-existent column names fails
+rather than silently yielding nulls again.
+
+`scripts/ephemeral-postgres-intent-projection-seam-child.ts` (new, 2) — HARNESS
+
+The same query against a genuinely migrated throwaway database, seeded with a
+CBO campaign, an ad set beneath it and a separate ABO ad set. It is what caught
+the double-count above: the account total read 550,000 instead of 300,000 until
+ownership was matched to the entity's own grain.
+
+## Addendum — 2026-09-05 end-to-end economics and bid chain seam
+
+`scripts/ephemeral-postgres-economics-bid-chain-seam-child.ts` (new, 1) — HARNESS
+
+The seam that proves both economic chains through the shipped producers rather
+than through a hand-written payload. It no longer writes this table itself:
+the state rows and their observation run now go through the shipped capture
+chain (`queueMetaSyncPartition`, `persistMetaRawSnapshot`,
+`persistMetaEntityObservation`), which is what lets `readMeasuredBudgetHistory`
+attest a complete run instead of returning null — a hand-written row cannot.
+The single remaining reference is prose in a comment. It issues no production
+query over this table: it seeds facts, calls `runMetaSnapshotForBusiness` and
+asserts on what the real readers produced.
+
+## Addendum — 2026-09-05 mounted Decision Center apply harness
+
+`scripts/meta-decision-card-apply-harness.ts` (new, 2) — HARNESS
+
+The throwaway workspace in which the product's own Decision Center renders a
+populated lane, so the card-level Apply can be driven in a real browser rather
+than proved at a SQL seam. Its two literals are a fixture insert and the
+comment explaining it: `meta_entity_state_history` carries a composite foreign
+key back to an observation run, so the run is written first and the state row
+second. It issues no production query over this table — the shipped snapshot
+does, and the harness asserts on what that produced.

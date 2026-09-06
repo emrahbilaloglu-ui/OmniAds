@@ -389,7 +389,16 @@ export async function runMetaAutomationRuleEvaluationIfDue(
   now = new Date(),
 ): Promise<MetaAutomationRuleEvaluationJobResult> {
   const runDate = now.toISOString().slice(0, 10);
-  if (now.getUTCHours() !== RULE_EVALUATION_UTC_HOUR) {
+  /*
+    A window, not an instant.
+
+    `!== 6` meant a tick missed at 06:00 UTC lost the whole day's rule
+    evaluation: the cron ticks every ten minutes, a deploy or a slow tick
+    moves one, and the next eligible moment was 24 hours away. From 06:00
+    onwards the job is due, and the per-firing dedupe key — rule, entity, date
+    — is what stops a later tick from firing anything twice.
+  */
+  if (now.getUTCHours() < RULE_EVALUATION_UTC_HOUR) {
     return { skipped: true, reason: "not_due", runDate };
   }
 

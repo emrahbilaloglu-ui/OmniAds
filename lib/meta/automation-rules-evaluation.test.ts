@@ -24,11 +24,7 @@ vi.mock("@/lib/meta/creatives-fetchers", () => ({
   fetchAssignedAccountIds: vi.fn(async () => []),
 }));
 vi.mock("@/lib/meta/automation-control-plane", () => ({
-  getMetaWriteBlockState: vi.fn(async () => ({
-    blocked: false,
-    reason: null,
-    message: null,
-  })),
+  getMetaWriteBlockState: vi.fn(async () => ({ blocked: false, reason: null, message: null, rehearsal: false })),
 }));
 
 const db = await import("@/lib/db");
@@ -83,16 +79,21 @@ beforeEach(() => {
     { id: BUSINESS_ID, name: "Grandmix" },
   ] as never);
   vi.mocked(assignments.fetchAssignedAccountIds).mockResolvedValue(["act_1"]);
-  vi.mocked(controlPlane.getMetaWriteBlockState).mockResolvedValue({
-    blocked: false,
-    reason: null,
-    message: null,
-  });
+  vi.mocked(controlPlane.getMetaWriteBlockState).mockResolvedValue({ blocked: false, reason: null, message: null, rehearsal: false });
 });
 
 /** 06:00 UTC — the slot the job runs in. */
 const DUE = new Date("2026-08-18T06:12:00.000Z");
-const NOT_DUE = new Date("2026-08-18T09:12:00.000Z");
+/*
+  Before the window, not after it.
+
+  The guard used to be `!== 6`, which made 09:12 "not due" — and also made a
+  missed 06:00 tick lose the whole day. It is now a window opening at 06:00, so
+  the only time nothing is due is before it opens; a late tick catches up and
+  the per-firing dedupe key stops anything from firing twice.
+*/
+const NOT_DUE = new Date("2026-08-18T05:12:00.000Z");
+const LATE_TICK = new Date("2026-08-18T09:12:00.000Z");
 
 describe("evaluateBusinessAutomationRules", () => {
   it("anchors the evaluation to the newest warehouse day rather than the wall clock", async () => {
@@ -282,12 +283,22 @@ describe("runMetaAutomationRuleEvaluationIfDue", () => {
     expect(store.recordRuleFirings).toHaveBeenCalledTimes(2);
   });
 
-  it("does nothing outside its slot", async () => {
+  it("does nothing before its window opens", async () => {
     const result = await runMetaAutomationRuleEvaluationIfDue(NOT_DUE);
 
     expect(result).toMatchObject({ skipped: true, reason: "not_due" });
     expect(activeBusinesses.getActiveBusinesses).not.toHaveBeenCalled();
     expect(store.recordRuleFirings).not.toHaveBeenCalled();
+  });
+
+  it("still runs on a tick three hours late", async () => {
+    // The case the old equality lost silently: a deploy or a slow tick at
+    // 06:00 used to cost the day's rule evaluation entirely.
+    warehouseReady();
+    const result = await runMetaAutomationRuleEvaluationIfDue(LATE_TICK);
+
+    expect(result.skipped).toBe(false);
+    expect(activeBusinesses.getActiveBusinesses).toHaveBeenCalled();
   });
 
   // The operator's STOP means "stop automation", and a queue built while it is
@@ -299,6 +310,7 @@ describe("runMetaAutomationRuleEvaluationIfDue", () => {
       blocked: true,
       reason: "business_kill_switch",
       message: "Operator stop.",
+      rehearsal: true,
     });
 
     const result = await runMetaAutomationRuleEvaluationIfDue(DUE);
@@ -386,6 +398,7 @@ describe("the periodic evaluation is gated on stops, not on quiet hours", () => 
       reason: "automation_guard_rule",
       message: "Quiet hours are in effect.",
       guardRule: null,
+      rehearsal: true,
     });
 
     const result = await runMetaAutomationRuleEvaluationIfDue(
@@ -406,6 +419,7 @@ describe("the periodic evaluation is gated on stops, not on quiet hours", () => 
       blocked: true,
       reason: "business_kill_switch",
       message: "Automation is stopped for this business.",
+      rehearsal: true,
     });
 
     const result = await runMetaAutomationRuleEvaluationIfDue(

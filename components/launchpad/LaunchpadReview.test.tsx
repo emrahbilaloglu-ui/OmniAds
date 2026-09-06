@@ -233,8 +233,20 @@ describe("LaunchpadReview", () => {
     expect(html).toContain("raw launch JSON");
     expect(html).not.toContain("&quot;campaign&quot;:");
     expect(html).toContain("Create PAUSED");
-    expect(html).toContain("Publish ACTIVE");
-    expect(html).toContain("Proposed/contract required");
+    /*
+      The panel used to say no activation executor was wired and describe the
+      contract one "would" need. That executor exists: it activates campaign,
+      then ad set, then ad, reads each back, and stops at the first step that
+      does not come back active. So the panel says where the step happens
+      instead of claiming it cannot.
+
+      It is still not a button HERE — this panel renders before the launch, and
+      there is nothing to activate until there are real identities to check.
+    */
+    expect(html).toContain("Everything is created paused");
+    expect(html).toContain("separate, deliberate step you take from the receipt");
+    expect(html).not.toContain("No activation executor is wired");
+    expect(html).not.toContain("Activation in Adsecute is unavailable");
     expect(html).toContain("disabled");
   });
 

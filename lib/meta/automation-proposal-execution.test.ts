@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("@/lib/meta/entity-action-routes", () => ({
   handleMetaEntityPauseAction: vi.fn(),
   handleMetaEntityResumeAction: vi.fn(),
+  handleMetaAdsetBidAction: vi.fn(),
 }));
 
 const entityRoutes = await import("@/lib/meta/entity-action-routes");
@@ -47,9 +48,11 @@ function proposal(
     decidedAt: null,
     decisionNote: null,
     receipt: null,
+    bidEnvelope: null,
     budgetEnvelope: null,
     // Claim fields are part of the row now. A fixture that omitted them would
     // let a test assert on a proposal shape the database can no longer produce.
+    launchIntentId: null,
     claimToken: null,
     claimedBy: null,
     claimedAt: null,
@@ -212,9 +215,10 @@ describe("approval executes through the existing guarded handler", () => {
     const result = await executeMetaAutomationProposal({
       request: operatorRequest(),
       businessId: BUSINESS_ID,
-      // `bid` has an endpoint but needs an operator-entered amount, and this
-      // module refuses it before any dispatch is built.
-      proposal: proposal({ proposedAction: "bid" }),
+      // `duplicate` exists only at ad grain, whose write path is the
+      // decision-origin contract; this module refuses it before any dispatch
+      // is built rather than sending it somewhere that would take it.
+      proposal: proposal({ proposedAction: "duplicate" }),
       dryRunOnly: false,
     });
 
@@ -222,6 +226,25 @@ describe("approval executes through the existing guarded handler", () => {
     expect(result.receipt.withheld).toBe("unsupported_action");
     expect(entityRoutes.handleMetaEntityPauseAction).not.toHaveBeenCalled();
     expect(entityRoutes.handleMetaEntityResumeAction).not.toHaveBeenCalled();
+  });
+
+  it("refuses a bid row that cannot prove its amount", async () => {
+    /*
+      `bid` used to land in the branch above because no proposal could prove an
+      amount. Now it has its own, and the refusal is specific: an envelope that
+      did not parse, or was copied from another row, means a bid change of
+      unknown size — not an unsupported action.
+    */
+    const result = await executeMetaAutomationProposal({
+      request: operatorRequest(),
+      businessId: BUSINESS_ID,
+      proposal: proposal({ proposedAction: "bid", bidEnvelope: null }),
+      dryRunOnly: false,
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.receipt.withheld).toBe("bid_envelope_absent");
+    expect(entityRoutes.handleMetaAdsetBidAction).not.toHaveBeenCalled();
   });
 });
 

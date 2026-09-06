@@ -61,6 +61,16 @@ vi.mock("@/lib/zero-base/provider-scope-server", () => ({
 }));
 vi.mock("@/lib/meta/automation-control-plane", () => ({
   getMetaAutomationControlPlane: vi.fn(),
+  /*
+    The route creates the business's control row on first view.
+
+    Twelve of thirteen businesses had no row, and with no row every write
+    answered `control_state_unavailable` — a refusal nobody could act on
+    because the thing that was missing was invisible. The row is created with
+    every switch off, so the call is safe to make on a read. Mocked here
+    because this suite is about the route's authority, not about that write.
+  */
+  ensureBusinessControlRow: vi.fn(async () => ({ created: false })),
 }));
 vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({}) as never) }));
 vi.mock("@/lib/meta/state-history-compaction-readiness", () => ({
@@ -166,6 +176,10 @@ const control: MetaAutomationControlPlane = {
       budgetMinHoursBetweenChanges: null,
       budgetMaxChangesPer7d: null,
       budgetMaxAccountConcentrationPct: null,
+      // Unstamped: no sizing policy version is bound, which is the state
+      // every business is in until an operator saves one.
+      budgetSizingPolicyVersion: null,
+      bidSizingPolicyVersion: null,
       minRoasFloor: null,
       quietHours: null,
     },
@@ -322,7 +336,16 @@ describe("Automation canonical route authority", () => {
        * operator sentence, so a gate cannot start refusing for a different
        * reason without this saying so.
        */
-      stopEngageRefusalReason: META_GATE_REFUSAL_REASONS.automationStopUi,
+      /*
+        The STOP is never refused for want of a capability.
+
+        It used to sit behind its own environment gate, which meant a business
+        could reach a screen where automation was live and the control that
+        turns it off said "not enabled yet". A stop that can be withheld is not
+        a stop. It is now unconditional, so nothing refuses engaging it and
+        this reason is null.
+      */
+      stopEngageRefusalReason: null,
       liveWritesRefusalReason: META_GATE_REFUSAL_REASONS.automationLiveWrites,
       // D077: the server-read, display-only recovery readiness travels to
       // the body verbatim.
@@ -607,5 +630,118 @@ describe("D086 C1 — the budget-readiness read reaches the body", () => {
     );
     expect(shim).not.toContain("budgetReadiness");
     expect(shim).not.toContain("readBudgetReadiness");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The control-row bootstrap is a WRITE, so it runs only for a viewer who may
+// write.
+//
+// Round three of one family. The first fix moved the bootstrap in
+// `POST /api/meta/automation` below its reviewer and demo guards; the second
+// moved this page's below the write-authority resolution and gated it on
+// `!reviewerReadOnly && writeAuthority === "live"`. Both asked about the
+// BUSINESS's posture and about the reviewer flag, and neither asked whether
+// the VIEWER may write — and a guest satisfies both. `requireBusinessPageContext`
+// is called with no `minRole`, which `evaluateBusinessAuthorization` defaults
+// to `"guest"`, so a guest reached an INSERT that stamped `updated_by` with an
+// id every Automation write route refuses.
+//
+// Both directions are asserted: every actor without mutation authority writes
+// nothing, and the actors who have it still get their row.
+// ---------------------------------------------------------------------------
+
+function contextWithRole(role: "admin" | "collaborator" | "guest") {
+  const base = authorizedContext("biz_route");
+  return {
+    ...base,
+    context: {
+      ...base.context,
+      role,
+      membership: { ...base.context.membership, role },
+    },
+  };
+}
+
+describe("control-row bootstrap is gated on the viewer's own mutation authority", () => {
+  it("a GUEST on a live workspace persists nothing", async () => {
+    vi.mocked(businessPageAccess.requireBusinessPageContext).mockResolvedValue(
+      contextWithRole("guest") as never,
+    );
+    vi.mocked(writeAuthority.readLaunchpadWriteAuthority).mockResolvedValue("live");
+
+    await renderPage();
+
+    /*
+      THE THIRD-ROUND DEFECT. This guest is admitted by
+      `requireBusinessPageContext`, is not a reviewer, and this workspace reads
+      `live` — so the previous gate passed on both halves and the durable
+      INSERT ran under a guest's id.
+    */
+    expect(controlPlane.ensureBusinessControlRow).not.toHaveBeenCalled();
+    // The same render already knew: the envelope refuses this viewer.
+    expect(exactPage.mock.calls.at(-1)?.[0]?.viewer?.canMutate).toBe(false);
+    expect(exactPage.mock.calls.at(-1)?.[0]?.viewer?.reasonCode).toBe(
+      "insufficient_role",
+    );
+  });
+
+  it("a REVIEWER persists nothing, whatever their role says", async () => {
+    const base = contextWithRole("admin");
+    vi.mocked(businessPageAccess.requireBusinessPageContext).mockResolvedValue({
+      ...base,
+      context: { ...base.context, reviewerReadOnly: true },
+    } as never);
+    vi.mocked(writeAuthority.readLaunchpadWriteAuthority).mockResolvedValue("live");
+
+    await renderPage();
+
+    expect(controlPlane.ensureBusinessControlRow).not.toHaveBeenCalled();
+  });
+
+  it("a demo workspace persists nothing, even for an admin", async () => {
+    vi.mocked(writeAuthority.readLaunchpadWriteAuthority).mockResolvedValue("demo");
+
+    await renderPage();
+
+    expect(controlPlane.ensureBusinessControlRow).not.toHaveBeenCalled();
+  });
+
+  it("an unreadable demo flag persists nothing", async () => {
+    // A missing fact never becomes a permission: `unverified` refuses.
+    vi.mocked(writeAuthority.readLaunchpadWriteAuthority).mockResolvedValue(
+      "unverified",
+    );
+
+    await renderPage();
+
+    expect(controlPlane.ensureBusinessControlRow).not.toHaveBeenCalled();
+  });
+
+  it("a COLLABORATOR on a live workspace still gets the row, stamped with their own id", async () => {
+    vi.mocked(businessPageAccess.requireBusinessPageContext).mockResolvedValue(
+      contextWithRole("collaborator") as never,
+    );
+    vi.mocked(writeAuthority.readLaunchpadWriteAuthority).mockResolvedValue("live");
+
+    await renderPage();
+
+    /*
+      The regression the tightening could have caused. `collaborator` is the
+      floor every Automation write enforces, so this viewer must still get the
+      default-closed row — without it every write answers
+      `control_state_unavailable`.
+    */
+    expect(controlPlane.ensureBusinessControlRow).toHaveBeenCalledTimes(1);
+    expect(controlPlane.ensureBusinessControlRow).toHaveBeenCalledWith({
+      businessId: "biz_route",
+      userId: "user_1",
+    });
+  });
+
+  it("an ADMIN on a live workspace still gets the row", async () => {
+    await renderPage();
+
+    expect(controlPlane.ensureBusinessControlRow).toHaveBeenCalledTimes(1);
   });
 });

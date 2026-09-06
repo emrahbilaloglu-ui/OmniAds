@@ -17,6 +17,14 @@ import {
 import { parseCreateMetaCreativeBriefRequest } from "@/lib/meta/creative-brief-contract";
 import { createMetaCreativeBrief } from "@/lib/meta/creative-brief-store";
 import { createMetaAdsActionLog } from "@/lib/meta/ads-action-log";
+import {
+  defaultActivationJournal,
+  LAUNCH_ACTIVATION_RECEIPT_CONTRACT,
+} from "@/lib/meta/launch-intent-activation";
+import {
+  getMetaLaunchIntent,
+  recordMetaLaunchIntentActivation,
+} from "@/lib/launchpad/meta-launch-intent-store";
 
 function expectEqual(actual: unknown, expected: unknown, label: string) {
   if (JSON.stringify(actual) !== JSON.stringify(expected)) {
@@ -260,8 +268,169 @@ async function main() {
   );
   expectEqual(persistedLink[0]!.launch_intent_id, created.intent.id, "direct FK persisted");
 
+  /*
+    ── The activation journal, against real SQL ──
+
+    The unit tests drive the sequence against a journal double, which proves
+    the sequencing and nothing about the database. What has to be true here is
+    the part only Postgres can answer: that an ambiguous settle really does
+    land in the state `findUnresolvedMetaAdStatusActionLog`'s query selects,
+    so the no-blind-retry gate is a real behaviour and not a claim about one.
+  */
+  const ambiguousClaim = await defaultActivationJournal.claim({
+    businessId: fixture.businessId,
+    providerAccountId: fixture.providerAccountId,
+    entityId: "seam_adset_ambiguous",
+    grain: "adset",
+    launchIntentId: created.intent.id,
+    operatorUserId: fixture.userId,
+    observed: { status: "PAUSED", effectiveStatus: "PAUSED" },
+  });
+  if (!ambiguousClaim) {
+    throw new Error("launch-intent seam FAILED [activation claim]: no row written");
+  }
+  const claimRow = await getDb().query<{
+    launch_intent_id: string | null;
+    source: string;
+    action: string;
+    status: string;
+    prior_status: string | null;
+  }>(
+    `SELECT launch_intent_id::text AS launch_intent_id,
+            source,
+            action,
+            status,
+            payload_request->'prior_state'->>'status' AS prior_status
+     FROM meta_ads_action_log
+     WHERE id = $1::uuid`,
+    [ambiguousClaim.id],
+  );
+  expectEqual(claimRow[0]!.launch_intent_id, created.intent.id, "activation claim lineage");
+  expectEqual(claimRow[0]!.source, "launch_activation_v1", "activation claim origin");
+  expectEqual(claimRow[0]!.action, "resume", "activation claim action");
+  expectEqual(claimRow[0]!.status, "pending", "activation claim starts pending");
+  // Written before the POST: the only record of what the entity was.
+  expectEqual(claimRow[0]!.prior_status, "PAUSED", "activation claim prior state");
+
+  // A pending claim already blocks a second attempt — that is the state an
+  // interrupted process leaves behind.
+  expectEqual(
+    (await defaultActivationJournal.findUnresolved({
+      businessId: fixture.businessId,
+      providerAccountId: fixture.providerAccountId,
+      entityId: "seam_adset_ambiguous",
+    }))?.id,
+    ambiguousClaim.id,
+    "pending claim is unresolved",
+  );
+
+  await defaultActivationJournal.settle({
+    id: ambiguousClaim.id,
+    outcome: "ambiguous",
+    reason: "provider_outcome_ambiguous",
+    durationMs: 12,
+  });
+  const settledAmbiguous = await getDb().query<{ status: string }>(
+    `SELECT status FROM meta_ads_action_log WHERE id = $1::uuid`,
+    [ambiguousClaim.id],
+  );
+  expectEqual(settledAmbiguous[0]!.status, "silent_failure", "ambiguous settles unknown");
+  expectEqual(
+    (await defaultActivationJournal.findUnresolved({
+      businessId: fixture.businessId,
+      providerAccountId: fixture.providerAccountId,
+      entityId: "seam_adset_ambiguous",
+    }))?.id,
+    ambiguousClaim.id,
+    "ambiguous claim still blocks a retry",
+  );
+  // A different entity is untouched by it. The gate is per entity, not per run.
+  expectEqual(
+    await defaultActivationJournal.findUnresolved({
+      businessId: fixture.businessId,
+      providerAccountId: fixture.providerAccountId,
+      entityId: "seam_campaign_ok",
+    }),
+    null,
+    "another entity is not blocked",
+  );
+
+  const okClaim = await defaultActivationJournal.claim({
+    businessId: fixture.businessId,
+    providerAccountId: fixture.providerAccountId,
+    entityId: "seam_campaign_ok",
+    grain: "campaign",
+    launchIntentId: created.intent.id,
+    operatorUserId: fixture.userId,
+    observed: { status: "PAUSED", effectiveStatus: "PAUSED" },
+  });
+  await defaultActivationJournal.settle({
+    id: okClaim!.id, outcome: "activated", reason: null, durationMs: 8,
+  });
+  expectEqual(
+    await defaultActivationJournal.findUnresolved({
+      businessId: fixture.businessId,
+      providerAccountId: fixture.providerAccountId,
+      entityId: "seam_campaign_ok",
+    }),
+    null,
+    "a resolved success does not block",
+  );
+  // A definite refusal is also resolved: it is known not to have applied.
+  const refusedClaim = await defaultActivationJournal.claim({
+    businessId: fixture.businessId,
+    providerAccountId: fixture.providerAccountId,
+    entityId: "seam_ad_refused",
+    grain: "ad",
+    launchIntentId: created.intent.id,
+    operatorUserId: fixture.userId,
+    observed: { status: "PAUSED", effectiveStatus: "PAUSED" },
+  });
+  await defaultActivationJournal.settle({
+    id: refusedClaim!.id, outcome: "refused", reason: "verified_not_active", durationMs: 5,
+  });
+  expectEqual(
+    await defaultActivationJournal.findUnresolved({
+      businessId: fixture.businessId,
+      providerAccountId: fixture.providerAccountId,
+      entityId: "seam_ad_refused",
+    }),
+    null,
+    "a definite refusal stays retryable",
+  );
+
+  // And the sequence itself survives the response.
+  await recordMetaLaunchIntentActivation({
+    businessId: fixture.businessId,
+    id: created.intent.id,
+    receipt: {
+      contract: LAUNCH_ACTIVATION_RECEIPT_CONTRACT,
+      intentId: created.intent.id,
+      authorization: "operator",
+      operatorUserId: fixture.userId,
+      recordedAt: "2026-09-05T11:00:00.000Z",
+      delivering: false,
+      // The shape production writes: `delivering` now means FULL coverage, so
+      // a receipt has to say what a partial run actually reached.
+      partial: true,
+      coverage: { planned: 1, on: 0, blocked: 1, ambiguous: 0, notAttempted: 0 },
+      blockedAt: "adset",
+      blockedReason: "provider_outcome_ambiguous",
+      steps: [],
+    },
+  });
+  const reread = await getMetaLaunchIntent({
+    businessId: fixture.businessId,
+    id: created.intent.id,
+  });
+  expectEqual(
+    (reread?.activationReceipt as { blockedAt?: string } | null)?.blockedAt,
+    "adset",
+    "activation receipt is durable",
+  );
+
   console.log(
-    "[launch-intent-seam] PASS: reviewed brief/draft lineage, account isolation, idempotency, state transitions, immutable recovery, action-log FK.",
+    "[launch-intent-seam] PASS: reviewed brief/draft lineage, account isolation, idempotency, state transitions, immutable recovery, action-log FK, activation claim/settle/no-blind-retry and durable activation receipt.",
   );
   resetDbClientCache();
 }

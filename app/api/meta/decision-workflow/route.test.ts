@@ -104,7 +104,9 @@ describe("POST decision workflow", () => {
      * the state machine. The shut-gate behaviour has its own case below, and
      * the default — off — is asserted in `lib/meta/release-gates.test.ts`.
      */
-    vi.stubEnv("META_DECISION_WORKFLOW_UI", "true");
+    // The workflow controls follow the one live-write capability now;
+    // their former private variable opens nothing on its own.
+    vi.stubEnv("META_AUTOMATION_LIVE_WRITES", "true");
     requireBusinessAccess.mockResolvedValue({ membership: { businessId: "biz-1" }, session: { user: { id: "user-1" } } });
     readWorkflowRecord.mockResolvedValue(openRecord);
     persistWorkflowTransition.mockResolvedValue({ ok: true });
@@ -206,7 +208,7 @@ describe("POST decision workflow", () => {
   });
 
   it("refuses every transition while the workflow gate is shut", async () => {
-    vi.stubEnv("META_DECISION_WORKFLOW_UI", "");
+    vi.stubEnv("META_AUTOMATION_LIVE_WRITES", "");
 
     const response = await POST(
       postRequest({
@@ -229,7 +231,7 @@ describe("POST decision workflow", () => {
   it("refuses a shut gate before it looks up an assignee", async () => {
     // Otherwise a shut gate is a membership oracle: a 422 and a 503 would tell
     // a caller whether a given user id belongs to this business.
-    vi.stubEnv("META_DECISION_WORKFLOW_UI", "");
+    vi.stubEnv("META_AUTOMATION_LIVE_WRITES", "");
 
     const response = await POST(
       postRequest({

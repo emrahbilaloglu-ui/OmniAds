@@ -210,17 +210,56 @@ export interface CampaignFirstSeenRow {
 // PIT filters + target selection (pure; leakage-tested)
 // ---------------------------------------------------------------------------
 
+/**
+ * Composite (business, provider-account) grouping of the frozen tuples, each
+ * bucket in FROZEN ARRAY ORDER. Same narrowing-only contract as
+ * `CreativeDayTupleIndex` below: it is decided by exactly the fields
+ * `creativeRowsUpTo`'s own identity guard tests, that guard still runs on
+ * every visited tuple, and a single forward fill preserves the frozen order,
+ * so the returned row array is element-for-element what the full scan
+ * produced. (`roleTimelinesPrimaryNameBlind` re-derives to the frozen
+ * artifact's hash, which asserts exactly that on real data.)
+ */
+type AccountTupleIndex = Map<string, CreativeDayTuple[]>;
+
+/** Shared empty candidate set for a key the index has never seen. */
+const NO_TUPLES: readonly CreativeDayTuple[] = [];
+
+const accountTupleKey = (businessId: string, accountId: string) =>
+  `${businessId}\u0000${accountId}`;
+
+function buildAccountTupleIndex(
+  tuples: readonly CreativeDayTuple[],
+): AccountTupleIndex {
+  const index: AccountTupleIndex = new Map();
+  for (const t of tuples) {
+    const key = accountTupleKey(t[0], t[1]);
+    const bucket = index.get(key);
+    if (bucket) bucket.push(t);
+    else index.set(key, [t]);
+  }
+  return index;
+}
+
 /** Only rows whose FACT date is <= t0 (the replay's decision boundary),
- * scoped by the COMPOSITE (business, provider-account) identity. */
+ * scoped by the COMPOSITE (business, provider-account) identity.
+ *
+ * `index` is an optional pre-built grouping of the SAME `tuples` (see
+ * `buildAccountTupleIndex`); it only narrows the candidate set this scan
+ * walks. Omit it and the function behaves exactly as it always has. */
 export function creativeRowsUpTo(
   tuples: readonly CreativeDayTuple[],
   businessId: string,
   accountId: string,
   t0: string,
+  index?: AccountTupleIndex,
 ): CreativeDayRow[] {
   const windowStart = addDaysUtc(t0, -(ROLE_SOURCE_WINDOW_DAYS - 1));
   const rows: CreativeDayRow[] = [];
-  for (const t of tuples) {
+  const candidates = index
+    ? (index.get(accountTupleKey(businessId, accountId)) ?? NO_TUPLES)
+    : tuples;
+  for (const t of candidates) {
     if (t[0] !== businessId || t[1] !== accountId) continue;
     const date = t[5];
     if (date > t0 || date < windowStart) continue;
@@ -619,10 +658,60 @@ export function classifyOriginTemporal(input: {
   };
 }
 
+/**
+ * Composite (business, account, creative) grouping of the frozen creative-day
+ * tuples, each bucket holding that key's tuples in FROZEN ARRAY ORDER.
+ *
+ * PERFORMANCE, not semantics. `outcomeAggregateFor` is a per-(decision,
+ * horizon) question over ONE composite creative, and it answered it by
+ * scanning the whole frozen tuple array — 89,433 tuples for every one of the
+ * 108,556 (primary row x horizon) cells the analysis evaluates, about 9.7e9
+ * tuple visits, which is where 225 of `analyzePitReplay`'s 226 seconds went.
+ * The bucket a query needs is decided by exactly the three fields the scan's
+ * own identity guard tests, so restricting the scan to that bucket cannot
+ * change which tuples are summed.
+ *
+ * Two properties keep the indexed path BYTE-identical to the linear one, not
+ * merely equal to rounding:
+ *   1. Buckets are filled in a single forward pass, so a bucket preserves the
+ *      frozen array's relative order and the floating-point ADDITION ORDER of
+ *      the sum is unchanged. (`analysis` re-derives to the frozen artifact's
+ *      hash, which is the assertion that proves this on real data.)
+ *   2. The identity guard is still evaluated on every visited tuple, so the
+ *      index can only ever narrow the candidate set, never widen it: were two
+ *      distinct keys ever to collide into one bucket, the guard would reject
+ *      the foreign tuples exactly as the full scan did.
+ */
+type CreativeDayTupleIndex = Map<string, CreativeDayTuple[]>;
+
+const outcomeIndexKey = (
+  businessId: string,
+  providerAccountId: string,
+  creativeId: string,
+) => `${businessId}\u0000${providerAccountId}\u0000${creativeId}`;
+
+function buildCreativeDayTupleIndex(
+  tuples: readonly CreativeDayTuple[],
+): CreativeDayTupleIndex {
+  const index: CreativeDayTupleIndex = new Map();
+  for (const t of tuples) {
+    const key = outcomeIndexKey(t[0], t[1], t[4]);
+    const bucket = index.get(key);
+    if (bucket) bucket.push(t);
+    else index.set(key, [t]);
+  }
+  return index;
+}
+
 /** Outcome aggregate strictly AFTER t0 (date > t0 AND date <= t0+h),
- * mirroring the established replay outcome SQL semantics. */
+ * mirroring the established replay outcome SQL semantics.
+ *
+ * `index` is an optional pre-built grouping of the SAME `tuples` (see
+ * `buildCreativeDayTupleIndex`); it only narrows the candidate set this scan
+ * walks. Omit it and the function behaves exactly as it always has. */
 export function outcomeAggregateFor(input: {
   tuples: readonly CreativeDayTuple[];
+  index?: CreativeDayTupleIndex;
   businessId: string;
   providerAccountId: string;
   creativeId: string;
@@ -635,10 +724,19 @@ export function outcomeAggregateFor(input: {
   outcomeRoas: number | null;
 } {
   const end = addDaysUtc(input.t0, input.horizonDays);
+  const candidates = input.index
+    ? (input.index.get(
+        outcomeIndexKey(
+          input.businessId,
+          input.providerAccountId,
+          input.creativeId,
+        ),
+      ) ?? NO_TUPLES)
+    : input.tuples;
   let spend = 0;
   let purchases = 0;
   let revenue = 0;
-  for (const t of input.tuples) {
+  for (const t of candidates) {
     if (
       t[0] !== input.businessId ||
       t[1] !== input.providerAccountId ||
@@ -762,8 +860,19 @@ export function buildRoleTimelines(input: {
   const timelines = new Map<string, RoleTimeline>();
   const hysteresis = new Map<string, HysteresisState>();
   const lastPublished = new Map<string, RoleDayState>();
+  // Built ONCE for this account's whole day walk; the per-day row selection
+  // below previously re-scanned every business's tuples for each of the ~545
+  // days it evaluates. Narrowing only — the identity guard inside
+  // `creativeRowsUpTo` still runs. @see `buildAccountTupleIndex`.
+  const accountTupleIndex = buildAccountTupleIndex(input.tuples);
   for (const day of input.days) {
-    const rows = creativeRowsUpTo(input.tuples, input.businessId, input.accountId, day);
+    const rows = creativeRowsUpTo(
+      input.tuples,
+      input.businessId,
+      input.accountId,
+      day,
+      accountTupleIndex,
+    );
     if (rows.length === 0) continue;
     const meta = campaignMetaAsOf({
       namePoints: input.namePoints,
@@ -1370,6 +1479,13 @@ export function analyzePitReplay(inputs: PitReplayFrozenInputs) {
   let matureEvaluated = 0;
   let immatureEmbargoed = 0;
   let outcomeUnsupported = 0;
+  // Built ONCE for the whole outcome sweep; every cell below asks about one
+  // composite creative and previously re-scanned all of them. Narrowing only
+  // — the identity guard inside the aggregate still runs. @see
+  // `buildCreativeDayTupleIndex`.
+  const creativeDayTupleIndex = buildCreativeDayTupleIndex(
+    inputs.creativeDayTuples,
+  );
   for (const row of primary) {
     const lastData = lastDataByBusiness.get(row.businessId);
     if (!lastData) continue;
@@ -1384,6 +1500,7 @@ export function analyzePitReplay(inputs: PitReplayFrozenInputs) {
       }
       const aggregate = outcomeAggregateFor({
         tuples: inputs.creativeDayTuples,
+        index: creativeDayTupleIndex,
         businessId: row.businessId,
         providerAccountId: row.providerAccountId as string,
         creativeId: row.creativeId,

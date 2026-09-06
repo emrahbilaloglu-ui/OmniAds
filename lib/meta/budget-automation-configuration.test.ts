@@ -6,6 +6,8 @@
  * and no path through that write may leave automation on or clear a safety
  * state. These cases hold both ends.
  */
+import { BUDGET_SIZING_POLICY_VERSION } from "@/lib/meta/budget-sizing-policy";
+import { BID_SIZING_POLICY_VERSION } from "@/lib/meta/bid-sizing-policy";
 import { describe, expect, it, vi } from "vitest";
 
 const statements: Array<{ sql: string; params: unknown[] }> = [];
@@ -128,6 +130,16 @@ describe("budget automation configuration — the write can never enable", () =>
       maxBudgetIncreasePct: 25,
       perActionSpendCeilingMinor: 500000,
       perActionSpendCeilingCurrency: "TRY",
+      /*
+        Which sizing policies this saved configuration is bound to.
+
+        The bands and the ladder are an operating policy, so a build that
+        changes them must not start proposing different amounts against a
+        configuration nobody re-approved. Saving this form is what binds the
+        current versions; the producers refuse against any other.
+      */
+      budgetSizingPolicyVersion: BUDGET_SIZING_POLICY_VERSION,
+      bidSizingPolicyVersion: BID_SIZING_POLICY_VERSION,
     });
     // The patch itself must never carry the enablement.
     expect(Object.keys(patch)).not.toContain("autoExecutionEnabled");

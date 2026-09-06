@@ -252,12 +252,64 @@ async function metaFetch(input: {
   }
 }
 
+/**
+ * The last thing that runs before a create leaves the process.
+ *
+ * A caller's authority can lapse between one create and the next: an operator
+ * engages the STOP, a standing mode moves off auto, an activation is
+ * superseded, rehearsal is switched on. A check one frame above the call
+ * describes that; a check here PREVENTS it, because there is nothing between
+ * this and the request.
+ *
+ * The shape is the one `ads-write.ts` already uses for the same job: the hook
+ * throws, the throw is turned into a named error, and no request is made. A
+ * hook that throws a plain Error still names something rather than nothing.
+ */
+export interface MetaLaunchCreateOptions {
+  /**
+   * Re-proved authority, run immediately before this create's single POST.
+   *
+   * Throw to refuse: the throw becomes a named error, no request is made, and
+   * the receipt carries no mutation attempt. A caller with nothing to re-prove
+   * passes nothing.
+   */
+  beforeMutationAttempt?: () => Promise<void>;
+}
+
+async function runCreateBoundaryHook(
+  hook: (() => Promise<void>) | undefined,
+): Promise<MetaAdsWriteError | null> {
+  try {
+    await hook?.();
+    return null;
+  } catch (error) {
+    const typed =
+      error !== null &&
+      typeof error === "object" &&
+      "code" in error &&
+      typeof (error as { code?: unknown }).code === "string"
+        ? (error as { code: string; message?: unknown })
+        : null;
+    return {
+      code: typed?.code ?? "before_mutation_attempt_failed",
+      message:
+        typed && typeof typed.message === "string"
+          ? typed.message
+          : error instanceof Error
+            ? error.message
+            : String(error),
+    } satisfies MetaAdsWriteError;
+  }
+}
+
 async function metaFetchWithRateLimitRetry(input: {
   ctx: MetaAdsWriteContext;
   path: string;
   method: MetaFetchMethod;
   body?: URLSearchParams;
   fields?: string;
+  /** Re-proved authority, asked immediately before the POST. See above. */
+  beforeMutationAttempt?: () => Promise<void>;
 }): Promise<{
   response: Response | null;
   payload: Record<string, unknown> | null;
@@ -274,6 +326,22 @@ async function metaFetchWithRateLimitRetry(input: {
     };
   }
   if (input.method === "POST") {
+    /*
+      After every adapter-side check and before the single attempt.
+
+      A refusal here has made no provider contact at all, which is why it
+      returns a null `mutationAttempt`: there is nothing for a reconciliation
+      to be uncertain about.
+    */
+    const boundaryFailure = await runCreateBoundaryHook(input.beforeMutationAttempt);
+    if (boundaryFailure) {
+      return {
+        response: null,
+        payload: null,
+        error: boundaryFailure,
+        mutationAttempt: null,
+      };
+    }
     // One provider mutation attempt only. A thrown transport result can hide a
     // committed create, while an HTTP response proves that Meta replied.
     const attemptedAt = new Date().toISOString();
@@ -548,11 +616,13 @@ function readPromotedObjectField(
 export async function createCampaign(
   ctx: MetaAdsWriteContext,
   input: MetaLaunchCampaignInput,
+  options: MetaLaunchCreateOptions = {},
 ): Promise<MetaLaunchCampaignSuccess | MetaAdsWriteFailure> {
   const accountNumericId = getAccountNumericId(ctx.providerAccountId);
   const write = await metaFetchWithRateLimitRetry({
     ctx,
     path: `act_${accountNumericId}/campaigns`,
+    beforeMutationAttempt: options.beforeMutationAttempt,
     method: "POST",
     body: campaignBody(input),
   });
@@ -644,10 +714,12 @@ export async function createCampaign(
 export async function createAdSet(
   ctx: MetaAdsWriteContext,
   input: MetaLaunchAdSetInput,
+  options: MetaLaunchCreateOptions = {},
 ): Promise<MetaLaunchAdSetSuccess | MetaAdsWriteFailure> {
   const write = await metaFetchWithRateLimitRetry({
     ctx,
     path: `${input.campaignId}/adsets`,
+    beforeMutationAttempt: options.beforeMutationAttempt,
     method: "POST",
     body: adSetBody(input),
   });
@@ -763,10 +835,12 @@ export async function createAdSet(
 export async function createAd(
   ctx: MetaAdsWriteContext,
   input: MetaLaunchAdInput,
+  options: MetaLaunchCreateOptions = {},
 ): Promise<MetaLaunchAdSuccess | MetaAdsWriteFailure> {
   const write = await metaFetchWithRateLimitRetry({
     ctx,
     path: `${input.adsetId}/ads`,
+    beforeMutationAttempt: options.beforeMutationAttempt,
     method: "POST",
     body: adBody(input),
   });

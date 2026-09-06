@@ -7,7 +7,7 @@ import {
 } from "../fatigue";
 import { computeFunnelDiagnosis } from "../funnel";
 import { resolveAccountDecisionProfile } from "../account-decision-profile";
-import { WarehouseDataSource } from "../data-source";
+import { AccountScopedDataSource, WarehouseDataSource } from "../data-source";
 import { resolveEngineV3Flags, type EngineV3Flags } from "../feature-flags";
 import {
   ENGINE_VERSION,
@@ -1296,22 +1296,130 @@ async function insertJobRun(input: {
   return id;
 }
 
+/**
+ * One account decision profile per distinct physical ad account these lifecycle
+ * rows belong to, each resolved with its MEASURED reads scoped to that account.
+ *
+ * WHY. Every row this job writes carries a `provider_account_id`, and the
+ * profile decides two things stored on it: the winner-memory spend and purchase
+ * floors that `computeFatigue` reads, and the account funnel pack
+ * `computeFunnelDiagnosis` compares the creative's own rates against. Every
+ * measured read `resolveAccountDecisionProfile` makes defaults to the
+ * business's whole Meta footprint, so one profile for the business means a
+ * second ad account's creatives set these floors and baselines.
+ *
+ * Driven before this change against a migrated database, on a business holding
+ * account P (six creatives) and account Q (thirty-two), moving ONLY Q's funnel
+ * counts moved P's RETAINED row:
+ *
+ *   funnel_primary_weak_stage   "none"  ->  "landing_page"
+ *   funnel_confidence            1      ->  0.8
+ *   site_responsibility_score    0      ->  1
+ *   funnel_evidence  ["funnel rates are not below account weak thresholds"]
+ *                 -> ["Link-to-ATC 25.00% vs account baseline 43.75%"]
+ *
+ * P's own funnel counts were untouched, and the 43.75% is Q's — P's own
+ * link-to-ATC of 25.00% IS P's account baseline.
+ *
+ * `AccountScopedDataSource` is the same wrapper the served commercial-anchor
+ * panel uses in `app/api/meta/decisions-workspace/route.ts`. It scopes only the
+ * measured reads: the target pack, the decision calibration profile and the
+ * engine flags stay business-level, because a target ROAS is one commercial
+ * policy for the business rather than a per-account setting.
+ *
+ * `null`, blank and whitespace-only account ids are not accounts and are not
+ * resolved here; the caller answers those rows with the business-wide profile,
+ * which is the only honest reading when a row names no physical account.
+ */
+async function resolveProfilesByProviderAccount(input: {
+  businessId: string;
+  asOf: string;
+  flags: EngineV3Flags;
+  providerAccountIds: ReadonlyArray<string | null | undefined>;
+}): Promise<Map<string, AccountDecisionProfile>> {
+  const accounts = [
+    ...new Set(
+      input.providerAccountIds.flatMap((account) => {
+        const trimmed = account?.trim();
+        return trimmed ? [trimmed] : [];
+      }),
+    ),
+  ];
+  const resolved = await Promise.all(
+    accounts.map(
+      async (account) =>
+        [
+          account,
+          await resolveAccountDecisionProfile({
+            businessId: input.businessId,
+            asOf: input.asOf,
+            dataSource: new AccountScopedDataSource(
+              new WarehouseDataSource(),
+              account,
+            ),
+            flags: input.flags,
+          }),
+        ] as const,
+    ),
+  );
+  return new Map(resolved);
+}
+
 async function computeLifecycleRows(input: {
   businessId: string;
   asOf: string;
   jobRunId: string;
   flags: EngineV3Flags;
 }): Promise<ComputedLifecycleBatch> {
-  const profile = await resolveAccountDecisionProfile({
-    businessId: input.businessId,
-    asOf: input.asOf,
-    dataSource: new WarehouseDataSource(),
-    flags: input.flags,
-  });
   const rows = await getDb().query<LifecycleComputationRow>(
     COMPUTE_LIFECYCLE_ROWS_QUERY,
     [input.businessId, input.asOf, Array.from(SUPPORTED_OBJECTIVES)],
   );
+  /*
+    The rows come first now, because which accounts to resolve is a fact about
+    them. Nothing between the two reads depends on the order, and the profile is
+    used only to map rows that already exist.
+  */
+  const profileByAccount = await resolveProfilesByProviderAccount({
+    businessId: input.businessId,
+    asOf: input.asOf,
+    flags: input.flags,
+    providerAccountIds: rows.map((row) =>
+      toStringOrNull(row.provider_account_id),
+    ),
+  });
+  /*
+    Resolved only when a row actually needs it: a row that names no physical
+    account has nothing to scope to, so it keeps the business-wide reading it
+    has always had, and a business whose every row names an account it already
+    has a profile for never pays for this read.
+  */
+  const needsBusinessProfile = rows.some((row) => {
+    const account = toStringOrNull(row.provider_account_id)?.trim();
+    return !account || !profileByAccount.has(account);
+  });
+  const businessProfile = needsBusinessProfile
+    ? await resolveAccountDecisionProfile({
+        businessId: input.businessId,
+        asOf: input.asOf,
+        dataSource: new WarehouseDataSource(),
+        flags: input.flags,
+      })
+    : null;
+  const profileFor = (row: LifecycleComputationRow): AccountDecisionProfile => {
+    const account = toStringOrNull(row.provider_account_id)?.trim();
+    const scoped = account ? profileByAccount.get(account) : undefined;
+    if (scoped) return scoped;
+    if (businessProfile === null) {
+      // Unreachable: `needsBusinessProfile` above is exactly this condition,
+      // computed over the same rows. Named rather than asserted away, because a
+      // silent `!` here would be a lie the day the two drift apart.
+      throw new Error(
+        "Lifecycle job has no decision profile for a row it must map.",
+      );
+    }
+    return businessProfile;
+  };
   const computedAt = new Date().toISOString();
   const firstRow = rows[0];
   const sourceMinDate = toIsoDateOrNull(firstRow?.source_min_date);
@@ -1329,7 +1437,7 @@ async function computeLifecycleRows(input: {
           asOf: input.asOf,
           jobRunId: input.jobRunId,
           computedAt,
-          profile,
+          profile: profileFor(row),
         }),
       )
       .filter((row): row is LifecycleUpsertRow => row !== null),

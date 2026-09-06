@@ -38,6 +38,14 @@ jobs:
         run: |
           npx tsc --noEmit
 
+      - name: Verify every Meta body is actually mounted
+        # A body nobody routes to is a gate measuring a component no operator
+        # ever sees. The whole Meta redesign shipped once in exactly that
+        # state — the new bodies were written, the canonical routes still
+        # mounted the legacy ones, and every check passed. This is cheap and
+        # needs no database, so it runs beside the typecheck.
+        run: npm run meta:verify-mounted-bodies
+
       - name: Verify release authority preflight
         # The preflight refuses to pass while ZERO_BASE_UI_MODE is unset, on
         # purpose: unset parses as `off`, and `off` routes every canonical

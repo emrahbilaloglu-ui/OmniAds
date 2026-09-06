@@ -123,9 +123,18 @@ export interface D061ClosedWindowReplayRow {
       | "insufficient_sample"
       | "contradictory_purchase_truth"
       | "unavailable";
+      /*
+        The basis vocabulary this frozen replay may observe.
+
+        `observed_shopify_aov` joins it because the authority builder can now
+        reach that basis; the replay itself is unchanged and its own gates still
+        require `physical_account_purchase_aov_90d` where they did. Widening the
+        type only lets a row say honestly which basis it saw.
+      */
     basis:
       | "target_cpa"
       | "operator_aov"
+      | "observed_shopify_aov"
       | "physical_account_purchase_aov_90d"
       | null;
     purchaseCount: number;

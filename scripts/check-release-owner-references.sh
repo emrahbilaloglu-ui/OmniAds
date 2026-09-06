@@ -102,6 +102,60 @@ REGISTRY=(
   # path the ledger pins and refuses when it is absent.
   "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-08-30.log|1|Retained whole-shell capture (38-stage run): this guard announcing the token it scans for."
   "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-03.log|1|Retained whole-shell capture (40-stage run): this guard announcing the token it scans for."
+  # RELEASE CANDIDATE 2026-09-06: a third capture, not a replacement. The two
+  # above stay registered because they remain the evidence of their own runs;
+  # this one is the canonical run of the release candidate's tree. Same single
+  # self-reference, same reason.
+  "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06.log|1|Retained whole-shell capture (40-stage run, 07:59Z, superseded): this guard announcing the token it scans for."
+  # The 10:30Z capture is the canonical one. The 07:59Z run above is kept
+  # because it happened and is honest evidence of the tree it ran on — but it
+  # is SUPERSEDED, not historical in the sense the two earlier captures are:
+  # between the two runs the seam's children changed (a previously unregistered
+  # DB seam test was registered, and runChildVitest began asserting passing
+  # counts), so the earlier log no longer binds what the stage executes.
+  "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1030Z.log|1|Retained whole-shell capture (40-stage run, 10:30Z, superseded): this guard announcing the token it scans for."
+  # 11:18Z is the canonical capture. Superseded again, and for the same honest
+  # reason: addressing the PR review changed lib/migrations.ts and
+  # campaign-context-job.ts, which the seam's children execute. Each superseded
+  # capture is kept because it is truthful evidence of the tree it ran on; only
+  # the label moves, never the bytes.
+  "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1118Z.log|1|Retained whole-shell capture (40-stage run, 11:18Z, superseded): this guard announcing the token it scans for."
+  # 11:56Z is canonical: the second review round changed the bid sizing
+  # policy, which one of the seam children exercises.
+  "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1156Z.log|1|Retained whole-shell capture (40-stage run, 11:56Z, superseded): this guard announcing the token it scans for."
+  # 12:34Z is canonical: the third review round changed the launch-intent
+  # producers, which the decision-launch-chain seam child exercises.
+  "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1234Z.log|1|Retained whole-shell capture (40-stage run, 12:34Z, superseded): this guard announcing the token it scans for."
+  # 13:17Z is canonical. The 12:34Z tree FAILED this shell once the round-4
+  # carve-out landed — the decision-launch-chain child raised two launch rows
+  # where it expected one — so this capture is also the proof of that repair.
+  "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1317Z.log|1|Retained whole-shell capture (40-stage run, 13:17Z, superseded): this guard announcing the token it scans for."
+  # 13:56Z is canonical: round 5 changed the bid dispatch and the entity
+  # action handler, both of which seam children execute.
+  "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1356Z.log|1|Retained whole-shell capture (40-stage run, 13:56Z, superseded): this guard announcing the token it scans for."
+  # 14:43Z is canonical: round 6 changed the provider write client and the
+  # brief, both reached by seam children.
+  "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1443Z.log|1|Retained whole-shell capture (40-stage run, 14:43Z, superseded): this guard announcing the token it scans for."
+  # 15:26Z is canonical: round 7 changed the activation-approval route, the
+  # profile-output producer and the Automation page.
+  "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1526Z.log|1|Retained whole-shell capture (40-stage run, 15:26Z, superseded): this guard announcing the token it scans for."
+  # 16:07Z was canonical: the activation-approval NULL race closure changed
+  # the approval validator, the store, the unattended gate and the producer.
+  "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1607Z.log|1|Retained whole-shell capture (40-stage run, 16:07Z, superseded): this guard announcing the token it scans for."
+  # 17:07Z was canonical on source freeze 637c83ff5 after R8 fixes.
+  "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1707Z.log|1|Retained whole-shell capture (40-stage run, 17:07Z, superseded): this guard announcing the token it scans for."
+  # 17:40Z was canonical on runtime/seam source freeze 6127c568e after R9.
+  "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1740Z.log|1|Retained whole-shell capture (40-stage run, 17:40Z, superseded): this guard announcing the token it scans for."
+  # 18:18Z was canonical on source freeze a99f2b194 after R10.
+  "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1818Z.log|1|Retained whole-shell capture (40-stage run, 18:18Z, superseded): this guard announcing the token it scans for."
+  # 18:50Z was canonical on source freeze 726e94619 after R11.
+  "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1850Z.log|1|Retained whole-shell capture (40-stage run, 18:50Z, superseded): this guard announcing the token it scans for."
+  # 19:30Z was canonical on source freeze 235315841 after R12.
+  "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1930Z.log|1|Retained whole-shell capture (40-stage run, 19:30Z, superseded): this guard announcing the token it scans for."
+  # 20:06Z was canonical on source freeze 3a03f2a0d after R13.
+  "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T2006Z.log|1|Retained whole-shell capture (40-stage run, 20:06Z, superseded): this guard announcing the token it scans for."
+  # 20:37Z is canonical on source freeze 444597262 after R14.
+  "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T2037Z.log|1|Retained whole-shell capture (40-stage run, 20:37Z, CANONICAL): this guard announcing the token it scans for."
 )
 
 HISTORICAL_COUNTS=(

@@ -34,6 +34,22 @@ export interface MetaAdsWriteOptions {
   dryRun?: boolean;
 }
 
+/**
+ * The campaign / ad set status write, with the same pre-POST boundary the ad
+ * status write already has.
+ *
+ * The ad path grew a hook because its manual route journals a claim before the
+ * single POST. Unattended execution needs the same boundary one level up: an
+ * operator can engage the STOP, change the standing mode or re-activate under a
+ * different admin in the seconds between claiming a queued row and reaching the
+ * provider, and this is the last point at which re-reading that authority can
+ * still prevent the write rather than merely describe it. The hook throws to
+ * refuse, and a throw here means no request was made at all.
+ */
+export interface MetaEntityStatusWriteOptions extends MetaAdsWriteOptions {
+  beforeMutationAttempt?: () => Promise<void>;
+}
+
 export interface MetaAdStatusMutationBaseline {
   businessId: string;
   providerAccountId: string;
@@ -1861,7 +1877,7 @@ async function updateEntityStatus(
   entityId: string,
   status: "ACTIVE" | "PAUSED",
   entityLabel: "campaign" | "ad set",
-  options: MetaAdsWriteOptions = {},
+  options: MetaEntityStatusWriteOptions = {},
 ): Promise<MetaAdStatusWriteSuccess | MetaAdsWriteFailure> {
   if (isMetaAdsWriteKillSwitchEngaged()) return killSwitchFailure();
   const wouldHaveWritten: MetaAdsWouldHaveWritten = {
@@ -1904,6 +1920,7 @@ async function updateEntityStatus(
     path: entityId,
     method: "POST",
     body,
+    beforeMutationAttempt: options.beforeMutationAttempt,
   });
   if (write.error) {
     return buildWriteTransportFailure({
@@ -2685,7 +2702,7 @@ export async function resumeAd(
 export async function pauseCampaign(
   ctx: MetaAdsWriteContext,
   campaignId: string,
-  options: MetaAdsWriteOptions = {},
+  options: MetaEntityStatusWriteOptions = {},
 ): Promise<MetaAdStatusWriteSuccess | MetaAdsWriteFailure> {
   return updateEntityStatus(ctx, campaignId, "PAUSED", "campaign", options);
 }
@@ -2693,7 +2710,7 @@ export async function pauseCampaign(
 export async function resumeCampaign(
   ctx: MetaAdsWriteContext,
   campaignId: string,
-  options: MetaAdsWriteOptions = {},
+  options: MetaEntityStatusWriteOptions = {},
 ): Promise<MetaAdStatusWriteSuccess | MetaAdsWriteFailure> {
   return updateEntityStatus(ctx, campaignId, "ACTIVE", "campaign", options);
 }
@@ -2701,7 +2718,7 @@ export async function resumeCampaign(
 export async function pauseAdset(
   ctx: MetaAdsWriteContext,
   adsetId: string,
-  options: MetaAdsWriteOptions = {},
+  options: MetaEntityStatusWriteOptions = {},
 ): Promise<MetaAdStatusWriteSuccess | MetaAdsWriteFailure> {
   return updateEntityStatus(ctx, adsetId, "PAUSED", "ad set", options);
 }
@@ -2709,14 +2726,149 @@ export async function pauseAdset(
 export async function resumeAdset(
   ctx: MetaAdsWriteContext,
   adsetId: string,
-  options: MetaAdsWriteOptions = {},
+  options: MetaEntityStatusWriteOptions = {},
 ): Promise<MetaAdStatusWriteSuccess | MetaAdsWriteFailure> {
   return updateEntityStatus(ctx, adsetId, "ACTIVE", "ad set", options);
 }
 
+export type MetaAdsetBidStateRead =
+  | {
+      ok: true;
+      adsetId: string;
+      providerAccountId: string;
+      /** Minor units, as Meta stores `bid_amount`. Null when there is none. */
+      bidAmountMinor: number | null;
+      /** The live strategy. A cap written under another one means something else. */
+      bidStrategy: string | null;
+      configuredStatus: string | null;
+      effectiveStatus: string | null;
+      observedAt: string;
+    }
+  | { ok: false; adsetId: string | null; error: MetaAdsWriteError; httpStatus: number | null };
+
+/**
+ * The current bid state of one ad set, bound to its identity.
+ *
+ * A bid intent is reasoned about under a strategy — a cost cap and a bid cap
+ * are different instructions to the auction — and the strategy can change
+ * between the decision and the write. Nothing may be written against an
+ * assumption about it, so this is read fresh immediately before the write and
+ * refuses, like every other reader here, when the answer is about a different
+ * ad set or a different account.
+ */
+export async function readMetaAdsetBidState(
+  ctx: MetaAdsWriteContext,
+  adsetId: string,
+): Promise<MetaAdsetBidStateRead> {
+  const result = await metaFetch({
+    ctx,
+    path: adsetId,
+    method: "GET",
+    fields: "id,account_id,bid_amount,bid_strategy,status,effective_status",
+  });
+  if (result.error || !result.response?.ok || isFailureBody(result.payload)) {
+    return {
+      ok: false,
+      adsetId,
+      error:
+        result.error
+        ?? getMetaError(result.payload, {
+          code: "current_entity_state_unverified",
+          message: "Meta current ad set bid state could not be verified.",
+        }),
+      httpStatus: result.response?.status ?? null,
+    };
+  }
+  const resolvedId = readStringField(result.payload, "id");
+  if (resolvedId !== adsetId) {
+    return {
+      ok: false,
+      adsetId: resolvedId || null,
+      error: {
+        code: "entity_identity_mismatch",
+        message: "Meta ad set bid state resolved to a different ad set.",
+      },
+      httpStatus: result.response.status,
+    };
+  }
+  const providerAccountId = normalizeProviderAccountId(
+    readStringField(result.payload, "account_id"),
+  );
+  if (
+    !providerAccountId
+    || providerAccountId !== normalizeProviderAccountId(ctx.providerAccountId)
+  ) {
+    return {
+      ok: false,
+      adsetId: resolvedId,
+      error: {
+        code: providerAccountId ? "provider_account_mismatch" : "meta_account_unresolved",
+        message: providerAccountId
+          ? "Meta ad set bid state belongs to a different provider account."
+          : "Meta ad set bid state omitted account identity.",
+      },
+      httpStatus: result.response.status,
+    };
+  }
+  const rawBid = Number(result.payload?.bid_amount ?? NaN);
+  return {
+    ok: true,
+    adsetId: resolvedId,
+    providerAccountId,
+    bidAmountMinor: Number.isFinite(rawBid) ? Math.round(rawBid) : null,
+    bidStrategy: readStringField(result.payload, "bid_strategy") || null,
+    configuredStatus: readStringField(result.payload, "status") || null,
+    effectiveStatus: readStringField(result.payload, "effective_status") || null,
+    observedAt: new Date().toISOString(),
+  };
+}
+
 export async function updateAdsetBidAmount(
   ctx: MetaAdsWriteContext,
-  input: { adsetId: string; bidAmountMinor: number; dryRun?: boolean },
+  input: {
+    adsetId: string;
+    bidAmountMinor: number;
+    dryRun?: boolean;
+    /**
+     * The strategy the amount was reasoned under.
+     *
+     * When given, the read-back must still show it. The bid intent's own
+     * contract asserts `bid_strategy_unchanged` for a reason: the same number
+     * under a different strategy is a different instruction, and a write that
+     * verified only the number would report success for it.
+     *
+     * When `expectedCurrentBidAmountMinor` is given as well, the pre-POST read
+     * below checks it too, so a moved strategy is refused before the write
+     * rather than only reported after it.
+     */
+    expectedBidStrategy?: string | null;
+    /**
+     * The amount the caller's own baseline read says the ad set holds RIGHT NOW.
+     *
+     * The strategy above is proved by the POST-WRITE read-back, which cannot
+     * work for the amount: by read-back time this write has already overwritten
+     * whatever was there, so the number it verifies is its own. The amount
+     * therefore needs a genuine PRE-POST comparison, and this is it.
+     *
+     * Both callers that re-read a baseline pass it —
+     * `automation-proposal-execution.ts` (approval) and
+     * `scheduled-bid-runtime.ts` (unattended). Each compares the live cap
+     * against the envelope and then hands this write the amount; everything
+     * between that comparison and the POST is awaits — an access check, an
+     * account context, an action-log insert, a live provider preflight, a
+     * durable dispatch marker. An operator moving the cap in Ads Manager inside
+     * that window had the approved "+10%, 1200 → 1320" written over their 1500
+     * as a 12% CUT, and the read-back found 1320 and called it a success.
+     *
+     * Absent — the operator's own apply-bid entry, which has proved nothing
+     * about the current cap — nothing is asserted on the caller's behalf and NO
+     * extra provider request is made. A rehearsal skips it too: it returns from
+     * the dry-run branch above without POSTing, so there is nothing to overwrite.
+     */
+    expectedCurrentBidAmountMinor?: number | null;
+    /** See `MetaEntityStatusWriteOptions`: the pre-POST authority boundary. */
+    beforeMutationAttempt?: () => Promise<void>;
+  },
 ): Promise<MetaAdsetBidWriteSuccess | MetaAdsWriteFailure> {
   if (isMetaAdsWriteKillSwitchEngaged()) return killSwitchFailure();
   const bidAmount = Math.round(input.bidAmountMinor);
@@ -2756,12 +2908,117 @@ export async function updateAdsetBidAmount(
   }
 
   const body = new URLSearchParams({ bid_amount: String(bidAmount) });
+  const expectedStrategy = input.expectedBidStrategy?.trim().toUpperCase() || null;
+  /*
+    A caller that proved a current amount gets a pre-POST compare-and-set;
+    a caller that proved none gets the write it has always had, GET included.
+  */
+  const expectedCurrentBidAmount =
+    typeof input.expectedCurrentBidAmountMinor === "number"
+      && Number.isFinite(input.expectedCurrentBidAmountMinor)
+      ? Math.round(input.expectedCurrentBidAmountMinor)
+      : null;
+  let preconditionFailure: MetaAdsWriteFailure | null = null;
   const write = await metaFetchWriteOnce({
     ctx,
     path: input.adsetId,
     method: "POST",
     body,
+    beforeMutationAttempt: input.beforeMutationAttempt,
+    /*
+      THE LAST WORD BEFORE THE POST — about the CAP.
+
+      Precise, because the ordering moved: `metaFetchWriteOnce` runs the kill
+      switch and the write-authority snapshot first, then `beforeMutationAttempt`
+      (the manual path's posture re-read, the scheduled path's control re-reads
+      and dispatch marker), and only then this hook. So this GET is the last
+      awaited operation before the POST, and those control checks are now one
+      round trip further from it than they were. That is the same trade
+      `updateEntityBudget` already makes for its own compare-and-set; it is
+      named here so nobody reads the heading as saying the control checks still
+      hold this position.
+
+      `metaFetchWriteOnce` calls no other awaited hook after this one — the
+      kill switch, the write-authority snapshot and the caller's own journal /
+      dispatch marker have all already run, and the next operation is the one
+      Meta POST. A cap moved during ANY of those awaits is therefore seen here
+      and refused, instead of being overwritten by an amount that was a
+      percentage of a number nobody holds any more.
+
+      The strategy is compared here too, from the same GET. It is already
+      proved after the write, but that proof arrives too late to prevent
+      anything: `bid_strategy_changed` from the read-back means the amount
+      already landed under the wrong strategy. Refusing here costs no extra
+      request and makes the post-write check the second boundary rather than
+      the only one — it still has to run, because the strategy can move between
+      this GET and the POST.
+
+      Meta exposes no conditional bid mutation, so a separate GET and POST keep
+      an irreducible provider-side race. This is the narrowest application-level
+      check, not an atomic compare-and-swap.
+    */
+    ...(expectedCurrentBidAmount === null ? {} : {
+      beforeProviderMutation: async () => {
+        const live = await readMetaAdsetBidState(ctx, input.adsetId);
+        const refuse = (error: MetaAdsWriteError): never => {
+          /*
+            Nothing was written, and the shape says so DEFINITELY rather than
+            ambiguously.
+
+            What actually carries that, named precisely: `providerOutcome:
+            "definite_failure"` together with the ABSENCE of `mutationAttempt`.
+            `failureLogStatus` (entity-action-routes.ts) reads `error.code`,
+            `hasSuccessfulMetaProviderMutationAttempt` — which reads
+            `mutationAttempt` — and `providerOutcome`; the scheduled runtime's
+            `isAmbiguous` reads `error.code` and `providerOutcome`. Neither
+            reads `providerMutationAttempted`, and an earlier draft of this
+            comment claimed all three did.
+
+            `providerMutationAttempted: false` is still set, and is still
+            correct: it is the same shape `updateEntityBudget`'s compare-and-set
+            returns, and its real readers are elsewhere (`ads-action-routes.ts`,
+            `budget-write-execution.ts`, the bulk ad-status route) rather than
+            on this path. The point of the field here is consistency, not the
+            classification — the classification comes from the two above.
+          */
+          preconditionFailure = {
+            ok: false,
+            httpStatus: 409,
+            providerMutationAttempted: false,
+            providerOutcome: "definite_failure",
+            error,
+            responsePayload: null,
+            verificationPayload: null,
+          };
+          throw error;
+        };
+        if (!live.ok) {
+          // The read carries its own identity and account checks; an answer
+          // about another ad set is not a baseline, and an unread baseline is
+          // not permission to write.
+          refuse(live.error);
+        } else {
+          const liveStrategy = live.bidStrategy?.trim().toUpperCase() || null;
+          if (expectedStrategy && liveStrategy !== expectedStrategy) {
+            refuse({
+              code: "bid_strategy_changed",
+              message: `The ad set is on ${liveStrategy ?? "no writable strategy"} rather than the ${expectedStrategy} this amount was proved under, so no bid write was attempted.`,
+            });
+          }
+          if (
+            live.bidAmountMinor === null
+            || live.bidAmountMinor !== expectedCurrentBidAmount
+          ) {
+            refuse({
+              code: "bid_baseline_changed",
+              message: `The ad set holds ${live.bidAmountMinor ?? "no bid amount"} rather than the ${expectedCurrentBidAmount} this change was approved against; it moved after the caller's baseline read and nothing may be written over it.`,
+            });
+          }
+        }
+      },
+    }),
   });
+  if (preconditionFailure) return preconditionFailure;
   if (write.error) {
     return buildWriteTransportFailure({
       error: write.error,
@@ -2797,6 +3054,31 @@ export async function updateAdsetBidAmount(
           code: "verification_failed",
           message: "Meta accepted the ad set bid write, but verification failed.",
         },
+      responsePayload: write.payload,
+      verificationPayload: verification.payload,
+    };
+  }
+  /*
+    The strategy, checked before the amount.
+
+    A cap of 1320 on `COST_CAP` and on `LOWEST_COST_WITH_BID_CAP` are different
+    instructions. If the strategy moved between the decision and the write, the
+    number that was verified is not the number that was decided, and calling
+    that a success would be the write reporting on something else.
+  */
+  const verifiedStrategy = readStringField(verification.payload, "bid_strategy") || null;
+  // Normalised once, above the write, so the pre-POST refusal and this
+  // post-write one cannot disagree about what the caller asked for.
+  if (expectedStrategy && verifiedStrategy?.trim().toUpperCase() !== expectedStrategy) {
+    return {
+      ok: false,
+      httpStatus: 409,
+      error: {
+        code: "bid_strategy_changed",
+        message: `Meta accepted the bid write, but the ad set's strategy verified as ${verifiedStrategy ?? "unknown"} instead of ${expectedStrategy}.`,
+      },
+      providerOutcome: "definite_failure",
+      mutationAttempt: write.mutationAttempt,
       responsePayload: write.payload,
       verificationPayload: verification.payload,
     };

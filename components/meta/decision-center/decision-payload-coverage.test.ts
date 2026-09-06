@@ -2,7 +2,7 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import {
   buildMetaDecisionCenterExactViewModel,
@@ -2646,6 +2646,12 @@ const COVERAGE: Record<string, Coverage> = {
   "MetaOsLegacyDecisionAction.budgetIntent": N(
     "Typed `never`: the legacy branch cannot carry a budget payload, and the type says so at compile time. There is no value to render — a field that cannot exist is not information withheld from the operator.",
   ),
+  "MetaOsLegacyDecisionAction.bidIntent": N(
+    "Typed `never`, for the same reason as the budget marker beside it: the legacy branch cannot carry a bid payload either.",
+  ),
+  "MetaOsBudgetDecisionAction.bidIntent": N(
+    "Typed `never`: one action carries ONE typed payload. Two would make 'what is being proposed here' a question with two answers, and the queue projects a row per payload — so a double-payload action would become two proposals for one decision. The type refuses it, and `assertCanonicalDecisionAction` refuses it again for callers arriving through JSON.",
+  ),
   "MetaOsDecisionActionBase.code": R(
     S.EVIDENCE,
     "the 'Served action' row, as 'code · intent · targetLevel'; the queue's own button prints the LABEL and never the code, and the served tuple travels to onStructurePrimary by reference",
@@ -3383,7 +3389,19 @@ describe("Meta Decision payload · served-field coverage matrix", () => {
       by "classifies every served field" before these numbers moved, which is
       the order the paragraph above requires.
     */
-    expect(fields.length).toBe(757);
+    /*
+      759: two `never` markers, from the canonical action's new bid branch.
+
+      They are exclusions rather than data — a bid action cannot also carry a
+      budget payload, and the legacy branch can carry neither — so the varying
+      count is unchanged. A leaf that cannot hold a value never varies.
+
+      MERGE NOTE (origin/main, PR #275): main still carries 757 here, which was
+      correct for main's tree and is not correct for this one. The two extra
+      leaves come from THIS branch's canonical bid action, so the merged tree
+      has 759. The number is asserted, not chosen: the walk below counts it.
+    */
+    expect(fields.length).toBe(759);
     expect(new Set(fields.map((field) => field.iface)).size).toBe(62);
     expect(fields.filter((field) => field.varies).length).toBe(707);
     expect(fields.some((field) => field.key.endsWith(".metrics.cpa"))).toBe(
@@ -4623,6 +4641,10 @@ const PINNED_BEYOND_TEXT_PROOF: Record<string, string> = {
     "the pinned value is `true`, which has no text to search for",
   "MetaOsLegacyDecisionAction.budgetIntent":
     "the field is typed `never`: there is no value, and so no literal, to search for",
+  "MetaOsLegacyDecisionAction.bidIntent":
+    "the field is typed `never`: there is no value, and so no literal, to search for",
+  "MetaOsBudgetDecisionAction.bidIntent":
+    "the field is typed `never`: there is no value, and so no literal, to search for",
   "MetaBudgetDecisionEvidenceByDirection.directionSelected":
     "the type pins the value to `null`, which has no text to search for",
   "MetaBudgetDecisionEvidencePanel.executionReadiness.ctaEnabled":
@@ -4666,8 +4688,18 @@ describe("Meta Decision payload · every claim, proven against the running code"
   /** Every `SURFACE#id` the baselines emit, across every scenario. */
   const knownElements = new Set<string>();
   let fields: readonly ServedField[] = [];
+  let restoreProbeClock = () => {};
+
+  afterAll(() => restoreProbeClock());
 
   beforeAll(async () => {
+    // The real page passes Date.now() to the same adapter that the direct
+    // probes call with PROBE_NOW. Keep both clocks identical for the entire
+    // census: crossing a sync-age rounding boundary during this long hook
+    // otherwise makes unrelated later mutations appear to change MOBILE.
+    // Only Date.now is fixed; the runner's timers and timeout remain real.
+    const pageClock = vi.spyOn(Date, "now").mockReturnValue(Date.parse(PROBE_NOW));
+    restoreProbeClock = () => pageClock.mockRestore();
     realDecisionCentre = (
       await vi.importActual<typeof import("./MetaDecisionCenterExact")>(
         "./MetaDecisionCenterExact",
@@ -4749,6 +4781,13 @@ describe("Meta Decision payload · every claim, proven against the running code"
     // not an assertion failure. Keep a finite 600s bound local to this hook; no
     // probe or assertion is skipped.
   }, 600_000);
+
+  it("keeps mobile freshness on the direct adapter's fixed probe clock", () => {
+    for (const observation of everyBaseline) {
+      const identity = JSON.parse(observation.HEADER) as { syncedLabel: string };
+      expect(observation.MOBILE).toContain(identity.syncedLabel);
+    }
+  });
 
   it("builds a payload that carries every served field", () => {
     // The proof rests entirely on the fixture populating the field under test.

@@ -139,7 +139,7 @@ describe("Meta LaunchIntent store", () => {
     expect(queries.some((query) => query.includes("INSERT INTO"))).toBe(false);
   });
 
-  it("allows validation only from prepared and outcome only from executing", async () => {
+  it("allows validation from prepared or an unstarted ready, and outcome only from executing", async () => {
     const validationReceipt = buildMetaLaunchIntentValidationReceipt({
       providerAccountId: "act_123",
       ok: true,
@@ -155,7 +155,20 @@ describe("Meta LaunchIntent store", () => {
       receipt: validationReceipt,
     });
     const validationQuery = String(sql.mock.calls[0]?.[0]?.join(" ") ?? "");
-    expect(validationQuery).toContain("AND status = 'prepared'");
+    /*
+      `ready` joined `prepared` here, matching the two sibling writers.
+
+      Validation moves an intent prepared -> ready BEFORE the first provider
+      POST, so a create refused at the pre-POST boundary (a withdrawn approval,
+      a gate that closed) leaves a ready intent that reached nobody. Admitting
+      only prepared made the operator's re-run of that launch throw a transition
+      error on its way back through validation — an unhandled 500 — and left the
+      launch permanently dead with nothing created on Meta. The line that still
+      separates an attempt from a non-attempt is `started_at`, written only by
+      `markMetaLaunchIntentExecuting`, which still demands ready.
+    */
+    expect(validationQuery).toContain("AND status IN ('prepared', 'ready')");
+    expect(validationQuery).not.toContain("AND status = 'prepared'");
 
     sql.mockResolvedValueOnce([
       {
@@ -176,5 +189,44 @@ describe("Meta LaunchIntent store", () => {
     });
     const outcomeQuery = String(sql.mock.calls[1]?.[0]?.join(" ") ?? "");
     expect(outcomeQuery).toContain("AND status = 'executing'");
+  });
+  /*
+    The approval column is the whole authority for an unattended activation, and
+    this is its only writer. Storing NULL used to be how a withdrawal was said —
+    and it said it by making the row identical to one nobody had ever approved,
+    so the withdrawal left no trace for the route's compare-and-set to catch.
+    Withdrawal is a document now, and this writer refuses the value that erased
+    it rather than quietly performing it.
+  */
+  it("never clears the activation approval, and reaches no database to try", async () => {
+    await expect(
+      store.recordMetaLaunchIntentActivationApproval({
+        businessId: row.business_id,
+        id: row.id,
+        approval: null,
+      }),
+    ).rejects.toThrow(store.MetaLaunchIntentTransitionError);
+    expect(sql).not.toHaveBeenCalled();
+  });
+
+  it("writes a revocation document like any other, under the same status guard", async () => {
+    sql.mockResolvedValueOnce([{ ...row, status: "succeeded" }]);
+    const revocation = {
+      contractVersion: "meta.launch-activation-revocation.v1",
+      revokedAt: "2026-09-05T11:30:00.000Z",
+      revokedBy: row.created_by,
+    };
+
+    await store.recordMetaLaunchIntentActivationApproval({
+      businessId: row.business_id,
+      id: row.id,
+      approval: revocation,
+    });
+
+    const statement = String(sql.mock.calls[0]?.[0]?.join("?") ?? "");
+    expect(statement).toContain("SET activation_approval_json =");
+    // Only a launch that produced something can carry one, revocation included.
+    expect(statement).toContain("AND status IN ('succeeded', 'partially_succeeded')");
+    expect(sql.mock.calls[0]?.[1]).toBe(JSON.stringify(revocation));
   });
 });

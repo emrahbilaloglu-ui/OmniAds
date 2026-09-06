@@ -34,8 +34,12 @@ describe("D088 C1 — the activation route", () => {
       leaving the mode at the collaborator floor let a collaborator re-arm the
       one decision type with a live automatic executor.
     */
-    expect(ROUTE).toContain(
-      'action === "set_decision_type_mode" && body?.mode === "auto"');
+    // The business-wide switch writes all four types at once, so it arms the
+    // budget executor exactly as the per-type control does and takes the same
+    // floor. Both spellings are asserted so neither can quietly drop out.
+    expect(ROUTE).toContain('action === "set_decision_type_mode" ||');
+    expect(ROUTE).toContain('action === "set_business_mode"');
+    expect(ROUTE).toContain('body?.mode === "auto"');
   });
 
   it("carries the reviewer read-only label every other mutation carries", () => {

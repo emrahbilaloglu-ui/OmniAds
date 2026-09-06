@@ -451,14 +451,29 @@ async function proveAdDailyLinkClicksStorage() {
   );
 
   // ── 2. A measurement written under the PRE-CHANGE schema ───────────────────
-  // Restoring NOT NULL is what makes "before" real. It can only succeed while
-  // no NULL exists, so the earlier unread row is removed first and re-created
-  // after — this is an ephemeral database created by the parent harness for
-  // this run and nothing outside it is touched.
+  /*
+    Restoring NOT NULL is what makes "before" real, and it can only succeed
+    while no NULL exists ANYWHERE in the table.
+
+    The precondition has to be as wide as the constraint. It used to clear only
+    this seam's own rows, which held while nothing else in the gate wrote a
+    NULL `link_clicks` — and stopped holding the moment another child started
+    seeding measurements through the production writer, which writes NULL for
+    an unsupplied count precisely because that is the distinction this file
+    exists to prove. The child then failed on `contains null values` AFTER
+    printing its own PASS line, which reads as a defect in the migration rather
+    than an unmet precondition.
+
+    So: every blocking row is cleared, not just this business's. That is only
+    ever fixture data — this is an ephemeral database the parent harness
+    created for this run, torn down after it, and nothing outside it is read or
+    written anywhere in this file.
+  */
   await db.query(
     `DELETE FROM meta_ad_daily WHERE business_id = $1 AND ad_id = $2`,
     [BUSINESS_ID, UNREAD_AD_ID],
   );
+  await db.query(`DELETE FROM meta_ad_daily WHERE link_clicks IS NULL`, []);
   await db.query(`ALTER TABLE meta_ad_daily ALTER COLUMN link_clicks SET NOT NULL`, []);
   expectEqual(
     (await columnNullability())?.is_nullable,
@@ -1057,11 +1072,14 @@ async function proveCreativeDailyLinkClicksStorage() {
   );
 
   // ── 2. Measurements written under the restored PRE-CHANGE schema ───────────
-  // SET NOT NULL can only succeed while no NULL exists, so the creative-grain
-  // rows written earlier in this run are cleared first. This is an ephemeral
-  // database the parent harness created for this run; nothing outside it is
-  // touched, and no production row is read or written anywhere in this file.
+  /*
+    Same rule as the ad grain above: the precondition is table-wide because the
+    constraint is. Clearing only this business's rows left another child's
+    creative measurements — written through `upsertMetaCreativeDailyRows`,
+    which stores an unsupplied count as NULL — to block the ALTER.
+  */
   await db.query(`DELETE FROM meta_creative_daily WHERE business_id = $1`, [BUSINESS_ID]);
+  await db.query(`DELETE FROM meta_creative_daily WHERE link_clicks IS NULL`, []);
   await db.query(
     `ALTER TABLE meta_creative_daily ALTER COLUMN link_clicks SET NOT NULL`,
     [],

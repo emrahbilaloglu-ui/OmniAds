@@ -646,6 +646,24 @@ async function main() {
         // The write guard short-circuits under vitest unless this is set; the
         // race must clear the REAL guard, against the REAL control row.
         META_AUTOMATION_WRITE_GUARD_TEST_READS: "1",
+        /*
+          And the environment capability that guard now reads.
+
+          This release gives Meta ONE write capability
+          (`getMetaWriteBlockState` -> `release_capability_closed`), and the
+          real guard refuses every approval while it is shut. With the guard
+          short-circuited that was invisible; with `..._TEST_READS` on, all
+          eight racing approvals came back
+          `{"code":"release_capability_closed"}`, no dispatch happened, and the
+          two provider-call assertions failed while the five that only inspect
+          the claim still passed — which is exactly what this seam is for.
+
+          Declaring it here is the same thing every other provider-writing seam
+          in this delivery does (the duplicate-ad and activation-identity
+          children set it for themselves). It states the environment the seam
+          needs; it does not weaken the guard, which is precisely what refused.
+        */
+        META_AUTOMATION_LIVE_WRITES: "true",
       },
     );
 
@@ -663,6 +681,8 @@ async function main() {
       "reconcile slot + settle fault injection (real Postgres, fake provider)",
       {
         META_AUTOMATION_WRITE_GUARD_TEST_READS: "1",
+        // Same real guard, same capability. See the race child above.
+        META_AUTOMATION_LIVE_WRITES: "true",
       },
     );
 

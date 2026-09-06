@@ -31,6 +31,28 @@ vi.mock("@/lib/meta/launch-write", () => ({
 
 vi.mock("@/lib/meta/automation-write-guard", () => ({
   rejectIfMetaWritesBlocked: vi.fn(),
+  // The shared posture every write family now reads. Unblocked and NOT
+  // rehearsing: these suites assert on real provider calls, and a rehearsing
+  // posture would turn every one of them into a dry run.
+  readMetaWritePosture: vi.fn(async () => ({
+    blocked: false, rehearsal: false, reason: null, message: null,
+  })),
+  metaWriteBlockedResponse: vi.fn((posture: { reason: string | null; message: string | null }) =>
+    // The real refusal envelope, so a caller reading `error.code` sees what the
+    // shipped helper actually answers with.
+    new Response(
+      JSON.stringify({
+        ok: false,
+        error: {
+          code: "kill_switch_engaged",
+          message: posture?.message ?? "Meta writes are disabled by kill switch.",
+          reason: posture?.reason ?? null,
+        },
+      }),
+      { status: 503, headers: { "content-type": "application/json" } },
+    )),
+  metaWriteIsRehearsal: (input: { posture: { rehearsal: boolean }; requestedDryRun: boolean }) =>
+    input.posture.rehearsal || input.requestedDryRun === true,
 }));
 
 vi.mock("@/lib/launchpad/meta-validation", () => ({
@@ -183,6 +205,23 @@ describe("POST /api/launchpad/meta/launch", () => {
         id: "intent_1",
         status: "prepared",
         requestFingerprint: "fingerprint_1",
+        /*
+          The lineage a real prepared intent always carries.
+
+          `MetaLaunchIntent.lineage` is required and `mapMetaLaunchIntent`
+          always normalizes one; this mock used to omit it and the `as never`
+          cast hid that. It matters now that the handler composes the mandatory
+          pre-POST approval-standing read, which is asked OF this lineage. All
+          null is the standalone shape — an intent composed and confirmed on the
+          Launchpad screen — which is what every case in this file is, and it is
+          the shape the standing read answers for without touching the database.
+        */
+        lineage: {
+          sourceDecisionId: null,
+          sourceDecisionSnapshotId: null,
+          creativeBriefId: null,
+          sourceDraftId: null,
+        },
       },
     } as never);
     vi.mocked(intentStore.recordMetaLaunchIntentValidation).mockResolvedValue({
@@ -688,12 +727,14 @@ describe("POST /api/launchpad/meta/launch", () => {
   });
 
   it("blocks launch before validation when the Meta write kill switch is engaged", async () => {
-    vi.mocked(writeGuard.rejectIfMetaWritesBlocked).mockResolvedValueOnce(
-      NextResponse.json(
-        { ok: false, error: { code: "kill_switch_engaged" } },
-        { status: 503 },
-      ),
-    );
+    vi.mocked(writeGuard.readMetaWritePosture).mockResolvedValueOnce({
+      // The route reads the whole posture now: blocked, plus whether the
+      // business is rehearsing. A blocked posture refuses at the same point.
+      blocked: true,
+      rehearsal: true,
+      reason: "business_kill_switch",
+      message: "Meta writes are disabled by kill switch.",
+    });
 
     const response = await POST(
       request({

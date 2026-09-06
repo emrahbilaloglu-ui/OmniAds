@@ -21,20 +21,38 @@ import {
   stabilizeMetaRecommendations,
 } from "@/lib/meta/decision-stability";
 import {
-  detectAnomaliesForBusiness,
+  deliveryConstrainedAdsetIdsFrom,
+  detectAnomalyEvaluationForBusiness,
   type MetaAnomaly,
+  type MetaAnomalyEvaluation,
   type MetaAnomalySeverity,
+  type MetaAnomalyType,
 } from "@/lib/meta/anomalies";
 import {
   buildEvidenceTrailsForRecommendations,
   type MetaEvidenceTrail,
 } from "@/lib/meta/evidence-trail";
+import { produceRetainedAccountProfileOutputs } from "@/lib/meta/account-profile-output-producer";
+import { restampProposedActions } from "@/lib/meta/recommendations";
 import { buildMetaAdsetRecommendations } from "@/lib/meta/adset-decisions";
 import { projectMetaAutomationProposals } from "@/lib/meta/automation-proposals";
 import {
   insertBudgetProposalRow,
   projectMetaBudgetProposals,
 } from "@/lib/meta/budget-proposal-producer";
+import {
+  insertBidProposalRow,
+  projectMetaBidProposals,
+} from "@/lib/meta/bid-proposal-producer";
+import { projectMetaLaunchIntents } from "@/lib/meta/launch-intent-producer";
+import {
+  insertLaunchProposalRow,
+  projectMetaLaunchProposals,
+} from "@/lib/meta/launch-proposal-producer";
+import {
+  insertActivationProposalRow,
+  projectMetaActivationProposals,
+} from "@/lib/meta/activation-proposal-producer";
 import { loadBudgetCompositionSourcesForCandidate }
   from "@/lib/meta/budget-proposal-source-loader";
 import { buildMetaEntityStateRows } from "@/lib/meta/engine-v1/state-rows";
@@ -66,8 +84,24 @@ import {
   type MetaRecommendationsResponse,
 } from "@/lib/meta/recommendations";
 import { resolveMetaFunnelCohort } from "@/lib/meta/funnel-cohort";
+import { resolveMinorUnitExponent } from "@/lib/currency/iso-4217-minor-units";
+import {
+  observedShopifyAovIsUsable,
+  resolveObservedShopifyAov,
+} from "@/lib/creative-decision-engine/shopify-aov-source";
+import {
+  getMetaAutomationControlPlane,
+} from "@/lib/meta/automation-control-plane";
+import { readIntentProjectionContexts } from "@/lib/meta/intent-projection-context";
+import { projectBudgetIntents } from "@/lib/meta/budget-intent-projection";
+import { projectBidIntents } from "@/lib/meta/bid-intent-projection";
+import { META_BUDGET_INTENT_CONTRACT_VERSION } from "@/lib/meta/budget-intent-contract";
 import type { MetaBidRegime, MetaCampaignRole } from "@/lib/meta/types";
-import { readMetaCommercialTargets } from "@/lib/meta/commercial-targets";
+import {
+  metaLossBudgetMaturity,
+  normalizeMetaCommercialTargets,
+  readMetaCommercialTargets,
+} from "@/lib/meta/commercial-targets";
 import { enforceMetaCommercialActionAuthority } from "@/lib/meta/commercial-action-authority";
 
 export interface RunMetaSnapshotResult {
@@ -86,6 +120,23 @@ export interface RunMetaSnapshotResult {
   proposals: { projected: number; expired: number } | null;
   /** D088: the canonical budget producer's own result, reported separately. */
   budgetProposals?: { candidates: number; projected: number } | null;
+  /** The bid producer's own result, reported separately for the same reason. */
+  bidProposals?: { candidates: number; projected: number } | null;
+  /** The launch producer's, which counts staged intents rather than rows. */
+  launchProposals?: { candidates: number; projected: number } | null;
+  /**
+   * The activation producer's — launches that created something and are not
+   * delivering. Counted separately from `launchProposals` because "we staged
+   * nothing today" and "nothing is waiting to be turned on" are different facts.
+   */
+  activationProposals?: { candidates: number; projected: number } | null;
+  /**
+   * The accounts THIS attempt generated for, so a caller can record completion
+   * from what happened rather than from what exists.
+   *
+   * `""` is the unattributed batch a business with no assignment produces.
+   */
+  succeededAccountIds?: string[];
   /**
    * Accounts whose generation threw, by id.
    *
@@ -95,6 +146,21 @@ export interface RunMetaSnapshotResult {
    * rather than discarding the ones that succeeded.
    */
   failedAccountIds?: string[];
+  /**
+   * The newest source day each account's generation actually read, or an
+   * absent key when the reading itself failed.
+   *
+   * The scheduler stores it as the slot's source cut-off. It used to store the
+   * date the scheduler had ASKED for, so the cut-off advanced every successful
+   * slot whether or not the warehouse had received a single new day. "We did
+   * not read" and "the source is empty" are different facts and the scheduler
+   * needs both: the first must leave the last real reading alone, the second
+   * is a reading of its own.
+   *
+   * Keyed the same way `succeededAccountIds` is, `""` for the unattributed
+   * batch.
+   */
+  sourceMaxDateByAccountId?: Record<string, string | null>;
   /** Set when the run refused before computing anything. */
   skippedReason?: "provider_account_not_assigned";
 }
@@ -477,12 +543,35 @@ async function upsertSnapshotRows(input: {
    * whole snapshot would vanish one statement after it landed.
    */
   replaceRecommendations?: boolean;
+  /**
+   * The anomaly families this run actually EVALUATED, and therefore the only
+   * ones whose absent rows may be stamped `resolved_at`.
+   *
+   * Resolution is a claim — "we looked and it is no longer true" — and the
+   * payload cannot support it on its own. A family missing from `rows` was
+   * either judged clean or never judged at all, and only the detector knows
+   * which: `detectAnomalyEvaluationForBusiness` reports the difference in
+   * `evaluatedTypes`, and this is where that report is spent.
+   *
+   * Two concrete losses this closes. A same-day rerun at 22:00 local puts
+   * `budget_exhausted_early` outside its time-of-day gate, so an 08:00 run's
+   * open high-severity row used to be resolved on byte-identical facts. And a
+   * recommendation-only call — every per-account write in the loop — carries no
+   * anomaly rows at all, so it used to resolve every open anomaly of the day
+   * before the epilogue re-raised whichever ones happened to be re-detected.
+   *
+   * Empty means resolve nothing, which is the correct reading of "this call
+   * evaluated no anomaly family". It is not optional: a caller that forgets
+   * would otherwise silently inherit the old resolve-on-absence behaviour.
+   */
+  resolvableAnomalyTypes: readonly MetaAnomalyType[];
   rows: SnapshotPayloadRow[];
 }) {
   const sql = getDb();
   const account = input.providerAccountId?.trim() || null;
   const recommendationRows = input.rows.filter((row) => row.kind === "recommendation");
   const anomalyRows = input.rows.filter((row) => row.kind === "anomaly");
+  const resolvableAnomalyTypes = [...new Set(input.resolvableAnomalyTypes)];
 
   /*
    * Replace THIS account's batch for THIS date. Not leaving an older same-day
@@ -619,14 +708,23 @@ async function upsertSnapshotRows(input: {
   }
 
   if (anomalyRows.length === 0) {
-    await sql`
-      UPDATE meta_decision_snapshots_daily
-      SET resolved_at = now()
-      WHERE business_id = ${input.businessId}
-        AND snapshot_date = ${input.snapshotDate}::date
-        AND kind = 'anomaly'
-        AND resolved_at IS NULL
-    `;
+    /*
+      Nothing to write, so the only question left is what may be resolved — and
+      the answer is "the families this run evaluated, and no others". With none
+      evaluated (a recommendation-only call, or a detection that threw) there is
+      nothing this statement is entitled to close, so it does not run at all.
+    */
+    if (resolvableAnomalyTypes.length > 0) {
+      await sql`
+        UPDATE meta_decision_snapshots_daily
+        SET resolved_at = now()
+        WHERE business_id = ${input.businessId}
+          AND snapshot_date = ${input.snapshotDate}::date
+          AND kind = 'anomaly'
+          AND resolved_at IS NULL
+          AND rec_type = ANY(${resolvableAnomalyTypes}::text[])
+      `;
+    }
     return;
   }
 
@@ -673,6 +771,10 @@ async function upsertSnapshotRows(input: {
           AND existing.snapshot_date = $3::date
           AND existing.kind = 'anomaly'
           AND existing.resolved_at IS NULL
+          -- Only families this run evaluated. Absence from the payload is
+          -- evidence of recovery for those, and evidence of nothing for a
+          -- family whose gate kept it from looking.
+          AND existing.rec_type = ANY($4::text[])
           AND NOT EXISTS (
             SELECT 1
             FROM payload
@@ -773,8 +875,265 @@ async function upsertSnapshotRows(input: {
         resolved_at = NULL,
         created_at = now()
     `,
-    [JSON.stringify(anomalyRows), input.businessId, input.snapshotDate],
+    [
+      JSON.stringify(anomalyRows),
+      input.businessId,
+      input.snapshotDate,
+      resolvableAnomalyTypes,
+    ],
   );
+}
+
+
+/**
+ * Give the decisions that earned one an exact amount to move.
+ *
+ * The two sizing policies are pure and were already tested; what was missing
+ * was a caller. Without one, `target_value` never carried a typed intent, so
+ * the budget candidate query matched nothing and an ad set on a cost cap far
+ * above its own CPA had no in-product way to move.
+ *
+ * It fails quietly and completely: an unreadable context proposes nothing and
+ * returns the recommendations untouched. A decision without an amount is still
+ * a decision worth showing; a decision with an amount nobody could verify is
+ * not.
+ */
+async function attachSizedIntents(input: {
+  recommendations: MetaRecommendation[];
+  businessId: string;
+  providerAccountId: string | null;
+  snapshotDate: string;
+  campaigns: MetaCampaignRow[];
+  adsets: readonly MetaAdSetData[];
+  campaignLabelsById: MetaCampaignLabelKindMap;
+  commercialTargets: Awaited<ReturnType<typeof readMetaCommercialTargets>> | null;
+  accountCurrency: string | null;
+  contexts: { byCampaignId: Record<string, MetaCalibrationContext> };
+  adsetCalibrationContextByAdsetId: Record<string, MetaCalibrationContext>;
+  /** Ad sets whose delivery is measurably limited, from this run's anomalies. */
+  deliveryConstrainedAdsetIds?: Set<string>;
+}): Promise<MetaRecommendation[]> {
+  if (!input.providerAccountId) return input.recommendations;
+
+  const targets = normalizeMetaCommercialTargets(input.commercialTargets);
+  /*
+    The guardrails the operator saved, including which sizing policy versions
+    their configuration is bound to.
+
+    An unstamped business proposes nothing: the sizing policies refuse on the
+    version themselves, and reading the control plane once here is cheaper
+    than discovering it per entity.
+  */
+  const control = await getMetaAutomationControlPlane({
+    businessId: input.businessId,
+    providerAccountId: input.providerAccountId,
+  }).catch(() => null);
+  if (!control) return input.recommendations;
+  const guardrails = control.businessControl.guardrails;
+  /*
+    The CPA benchmark a bid cap is measured against, in minor units.
+
+    The plan's order, and the whole point of it: an explicitly configured
+    target CPA first, then the operator's own average-order-value assumption
+    divided by the target ROAS, then the STORE's observed average order value
+    divided by the same target. ROAS stays the only required commercial target;
+    the last rung is what makes that true, because a business with only a
+    target ROAS and real Shopify sales gets a benchmark without anybody being
+    asked for a CPA or an AOV.
+
+    The store's own reader owns every refusal — a thin sample, a mixed
+    currency, an unavailable sync — and yields nothing rather than a guess.
+    Nothing here converts currencies: a benchmark in another currency is not a
+    benchmark for this account. A currency with no ISO exponent gives no
+    benchmark either, because a number whose scale is unknown is not a number.
+  */
+  const exponent = resolveMinorUnitExponent(input.accountCurrency);
+  const currencyExponent =
+    exponent.status === "resolved" ? exponent.exponent : null;
+  const observedAov = targets.targetCpa || targets.aovAssumption
+    ? null
+    : await resolveObservedShopifyAov({
+      businessId: input.businessId,
+      accountCurrency: input.accountCurrency,
+      currencyExponent,
+    }).catch(() => null);
+  const observedAovMajor =
+    observedAov && observedShopifyAovIsUsable(observedAov)
+    && currencyExponent !== null
+      ? observedAov.aovMinor / 10 ** currencyExponent
+      : null;
+
+  const majorSpendUnit = targets.targetCpa
+    ?? (targets.aovAssumption && targets.targetRoas
+      ? targets.aovAssumption / targets.targetRoas
+      : observedAovMajor && targets.targetRoas
+        ? observedAovMajor / targets.targetRoas
+        : null);
+  const spendUnitMinor = currencyExponent !== null && majorSpendUnit
+    ? Math.round(majorSpendUnit * 10 ** currencyExponent)
+    : null;
+
+  /*
+    The role gate, taken from the SAME map the label guard used.
+
+    A campaign carries a published role only when the context resolver
+    returned high trust from a system inference — the exact condition the
+    budget policy's role check is about. Re-deriving it here from other
+    evidence could disagree with the guard the operator already saw.
+  */
+  const roleAuthorityByCampaignId = new Map<string, boolean>();
+  for (const campaign of input.campaigns) {
+    roleAuthorityByCampaignId.set(
+      campaign.id,
+      input.campaignLabelsById.has(campaign.id),
+    );
+  }
+
+  const cohortByEntityId = new Map<string, string>();
+  const maturityByEntityId = new Map<string, boolean>();
+  const calibrationSampleByEntityId = new Map<string, number | null>();
+  /*
+    Maturity measured against the SAME benchmark the sizing uses.
+
+    `metaLossBudgetMaturity` derives its spend threshold from a CPA baseline,
+    and for a business with only a target ROAS every configured source of one
+    is null — so maturity was never satisfied and nothing was ever sized,
+    whatever the store's sales said. Handing it the derived benchmark closes
+    that: one number, used for both the gate and the rungs.
+  */
+  const lossBudget = metaLossBudgetMaturity({
+    targets: input.commercialTargets,
+    accountCpaBaseline: majorSpendUnit,
+  });
+  for (const campaign of input.campaigns) {
+    cohortByEntityId.set(campaign.id, resolveMetaFunnelCohort({
+      optimizationGoal: campaign.optimizationGoal,
+      customEventType: campaign.customEventType,
+      objective: campaign.objective,
+    }));
+    maturityByEntityId.set(
+      campaign.id,
+      // Maturity is the loss budget actually spent: below it, an outcome is
+      // too small a sample to move money on.
+      lossBudget !== null && (campaign.spend ?? 0) >= lossBudget.spendThreshold,
+    );
+    calibrationSampleByEntityId.set(
+      campaign.id,
+      input.contexts.byCampaignId[campaign.id]?.thresholds?.minRequiredSample ?? null,
+    );
+  }
+  for (const adset of input.adsets) {
+    const adsetId = adset.id?.trim() || null;
+    if (!adsetId) continue;
+    const parentId = adset.campaignId?.trim() || null;
+    cohortByEntityId.set(
+      adsetId,
+      (parentId ? cohortByEntityId.get(parentId) : null) ?? "unknown",
+    );
+    const spend = adset.spend ?? 0;
+    maturityByEntityId.set(
+      adsetId,
+      lossBudget !== null && spend >= lossBudget.spendThreshold,
+    );
+    calibrationSampleByEntityId.set(
+      adsetId,
+      input.adsetCalibrationContextByAdsetId[adsetId]?.thresholds?.minRequiredSample ?? null,
+    );
+  }
+
+  const contexts = await readIntentProjectionContexts({
+    businessId: input.businessId,
+    providerAccountId: input.providerAccountId,
+    snapshotDate: input.snapshotDate,
+    cohortByEntityId,
+    roleAuthorityByCampaignId,
+    maturityByEntityId,
+    calibrationSampleByEntityId,
+    /*
+      Delivery constraint is what makes RAISING a cap sensible; without it, a
+      higher cap only pays more for the same result.
+
+      It comes from this run's own `delivery_stall` anomalies, so the card and
+      the bid intent cite one fact rather than two opinions. An absent set is
+      still "no ad set qualified", which withholds every raise — the safe
+      direction, and what the policy says by name.
+    */
+    deliveryConstrainedAdsetIds: input.deliveryConstrainedAdsetIds ?? new Set<string>(),
+  }).catch(() => null);
+  if (!contexts) return input.recommendations;
+
+  const pausedEntityIds = new Set(
+    input.recommendations
+      .filter((rec) => rec.decisionLabel === "cut")
+      .map((rec) => (rec.level === "adset" ? rec.adsetId : rec.campaignId) ?? "")
+      .filter(Boolean),
+  );
+
+  const budget = projectBudgetIntents({
+    recommendations: input.recommendations,
+    targetRoas: targets.targetRoas,
+    breakEvenRoas: targets.breakEvenRoas,
+    accountCurrency: input.accountCurrency,
+    policy: {
+      maxBudgetIncreasePct: guardrails.maxBudgetIncreasePct,
+      perActionSpendCeilingMinor: guardrails.perActionSpendCeilingValid
+        ? guardrails.perActionSpendCeilingMinor
+        : null,
+      perActionSpendCeilingCurrency: guardrails.perActionSpendCeilingValid
+        ? guardrails.perActionSpendCeilingCurrency
+        : null,
+      budgetMinHoursBetweenChanges: guardrails.budgetMinHoursBetweenChanges,
+      budgetMaxChangesPer7d: guardrails.budgetMaxChangesPer7d,
+      budgetMaxAccountConcentrationPct: guardrails.budgetMaxAccountConcentrationPct,
+      budgetSizingPolicyVersion: guardrails.budgetSizingPolicyVersion,
+    },
+    contextByEntityId: contexts.budgetByEntityId,
+    pausedEntityIds,
+  });
+
+  const budgetChangedAdsetIds = new Set(
+    budget.recommendations
+      .filter((rec: MetaRecommendation) => rec.level === "adset"
+        && (rec.targetValue as { contractVersion?: string } | null)?.contractVersion
+          === META_BUDGET_INTENT_CONTRACT_VERSION)
+      .map((rec: MetaRecommendation) => rec.adsetId ?? "")
+      .filter(Boolean),
+  );
+
+  const bid = projectBidIntents({
+    recommendations: budget.recommendations,
+    businessId: input.businessId,
+    providerAccountId: input.providerAccountId,
+    spendUnitMinor,
+    accountCurrency: input.accountCurrency,
+    policy: {
+      budgetMinHoursBetweenChanges: guardrails.budgetMinHoursBetweenChanges,
+      budgetMaxChangesPer7d: guardrails.budgetMaxChangesPer7d,
+      bidSizingPolicyVersion: guardrails.bidSizingPolicyVersion,
+    },
+    contextByAdsetId: contexts.bidByAdsetId,
+    budgetChangedAdsetIds,
+    originDate: input.snapshotDate,
+    effectiveAsOf: input.snapshotDate,
+    knowledgeAsOf: new Date().toISOString(),
+    evidenceWindow: {
+      from: addDaysToISO(input.snapshotDate, -27),
+      to: input.snapshotDate,
+    },
+  });
+
+  /*
+    Re-stamp, because the intent arrived AFTER the recommendation was stamped.
+
+    `buildMetaRecommendations` maps `stampRecommendation` over its output, and
+    that is where `proposedAction` — the field the decision card's Apply reads —
+    is derived from `targetValue`. The sizing above attaches the target value
+    later, so the stamp had already been taken against a recommendation that
+    carried no intent: an ad set could be persisted with a validated
+    1320-minor-unit cap raise and `proposedAction` absent, and the card offered
+    nothing while the queue offered the same amount.
+  */
+  return restampProposedActions(bid.recommendations);
 }
 
 async function buildCalibrationContexts(input: {
@@ -852,6 +1211,15 @@ async function buildAdsetCalibrationContexts(input: {
 async function buildSnapshotRecommendations(input: {
   businessId: string;
   snapshotDate: string;
+  /**
+   * Ad sets whose delivery is measurably limited, from this run's own
+   * anomalies.
+   *
+   * The bid policy only raises a cap when delivery is constrained, and this is
+   * the evidence. Empty means no ad set qualified — which is a real answer and
+   * not the unconditional placeholder it used to be.
+   */
+  deliveryConstrainedAdsetIds?: Set<string>;
   /**
    * The ONE physical provider account this generation is for.
    *
@@ -1032,13 +1400,47 @@ async function buildSnapshotRecommendations(input: {
     campaignLabelsById,
   });
 
-  const guardedRecommendations = applyMetaCampaignLabelGuard({
+  const labelGuarded = applyMetaCampaignLabelGuard({
     recommendations: [...stateRows, ...campaignRecommendations, ...adsetRecommendations],
     campaignLabelsById,
     campaignContextById: campaignContextState.campaignContextById,
     automaticContextEnabled: campaignContextState.automaticContextEnabled,
     activeCampaignIds: campaignIds,
   }).recommendations;
+
+  /*
+    The sizing step, which had never had a caller.
+
+    Both policies were written and tested and neither ran: nothing wrote a
+    typed intent into `target_value`, so the budget candidate query matched
+    nothing and the ad-set card offered no bid. The decision was there; the
+    amount was not, and an amount is what makes a decision applicable.
+
+    It is attached HERE, after the label guard, because a recommendation the
+    guard withheld must not be given money to move. A failed context read
+    proposes nothing rather than proposing on assumed values.
+  */
+  const guardedRecommendations = await attachSizedIntents({
+    deliveryConstrainedAdsetIds: input.deliveryConstrainedAdsetIds,
+    recommendations: labelGuarded,
+    businessId: input.businessId,
+    providerAccountId: accountId,
+    snapshotDate: endDate,
+    campaigns,
+    adsets: adsetRows.rows ?? [],
+    campaignLabelsById,
+    commercialTargets,
+    /*
+      The account's own currency, from the rows this run already read.
+
+      A budget or a bid is a number of minor units, which means nothing without
+      it — and no ceiling comparison is valid across two currencies. Absent, the
+      sizing contracts refuse rather than assume.
+    */
+    accountCurrency: campaigns.find((campaign) => campaign.currency)?.currency ?? null,
+    contexts,
+    adsetCalibrationContextByAdsetId,
+  });
   /*
    * The account lineage, built from the rows this run already read.
    *
@@ -1108,22 +1510,84 @@ async function readAssignedMetaAccountIds(businessId: string): Promise<string[]>
   }
 }
 
+/**
+ * The newest source day one account's generation actually read.
+ *
+ * `meta_structure_snapshot_runs.source_max_date` was being stamped with the
+ * date the scheduler ASKED for, so the cut-off advanced on every successful
+ * slot whether or not the warehouse had received a single new day — the one
+ * thing A5.4 forbids. This is the reading instead: the newest warehouse day at
+ * or before the day this run computed. A smaller value than last time is an
+ * honest reading, not an error, and no rows at all is NULL.
+ *
+ * Both tables, because the generation genuinely reads both. `GREATEST` ignores
+ * a NULL argument, and the account-scoped and business-scoped forms are
+ * written out separately rather than folded into one `OR $2 IS NULL`
+ * predicate: that form defeats the (business, account, date DESC) indexes and
+ * turns an index-only scan of two of the largest tables in the schema into a
+ * full one.
+ */
+async function readSnapshotSourceMaxDate(input: {
+  businessId: string;
+  providerAccountId: string | null;
+  throughDate: string;
+}): Promise<string | null> {
+  const sql = getDb();
+  const rows = (input.providerAccountId
+    ? await sql`
+        SELECT GREATEST(
+          (
+            SELECT MAX(date) FROM meta_campaign_daily
+            WHERE business_id = ${input.businessId}
+              AND provider_account_id = ${input.providerAccountId}
+              AND date <= ${input.throughDate}::date
+          ),
+          (
+            SELECT MAX(date) FROM meta_adset_daily
+            WHERE business_id = ${input.businessId}
+              AND provider_account_id = ${input.providerAccountId}
+              AND date <= ${input.throughDate}::date
+          )
+        )::text AS max_date
+      `
+    : await sql`
+        SELECT GREATEST(
+          (
+            SELECT MAX(date) FROM meta_campaign_daily
+            WHERE business_id = ${input.businessId}
+              AND date <= ${input.throughDate}::date
+          ),
+          (
+            SELECT MAX(date) FROM meta_adset_daily
+            WHERE business_id = ${input.businessId}
+              AND date <= ${input.throughDate}::date
+          )
+        )::text AS max_date
+      `) as Array<{ max_date: string | null }>;
+  return rows[0]?.max_date ?? null;
+}
+
 export async function runMetaSnapshotForBusiness(
   businessId: string,
   snapshotDate: string,
   /**
-   * Compute ONE assigned account instead of every one.
+   * Compute the NAMED assigned accounts instead of every one.
    *
    * A selected-account manual control passes its account, and gets exactly the
    * computation the surface reads back. Omitted orchestrates every currently
    * assigned account — still computing and persisting each independently, so
    * the whole-business entry point never creates pooled truth.
    *
-   * An account that is not currently assigned is refused rather than computed:
-   * a stale selection must not mint a snapshot for an account this workspace
-   * no longer has.
+   * It takes a list because a slot retry owes a list: one account of a
+   * business can succeed while two others fail in the same run, and expressing
+   * that as "one account or all of them" forced the retry to regenerate the
+   * account that had already succeeded.
+   *
+   * An account that is not currently assigned is refused rather than computed,
+   * and one unassigned member refuses the whole call: a stale selection must
+   * not mint a snapshot for an account this workspace no longer has.
    */
-  providerAccountId?: string | null,
+  providerAccountIds?: string | readonly string[] | null,
 ): Promise<RunMetaSnapshotResult> {
   const normalizedSnapshotDate = normalizeDate(snapshotDate);
   const calibration = await runMetaCalibrationForBusiness(
@@ -1176,8 +1640,16 @@ export async function runMetaSnapshotForBusiness(
    * reports which failed instead of throwing the whole run away.
    */
   const assignedAccounts = await readAssignedMetaAccountIds(businessId);
-  const requestedAccount = providerAccountId?.trim() || null;
-  if (requestedAccount && !assignedAccounts.includes(requestedAccount)) {
+  const requestedAccounts = (
+    typeof providerAccountIds === "string"
+      ? [providerAccountIds]
+      : (providerAccountIds ?? [])
+  )
+    .map((account) => account.trim())
+    .filter((account) => account.length > 0);
+  if (
+    requestedAccounts.some((account) => !assignedAccounts.includes(account))
+  ) {
     /*
      * A stale or revoked selection is refused, not computed. Generating a
      * snapshot for an account this workspace no longer has would mint decisions
@@ -1192,6 +1664,9 @@ export async function runMetaSnapshotForBusiness(
       anomaliesWritten: 0,
       proposals: null,
       budgetProposals: null,
+      bidProposals: null,
+      launchProposals: null,
+      activationProposals: null,
       failedAccountIds: [],
       skippedReason: "provider_account_not_assigned",
     };
@@ -1201,11 +1676,12 @@ export async function runMetaSnapshotForBusiness(
    * a fallback to pooling — with nothing assigned there is nothing to pool —
    * and it preserves the pre-change behaviour for a workspace mid-setup.
    */
-  const generationAccounts: Array<string | null> = requestedAccount
-    ? [requestedAccount]
-    : assignedAccounts.length > 0
-      ? assignedAccounts
-      : [null];
+  const generationAccounts: Array<string | null> =
+    requestedAccounts.length > 0
+      ? requestedAccounts
+      : assignedAccounts.length > 0
+        ? assignedAccounts
+        : [null];
 
   /*
    * Legacy NULL-lineage rows for this date are cleared ONCE, before the loop.
@@ -1222,6 +1698,82 @@ export async function runMetaSnapshotForBusiness(
     snapshotDate: normalizedSnapshotDate,
   });
 
+  /*
+    Anomalies are detected BEFORE the per-account loop, and written after it.
+
+    The detection has to come first because the bid sizing policy needs one of
+    its results: a cap may only be RAISED when delivery is measurably
+    constrained, and the only evidence of that in this product is the
+    `delivery_stall` anomaly. The snapshot used to pass an empty set
+    unconditionally, so no cap increase could ever be produced however well the
+    ad set qualified.
+
+    The WRITE still happens once, after every account — the detector is
+    business-wide and its resolve pass has no account predicate, which is why
+    it was outside the loop to begin with. Only the reading moved.
+
+    The two profile numbers below are what the newer detectors need, from what
+    this business has already configured. Neither runs without them: "spent
+    this much with no purchases" and "spent the budget by mid-morning" are both
+    claims about a threshold, and a threshold this module chose for itself
+    would be a universal rule wearing a profile's clothes.
+  */
+  const anomalyTargets = await readMetaCommercialTargets(businessId, {
+    asOf: normalizedSnapshotDate,
+  }).catch(() => null);
+  const lossBudget = metaLossBudgetMaturity({ targets: anomalyTargets });
+  const businessZone = (await getDb()`
+    SELECT timezone FROM businesses WHERE id = ${businessId}::uuid LIMIT 1
+  `.catch(() => null)) as Array<{ timezone: string | null }> | null;
+
+  /*
+    The EVALUATION, not just the list.
+
+    Three of the seven families read something outside the warehouse — the wall
+    clock, the business timezone, the loss budget — and decline to judge when it
+    is missing or when the hour makes the judgement meaningless. That decision
+    has to reach the writer, because the writer resolves an open anomaly whose
+    family produced no row this run, and "the gate was shut" is not evidence
+    that a finding is over.
+
+    A detection that throws yields the same shape with NOTHING evaluated, so a
+    failed read resolves nothing rather than closing the whole day's anomalies.
+    It is logged rather than swallowed silently: this used to be a bare
+    `.catch(() => [])`, and a run in which every detector failed was
+    indistinguishable in the logs from a clean account.
+  */
+  const anomalyEvaluation = await detectAnomalyEvaluationForBusiness({
+    businessId,
+    snapshotDate: normalizedSnapshotDate,
+    calibrationContext: null,
+    profile: {
+      lossBudgetSpend: lossBudget?.spendThreshold ?? null,
+      timezone: businessZone?.[0]?.timezone ?? null,
+    },
+  }).catch((error) => {
+    console.warn("[meta-snapshot] anomaly_detection_failed", {
+      businessId,
+      snapshotDate: normalizedSnapshotDate,
+      message: error instanceof Error ? error.message : String(error),
+    });
+    return {
+      anomalies: [] as MetaAnomaly[],
+      evaluatedTypes: [] as MetaAnomalyType[],
+      skipped: [],
+    } satisfies MetaAnomalyEvaluation;
+  });
+  const anomalies = anomalyEvaluation.anomalies;
+  if (anomalyEvaluation.skipped.length > 0) {
+    console.info("[meta-snapshot] anomaly_families_not_evaluated", {
+      businessId,
+      snapshotDate: normalizedSnapshotDate,
+      skipped: anomalyEvaluation.skipped.map(
+        (entry) => `${entry.type}: ${entry.reason} (${entry.detail})`,
+      ),
+    });
+  }
+  const deliveryConstrainedAdsetIds = deliveryConstrainedAdsetIdsFrom(anomalies);
+
   const perAccount = await Promise.allSettled(
     generationAccounts.map(async (accountId) => {
       const { recommendations: rawRecommendations, lineage: accountLineage } =
@@ -1229,6 +1781,7 @@ export async function runMetaSnapshotForBusiness(
           businessId,
           snapshotDate: normalizedSnapshotDate,
           providerAccountId: accountId,
+          deliveryConstrainedAdsetIds,
         });
       // CDC discipline: act-boundary state flips must hold two consecutive
       // snapshots before publishing. Memory-read failure degrades to
@@ -1295,9 +1848,34 @@ export async function runMetaSnapshotForBusiness(
         businessId,
         snapshotDate: normalizedSnapshotDate,
         providerAccountId: accountId,
+        // This call writes recommendations. It judged no anomaly family, so it
+        // may close none: the anomaly epilogue below owns that decision.
+        resolvableAnomalyTypes: [],
         rows,
       });
-      return { accountId, recommendations, rows: rows.length };
+      /*
+        What this account's generation saw of the source, read here and never
+        inferred from the request. A reading that itself fails reports nothing
+        rather than a value — "we did not read" must not overwrite the last
+        real observation — and it must not take the generation down with it,
+        since the rows above are already written and correct.
+      */
+      const sourceMaxDateRead = await readSnapshotSourceMaxDate({
+        businessId,
+        providerAccountId: accountId,
+        throughDate: normalizedSnapshotDate,
+      })
+        .then((maxDate) => ({ maxDate }))
+        .catch((error) => {
+          console.warn("[meta-snapshot] source_max_date_unread", {
+            businessId,
+            providerAccountId: accountId,
+            snapshotDate: normalizedSnapshotDate,
+            message: error instanceof Error ? error.message : String(error),
+          });
+          return null;
+        });
+      return { accountId, recommendations, rows: rows.length, sourceMaxDateRead };
     }),
   );
 
@@ -1318,17 +1896,19 @@ export async function runMetaSnapshotForBusiness(
   const recommendations = perAccount.flatMap((outcome) =>
     outcome.status === "fulfilled" ? outcome.value.recommendations : [],
   );
+  const sourceMaxDateByAccountId: Record<string, string | null> = {};
+  for (const outcome of perAccount) {
+    if (outcome.status !== "fulfilled") continue;
+    const reading = outcome.value.sourceMaxDateRead;
+    if (reading === null) continue;
+    sourceMaxDateByAccountId[outcome.value.accountId ?? ""] = reading.maxDate;
+  }
 
   /*
    * Anomalies, once, after every account has been written. Their detector is
    * business-wide and its resolve pass has no account predicate, so it belongs
    * outside the loop — see the note above.
    */
-  const anomalies = await detectAnomaliesForBusiness({
-    businessId,
-    snapshotDate: normalizedSnapshotDate,
-    calibrationContext: null,
-  });
   await upsertSnapshotRows({
     businessId,
     snapshotDate: normalizedSnapshotDate,
@@ -1336,6 +1916,10 @@ export async function runMetaSnapshotForBusiness(
     // Anomalies only. The recommendation batches are already written and each
     // belongs to an account this call knows nothing about.
     replaceRecommendations: false,
+    // Exactly the families this run judged. A family that declined to look
+    // keeps its open rows, so a second run later the same day cannot close a
+    // finding the first run made on facts that have not moved.
+    resolvableAnomalyTypes: anomalyEvaluation.evaluatedTypes,
     rows: anomalies.map((anomaly) =>
       anomalyToSnapshotRow(anomaly, businessId, normalizedSnapshotDate, null),
     ),
@@ -1374,6 +1958,44 @@ export async function runMetaSnapshotForBusiness(
     A failure degrades exactly like the pause projection above: the queue was
     not projected, and the snapshot still stands.
   */
+  /*
+    The day's RETAINED COMMERCIAL VERDICT, before anything asks for it.
+
+    `engine_v3_account_profile_output` is what the budget composition reads to
+    answer "is this account commercially eligible today, and if not, by which
+    named blocker". The table was described in a prepared pack, never applied
+    and never written, so the loader's read failed, the failure became
+    `composition_sources_unavailable`, and no budget candidate could ever be
+    admitted. The producer exists now; this is its first production caller, on
+    the same chain and the same tick as every other producer.
+
+    Per account, because the verdict is an account's own and pooling two
+    accounts' facts would be inventing a third account. It degrades like the
+    projections below: a failure means the verdict was not retained this tick,
+    the loader's own ensure-probe still covers the gap, and every reader treats
+    an absent verdict as review-only rather than as permission.
+  */
+  for (const accountId of generationAccounts) {
+    /*
+      `null` means this business has no assigned account at all, and the
+      generation ran unscoped. There is no account whose verdict this would be,
+      so nothing is retained rather than a row keyed on an empty identity.
+    */
+    if (!accountId) continue;
+    await produceRetainedAccountProfileOutputs({
+      businessId,
+      providerAccountId: accountId,
+      asOfDate: normalizedSnapshotDate,
+    }).catch((error: unknown) => {
+      console.warn("[meta-snapshot] account_profile_output_failed", {
+        businessId,
+        providerAccountId: accountId,
+        snapshotDate: normalizedSnapshotDate,
+        message: error instanceof Error ? error.message : String(error),
+      });
+      return null;
+    });
+  }
   const budgetProposals = await projectMetaBudgetProposals({
     businessId,
     snapshotDate: normalizedSnapshotDate,
@@ -1386,9 +2008,164 @@ export async function runMetaSnapshotForBusiness(
       actionLabel: insert.actionLabel,
     }),
   })
-    .then((result) => ({ candidates: result.candidates, projected: result.projected }))
+    .then((result) => {
+      /*
+        The refusal codes, named in the log rather than dropped.
+
+        The returned pair is `{candidates, projected}` and nothing else, so a
+        rerun that legitimately raises no NEW row reads as `projected: 0` with
+        no reason attached — and that silence is what a QA guide already
+        mis-read once as "the second run lost the decision". The producer
+        already counts why it refused each candidate; this is the one place
+        that number can be seen. The shape of the return is unchanged on
+        purpose: callers compare it exactly.
+      */
+      console.info("[meta-snapshot] budget_proposal_projection", {
+        businessId,
+        snapshotDate: normalizedSnapshotDate,
+        candidates: result.candidates,
+        projected: result.projected,
+        refusals: result.refusals,
+      });
+      return { candidates: result.candidates, projected: result.projected };
+    })
     .catch((error) => {
       console.warn("[meta-snapshot] budget_proposal_projection_failed", {
+        businessId,
+        snapshotDate: normalizedSnapshotDate,
+        message: error instanceof Error ? error.message : String(error),
+      });
+      return null;
+    });
+  /*
+    The BID producer, on the same chain and the same tick as the budget one.
+
+    `bid` has been an allowed queue action since the table was created and
+    nothing has ever raised one, which is why unattended bid execution was
+    excluded rather than built. The sizing policy and the intent contract were
+    already here; this is the step that turns the typed intent the snapshot
+    just wrote into a row an operator can approve.
+
+    Like the two projections above, a failure degrades to "the queue was not
+    projected" — the decisions are already durable and the card still shows the
+    amount.
+  */
+  const bidProposals = await projectMetaBidProposals({
+    businessId,
+    snapshotDate: normalizedSnapshotDate,
+    insertProposal: async (insert) => insertBidProposalRow({
+      businessId,
+      proposalId: insert.proposalId,
+      candidate: insert.candidate,
+      envelopeJson: insert.envelopeJson,
+      actionLabel: insert.actionLabel,
+    }),
+  })
+    .then((result) => {
+      /*
+        Same reason as the budget producer above. `insert_conflicted` here is
+        the anti-duplicate guard doing its job — one pending row per slot, so a
+        same-day rerun re-confirms the row it already raised instead of raising
+        a second one — and it must be legible as that rather than as a loss.
+      */
+      console.info("[meta-snapshot] bid_proposal_projection", {
+        businessId,
+        snapshotDate: normalizedSnapshotDate,
+        candidates: result.candidates,
+        projected: result.projected,
+        refusals: result.refusals,
+      });
+      return { candidates: result.candidates, projected: result.projected };
+    })
+    .catch((error) => {
+      console.warn("[meta-snapshot] bid_proposal_projection_failed", {
+        businessId,
+        snapshotDate: normalizedSnapshotDate,
+        message: error instanceof Error ? error.message : String(error),
+      });
+      return null;
+    });
+
+  /*
+    First the STAGING producer, because the queue producer below it reads what
+    this one writes and both belong to the same tick.
+
+    The launch row's candidate query wants a prepared intent carrying decision,
+    snapshot or brief lineage, and nothing in the product ever wrote one — the
+    wizard stages and executes inside a single request, and the operator intent
+    API stages one with no lineage — so the row was unreachable by construction
+    and the creative operation matrix had no first caller. This is that caller.
+    It composes nothing: the decision, the reviewed brief and the operator's own
+    draft supply the asset, the copy mode and the exact destination, and a
+    candidate missing any of them is refused by name rather than filled in.
+
+    It degrades exactly like the projections around it: a failure means nothing
+    was staged this tick, and the decisions themselves are already durable.
+  */
+  await projectMetaLaunchIntents({
+    businessId,
+    snapshotDate: normalizedSnapshotDate,
+  }).catch((error) => {
+    console.warn("[meta-snapshot] launch_intent_staging_failed", {
+      businessId,
+      snapshotDate: normalizedSnapshotDate,
+      message: error instanceof Error ? error.message : String(error),
+    });
+    return null;
+  });
+
+  /*
+    And the launch producer, which points at intents rather than decisions.
+
+    `launch` became an allowed queue action with a CHECK requiring the intent
+    id, and nothing ever raised one: a validated intent sat in `ready` where
+    only the Launchpad screen could see it, so the queue an operator actually
+    works from never mentioned it. The row is a pointer; the intent stays the
+    authority, and creating anything remains an operator's act.
+  */
+  const launchProposals = await projectMetaLaunchProposals({
+    businessId,
+    snapshotDate: normalizedSnapshotDate,
+    insertProposal: async (insert) => insertLaunchProposalRow({
+      candidate: insert.candidate,
+      snapshotDate: normalizedSnapshotDate,
+      actionLabel: insert.actionLabel,
+    }),
+  })
+    .then((result) => ({ candidates: result.candidates, projected: result.projected }))
+    .catch((error) => {
+      console.warn("[meta-snapshot] launch_proposal_projection_failed", {
+        businessId,
+        snapshotDate: normalizedSnapshotDate,
+        message: error instanceof Error ? error.message : String(error),
+      });
+      return null;
+    });
+
+  /*
+    And the activation producer, which is the other half of the same story.
+
+    A launch intent may only create PAUSED entities, so a successful launch is a
+    receipt for something nobody can see. Nothing raised a row for it, and the
+    Launchpad receipt has no activation control, so a created campaign could sit
+    switched off with nothing anywhere reminding the operator it was waiting.
+
+    The batch-level catch below each of these producers still stands, but a
+    single duplicate no longer needs it: both absorb a per-candidate conflict
+    inside the loop, so one clash cannot drop the candidates behind it.
+  */
+  const activationProposals = await projectMetaActivationProposals({
+    businessId,
+    snapshotDate: normalizedSnapshotDate,
+    insertProposal: async (insert) => insertActivationProposalRow({
+      candidate: insert.candidate,
+      snapshotDate: normalizedSnapshotDate,
+      actionLabel: insert.actionLabel,
+    }),
+  })
+    .then((result) => ({ candidates: result.candidates, projected: result.projected }))
+    .catch((error) => {
+      console.warn("[meta-snapshot] activation_proposal_projection_failed", {
         businessId,
         snapshotDate: normalizedSnapshotDate,
         message: error instanceof Error ? error.message : String(error),
@@ -1401,30 +2178,101 @@ export async function runMetaSnapshotForBusiness(
     snapshotDate: normalizedSnapshotDate,
     calibration,
     budgetProposals,
+    bidProposals,
+    launchProposals,
+    activationProposals,
     recommendationsWritten: recommendations.length,
     failedAccountIds: failedAccounts
       .map((entry) => entry.accountId)
       .filter((id): id is string => typeof id === "string"),
+    /*
+      Which accounts THIS attempt actually generated for.
+
+      The scheduler needs it to record slot completion from the attempt rather
+      than from a row query: rows written at 03:00 are still there at 15:00, so
+      a failed afternoon run could be closed by the morning's own output and
+      the retry suppressed. `""` is the unattributed batch a business with no
+      assignment produces, and it is a real account key here for the same
+      reason the coverage query treats it as one.
+    */
+    succeededAccountIds: perAccount
+      .map((outcome, index) => ({ outcome, accountId: generationAccounts[index] ?? "" }))
+      .filter((entry) => entry.outcome.status === "fulfilled")
+      .map((entry) => entry.accountId ?? ""),
+    sourceMaxDateByAccountId,
     anomaliesWritten: anomalies.length,
     proposals,
   };
 }
 
+/**
+ * The accounts a retry should name for one business, or null for all of them.
+ *
+ * `null` means "the whole business", which is what an unqualified run has
+ * always meant — and what the `""` unattributed pair must also resolve to,
+ * since a business with no assignment produces exactly one unscoped batch and
+ * naming `""` as an account would refuse the run outright.
+ */
+export function metaSnapshotRetryAccountsFor(
+  requested: ReadonlyArray<{ businessId: string; providerAccountId: string }> | null,
+  businessId: string,
+): string[] | null {
+  if (!requested) return null;
+  const accounts = requested
+    .filter((pair) => pair.businessId === businessId)
+    .map((pair) => pair.providerAccountId)
+    .filter((id): id is string => typeof id === "string" && id.length > 0);
+  return accounts.length > 0 ? accounts : null;
+}
+
 export async function runMetaSnapshotForAllBusinesses(
   snapshotDate: string,
+  input?: {
+    /**
+     * The (business, account) pairs still outstanding for this slot.
+     *
+     * Omitted runs every active business, which is what every existing caller
+     * means. Supplied, it runs only what is missing — the scheduler's retry
+     * of a failed afternoon slot must not regenerate the accounts that already
+     * succeeded in it.
+     */
+    onlyPairs?: ReadonlyArray<{ businessId: string; providerAccountId: string }>;
+  },
 ): Promise<RunMetaSnapshotAllBusinessesResult> {
   const normalizedSnapshotDate = normalizeDate(snapshotDate);
   const businesses = await getActiveBusinesses();
+  /*
+    Only the pairs the caller says are missing, when it says so.
+
+    A slot that failed for one account must not re-run every account: the
+    others already produced this slot's rows, and re-running them costs a full
+    generation each and rewrites truth that was already correct.
+  */
+  const requested = input?.onlyPairs ?? null;
+  const targeted = requested
+    ? businesses.filter((business) =>
+      requested.some((pair) => pair.businessId === business.id))
+    : businesses;
   const settled = await Promise.allSettled(
-    businesses.map((business) =>
-      runMetaSnapshotForBusiness(business.id, normalizedSnapshotDate),
-    ),
+    targeted.map((business) => {
+      const accounts = metaSnapshotRetryAccountsFor(requested, business.id);
+      // EVERY account this slot still owes for this business, in one run. The
+      // test used to be `accounts.length === 1`, which sent a business with
+      // two missing accounts down the unqualified path — and that regenerates
+      // every ASSIGNED account, including the one that already succeeded in
+      // this slot, at the cost of a full generation and a rewrite of truth
+      // that was already correct.
+      return accounts
+        ? runMetaSnapshotForBusiness(business.id, normalizedSnapshotDate, accounts)
+        : runMetaSnapshotForBusiness(business.id, normalizedSnapshotDate);
+    }),
   );
+  const businessesForResult = targeted;
   return {
     snapshotDate: normalizedSnapshotDate,
-    businessCount: businesses.length,
+    businessCount: businessesForResult.length,
     results: settled.map((result, index) => {
-      const businessId = businesses[index]?.id ?? "unknown";
+      const businessId = businessesForResult[index]?.id ?? "unknown";
       if (result.status === "fulfilled") {
         return {
           businessId,
@@ -1635,10 +2483,33 @@ export async function readLatestMetaDecisionSnapshot(input: {
    * would be exactly that failure wearing a default.
    *
    * Omitted keeps the pre-lineage behaviour: business-wide, every row. The
-   * business-scoped callers (History, lane classification, the cron marker)
-   * are not account surfaces and are unchanged.
+   * remaining business-scoped callers — History and the cron marker — are not
+   * account surfaces and are unchanged.
+   *
+   * Lane classification DOES pass an account when the surface has one selected.
+   * Its rows stay business-wide, but the campaign-context read below is account
+   * scoped, and a null there returns an empty role map — which downgraded every
+   * hard action on a campaign whose role was published, high-confidence and
+   * resolver-validated. See `app/api/meta/lane-classify/route.ts`.
    */
   providerAccountId?: string | null;
+  /**
+   * The newest snapshot_date this read may resolve to, when the caller has one.
+   *
+   * `startDate`/`endDate` above do NOT bound the snapshot — the `latest` CTE
+   * takes `MAX(snapshot_date)` over all time — so a caller asking about a past
+   * day silently got today's decisions. The daily brief did exactly that: it
+   * stamped today's actionable decisions and freshness date with a historical
+   * `asOf` while its anomaly and ledger sections were bounded to that day.
+   *
+   * Opt-in rather than derived from `endDate`, because the range-picker
+   * surfaces mean the opposite by their dates. Decision Center, lane
+   * classification and the "last snapshot / written at" fact all pass a
+   * SELECTED METRIC RANGE and must keep resolving the newest snapshot while a
+   * past range is on screen; a range picker is not a time machine for buyer
+   * actions. Only a caller whose date is genuinely an as-of ceiling passes it.
+   */
+  snapshotDateCeiling?: string | null;
 }): Promise<MetaRecommendationsResponse | null> {
   const readiness = await getDbSchemaReadiness({
     tables: ["meta_decision_snapshots_daily"],
@@ -1658,6 +2529,22 @@ export async function readLatestMetaDecisionSnapshot(input: {
    * match a requested account — that is the withholding this exists for.
    */
   const account = input.providerAccountId?.trim() || null;
+  /*
+   * The as-of ceiling, applied to the `latest` CTE only.
+   *
+   * The outer half selects `snapshot_date = (SELECT snapshot_date FROM latest)`,
+   * so bounding which date is "latest" bounds the rows too — unlike the account
+   * scope, which the equality cannot carry. Null leaves the read exactly as it
+   * was: MAX over all time, for every caller that does not ask for a ceiling.
+   *
+   * A stable date parameter rather than an expression over the column, so this
+   * still uses the snapshot_date index instead of degrading into the kind of
+   * index-unusable predicate that has silently exceeded the pool read timeout
+   * on this schema before.
+   */
+  const snapshotCeiling = input.snapshotDateCeiling
+    ? normalizeDate(input.snapshotDateCeiling)
+    : null;
   const rows = (await sql`
     WITH latest AS (
       SELECT MAX(snapshot_date) AS snapshot_date
@@ -1665,6 +2552,10 @@ export async function readLatestMetaDecisionSnapshot(input: {
       WHERE business_id = ${input.businessId}
         AND kind = 'recommendation'
         AND (${account}::text IS NULL OR provider_account_id = ${account})
+        AND (
+          ${snapshotCeiling}::date IS NULL
+          OR snapshot_date <= ${snapshotCeiling}::date
+        )
     )
     SELECT
       scope_type,
@@ -1708,14 +2599,18 @@ export async function readLatestMetaDecisionSnapshot(input: {
 
   if (rows.length === 0) return null;
   const hydratedRecommendations = rows.map(hydrateRecommendation);
-  const currentCommercialTargets = await readMetaCommercialTargets(
+  // A historical brief must retain the target authority of the snapshot it
+  // actually selected, even if the ceiling is later. Range-picker reads keep
+  // checking current authority; their metric dates are not an as-of request.
+  const commercialTargets = await readMetaCommercialTargets(
     input.businessId,
+    snapshotCeiling ? { asOf: rows[0].snapshot_date } : undefined,
   ).catch(() => null);
   const commerciallyGuardedRecommendations = hydratedRecommendations.map(
     (recommendation) =>
       enforceMetaCommercialActionAuthority(
         recommendation,
-        currentCommercialTargets,
+        commercialTargets,
       ),
   );
   const campaignIds = Array.from(

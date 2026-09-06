@@ -1,4 +1,5 @@
 import { getDb, type DbClient } from "@/lib/db";
+import type { ObservedShopifyAovEvidence } from "./shopify-aov-source";
 import {
   READ_NATIVE_AD_ACCOUNT_CALIBRATION_CELL_SQL,
   type NativeAdAccountProfileDataSource,
@@ -609,7 +610,19 @@ function nativeSpendUnitAuthority(value: unknown): NativeAdSpendUnitAuthority {
     object.contractVersion,
     "spendUnitAuthority.contractVersion",
   );
-  if (contractVersion !== "engine-v3-native-ad-spend-unit-authority.v1") {
+  /*
+    Both contract versions are read.
+
+    `.v2` adds `observedShopifyAovEvidence`; `.v1` rows predate the source and
+    carry no such member. Reading only one version would have made every row
+    written before or after the change unreadable, which is the migration this
+    product deliberately does not do — old snapshots stay readable and are not
+    backfilled.
+  */
+  if (
+    contractVersion !== "engine-v3-native-ad-spend-unit-authority.v1" &&
+    contractVersion !== "engine-v3-native-ad-spend-unit-authority.v2"
+  ) {
     throw new TypeError("Unsupported native spend-unit authority contract.");
   }
   const status = requiredText(object.status, "spendUnitAuthority.status");
@@ -621,6 +634,7 @@ function nativeSpendUnitAuthority(value: unknown): NativeAdSpendUnitAuthority {
     basis !== null &&
     basis !== "target_cpa" &&
     basis !== "operator_aov" &&
+    basis !== "observed_shopify_aov" &&
     basis !== "physical_account_purchase_aov_90d"
   ) {
     throw new TypeError("Invalid native spend-unit authority basis.");
@@ -676,6 +690,24 @@ function nativeSpendUnitAuthority(value: unknown): NativeAdSpendUnitAuthority {
       object.baseSpendUnit,
       "spendUnitAuthority.baseSpendUnit",
     ),
+    /*
+      The store observation, round-tripped verbatim.
+
+      It is part of the generation content, so the authority hash is computed
+      over it: dropping it here would make every `.v2` row fail its own hash
+      recomputation on the way back in. It is read as an opaque object because
+      its shape is owned by the source module that mints it, and re-validating
+      it field by field here would be a second, divergent definition of one
+      contract.
+    */
+    ...(object.observedShopifyAovEvidence === undefined
+      ? {}
+      : {
+          observedShopifyAovEvidence:
+            (object.observedShopifyAovEvidence as
+              | ObservedShopifyAovEvidence
+              | null) ?? null,
+        }),
     accountAovEvidence: {
       status: evidenceStatus,
       scope,

@@ -24,6 +24,8 @@
  * Every value is explicit. There is no "sensible default" here: a number
  * nobody chose is the thing D088 C3 spent a correction removing.
  */
+import { BUDGET_SIZING_POLICY_VERSION } from "@/lib/meta/budget-sizing-policy";
+import { BID_SIZING_POLICY_VERSION } from "@/lib/meta/bid-sizing-policy";
 import { getDb } from "@/lib/db";
 /*
   PRE-DEPLOY AUDIT: the contract and its parser moved to a db-free module so
@@ -58,7 +60,20 @@ export async function saveBudgetAutomationConfiguration(input: {
   actorUserId: string;
   config: BudgetAutomationConfigInput;
 }): Promise<{ ok: true; storedGuardrails: Record<string, unknown> }> {
+  /*
+    The sizing policy versions this configuration is bound to.
+
+    Stamped by the SAVE rather than chosen by the producer, and this is the
+    whole point: the bands, the ladder and the damping are an operating
+    policy, so a build that changed them must not start proposing different
+    amounts against a configuration nobody re-approved. The producer refuses
+    when the stamp is not the version it implements, which means saving this
+    form is what turns sizing on — and re-saving it after a policy change is
+    what turns it back on, deliberately.
+  */
   const patch = {
+    budgetSizingPolicyVersion: BUDGET_SIZING_POLICY_VERSION,
+    bidSizingPolicyVersion: BID_SIZING_POLICY_VERSION,
     dryRunOnly: input.config.dryRunOnly,
     budgetMinHoursBetweenChanges: input.config.budgetMinHoursBetweenChanges,
     budgetMaxChangesPer7d: input.config.budgetMaxChangesPer7d,

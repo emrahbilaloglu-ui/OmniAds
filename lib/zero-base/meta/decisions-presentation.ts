@@ -41,6 +41,19 @@ import {
 
 export interface DecisionRow {
   id: string;
+  /**
+   * The decision-bound key the write ceremony sends, or null when this row
+   * names no single provider entity.
+   *
+   * Deliberately NOT `id`. A served recommendation id is a display identity —
+   * `structure-7`, `bid-c1`, `optimization-as-1` — and the ceremony used to
+   * send exactly that as the decision key, so `parseDecisionKey` refused every
+   * card-level Apply with `decision_not_actionable` before any data question
+   * could even be asked. The key is derived from the row's own grain identity
+   * instead, and there is no fallback to `id`: a fabricated `campaign:bid-c1`
+   * would be a target the server never proved.
+   */
+  decisionKey: string | null;
   level: DecisionLevel;
   /** Served title. Never re-derived from ids or metrics. */
   title: string;
@@ -92,10 +105,31 @@ function toLevel(level: MetaRecommendation["level"]): DecisionLevel {
   return DECISION_LEVELS.includes(level as DecisionLevel) ? (level as DecisionLevel) : "campaign";
 }
 
+/**
+ * The row's grain identity as a decision-bound key, or null.
+ *
+ * Mirrors `serverOperatorApplyForRec`'s own grain rule (campaign and ad set
+ * only, with a non-empty provider id) so the panel never offers a control the
+ * preflight would have to refuse. An account-grain row names no single entity
+ * and returns null.
+ */
+function decisionKeyFor(recommendation: MetaRecommendation): string | null {
+  if (recommendation.level === "adset") {
+    const adsetId = recommendation.adsetId?.trim();
+    return adsetId ? `adset:${adsetId}` : null;
+  }
+  if (recommendation.level === "campaign") {
+    const campaignId = recommendation.campaignId?.trim();
+    return campaignId ? `campaign:${campaignId}` : null;
+  }
+  return null;
+}
+
 export function toDecisionRow(recommendation: MetaRecommendation): DecisionRow {
   const held = isHeld(recommendation);
   return {
     id: recommendation.id,
+    decisionKey: decisionKeyFor(recommendation),
     level: toLevel(recommendation.level),
     // Every string below is copied, not composed.
     title: recommendation.title,
@@ -185,8 +219,12 @@ function osDecisionState(lane: MetaOsDecisionLane): DecisionRow["decisionState"]
 
 function structureRow(node: MetaOsStructureNode): DecisionRow {
   const held = node.lane !== "act" || node.action.intent === "review" || node.action.intent === "none";
+  // The node's own provider entity, keyed by its level. `node.id` is the OS
+  // projection's display id and is not a provider identity.
+  const providerEntityId = node.providerEntityId?.trim();
   return {
     id: node.id,
+    decisionKey: providerEntityId ? `${node.level}:${providerEntityId}` : null,
     level: node.level,
     title: node.name,
     decision: node.assessment,
@@ -209,8 +247,10 @@ function adRow(decision: MetaOsAdDecision): DecisionRow {
     decision.lane !== "act" ||
     decision.action.intent === "review" ||
     decision.action.intent === "none";
+  const adId = decision.adId.trim();
   return {
     id: decision.id,
+    decisionKey: adId ? `ad:${adId}` : null,
     level: "ad",
     title: decision.adName,
     decision: decision.assessment,

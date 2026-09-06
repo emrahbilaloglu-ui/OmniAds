@@ -112,10 +112,29 @@ export interface CreativeDecisionDataSource {
     asOf: string;
   }): Promise<CreativeInput | null>;
 
-  /** Return per-account self-calibrated values (Tier 3). */
+  /**
+   * Return per-account self-calibrated values (Tier 3).
+   *
+   * ACCOUNT SCOPE IS OPT-IN, AND ITS ABSENCE MEANS THE BUSINESS.
+   *
+   * A business can hold several Meta ad accounts, and "the account" in this
+   * method's name has historically meant the business's whole Meta footprint:
+   * both the precomputed row (`scope_type 'account'`, `scope_id '*'`) and the
+   * runtime SQL aggregate every account the business owns. That is the right
+   * answer for a business-wide surface and the wrong one for anything that
+   * speaks for a SINGLE ad account — one account's samples then set another
+   * account's percentiles, and an account with no evidence of its own is
+   * handed a sibling's.
+   *
+   * So `providerAccountId` narrows the MEASUREMENT to one physical account:
+   * the precomputed read looks for that account's own scope and the runtime
+   * fallback filters `meta_creative_daily` to it. Callers that omit it keep
+   * the business-wide reading they always had, byte for byte.
+   */
   getAccountCalibration(input: {
     businessId: string;
     asOf: string;
+    providerAccountId?: string | null;
   }): Promise<AccountCalibration>;
 
   /** Return one kind-segmented account calibration row. P1b data-only. */
@@ -123,12 +142,14 @@ export interface CreativeDecisionDataSource {
     businessId: string;
     asOf: string;
     campaignKind: CalibrationCampaignKind;
+    providerAccountId?: string | null;
   }): Promise<AccountCalibration | null>;
 
   /** Return all available kind-segmented account calibration rows. P1b data-only. */
   getAccountCalibrationAllKinds?(input: {
     businessId: string;
     asOf: string;
+    providerAccountId?: string | null;
   }): Promise<Record<CalibrationCampaignKind, AccountCalibration | null>>;
 
   /** Return campaign-scoped calibration, plus sample size when the row is unavailable. */
@@ -138,10 +159,17 @@ export interface CreativeDecisionDataSource {
     campaignId: string;
   }): Promise<CampaignCalibrationLookup>;
 
-  /** Return per-format account funnel baselines (Phase 3.9). */
+  /**
+   * Return per-format account funnel baselines (Phase 3.9).
+   *
+   * `providerAccountId` narrows the read to one ad account's own retained
+   * baselines, on the same terms as {@link getAccountCalibration}. Omitting it
+   * keeps the business-wide `scope_id '*'` read.
+   */
   getAccountFunnelCalibration(input: {
     businessId: string;
     asOf: string;
+    providerAccountId?: string | null;
   }): Promise<AccountFunnelCalibration>;
 
   /** Return one kind-segmented funnel calibration pack. P1b data-only. */
@@ -149,12 +177,14 @@ export interface CreativeDecisionDataSource {
     businessId: string;
     asOf: string;
     campaignKind: CalibrationCampaignKind;
+    providerAccountId?: string | null;
   }): Promise<AccountFunnelCalibration | null>;
 
   /** Return all available kind-segmented funnel calibration packs. P1b data-only. */
   getAccountFunnelCalibrationAllKinds?(input: {
     businessId: string;
     asOf: string;
+    providerAccountId?: string | null;
   }): Promise<Record<CalibrationCampaignKind, AccountFunnelCalibration | null>>;
 
   /** Bulk fetch - used by surface to render a creative list. */
@@ -200,13 +230,133 @@ export interface CreativeDecisionDataSource {
     objectiveFamily: "sales";
   }): Promise<DecisionCalibrationProfileConfig | null>;
 
-  /** Live Meta-attributed AOV fallback for first-run calibration gaps. */
+  /**
+   * Live Meta-attributed AOV fallback for first-run calibration gaps.
+   *
+   * `providerAccountId` narrows it to one ad account's own purchases. This is
+   * the rung the spend-unit resolver reaches when an account has no configured
+   * unit and no store evidence, so an unscoped read here is exactly how an
+   * account with no purchases of its own acquires a sibling's benchmark.
+   */
   getMetaAttributedAov(input: {
     businessId: string;
     asOf: string;
     windowDays?: number;
+    providerAccountId?: string | null;
   }): Promise<MetaAttributedAovResult>;
+
+  /**
+   * Whether one account's OWN calibration scope has been materialised, and if
+   * not, whether ANY account of the business has one.
+   *
+   * WHY A CALLER HAS TO BE ABLE TO ASK. A scoped calibration read answers a
+   * miss the way it answers an empty account: `getAccountFunnelCalibration`
+   * returns a pack with no formats in it and `getAccountCalibrationByKind`
+   * returns null. Those are measurements — "this account ran nothing that the
+   * baselines could be computed from" — and they are indistinguishable from
+   * "the job has never written this account's scope, so nobody has measured
+   * anything". A caller that stamps an identity on the measured facts has to
+   * know which of the two it is holding, because in the second case the numbers
+   * it does get come from the runtime fallback and are recomputed on every
+   * read.
+   *
+   * AND WHY THE SECOND FACT TRAVELS WITH IT. A miss has two very different
+   * causes and only one of them is about this account. If sibling accounts of
+   * the same business DO have their own scopes, the pass covered them and not
+   * this one, which is a fact about this account. If NO account of the business
+   * has one, the per-account dimension does not exist in this warehouse yet —
+   * the pass has never written it for anybody — and refusing this account says
+   * nothing about this account. The two are distinguished here rather than by
+   * each caller guessing, and {@link AccountScopeCalibrationMaterialisation}
+   * names them apart.
+   *
+   * Optional because a data source that does not model the precomputed table at
+   * all — a double that simply answers with calibrations — has no such fact to
+   * report. Every production path runs against {@link WarehouseDataSource},
+   * which implements it.
+   */
+  readAccountScopeCalibrationMaterialisation?(input: {
+    businessId: string;
+    asOf: string;
+    providerAccountId?: string | null;
+  }): Promise<AccountScopeCalibrationMaterialisation>;
+
+  /**
+   * Whether this business's warehouse rows belong to this ad account ALONE.
+   *
+   * WHAT IT IS FOR. The pooled `scope_id '*'` calibration row is computed over
+   * every `meta_creative_daily` row the business owns. When the business owns
+   * rows for exactly ONE ad account, that pooled row is not an approximation of
+   * the account's own measurement — it IS the account's own measurement,
+   * computed by the same statement over the same rows. A caller that needs one
+   * account's population may then read the stable precomputed pooled row
+   * instead of recomputing a runtime aggregate, and it is not borrowing
+   * anything from anybody.
+   *
+   * THE PROOF IS FROM THE DATA, NOT FROM THE ASSIGNMENT TABLE. A business can
+   * hold warehouse rows for an account it no longer selects, and
+   * `business_provider_accounts` would not show it. The question asked here is
+   * whether any `meta_creative_daily` row of this business names a DIFFERENT
+   * provider account, which is the only thing that can make the pooled
+   * population wider than this account's.
+   *
+   * `unreadable` is a failed read and is never reported as either answer: the
+   * caller falls back to scoping the reads to the account itself, which is
+   * always correct and never borrows.
+   *
+   * Optional because a data source that models no warehouse has no such fact.
+   */
+  readBusinessAccountPopulationBreadth?(input: {
+    businessId: string;
+    providerAccountId: string;
+  }): Promise<BusinessAccountPopulationBreadth>;
 }
+
+/**
+ * Whether a business's warehouse rows come from one ad account or several.
+ *
+ * - `sole_account` — every row belongs to the named account, so the business's
+ *   pooled population and that account's population are the same rows.
+ * - `multiple_accounts` — at least one row belongs to a different account, so
+ *   the pooled population is wider than the named account's and a pooled read
+ *   would carry evidence this account did not produce.
+ * - `unreadable` — the question could not be answered, either because the probe
+ *   failed or because no account was named for the population to be compared
+ *   against. Nothing is established, and it is never treated as `sole_account`.
+ */
+export type BusinessAccountPopulationBreadth =
+  | "sole_account"
+  | "multiple_accounts"
+  | "unreadable";
+
+/**
+ * The four states of one account's own precomputed calibration scope.
+ *
+ * - `materialised` — this account has a scope row of its own, so a scoped read
+ *   is served from a row that is fixed for the day it speaks for.
+ * - `absent` — this account has none and at least one SIBLING account of the
+ *   same business does. The pass covered the business and skipped this account:
+ *   a fact about this account, and the only state in which a per-account
+ *   refusal tells the operator something true about it.
+ * - `per_account_scopes_unwritten` — no account of this business has a scope of
+ *   its own, for any account. The per-account dimension has never been written
+ *   here; `lib/creative-decision-engine/jobs/calibration-job.ts` gained the
+ *   writer in 058a1c8f6 and a warehouse the pass has not run against since then
+ *   holds only the pooled `scope_id '*'` rows the previous release wrote. This
+ *   is a fact about the WAREHOUSE, not about the account, and it resolves
+ *   permanently on the next successful calibration run.
+ * - `unreadable` — the probe itself failed, so there is no fact at all.
+ *
+ * `absent`, `per_account_scopes_unwritten` and `unreadable` are kept apart on
+ * purpose, and none of them may be reported as `materialised`. A caller that
+ * fails closed may treat several of them the same way — but it can always say
+ * which one it saw, and it can say so differently.
+ */
+export type AccountScopeCalibrationMaterialisation =
+  | "materialised"
+  | "absent"
+  | "per_account_scopes_unwritten"
+  | "unreadable";
 
 export interface AdDecisionInputQuery {
   businessId: string;
@@ -2579,6 +2729,15 @@ LEFT JOIN historical h USING (creative_id)
 ORDER BY c.spend DESC, c.creative_id ASC
 `;
 
+/*
+  `$4` is the OPTIONAL provider account this calibration speaks for.
+
+  NULL keeps the business-wide population every existing caller has always
+  aggregated. A value restricts every population in this statement — the
+  percentiles, the counts, the Meta-attributed AOV and the source bounds — to
+  that one ad account, because a percentile computed over two accounts is not a
+  calibration of either of them.
+*/
 const ACCOUNT_CALIBRATION_QUERY = `
 WITH target_pack AS (
   SELECT $3::double precision AS target_roas
@@ -2597,6 +2756,7 @@ per_creative_raw AS (
     SUM(revenue) FILTER (WHERE date >= ($1::date - INTERVAL '6 days')) AS recent_7d_revenue
   FROM meta_creative_daily
   WHERE business_ref_id = $2::uuid
+    AND ($4::text IS NULL OR provider_account_id = $4::text)
     AND date BETWEEN ($1::date - INTERVAL '89 days') AND $1::date
   GROUP BY creative_id
 ),
@@ -2690,6 +2850,7 @@ meta_aov AS (
     COALESCE(SUM(revenue), 0) AS total_revenue
   FROM meta_creative_daily
   WHERE business_ref_id = $2::uuid
+    AND ($4::text IS NULL OR provider_account_id = $4::text)
     AND date BETWEEN ($1::date - INTERVAL '89 days') AND $1::date
     AND objective = 'OUTCOME_SALES'
 ),
@@ -2700,6 +2861,7 @@ source_bounds AS (
     MAX(updated_at) AS source_max_updated_at
   FROM meta_creative_daily
   WHERE business_ref_id = $2::uuid
+    AND ($4::text IS NULL OR provider_account_id = $4::text)
     AND date BETWEEN ($1::date - INTERVAL '89 days') AND $1::date
 )
 SELECT
@@ -2790,6 +2952,101 @@ ORDER BY as_of_date DESC, computed_at DESC
 LIMIT 1
 `;
 
+/**
+ * The `scope_id` the business's whole Meta footprint is written under.
+ *
+ * Every OTHER account-scope row names one physical ad account, so `scope_id <>`
+ * this value is exactly "some account's own scope". The statement below spells
+ * the same literal because a parameter there would defeat the index's leading
+ * columns for no gain.
+ */
+const ACCOUNT_CALIBRATION_POOLED_SCOPE_ID = "*";
+
+/*
+  Existence, not freshness, and not one particular day's read — and TWO such
+  facts in one round trip: this account's own scope, and whether ANY
+  account-named scope exists for this business at all.
+
+  This asks only whether the calibration job has ever written these scopes for a
+  day this read could reach. It deliberately does not apply the staleness rule
+  `READ_ACCOUNT_CALIBRATION_QUERY`'s caller applies: a stale row is a row that
+  WAS materialised, and the caller's question is whether anyone has ever
+  measured this account, not whether today's reading is fresh enough to use.
+
+  The second fact is what separates "the pass skipped this account" from "the
+  pass has never written per-account scopes for anybody here".
+
+  WHAT EACH HALF COSTS. Both are bounded to ONE business's
+  `scope_type = 'account'` rows, which is the leading prefix of
+  `idx_engine_v3_calibration_latest`
+  (`business_ref_id, scope_type, scope_id, as_of_date DESC`). The first adds an
+  equality on `scope_id` and reaches one entry. The second cannot narrow by
+  `scope_id` — `<>` is not a range predicate, and deliberately so, because a
+  range would depend on where the database's collation sorts `'*'` — so it stops
+  at the first non-pooled scope id inside that prefix. Its worst case is a
+  business that has ONLY pooled rows, which is exactly the transitional state:
+  that business's own account-scope rows, and nothing belonging to any other
+  business.
+*/
+const READ_ACCOUNT_SCOPE_MATERIALISATION_QUERY = `
+SELECT
+  EXISTS (
+    SELECT 1
+    FROM engine_v3_account_calibration_daily
+    WHERE business_ref_id = $1::uuid
+      AND scope_type = 'account'
+      AND scope_id = $3::text
+      AND as_of_date <= $2::date
+  ) AS own_scope_present,
+  EXISTS (
+    SELECT 1
+    FROM engine_v3_account_calibration_daily
+    WHERE business_ref_id = $1::uuid
+      AND scope_type = 'account'
+      AND scope_id <> '*'
+      AND as_of_date <= $2::date
+  ) AS any_account_scope_present
+`;
+
+/*
+  Does ANY warehouse row of this business belong to some OTHER ad account?
+
+  TWO RANGES RATHER THAN ONE `<>`, and that is a performance fact rather than a
+  semantic one. `provider_account_id <> $2` under `business_id = $1` cannot seek
+  in `idx_meta_creative_daily_business_account_date`
+  (`business_id, provider_account_id, date DESC`): a btree has no skip scan, so
+  it would walk every index entry the named account owns before concluding that
+  none differs — which on a busy account is the whole account. `< $2` and `> $2`
+  are each a seekable range that stops at its first tuple, and they ask the same
+  question: `<`, `=` and `>` are exhaustive and mutually exclusive over the
+  index's own ordering, so `v <> $2` and `v < $2 OR v > $2` select the same rows.
+
+  `business_id` (TEXT) rather than `business_ref_id` (UUID) on purpose, for two
+  reasons. It is the indexed column, and it is the WIDER set: `business_ref_id`
+  is filled from a reference lookup that can leave NULL, and the calibration
+  statements filter on it. A business whose wider set names no other account
+  therefore certainly has no other account inside the narrower set the pooled
+  calibration row was computed from, so this probe can only ever be too strict —
+  it can withhold the equivalence, never assert one that is false.
+*/
+const READ_BUSINESS_ACCOUNT_POPULATION_BREADTH_QUERY = `
+SELECT
+  (
+    EXISTS (
+      SELECT 1
+      FROM meta_creative_daily
+      WHERE business_id = $1::text
+        AND provider_account_id < $2::text
+    )
+    OR EXISTS (
+      SELECT 1
+      FROM meta_creative_daily
+      WHERE business_id = $1::text
+        AND provider_account_id > $2::text
+    )
+  ) AS foreign_account_rows_present
+`;
+
 const READ_CAMPAIGN_MATURE_CREATIVE_COUNT_QUERY = `
 WITH per_creative AS (
   SELECT
@@ -2811,13 +3068,18 @@ WHERE total_purchases >= 1
   AND total_spend > 0
 `;
 
+/*
+  `$4` is the account scope this pack speaks for: `'*'` for the business's whole
+  Meta footprint, or one provider account id. It was a literal `'*'` before, so
+  a per-account caller was silently served the business-wide baselines.
+*/
 const READ_ACCOUNT_FUNNEL_CALIBRATION_QUERY = `
 WITH latest_day AS (
   SELECT MAX(as_of_date) AS as_of_date
   FROM engine_v3_account_calibration_daily
   WHERE business_ref_id = $1::uuid
     AND scope_type = 'account'
-    AND scope_id = '*'
+    AND scope_id = $4::text
     AND campaign_kind = $3::text
     AND as_of_date <= $2::date
 )
@@ -2847,7 +3109,7 @@ SELECT
 FROM engine_v3_account_calibration_daily
 WHERE business_ref_id = $1::uuid
   AND scope_type = 'account'
-  AND scope_id = '*'
+  AND scope_id = $4::text
   AND campaign_kind = $3::text
   AND as_of_date = (SELECT as_of_date FROM latest_day)
 ORDER BY creative_format ASC
@@ -4479,6 +4741,37 @@ function zeroAccountFunnelCalibration(
   return { campaignKind, byFormat: {} };
 }
 
+/**
+ * The provider account a MEASURED read is scoped to, or `null` for the business.
+ *
+ * Blank is not an account. An empty string reaching the SQL as a scope would
+ * match nothing at all and read as "this account has no evidence", which is a
+ * different and much more dangerous answer than "no account was named".
+ */
+function normalizedProviderAccountId(value: string | null | undefined): string | null {
+  const text = typeof value === "string" ? value.trim() : "";
+  return text === "" ? null : text;
+}
+
+/**
+ * The `scope_id` an account-scoped calibration row carries.
+ *
+ * `'*'` is the business's whole Meta footprint. A named provider account is its
+ * own scope, and `lib/creative-decision-engine/jobs/calibration-job.ts` writes
+ * one such row per SELECTED Meta account beside the pooled `'*'` one, each
+ * computed from that account's own rows. So a scoped read of an account the job
+ * has covered is served from that row and is as stable for the day as the
+ * pooled read has always been — on the same terms, including the staleness rule
+ * in `readCalibrationFromTable`, which sends a pooled and a scoped read alike to
+ * the runtime fallback when the row's own source freshness has aged out. A
+ * scoped read of an account the job has NOT covered misses entirely, and
+ * `readAccountScopeCalibrationMaterialisation` is how a caller tells that apart
+ * from a row that says zero.
+ */
+function calibrationAccountScopeId(value: string | null | undefined): string {
+  return normalizedProviderAccountId(value) ?? ACCOUNT_CALIBRATION_POOLED_SCOPE_ID;
+}
+
 function toFunnelQualityStatus(
   value: unknown,
   sampleSize: number,
@@ -5230,12 +5523,13 @@ export class WarehouseDataSource
   async getAccountCalibration(input: {
     businessId: string;
     asOf: string;
+    providerAccountId?: string | null;
   }): Promise<AccountCalibration> {
     const precomputed = await this.readCalibrationFromTable(
       input.businessId,
       input.asOf,
       "account",
-      "*",
+      calibrationAccountScopeId(input.providerAccountId),
       "all",
     );
     if (precomputed.calibration !== null) {
@@ -5254,12 +5548,13 @@ export class WarehouseDataSource
     businessId: string;
     asOf: string;
     campaignKind: CalibrationCampaignKind;
+    providerAccountId?: string | null;
   }): Promise<AccountCalibration | null> {
     const precomputed = await this.readCalibrationFromTable(
       input.businessId,
       input.asOf,
       "account",
-      "*",
+      calibrationAccountScopeId(input.providerAccountId),
       input.campaignKind,
     );
     return precomputed.calibration;
@@ -5268,6 +5563,7 @@ export class WarehouseDataSource
   async getAccountCalibrationAllKinds(input: {
     businessId: string;
     asOf: string;
+    providerAccountId?: string | null;
   }): Promise<Record<CalibrationCampaignKind, AccountCalibration | null>> {
     const byKind = emptyCalibrationByKind<AccountCalibration>();
     for (const campaignKind of CALIBRATION_CAMPAIGN_KINDS) {
@@ -5304,9 +5600,84 @@ export class WarehouseDataSource
     };
   }
 
+  /**
+   * Whether this account's own calibration scope exists in the warehouse, and
+   * if it does not, whether any sibling account's does.
+   *
+   * Two indexed existence checks against
+   * `engine_v3_account_calibration_daily`, in one statement. A throw is
+   * reported as `unreadable` rather than as any kind of absence, because a
+   * probe that failed proves nothing about what the table holds — and this
+   * repository has a documented hazard (the pool's own query timeout, which
+   * kills a read regardless of `statement_timeout`) that makes a failed probe
+   * an ordinary event rather than a theoretical one.
+   *
+   * A caller that names NO account asks about the pooled `'*'` scope itself,
+   * for which the per-account distinction is meaningless: it is materialised or
+   * it is not.
+   */
+  async readAccountScopeCalibrationMaterialisation(input: {
+    businessId: string;
+    asOf: string;
+    providerAccountId?: string | null;
+  }): Promise<AccountScopeCalibrationMaterialisation> {
+    const scopeId = calibrationAccountScopeId(input.providerAccountId);
+    try {
+      const rows = await getDb().query<Record<string, unknown>>(
+        READ_ACCOUNT_SCOPE_MATERIALISATION_QUERY,
+        [input.businessId, input.asOf, scopeId],
+      );
+      const row = rows[0];
+      // A statement that returns no row at all answered nothing, and an
+      // answer nobody gave is not the fact "absent".
+      if (!row) return "unreadable";
+      if (row.own_scope_present === true) return "materialised";
+      if (scopeId === ACCOUNT_CALIBRATION_POOLED_SCOPE_ID) return "absent";
+      return row.any_account_scope_present === true
+        ? "absent"
+        : "per_account_scopes_unwritten";
+    } catch {
+      return "unreadable";
+    }
+  }
+
+  /**
+   * Whether this business's warehouse rows belong to this account alone.
+   *
+   * Two seekable range probes in one statement. A throw is `unreadable` and is
+   * never reported as `sole_account`, because the only thing a caller does with
+   * `sole_account` is read the POOLED population in this account's name — a
+   * claim a failed read cannot support.
+   */
+  async readBusinessAccountPopulationBreadth(input: {
+    businessId: string;
+    providerAccountId: string;
+  }): Promise<BusinessAccountPopulationBreadth> {
+    const account = normalizedProviderAccountId(input.providerAccountId);
+    // A blank account names no population for the pooled rows to be equal TO,
+    // so the question cannot be put. That is not the fact that the business
+    // holds several accounts, and it is reported as its own answer.
+    if (account === null) return "unreadable";
+    try {
+      const rows = await getDb().query<Record<string, unknown>>(
+        READ_BUSINESS_ACCOUNT_POPULATION_BREADTH_QUERY,
+        [input.businessId, account],
+      );
+      const row = rows[0];
+      // A statement that returned no row answered nothing.
+      if (!row) return "unreadable";
+      return row.foreign_account_rows_present === true
+        ? "multiple_accounts"
+        : "sole_account";
+    } catch {
+      return "unreadable";
+    }
+  }
+
   async getAccountFunnelCalibration(input: {
     businessId: string;
     asOf: string;
+    providerAccountId?: string | null;
   }): Promise<AccountFunnelCalibration> {
     return (
       (await this.readAccountFunnelCalibration({
@@ -5320,6 +5691,7 @@ export class WarehouseDataSource
     businessId: string;
     asOf: string;
     campaignKind: CalibrationCampaignKind;
+    providerAccountId?: string | null;
   }): Promise<AccountFunnelCalibration | null> {
     return this.readAccountFunnelCalibration(input);
   }
@@ -5327,6 +5699,7 @@ export class WarehouseDataSource
   async getAccountFunnelCalibrationAllKinds(input: {
     businessId: string;
     asOf: string;
+    providerAccountId?: string | null;
   }): Promise<
     Record<CalibrationCampaignKind, AccountFunnelCalibration | null>
   > {
@@ -5344,12 +5717,18 @@ export class WarehouseDataSource
     businessId: string;
     asOf: string;
     campaignKind: CalibrationCampaignKind;
+    providerAccountId?: string | null;
   }): Promise<AccountFunnelCalibration | null> {
     let rows: FunnelCalibrationTableRow[];
     try {
       rows = await getDb().query<FunnelCalibrationTableRow>(
         READ_ACCOUNT_FUNNEL_CALIBRATION_QUERY,
-        [input.businessId, input.asOf, input.campaignKind],
+        [
+          input.businessId,
+          input.asOf,
+          input.campaignKind,
+          calibrationAccountScopeId(input.providerAccountId),
+        ],
       );
     } catch {
       return null;
@@ -5371,6 +5750,17 @@ export class WarehouseDataSource
     input: {
       businessId: string;
       asOf: string;
+      /*
+        The account this fallback speaks for, or null for the business.
+
+        A scoped caller lands here when the calibration job has not materialised
+        that account's own scope — and landing here with an unfiltered statement
+        is precisely how one account's creatives would set another's
+        percentiles. The filter makes the fallback a live measurement of THIS
+        account; what it cannot be is stable for the day, because it is
+        recomputed from `meta_creative_daily` on every read.
+      */
+      providerAccountId?: string | null;
     },
     fallbackNote: string,
     staleTierOverride?: StaleTier,
@@ -5386,6 +5776,7 @@ export class WarehouseDataSource
         input.asOf,
         input.businessId,
         targetPack?.targetRoas ?? null,
+        normalizedProviderAccountId(input.providerAccountId),
       ]);
     } catch (error) {
       const sourceMaxUpdatedAt = await this.fetchSourceMaxUpdatedAt(
@@ -5872,12 +6263,219 @@ export class WarehouseDataSource
     businessId: string;
     asOf: string;
     windowDays?: number;
+    providerAccountId?: string | null;
   }): Promise<MetaAttributedAovResult> {
+    /*
+      ONE reader, with the account as a parameter.
+
+      The account filter lives in `computeMetaAttributedAov` itself rather than
+      in a scoped copy of its window kept here: identical window, identical
+      `OUTCOME_SALES` predicate, identical arithmetic and one extra predicate is
+      exactly the shape that drifts, because nothing would make the two agree.
+      `null` there means the business, exactly as it does here.
+    */
     return computeMetaAttributedAov({
       businessId: input.businessId,
       asOf: input.asOf,
       windowDays: input.windowDays,
+      providerAccountId: normalizedProviderAccountId(input.providerAccountId),
       db: getDb(),
     });
+  }
+}
+
+/**
+ * A {@link CreativeDecisionDataSource} whose MEASURED reads are scoped to one
+ * physical ad account, wrapped around any other data source.
+ *
+ * WHY IT EXISTS. `resolveAccountDecisionProfile` performs its own measured
+ * reads — the account calibration, its kind-segmented variants, the funnel pack
+ * and, when the calibration carries no attributed AOV, a live Meta-attributed
+ * one. Every one of those defaults to the business (the precomputed
+ * `scope_id '*'` row, and a runtime aggregate over every account the business
+ * owns), so a caller that resolves the profile FOR one account against a plain
+ * `WarehouseDataSource` gets an answer computed from all of them: a sibling
+ * account's samples set this account's percentiles and calibration readiness,
+ * and an account with no purchases of its own is handed a sibling's average
+ * order value.
+ *
+ * The retention producer already avoids that by pinning the account into the
+ * source it hands the resolver (`PinnedInputDataSource` in
+ * `lib/meta/account-profile-output-producer.ts`). This is the same measurement
+ * scope for callers that resolve live.
+ *
+ * WHAT IT DOES NOT SCOPE, ON PURPOSE. `getBusinessTargetPack` and
+ * `getDecisionCalibrationProfile` are CONFIGURED commercial policy — one target
+ * ROAS, one calibration profile for the business — and are forwarded
+ * unchanged. `getCampaignCalibration` is already narrower than an account,
+ * since a campaign belongs to exactly one. Everything else is forwarded
+ * verbatim.
+ *
+ * A WRAPPER RATHER THAN A SUBCLASS, deliberately. Subclassing
+ * `WarehouseDataSource` binds the base at class-definition time, so a caller
+ * that had substituted its own data source would silently get the real
+ * warehouse back; wrapping composes with whatever source the caller already
+ * built. It also keeps the OPTIONAL readers honest: an optional method the base
+ * does not implement is left undefined here too, because
+ * `resolveAccountDecisionProfile` branches on their presence and a wrapper that
+ * claimed them would answer for a source that cannot.
+ *
+ * An explicit `providerAccountId` on a call still wins; the bound account is
+ * the DEFAULT this source supplies when the caller names none.
+ */
+export class AccountScopedDataSource implements CreativeDecisionDataSource {
+  readonly getAccountCalibrationByKind?: CreativeDecisionDataSource["getAccountCalibrationByKind"];
+  readonly getAccountCalibrationAllKinds?: CreativeDecisionDataSource["getAccountCalibrationAllKinds"];
+  readonly getAccountFunnelCalibrationByKind?: CreativeDecisionDataSource["getAccountFunnelCalibrationByKind"];
+  readonly getAccountFunnelCalibrationAllKinds?: CreativeDecisionDataSource["getAccountFunnelCalibrationAllKinds"];
+  readonly readAccountScopeCalibrationMaterialisation?: CreativeDecisionDataSource["readAccountScopeCalibrationMaterialisation"];
+  readonly readBusinessAccountPopulationBreadth?: CreativeDecisionDataSource["readBusinessAccountPopulationBreadth"];
+
+  constructor(
+    private readonly base: CreativeDecisionDataSource,
+    /** The physical account every measured read below is scoped to. */
+    private readonly boundProviderAccountId: string,
+  ) {
+    const byKind = base.getAccountCalibrationByKind?.bind(base);
+    if (byKind) {
+      this.getAccountCalibrationByKind = (input) => byKind(this.scoped(input));
+    }
+    const allKinds = base.getAccountCalibrationAllKinds?.bind(base);
+    if (allKinds) {
+      this.getAccountCalibrationAllKinds = (input) =>
+        allKinds(this.scoped(input));
+    }
+    const funnelByKind = base.getAccountFunnelCalibrationByKind?.bind(base);
+    if (funnelByKind) {
+      this.getAccountFunnelCalibrationByKind = (input) =>
+        funnelByKind(this.scoped(input));
+    }
+    const funnelAllKinds = base.getAccountFunnelCalibrationAllKinds?.bind(base);
+    if (funnelAllKinds) {
+      this.getAccountFunnelCalibrationAllKinds = (input) =>
+        funnelAllKinds(this.scoped(input));
+    }
+    const materialisation =
+      base.readAccountScopeCalibrationMaterialisation?.bind(base);
+    if (materialisation) {
+      this.readAccountScopeCalibrationMaterialisation = (input) =>
+        materialisation(this.scoped(input));
+    }
+    /*
+      Forwarded with the bound account as the DEFAULT, like every other read
+      here. This probe's `providerAccountId` is required rather than optional,
+      so `scoped` cannot supply it from an absent value — an explicit account
+      still wins, and a caller that names none gets the account this source is
+      bound to.
+    */
+    const breadth = base.readBusinessAccountPopulationBreadth?.bind(base);
+    if (breadth) {
+      this.readBusinessAccountPopulationBreadth = (input) =>
+        breadth({
+          ...input,
+          providerAccountId:
+            input.providerAccountId || this.boundProviderAccountId,
+        });
+    }
+  }
+
+  private scoped<T extends { providerAccountId?: string | null }>(input: T): T {
+    return {
+      ...input,
+      providerAccountId: input.providerAccountId ?? this.boundProviderAccountId,
+    };
+  }
+
+  // --- measured, and therefore scoped ---------------------------------------
+
+  async getAccountCalibration(input: {
+    businessId: string;
+    asOf: string;
+    providerAccountId?: string | null;
+  }): Promise<AccountCalibration> {
+    return this.base.getAccountCalibration(this.scoped(input));
+  }
+
+  async getAccountFunnelCalibration(input: {
+    businessId: string;
+    asOf: string;
+    providerAccountId?: string | null;
+  }): Promise<AccountFunnelCalibration> {
+    return this.base.getAccountFunnelCalibration(this.scoped(input));
+  }
+
+  async getMetaAttributedAov(input: {
+    businessId: string;
+    asOf: string;
+    windowDays?: number;
+    providerAccountId?: string | null;
+  }): Promise<MetaAttributedAovResult> {
+    return this.base.getMetaAttributedAov(this.scoped(input));
+  }
+
+  // --- configured policy, or already narrower than an account ---------------
+
+  async getBusinessTargetPack(input: {
+    businessId: string;
+    asOf?: string;
+  }): Promise<BusinessTargetPack | null> {
+    return this.base.getBusinessTargetPack(input);
+  }
+
+  async getDecisionCalibrationProfile(input: {
+    businessId: string;
+    channel: "meta";
+    objectiveFamily: "sales";
+  }): Promise<DecisionCalibrationProfileConfig | null> {
+    return this.base.getDecisionCalibrationProfile(input);
+  }
+
+  async getCampaignCalibration(input: {
+    businessId: string;
+    asOf: string;
+    campaignId: string;
+  }): Promise<CampaignCalibrationLookup> {
+    return this.base.getCampaignCalibration(input);
+  }
+
+  // --- forwarded verbatim ---------------------------------------------------
+
+  async getCreativeInput(input: {
+    creativeId: string;
+    businessId: string;
+    asOf: string;
+  }): Promise<CreativeInput | null> {
+    return this.base.getCreativeInput(input);
+  }
+
+  async listCreativeInputs(input: {
+    businessId: string;
+    asOf: string;
+    creativeIds?: string[];
+  }): Promise<CreativeInput[]> {
+    return this.base.listCreativeInputs(input);
+  }
+
+  async getDataHealth(input: {
+    businessId: string;
+    asOf: string;
+  }): Promise<DataHealth> {
+    return this.base.getDataHealth(input);
+  }
+
+  async getLatestFunnelDiagnosis(input: {
+    businessId: string;
+    creativeId: string;
+    asOf: string;
+  }): Promise<FunnelDiagnosis | null> {
+    return this.base.getLatestFunnelDiagnosis(input);
+  }
+
+  async getLatestOperatorResponse(input: {
+    businessId: string;
+    creativeId: string;
+    asOf: string;
+  }): Promise<OperatorResponseResult | null> {
+    return this.base.getLatestOperatorResponse(input);
   }
 }

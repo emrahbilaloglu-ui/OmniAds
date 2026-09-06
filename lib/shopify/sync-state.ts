@@ -90,6 +90,34 @@ export interface ShopifySyncStateRecord {
   latestSyncStatus?: string | null;
   latestSyncWindowStart?: string | null;
   latestSyncWindowEnd?: string | null;
+  /**
+   * The window the LAST SUCCESSFUL pass covered — not the one this attempt is
+   * attempting.
+   *
+   * `latestSyncWindowStart`/`End` are written before any work happens and again
+   * on failure, so they describe an ATTEMPT. A reader asking "which days have we
+   * actually read" could therefore only trust them while the row's recorded
+   * status was itself a success, which withdrew a perfectly good proven window
+   * for the whole duration of an ordinary refresh.
+   *
+   * Through THIS writer, only the success call sites in
+   * `lib/sync/shopify-sync.ts` may set these. Everything else leaves them
+   * undefined, and the upsert below COALESCE-preserves them, so an unsuccessful
+   * attempt cannot erase the proof an earlier pass left.
+   *
+   * One writer sits outside this function: the migration that adds the two
+   * columns also backfills them once, on the rows whose last recorded attempt
+   * finished over a window ending on their own `ready_through_date`
+   * (`SHOPIFY_SYNC_STATE_RETAINED_WINDOW_BACKFILL_SQL` in `lib/migrations.ts`).
+   * Without it every row that existed before the deploy would read as unproven
+   * and lose coverage it had the day before.
+   *
+   * A row that has never had a successful pass still has NULLs here, and so
+   * does a pre-deploy row whose last attempt was running or failed. Both are
+   * "not proven" and never "covered".
+   */
+  latestSuccessfulSyncWindowStart?: string | null;
+  latestSuccessfulSyncWindowEnd?: string | null;
   lastError?: string | null;
   lastResultSummary?: Record<string, unknown> | null;
 }
@@ -139,6 +167,12 @@ export async function getShopifySyncState(input: {
     latestSyncStatus: row.latest_sync_status ? String(row.latest_sync_status) : null,
     latestSyncWindowStart: normalizeDate(row.latest_sync_window_start),
     latestSyncWindowEnd: normalizeDate(row.latest_sync_window_end),
+    latestSuccessfulSyncWindowStart: normalizeDate(
+      row.latest_successful_sync_window_start,
+    ),
+    latestSuccessfulSyncWindowEnd: normalizeDate(
+      row.latest_successful_sync_window_end,
+    ),
     lastError: row.last_error ? String(row.last_error) : null,
     lastResultSummary: asArchivedObject(archivedPayload?.lastResultSummary) ?? null,
   } satisfies ShopifySyncStateRecord;
@@ -168,6 +202,8 @@ export async function upsertShopifySyncState(input: ShopifySyncStateRecord) {
       latest_sync_status,
       latest_sync_window_start,
       latest_sync_window_end,
+      latest_successful_sync_window_start,
+      latest_successful_sync_window_end,
       last_error,
       updated_at
     )
@@ -187,6 +223,8 @@ export async function upsertShopifySyncState(input: ShopifySyncStateRecord) {
       ${input.latestSyncStatus ?? null},
       ${normalizeDate(input.latestSyncWindowStart)},
       ${normalizeDate(input.latestSyncWindowEnd)},
+      ${normalizeDate(input.latestSuccessfulSyncWindowStart)},
+      ${normalizeDate(input.latestSuccessfulSyncWindowEnd)},
       ${input.lastError ?? null},
       now()
     )
@@ -206,6 +244,23 @@ export async function upsertShopifySyncState(input: ShopifySyncStateRecord) {
       latest_sync_status = COALESCE(EXCLUDED.latest_sync_status, shopify_sync_state.latest_sync_status),
       latest_sync_window_start = COALESCE(EXCLUDED.latest_sync_window_start, shopify_sync_state.latest_sync_window_start),
       latest_sync_window_end = COALESCE(EXCLUDED.latest_sync_window_end, shopify_sync_state.latest_sync_window_end),
+      /*
+        Preserved beside ready_through_date and latest_successful_sync_at, and
+        for the same reason: these are the receipt of a pass that FINISHED. A
+        running or failed attempt sends them as NULL and therefore cannot erase
+        the window an earlier success proved.
+
+        They move together as a pair -- a success writes both -- so a retained
+        start can never be paired with some other pass's end.
+      */
+      latest_successful_sync_window_start = COALESCE(
+        EXCLUDED.latest_successful_sync_window_start,
+        shopify_sync_state.latest_successful_sync_window_start
+      ),
+      latest_successful_sync_window_end = COALESCE(
+        EXCLUDED.latest_successful_sync_window_end,
+        shopify_sync_state.latest_successful_sync_window_end
+      ),
       last_error = EXCLUDED.last_error,
       updated_at = now()
   `;

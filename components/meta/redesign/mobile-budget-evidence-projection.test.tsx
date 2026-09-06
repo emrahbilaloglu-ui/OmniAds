@@ -82,12 +82,27 @@ describe("Correction 5 / D — mobile budget-evidence projection", () => {
     }
   });
 
-  it("adds no write control to the mobile stage", () => {
+  it("assembles no request of its own, even now that it can apply", () => {
+    /*
+      RESTATED LAW. This used to read "adds no write control to the mobile
+      stage", which stopped being true when the manual action sheet was
+      rendered here: a decision that names a change is now applied from the
+      phone, through the same server ceremony the desktop uses.
+
+      What has NOT changed is the thing these assertions actually measure. The
+      stage builds no endpoint, no POST body and no fetch: the ceremony arrives
+      as a node, and every request it makes comes from
+      `buildMutationCeremonySeed` — one seed, built once by the page, shared by
+      both renders. A second one here would be a second answer to "what is a
+      withheld preflight", and the disagreement would be about whether a
+      provider write happened.
+    */
     const body = mobileScreenSource();
-    // The projection is a render, not an action surface.
     for (const forbidden of [/onExecute/, /method:\s*"POST"/, /fetch\(/]) {
       expect(body, String(forbidden)).not.toMatch(forbidden);
     }
+    // And the budget panel it projects still carries no control of its own.
+    expect(body).toContain("<BudgetDecisionEvidencePanel");
   });
 
   it("renders both directions and every canonical field from one server object", () => {

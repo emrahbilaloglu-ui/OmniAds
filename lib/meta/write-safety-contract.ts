@@ -54,7 +54,8 @@ export type WriteSafetyStep = (typeof WRITE_SAFETY_STEPS)[number];
 export type WriteFamilyId =
   | "decisions_manual_action"
   | "automation_proposal_approval"
-  | "launchpad_create";
+  | "launchpad_create"
+  | "launchpad_activation";
 
 /**
  * How a family satisfies one step.
@@ -173,12 +174,16 @@ export const WRITE_FAMILIES: readonly WriteFamily[] = [
      * declaration-shaped test behind it is what this file exists to stop.
      */
     steps: {
-      exact_business_access: ok("requireLaunchpadBusinessAccess, minRole collaborator"),
+      exact_business_access: ok(
+        "requireLaunchpadBusinessAccess, minRole collaborator; unattended, the business comes from the claimed proposal row and getMetaLaunchIntent is scoped by it, so an intent belonging to another business is unreadable rather than refused late",
+      ),
       exact_physical_provider_account: ok("resolveAssignedMetaLaunchAccount"),
       exact_role_and_posture: ok(
-        "rejectIfLaunchpadReviewerReadOnly + rejectIfLaunchpadDemoWrite",
+        "rejectIfLaunchpadReviewerReadOnly + rejectIfLaunchpadDemoWrite; the unattended arm has no session role to check and instead proves scheduled authority (evaluateScheduledAuthority, twice) and readMetaWritePosture, which fail-closes and already carries the demo and kill-switch refusals",
       ),
-      explicit_action_origin: ok("evaluateMetaLaunchpadManualAuthority (D065)"),
+      explicit_action_origin: ok(
+        "evaluateMetaLaunchpadManualAuthority (D065) on the operator's own request; the unattended arm (scheduled-launch-runtime.ts) writes source launchpad_scheduled_v1 with requested_by null and replays the intent's stored payload untouched, so the action log always says which authority created the entity",
+      ),
       exact_target_identity: ok("normalizeMetaLaunchPayload + the handoff's verified lineage"),
       fresh_provider_or_current_state_read: ok(
         "preflightMetaLaunchCreatives — a fresh Meta GET per creative binding exact id and account, immediately before the first create",
@@ -221,6 +226,87 @@ export const WRITE_FAMILIES: readonly WriteFamily[] = [
         status: "not_applicable",
         why: "Every create is PAUSED (ADR-003 rule 4), so nothing begins spending and no compensating action is required before WP15 adds activation.",
       },
+    },
+  },
+  {
+    id: "launchpad_activation",
+    label: "Launchpad — activating what a launch created",
+    gate: "META_LAUNCHPAD_EXECUTION",
+    /**
+     * The family the create record deferred.
+     *
+     * `launchpad_create` declares its rollback step not-applicable precisely
+     * because every create is PAUSED — "nothing begins spending". Activation is
+     * the write that ends that, so it needs its own declaration rather than
+     * inheriting a create's. It is a status write, not a create: nothing is
+     * made, identities come from the launch receipt, and every step only
+     * changes a status.
+     *
+     * Behavioural evidence, in the same spirit as the create family's:
+     * `lib/meta/launch-activation-durability.test.ts` drives the real path
+     * against a provider double for the claim, the terminalisation and the
+     * no-blind-retry gate; `lib/meta/hierarchy-activation.test.ts` for the
+     * ordering and the two-status read-back; `lib/meta/launch-intent-activation.test.ts`
+     * for the plan coming from the receipt; and the SQL those depend on is
+     * proved against a migrated database in
+     * `scripts/ephemeral-postgres-launch-intent-seam-child.ts`.
+     */
+    steps: {
+      exact_business_access: ok(
+        "activate/route.ts → requireLaunchpadBusinessAccess",
+      ),
+      exact_physical_provider_account: ok(
+        "resolveAssignedMetaLaunchAccount + resolveMetaLaunchWriteContext, both bound to the intent's own providerAccountId",
+      ),
+      exact_role_and_posture: ok(
+        "rejectIfLaunchpadReviewerReadOnly + rejectIfLaunchpadDemoWrite + readMetaWritePosture",
+      ),
+      explicit_action_origin: ok(
+        "manual_operator_v1 + explicit_operator_confirmation on the request; the scheduled path (scheduled-activation-runtime.ts) instead calls activateLaunchIntent under authorization kind scheduled, whose entire authority is meta_launch_intents.activation_approval_json validated by launch-activation-approval.ts — every step is journalled under launch_activation_v1 with no operator named",
+      ),
+      exact_target_identity: ok(
+        "activationPlanForIntent — the plan comes from the launch receipt, never from the request, so an activation cannot name an entity this launch did not create",
+      ),
+      fresh_provider_or_current_state_read: ok(
+        "hierarchy-activation.ts — readState by id immediately before each step's own write",
+      ),
+      parent_hierarchy_and_policy: ok(
+        "ACTIVATION_ORDER runs campaign → ad set → ad and requires each ancestor's effective_status ACTIVE before the next step",
+      ),
+      server_side_kill_switch: ok(
+        "readMetaWritePosture at entry, and the authorize hook re-reads it before EVERY step's POST",
+      ),
+      persisted_preflight: ok(
+        "the claim row's payload_request carries prior_state, written before the POST (launch-intent-activation.ts → defaultActivationJournal.claim)",
+      ),
+      preflight_age_and_no_provider_contact_disclosure: {
+        status: "not_applicable",
+        why: "The current-state read happens inside the step, immediately before that step's own POST, so there is no stored preflight that could age between reading and writing.",
+      },
+      typed_or_explicit_confirmation: ok(
+        "the route refuses without manualConfirmation; scheduled-activation-runtime.ts reaches the provider only through the scheduled arm, which refuses with the approval's own named code — activation_approval_absent for the NULL default — before any plan is run",
+      ),
+      durable_idempotency_claim: ok(
+        "createMetaAdsActionLog before each POST, plus findUnresolvedMetaAdStatusActionLog refusing a step whose prior attempt is unresolved",
+      ),
+      at_most_one_provider_post: ok(
+        "one resume call per step, no retry; an already-active entity is read and skipped rather than re-sent",
+      ),
+      immutable_attempt_receipt: ok(
+        "meta_ads_action_log rows carrying launch_intent_id — the same table History reads",
+      ),
+      independent_provider_readback: ok(
+        "hierarchy-activation.ts — a second readState by id after the write, never the write's own response",
+      ),
+      exact_identity_and_state_verification: ok(
+        "identity_drift when the read answers about another entity; both status and effective_status must read ACTIVE",
+      ),
+      durable_terminal_receipt_or_reconciliation_marker: ok(
+        "completeMetaAdsActionLog terminalises each step — ambiguous lands as silent_failure, which is what blocks the next attempt — and meta_launch_intents.activation_receipt_json stores the whole sequence",
+      ),
+      rollback_or_compensation_record: ok(
+        "the claim's payload_request.prior_state records what the entity was before this write, written before the POST so it survives an unreadable outcome",
+      ),
     },
   },
 ];

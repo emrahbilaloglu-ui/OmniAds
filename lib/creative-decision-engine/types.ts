@@ -60,6 +60,14 @@ export type EngineRiskPreset = "aggressive" | "balanced" | "conservative";
 export type SpendUnitSource =
   | "target_cpa"
   | "operator_aov"
+  /**
+   * Average order value observed in the store's own orders, divided by the
+   * configured Target ROAS. It sits above the Meta-attributed estimate because
+   * it is the merchant's own settled revenue rather than an attribution view of
+   * it, and below an explicitly configured target because a configured number
+   * is a decision and this is a measurement.
+   */
+  | "observed_shopify_aov"
   | "meta_derived_aov"
   | "account_history"
   | "break_even_aov"
@@ -88,6 +96,14 @@ export interface DecisionProfileScope {
 export interface SpendUnitEvidence {
   targetCpa: number | null;
   operatorAovAssumption: number | null;
+  /**
+   * Observed store AOV in MAJOR units, with the order count that produced it.
+   * Absent (undefined) on payloads written before the source existed; null
+   * means it was looked for and not usable.
+   */
+  observedShopifyAov?: number | null;
+  observedShopifyAovOrderCount?: number;
+  observedShopifyAovStatus?: string | null;
   metaAttributedAovMean90d: number | null;
   metaAttributedAovPurchaseCount90d: number;
   metaAttributedRevenue90d: number;

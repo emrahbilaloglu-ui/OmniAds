@@ -1322,6 +1322,74 @@
       text-align: left;
     }
 
+    /*
+      The banner's own action link, on a phone.
+
+      `.ad-mobile-anomaly-button` already gave the anomaly card a 44px target,
+      but the posture banners rendered inside the same stage carry a shared
+      desktop link (`meta-posture-banner__button`, 26px tall) — and the stage's
+      own footer promises "Hit targets >= 44px". Measured at 320px: "Open
+      recovery status" and "Set commercial truth" were 26px. Scoped to the
+      mobile stage so the desktop banner keeps its own density.
+    */
+    .ad-final .meta-mobile-decision-stage .meta-posture-banner__button,
+    .ad-final .meta-mobile-surface-stage .meta-posture-banner__button {
+      min-height: 44px;
+      padding-top: 10px;
+      padding-bottom: 10px;
+    }
+
+    /*
+      The manual action sheet, inside the phone frame.
+
+      The sheet is the SAME component the desktop pane renders, so it arrives
+      with the zero-base primitives' own density: `Button` sets `minHeight: 24`
+      as an INLINE style, which no stylesheet rule can beat without
+      `!important`. At 320px the stage's own footer promises hit targets of at
+      least 44px, and a ceremony whose triggers measured 37px would have broken
+      that promise on the one control that writes to a provider.
+
+      `overflow-wrap` is here for the same reason the diagnostics block has it:
+      the sheet restates entity ids and account ids verbatim, and
+      `.ad-mobile-screen` clips rather than scrolls.
+    */
+    .ad-final .meta-mobile-decision-stage .meta-manual-ceremony {
+      margin: 6px 10px;
+      overflow-wrap: anywhere;
+    }
+
+    .ad-final .meta-mobile-decision-stage .meta-manual-ceremony button,
+    .ad-final .meta-mobile-decision-stage .meta-manual-ceremony input {
+      min-height: 44px !important;
+    }
+
+    /*
+      The ceremony's typed confirmation, which is not in the stage at all.
+
+      `ZeroBaseDialog` portals its content out of the sheet — to the canonical
+      `ZeroBasePortalHost` on a route that mounts one, and to `document.body`
+      on a route that does not — so the dialog carrying the CHANGE BID gate is
+      out of reach of every `.meta-mobile-decision-stage` selector above. Its
+      Cancel and confirm controls measured 41px, and the confirm control is the
+      one that writes.
+
+      Scoped by the dialog's own IDENTITY, not by where it landed. The
+      ceremony's confirm control is the only thing in the product that carries
+      `data-ctl="gated:META-WRITE-02 submit"` — it is set in exactly one place,
+      `components/zero-base/meta/decisions/mutation-ceremony-panel.tsx` — so
+      `:has()` reaches this dialog at either portal destination and reaches no
+      other overlay. The `body > [role="dialog"] button` this replaces was a
+      statement about position: it matched nothing once the ceremony portalled
+      into the canonical host, and it resized the controls of every unrelated
+      body-level dialog at this breakpoint. Both halves are driven, at both
+      destinations, by
+      `components/meta/redesign/mobile-card-apply-ceremony.test.tsx`, which
+      extracts this selector from this file rather than restating it.
+    */
+    [role="dialog"]:has([data-ctl="gated:META-WRITE-02 submit"]) button {
+      min-height: 44px !important;
+    }
+
     .ad-mobile-anomaly div {
       margin-top: 2px;
       color: var(--adc-ink3);
@@ -1351,7 +1419,15 @@
       color: var(--adc-pos-fg);
     }
 
-    .ad-mobile-row-footer {
+    /*
+      The operator's manual action, on its own line under the row's own footer.
+
+      A separate class rather than a second `.ad-mobile-row-footer`: the engine's
+      routed action and the operator's own verb are two different authorities,
+      and one of them is a control that writes to a provider.
+    */
+    .ad-mobile-row-footer,
+    .ad-mobile-manual-action {
       display: flex;
       align-items: center;
       justify-content: space-between;
@@ -1363,6 +1439,7 @@
     }
 
     .ad-mobile-row-footer button,
+    .ad-mobile-manual-action button,
     .ad-mobile-back {
       min-height: 44px;
       border: 0;

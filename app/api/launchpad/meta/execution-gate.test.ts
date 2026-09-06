@@ -92,9 +92,17 @@ describe("the Meta Stop reaches Launchpad", () => {
      * cheaper gate.
      */
     const { readFileSync } = await import("node:fs");
+    /*
+      The gate chain moved, and the assertion follows it rather than being
+      relaxed.
+
+      Both route files are now thin POST wrappers; the orchestration — and with
+      it this ordering — lives in the handler modules the scheduled arm also
+      needs to reach. The law is unchanged: the cheap release gate answers
+      before the control-plane read, in whichever module holds the chain.
+    */
     for (const file of [
-      "app/api/launchpad/meta/launch/route.ts",
-      "app/api/launchpad/meta/add-to-existing/route.ts",
+      "lib/launchpad/meta-launch-route-handlers.ts",
     ]) {
       const source = readFileSync(file, "utf8");
       expect(source, file).toContain("rejectIfLaunchpadMetaWritesBlocked");

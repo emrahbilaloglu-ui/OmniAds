@@ -35,6 +35,93 @@ export const BUDGET_PROPOSAL_WITHHELD_REASONS = [
   "account_not_activated",
   "enabling_actor_absent",
   "scheduled_authority_changed",
+  /*
+    The three the unattended STATUS and BID path can add.
+
+    The receipt shape is shared with budget, so the vocabulary is shared too: a
+    queue row settled `failed` must be able to say which gate refused it in the
+    same field the operator already reads. `mode_not_auto` and
+    `kill_switch_engaged` are states an operator chose, and
+    `control_state_unavailable` is a reading that failed — three different
+    answers that a single "refused" would flatten.
+  */
+  "mode_not_auto",
+  "kill_switch_engaged",
+  "control_state_unavailable",
+  /*
+    The four only a BID row can produce.
+
+    A bid change is the one queued action whose meaning depends on a provider
+    setting that can move underneath it. Each of these is a different fact and
+    the operator needs to be able to tell them apart: no amount was stored, the
+    strategy is not one that owns a writable amount, the current value could
+    not be read, or it is no longer the value the decision was reasoned from.
+  */
+  "bid_envelope_absent",
+  "bid_strategy_not_writable",
+  "bid_baseline_unreadable",
+  "bid_baseline_changed",
+  /*
+    The two an AD-grain row can produce, and neither is a generic block.
+
+    An ad write is a decision-origin write: it must name the exact snapshot,
+    evaluation, engine version and decision hash the recommendation was made
+    under, and the ad must still carry the creative that decision was about.
+    A row missing the lineage and an ad whose creative was swapped are
+    different problems with different answers, and "blocked" would hide both.
+  */
+  "decision_lineage_absent",
+  "creative_identity_mismatch",
+  /*
+    The facts only a CREATIVE row can produce, and each of them is a different
+    thing to have happened.
+
+    A launch row points at a launch intent and an activation row points at what
+    that launch created, so both can be refused for reasons no status or money
+    row has: the row names no intent, the intent could not be read, it is no
+    longer in the one state a create may start from, its stored payload no
+    longer hashes to the fingerprint the operator approved, or Launchpad's own
+    release gate — which is a separate environment gate from the Automation one
+    — is shut. Flattening any of them to `composition_blocked` would settle the
+    queue row `failed` while hiding which of the six it was, and five of the six
+    are things the operator can put right.
+  */
+  "launch_intent_absent",
+  "launch_intent_unreadable",
+  "launch_intent_not_prepared",
+  "launch_payload_changed",
+  "launchpad_execution_gated",
+  "launchpad_safety_step_missing",
+  "launch_write_context_unavailable",
+  /*
+    What `activateLaunchIntent` itself can answer, carried through verbatim.
+
+    These are `LaunchActivationRefusal` — the three plan refusals plus every
+    `ActivationApprovalRefusal`. They are listed rather than imported because
+    this vocabulary is the receipt's, not the approval module's; the activation
+    runtime assigns its refusal into this union directly, so a code added there
+    and forgotten here is a compile error rather than a silent `composition
+    blocked`. "Nobody approved this" and "somebody approved a different payload"
+    are the two an operator most needs to be able to tell apart.
+  */
+  "intent_not_succeeded",
+  "receipt_absent",
+  "no_activatable_entities",
+  "activation_approval_absent",
+  "activation_approval_malformed",
+  "activation_approval_contract_unknown",
+  "activation_approval_business_mismatch",
+  "activation_approval_account_mismatch",
+  "activation_approval_intent_mismatch",
+  "activation_approval_payload_changed",
+  "activation_approval_operation_mismatch",
+  "activation_approval_scope_mismatch",
+  "activation_approval_asset_mismatch",
+  "activation_approval_destination_mismatch",
+  "activation_approval_expired",
+  "activation_approval_revoked",
+  "activation_approval_approver_absent",
+  "activation_approval_policy_version_unbound",
 ] as const;
 export type BudgetProposalWithheldReason =
   (typeof BUDGET_PROPOSAL_WITHHELD_REASONS)[number];

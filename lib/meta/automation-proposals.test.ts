@@ -16,6 +16,7 @@ const dbModule = await import("@/lib/db");
 const guardrailPolicy = await import("@/lib/meta/automation-guardrail-policy");
 
 import {
+  AUTOMATABLE_PROPOSAL_ACTIONS,
   META_AUTOMATION_PROPOSAL_OPEN_STATUSES,
   META_AUTOMATION_PROPOSAL_PRIMARY_CAPTION,
   META_AUTOMATION_PROPOSAL_TTL_HOURS,
@@ -96,6 +97,54 @@ describe("scheduled proposal claims reserve the daily cap atomically", () => {
     expect(calls[3]!.text).toContain("receipt_json->>'executionKind' = 'scheduled'");
     expect(calls.some(({ text }) => text.includes("SET status = 'claimed'")))
       .toBe(false);
+  });
+
+  it("counts EVERY automatic family against the cap, not only budget", async () => {
+    /*
+      The defect this pins. The count filtered `proposed_action = 'budget'`
+      while the same sweep also dispatched pause and resume, so a cap of three
+      permitted three budget writes AND three more pauses on the next tick.
+      An operator who set a cap to bound money-moving actions was bounding one
+      third of them.
+    */
+    const { tagged, calls } = recordingDb([
+      [], [{ business_id: BUSINESS_ID }], [], [{ used: 0 }], [],
+    ]);
+    vi.mocked(dbModule.getDb).mockReturnValue(tagged as never);
+
+    await claimScheduledMetaAutomationProposal({
+      businessId: BUSINESS_ID,
+      providerAccountId: "act_123",
+      proposalId: RULE_ID,
+      claimedBy: ACTOR_ID,
+      expectedEnablingActorUserId: ACTOR_ID,
+      expectedActivationControlVersion: ACTIVATION_VERSION,
+      dailyAutoActionCap: 3,
+      now: NOW,
+    });
+
+    const capCall = calls.find(({ text }) => text.includes("AS used"));
+    expect(capCall, "the cap count was never issued").toBeDefined();
+    // The families travel as a bound parameter, not as a literal, so the
+    // dispatch list and the count cannot drift apart.
+    expect(capCall!.text).toContain("proposed_action = ANY($4::text[])");
+    expect(capCall!.text).not.toContain("proposed_action = 'budget'");
+    expect(capCall!.values[3]).toEqual([...AUTOMATABLE_PROPOSAL_ACTIONS]);
+    /*
+      And the list is the one the sweep actually dispatches — now including
+      `bid`, which had no producer and no executor and so could not be counted
+      against anything, and `launch`, which was excluded for want of an
+      authorization it now has (creative mode auto, the Launchpad execution
+      gate open, and the operator's own stored payload replayed byte for byte).
+      A cap change and a paused create both spend the account's money, so both
+      consume the same daily allowance a budget change does.
+    */
+    expect([...AUTOMATABLE_PROPOSAL_ACTIONS].sort())
+      .toEqual(["bid", "budget", "launch", "pause", "resume"]);
+    // Still account-scoped: one account's automatic actions never consume
+    // another's allowance.
+    expect(capCall!.values[0]).toBe(BUSINESS_ID);
+    expect(capCall!.values[1]).toBe("act_123");
   });
 
   it("fails closed before the cap count when stale leases cannot be classified", async () => {
@@ -311,6 +360,40 @@ describe("the proposal state machine", () => {
   });
 });
 
+/** Every family routed through the queue. */
+const SEMI_AUTO_MODES = {
+  pause: "semi_auto",
+  bid: "semi_auto",
+  budget: "semi_auto",
+  creative: "semi_auto",
+} as const;
+
+describe("the standing mode decides whether the queue is used at all", () => {
+  it("projects nothing in manual mode", async () => {
+    // In manual mode the operator applies from the decision card. A queue that
+    // fills up behind them is a second inbox nobody asked for.
+    const { tagged, calls } = recordingDb([[], [], []]);
+    vi.mocked(dbModule.getDb).mockReturnValue(tagged as never);
+    vi.mocked(
+      guardrailPolicy.readMetaAutomationProposalRoasFloor,
+    ).mockResolvedValue({ status: "read", floor: null } as never);
+
+    const result = await projectMetaAutomationProposals({
+      businessId: BUSINESS_ID,
+      snapshotDate: "2026-08-17",
+      now: NOW,
+      readModes: async () => ({ ...SEMI_AUTO_MODES, pause: "manual" }),
+    });
+
+    expect(result).toMatchObject({ projected: 0, ran: true });
+    expect(
+      calls.some((call) =>
+        call.text.includes("INSERT INTO meta_automation_proposals"),
+      ),
+    ).toBe(false);
+  });
+});
+
 describe("one queue, two origins", () => {
   // Rewritten from a source scan to an EXECUTION.
   //
@@ -338,6 +421,10 @@ describe("one queue, two origins", () => {
       businessId: BUSINESS_ID,
       snapshotDate: "2026-08-17",
       now: NOW,
+      // The queue exists for the two modes that route through it. Injected so
+      // this case stays about the projection rather than about the control
+      // plane, and so the mode gate has a case of its own below.
+      readModes: async () => SEMI_AUTO_MODES,
     });
 
     const projection = calls.at(-1)!.text;

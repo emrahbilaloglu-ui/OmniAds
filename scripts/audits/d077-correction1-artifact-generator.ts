@@ -77,12 +77,19 @@ import { execFileSync, spawnSync } from "node:child_process";
   Superseded a fifth time by the third review round, which changed the
   launch-intent producers that the decision-launch-chain seam child exercises.
 
-  This log is the 12:34Z canonical run on the delivered tree: 40 headers,
-  `PASS — 40 stages`, exit 0, 491 s, with the three registered children
+  The sixth repin is different in kind from the first five, and worth naming.
+  Those replaced a PASSING log whose child programs had changed. This one
+  replaces a tree that FAILED the shell: the round-4 carve-out re-offered a
+  launch whose approval had been withdrawn, and the decision-launch-chain child
+  caught it as two launch rows where it expected one. So this capture is not
+  merely the current run — it is the proof of that repair.
+
+  This log is the 13:17Z canonical run on the delivered tree: 40 headers,
+  `PASS — 40 stages`, exit 0, 488 s, with the three registered children
   reporting 7/7, 2/2 and 6/6, each `skipped=0`.
 */
 const PORTABLE_SHELL_LOG_PATH =
-  "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1234Z.log";
+  "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1317Z.log";
 
 /*
   The branch this candidate actually lives on, read from git rather than typed.

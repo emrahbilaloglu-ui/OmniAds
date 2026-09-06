@@ -69,12 +69,17 @@ export const LAUNCH_PROPOSAL_ACTION = "launch" as const;
  * trigger it. Expiry's own contract promises these "re-evaluate on the next
  * snapshot"; this is what makes that true.
  *
- * Nothing else may join this list. `approved` and `failed` both mean the
- * dispatch was entered and the provider answered — a launch that failed at the
- * ad step still created a campaign and an ad set. `reconcile` means the outcome
- * is UNKNOWN, which is not the same as absent. `dismissed` and `modified` are
- * the operator's own verdict on the offer, and re-raising those overrides a
- * person.
+ * Nothing else may join this list. `approved` means the dispatch was entered
+ * and the provider answered — a launch that failed at the ad step still created
+ * a campaign and an ad set, and `failed` covers that case too. `reconcile`
+ * means the outcome is UNKNOWN, which is not the same as absent. `dismissed`
+ * and `modified` are the operator's own verdict on the offer, and re-raising
+ * those overrides a person.
+ *
+ * `failed` is the one status a list cannot classify on its own, because it is
+ * also written for a row the queue withheld BEFORE the provider. That case is
+ * carved out by `NON_DISPATCHED_FAILURE_ARM_SQL` below, against the durable
+ * dispatch column rather than against the status.
  */
 export const LAUNCH_INTENT_UNCONSUMED_PROPOSAL_STATUSES = [
   ...META_AUTOMATION_PROPOSAL_UNDECIDED_STATUSES,
@@ -85,6 +90,85 @@ export const LAUNCH_INTENT_UNCONSUMED_PROPOSAL_STATUSES = [
 const LAUNCH_INTENT_UNCONSUMED_PROPOSAL_STATUS_SQL =
   LAUNCH_INTENT_UNCONSUMED_PROPOSAL_STATUSES.map((status) => `'${status}'`)
     .join(", ");
+
+/**
+ * The one `failed` row that consumed nothing, told apart by durable proof.
+ *
+ * `failed` is written for two different facts. One is a provider answer: the
+ * dispatch was entered and Meta refused, which for a launch can mean a campaign
+ * and an ad set already exist. The other is a withheld outcome — the standing
+ * approval withdrawn, a gate or the write posture closed after the row was
+ * claimed — which `scheduled-launch-runtime` and the manual launch boundary
+ * return BEFORE any provider call, and which `runClaimedProposalExecution` —
+ * or, on the manual path for a launch or an intent-carrying resume, the approve
+ * route's own settle block —
+ * settles as `failed` because nothing was dispatched and nothing succeeded
+ * (`budget-execution-lifecycle.ts`, the `providerDispatchStarted` branch).
+ * Excluding the intent for the second kind is the `expired` defect arriving
+ * through the other door: the intent is still `prepared`, still unstarted, and
+ * it never comes back to the queue.
+ *
+ * `dispatch_started_at` is PROOF, not an inference from the receipt:
+ * `markMetaAutomationProposalDispatchStarted` writes it before the first
+ * provider call and the call is refused when it cannot be written, so nothing
+ * can have been created without it; `claimMetaAutomationProposal` resets it to
+ * NULL on every claim, so it describes THIS attempt and not an older one; and
+ * the claim sweep already trusts exactly this column to tell `reconcile` from
+ * `expired`. The receipt could not carry the same weight — `withheld()`
+ * publishes `providerMutationAttempted: false` for refusals either side of the
+ * marker.
+ *
+ * It qualifies `failed` and nothing else, and the missing stamp is the whole
+ * carve-out: anything not provably undispatched keeps excluding the intent.
+ *
+ * Restated rather than shared with the activation producer for the reason the
+ * status list gives, and held equal to that copy by
+ * `launch-proposal-nondispatched-failure-reoffer.test.ts`.
+ */
+/*
+  What re-offering actually costs, stated plainly.
+
+  Once a withheld row has settled `failed`, the insert's `ON CONFLICT ... WHERE
+  status IN ('pending','claimed','reconcile')` arbiter no longer matches it, so
+  the next snapshot inserts a genuinely NEW row rather than deduplicating. For
+  the gate, posture and mode cases that is exactly the point — the work returns
+  when the gate re-opens. For a WITHDRAWN standing approval it is noise: neither
+  producer consults approval standing when projecting, so such an intent is
+  re-offered every snapshot and refused every time. The operator's escape hatch
+  is real and permanent — `dismissed` is not carved out below — but the cadence
+  is named here rather than left to be discovered in a queue.
+*/
+const NON_DISPATCHED_FAILURE_ARM_SQL =
+  "NOT (\n"
+  + "            decided.status = 'failed'\n"
+  + "            AND decided.dispatch_started_at IS NULL\n"
+  /*
+    ...AND the approval this launch was staged under still stands.
+
+    The seam proved why this third condition is not optional. In the
+    decision-to-launch chain, an operator un-reviews the brief, the sweep
+    refuses with `creative_brief_not_reviewed` before touching Meta, and the row
+    settles `failed` with no dispatch stamp while the intent stays `prepared`.
+    With only the first two conditions that intent came straight back — and
+    would come back on EVERY snapshot, to be refused every time, because nothing
+    re-reviews a brief on its own. A queue row that can only ever fail is worse
+    for the operator than the disappearance this carve-out set out to fix.
+
+    This is one leg of the standing contract, not a reimplementation of it:
+    `verifyMetaLaunchIntentLineage` refuses with exactly this code on exactly
+    this predicate (`brief.status !== "reviewed"`), and it is the leg that
+    changed in the observed failure. The full contract is still enforced where
+    it matters, at execution. An intent naming no brief is unaffected.
+  */
+  + "            AND (\n"
+  + "              i.creative_brief_id IS NULL\n"
+  + "              OR EXISTS (\n"
+  + "                SELECT 1 FROM meta_creative_briefs standing\n"
+  + "                 WHERE standing.id = i.creative_brief_id\n"
+  + "                   AND standing.status = 'reviewed'\n"
+  + "              )\n"
+  + "            )\n"
+  + "          )";
 
 export interface ReadyLaunchIntentCandidate {
   intentId: string;
@@ -120,9 +204,10 @@ export interface ReadyLaunchIntentCandidate {
  * only kind an operator has not already dealt with. Without this the queue
  * would race the wizard for the operator's own in-flight launch.
  *
- * The last arm asks whether an EARLIER row consumed the intent, not merely
+ * The last two arms ask whether an EARLIER row consumed the intent, not merely
  * whether one ended: see `LAUNCH_INTENT_UNCONSUMED_PROPOSAL_STATUSES` for which
- * outcomes count and why `expired` is not one of them.
+ * outcomes count and why `expired` is not one of them, and
+ * `NON_DISPATCHED_FAILURE_ARM_SQL` for the `failed` row that never dispatched.
  */
 export const READY_LAUNCH_INTENT_SQL = `
   SELECT i.id::text            AS intent_id,
@@ -158,6 +243,8 @@ export const READY_LAUNCH_INTENT_SQL = `
           AND decided.provider_account_id = i.provider_account_id
           AND decided.decision_key = 'launch:' || i.id::text
           AND decided.status NOT IN (${LAUNCH_INTENT_UNCONSUMED_PROPOSAL_STATUS_SQL})
+          -- A withheld launch never reached Meta, so it created nothing.
+          AND ${NON_DISPATCHED_FAILURE_ARM_SQL}
      )
    ORDER BY i.created_at
 ` as const;

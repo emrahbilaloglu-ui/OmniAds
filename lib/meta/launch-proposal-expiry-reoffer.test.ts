@@ -23,7 +23,12 @@ import {
 } from "@/lib/meta/launch-proposal-producer";
 
 /**
- * The statuses the shipped statement actually excludes an intent for.
+ * The statuses the shipped statement's STATUS arm excludes an intent for.
+ *
+ * The statement has a second arm that qualifies `failed` by
+ * `dispatch_started_at`; it is this file's sibling
+ * `launch-proposal-nondispatched-failure-reoffer.test.ts` that reads both arms
+ * together. Everything below is about the status list itself.
  *
  * The exclusion is a SQL predicate and no unit test here may reach a database,
  * so the arm is read back OUT of the statement and interpreted rather than
@@ -65,11 +70,18 @@ for (const [producer, sql] of PRODUCERS) {
     it("still refuses every outcome that reached Meta or was a person's verdict", () => {
       /*
         The permissive direction is the dangerous one, so it is pinned exactly.
-        `approved` and `failed` both mean the dispatch was entered and the
-        provider answered — a launch that failed at the ad step still created a
-        campaign and an ad set. `reconcile` means the outcome is UNKNOWN, which
-        is not the same as absent. `dismissed` and `modified` are the operator's
-        own decision on the offer, and re-raising those overrides a person.
+        `approved` means the dispatch was entered and the provider answered — a
+        launch that failed at the ad step still created a campaign and an ad
+        set, which is why `failed` is in this list too. `reconcile` means the
+        outcome is UNKNOWN, which is not the same as absent. `dismissed` and
+        `modified` are the operator's own decision on the offer, and re-raising
+        those overrides a person.
+
+        This is the STATUS arm alone. `failed` is also written for a row the
+        gates withheld before the provider, and that one row is carved back out
+        against `dispatch_started_at` — never against the status, which cannot
+        tell the two apart. See
+        `launch-proposal-nondispatched-failure-reoffer.test.ts`.
       */
       expect([...excludingStatuses(sql)].sort()).toEqual([
         "approved",

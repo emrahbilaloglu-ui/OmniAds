@@ -451,6 +451,26 @@ export async function resolveMetaAutomationProposalReconciliation(input: {
     return { status: "held", code: "recording_failed" };
   }
 
+  /*
+    NOTE for whoever wires this resolver to a route — it has no caller outside
+    this module and its tests today.
+
+    Writing `failed` here breaks an assumption the Launchpad producers now rely
+    on. They re-offer a launch intent when a proposal is `failed` AND
+    `dispatch_started_at IS NULL`, on the grounds that the stamp is written
+    before the first provider call and vetoes the write when it cannot be
+    written — so its absence proves nothing was sent. This path can violate
+    that: a `reconcile` row may carry a NULL stamp
+    (`forceMetaAutomationProposalReconcile` does not require one), and moving it
+    to `failed` here would produce a `failed`/NULL row for a write that MAY have
+    reached Meta. The producers would then re-offer a launch that possibly
+    created entities — the one direction that is worse than the defect the
+    carve-out fixed.
+
+    Before wiring this up, either stamp `dispatch_started_at` on this path or
+    tighten the producers' arm (for example on `decided_at IS NULL`). Do not
+    leave both as they are.
+  */
   const proposalStatus = landed ? "approved" : "failed";
   try {
     const moved = (await getDb().query<{ id: string }>(

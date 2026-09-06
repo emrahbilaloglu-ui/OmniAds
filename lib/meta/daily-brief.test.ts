@@ -58,9 +58,12 @@ beforeEach(() => {
     snapshotDate: "2026-09-05",
     summary: {},
     recommendations: [
-      { id: "r1", level: "adset", adsetId: "set_1", decisionLabel: "cut", title: "Pause ad set" },
-      { id: "r2", level: "campaign", campaignId: "camp_1", decisionLabel: "scale", title: "Raise budget" },
-      { id: "r3", level: "campaign", campaignId: "camp_2", decisionLabel: "keep", title: "No change" },
+      // Served rows carry both facts. The label is the engine's verdict; the
+      // state is what the server is willing to serve as act-now, and only the
+      // second decides whether the brief calls it a task.
+      { id: "r1", level: "adset", adsetId: "set_1", decisionLabel: "cut", decisionState: "act", title: "Pause ad set" },
+      { id: "r2", level: "campaign", campaignId: "camp_1", decisionLabel: "scale", decisionState: "act", title: "Raise budget" },
+      { id: "r3", level: "campaign", campaignId: "camp_2", decisionLabel: "keep", decisionState: "watch", title: "No change" },
     ],
   } as never);
   vi.mocked(proposals.readMetaAutomationProposalQueue).mockResolvedValue({
@@ -81,7 +84,7 @@ describe("the brief answers what happened and what is waiting", () => {
 
     expect(brief.modes).toMatchObject({ state: "read", budget: "auto", pause: "semi_auto" });
     expect(brief.alerts).toMatchObject({ state: "read", high: 1, total: 2 });
-    // Only what the engine itself called actionable. `keep` is not a task.
+    // Only what the server serves as act-now. A held row is not a task.
     expect(brief.decisions).toMatchObject({ state: "read", actionable: 2 });
     expect(brief.queue).toMatchObject({ state: "read", pending: 2 });
     expect(brief.appliedYesterday).toMatchObject({ state: "read", applied: 4, failed: 1 });

@@ -43,7 +43,7 @@ export interface MetaDailyBrief {
   };
   decisions: {
     state: BriefSectionState;
-    /** Decisions the engine considers actionable, not the whole list. */
+    /** Rows the server is serving as act-now, not the whole list. */
     actionable: number;
     top: Array<{ scopeType: string; scopeId: string; label: string; title: string }>;
     snapshotDate: string | null;
@@ -146,13 +146,50 @@ export async function buildMetaDailyBrief(input: {
   } | null)?.anomalies ?? null;
 
   /*
-    "Actionable" is the engine's own word, read from the decision label. This
-    module does not re-decide which recommendations matter — that judgement is
-    made once, upstream, with the evidence.
+    "Actionable" is the state the server served, not the verdict label.
+
+    Those are two different facts and this read path is where they part. The
+    decision reader hands every row to `enforceMetaCommercialActionAuthority`
+    and then to the campaign-role guard, and the LABEL survives both in ways
+    that make it unreliable in either direction:
+
+      - `enforceMetaCommercialActionAuthority` sets `decisionState: "watch"` and
+        strips `proposedAction`, leaving `decisionLabel` exactly as the engine
+        wrote it. A scale whose commercial target is missing still reads
+        `decisionLabel: "scale"`.
+      - the campaign-role guard never touches `proposedAction` at all, and its
+        two downgrades disagree with each other: `restrictAutomaticContextToReview`
+        preserves the label, while `downgradeToSoftOnly` REWRITES it to
+        `"diagnose"` and `kind` to `"state"`.
+
+    So the label is preserved on one refusal path and rewritten on another,
+    which is a stronger reason to stop reading it than either path alone.
+    Filtering on it counted a withheld scale under "Decisions to act on", the
+    one number this card exists to answer, when the server had already refused
+    to serve it as one.
+
+    It cut the other way too. Every act-state row the engine labelled something
+    other than scale or cut — `rebuild_with_constraints` and `campaign_structure`
+    (rebuild), `geo_cluster_for_signal_density` (swap), `bid_band_from_history`
+    (tune) — was dropped from the count and the top list alike.
+
+    This is still not a second opinion: `decisionState` is the field the rest of
+    the release reads for this question, and the judgement is made once,
+    upstream — this only reads the answer.
+
+    Two limits worth stating rather than implying. `isHeld` in the decisions
+    presentation is TWO fields, `recommendedAction.trim() === "" ||
+    decisionState === "watch"`, so this count and that predicate already
+    disagree at the edges in both directions; they are close, not identical.
+    And because `decisionLabelForMetaRec` falls back to `"keep"` for any
+    act-state type it does not enumerate, some counted rows will read `keep`.
+    That is the correct outcome under this filter — the server served them as
+    actionable — but it is a visible consequence of no longer reading the
+    label, so it is named here rather than discovered.
   */
   const recommendations = snapshot?.recommendations ?? null;
-  const actionable = recommendations?.filter((rec) =>
-    rec.decisionLabel === "cut" || rec.decisionLabel === "scale") ?? null;
+  const actionable = recommendations?.filter(
+    (rec) => rec.decisionState === "act") ?? null;
 
   const lastSnapshotDate = snapshot?.snapshotDate ?? null;
   const staleDays = lastSnapshotDate

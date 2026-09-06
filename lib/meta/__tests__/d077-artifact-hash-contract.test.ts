@@ -568,9 +568,9 @@ describe("D077 artifact hash contract (fail-closed)", () => {
     /*
       Pinned invariants of the retained run itself.
 
-      RELEASE CANDIDATE — repinned to the 2026-09-06 12:34Z capture. These are
+      RELEASE CANDIDATE — repinned to the 2026-09-06 13:17Z capture. These are
       the bytes `bash scripts/verify-database-seams.sh` produced on THIS
-      release's delivered tree (exit 0, 491 s, 40 stages).
+      release's delivered tree (exit 0, 488 s, 40 stages).
 
       Why a repin was required even though the header count did not move.
       `buildWholeShellProof` compares the ordered stage HEADINGS against the
@@ -594,12 +594,12 @@ describe("D077 artifact hash contract (fail-closed)", () => {
 
       The 2026-08-30 (38-stage) and 2026-09-03 (40-stage) logs are likewise
       retained and not relabelled. This log is frozen at
-      `docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1234Z.log`
+      `docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1317Z.log`
       and pinned with this same digest in the release-candidate manifest, which
       the assertion above checks — so these three cannot drift apart.
     */
     expect(recomputed.logSha256).toBe(
-      "389706bcbdecd22f130bcadd4da19ca725f72737453ee91b8119ab81f3878f14",
+      "c633170693b221417aa8152d9d481f64dc9076514eb1f52b6de55597e6b9b924",
     );
     expect(recomputed.logBytes).toBe(661046);
     /*

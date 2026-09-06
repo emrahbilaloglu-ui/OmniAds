@@ -1,10 +1,10 @@
 {
- "packetHash": "5117fe0e2a38194acf997e240a890ec709b6e77266690d185c0668cd5ddee0c8",
+ "packetHash": "db74b1bf93392750cb07a855db763e0af765534550d45f8babc93ee53ba7ac42",
  "hashAlgorithm": "sha256",
  "hashBasis": "sha256 over UTF-8 bytes of JSON.stringify(artifact, null, 1) of the artifact WITHOUT its embedded hash fields (the artifact object before {<hashField>, hashAlgorithm, hashBasis} are prepended)",
  "contract": "adsecute.d077.database-recovery-approval-packet.v2",
  "status": "PREPARED_AWAITING_OPERATOR_APPROVAL — nothing executed; submitted for Codex independent acceptance — not self-accepted",
- "generatedAtUtc": "2026-09-06T12:43:55.432Z",
+ "generatedAtUtc": "2026-09-06T13:27:22.711Z",
  "decision": "GO_WITH_EXACT_LIMITS — approvable now: A1a (superuser pgstattuple install), A1b (least-privilege EXECUTE capability for the app role — REQUIRED, see privilege facts), and scheduling the A3 planner dry-run. A4 execution stays sequence-blocked behind the release packet and a fresh ready plan",
  "scope": {
   "businessIds": [

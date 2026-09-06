@@ -34,7 +34,7 @@ vi.mock("@/lib/meta/snapshot", () => ({
     snapshotDate: "2026-09-05",
     summary: {},
     recommendations: [
-      { id: "r1", level: "campaign", campaignId: "camp_1", decisionLabel: "cut", title: "Pause" },
+      { id: "r1", level: "campaign", campaignId: "camp_1", decisionLabel: "cut", decisionState: "act", title: "Pause" },
     ],
   })),
 }));

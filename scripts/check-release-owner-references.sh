@@ -125,7 +125,11 @@ REGISTRY=(
   "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1156Z.log|1|Retained whole-shell capture (40-stage run, 11:56Z, superseded): this guard announcing the token it scans for."
   # 12:34Z is canonical: the third review round changed the launch-intent
   # producers, which the decision-launch-chain seam child exercises.
-  "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1234Z.log|1|Retained whole-shell capture (40-stage run, 12:34Z, CANONICAL): this guard announcing the token it scans for."
+  "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1234Z.log|1|Retained whole-shell capture (40-stage run, 12:34Z, superseded): this guard announcing the token it scans for."
+  # 13:17Z is canonical. The 12:34Z tree FAILED this shell once the round-4
+  # carve-out landed — the decision-launch-chain child raised two launch rows
+  # where it expected one — so this capture is also the proof of that repair.
+  "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1317Z.log|1|Retained whole-shell capture (40-stage run, 13:17Z, CANONICAL): this guard announcing the token it scans for."
 )
 
 HISTORICAL_COUNTS=(

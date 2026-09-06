@@ -53,7 +53,10 @@ export const ACTIVATION_PROPOSAL_ACTION = "resume" as const;
  * claim sweep writes it only where `dispatch_started_at IS NULL`), so it
  * provably turned nothing on and the paused hierarchy it described is still
  * off. Every other terminal status either reached Meta or is an operator's own
- * verdict, and none of them may be added here.
+ * verdict, and none of them may be added here — `failed` included, because a
+ * status alone cannot say whether that row was dispatched. Its one
+ * provably-undispatched case is carved out by `NON_DISPATCHED_FAILURE_ARM_SQL`
+ * below, against the durable column rather than against the status.
  *
  * Restated rather than imported from the launch producer because the snapshot
  * pipeline's tests mock these two modules independently, and a module-scope
@@ -69,6 +72,75 @@ const LAUNCH_INTENT_UNCONSUMED_PROPOSAL_STATUSES = [
 const LAUNCH_INTENT_UNCONSUMED_PROPOSAL_STATUS_SQL =
   LAUNCH_INTENT_UNCONSUMED_PROPOSAL_STATUSES.map((status) => `'${status}'`)
     .join(", ");
+
+/**
+ * The one `failed` row that consumed nothing, told apart by durable proof.
+ *
+ * `failed` is written for two different facts. One is a provider answer: the
+ * dispatch was entered and Meta refused. The other is a withheld outcome —
+ * the stored approval expired, the standing mode or a gate closed, the write
+ * posture went read-only after the row was claimed — which
+ * `scheduled-activation-runtime` and the manual activate boundary return
+ * BEFORE any provider call, and which `runClaimedProposalExecution` — or, on the
+ * manual path, the approve route's own settle block — settles as
+ * `failed` because nothing was dispatched and nothing succeeded
+ * (`budget-execution-lifecycle.ts`, the `providerDispatchStarted` branch).
+ * Excluding the intent for the second kind was the `expired` defect arriving
+ * through the other door: the hierarchy is still paused, still nobody's, and
+ * it never came back to the queue.
+ *
+ * `dispatch_started_at` is PROOF, not an inference from the receipt:
+ * `markMetaAutomationProposalDispatchStarted` writes it before the first
+ * provider call and the call is refused when it cannot be written, so no
+ * activation can have reached Meta without it; `claimMetaAutomationProposal`
+ * resets it to NULL on every claim, so it describes THIS attempt and not an
+ * older one; and the claim sweep already trusts exactly this column to tell
+ * `reconcile` from `expired`. The receipt could not carry the same weight —
+ * `withheld()` publishes `providerMutationAttempted: false` even for a refusal
+ * raised after the marker fired.
+ *
+ * It qualifies `failed` and nothing else. `approved` asserts a write landed,
+ * `reconcile` means the outcome is unknown, and `dismissed`/`modified` are a
+ * person's verdict on the offer; none of those becomes re-offerable merely for
+ * want of a dispatch stamp. A row whose status is `failed` and whose stamp is
+ * missing is the only combination that is provably non-consuming, so anything
+ * else keeps excluding the intent.
+ *
+ * Restated rather than shared with the launch producer for the reason the
+ * status list gives, and held equal to that copy by
+ * `launch-proposal-nondispatched-failure-reoffer.test.ts`.
+ */
+const NON_DISPATCHED_FAILURE_ARM_SQL =
+  "NOT (\n"
+  + "            decided.status = 'failed'\n"
+  + "            AND decided.dispatch_started_at IS NULL\n"
+  /*
+    ...AND the approval this launch was staged under still stands.
+
+    The seam proved why this third condition is not optional. In the
+    decision-to-launch chain, an operator un-reviews the brief, the sweep
+    refuses with `creative_brief_not_reviewed` before touching Meta, and the row
+    settles `failed` with no dispatch stamp while the intent stays `prepared`.
+    With only the first two conditions that intent came straight back — and
+    would come back on EVERY snapshot, to be refused every time, because nothing
+    re-reviews a brief on its own. A queue row that can only ever fail is worse
+    for the operator than the disappearance this carve-out set out to fix.
+
+    This is one leg of the standing contract, not a reimplementation of it:
+    `verifyMetaLaunchIntentLineage` refuses with exactly this code on exactly
+    this predicate (`brief.status !== "reviewed"`), and it is the leg that
+    changed in the observed failure. The full contract is still enforced where
+    it matters, at execution. An intent naming no brief is unaffected.
+  */
+  + "            AND (\n"
+  + "              i.creative_brief_id IS NULL\n"
+  + "              OR EXISTS (\n"
+  + "                SELECT 1 FROM meta_creative_briefs standing\n"
+  + "                 WHERE standing.id = i.creative_brief_id\n"
+  + "                   AND standing.status = 'reviewed'\n"
+  + "              )\n"
+  + "            )\n"
+  + "          )";
 
 export interface ActivatableLaunchIntentCandidate {
   intentId: string;
@@ -116,7 +188,9 @@ export interface ActivatableLaunchIntentCandidate {
  * So a created-but-off campaign nobody activated within the row's 24h TTL was
  * never offered again — the exact outcome the paragraph above forbids. The arm
  * now names the outcomes that CONSUME the intent; `expired` is not one, because
- * it is only ever written where no dispatch began.
+ * it is only ever written where no dispatch began, and neither is a `failed`
+ * row the queue withheld before the provider — same door, same paused
+ * hierarchy, and `dispatch_started_at` is what proves it never dispatched.
  */
 export const ACTIVATABLE_LAUNCH_INTENT_SQL = `
   SELECT i.id::text            AS intent_id,
@@ -142,6 +216,8 @@ export const ACTIVATABLE_LAUNCH_INTENT_SQL = `
           AND decided.provider_account_id = i.provider_account_id
           AND decided.decision_key = 'activate:' || i.id::text
           AND decided.status NOT IN (${LAUNCH_INTENT_UNCONSUMED_PROPOSAL_STATUS_SQL})
+          -- A withheld activation never reached Meta, so it consumed nothing.
+          AND ${NON_DISPATCHED_FAILURE_ARM_SQL}
      )
    ORDER BY i.created_at
 ` as const;

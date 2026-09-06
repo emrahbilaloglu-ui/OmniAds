@@ -147,13 +147,17 @@ occasion, so only a fresh run can bind what actually executed.
 A fifth repin followed the third review round, which changed the launch-intent
 producers the decision-launch-chain seam child exercises.
 
-The canonical stage is the 12:34Z run, retained at
-`docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1234Z.log`:
+The sixth repin is different in kind from the first five, and the difference is
+the point. Those replaced a PASSING log whose child programs had changed. This
+one replaces a tree that FAILED the shell — see the round-4 section below.
+
+The canonical stage is the 13:17Z run, retained at
+`docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1317Z.log`:
 
 | | |
 |---|---|
-| Start / end (UTC) | 2026-09-06T12:34:16 → 2026-09-06T12:42:27 |
-| Duration | 491.0 s |
+| Start / end (UTC) | 2026-09-06T13:17:26 → 2026-09-06T13:25:34 |
+| Duration | 488.0 s |
 | Exit code | 0 |
 | Stage headers | 40 |
 | Final line | `[verify-db-seams] PASS — 40 stages` |
@@ -165,11 +169,11 @@ bid verb title` 2/2, and the newly registered `Meta History bid write journal
 admission` 6/6 — the last being the direct evidence that five previously dormant
 database assertions now actually execute.
 
-Seven captures are retained and none was relabelled or edited: 2026-08-30
+Eight captures are retained and none was relabelled or edited: 2026-08-30
 (38-stage) and 2026-09-03 (40-stage) as the earlier releases' evidence; 2026-09-06
-07:59Z (Phase 1 checkpoint), 10:30Z (PR open), 11:18Z (review round 1), 11:56Z
-(review round 2) and 12:34Z (this one, review round 3). The five same-day captures
-are superseded rather than historical.
+07:59Z (Phase 1 checkpoint), 10:30Z (PR open), 11:18Z (round 1), 11:56Z (round 2),
+12:34Z (round 3) and 13:17Z (this one, round 4). The six same-day captures are
+superseded rather than historical.
 Each is kept because it is truthful evidence of the tree it ran on — only the
 label moves, never the bytes.
 
@@ -395,6 +399,46 @@ their own id, so bootstrap now runs only for a `live` write authority; and
 `notification-producer.ts` carried `as never` on the same anomaly read, whose
 removal exposed a second unsound cast that had only type-checked because the
 first one blinded the compiler.
+
+## Review round 4 on PR #276 — and the gate catching a fix of mine
+
+CI on `f7d7df37b` was fully green across all eleven jobs. Codex Review completed
+on the same head with two findings, both P2. Across four rounds: 5 → 4 → 3 → 2
+findings, and 3 → 2 → 0 → 0 at P1.
+
+| finding | fix |
+|---|---|
+| P2 `activation-proposal-producer.ts` — `runClaimedProposalExecution`, and on the manual path the approve route's own settle, map PRE-PROVIDER refusals to `failed`, so treating every `failed` row as consuming permanently retired a still-paused hierarchy | The carve-out qualifies `failed` alone, on `dispatch_started_at IS NULL` — the same proof the claim sweep already uses to choose `reconcile` over `expired`. |
+| P2 `daily-brief.ts` — the actionable count filtered on `decisionLabel`, which the authority guards leave in place while moving `decisionState` to `watch` | Filters on `decisionState === "act"`. The count and the top list slice the same array, so they cannot disagree. |
+
+**Then the canonical shell rejected the first fix, and it was right to.**
+`decision-launch-chain-seam FAILED [and raises its launch row]: expected 1, got 2`.
+The expectation was not updated; the case was read. In it an operator un-reviews
+a brief, the sweep refuses `creative_brief_not_reviewed` before touching Meta,
+the row settles `failed` with `providerMutationAttempted: false`, and the intent
+stays `prepared`. The two-condition carve-out brought that intent straight back —
+and would bring it back on every projection afterwards, to be refused every time,
+because nothing re-reviews a brief on its own. **A queue row that can only ever
+fail is worse for the operator than the disappearance the carve-out set out to
+fix.**
+
+So re-offering now has to mean *the work can proceed again*, not merely *nothing
+was created*. The carve-out gained a third condition: the linked brief must still
+be `reviewed`. That is one leg of the standing contract rather than a rule
+invented here — `verifyMetaLaunchIntentLineage` refuses with exactly that code on
+exactly that predicate, and `meta_creative_briefs.status` is
+`CHECK (status IN ('draft','reviewed'))`. An intent naming no brief is unaffected,
+and the whole contract is still enforced at execution.
+
+Round 3's `expired` carve-out had the same latent gap — an expired proposal for a
+withdrawn brief would have been re-offered too. The standing leg closes both.
+
+Two things this round says about the process rather than the code. The gate
+caught what prose review had only gestured at: the round-4 adversarial re-check
+did name this re-offer cadence as "noise", in words, and it took the seam to turn
+that into a failure. And the fixing agent's own test parser failed SAFE when it
+could no longer read the rewritten clause — it reported "consumes" and failed the
+re-offer cases loudly rather than greenlighting the dangerous direction.
 
 ## Review round 3 on PR #276
 

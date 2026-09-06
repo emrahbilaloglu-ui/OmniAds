@@ -632,3 +632,116 @@ describe("D086 C1 — the budget-readiness read reaches the body", () => {
     expect(shim).not.toContain("readBudgetReadiness");
   });
 });
+
+// ---------------------------------------------------------------------------
+// The control-row bootstrap is a WRITE, so it runs only for a viewer who may
+// write.
+//
+// Round three of one family. The first fix moved the bootstrap in
+// `POST /api/meta/automation` below its reviewer and demo guards; the second
+// moved this page's below the write-authority resolution and gated it on
+// `!reviewerReadOnly && writeAuthority === "live"`. Both asked about the
+// BUSINESS's posture and about the reviewer flag, and neither asked whether
+// the VIEWER may write — and a guest satisfies both. `requireBusinessPageContext`
+// is called with no `minRole`, which `evaluateBusinessAuthorization` defaults
+// to `"guest"`, so a guest reached an INSERT that stamped `updated_by` with an
+// id every Automation write route refuses.
+//
+// Both directions are asserted: every actor without mutation authority writes
+// nothing, and the actors who have it still get their row.
+// ---------------------------------------------------------------------------
+
+function contextWithRole(role: "admin" | "collaborator" | "guest") {
+  const base = authorizedContext("biz_route");
+  return {
+    ...base,
+    context: {
+      ...base.context,
+      role,
+      membership: { ...base.context.membership, role },
+    },
+  };
+}
+
+describe("control-row bootstrap is gated on the viewer's own mutation authority", () => {
+  it("a GUEST on a live workspace persists nothing", async () => {
+    vi.mocked(businessPageAccess.requireBusinessPageContext).mockResolvedValue(
+      contextWithRole("guest") as never,
+    );
+    vi.mocked(writeAuthority.readLaunchpadWriteAuthority).mockResolvedValue("live");
+
+    await renderPage();
+
+    /*
+      THE THIRD-ROUND DEFECT. This guest is admitted by
+      `requireBusinessPageContext`, is not a reviewer, and this workspace reads
+      `live` — so the previous gate passed on both halves and the durable
+      INSERT ran under a guest's id.
+    */
+    expect(controlPlane.ensureBusinessControlRow).not.toHaveBeenCalled();
+    // The same render already knew: the envelope refuses this viewer.
+    expect(exactPage.mock.calls.at(-1)?.[0]?.viewer?.canMutate).toBe(false);
+    expect(exactPage.mock.calls.at(-1)?.[0]?.viewer?.reasonCode).toBe(
+      "insufficient_role",
+    );
+  });
+
+  it("a REVIEWER persists nothing, whatever their role says", async () => {
+    const base = contextWithRole("admin");
+    vi.mocked(businessPageAccess.requireBusinessPageContext).mockResolvedValue({
+      ...base,
+      context: { ...base.context, reviewerReadOnly: true },
+    } as never);
+    vi.mocked(writeAuthority.readLaunchpadWriteAuthority).mockResolvedValue("live");
+
+    await renderPage();
+
+    expect(controlPlane.ensureBusinessControlRow).not.toHaveBeenCalled();
+  });
+
+  it("a demo workspace persists nothing, even for an admin", async () => {
+    vi.mocked(writeAuthority.readLaunchpadWriteAuthority).mockResolvedValue("demo");
+
+    await renderPage();
+
+    expect(controlPlane.ensureBusinessControlRow).not.toHaveBeenCalled();
+  });
+
+  it("an unreadable demo flag persists nothing", async () => {
+    // A missing fact never becomes a permission: `unverified` refuses.
+    vi.mocked(writeAuthority.readLaunchpadWriteAuthority).mockResolvedValue(
+      "unverified",
+    );
+
+    await renderPage();
+
+    expect(controlPlane.ensureBusinessControlRow).not.toHaveBeenCalled();
+  });
+
+  it("a COLLABORATOR on a live workspace still gets the row, stamped with their own id", async () => {
+    vi.mocked(businessPageAccess.requireBusinessPageContext).mockResolvedValue(
+      contextWithRole("collaborator") as never,
+    );
+    vi.mocked(writeAuthority.readLaunchpadWriteAuthority).mockResolvedValue("live");
+
+    await renderPage();
+
+    /*
+      The regression the tightening could have caused. `collaborator` is the
+      floor every Automation write enforces, so this viewer must still get the
+      default-closed row — without it every write answers
+      `control_state_unavailable`.
+    */
+    expect(controlPlane.ensureBusinessControlRow).toHaveBeenCalledTimes(1);
+    expect(controlPlane.ensureBusinessControlRow).toHaveBeenCalledWith({
+      businessId: "biz_route",
+      userId: "user_1",
+    });
+  });
+
+  it("an ADMIN on a live workspace still gets the row", async () => {
+    await renderPage();
+
+    expect(controlPlane.ensureBusinessControlRow).toHaveBeenCalledTimes(1);
+  });
+});

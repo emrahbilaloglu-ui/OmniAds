@@ -1,9 +1,9 @@
 {
- "ledgerHash": "58fbb6c1a2f3fcc1cb53e12df2c9ddd1e63f70b370eb5293a8c06873d36f26a3",
+ "ledgerHash": "3cb59d4049d5cba5b7b44decb1d4d592fc4324b1720af140af07e8113d93d14c",
  "hashAlgorithm": "sha256",
  "hashBasis": "sha256 over UTF-8 bytes of JSON.stringify(artifact, null, 1) of the artifact WITHOUT its embedded hash fields (the artifact object before {<hashField>, hashAlgorithm, hashBasis} are prepended)",
  "contract": "adsecute.d077.correction2-verification-ledger.v2",
- "generatedAtUtc": "2026-09-06T14:53:12.840Z",
+ "generatedAtUtc": "2026-09-06T15:36:23.150Z",
  "runtimeVersions": {
   "node": "v24.4.1",
   "npm": "11.4.2",
@@ -31,7 +31,7 @@
       "stderr": "",
       "spawnErrorCode": null,
       "spawnErrorMessage": null,
-      "observedAtUtc": "2026-09-06T14:53:11.957Z"
+      "observedAtUtc": "2026-09-06T15:36:22.190Z"
      },
      "resolution": "unresolved",
      "resolvedPath": null,
@@ -39,7 +39,7 @@
      "reportedVersion": null,
      "resultClass": "not_found",
      "observationKind": "present_tense",
-     "observedAtUtc": "2026-09-06T14:53:11.957Z",
+     "observedAtUtc": "2026-09-06T15:36:22.190Z",
      "observationTimeCertainty": "exact",
      "cacheSafeReadOnly": true
     },
@@ -61,7 +61,7 @@
       "stderr": "",
       "spawnErrorCode": null,
       "spawnErrorMessage": null,
-      "observedAtUtc": "2026-09-06T14:53:11.962Z"
+      "observedAtUtc": "2026-09-06T15:36:22.197Z"
      },
      "resolution": "resolved",
      "resolvedPath": "/usr/local/bin/corepack",
@@ -77,12 +77,12 @@
       "stderr": "",
       "spawnErrorCode": null,
       "spawnErrorMessage": null,
-      "observedAtUtc": "2026-09-06T14:53:12.008Z"
+      "observedAtUtc": "2026-09-06T15:36:22.241Z"
      },
      "reportedVersion": "0.34.2",
      "resultClass": "version_reported",
      "observationKind": "present_tense",
-     "observedAtUtc": "2026-09-06T14:53:12.008Z",
+     "observedAtUtc": "2026-09-06T15:36:22.241Z",
      "observationTimeCertainty": "exact",
      "cacheSafeReadOnly": true
     },
@@ -96,7 +96,7 @@
       "exists": true,
       "observationErrorCode": null,
       "observationErrorMessage": null,
-      "observedAtUtc": "2026-09-06T14:53:12.009Z"
+      "observedAtUtc": "2026-09-06T15:36:22.241Z"
      },
      "resolution": "resolved",
      "resolvedPath": "/Users/harmelek/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/pnpm",
@@ -112,12 +112,12 @@
       "stderr": "",
       "spawnErrorCode": null,
       "spawnErrorMessage": null,
-      "observedAtUtc": "2026-09-06T14:53:12.359Z"
+      "observedAtUtc": "2026-09-06T15:36:22.609Z"
      },
      "reportedVersion": "11.19.0",
      "resultClass": "version_reported",
      "observationKind": "present_tense",
-     "observedAtUtc": "2026-09-06T14:53:12.359Z",
+     "observedAtUtc": "2026-09-06T15:36:22.609Z",
      "observationTimeCertainty": "exact",
      "cacheSafeReadOnly": true
     },
@@ -206,9 +206,9 @@
   {
    "stage": "canonical.database-seams-whole-shell",
    "command": "bash scripts/verify-database-seams.sh",
-   "startUtc": "2026-09-06T14:43:14+00:00",
-   "endUtc": "2026-09-06T14:51:38+00:00",
-   "durationSeconds": 504,
+   "startUtc": "2026-09-06T15:26:23+00:00",
+   "endUtc": "2026-09-06T15:34:57+00:00",
+   "durationSeconds": 514,
    "exitCode": 0,
    "counts": {
     "notApplicable": true,
@@ -224,13 +224,13 @@
     "exitCode": 0
    },
    "logFile": {
-    "path": "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1443Z.log",
-    "sha256": "b1adadcaac835d7b6ebee190ca24fa74bfa3b7299b048508b4f3606190a342fd",
-    "bytes": 661045
+    "path": "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1526Z.log",
+    "sha256": "a0b4c520e9577c4ba50741c10bfc3dbec8c8a35bab574a81da1689363c6ca328",
+    "bytes": 661049
    },
    "tail": "[release-owner-guard] scanning tracked and untracked files for 'erhanrdn'\n[release-owner-guard] PASS — 81 historical occurrence(s) frozen; every active-path reference is registered or marked; 2 meta file(s) covered by the self-test.\n\n[verify-db-seams] PASS — 40 stages",
    "originalCapturePath": {
-    "path": "/tmp/seams10.log",
+    "path": "/tmp/seams11.log",
     "note": "capture provenance ONLY — the ephemeral Claude-session location where the supervisor wrote the log during the one authoritative run; validated byte-identical to the repository copy before the copy was frozen; no generator/test read path opens it after the freeze"
    },
    "wholeShellProof": {
@@ -406,8 +406,8 @@
      "title": "Release owner references are current (LAST — the tree is final here)"
     },
     "finalPassLine": "[verify-db-seams] PASS — 40 stages",
-    "logSha256": "b1adadcaac835d7b6ebee190ca24fa74bfa3b7299b048508b4f3606190a342fd",
-    "logBytes": 661045,
+    "logSha256": "a0b4c520e9577c4ba50741c10bfc3dbec8c8a35bab574a81da1689363c6ca328",
+    "logBytes": 661049,
     "releaseBoundary": {
      "stageNumber": 26,
      "stageTitle": "Ordinary deploy refuses a cutover-required release",

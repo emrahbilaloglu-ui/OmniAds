@@ -1163,7 +1163,7 @@ export async function produceRetainedAccountProfileOutputs(
 
 /**
  * Materialise the day's verdict for this account if the facts it would rest on
- * are not already retained, and hand the caller the identity to expect.
+ * are not already retained IN FULL, and hand the caller the identity to expect.
  *
  * WHY A READ-THROUGH STEP AND NOT A RECOMPUTE. The retained row is the account
  * DAY's verdict. It is produced once per day per set of inputs, and every later
@@ -1177,7 +1177,7 @@ export async function produceRetainedAccountProfileOutputs(
  * The existence probe is keyed on the FULL identity, so an operator who changes
  * their targets at ten in the morning gets a new verdict for the same day
  * rather than being locked out of the rest of it. A day whose facts have not
- * moved costs one indexed lookup and resolves nothing.
+ * moved costs one indexed probe of at most three rows and resolves nothing.
  *
  * `null` when the facts could not be read: no verdict is produced, no
  * expectation is offered, and the caller has to refuse.
@@ -1191,15 +1191,52 @@ export async function ensureRetainedAccountProfileOutputs(
   if (accountProfileMeasuredScopeHold(inputs.measuredScope) !== null) return null;
   const identity = accountProfileRetentionIdentity(inputs);
 
+  /*
+    THE PROBE ASKS FOR THE COMPLETE ACTION SET, NOT FOR ANY ONE ROW.
+
+    `produceRetainedAccountProfileOutputs` writes one statement per action in
+    `D086_PROFILE_ACTIONS` and opens no transaction of its own, so when the
+    `scale` upsert lands and a later one fails — a pool timeout, a dropped
+    connection, the process going away between two of them — the `scale` row
+    stays committed and the call throws with `cut` and `refresh` unwritten. A
+    probe that returned on the FIRST row read that identity as materialised
+    from then on: production was skipped on every later call,
+    `budget-proposal-source-loader.ts` looked up the row for the exact action it
+    was proposing, found none for `cut`, and
+    `composeBudgetExecutionCandidate` refused the candidate with
+    `profile_not_retained` — an eligible action withheld for the rest of that
+    account-day, until the inputs moved and made a new identity to probe for.
+
+    Requiring all three sends a partially retained identity back through
+    production, which is what completes it: the upsert re-observes the rows that
+    already exist (`ON CONFLICT ... DO UPDATE SET recorded_at = now()`) and
+    writes the ones that do not. It is preferred here to making the loop atomic
+    with `runDbTransaction`, for two reasons, and NOT for the "permanent" one an
+    earlier draft gave. A partial set was never permanent: `runMetaSnapshotForBusiness`
+    calls `produceRetainedAccountProfileOutputs` UNCONDITIONALLY — no probe — for
+    every generation account on every snapshot run, so the next tick already
+    healed it. What the old short-circuit actually cost was the window until that
+    tick, during which every loader call skipped production and the missing
+    action's proposals were withheld.
+
+    The two reasons that do hold: a transaction would only stop NEW partial sets,
+    leaving the ones already committed to wait for that tick; and a projector
+    refusal leaves an action absent BY DESIGN, so "some rows exist" could never
+    have meant "production finished". An identity whose set stays incomplete
+    then costs one resolve per call — exactly what an identity with NO rows
+    already cost.
+    `action = ANY(...)` keeps the read on the identity's own unique index, so it
+    stays one probe of at most three rows.
+  */
   const existing = (await getDb()
     .query(
-      `SELECT 1 AS present
+      `SELECT action
          FROM engine_v3_account_profile_output
         WHERE business_id = $1 AND provider_account_id = $2
           AND as_of_date = $3::date
           AND engine_epoch = $4 AND engine_version = $5
           AND input_fingerprint = $6 AND source_fingerprint = $7
-        LIMIT 1`,
+          AND action = ANY($8::text[])`,
       [
         scope.businessId,
         scope.providerAccountId,
@@ -1208,12 +1245,14 @@ export async function ensureRetainedAccountProfileOutputs(
         D086_PROFILE_IDENTITY.engineVersion,
         identity.inputFingerprint,
         identity.sourceFingerprint,
+        [...D086_PROFILE_ACTIONS],
       ],
     )
-    .catch(() => null)) as Array<{ present?: number }> | null;
+    .catch(() => null)) as Array<{ action?: string | null }> | null;
   // A probe that failed is UNKNOWN, and unknown produces nothing.
   if (existing === null) return null;
-  if (existing.length > 0) return identity;
+  const retained = new Set(existing.map((row) => row.action));
+  if (D086_PROFILE_ACTIONS.every((action) => retained.has(action))) return identity;
 
   await produceRetainedAccountProfileOutputs(scope, inputs);
   return identity;

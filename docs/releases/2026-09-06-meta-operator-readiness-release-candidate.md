@@ -151,17 +151,17 @@ The sixth repin is different in kind from the first five, and the difference is
 the point. Those replaced a PASSING log whose child programs had changed. This
 one replaces a tree that FAILED the shell — see the round-4 section below.
 
-The canonical stage is the 14:43Z run, retained at
-`docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1443Z.log`:
+The canonical stage is the 15:26Z run, retained at
+`docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1526Z.log`:
 
 | | |
 |---|---|
-| Start / end (UTC) | 2026-09-06T14:43:14 → 2026-09-06T14:51:38 |
-| Duration | 504.0 s |
+| Start / end (UTC) | 2026-09-06T15:26:23 → 2026-09-06T15:34:57 |
+| Duration | 514.0 s |
 | Exit code | 0 |
 | Stage headers | 40 |
 | Final line | `[verify-db-seams] PASS — 40 stages` |
-| Bytes | 661,045 |
+| Bytes | 661,049 |
 
 The three registered seam children report their counts inside it, each with
 `skipped=0`: `direct Launchpad create route approval-standing` 7/7, `Meta History
@@ -169,11 +169,12 @@ bid verb title` 2/2, and the newly registered `Meta History bid write journal
 admission` 6/6 — the last being the direct evidence that five previously dormant
 database assertions now actually execute.
 
-Ten captures are retained and none was relabelled or edited: 2026-08-30
+Eleven captures are retained and none was relabelled or edited: 2026-08-30
 (38-stage) and 2026-09-03 (40-stage) as the earlier releases' evidence; 2026-09-06
 07:59Z (Phase 1 checkpoint), 10:30Z (PR open), 11:18Z (round 1), 11:56Z (round 2),
-12:34Z (round 3), 13:17Z (round 4), 13:56Z (round 5) and 14:43Z (this one, round
-6). The eight same-day captures are superseded rather than historical.
+12:34Z (round 3), 13:17Z (round 4), 13:56Z (round 5), 14:43Z (round 6) and
+15:26Z (this one, round 7). The nine same-day captures are superseded rather
+than historical.
 Each is kept because it is truthful evidence of the tree it ran on — only the
 label moves, never the bytes.
 
@@ -399,6 +400,43 @@ their own id, so bootstrap now runs only for a `live` write authority; and
 `notification-producer.ts` carried `as never` on the same anomaly read, whose
 removal exposed a second unsound cast that had only type-checked because the
 first one blinded the compiler.
+
+## Review round 7 on PR #276
+
+CI on `535d6db1f` was fully green across all eleven jobs, the sixth consecutive
+fully-green head. Codex Review completed on it with three findings — one P1, two
+P2 — so the merge gate stayed shut.
+
+| finding | fix |
+|---|---|
+| **P1** `activation-approval/route.ts` — an approval POST overlapping a REVOCATION had no version predicate, so a revoked document could be replaced by the older live approval and the unattended runtime could then activate real provider entities | A compare-and-set on a hash of the stored document, re-read inside the advisory lock this table already uses in `createMetaLaunchIntent`. The loser is refused `409 activation_approval_conflict`. |
+| P2 `account-profile-output-producer.ts` — a partially materialized identity short-circuited forever on a `LIMIT 1` probe | The probe requires the complete action set, so a partial identity is sent back through production and completed. |
+| P2 `automation/page.tsx` — a GUEST could still bootstrap a durable control row with themselves in `updated_by` | Gated on `viewer.canMutate`. |
+
+**The revocation fix is deliberately asymmetric, and that is what closes it.**
+Approval gets the compare-and-set; revocation does not. Refusing a revoke on a
+version conflict would leave the racing approval LIVE — precisely the outcome the
+operator pressed Revoke to prevent. So an approval can never resurrect a
+revocation, and a revocation can never lose to an approval, in either arrival
+order. There is exactly one SQL writer of `activation_approval_json` in the
+repository, so no other writer carries the same gap.
+
+**The bootstrap finding was the third round on that family, and the first two
+fixes were wrong on the same axis.** Round 2 moved the bootstrap below the
+reviewer and demo guards; round 4 moved the page's below the write-authority
+resolution and gated it on `!reviewerReadOnly && writeAuthority === "live"`. Both
+tested the BUSINESS's posture and the reviewer flag; neither tested the VIEWER's
+authority to write, which is how a guest walked through both. It is now
+`viewer.canMutate`, the axis the write routes themselves use.
+
+Three comment claims were corrected before landing, each verified first: the page
+said a read-only viewer sees `control_state_unavailable`, when a missing row is a
+successful read that degrades to `business_control_not_configured` and it is the
+WRITE boundary that answers the former; the producer said a partial set stayed
+"permanently" treated as done, when `runMetaSnapshotForBusiness` calls the
+producer unconditionally every snapshot and the next tick already healed it; and
+the approval conflict's contract is "409 except when the advisory-lock wait
+exceeds the statement timeout", not "409 always".
 
 ## Review round 6 on PR #276 — the two families closed
 

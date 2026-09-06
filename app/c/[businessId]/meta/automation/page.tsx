@@ -141,19 +141,44 @@ export default async function MetaAutomationRoute({
     Running it at the top of the page meant a reviewer merely LOOKING at the
     screen, or anyone opening a demo workspace, persisted the initial control
     state under their own id — attributing it to an actor the server would
-    refuse every write from. The confirmation-queue route carried the same
-    ordering defect and was corrected the same way; this is the second site.
+    refuse every write from. `POST /api/meta/automation` carried the same
+    ordering defect and was corrected the same way
+    (`control-row-bootstrap-ordering.test.ts`); this is the second site.
 
-    `"live"` is the only value that admits a write: `"demo"`, `"unverified"`
-    and the preserved-render sentinel all refuse, and `unverified` exists
-    precisely so an unreadable flag never reads as real.
+    THE GATE IS THE VIEWER'S OWN MUTATION AUTHORITY, not the business's
+    posture. `!reviewerReadOnly && writeAuthority === "live"` asked about the
+    WORKSPACE and about the reviewer flag, and never about the person:
+    `requireBusinessPageContext` is called above with no `minRole`, and
+    `evaluateBusinessAuthorization` defaults that to `"guest"`, so a guest
+    membership is admitted here. A guest is not a reviewer and a guest's
+    workspace can be perfectly live, so both halves passed and the INSERT ran —
+    stamping `updated_by` with an id every Automation write refuses, since
+    `POST /api/meta/automation` and `POST /api/meta/automation/proposals` each
+    take a `collaborator` floor. `viewer.canMutate` is the answer the envelope
+    built just above already computes for exactly this question, and it is
+    false for all four refusals at once: reviewer, demo, unverified demo flag,
+    and a role below `collaborator`.
 
-    A reviewer therefore sees `control_state_unavailable` on a never-opened
-    business rather than the guardrail reason. That is the honest reading of
-    their position: they cannot act here, and a read-only viewer should not
-    cause a write to make their own view more explanatory.
+    `writeAuthority === "live"` is kept alongside it rather than folded into
+    it. `buildAutomationViewerEnvelope` deliberately treats the
+    `"not_established"` sentinel as "no server fact to restate" rather than as
+    a refusal, so `canMutate` alone would admit it; `readLaunchpadWriteAuthority`
+    never returns that value, and this conjunction is what keeps the bootstrap
+    closed if it ever does.
+
+    A reviewer, a guest and a demo session therefore see a never-opened business
+    as NOT CONFIGURED rather than as a configured one. Precisely: a missing row
+    is a successful read that degrades to the default — `mapControlRow`
+    returns `defaultBusinessControl` with `source: "default"`, completeness stays
+    `complete`, and the control plane emits `business_control_not_configured`.
+    It is the WRITE boundary that answers `control_state_unavailable`, as the
+    paragraph above says, and an earlier draft of this sentence confused the two.
+
+    That is the honest reading of a read-only viewer's position either way: they
+    cannot act here, and they should not cause a durable write to make their own
+    view more explanatory.
   */
-  if (!access.context.reviewerReadOnly && writeAuthority === "live") {
+  if (viewer.canMutate && writeAuthority === "live") {
     await ensureBusinessControlRow({
       businessId,
       userId: access.context.session.user.id,

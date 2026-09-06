@@ -22,6 +22,7 @@ import { createHash } from "node:crypto";
 
 import { NextRequest, NextResponse } from "next/server";
 
+import { getDb, runDbTransaction } from "@/lib/db";
 import {
   getMetaLaunchIntent,
   recordMetaLaunchIntentActivationApproval,
@@ -121,6 +122,41 @@ export async function POST(
     return jsonError(404, "launch_intent_not_found", "No such launch intent.");
   }
 
+  /*
+    The state of the approval column this request decided against.
+
+    `recordMetaLaunchIntentActivationApproval` updates on `(business_id, id)`
+    and a status predicate and nothing else, so two overlapping POSTs to this
+    route both build their document from the read above and the later UPDATE
+    simply wins. Approve overlapping revoke is the dangerous order: the
+    revocation commits, the older approval request finishes afterwards, and it
+    replaces the revoked document with a live one — after which the scheduled
+    activation runtime, whose whole authority is this column, may turn real
+    provider entities on despite the operator having explicitly withdrawn it.
+
+    This is `upsertIntegration`'s `expectedConnectionGeneration` applied to this
+    row: a write computed from an earlier read must not land if the row moved
+    since. There is no generation column on `meta_launch_intents`, so the
+    document itself is the version — jsonb reads back with normalised key order,
+    so two reads of an unchanged column stringify identically.
+  */
+  const expectedApproval = approvalVersion(intent.activationApproval);
+  /*
+    Compare-and-set is check-then-act, so it needs the check and the write to be
+    one step. Postgres gives `claimMetaAutomationProposal` that in a single
+    UPDATE ... RETURNING; the store's writer here carries no version predicate
+    to fold the check into, so the lock does it instead — the same
+    `pg_advisory_xact_lock(hashtextextended(...))` this table's own
+    `createMetaLaunchIntent` takes for its semantic guard. Both branches below
+    take it, and they are the only writers of `activation_approval_json` the
+    application has, so nothing can commit between a re-read and its write.
+  */
+  const approvalLockKey = [
+    "meta-launch-intent-activation-approval",
+    access.businessId,
+    intent.id,
+  ].join(":");
+
   try {
     if (body?.revoke === true) {
       /*
@@ -128,15 +164,42 @@ export async function POST(
         clearing the column. The validator already refuses a revoked approval,
         and keeping it means the record still says who approved what, and when
         it was withdrawn.
+
+        Deliberately NOT compare-and-set, unlike the approve path below. A
+        revocation is the fail-closed direction, so it withdraws whatever stands
+        at the moment it runs: refusing it because an approval landed in between
+        would leave that approval live, which is the exact outcome the operator
+        pressed Revoke to prevent. Re-reading also means the stored record names
+        the approval that was actually withdrawn rather than an older one.
       */
-      const stored = intent.activationApproval as ActivationApproval | null;
-      const updated = await recordMetaLaunchIntentActivationApproval({
-        businessId: access.businessId,
-        id: intent.id,
-        approval: stored
-          ? revokeActivationApproval(stored, new Date().toISOString())
-          : null,
+      const revoked = await runDbTransaction(async () => {
+        const sql = getDb();
+        await sql`
+          SELECT pg_advisory_xact_lock(
+            hashtextextended(${approvalLockKey}, 0)
+          )
+        `;
+        const current = await getMetaLaunchIntent({
+          businessId: access.businessId,
+          id: intent.id,
+        });
+        if (!current) return { missing: true as const };
+        const stored = current.activationApproval as ActivationApproval | null;
+        return {
+          missing: false as const,
+          updated: await recordMetaLaunchIntentActivationApproval({
+            businessId: access.businessId,
+            id: intent.id,
+            approval: stored
+              ? revokeActivationApproval(stored, new Date().toISOString())
+              : null,
+          }),
+        };
       });
+      if (revoked.missing) {
+        return jsonError(404, "launch_intent_not_found", "No such launch intent.");
+      }
+      const updated = revoked.updated;
       return NextResponse.json({
         ok: true,
         intentId: updated.id,
@@ -196,11 +259,56 @@ export async function POST(
       return jsonError(409, built.refusal, refusalMessage(built.refusal));
     }
 
-    const updated = await recordMetaLaunchIntentActivationApproval({
-      businessId: access.businessId,
-      id: intent.id,
-      approval: built.approval,
+    const written = await runDbTransaction(async () => {
+      const sql = getDb();
+      await sql`
+        SELECT pg_advisory_xact_lock(
+          hashtextextended(${approvalLockKey}, 0)
+        )
+      `;
+      const current = await getMetaLaunchIntent({
+        businessId: access.businessId,
+        id: intent.id,
+      });
+      if (!current) return { conflict: "launch_intent_not_found" as const };
+      if (approvalVersion(current.activationApproval) !== expectedApproval) {
+        /*
+          409, and one honest exception to it. `runDbTransaction` applies a
+          `SET LOCAL statement_timeout` of the default web timeout, and the wait
+          for the advisory lock above rides that timeout — so a waiter blocked
+          longer than it answers 500 `activation_approval_failed` rather than
+          this conflict. Fail-closed either way: no write lands. Not reachable
+          in practice, because the winner holds the lock for one SELECT and one
+          UPDATE — but the loser's contract is "409 except when the lock wait
+          times out", not "409 always".
+        */
+        return { conflict: "activation_approval_conflict" as const };
+      }
+      return {
+        conflict: null,
+        updated: await recordMetaLaunchIntentActivationApproval({
+          businessId: access.businessId,
+          id: intent.id,
+          approval: built.approval,
+        }),
+      };
     });
+    if (written.conflict === "launch_intent_not_found") {
+      return jsonError(404, "launch_intent_not_found", "No such launch intent.");
+    }
+    if (written.conflict) {
+      /*
+        Refused, not silently dropped, and refused under its own code so the
+        caller can tell this apart from a malformed approval: this exact request
+        would have undone whatever landed while it was in flight.
+      */
+      return jsonError(
+        409,
+        "activation_approval_conflict",
+        "This intent's activation approval changed while this request was in flight, so it was not applied. Re-read the intent and approve again.",
+      );
+    }
+    const updated = written.updated;
     return NextResponse.json({
       ok: true,
       intentId: updated.id,
@@ -210,6 +318,21 @@ export async function POST(
   } catch (error) {
     return jsonError(500, "activation_approval_failed", sanitizeErrorMessage(error));
   }
+}
+
+/**
+ * The version of the stored approval document, for the compare-and-set above.
+ *
+ * The document itself, hashed, because nothing else on the row identifies it:
+ * `updated_at` also moves when `recordMetaLaunchIntentActivation` stores an
+ * activation receipt, which would refuse an approval for a change that did not
+ * touch this column at all. `?? null` because the column is NULL on every intent
+ * that has never been approved, and `JSON.stringify(undefined)` is not a string.
+ */
+function approvalVersion(stored: unknown): string {
+  return createHash("sha256")
+    .update(JSON.stringify(stored ?? null))
+    .digest("hex");
 }
 
 /**

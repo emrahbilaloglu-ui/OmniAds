@@ -91,12 +91,17 @@ import { execFileSync, spawnSync } from "node:child_process";
   compare-and-set and the daily brief stopped reaching the queue reader, both
   of which seam children execute.
 
-  This log is the 14:43Z canonical run on the delivered tree: 40 headers,
-  `PASS — 40 stages`, exit 0, 504 s, with the three registered children
+  Ninth repin, for round 7: the activation-approval route gained a
+  compare-and-set under an advisory lock, the profile-output producer stopped
+  short-circuiting on a partial set, and the Automation page's bootstrap moved
+  onto the viewer's own mutation authority.
+
+  This log is the 15:26Z canonical run on the delivered tree: 40 headers,
+  `PASS — 40 stages`, exit 0, 514 s, with the three registered children
   reporting 7/7, 2/2 and 6/6, each `skipped=0`.
 */
 const PORTABLE_SHELL_LOG_PATH =
-  "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1443Z.log";
+  "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1526Z.log";
 
 /*
   The branch this candidate actually lives on, read from git rather than typed.

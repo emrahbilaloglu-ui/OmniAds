@@ -1495,15 +1495,17 @@ describe("a re-sealed forgery cannot pass verification", () => {
     expect(result.ok).toBe(true);
   }, 90_000);
 
-  it(
-    "negative control: re-sealing WITHOUT mutating still verifies",
-    () => {
-      // Proves both attack harnesses are faithful, so a failure below is the
-      // mutation and not the re-sealing. Slow by nature: the full harness
-      // re-analyses all 165,042 frozen rows and the verifier then re-extracts
-      // and re-analyses them again.
-      expect(reseal(() => {}).failures).toEqual([]);
-      expect(resealShallow(() => {}).failures).toEqual([]);
+  it.each([
+    { name: "full", reseal },
+    { name: "shallow", reseal: resealShallow },
+  ])(
+    "negative control: $name re-sealing WITHOUT mutating still verifies",
+    ({ reseal: resealForControl }) => {
+      // Each control proves its attack harness is faithful. Keeping them
+      // separate preserves both assertions and the existing 90 s per-control
+      // bound: CI run 34048550680 measured a single verify at 46.1–46.7 s,
+      // while the two combined took 94.1 s and exceeded that same bound.
+      expect(resealForControl(() => {}).failures).toEqual([]);
     },
     90_000,
   );

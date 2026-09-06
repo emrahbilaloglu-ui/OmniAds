@@ -1,0 +1,195 @@
+{
+  "evidenceHash": "684f3e69b78da86d43e2cdc8e54333b8212ce6d6135263357a31e3437e391df8",
+  "hashAlgorithm": "sha256",
+  "hashBasis": "sha256 over UTF-8 bytes of JSON.stringify(evidence, null, 1) of the evidence object WITHOUT this hash field",
+  "contract": "adsecute.serving-freshness-current-preflight.v1",
+  "generatedAtUtc": "2026-09-06T07:44:44.782Z",
+  "note": "Re-measurement of the same six businesses and the same automated_missing classification the 2026-08-30 evidence used (docs/audits/D077_PRODUCTION_RECOVERY_PREFLIGHT_2026-08-30.md), current as of generatedAtUtc above. Does NOT edit or supersede the 2026-08-30 file — that file remains the historical record of what was true then.",
+  "verdict": "NO_GO",
+  "remediation": "Per docs/architecture/serving-direct-production-release-runbook.md: automated_missing surfaces are a real release blocker, not a cosmetic gap. Each named surface's operatorFallbackCommand can serve it manually in the interim; the underlying automated owner module for each surface must actually run and succeed for that business/scope before this verdict can read GO.",
+  "transactionProofs": {
+    "transaction_read_only": "on",
+    "transaction_isolation": "repeatable read",
+    "application_name": "serving_freshness_current_preflight_1788680631869",
+    "statement_timeout": "2min",
+    "retrieved_at": "2026-09-06 07:43:52.70258+00"
+  },
+  "perBusiness": [
+    {
+      "business": "IwaStore",
+      "businessId": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+      "classifications": {
+        "automated_present": 3,
+        "automated_missing": 0,
+        "manual_boundary": 3,
+        "manual_missing": 0,
+        "unknown": 28
+      },
+      "automatedMissingCount": 0,
+      "automatedMissingSurfaces": []
+    },
+    {
+      "business": "Grandmix",
+      "businessId": "5dbc7147-f051-4681-a4d6-20617170074f",
+      "classifications": {
+        "automated_present": 7,
+        "automated_missing": 16,
+        "manual_boundary": 11,
+        "manual_missing": 0,
+        "unknown": 0
+      },
+      "automatedMissingCount": 16,
+      "automatedMissingSurfaces": [
+        {
+          "surface": "provider_reporting_snapshots.ecommerce_fallback",
+          "ownerModule": "@/lib/reporting-cache-writer via @/lib/user-facing-report-cache-owners",
+          "statusReason": "GA4 sync owns the current automated 30d ecommerce fallback snapshot window.",
+          "operatorFallbackCommand": null
+        },
+        {
+          "surface": "provider_reporting_snapshots.ecommerce_fallback",
+          "ownerModule": "@/lib/reporting-cache-writer via @/lib/user-facing-report-cache-owners",
+          "statusReason": "GA4 sync owns the current automated 7d ecommerce fallback snapshot window.",
+          "operatorFallbackCommand": null
+        },
+        {
+          "surface": "provider_reporting_snapshots.ga4_analytics_overview",
+          "ownerModule": "@/lib/reporting-cache-writer via @/lib/user-facing-report-cache-owners",
+          "statusReason": "GA4 sync owns the current automated 30d overview snapshot window.",
+          "operatorFallbackCommand": null
+        },
+        {
+          "surface": "provider_reporting_snapshots.ga4_analytics_overview",
+          "ownerModule": "@/lib/reporting-cache-writer via @/lib/user-facing-report-cache-owners",
+          "statusReason": "GA4 sync owns the current automated 7d overview snapshot window.",
+          "operatorFallbackCommand": null
+        },
+        {
+          "surface": "provider_reporting_snapshots.ga4_detailed_audience",
+          "ownerModule": "@/lib/reporting-cache-writer via @/lib/user-facing-report-cache-owners",
+          "statusReason": "GA4 sync owns the current automated 30d detail snapshot window.",
+          "operatorFallbackCommand": null
+        },
+        {
+          "surface": "provider_reporting_snapshots.ga4_detailed_audience",
+          "ownerModule": "@/lib/reporting-cache-writer via @/lib/user-facing-report-cache-owners",
+          "statusReason": "GA4 sync owns the current automated 7d detail snapshot window.",
+          "operatorFallbackCommand": null
+        },
+        {
+          "surface": "provider_reporting_snapshots.ga4_detailed_cohorts",
+          "ownerModule": "@/lib/reporting-cache-writer via @/lib/user-facing-report-cache-owners",
+          "statusReason": "GA4 sync owns the current automated 30d detail snapshot window.",
+          "operatorFallbackCommand": null
+        },
+        {
+          "surface": "provider_reporting_snapshots.ga4_detailed_cohorts",
+          "ownerModule": "@/lib/reporting-cache-writer via @/lib/user-facing-report-cache-owners",
+          "statusReason": "GA4 sync owns the current automated 7d detail snapshot window.",
+          "operatorFallbackCommand": null
+        },
+        {
+          "surface": "provider_reporting_snapshots.ga4_detailed_demographics",
+          "ownerModule": "@/lib/reporting-cache-writer via @/lib/user-facing-report-cache-owners",
+          "statusReason": "GA4 sync owns the current automated 30d demographics snapshot only for dimension=country.",
+          "operatorFallbackCommand": null
+        },
+        {
+          "surface": "provider_reporting_snapshots.ga4_detailed_demographics",
+          "ownerModule": "@/lib/reporting-cache-writer via @/lib/user-facing-report-cache-owners",
+          "statusReason": "GA4 sync owns the current automated 7d demographics snapshot only for dimension=country.",
+          "operatorFallbackCommand": null
+        },
+        {
+          "surface": "provider_reporting_snapshots.ga4_detailed_landing_pages",
+          "ownerModule": "@/lib/reporting-cache-writer via @/lib/user-facing-report-cache-owners",
+          "statusReason": "GA4 sync owns the current automated 30d detail snapshot window.",
+          "operatorFallbackCommand": null
+        },
+        {
+          "surface": "provider_reporting_snapshots.ga4_detailed_landing_pages",
+          "ownerModule": "@/lib/reporting-cache-writer via @/lib/user-facing-report-cache-owners",
+          "statusReason": "GA4 sync owns the current automated 7d detail snapshot window.",
+          "operatorFallbackCommand": null
+        },
+        {
+          "surface": "provider_reporting_snapshots.ga4_detailed_products",
+          "ownerModule": "@/lib/reporting-cache-writer via @/lib/user-facing-report-cache-owners",
+          "statusReason": "GA4 sync owns the current automated 30d detail snapshot window.",
+          "operatorFallbackCommand": null
+        },
+        {
+          "surface": "provider_reporting_snapshots.ga4_detailed_products",
+          "ownerModule": "@/lib/reporting-cache-writer via @/lib/user-facing-report-cache-owners",
+          "statusReason": "GA4 sync owns the current automated 7d detail snapshot window.",
+          "operatorFallbackCommand": null
+        },
+        {
+          "surface": "provider_reporting_snapshots.ga4_landing_page_performance_v1",
+          "ownerModule": "@/lib/reporting-cache-writer via @/lib/user-facing-report-cache-owners",
+          "statusReason": "GA4 sync owns the current automated 30d detail snapshot window.",
+          "operatorFallbackCommand": null
+        },
+        {
+          "surface": "provider_reporting_snapshots.ga4_landing_page_performance_v1",
+          "ownerModule": "@/lib/reporting-cache-writer via @/lib/user-facing-report-cache-owners",
+          "statusReason": "GA4 sync owns the current automated 7d detail snapshot window.",
+          "operatorFallbackCommand": null
+        }
+      ]
+    },
+    {
+      "business": "Bilsem Zeka",
+      "businessId": "6c690fa4-6395-40b5-9755-e99b34d69bc3",
+      "classifications": {
+        "automated_present": 0,
+        "automated_missing": 0,
+        "manual_boundary": 1,
+        "manual_missing": 0,
+        "unknown": 33
+      },
+      "automatedMissingCount": 0,
+      "automatedMissingSurfaces": []
+    },
+    {
+      "business": "TheSwaf",
+      "businessId": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+      "classifications": {
+        "automated_present": 3,
+        "automated_missing": 0,
+        "manual_boundary": 3,
+        "manual_missing": 0,
+        "unknown": 28
+      },
+      "automatedMissingCount": 0,
+      "automatedMissingSurfaces": []
+    },
+    {
+      "business": "IwaTR",
+      "businessId": "b79683b4-6f87-48c0-a3ca-44d4356fef51",
+      "classifications": {
+        "automated_present": 0,
+        "automated_missing": 0,
+        "manual_boundary": 1,
+        "manual_missing": 0,
+        "unknown": 33
+      },
+      "automatedMissingCount": 0,
+      "automatedMissingSurfaces": []
+    },
+    {
+      "business": "ColorFullWorldsTR",
+      "businessId": "bc0c6178-7853-4f6f-b026-ef0222a4b9e7",
+      "classifications": {
+        "automated_present": 0,
+        "automated_missing": 0,
+        "manual_boundary": 1,
+        "manual_missing": 0,
+        "unknown": 33
+      },
+      "automatedMissingCount": 0,
+      "automatedMissingSurfaces": []
+    }
+  ],
+  "totalAutomatedMissing": 16
+}

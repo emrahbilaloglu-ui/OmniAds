@@ -4,7 +4,7 @@ Purpose: define the exact repo-supported direct production release, rollback, an
 
 Status: active repo-supported direct release, rollback, and verification procedure
 
-## Current serving-freshness status — 2026-09-03 (NO_GO, unresolved)
+## Current serving-freshness status — 2026-09-06 (NO_GO, narrowed)
 
 `scripts/audits/serving-freshness-current-preflight.ts` re-measures the same
 six businesses this runbook's preflight blocker (below) checks — one bounded
@@ -14,17 +14,42 @@ evidence file, never overwriting the frozen historical one:
 
 | evidence | generated | verdict | total `automated_missing` |
 | --- | --- | --- | --- |
-| `docs/audits/generated/serving-freshness-current-preflight-2026-09-03.json` | 2026-09-03T16:04:03.184Z | **NO_GO** | 29 |
+| `docs/audits/generated/serving-freshness-current-preflight-2026-09-06.json` | 2026-09-06T07:44:44.782Z | **NO_GO** | **16** |
+| `docs/audits/generated/serving-freshness-current-preflight-2026-09-03.json` (superseded) | 2026-09-03T16:04:03.184Z | NO_GO | 29 |
 | `docs/audits/D077_PRODUCTION_RECOVERY_PREFLIGHT_2026-08-30.md` (historical) | 2026-08-30 | NO_GO | 29 |
 
-Unchanged from the 2026-08-30 measurement, by business:
+**The 2026-09-03 line "unchanged from the 2026-08-30 measurement" is no longer
+true, and a reviewer who reads only that row will carry forward a wrong
+number.** Re-measured on 2026-09-06, by business:
 
 | business | `automated_missing` | surfaces |
 | --- | ---: | --- |
-| IwaStore | 3 | `overview_shopify_orders_aggregate_v6.recent_window`, `shopify_reconciliation_runs`, `shopify_serving_state` — all Shopify-sync-owned |
-| Grandmix | 23 | 6× `ga4_*` snapshot windows (7d+30d), `ecommerce_fallback` (7d+30d), `seo_results_cache.findings`/`overview` (7d+30d), 3× Shopify-owned (same set as IwaStore/TheSwaf) |
-| TheSwaf | 3 | same three Shopify-owned surfaces as IwaStore |
-| Bilsem Zeka, IwaTR, ColorFullWorldsTR | 0 | none |
+| Grandmix (`5dbc7147-…`) | 16 | 8 reporting snapshots × 2 windows: `ecommerce_fallback`, `ga4_analytics_overview`, `ga4_detailed_audience`, `ga4_detailed_cohorts`, `ga4_detailed_demographics`, `ga4_detailed_landing_pages`, `ga4_detailed_products`, `ga4_landing_page_performance_v1` |
+| IwaStore, TheSwaf, Bilsem Zeka, IwaTR, ColorFullWorldsTR | 0 | none |
+
+Thirteen of the twenty-nine cleared without intervention: every
+Shopify-sync-owned surface on IwaStore, TheSwaf and Grandmix, and Grandmix's
+`seo_results_cache` windows. What remains is **one business, one provider**.
+
+ROOT CAUSE, read at the row level: Grandmix's `ga4` row in
+`integration_credentials` has `refresh_token = NULL` with its access token
+expired at 2026-09-04 16:58:14 — the 2026-09-04 15:58 reconnect stored an
+access token but no refresh token. `resolveGa4AnalyticsContext` therefore takes
+its `GA4AuthError` branch and `syncGA4Reports` returns `skipped: true` on every
+ten-minute cron tick; the last successful GA4 job was 2026-09-04 16:50.
+
+NARROW SUPPORTED REMEDY: an operator re-runs the GA4 OAuth connect for Grandmix
+**in the application**, so a refresh token is persisted. Nothing else is
+required — the `source_ingest` cron lane is already open and runs GA4 every ten
+minutes, and it will refill all sixteen windows unaided once the credential can
+refresh. This remedy does **not** involve enabling business automation, changing
+a kill switch, or touching an advertising account. It is an interactive OAuth
+flow and cannot be performed read-only.
+
+DO NOT clear this by writing cache rows. The documented fallback
+`npm run reporting:cache:warm --report-type ga4_*` calls GA4 with the same dead
+credential and fails, and forcing rows in would be exactly the ad hoc
+production data change a release must not make.
 
 **This is still a real release blocker, not a stale artifact being carried
 forward.** Remediation, per "Preflight blockers" below: each surface's

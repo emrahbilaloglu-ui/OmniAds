@@ -37,8 +37,10 @@ import {
 import { execFileSync, spawnSync } from "node:child_process";
 
 /*
-  RELEASE CANDIDATE: a NEW dated capture again, for the same reason as before
-  and one more.
+  HISTORICAL R14 local whole-shell evidence and its preceding capture history.
+  R15 keeps these bytes and source identity; it does not claim they ran the
+  later runtime. The final main CI executes the full shell before both images
+  may publish. Ordered-header/hash validation below remains unchanged.
 
   The 2026-08-30 log describes a 38-stage script; the 2026-09-03 log describes
   40. Both are kept beside this one as the earlier runs' evidence. A matching
@@ -99,7 +101,7 @@ import { execFileSync, spawnSync } from "node:child_process";
   validator, the intent store, the unattended pre-filter and the activation
   producer.
 
-  The current capture is the 20:37Z Codex-supervised run on source freeze
+  The retained historical capture is the 20:37Z Codex-supervised run on source freeze
   444597262e7d271a0f46dcd93d2a80cdfe326e7f. This run includes the reviewed
   R14 source corrections described in the release-candidate checkpoint.
   Its execution evidence remains bound to the source that actually ran.
@@ -504,6 +506,15 @@ function phase1() {
   const wholeShell = stages.find((s2) => s2.stage === "canonical.database-seams-whole-shell");
   if (!wholeShell)
     throw new Error("the whole-shell canonical database-seams stage is missing from the ledger");
+  if (wholeShell.sourceCommit !== "444597262e7d271a0f46dcd93d2a80cdfe326e7f") {
+    throw new Error("retained R14 whole-shell evidence must preserve its actual source commit");
+  }
+  wholeShell.evidenceScope = {
+    kind: "historical",
+    sourceCommit: wholeShell.sourceCommit,
+    currentRuntimeAcceptance: "not_proven_by_this_log",
+    requiredCurrentAcceptance: "final_main_ci_database_seams_and_images",
+  };
   // Correction 3: the composite shell has NO single Vitest aggregate — the
   // runner's first-match count (`passed: 53`) was materially misleading.
   // Replace it fail-closed with an explicit not-applicable object and bind
@@ -516,7 +527,8 @@ function phase1() {
   // manifest-pinned byte-identical copy of the retained capture. The
   // original absolute session path is preserved as provenance only and is
   // never opened here.
-  const originalCapturePath = shellLogFile.path;
+  const retainedProvenance = wholeShell.originalCapturePath as { path?: string } | undefined;
+  const originalCapturePath = retainedProvenance?.path ?? shellLogFile.path;
   assertPortableRepoRelativePath(PORTABLE_SHELL_LOG_PATH);
   if (!existsSync(PORTABLE_SHELL_LOG_PATH))
     throw new Error(
@@ -537,7 +549,7 @@ function phase1() {
   (wholeShell as Record<string, unknown>).originalCapturePath = {
     path: originalCapturePath,
     note:
-      "capture provenance ONLY — the temporary supervisor output path for this authoritative run; validated byte-identical to the repository copy before it was frozen; generator/test reads use only the portable retained copy",
+      "capture provenance ONLY — the temporary supervisor output path for this historical run; validated byte-identical to the repository copy before it was frozen; generator/test reads use only the portable retained copy",
   };
   wholeShell.counts = {
     notApplicable: true,
@@ -556,6 +568,8 @@ function phase1() {
     stageSchema:
       "every entry in `stages`: {stage, command, startUtc, endUtc, durationSeconds, exitCode, counts (parsed vitest counts OR {notApplicable:true, reason}), timeout:{configuredSeconds, timedOut}, teardown (readback string or {notApplicable:true, reason}), tail}",
     equivalenceMapping: {
+      scope:
+        "HISTORICAL preparation evidence only. The retained R14 whole-shell log proves its recorded source, not the current runtime. Full final-main CI, including all database seams, and both exact-SHA image publications remain required before production deployment.",
       "verify:pre-push":
         "check:workflows → typecheck → eslint . → vitest run → scripts/verify-database-seams.sh. Correction 2 proves: canonical.check-workflows, canonical.typecheck, canonical.eslint-changed (full `eslint .` was green in correction 1), focused vitest stages on the changed surfaces, and the AUTHORITATIVE canonical.database-seams-whole-shell run (`bash scripts/verify-database-seams.sh` executed as ONE command — including the CUTOVER_REQUIRED/manifest/runbook release-boundary logic the correction-1 extraction missed). The full 13,683-test unit suite is preserved as historical correction-1 evidence (green, timestamped) and was deliberately not rerun to repair audit metadata.",
       authoritativeDatabaseSeamProof: "stages[canonical.database-seams-whole-shell]",

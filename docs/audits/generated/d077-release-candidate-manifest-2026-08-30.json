@@ -1,26 +1,26 @@
 {
- "manifestHash": "69c515153bafbfbd47540bd424ce70d59f715d1c399d53f1ef55ee424f7cd557",
+ "manifestHash": "d628b4ff36a545bf5c53f9380dc29b9a69d290f9e407ec67598247a694d338b4",
  "hashAlgorithm": "sha256",
  "hashBasis": "sha256 over UTF-8 bytes of JSON.stringify(artifact, null, 1) of the artifact WITHOUT its embedded hash fields (the artifact object before {<hashField>, hashAlgorithm, hashBasis} are prepended)",
  "contract": "adsecute.d077.release-candidate-manifest.v3",
- "generatedAtUtc": "2026-09-06T20:47:44.123Z",
- "branch": "codex/meta-v2-panel-fidelity",
+ "generatedAtUtc": "2026-09-06T21:07:45.185Z",
+ "branch": "codex/meta-release-finalization",
  "supersededBranchLabel": "codex/meta-disabled-readiness-20260829",
- "head": "444597262e7d271a0f46dcd93d2a80cdfe326e7f",
+ "head": "023267d63ff0840a7dc16c50b21acf487a34519c",
  "baseMain": "babf158e150fd33057117b39b175da044ac62d2e",
  "originMain": "babf158e150fd33057117b39b175da044ac62d2e",
  "remoteDivergence": {
-  "aheadOfOriginMain": 72,
+  "aheadOfOriginMain": 1,
   "behindOriginMain": 0
  },
  "selfExclusion": "this manifest's own path (docs/audits/generated/d077-release-candidate-manifest-2026-08-30.json) is EXCLUDED from its entry list: a manifest cannot recursively pin its own final bytes; its external SHA-256 is reported in the final response and by Codex's own hashing",
- "gitPorcelainEntryCount": 8,
- "releaseDiffEntryCountIncludingSelf": 777,
- "expandedOnDiskCandidateFileCountIncludingSelf": 777,
- "pinnedNonSelfFileCount": 776,
+ "gitPorcelainEntryCount": 6,
+ "releaseDiffEntryCountIncludingSelf": 778,
+ "expandedOnDiskCandidateFileCountIncludingSelf": 778,
+ "pinnedNonSelfFileCount": 777,
  "historicalContext": "pre-task freeze was 217 porcelain entries / 265 files — historical context only, NOT the final tree",
  "classCounts": {
-  "tests_only": 322,
+  "tests_only": 323,
   "runtime": 250,
   "runtime_deletion": 2,
   "deploy_config": 1,
@@ -521,7 +521,7 @@
    "path": "app/api/meta/entity-actions.route.test.ts",
    "git": "M",
    "class": "tests_only",
-   "sha256": "727a0f40d39a8e8938af103ea5f6d4b48ec91967f16e150739f9ea50af4b6d03"
+   "sha256": "14f3e64f057dcba6127143a705501ce137830710d3aa4e33235c8ce1435656cd"
   },
   {
    "path": "app/api/meta/history/accounts/route.test.ts",
@@ -1341,7 +1341,7 @@
   },
   {
    "path": "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T2037Z.log",
-   "git": "??",
+   "git": "A",
    "class": "generated_evidence",
    "sha256": "1ce50e542110c5461e8e5908b897f9cc882444d69499c8344cf5f02f92d037a3"
   },
@@ -1349,13 +1349,13 @@
    "path": "docs/audits/generated/d077-correction1-verification-ledger-2026-08-30.json",
    "git": "A",
    "class": "generated_evidence",
-   "sha256": "d431480b843a931c5b7feca8a5c0b560de103ed38c95e4465d107ce24cfc28bf"
+   "sha256": "d4ad12f42f6f7d2206632bce18c99f5ee0c18bb712a5e6b41a1ba08f53816066"
   },
   {
    "path": "docs/audits/generated/d077-database-recovery-approval-packet-2026-08-30.json",
    "git": "A",
    "class": "generated_evidence",
-   "sha256": "b9a95645897bcd4abf3acf8c47cf7f9e4dc72e342f614dc595e772ac639b3b88"
+   "sha256": "aed6dad90dc338915b83a5abb59ae886feada5a08564d089c6894d7dbb1e1165"
   },
   {
    "path": "docs/audits/generated/d077-production-recovery-readonly-evidence-2026-08-30.json",
@@ -1367,7 +1367,7 @@
    "path": "docs/audits/generated/d077-release-deploy-approval-packet-2026-08-30.json",
    "git": "A",
    "class": "generated_evidence",
-   "sha256": "7a2a8fb0dadd5643d96b2fc862fcf5b4c2d2219ea894699ccfe88a99882c9efa"
+   "sha256": "63445a30bea1180d7a8186d14afd57e15febf7b4ca11f17445df88ef7fc3b474"
   },
   {
    "path": "docs/audits/generated/d078-hard-action-recompute-2026-08-30.json",
@@ -1817,7 +1817,7 @@
    "path": "docs/releases/2026-09-06-meta-operator-readiness-release-candidate.md",
    "git": "A",
    "class": "docs",
-   "sha256": "a55ae553face6141b506783b27303c760d1585a19c5d142955ac551bccab8eab"
+   "sha256": "23d895df898edd93302b47007f5524a12e04a9aeba5015c0d644995026856a00"
   },
   {
    "path": "lib/api/meta.test.ts",
@@ -2315,7 +2315,7 @@
    "path": "lib/meta/__tests__/d077-artifact-hash-contract.test.ts",
    "git": "A",
    "class": "tests_only",
-   "sha256": "863deae12dd5d8aac33039fc63cbcce6ef4dd07499c7d2347693c25e8a11a9a2"
+   "sha256": "dd2013e43c262c9b683ae5664803000443aa181403e966192bfe199e11fb1352"
   },
   {
    "path": "lib/meta/__tests__/d078-acceptance-guards.test.ts",
@@ -2450,10 +2450,16 @@
    "sha256": "fa9b6c1fb9aeda374fede1152770e0127391b19c8ebac64774edd5759d70858d"
   },
   {
+   "path": "lib/meta/ads-action-log.test.ts",
+   "git": "M",
+   "class": "tests_only",
+   "sha256": "39fb0ed7d7ab287928474eadf07deb16cc2e7bcdc34e093d6d5e2ca0a85aaccb"
+  },
+  {
    "path": "lib/meta/ads-action-log.ts",
    "git": "M",
    "class": "runtime",
-   "sha256": "1d6b9590e846afefbd461e532a72d3baad70cc98d77d6f8ab776a57af6bcc13c"
+   "sha256": "85178c6e1b1a3636b1d97f5f22d62bc07d9474d1628cc421998180afde6d9764"
   },
   {
    "path": "lib/meta/ads-action-routes.ts",
@@ -2705,7 +2711,7 @@
    "path": "lib/meta/bid-queue-arm.test.ts",
    "git": "A",
    "class": "tests_only",
-   "sha256": "08ccb9a0dff5a271fd999c3a1d9ebbe2f998f0a9a055fd080c3431991d2cfcec"
+   "sha256": "1e0898f58f4a7f3fe5d2e6bb269b58b2c65e89ae737d90bc655313b4a98a124a"
   },
   {
    "path": "lib/meta/bid-sizing-policy.test.ts",
@@ -3665,7 +3671,7 @@
    "path": "lib/meta/scheduled-bid-runtime.ts",
    "git": "A",
    "class": "runtime",
-   "sha256": "78c57146792116248f110f5e3e2e17ec208961e9205805e5fab7295e657350ac"
+   "sha256": "a37489a67af190ae6c64b4b28c0cd2448818311462035d6aa5b6cefeafeee032"
   },
   {
    "path": "lib/meta/scheduled-launch-authority-boundary.test.ts",
@@ -3695,13 +3701,13 @@
    "path": "lib/meta/scheduled-status-runtime.test.ts",
    "git": "A",
    "class": "tests_only",
-   "sha256": "7a69c9aff55aa1fd7819104f1e88e00bd4bea63c1f411ed5d3f2b556a2fe78fb"
+   "sha256": "9594855ff2a0f904cd6baa9cfba4f955be4a9cffe3bacb81bef15a6c17a19649"
   },
   {
    "path": "lib/meta/scheduled-status-runtime.ts",
    "git": "A",
    "class": "runtime",
-   "sha256": "8886a0914470a91ea9816679638e78de8f589d790a7fa6305b6fc870df1d6625"
+   "sha256": "75df92f912b46305aab4f36d7b37c5b1f6e187ceb26d0f6421bb350e6cce96d3"
   },
   {
    "path": "lib/meta/scheduled.test.ts",
@@ -4109,7 +4115,7 @@
    "path": "scripts/audits/d077-correction1-artifact-generator.ts",
    "git": "A",
    "class": "audit_script_non_runtime",
-   "sha256": "c5ce8b59ba1a6234d02d7a61bc2dde8158854da36f89753d39fdcc4dc15e8dd3"
+   "sha256": "207bc6108cf3cc95aa8354d6c3f817941d67311731fe4417494244a6e8ed9e01"
   },
   {
    "path": "scripts/audits/d077-production-recovery-readonly-preflight.ts",
@@ -4607,7 +4613,7 @@
    "path": "scripts/launch-activation-concurrency-fixtures.ts",
    "git": "A",
    "class": "script_ops_non_request_path",
-   "sha256": "a662cf87ac9cec17cdd99049afd0789939845e3dc6615652a463fb35af4b41fa"
+   "sha256": "0a9cb4dca19b6fbedf8e6f41cde5d8c68c9703ea28a19f16e5d5b8b27cad0c3c"
   },
   {
    "path": "scripts/launch-zero-write-claim-fixtures.ts",

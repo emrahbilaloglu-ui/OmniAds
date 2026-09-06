@@ -547,6 +547,13 @@ describe("D077 artifact hash contract (fail-closed)", () => {
     ) as unknown as {
       stages: Array<{
         stage: string;
+        sourceCommit: string;
+        evidenceScope: {
+          kind: string;
+          sourceCommit: string;
+          currentRuntimeAcceptance: string;
+          requiredCurrentAcceptance: string;
+        };
         counts: Record<string, unknown>;
         logFile?: { path: string; sha256: string; bytes: number };
         wholeShellProof?: Record<string, unknown>;
@@ -560,6 +567,14 @@ describe("D077 artifact hash contract (fail-closed)", () => {
         "the canonical whole-shell stage is MISSING from the ledger — fail-closed",
       );
     }
+    // This retained capture must never be relabelled as proof of later code.
+    expect(shell.sourceCommit).toBe("444597262e7d271a0f46dcd93d2a80cdfe326e7f");
+    expect(shell.evidenceScope).toEqual({
+      kind: "historical",
+      sourceCommit: shell.sourceCommit,
+      currentRuntimeAcceptance: "not_proven_by_this_log",
+      requiredCurrentAcceptance: "final_main_ci_database_seams_and_images",
+    });
     expect(shell.counts.notApplicable, "counts must be not-applicable").toBe(true);
     expect(String(shell.counts.reason)).toContain("composite shell");
     if (!shell.logFile?.path) {
@@ -608,7 +623,7 @@ describe("D077 artifact hash contract (fail-closed)", () => {
     /*
       Pinned invariants of the retained run itself.
 
-      RELEASE CANDIDATE — repinned to the 2026-09-06 20:37Z capture. These are
+      HISTORICAL R14 — pinned to the 2026-09-06 20:37Z capture. These are
       the bytes `bash scripts/verify-database-seams.sh` produced on reviewed
       source freeze 444597262e7d271a0f46dcd93d2a80cdfe326e7f
       (exit 0, 551.384 s, 40 stages).
@@ -647,7 +662,7 @@ describe("D077 artifact hash contract (fail-closed)", () => {
       PRE-DEPLOY AUDIT — 38 -> 40, from a REGENERATED run. The two stages added
       are the D088 migration seam and the automation-OFF readback. The ledger,
       the retained log and these pins all come from one fresh execution of
-      `bash scripts/verify-database-seams.sh` on the final tree; none of them
+      `bash scripts/verify-database-seams.sh` on that R14 tree; none of them
       was edited to agree with the others.
     */
     expect(recomputed.stageHeaderCount).toBe(40);

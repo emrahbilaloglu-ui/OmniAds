@@ -1,9 +1,9 @@
 {
- "ledgerHash": "0ea1d04ff1a8e64c90674a004db8ab3cb771e8bef91570493464239aa6317231",
+ "ledgerHash": "6c914c7c88b623f79fb39efa4ce62cb13295270e80a67814f99c50a73842f1dd",
  "hashAlgorithm": "sha256",
  "hashBasis": "sha256 over UTF-8 bytes of JSON.stringify(artifact, null, 1) of the artifact WITHOUT its embedded hash fields (the artifact object before {<hashField>, hashAlgorithm, hashBasis} are prepended)",
  "contract": "adsecute.d077.correction2-verification-ledger.v2",
- "generatedAtUtc": "2026-09-06T20:47:42.733Z",
+ "generatedAtUtc": "2026-09-06T21:07:43.841Z",
  "runtimeVersions": {
   "node": "v24.4.1",
   "npm": "11.4.2",
@@ -171,13 +171,13 @@
  },
  "runtimeVersionsScope": {
   "kind": "historical",
-  "sourceLedgerHash": "530731ef408b0df584cd223a1180012edc9e707c54e36c1dbc7bef86b5095480",
-  "sourceGeneratedAtUtc": "2026-09-06T20:16:43.597Z",
+  "sourceLedgerHash": "0ea1d04ff1a8e64c90674a004db8ab3cb771e8bef91570493464239aa6317231",
+  "sourceGeneratedAtUtc": "2026-09-06T20:47:42.733Z",
   "note": "Frozen earlier audit runtime observations, preserved with their original timestamps and validated by the unchanged historical provenance contract."
  },
  "packagingRuntimeVersions": {
   "actor": "codex",
-  "observedAtUtc": "2026-09-06T20:47:41.939Z",
+  "observedAtUtc": "2026-09-06T21:07:43.233Z",
   "node": "v24.4.1",
   "npm": "11.4.2",
   "pnpm": "11.19.0",
@@ -203,7 +203,7 @@
      "stderr": "",
      "spawnErrorCode": null,
      "spawnErrorMessage": null,
-     "observedAtUtc": "2026-09-06T20:47:41.312Z"
+     "observedAtUtc": "2026-09-06T21:07:42.532Z"
     },
     "resolution": "resolved",
     "resolvedPath": "/Users/harmelek/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/pnpm",
@@ -219,12 +219,12 @@
      "stderr": "",
      "spawnErrorCode": null,
      "spawnErrorMessage": null,
-     "observedAtUtc": "2026-09-06T20:47:41.677Z"
+     "observedAtUtc": "2026-09-06T21:07:42.922Z"
     },
     "reportedVersion": "11.19.0",
     "resultClass": "version_reported",
     "observationKind": "present_tense",
-    "observedAtUtc": "2026-09-06T20:47:41.677Z",
+    "observedAtUtc": "2026-09-06T21:07:42.922Z",
     "observationTimeCertainty": "exact",
     "cacheSafeReadOnly": true
    },
@@ -246,7 +246,7 @@
      "stderr": "",
      "spawnErrorCode": null,
      "spawnErrorMessage": null,
-     "observedAtUtc": "2026-09-06T20:47:41.683Z"
+     "observedAtUtc": "2026-09-06T21:07:42.930Z"
     },
     "resolution": "resolved",
     "resolvedPath": "/usr/local/bin/corepack",
@@ -262,12 +262,12 @@
      "stderr": "",
      "spawnErrorCode": null,
      "spawnErrorMessage": null,
-     "observedAtUtc": "2026-09-06T20:47:41.725Z"
+     "observedAtUtc": "2026-09-06T21:07:42.981Z"
     },
     "reportedVersion": "0.34.2",
     "resultClass": "version_reported",
     "observationKind": "present_tense",
-    "observedAtUtc": "2026-09-06T20:47:41.725Z",
+    "observedAtUtc": "2026-09-06T21:07:42.981Z",
     "observationTimeCertainty": "exact",
     "cacheSafeReadOnly": true
    },
@@ -281,7 +281,7 @@
      "exists": true,
      "observationErrorCode": null,
      "observationErrorMessage": null,
-     "observedAtUtc": "2026-09-06T20:47:41.725Z"
+     "observedAtUtc": "2026-09-06T21:07:42.981Z"
     },
     "resolution": "resolved",
     "resolvedPath": "/Users/harmelek/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/pnpm",
@@ -297,12 +297,12 @@
      "stderr": "",
      "spawnErrorCode": null,
      "spawnErrorMessage": null,
-     "observedAtUtc": "2026-09-06T20:47:41.937Z"
+     "observedAtUtc": "2026-09-06T21:07:43.231Z"
     },
     "reportedVersion": "11.19.0",
     "resultClass": "version_reported",
     "observationKind": "present_tense",
-    "observedAtUtc": "2026-09-06T20:47:41.937Z",
+    "observedAtUtc": "2026-09-06T21:07:43.231Z",
     "observationTimeCertainty": "exact",
     "cacheSafeReadOnly": true
    },
@@ -345,6 +345,7 @@
  },
  "stageSchema": "every entry in `stages`: {stage, command, startUtc, endUtc, durationSeconds, exitCode, counts (parsed vitest counts OR {notApplicable:true, reason}), timeout:{configuredSeconds, timedOut}, teardown (readback string or {notApplicable:true, reason}), tail}",
  "equivalenceMapping": {
+  "scope": "HISTORICAL preparation evidence only. The retained R14 whole-shell log proves its recorded source, not the current runtime. Full final-main CI, including all database seams, and both exact-SHA image publications remain required before production deployment.",
   "verify:pre-push": "check:workflows → typecheck → eslint . → vitest run → scripts/verify-database-seams.sh. Correction 2 proves: canonical.check-workflows, canonical.typecheck, canonical.eslint-changed (full `eslint .` was green in correction 1), focused vitest stages on the changed surfaces, and the AUTHORITATIVE canonical.database-seams-whole-shell run (`bash scripts/verify-database-seams.sh` executed as ONE command — including the CUTOVER_REQUIRED/manifest/runbook release-boundary logic the correction-1 extraction missed). The full 13,683-test unit suite is preserved as historical correction-1 evidence (green, timestamped) and was deliberately not rerun to repair audit metadata.",
   "authoritativeDatabaseSeamProof": "stages[canonical.database-seams-whole-shell]",
   "notReproduced": "CI image publish lane, actionlint binary, authenticated deployed-UI reads — recorded as unproven, not claimed"
@@ -456,7 +457,7 @@
    ],
    "originalCapturePath": {
     "path": "/tmp/adsecute-codex-release-20260906/d077-canonical-database-seams-whole-shell-2026-09-06T2037Z.log",
-    "note": "capture provenance ONLY — the temporary supervisor output path for this authoritative run; validated byte-identical to the repository copy before it was frozen; generator/test reads use only the portable retained copy"
+    "note": "capture provenance ONLY — the temporary supervisor output path for this historical run; validated byte-identical to the repository copy before it was frozen; generator/test reads use only the portable retained copy"
    },
    "wholeShellProof": {
     "stageHeaderCount": 40,
@@ -640,6 +641,12 @@
      "deployGateOrderingPassPresent": true,
      "excerpt": "[verify-db-seams] ── 26 Ordinary deploy refuses a cutover-required release\nno cutover pending: deploy/CUTOVER_REQUIRED absent\n\n> adsecute@0.1.0 test:deploy-gate-ordering\n> bash scripts/deploy-gate-ordering-check.sh\n\n[deploy-gate-ordering] PASS G1 a cutover-required release is refused before ANY docker command runs — the production worker is never stopped\n[deploy-gate-ordering] PASS G2 deploy/CUTOVER_REQUIRED also refuses before any docker command\n[deploy-gate-ordering] PASS G3 an in-flight cutover refuses before any docker command, so two migration paths cannot race\n[deploy-gate-ordering] PASS G4 prepare_runtime refuses during a cutover BEFORE the pull, so a delivery cannot rewrite a wrapper mid-run\n[deploy-gate-ordering] PASS G5 recreate_services refuses during a cutover before recreating anything\n[deploy-gate-ordering] PASS G6 standalone wrapper delivery refuses while a cutover is running, but is NOT gated on cutover_required — it is the phase you need precisely because the release requires a cutover\n[deploy-gate-ordering] PASS W1 the deploy workflow has an independent cutover gate that precedes every host-touching step, does not depend on run_migrations, and is followed only by success()-guarded steps (STEPS:16)\n[deploy-gate-ordering] PASS R1 no workflow dispatches a production deploy automatically; releasing is an explicit human act\n[deploy-gate-ordering] PASS R2 deploy-hetzner is workflow_dispatch only — no push, schedule or workflow_run can start a production deploy\n[deploy-gate-ordering] PASS R3 the deploy dispatch takes a verified lowercase 40-hex SHA and an enumerated current|legacy image namespace\n[deploy-gate-ordering] PASS R4 the database-seams job delegates to scripts/verify-database-seams.sh with no inline seam list to drift\n[deploy-gate-ordering] PASS R5 the release-owner guard is the final stage, so it sees the tree that will actually be committed\n[deploy-gate-ordering] PASS all checks\n\n"
     }
+   },
+   "evidenceScope": {
+    "kind": "historical",
+    "sourceCommit": "444597262e7d271a0f46dcd93d2a80cdfe326e7f",
+    "currentRuntimeAcceptance": "not_proven_by_this_log",
+    "requiredCurrentAcceptance": "final_main_ci_database_seams_and_images"
    }
   },
   {
@@ -4312,6 +4319,319 @@
      "name": "publish-worker-image",
      "conclusion": "skipped"
     }
+   ]
+  },
+  {
+   "stage": "historical.r14-packaging.r14-d077-contract",
+   "command": "npx vitest run lib/meta/__tests__/d077-artifact-hash-contract.test.ts --reporter=json --outputFile=/tmp/adsecute-codex-release-20260906/r14-d077-contract-report.json",
+   "startUtc": "2026-09-06T20:48:08.489178+00:00",
+   "endUtc": "2026-09-06T20:48:10.352140+00:00",
+   "durationSeconds": 1.862,
+   "exitCode": 0,
+   "counts": {
+    "numTotalTests": 21,
+    "numPassedTests": 21,
+    "numFailedTests": 0,
+    "numPendingTests": 0
+   },
+   "timeout": {
+    "configuredSeconds": null,
+    "timedOut": null,
+    "configuredSecondsNote": "Not captured by this original record."
+   },
+   "teardown": {
+    "processExited": true,
+    "scope": "Observed command return only; no process-group/listener census was captured."
+   },
+   "sourceContext": "R14 metadata subsequently merged as 34c58cc9d1dcda0622951b796d418a1ca2cc948b; not R15 acceptance.",
+   "logFile": {
+    "path": "/tmp/adsecute-codex-release-20260906/r14-d077-contract.log",
+    "sha256": "dc7ceed3127fd3daae862ad78ca05fb1097c2fc0433326ff39470af72a7c05f0",
+    "bytes": 90
+   },
+   "tail": [
+    "JSON report written to /tmp/adsecute-codex-release-20260906/r14-d077-contract-report.json"
+   ]
+  },
+  {
+   "stage": "release-r15.r15-terminal-runtime",
+   "command": "DATABASE_URL=postgresql://postgres@127.0.0.1:1/adsecute_unreachable npx vitest run lib/meta/scheduled-status-runtime.test.ts lib/meta/bid-queue-arm.test.ts lib/meta/bid-amount-precondition-wiring.test.ts lib/meta/budget-execution-lifecycle.test.ts --reporter=default --reporter=json --outputFile.json=/tmp/adsecute-codex-release-20260906/r15-scheduled-terminal-final-unit-result.json > /tmp/adsecute-codex-release-20260906/r15-scheduled-terminal-final-unit.log 2>&1",
+   "startUtc": "2026-09-06T21:03:00.928000+00:00",
+   "endUtc": "2026-09-06T21:03:02.420249+00:00",
+   "durationSeconds": 1.492249,
+   "exitCode": 0,
+   "counts": {
+    "filesPassed": 4,
+    "testsPassed": 84,
+    "testsFailed": 0
+   },
+   "timingBasis": "Runner timestamps from Vitest JSON only; command wall times were not captured.",
+   "supervisorStartUtc": null,
+   "supervisorEndUtc": null,
+   "sourceContext": "R15 tested working tree subsequently frozen as 023267d63ff0840a7dc16c50b21acf487a34519c; actual test-time HEAD was the merged baseline34c58cc.",
+   "timeout": {
+    "configuredSeconds": null,
+    "timedOut": false,
+    "configuredSecondsNote": "Wrapper configuration not captured."
+   },
+   "teardown": {
+    "processExited": true,
+    "scope": "Observed tool exit only; no live database/provider calls."
+   },
+   "logFile": {
+    "path": "/tmp/adsecute-codex-release-20260906/r15-scheduled-terminal-final-unit.log",
+    "sha256": "88f08d5844423eb25e0cd227c926338e461458d6cdd1eb7e4d9aaf4c2ec4918b",
+    "bytes": 566
+   },
+   "vitestReport": {
+    "path": "/tmp/adsecute-codex-release-20260906/r15-scheduled-terminal-final-unit-result.json",
+    "sha256": "0ee5591246f6fae7ac6f395da41530bbb0d5f489a33312a7f76308ce6d950553",
+    "bytes": 31833
+   },
+   "supplementalUntimedChecks": [
+    {
+     "name": "final typecheck",
+     "command": "NODE_OPTIONS=--max-old-space-size=4096 npm run typecheck > /tmp/adsecute-codex-release-20260906/r15-scheduled-terminal-final-typecheck.log 2>&1",
+     "observedExitCode": 0,
+     "supervisorStartUtc": null,
+     "supervisorEndUtc": null,
+     "timingProvenance": "Exec session exit observed; no command wall times captured.",
+     "artifact": {
+      "path": "/tmp/adsecute-codex-release-20260906/r15-scheduled-terminal-final-typecheck.log",
+      "sha256": "8450795232d2ec742004345b1c022a982518fb3e9a4f9aa184ac0ec0bf189b6f",
+      "bytes": 44
+     }
+    },
+    {
+     "name": "four-file ESLint",
+     "command": "npx eslint lib/meta/scheduled-status-runtime.ts lib/meta/scheduled-bid-runtime.ts lib/meta/scheduled-status-runtime.test.ts lib/meta/bid-queue-arm.test.ts > /tmp/adsecute-codex-release-20260906/r15-scheduled-terminal-final-eslint.log 2>&1",
+     "observedExitCode": 0,
+     "supervisorStartUtc": null,
+     "supervisorEndUtc": null,
+     "timingProvenance": "Exec session exit observed; no command wall times captured.",
+     "artifact": {
+      "path": "/tmp/adsecute-codex-release-20260906/r15-scheduled-terminal-final-eslint.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+     }
+    }
+   ],
+   "earlierSuccessfulRunNotAddedToCurrentCounts": {
+    "name": "before root-requested contention additions",
+    "command": "DATABASE_URL=postgresql://postgres@127.0.0.1:1/adsecute_unreachable npx vitest run lib/meta/scheduled-status-runtime.test.ts lib/meta/bid-queue-arm.test.ts lib/meta/bid-amount-precondition-wiring.test.ts lib/meta/budget-execution-lifecycle.test.ts --reporter=default --reporter=json --outputFile.json=/tmp/adsecute-codex-release-20260906/r15-scheduled-terminal-unit-result.json > /tmp/adsecute-codex-release-20260906/r15-scheduled-terminal-unit.log 2>&1",
+    "observedExitCode": 0,
+    "counts": {
+     "filesPassed": 4,
+     "testsPassed": 81,
+     "testsFailed": 0
+    },
+    "supervisorStartUtc": null,
+    "supervisorEndUtc": null,
+    "timingProvenance": "Runner timestamps from Vitest JSON only; command wall times were not captured.",
+    "runnerStartUtc": "2026-09-06T21:01:09.898000+00:00",
+    "runnerLastSuiteEndUtc": "2026-09-06T21:01:10.952281+00:00",
+    "artifacts": [
+     {
+      "path": "/tmp/adsecute-codex-release-20260906/r15-scheduled-terminal-unit-result.json",
+      "sha256": "2a4b28a4332d67d053daf5b1ae31b6ef5d748a2624946c462912fc46d0a601bf",
+      "bytes": 30671
+     },
+     {
+      "path": "/tmp/adsecute-codex-release-20260906/r15-scheduled-terminal-unit.log",
+      "sha256": "2ca5e0ae152e835b836496dce9f1a7a03a350a7748b249450ade0209447e7c86",
+      "bytes": 559
+     }
+    ]
+   },
+   "validationRecord": {
+    "path": "/tmp/adsecute-codex-release-20260906/r15-scheduled-terminal-validation.json",
+    "sha256": "1efbeb548eeda56da62422dd47389bc16da57142fd78531e85dbddd0fa331853"
+   },
+   "tail": [
+    "",
+    " RUN  v4.1.5 /Users/harmelek/Adsecute",
+    "",
+    " ✓ lib/meta/budget-execution-lifecycle.test.ts (18 tests) 24ms",
+    " ✓ lib/meta/scheduled-status-runtime.test.ts (37 tests) 37ms",
+    " ✓ lib/meta/bid-queue-arm.test.ts (22 tests) 25ms",
+    " ✓ lib/meta/bid-amount-precondition-wiring.test.ts (7 tests) 28ms",
+    "",
+    " Test Files  4 passed (4)",
+    "      Tests  84 passed (84)",
+    "   Start at  00:03:01",
+    "   Duration  1.36s (transform 1.47s, setup 1.16s, import 2.06s, tests 113ms, environment 0ms)",
+    "",
+    "JSON report written to /tmp/adsecute-codex-release-20260906/r15-scheduled-terminal-final-unit-result.json"
+   ]
+  },
+  {
+   "stage": "release-r15.r15-terminal-callers",
+   "command": "DATABASE_URL=postgresql://postgres@127.0.0.1:1/adsecute_unreachable npx vitest run lib/meta/budget-proposal-server-runtime.test.ts lib/meta/budget-automation-runtime.test.ts lib/meta/scheduled-action-execution.test.ts lib/meta/automation-master-gate.test.ts --reporter=default --reporter=json --outputFile.json=/tmp/adsecute-codex-release-20260906/r15-scheduled-terminal-callers-unit-result.json > /tmp/adsecute-codex-release-20260906/r15-scheduled-terminal-callers-unit.log 2>&1",
+   "startUtc": "2026-09-06T21:03:58.216000+00:00",
+   "endUtc": "2026-09-06T21:03:59.283128+00:00",
+   "durationSeconds": 1.067128,
+   "exitCode": 0,
+   "counts": {
+    "filesPassed": 4,
+    "testsPassed": 59,
+    "testsFailed": 0
+   },
+   "timingBasis": "Runner timestamps from Vitest JSON only; command wall times were not captured.",
+   "supervisorStartUtc": null,
+   "supervisorEndUtc": null,
+   "sourceContext": "R15 tested working tree subsequently frozen as 023267d63ff0840a7dc16c50b21acf487a34519c; actual test-time HEAD was the merged baseline34c58cc.",
+   "timeout": {
+    "configuredSeconds": null,
+    "timedOut": false,
+    "configuredSecondsNote": "Wrapper configuration not captured."
+   },
+   "teardown": {
+    "processExited": true,
+    "scope": "Observed tool exit only; no live database/provider calls."
+   },
+   "logFile": {
+    "path": "/tmp/adsecute-codex-release-20260906/r15-scheduled-terminal-callers-unit.log",
+    "sha256": "0c2b4cc615d19f383295a23e40eca4ad61a002ee5da6315b80beed98a17696e6",
+    "bytes": 661
+   },
+   "vitestReport": {
+    "path": "/tmp/adsecute-codex-release-20260906/r15-scheduled-terminal-callers-unit-result.json",
+    "sha256": "fe4825e31aadf04a59ad1775c4cab25c1dc7a7b8545e1d7cb8489a889b2bf3fe",
+    "bytes": 22528
+   },
+   "tail": [
+    "",
+    " RUN  v4.1.5 /Users/harmelek/Adsecute",
+    "",
+    " ✓ lib/meta/automation-master-gate.test.ts (10 tests) 189ms",
+    " ✓ lib/meta/scheduled-action-execution.test.ts (10 tests) 3ms",
+    " ✓ lib/meta/budget-proposal-server-runtime.test.ts (7 tests) 56ms",
+    " ✓ lib/meta/budget-automation-runtime.test.ts (32 tests) 666ms",
+    "     ✓ the queue executor routes a budget proposal to the budget runtime  658ms",
+    "",
+    " Test Files  4 passed (4)",
+    "      Tests  59 passed (59)",
+    "   Start at  00:03:58",
+    "   Duration  970ms (transform 1.05s, setup 513ms, import 927ms, tests 914ms, environment 0ms)",
+    "",
+    "JSON report written to /tmp/adsecute-codex-release-20260906/r15-scheduled-terminal-callers-unit-result.json"
+   ]
+  },
+  {
+   "command": "DATABASE_URL=postgresql://unused@127.0.0.1:1/unused npx vitest run lib/meta/ads-action-log.test.ts app/api/meta/entity-actions.route.test.ts lib/meta/activation-approval-recheck.test.ts lib/meta/activation-unresolved-lookup.test.ts lib/product-instrumentation-emitters.test.ts --reporter=dot",
+   "startUtc": "2026-09-06T21:04:21.003493+00:00",
+   "endUtc": "2026-09-06T21:04:23.377317+00:00",
+   "durationSeconds": 2.373704,
+   "exitCode": 0,
+   "counts": {
+    "testsPassed": 108,
+    "filesPassed": 5
+   },
+   "logFile": {
+    "path": "/tmp/adsecute-codex-release-20260906/r15-shared-status-claim-focused.log",
+    "bytes": 431,
+    "sha256": "41f972b0ef2856f7c3f6305a3d194fa4fabb39fc5f15feb2ef02265087381d08"
+   },
+   "stage": "release-r15.r15-shared-status-claim-focused",
+   "recordedCounts": {
+    "Test Files": "5",
+    "Tests": "108"
+   },
+   "sourceContext": "R15 working tree subsequently frozen as 023267d63ff0840a7dc16c50b21acf487a34519c; no source commit identity was recorded by the running test.",
+   "timeout": {
+    "configuredSeconds": null,
+    "timedOut": false,
+    "configuredSecondsNote": "Wrapper bound not captured."
+   },
+   "teardown": {
+    "processExited": true,
+    "scope": "Observed command completion; unused loopback database URL."
+   },
+   "earlierSuccessfulRunNotAddedToCurrentCounts": {
+    "command": "DATABASE_URL=postgresql://unused@127.0.0.1:1/unused npx vitest run lib/meta/ads-action-log.test.ts app/api/meta/entity-actions.route.test.ts lib/meta/activation-approval-recheck.test.ts lib/meta/activation-unresolved-lookup.test.ts lib/product-instrumentation-emitters.test.ts --reporter=dot",
+    "startUtc": "2026-09-06T21:03:18.691826+00:00",
+    "endUtc": "2026-09-06T21:03:21.353939+00:00",
+    "durationSeconds": 2.66167,
+    "exitCode": 0,
+    "counts": {
+     "Test Files": "5",
+     "Tests": "108"
+    },
+    "logFile": {
+     "path": "/tmp/adsecute-codex-release-20260906/r15-shared-status-claim-focused-initial.log",
+     "bytes": 431,
+     "sha256": "fc32b16aafc6df45a55ec7233596a35694a8f13cdc14e35d529701b6919fa5b4"
+    }
+   },
+   "tail": [
+    "",
+    " RUN  v4.1.5 /Users/harmelek/Adsecute",
+    "",
+    "············································································································",
+    "",
+    " Test Files  5 passed (5)",
+    "      Tests  108 passed (108)",
+    "   Start at  00:04:21",
+    "   Duration  1.65s (transform 1.12s, setup 795ms, import 1.44s, tests 1.27s, environment 0ms)",
+    ""
+   ]
+  },
+  {
+   "stage": "release-r15.r15-shared-status-claim-concurrency",
+   "command": "Ephemeral PostgreSQL: node --import tsx --input-type=module -; invoke verifyLaunchActivationConcurrencyFixtures through independent Node processes using the actual action-claim SQL and a counted provider double",
+   "startUtc": "2026-09-06T21:02:03.635709+00:00",
+   "endUtc": "2026-09-06T21:02:12.543927+00:00",
+   "durationSeconds": 8.907801,
+   "exitCode": 0,
+   "counts": {
+    "assertionsPassed": 39
+   },
+   "timeout": {
+    "configuredSeconds": null,
+    "timedOut": false,
+    "configuredSecondsNote": "Not captured by this original record."
+   },
+   "teardown": {
+    "ephemeralPostgresStopped": true,
+    "dataDirectory": "/var/folders/ft/2b5f1_qn05g0rjscjj17n8fc0000gn/T/adsecute-activation-claim-7ic6bgam/pgdata",
+    "providerCalls": 0
+   },
+   "logFile": {
+    "path": "/tmp/adsecute-codex-release-20260906/r15-shared-status-claim-concurrency.log",
+    "bytes": 1217,
+    "sha256": "2d484afd347f7f6ffb95434f52fd917eac05a5d0253ba24a8fc0664b6f31726e"
+   },
+   "sourceContext": "R15 working tree before source freeze; final runtime/fixture bytes assembled in 023267d63ff0840a7dc16c50b21acf487a34519c.",
+   "tail": [
+    "The files belonging to this database system will be owned by user \"harmelek\".",
+    "This user must also own the server process.",
+    "",
+    "The database cluster will be initialized with locale \"C\".",
+    "The default database encoding has accordingly been set to \"SQL_ASCII\".",
+    "The default text search configuration will be set to \"english\".",
+    "",
+    "Data page checksums are disabled.",
+    "",
+    "creating directory /var/folders/ft/2b5f1_qn05g0rjscjj17n8fc0000gn/T/adsecute-activation-claim-7ic6bgam/pgdata ... ok",
+    "creating subdirectories ... ok",
+    "selecting dynamic shared memory implementation ... posix",
+    "selecting default max_connections ... 100",
+    "selecting default shared_buffers ... 128MB",
+    "selecting default time zone ... Europe/Istanbul",
+    "creating configuration files ... ok",
+    "running bootstrap script ... ok",
+    "performing post-bootstrap initialization ... ok",
+    "syncing data to disk ... ok",
+    "",
+    "Success. You can now start the database server using:",
+    "",
+    "    '/opt/homebrew/opt/postgresql@16/bin/pg_ctl' -D /var/folders/ft/2b5f1_qn05g0rjscjj17n8fc0000gn/T/adsecute-activation-claim-7ic6bgam/pgdata -l logfile start",
+    "",
+    "waiting for server to start.... done",
+    "server started",
+    "PASS: 39 activation claim concurrency PostgreSQL fixtures",
+    "waiting for server to shut down.... done",
+    "server stopped"
    ]
   }
  ],

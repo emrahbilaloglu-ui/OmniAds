@@ -3,7 +3,9 @@
 This report retains the preparation and review history for PR #276. The
 current local checkpoint below supersedes earlier present-tense candidate
 claims; those historical checks keep their original scope and timestamps.
-PR #276 is open. This checkpoint does not claim a merge or production deploy.
+PR #276 merged normally as `34c58cc9d1dcda0622951b796d418a1ca2cc948b`.
+The R15 correction below continues from that main revision. No production
+deployment is claimed by this report.
 
 The identity table below is the **preparation** snapshot and is kept as written,
 because the numbers in it are exactly right for the commit it names. It is not
@@ -21,7 +23,30 @@ self-hash cycle.
 | divergence | 44 commits ahead, **0 behind** |
 | release diff | 281 files, +68,404 / −3,603 |
 
-## Current checkpoint — R14 source and validation
+## Current checkpoint — R15 correction and verification scope
+
+PR #276 is merged; the bounded followup source is frozen at `023267d63ff0840a7dc16c50b21acf487a34519c`.
+
+R15 closes review findings 3945242344 and 3945242346. Manual and scheduled campaign/ad-set status actions now use the same entity claim as activation. Across action origins, a losing contender neither calls Meta nor overwrites the winner's receipt; independent entities/accounts/businesses remain independent. Scheduled status and bid handlers retain terminal journal persistence results: a failed terminal write returns an unavailable/reconciliation outcome while preserving provider and attempted/dry-run facts. Real attempts remain in reconciliation; known nonattempts do not become invented provider writes or false approvals. No provider retry is added.
+
+The frozen delta passed 251 distinct unit cases across 13 disjoint files: shared claim108/108, terminal runtime84/84 and adjacent callers59/59. Thirty-nine real PostgreSQL assertions exercised independent-process claim races and isolation, comprising the existing18 activation assertions plus21 added cross-origin status cases; a counted provider double made zero external Meta calls and the cluster stopped. Earlier successful81-case and108-case runs are retained separately and are not added to current totals. Unit timing for terminal/caller suites is explicitly Vitest-only; final source lint/typecheck observations retain their recorded scope. Root independently reviewed the complete delta without a blocking finding. These focused results do not substitute for the required full final-main CI.
+
+The retained local whole-shell proof is explicitly historical R14 evidence:
+source `444597262e7d271a0f46dcd93d2a80cdfe326e7f`, 20:37Z, 40 stages, exit 0.
+Its bytes, source identity and teardown remain unchanged. It does not prove
+that the R15 runtime executed. The D077 contract still verifies its exact
+hash, bytes, ordered stage declarations and release-boundary proof; an explicit
+scope assertion prevents this log from being relabelled as current evidence.
+
+The final correction follows ordinary repository rules. Full CI on the actual
+final main SHA must execute every database-seam stage and all required tests;
+both exact-SHA image publications must succeed before deployment. The existing
+image jobs depend on `database-seams`, `test` and `typecheck`. No workflow,
+assertion or test is skipped, and no further local whole-shell run is claimed.
+Main CI and live deployment acceptance remain pending. Final artifact checks
+follow generation and are recorded outside the files they validate.
+
+## Prior checkpoint — R14 (historical)
 
 The reviewed source is frozen at `444597262e7d271a0f46dcd93d2a80cdfe326e7f`; final candidate
 source before evidence packaging is `444597262e7d271a0f46dcd93d2a80cdfe326e7f`. The canonical
@@ -368,7 +393,7 @@ The sixth repin is different in kind from the first five, and the difference is
 the point. Those replaced a PASSING log whose child programs had changed. This
 one replaces a tree that FAILED the shell — see the round-4 section below.
 
-The canonical stage is the 20:37Z run on runtime/seam source freeze
+The retained historical R14 whole-shell stage is the 20:37Z run on source freeze
 `444597262e7d271a0f46dcd93d2a80cdfe326e7f`, retained at
 `docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T2037Z.log`:
 
@@ -391,12 +416,12 @@ Twenty raw captures are retained without editing their bytes: 2026-08-30
 (38-stage) and 2026-09-03 (40-stage) as earlier release evidence; 2026-09-06
 07:59Z, 10:30Z, 11:18Z, 11:56Z, 12:34Z, 13:17Z, 13:56Z, 14:43Z, 15:26Z,
 16:07Z, the failed 16:53Z attempt, 17:07Z, 17:40Z, 18:18Z, 18:50Z, 19:30Z, 20:06Z and 20:37Z. The first sixteen same-day
-passing captures are superseded for the current tree; 20:37Z is the
-current canonical capture. The 16:53Z attempt stopped at stage 15 with exit 1
+passing captures predate R14; 20:37Z is its retained local whole-shell
+capture. None of these logs proves execution of the later R15 runtime. The 16:53Z attempt stopped at stage 15 with exit 1
 and is not acceptance evidence. Each capture describes its actual execution.
 
-**One executed-source change post-dates that run, and it is named rather than
-glossed.** Retaining the log inside the repository required registering it in
+**Historical R14 packaging after that run.** Retaining the log inside the
+repository required registering it in
 `scripts/check-release-owner-references.sh`, because each capture contains one
 occurrence of the token that guard scans for — the guard's own announcement of
 it. That registration cannot precede the log it registers, so the run could not
@@ -404,7 +429,8 @@ have included it; the entries for the 2026-08-30 and 2026-09-03 captures have
 exactly the same property. The final packaging validation must therefore run
 `npm run check:release-owner` once after this registry update. Other packaging
 changes update the dated report, artifact generator provenance, contract-test
-pins and generated evidence; product code remains at the named source freeze.
+pins and generated evidence. That packaging preserved the named R14 source
+freeze; the later R15 changes and their required final-main CI are scoped above.
 The artifact-hash contract is checked after manifest generation. Those final
 read-only check results are reported with the release checkpoint rather than
 claimed before they execute.
@@ -532,7 +558,7 @@ probe was rejected by PostgreSQL, so the read-only claim is proven, not stated.
   that STOP becomes visible and operable while every provider write still
   refuses with `release_capability_closed`.
 
-## Source freeze and delivery HEAD
+## Preparation source freeze and delivery HEAD (historical)
 
 `32a5ae332` was the source freeze at the Phase 1 checkpoint. Preparing the PR
 moved it: two gate defects and one silent-migration hazard were found and fixed,

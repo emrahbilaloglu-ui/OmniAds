@@ -1,10 +1,10 @@
 {
- "packetHash": "c130808eb292c600144c56fcf4b36d605df91553f7798063991231faf0e90bd6",
+ "packetHash": "0bf949c0bbf4ffcc53cba78704b29989075b2f5899a388f23e12ae17b83c9c5d",
  "hashAlgorithm": "sha256",
  "hashBasis": "sha256 over UTF-8 bytes of JSON.stringify(artifact, null, 1) of the artifact WITHOUT its embedded hash fields (the artifact object before {<hashField>, hashAlgorithm, hashBasis} are prepended)",
  "contract": "adsecute.d077.release-deploy-approval-packet.v2",
  "status": "PREPARED_AWAITING_OPERATOR_APPROVAL — no commit, push, dispatch, or deploy performed; submitted for Codex independent acceptance — not self-accepted",
- "generatedAtUtc": "2026-09-06T20:47:43.205Z",
+ "generatedAtUtc": "2026-09-06T21:07:44.317Z",
  "decision": "NO_GO",
  "blockerLedger": {
   "cleared": [
@@ -22,7 +22,7 @@
  },
  "sourceTree": {
   "repository": "emrahbilaloglu-ui/OmniAds",
-  "branch": "codex/meta-v2-panel-fidelity",
+  "branch": "codex/meta-release-finalization",
   "supersededBranchLabel": "codex/meta-disabled-readiness-20260829",
   "baseHead": "babf158e150fd33057117b39b175da044ac62d2e",
   "proposal": "Commit the ENTIRE final corrected worktree as ONE release candidate commit, then fast-forward merge to main. The D073–D078 packages interleave in shared files (contracts, read models, lib/migrations.ts) and were verified as one tree; partial release was evaluated and rejected.",
@@ -32,9 +32,9 @@
    "path": "docs/audits/generated/d077-release-candidate-manifest-2026-08-30.json",
    "generationOrderContract": "the manifest is generated LAST by this same inspected generator (phase2), after this packet and every other pinned file is final; it excludes its own path and pins this packet's exact bytes. Its entry counts must equal expectedFinalTree below (asserted at generation).",
    "expectedFinalTree": {
-    "pinnedNonSelfFileCount": 776,
+    "pinnedNonSelfFileCount": 777,
     "classCounts": {
-     "tests_only": 322,
+     "tests_only": 323,
      "runtime": 250,
      "runtime_deletion": 2,
      "deploy_config": 1,

@@ -99,17 +99,39 @@ export async function buildMetaDailyBrief(input: {
         beside last Tuesday's decisions and ledger, all under one `asOf`. The
         card would have said "3 high alerts as of 2026-09-01" about anomalies
         detected days later. `asOf` is that ceiling everywhere else here (the
-        decision snapshot's `endDate`, the overnight window's anchor), so it
+        decision snapshot's ceiling, the overnight window's anchor), so it
         is the ceiling here too: one notion of "as of" per brief.
       */
       endDate: asOf,
     }).catch(() => null),
-    readLatestMetaDecisionSnapshot({
-      businessId: input.businessId,
-      startDate: dayBefore(dayBefore(asOf)),
-      endDate: asOf,
-      providerAccountId,
-    }).catch(() => null),
+    /*
+      The decision read is account-scoped and as-of bounded, or it is skipped.
+
+      Two separate leaks met here. Passing a null `providerAccountId` did not
+      mean "no account" to the reader — null is its no-filter case — so a
+      business with zero or several assigned accounts got business-wide rows
+      served as if they were one account's, including a disconnected account's,
+      with nothing in the top-item shape to say which action belonged to where.
+      The queue below has always refused that read for the same reason; this
+      one now refuses it the same way, and the route's own promise — "with
+      several, the account-scoped sections report unavailable" — becomes true.
+
+      And `startDate`/`endDate` never bounded which snapshot is "latest": that
+      read takes MAX(snapshot_date) over all time unless given a ceiling, so a
+      brief for last Tuesday labelled TODAY's actionable decisions and
+      freshness date with last Tuesday's `asOf`. The ceiling is the same `asOf`
+      the alerts and the overnight window already hang off — one notion of "as
+      of" per brief, not a third.
+    */
+    providerAccountId
+      ? readLatestMetaDecisionSnapshot({
+        businessId: input.businessId,
+        startDate: dayBefore(dayBefore(asOf)),
+        endDate: asOf,
+        providerAccountId,
+        snapshotDateCeiling: asOf,
+      }).catch(() => null)
+      : Promise.resolve(null),
     providerAccountId
       ? readMetaAutomationProposalQueue({
         businessId: input.businessId,

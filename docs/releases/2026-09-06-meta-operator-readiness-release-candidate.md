@@ -144,17 +144,20 @@ policy one of the seam's children exercises. The cause is identical every time,
 and so is the justification: the 40 headings were byte-identical on each
 occasion, so only a fresh run can bind what actually executed.
 
-The canonical stage is the 11:56Z run, retained at
-`docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1156Z.log`:
+A fifth repin followed the third review round, which changed the launch-intent
+producers the decision-launch-chain seam child exercises.
+
+The canonical stage is the 12:34Z run, retained at
+`docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1234Z.log`:
 
 | | |
 |---|---|
-| Start / end (UTC) | 2026-09-06T11:56:19 → 2026-09-06T12:04:22 |
-| Duration | 483.0 s |
+| Start / end (UTC) | 2026-09-06T12:34:16 → 2026-09-06T12:42:27 |
+| Duration | 491.0 s |
 | Exit code | 0 |
 | Stage headers | 40 |
 | Final line | `[verify-db-seams] PASS — 40 stages` |
-| Bytes | 661,049 |
+| Bytes | 661,046 |
 
 The three registered seam children report their counts inside it, each with
 `skipped=0`: `direct Launchpad create route approval-standing` 7/7, `Meta History
@@ -162,11 +165,11 @@ bid verb title` 2/2, and the newly registered `Meta History bid write journal
 admission` 6/6 — the last being the direct evidence that five previously dormant
 database assertions now actually execute.
 
-Six captures are retained and none was relabelled or edited: 2026-08-30
+Seven captures are retained and none was relabelled or edited: 2026-08-30
 (38-stage) and 2026-09-03 (40-stage) as the earlier releases' evidence; 2026-09-06
-07:59Z (Phase 1 checkpoint), 10:30Z (PR open), 11:18Z (review round 1) and 11:56Z
-(this one, review round 2). The four same-day captures are superseded rather than
-historical.
+07:59Z (Phase 1 checkpoint), 10:30Z (PR open), 11:18Z (review round 1), 11:56Z
+(review round 2) and 12:34Z (this one, review round 3). The five same-day captures
+are superseded rather than historical.
 Each is kept because it is truthful evidence of the tree it ran on — only the
 label moves, never the bytes.
 
@@ -392,6 +395,38 @@ their own id, so bootstrap now runs only for a `live` write authority; and
 `notification-producer.ts` carried `as never` on the same anomaly read, whose
 removal exposed a second unsound cast that had only type-checked because the
 first one blinded the compiler.
+
+## Review round 3 on PR #276
+
+CI on `3a43f73d0` was fully green — all eleven jobs. Codex Review completed on
+the same head with three findings, all P2 and **no P1**. Across the three rounds
+the trend is 5 → 4 → 3 findings and 3 → 2 → 0 at P1.
+
+| finding | fix |
+|---|---|
+| P2 `launch-proposal-producer.ts` (and its activation twin) — an EXPIRED proposal removed its intent from every later snapshot, so a launch left the queue permanently | The producers now exclude an intent only for statuses that CONSUMED it. `expired` is the one terminal status the server writes with no dispatch having begun, so it alone returns. |
+| P2 `daily-brief.ts` — `readLatestMetaDecisionSnapshot` ignored its own `startDate`/`endDate`, taking `MAX(snapshot_date)` across all time, so a historical `asOf` carried today's decisions | An opt-in `snapshotDateCeiling` applied inside the `latest` CTE, which is the only place a bound can work. Opt-in because the other callers pass ranges meaning the opposite. |
+| P2 `daily-brief/route.ts` — with zero or several assignments, `providerAccountId: null` read as *no filter*, so business-wide rows appeared in an account-scoped section | The decision read now takes the same `providerAccountId ? … : null` guard the queue read already had. The route was already correct and is unchanged. |
+
+The first was the one worth being careful about, because the permissive direction
+is worse than the defect: wrongly readmitting a status could re-offer a launch
+that already created a campaign. Every status was enumerated from the `CHECK`
+constraint and justified individually — `approved`, `failed` and `reconcile` all
+imply the dispatch was entered, so they stay excluded — and the predicate is a
+short `NOT IN`, so a status added later defaults to excluding rather than
+re-offering. The defect also proved worse than reported:
+`readMetaAutomationProposalQueue` expires stale rows on every queue READ, so an
+operator merely opening the queue after 24 hours was enough to retire the launch
+while its intent still sat `prepared`.
+
+Findings two and three were the third and fourth forward-leaks found in the same
+brief function; the earlier two are already fixed above, and this fix reuses
+their anchor rather than adding a third notion of "as of".
+
+Two false claims in the new comments were caught by the re-check and corrected
+before landing: a function named `readMetaAutomationProposals`, which does not
+exist under that name, and a test comment describing a shared import where the
+constant is deliberately duplicated.
 
 ## A latent time bomb CI caught, which local runs could not
 

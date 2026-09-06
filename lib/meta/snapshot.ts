@@ -2493,6 +2493,23 @@ export async function readLatestMetaDecisionSnapshot(input: {
    * resolver-validated. See `app/api/meta/lane-classify/route.ts`.
    */
   providerAccountId?: string | null;
+  /**
+   * The newest snapshot_date this read may resolve to, when the caller has one.
+   *
+   * `startDate`/`endDate` above do NOT bound the snapshot — the `latest` CTE
+   * takes `MAX(snapshot_date)` over all time — so a caller asking about a past
+   * day silently got today's decisions. The daily brief did exactly that: it
+   * stamped today's actionable decisions and freshness date with a historical
+   * `asOf` while its anomaly and ledger sections were bounded to that day.
+   *
+   * Opt-in rather than derived from `endDate`, because the range-picker
+   * surfaces mean the opposite by their dates. Decision Center, lane
+   * classification and the "last snapshot / written at" fact all pass a
+   * SELECTED METRIC RANGE and must keep resolving the newest snapshot while a
+   * past range is on screen; a range picker is not a time machine for buyer
+   * actions. Only a caller whose date is genuinely an as-of ceiling passes it.
+   */
+  snapshotDateCeiling?: string | null;
 }): Promise<MetaRecommendationsResponse | null> {
   const readiness = await getDbSchemaReadiness({
     tables: ["meta_decision_snapshots_daily"],
@@ -2512,6 +2529,22 @@ export async function readLatestMetaDecisionSnapshot(input: {
    * match a requested account — that is the withholding this exists for.
    */
   const account = input.providerAccountId?.trim() || null;
+  /*
+   * The as-of ceiling, applied to the `latest` CTE only.
+   *
+   * The outer half selects `snapshot_date = (SELECT snapshot_date FROM latest)`,
+   * so bounding which date is "latest" bounds the rows too — unlike the account
+   * scope, which the equality cannot carry. Null leaves the read exactly as it
+   * was: MAX over all time, for every caller that does not ask for a ceiling.
+   *
+   * A stable date parameter rather than an expression over the column, so this
+   * still uses the snapshot_date index instead of degrading into the kind of
+   * index-unusable predicate that has silently exceeded the pool read timeout
+   * on this schema before.
+   */
+  const snapshotCeiling = input.snapshotDateCeiling
+    ? normalizeDate(input.snapshotDateCeiling)
+    : null;
   const rows = (await sql`
     WITH latest AS (
       SELECT MAX(snapshot_date) AS snapshot_date
@@ -2519,6 +2552,10 @@ export async function readLatestMetaDecisionSnapshot(input: {
       WHERE business_id = ${input.businessId}
         AND kind = 'recommendation'
         AND (${account}::text IS NULL OR provider_account_id = ${account})
+        AND (
+          ${snapshotCeiling}::date IS NULL
+          OR snapshot_date <= ${snapshotCeiling}::date
+        )
     )
     SELECT
       scope_type,

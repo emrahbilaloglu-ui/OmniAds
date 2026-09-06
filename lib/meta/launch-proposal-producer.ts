@@ -35,6 +35,57 @@ export const LAUNCH_PROPOSAL_PRODUCER_CONTRACT =
 
 export const LAUNCH_PROPOSAL_ACTION = "launch" as const;
 
+/**
+ * The proposal statuses that leave a launch intent still on offer.
+ *
+ * Both launch-intent producers ask the same question of an older row for the
+ * same intent: did it CONSUME the intent, or merely end? The activation
+ * producer keeps its own copy rather than importing this one, because the
+ * snapshot pipeline's tests mock these two modules independently and a
+ * module-scope import between them breaks at load under those doubles. The two
+ * are held equal by `launch-proposal-expiry-reoffer.test.ts`, which compares
+ * the statuses both statements actually exclude.
+ *
+ * It is stated as the short NON-consuming list and used as a `NOT IN`, so
+ * everything it does not name excludes the intent. That direction is the point:
+ * a status added to the CHECK constraint later is consuming by default, and the
+ * mistake it prevents is the expensive one — a status wrongly called
+ * non-consuming would re-offer a launch that already created a campaign in
+ * Meta, where the cost of the opposite mistake is only a row that lingers.
+ *
+ * `pending` and `claimed` are not outcomes at all; the row is still open, which
+ * is exactly what `META_AUTOMATION_PROPOSAL_UNDECIDED_STATUSES` names.
+ *
+ * `expired` is the addition, and it is the ONLY terminal status the server
+ * writes with no provider dispatch having begun, so it provably created
+ * nothing: `expireStaleMetaAutomationProposals` updates only `status =
+ * 'pending'` rows, and the claim sweep writes `expired` solely on its
+ * `dispatch_started_at IS NULL` branch — the branch whose whole meaning is
+ * "nothing was sent, requeueing is provable". Treating it as consuming was the
+ * defect. A launch nobody got to within the 24h TTL vanished from every later
+ * snapshot while its intent still sat `prepared`, which is precisely the state
+ * this producer exists to surface — and because `readMetaAutomationProposalQueue`
+ * expires stale rows on every read, merely opening the queue was enough to
+ * trigger it. Expiry's own contract promises these "re-evaluate on the next
+ * snapshot"; this is what makes that true.
+ *
+ * Nothing else may join this list. `approved` and `failed` both mean the
+ * dispatch was entered and the provider answered — a launch that failed at the
+ * ad step still created a campaign and an ad set. `reconcile` means the outcome
+ * is UNKNOWN, which is not the same as absent. `dismissed` and `modified` are
+ * the operator's own verdict on the offer, and re-raising those overrides a
+ * person.
+ */
+export const LAUNCH_INTENT_UNCONSUMED_PROPOSAL_STATUSES = [
+  ...META_AUTOMATION_PROPOSAL_UNDECIDED_STATUSES,
+  "expired",
+] as const;
+
+/** The list above as a SQL literal list. */
+const LAUNCH_INTENT_UNCONSUMED_PROPOSAL_STATUS_SQL =
+  LAUNCH_INTENT_UNCONSUMED_PROPOSAL_STATUSES.map((status) => `'${status}'`)
+    .join(", ");
+
 export interface ReadyLaunchIntentCandidate {
   intentId: string;
   businessId: string;
@@ -68,6 +119,10 @@ export interface ReadyLaunchIntentCandidate {
  * one a decision, a snapshot or a creative brief produced for later — is the
  * only kind an operator has not already dealt with. Without this the queue
  * would race the wizard for the operator's own in-flight launch.
+ *
+ * The last arm asks whether an EARLIER row consumed the intent, not merely
+ * whether one ended: see `LAUNCH_INTENT_UNCONSUMED_PROPOSAL_STATUSES` for which
+ * outcomes count and why `expired` is not one of them.
  */
 export const READY_LAUNCH_INTENT_SQL = `
   SELECT i.id::text            AS intent_id,
@@ -102,7 +157,7 @@ export const READY_LAUNCH_INTENT_SQL = `
         WHERE decided.business_id = i.business_id
           AND decided.provider_account_id = i.provider_account_id
           AND decided.decision_key = 'launch:' || i.id::text
-          AND decided.status NOT IN (${META_AUTOMATION_PROPOSAL_UNDECIDED_STATUSES.map((s) => `'${s}'`).join(", ")})
+          AND decided.status NOT IN (${LAUNCH_INTENT_UNCONSUMED_PROPOSAL_STATUS_SQL})
      )
    ORDER BY i.created_at
 ` as const;

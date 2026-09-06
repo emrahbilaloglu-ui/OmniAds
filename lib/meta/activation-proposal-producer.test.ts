@@ -162,7 +162,16 @@ describe("what the candidate query will and will not offer", () => {
 
   it("never re-raises one an operator has already decided", async () => {
     expect(ACTIVATABLE_LAUNCH_INTENT_SQL).toContain("'activate:' || i.id::text");
-    expect(ACTIVATABLE_LAUNCH_INTENT_SQL).toContain("NOT IN ('pending', 'claimed')");
+    /*
+      The arm names the outcomes that CONSUMED the intent, and it used to be the
+      complement of the undecided pair — which swept in `expired` and so dropped
+      a created-but-paused launch from the queue forever once its 24h row aged
+      out. `expired` is written only where no dispatch began. See
+      `launch-proposal-expiry-reoffer.test.ts` for the whole classification.
+    */
+    expect(ACTIVATABLE_LAUNCH_INTENT_SQL).toContain(
+      "NOT IN ('pending', 'claimed', 'expired')",
+    );
   });
 });
 

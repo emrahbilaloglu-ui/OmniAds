@@ -40,6 +40,36 @@ export const ACTIVATION_PROPOSAL_PRODUCER_CONTRACT =
 
 export const ACTIVATION_PROPOSAL_ACTION = "resume" as const;
 
+/**
+ * The proposal statuses that leave this intent still on offer.
+ *
+ * The same law the launch producer states in full beside its own copy: the list
+ * is the short NON-consuming one and is used as a `NOT IN`, so every status it
+ * does not name excludes the intent — which makes a status added to the CHECK
+ * constraint later consuming by default, the safe direction.
+ *
+ * `expired` is the one terminal status written with no provider dispatch having
+ * begun (`expireStaleMetaAutomationProposals` touches only `pending` rows; the
+ * claim sweep writes it only where `dispatch_started_at IS NULL`), so it
+ * provably turned nothing on and the paused hierarchy it described is still
+ * off. Every other terminal status either reached Meta or is an operator's own
+ * verdict, and none of them may be added here.
+ *
+ * Restated rather than imported from the launch producer because the snapshot
+ * pipeline's tests mock these two modules independently, and a module-scope
+ * import between them breaks at load under those doubles. The two copies are
+ * held equal by `launch-proposal-expiry-reoffer.test.ts`, which compares the
+ * statuses both statements actually exclude.
+ */
+const LAUNCH_INTENT_UNCONSUMED_PROPOSAL_STATUSES = [
+  ...META_AUTOMATION_PROPOSAL_UNDECIDED_STATUSES,
+  "expired",
+] as const;
+
+const LAUNCH_INTENT_UNCONSUMED_PROPOSAL_STATUS_SQL =
+  LAUNCH_INTENT_UNCONSUMED_PROPOSAL_STATUSES.map((status) => `'${status}'`)
+    .join(", ");
+
 export interface ActivatableLaunchIntentCandidate {
   intentId: string;
   businessId: string;
@@ -80,6 +110,13 @@ export interface ActivatableLaunchIntentCandidate {
  * Any other value — no receipt, a blocked one, an ambiguous one — leaves work
  * an operator may still want to finish, and a blocked hierarchy is exactly the
  * case that must not disappear from the queue.
+ *
+ * A paused launch used to disappear anyway, by the back door: the last arm
+ * excluded the intent once ANY terminal row existed, and `expired` is terminal.
+ * So a created-but-off campaign nobody activated within the row's 24h TTL was
+ * never offered again — the exact outcome the paragraph above forbids. The arm
+ * now names the outcomes that CONSUME the intent; `expired` is not one, because
+ * it is only ever written where no dispatch began.
  */
 export const ACTIVATABLE_LAUNCH_INTENT_SQL = `
   SELECT i.id::text            AS intent_id,
@@ -104,7 +141,7 @@ export const ACTIVATABLE_LAUNCH_INTENT_SQL = `
         WHERE decided.business_id = i.business_id
           AND decided.provider_account_id = i.provider_account_id
           AND decided.decision_key = 'activate:' || i.id::text
-          AND decided.status NOT IN (${META_AUTOMATION_PROPOSAL_UNDECIDED_STATUSES.map((s) => `'${s}'`).join(", ")})
+          AND decided.status NOT IN (${LAUNCH_INTENT_UNCONSUMED_PROPOSAL_STATUS_SQL})
      )
    ORDER BY i.created_at
 ` as const;

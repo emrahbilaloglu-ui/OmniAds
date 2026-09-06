@@ -122,7 +122,10 @@ REGISTRY=(
   "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1118Z.log|1|Retained whole-shell capture (40-stage run, 11:18Z, superseded): this guard announcing the token it scans for."
   # 11:56Z is canonical: the second review round changed the bid sizing
   # policy, which one of the seam children exercises.
-  "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1156Z.log|1|Retained whole-shell capture (40-stage run, 11:56Z, CANONICAL): this guard announcing the token it scans for."
+  "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1156Z.log|1|Retained whole-shell capture (40-stage run, 11:56Z, superseded): this guard announcing the token it scans for."
+  # 12:34Z is canonical: the third review round changed the launch-intent
+  # producers, which the decision-launch-chain seam child exercises.
+  "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1234Z.log|1|Retained whole-shell capture (40-stage run, 12:34Z, CANONICAL): this guard announcing the token it scans for."
 )
 
 HISTORICAL_COUNTS=(

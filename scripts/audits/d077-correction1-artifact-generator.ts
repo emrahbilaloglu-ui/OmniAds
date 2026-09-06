@@ -74,12 +74,15 @@ import { execFileSync, spawnSync } from "node:child_process";
   same cause and the same justification: the 40 headings were byte-identical
   every time, so nothing but a fresh run can bind what actually executed.
 
-  This log is the 11:56Z canonical run on the delivered tree: 40 headers,
-  `PASS — 40 stages`, exit 0, 483 s, with the three registered children
+  Superseded a fifth time by the third review round, which changed the
+  launch-intent producers that the decision-launch-chain seam child exercises.
+
+  This log is the 12:34Z canonical run on the delivered tree: 40 headers,
+  `PASS — 40 stages`, exit 0, 491 s, with the three registered children
   reporting 7/7, 2/2 and 6/6, each `skipped=0`.
 */
 const PORTABLE_SHELL_LOG_PATH =
-  "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1156Z.log";
+  "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1234Z.log";
 
 /*
   The branch this candidate actually lives on, read from git rather than typed.

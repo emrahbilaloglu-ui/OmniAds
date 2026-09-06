@@ -13,6 +13,7 @@ vi.mock("@/lib/db", () => ({
   getDb: vi.fn(),
   runDbTransaction: vi.fn(async (fn: () => Promise<unknown>) => fn()),
 }));
+vi.mock("@/lib/product-instrumentation", () => ({ recordProductInstrumentationEvent: vi.fn() }));
 
 vi.mock("@/lib/meta/duplicate-ad-reconciliation-store", async (importOriginal) => {
   const actual =
@@ -26,6 +27,7 @@ vi.mock("@/lib/meta/duplicate-ad-reconciliation-store", async (importOriginal) =
 });
 
 const db = await import("@/lib/db");
+const instrumentation = await import("@/lib/product-instrumentation");
 const duplicateStore = await import(
   "@/lib/meta/duplicate-ad-reconciliation-store"
 );
@@ -718,7 +720,7 @@ describe("resolveMetaAdActionTarget", () => {
         source: "manual_operator_v1",
       }),
     ).rejects.toThrow(
-      "Manual Meta Ad status claims require exact provider_account_id.",
+      "Meta status claims require exact provider_account_id.",
     );
     expect(db.getDb).not.toHaveBeenCalled();
   });
@@ -785,6 +787,46 @@ describe("resolveMetaAdActionTarget", () => {
     expect(insertSql).toContain("dry_run");
     expect(sql.mock.calls[1]).toContain("act_123");
     expect(sql.mock.calls[1]).toContain(true);
+  });
+
+  it.each(["campaign", "adset", "ad"] as const)("serializes manual and scheduled %s status claims with truthful origins", async (scope) => {
+    for (const source of ["manual_operator_v1", "scheduled_automation_v1"] as const) {
+      vi.mocked(instrumentation.recordProductInstrumentationEvent).mockClear();
+      const requestedBy = source === "manual_operator_v1" ? "user_1" : null;
+      const query = vi.fn(async () => []);
+      const sql = vi.fn().mockResolvedValueOnce([]).mockResolvedValueOnce([
+        decisionLogRow({ source, requested_by: requestedBy, provider_account_id: "act_123" }),
+      ]);
+      Object.assign(sql, { query });
+      vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+      await createMetaAdsActionLog({
+        businessId: "business_1", providerAccountId: "act_123", adId: "entity_1",
+        action: "resume", source, requestedBy, payloadRequest: { scope_type: scope, dry_run: false },
+      });
+
+      expect(query).toHaveBeenCalledWith(LOCK_DECISION_ORIGIN_AD_ACTION_CLAIM_QUERY,
+        [JSON.stringify(["business_1", "act_123", "entity_1"])]);
+      expect(String(sql.mock.calls[0][0].join(""))).toContain("FROM meta_ads_action_log action_log");
+      expect(String(sql.mock.calls[1][0].join(""))).toContain("INSERT INTO meta_ads_action_log");
+      expect(sql.mock.calls[1]).toContain(source);
+      expect(sql.mock.calls[1][8]).toBe(requestedBy);
+      expect(instrumentation.recordProductInstrumentationEvent).toHaveBeenCalledTimes(source === "manual_operator_v1" ? 1 : 0);
+    }
+  });
+
+  it.each(["manual_operator_v1", "scheduled_automation_v1"] as const)("refuses %s before inserting when the unresolved-status read fails", async (source) => {
+    const query = vi.fn(async () => []);
+    const sql = vi.fn().mockRejectedValueOnce(new Error("status read unavailable"));
+    Object.assign(sql, { query });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+    await expect(createMetaAdsActionLog({
+      businessId: "business_1", providerAccountId: "act_123", adId: "entity_1",
+      action: "pause", source, payloadRequest: { scope_type: "campaign" },
+    })).rejects.toThrow("status read unavailable");
+    expect(sql).toHaveBeenCalledTimes(1);
+    expect(String(sql.mock.calls[0][0].join(""))).not.toContain("INSERT");
+    expect(instrumentation.recordProductInstrumentationEvent).not.toHaveBeenCalled();
   });
 
   it("blocks a new manual claim behind an indefinite legacy manual pending row with null account", async () => {

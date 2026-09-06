@@ -228,7 +228,9 @@ describe("Meta entity write routes", () => {
         source: "manual_operator_v1",
         recIdOrigin: "rec_1",
         adId: "cmp_1",
+        providerAccountId: "act_1",
         payloadRequest: expect.objectContaining({
+          scope_type: "campaign",
           action_origin: "manual_operator_v1",
           manual_confirmation: "explicit_operator_confirmation",
         }),
@@ -372,7 +374,9 @@ describe("Meta entity write routes", () => {
         source: "manual_operator_v1",
         recIdOrigin: "rec_2",
         adId: "adset_1",
+        providerAccountId: "act_1",
         payloadRequest: expect.objectContaining({
+          scope_type: "adset",
           action_origin: "manual_operator_v1",
           manual_confirmation: "explicit_operator_confirmation",
         }),
@@ -488,7 +492,8 @@ describe("Meta entity write routes", () => {
         source: "manual_operator_v1",
         recIdOrigin: null,
         adId: "cmp_1",
-        payloadRequest: expect.objectContaining({ body: { status: "ACTIVE" } }),
+        providerAccountId: "act_1",
+        payloadRequest: expect.objectContaining({ scope_type: "campaign", body: { status: "ACTIVE" } }),
       }),
     );
   });
@@ -536,7 +541,8 @@ describe("Meta entity write routes", () => {
         source: "manual_operator_v1",
         recIdOrigin: null,
         adId: "adset_1",
-        payloadRequest: expect.objectContaining({ body: { status: "ACTIVE" } }),
+        providerAccountId: "act_1",
+        payloadRequest: expect.objectContaining({ scope_type: "adset", body: { status: "ACTIVE" } }),
       }),
     );
   });

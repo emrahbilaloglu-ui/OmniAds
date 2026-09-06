@@ -1,9 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@/lib/meta/ads-action-log", () => ({
-  createMetaAdsActionLog: vi.fn(async () => ({ id: "log-1" })),
-  completeMetaAdsActionLog: vi.fn(async () => ({ id: "log-1" })),
-}));
+vi.mock("@/lib/meta/ads-action-log", async (importOriginal) => {
+  const { MetaAdStatusActionClaimConflictError } = await importOriginal<typeof import("@/lib/meta/ads-action-log")>();
+  return {
+    MetaAdStatusActionClaimConflictError,
+    createMetaAdsActionLog: vi.fn(async () => ({ id: "log-1" })),
+    completeMetaAdsActionLog: vi.fn(async () => ({ id: "log-1" })),
+  };
+});
 vi.mock("@/lib/meta/ads-write", () => ({
   pauseCampaign: vi.fn(),
   resumeCampaign: vi.fn(),
@@ -32,6 +36,8 @@ import {
   SCHEDULED_ACTION_ORIGIN,
 } from "@/lib/meta/scheduled-status-runtime";
 import type { ScheduledAuthorityGates } from "@/lib/meta/scheduled-action-execution";
+import { runClaimedProposalExecution, type ClaimedExecutionDeps } from "@/lib/meta/budget-execution-lifecycle";
+import type { BudgetProposalExecutionResult } from "@/lib/meta/budget-proposal-runtime";
 
 const ACTOR = "22222222-2222-4222-8222-222222222222";
 
@@ -81,6 +87,7 @@ function build(options: {
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(log.createMetaAdsActionLog).mockResolvedValue({ id: "log-1" } as never);
+  vi.mocked(log.completeMetaAdsActionLog).mockResolvedValue({ id: "log-1" } as never);
   vi.mocked(writeGuard.readMetaWritePosture).mockResolvedValue(
     { blocked: false, rehearsal: false } as never,
   );
@@ -285,5 +292,127 @@ describe("the row must be one this path can actually execute", () => {
       authorization: SCHEDULED,
     });
     expect(result.receipt.withheld).toBe("claim_absent");
+  });
+});
+
+
+describe("terminal persistence is required for an ordinary settlement", () => {
+  const targets = [
+    { scopeType: "campaign", action: "pause", write: "pauseCampaign" },
+    { scopeType: "campaign", action: "resume", write: "resumeCampaign" },
+    { scopeType: "adset", action: "pause", write: "pauseAdset" },
+    { scopeType: "adset", action: "resume", write: "resumeAdset" },
+  ] as const;
+  const outcomes = [
+    { name: "verified live success", ok: true, attempted: true, dryRun: false, ambiguous: false },
+    { name: "known live failure", ok: false, attempted: true, dryRun: false, ambiguous: false },
+    { name: "ambiguous live failure", ok: false, attempted: true, dryRun: false, ambiguous: true },
+    { name: "pre-provider refusal", ok: false, attempted: false, dryRun: false, ambiguous: false },
+    { name: "verified rehearsal", ok: true, attempted: false, dryRun: true, ambiguous: false },
+    { name: "failed rehearsal", ok: false, attempted: false, dryRun: true, ambiguous: false },
+  ] as const;
+  for (const target of targets) {
+    it.each(outcomes)(`${target.scopeType} ${target.action}: $name retains journal failure without retry`, async (outcome) => {
+      vi.mocked(log.completeMetaAdsActionLog).mockRejectedValueOnce(new Error("statement timeout"));
+      const providerResponse = { evidence: outcome.name };
+      let providerPosts = 0;
+      vi.mocked(adsWrite[target.write]).mockImplementation((async (...args: unknown[]) => {
+        const options = args[2] as { beforeMutationAttempt?: () => Promise<void> };
+        if (outcome.attempted) {
+          await options.beforeMutationAttempt?.();
+          providerPosts += 1;
+        }
+        return {
+          ok: outcome.ok, dryRun: outcome.dryRun, responsePayload: providerResponse,
+          verificationPayload: outcome.ok ? { verified: true } : null,
+          httpStatus: outcome.ambiguous ? 504 : 422,
+          error: outcome.ok ? undefined : {
+            code: outcome.ambiguous ? "provider_outcome_ambiguous" : "provider_refused",
+            message: "Provider fixture refusal",
+          },
+          providerOutcome: outcome.ambiguous ? "outcome_ambiguous" : undefined,
+          mutationAttempt: outcome.attempted ? { attemptCount: 1 } : null,
+        };
+      }) as never);
+      const row = { ...PROPOSAL, scopeType: target.scopeType, proposedAction: target.action };
+      const results: BudgetProposalExecutionResult[] = [];
+      const settle = vi.fn<ClaimedExecutionDeps["settle"]>(async () => row);
+      const recordLedger = vi.fn<ClaimedExecutionDeps["recordLedger"]>(async () => undefined);
+      const markDispatchStarted = vi.fn(async () => true);
+      const settled = await runClaimedProposalExecution({
+        businessId: row.businessId, providerAccountId: row.providerAccountId,
+        proposal: row, claimToken: "claim-1", actorUserId: ACTOR, executionKind: "scheduled",
+        markDispatchStarted, settle, recordLedger,
+        forceReconcile: async () => true, recordReconciliation: async () => true,
+        execute: async (beforeProviderPost) => {
+          const result = await build()({
+            proposal: row, claimToken: "claim-1", authorization: SCHEDULED,
+            dryRunOnly: outcome.dryRun, beforeProviderPost,
+          });
+          results.push(result);
+          return result;
+        },
+      });
+      expect(results).toHaveLength(1);
+      expect(results[0]).toMatchObject({
+        ok: false, reconcile: true, journalId: "log-1", rollbackRequested: false,
+        receipt: { httpStatus: 503, response: providerResponse, dryRun: outcome.dryRun,
+          providerMutationAttempted: outcome.attempted, receiptKey: "claim-1", withheld: null },
+      });
+      expect(adsWrite[target.write]).toHaveBeenCalledTimes(1);
+      expect(providerPosts).toBe(outcome.attempted ? 1 : 0);
+      expect(markDispatchStarted).toHaveBeenCalledTimes(outcome.attempted ? 1 : 0);
+      expect(log.completeMetaAdsActionLog).toHaveBeenCalledTimes(1);
+      expect(log.completeMetaAdsActionLog).toHaveBeenCalledWith(expect.objectContaining({
+        id: "log-1", status: outcome.ok ? "success" : outcome.ambiguous ? "silent_failure" : "failure",
+        payloadResponse: providerResponse,
+      }));
+      expect(settled.ok).toBe(false);
+      expect(settled.providerDispatchStarted).toBe(outcome.attempted);
+      expect(settled.settledStatus).toBe(outcome.attempted ? "reconcile" : "failed");
+      expect(settle).toHaveBeenCalledWith(expect.objectContaining({
+        status: outcome.attempted ? "reconcile" : "failed",
+      }));
+      expect(recordLedger).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+        activityType: outcome.attempted ? "automation_proposal_reconcile" : "automation_proposal_failed",
+        severity: "danger",
+      }));
+    });
+  }
+});
+
+describe("a contended status claim belongs to its existing owner", () => {
+  it.each([
+    { code: "action_in_flight", reconciliationRequired: false },
+    { code: "meta_ad_status_reconciliation_required", reconciliationRequired: true },
+  ] as const)("reports $code without claiming or settling the blocker", async (conflict) => {
+    vi.mocked(log.createMetaAdsActionLog).mockRejectedValueOnce(new log.MetaAdStatusActionClaimConflictError({
+      ...conflict, blockingActionLogId: "other-attempt", blockingOrigin: "launch_activation_v1",
+    }));
+    const result = await build()({
+      proposal: PROPOSAL, dryRunOnly: false, claimToken: "claim-1", authorization: SCHEDULED,
+    });
+    expect(result).toMatchObject({
+      ok: false, journalId: null, reconcile: false,
+      receipt: {
+        httpStatus: 409, withheld: "dispatch_marker_unavailable", providerMutationAttempted: false,
+        response: { ...conflict, blockingActionLogId: "other-attempt", blockingOrigin: "launch_activation_v1" },
+      },
+    });
+    expect(adsWrite.pauseAdset).not.toHaveBeenCalled();
+    expect(log.completeMetaAdsActionLog).not.toHaveBeenCalled();
+  });
+
+  it("keeps an unavailable insert distinct from entity contention", async () => {
+    vi.mocked(log.createMetaAdsActionLog).mockRejectedValueOnce(new Error("database unavailable"));
+    const result = await build()({
+      proposal: PROPOSAL, dryRunOnly: false, claimToken: "claim-1", authorization: SCHEDULED,
+    });
+    expect(result).toMatchObject({
+      ok: false, journalId: null, reconcile: false,
+      receipt: { httpStatus: 422, response: null, withheld: "dispatch_marker_unavailable", providerMutationAttempted: false },
+    });
+    expect(adsWrite.pauseAdset).not.toHaveBeenCalled();
+    expect(log.completeMetaAdsActionLog).not.toHaveBeenCalled();
   });
 });

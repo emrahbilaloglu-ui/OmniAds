@@ -68,7 +68,8 @@ export const MANUAL_META_AD_STATUS_LEGACY_QUARANTINE_MS =
 
 export type MetaAdStatusActionOrigin =
   | "manual_operator_v1"
-  | "native_decision_v1";
+  | "native_decision_v1"
+  | "scheduled_automation_v1";
 export type ManualMetaAdStatusReconciliationResolution =
   | "current_state_matches_requested"
   | "current_state_matches_precondition";
@@ -1633,23 +1634,17 @@ async function insertMetaAdsActionLog(
 export async function createMetaAdsActionLog(
   input: CreateMetaAdsActionLogInput,
 ): Promise<MetaAdsActionLogRow> {
-  const manualScopeType =
-    typeof input.payloadRequest?.scope_type === "string"
-      ? input.payloadRequest.scope_type
-      : null;
   if (
-    input.source === "manual_operator_v1" &&
-    (input.action === "pause" || input.action === "resume") &&
-    manualScopeType !== "campaign" &&
-    manualScopeType !== "adset"
+    (input.source === "manual_operator_v1" || input.source === "scheduled_automation_v1") &&
+    (input.action === "pause" || input.action === "resume")
   ) {
     if (!input.providerAccountId?.trim()) {
       throw new TypeError(
-        "Manual Meta Ad status claims require exact provider_account_id.",
+        "Meta status claims require exact provider_account_id.",
       );
     }
     return createMetaAdStatusActionClaim({
-      actionOrigin: "manual_operator_v1",
+      actionOrigin: input.source,
       businessId: input.businessId,
       providerAccountId: input.providerAccountId,
       adId: input.adId,
@@ -4060,8 +4055,8 @@ type NativeMetaAdStatusActionClaimInput = {
   payloadRequest?: Record<string, unknown> | null;
 };
 
-type ManualMetaAdStatusActionClaimInput = {
-  actionOrigin: "manual_operator_v1";
+type NonNativeMetaStatusActionClaimInput = {
+  actionOrigin: "manual_operator_v1" | "scheduled_automation_v1";
   businessId: string;
   providerAccountId: string;
   adId: string;
@@ -4074,7 +4069,7 @@ type ManualMetaAdStatusActionClaimInput = {
 
 export type MetaAdStatusActionClaimInput =
   | NativeMetaAdStatusActionClaimInput
-  | ManualMetaAdStatusActionClaimInput;
+  | NonNativeMetaStatusActionClaimInput;
 
 function statusActionClaimIdentity(input: MetaAdStatusActionClaimInput) {
   return input.actionOrigin === "native_decision_v1"
@@ -4245,7 +4240,7 @@ export async function createMetaAdStatusActionClaim(
       adId: input.adId,
       creativeId: input.creativeId,
       action: input.action,
-      source: "manual_operator_v1",
+      source: input.actionOrigin,
       requestedBy: input.requestedBy ?? null,
       payloadRequest: input.payloadRequest ?? null,
       recIdOrigin: input.recIdOrigin ?? null,
@@ -4264,7 +4259,8 @@ export async function createMetaAdStatusActionClaim(
   // An idempotent replay is not a new confirmation: the operator confirmed
   // once, and counting the retry would inflate the numerator with our own
   // retries.
-  if (!("idempotentReplay" in claim && claim.idempotentReplay)) {
+  if (input.actionOrigin !== "scheduled_automation_v1"
+    && !("idempotentReplay" in claim && claim.idempotentReplay)) {
     await recordProductInstrumentationEvent({
       businessId: identity.businessId,
       scope: "business",

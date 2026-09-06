@@ -18,6 +18,7 @@
 import {
   createMetaAdsActionLog,
   completeMetaAdsActionLog,
+  MetaAdStatusActionClaimConflictError,
 } from "@/lib/meta/ads-action-log";
 import {
   pauseAdset,
@@ -171,7 +172,7 @@ export function createScheduledStatusRuntime(
 
     const dryRun = rehearsing;
     const targetStatus = proposal.proposedAction === "pause" ? "PAUSED" : "ACTIVE";
-    const log = await createMetaAdsActionLog({
+    const claim = await createMetaAdsActionLog({
       businessId: proposal.businessId,
       providerAccountId: proposal.providerAccountId,
       adId: proposal.scopeId,
@@ -192,8 +193,21 @@ export function createScheduledStatusRuntime(
         proposal_id: proposal.id,
         claim_token: claimToken,
       },
-    }).catch(() => null);
-    if (!log) return withheld("dispatch_marker_unavailable");
+    }).then((log) => ({ log, error: null })).catch((error: unknown) => ({ log: null, error }));
+    if (!claim.log) {
+      const refusal = withheld("dispatch_marker_unavailable");
+      if (claim.error instanceof MetaAdStatusActionClaimConflictError) {
+        refusal.receipt.httpStatus = 409;
+        refusal.receipt.response = {
+          code: claim.error.code,
+          blockingActionLogId: claim.error.blockingActionLogId,
+          blockingOrigin: claim.error.blockingOrigin,
+          reconciliationRequired: claim.error.reconciliationRequired,
+        };
+      }
+      return refusal;
+    }
+    const log = claim.log;
 
     /*
       The binding check, and the durable intent marker, in that order.
@@ -244,18 +258,18 @@ export function createScheduledStatusRuntime(
 
     if (!write.ok) {
       const ambiguous = isAmbiguous(write);
-      await completeMetaAdsActionLog({
+      const completed = await completeMetaAdsActionLog({
         id: log.id,
         status: ambiguous ? "silent_failure" : "failure",
         errorCode: write.error?.code ?? "meta_write_failed",
         errorMessage: write.error?.message ?? null,
         payloadResponse: (write.responsePayload ?? null) as Record<string, unknown> | null,
         durationMs: Date.now() - startedAt,
-      }).catch(() => null);
+      }).then(() => true).catch(() => false);
       return {
         ok: false,
         receipt: {
-          httpStatus: write.httpStatus ?? 502,
+          httpStatus: completed ? write.httpStatus ?? 502 : 503,
           response: write.responsePayload ?? null,
           dryRun,
           dispatchedAt: now().toISOString(),
@@ -266,13 +280,13 @@ export function createScheduledStatusRuntime(
           providerMutationAttempted: write.mutationAttempt !== null
             && write.mutationAttempt !== undefined,
         },
-        reconcile: ambiguous,
+        reconcile: ambiguous || !completed,
         rollbackRequested: false,
         journalId: log.id,
       };
     }
 
-    await completeMetaAdsActionLog({
+    const completed = await completeMetaAdsActionLog({
       id: log.id,
       status: "success",
       payloadResponse: (write.responsePayload ?? null) as Record<string, unknown> | null,
@@ -280,12 +294,15 @@ export function createScheduledStatusRuntime(
       verifiedAt: now().toISOString(),
       verificationPayload:
         (write.verificationPayload ?? null) as Record<string, unknown> | null,
-    }).catch(() => null);
+    }).then(() => true).catch(() => false);
 
+    // A verified provider write is not settled until its journal is durable.
+    // Preserve the attempt fact so the shared lifecycle holds live writes for
+    // reconciliation without inventing a POST for a rehearsal.
     return {
-      ok: true,
+      ok: completed,
       receipt: {
-        httpStatus: 200,
+        httpStatus: completed ? 200 : 503,
         response: write.responsePayload ?? null,
         dryRun: write.dryRun === true,
         dispatchedAt: now().toISOString(),
@@ -294,7 +311,7 @@ export function createScheduledStatusRuntime(
         receiptKey: claimToken,
         providerMutationAttempted: write.dryRun !== true,
       },
-      reconcile: false,
+      reconcile: !completed,
       rollbackRequested: false,
       journalId: log.id,
     };

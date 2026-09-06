@@ -41,6 +41,8 @@ import {
 } from "@/lib/meta/bid-proposal-producer";
 import { createScheduledBidRuntime } from "@/lib/meta/scheduled-bid-runtime";
 import type { ScheduledAuthorityGates } from "@/lib/meta/scheduled-action-execution";
+import { runClaimedProposalExecution, type ClaimedExecutionDeps } from "@/lib/meta/budget-execution-lifecycle";
+import type { BudgetProposalExecutionResult } from "@/lib/meta/budget-proposal-runtime";
 
 const BUSINESS = "11111111-1111-4111-8111-111111111111";
 const ACTOR = "22222222-2222-4222-8222-222222222222";
@@ -161,6 +163,7 @@ function providerHas(state: {
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(log.createMetaAdsActionLog).mockResolvedValue({ id: "log-bid-1" } as never);
+  vi.mocked(log.completeMetaAdsActionLog).mockResolvedValue({ id: "log-bid-1" } as never);
   vi.mocked(writeGuard.readMetaWritePosture).mockResolvedValue(
     { blocked: false, rehearsal: false } as never,
   );
@@ -422,4 +425,85 @@ describe("the unattended executor", () => {
     expect(vi.mocked(log.completeMetaAdsActionLog).mock.calls[0]![0].status)
       .toBe("silent_failure");
   });
+});
+
+
+describe("terminal persistence is required for an ordinary settlement", () => {
+  const targets = [{ scopeType: "adset", action: "bid", write: "updateAdsetBidAmount" }] as const;
+  const outcomes = [
+    { name: "verified live success", ok: true, attempted: true, dryRun: false, ambiguous: false },
+    { name: "known live failure", ok: false, attempted: true, dryRun: false, ambiguous: false },
+    { name: "ambiguous live failure", ok: false, attempted: true, dryRun: false, ambiguous: true },
+    { name: "pre-provider refusal", ok: false, attempted: false, dryRun: false, ambiguous: false },
+    { name: "verified rehearsal", ok: true, attempted: false, dryRun: true, ambiguous: false },
+    { name: "failed rehearsal", ok: false, attempted: false, dryRun: true, ambiguous: false },
+  ] as const;
+  for (const target of targets) {
+    it.each(outcomes)(`${target.scopeType} ${target.action}: $name retains journal failure without retry`, async (outcome) => {
+      vi.mocked(log.completeMetaAdsActionLog).mockRejectedValueOnce(new Error("statement timeout"));
+      const providerResponse = { evidence: outcome.name };
+      let providerPosts = 0;
+      vi.mocked(adsWrite[target.write]).mockImplementation((async (...args: unknown[]) => {
+        const options = args[1] as { beforeMutationAttempt?: () => Promise<void> };
+        if (outcome.attempted) {
+          await options.beforeMutationAttempt?.();
+          providerPosts += 1;
+        }
+        return {
+          ok: outcome.ok, dryRun: outcome.dryRun, responsePayload: providerResponse,
+          verificationPayload: outcome.ok ? { verified: true } : null,
+          httpStatus: outcome.ambiguous ? 504 : 422,
+          error: outcome.ok ? undefined : {
+            code: outcome.ambiguous ? "provider_outcome_ambiguous" : "provider_refused",
+            message: "Provider fixture refusal",
+          },
+          providerOutcome: outcome.ambiguous ? "outcome_ambiguous" : undefined,
+          mutationAttempt: outcome.attempted ? { attemptCount: 1 } : null,
+        };
+      }) as never);
+      const row = proposal();
+      const results: BudgetProposalExecutionResult[] = [];
+      const settle = vi.fn<ClaimedExecutionDeps["settle"]>(async () => row);
+      const recordLedger = vi.fn<ClaimedExecutionDeps["recordLedger"]>(async () => undefined);
+      const markDispatchStarted = vi.fn(async () => true);
+      const settled = await runClaimedProposalExecution({
+        businessId: row.businessId, providerAccountId: row.providerAccountId,
+        proposal: row, claimToken: "claim-1", actorUserId: ACTOR, executionKind: "scheduled",
+        markDispatchStarted, settle, recordLedger,
+        forceReconcile: async () => true, recordReconciliation: async () => true,
+        execute: async (beforeProviderPost) => {
+          const result = await runtime()({
+            proposal: row, claimToken: "claim-1", authorization: SCHEDULED,
+            dryRunOnly: outcome.dryRun, beforeProviderPost,
+          });
+          results.push(result);
+          return result;
+        },
+      });
+      expect(results).toHaveLength(1);
+      expect(results[0]).toMatchObject({
+        ok: false, reconcile: true, journalId: "log-bid-1", rollbackRequested: false,
+        receipt: { httpStatus: 503, response: providerResponse, dryRun: outcome.dryRun,
+          providerMutationAttempted: outcome.attempted, receiptKey: "claim-1", withheld: null },
+      });
+      expect(adsWrite[target.write]).toHaveBeenCalledTimes(1);
+      expect(providerPosts).toBe(outcome.attempted ? 1 : 0);
+      expect(markDispatchStarted).toHaveBeenCalledTimes(outcome.attempted ? 1 : 0);
+      expect(log.completeMetaAdsActionLog).toHaveBeenCalledTimes(1);
+      expect(log.completeMetaAdsActionLog).toHaveBeenCalledWith(expect.objectContaining({
+        id: "log-bid-1", status: outcome.ok ? "success" : outcome.ambiguous ? "silent_failure" : "failure",
+        payloadResponse: providerResponse,
+      }));
+      expect(settled.ok).toBe(false);
+      expect(settled.providerDispatchStarted).toBe(outcome.attempted);
+      expect(settled.settledStatus).toBe(outcome.attempted ? "reconcile" : "failed");
+      expect(settle).toHaveBeenCalledWith(expect.objectContaining({
+        status: outcome.attempted ? "reconcile" : "failed",
+      }));
+      expect(recordLedger).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+        activityType: outcome.attempted ? "automation_proposal_reconcile" : "automation_proposal_failed",
+        severity: "danger",
+      }));
+    });
+  }
 });

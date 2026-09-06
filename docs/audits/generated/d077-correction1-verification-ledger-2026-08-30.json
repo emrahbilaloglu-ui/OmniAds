@@ -1,9 +1,9 @@
 {
- "ledgerHash": "6591900cc3aa8a14e2d03c9a4b01e3e77e975d09868a60cc6c0b860bab4e70cf",
+ "ledgerHash": "9ecc0947e31548bb08835f3e138244b581c8c856b1ada6b83002708cbd3eabb2",
  "hashAlgorithm": "sha256",
  "hashBasis": "sha256 over UTF-8 bytes of JSON.stringify(artifact, null, 1) of the artifact WITHOUT its embedded hash fields (the artifact object before {<hashField>, hashAlgorithm, hashBasis} are prepended)",
  "contract": "adsecute.d077.correction2-verification-ledger.v2",
- "generatedAtUtc": "2026-09-06T17:22:06.160Z",
+ "generatedAtUtc": "2026-09-06T17:52:05.162Z",
  "runtimeVersions": {
   "node": "v24.4.1",
   "npm": "11.4.2",
@@ -171,13 +171,13 @@
  },
  "runtimeVersionsScope": {
   "kind": "historical",
-  "sourceLedgerHash": "0e0ed0713711183ce155b4371e68f88cebce18490ffb20c6117cf1b0d7ae3dc5",
-  "sourceGeneratedAtUtc": "2026-09-06T16:18:02.166Z",
+  "sourceLedgerHash": "6591900cc3aa8a14e2d03c9a4b01e3e77e975d09868a60cc6c0b860bab4e70cf",
+  "sourceGeneratedAtUtc": "2026-09-06T17:22:06.160Z",
   "note": "Frozen earlier audit runtime observations, preserved with their original timestamps and validated by the unchanged historical provenance contract."
  },
  "packagingRuntimeVersions": {
   "actor": "codex",
-  "observedAtUtc": "2026-09-06T17:22:05.550Z",
+  "observedAtUtc": "2026-09-06T17:52:04.398Z",
   "node": "v24.4.1",
   "npm": "11.4.2",
   "pnpm": "11.19.0",
@@ -203,7 +203,7 @@
      "stderr": "",
      "spawnErrorCode": null,
      "spawnErrorMessage": null,
-     "observedAtUtc": "2026-09-06T17:22:04.983Z"
+     "observedAtUtc": "2026-09-06T17:52:03.650Z"
     },
     "resolution": "resolved",
     "resolvedPath": "/Users/harmelek/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/pnpm",
@@ -219,12 +219,12 @@
      "stderr": "",
      "spawnErrorCode": null,
      "spawnErrorMessage": null,
-     "observedAtUtc": "2026-09-06T17:22:05.303Z"
+     "observedAtUtc": "2026-09-06T17:52:04.111Z"
     },
     "reportedVersion": "11.19.0",
     "resultClass": "version_reported",
     "observationKind": "present_tense",
-    "observedAtUtc": "2026-09-06T17:22:05.303Z",
+    "observedAtUtc": "2026-09-06T17:52:04.111Z",
     "observationTimeCertainty": "exact",
     "cacheSafeReadOnly": true
    },
@@ -246,7 +246,7 @@
      "stderr": "",
      "spawnErrorCode": null,
      "spawnErrorMessage": null,
-     "observedAtUtc": "2026-09-06T17:22:05.308Z"
+     "observedAtUtc": "2026-09-06T17:52:04.117Z"
     },
     "resolution": "resolved",
     "resolvedPath": "/usr/local/bin/corepack",
@@ -262,12 +262,12 @@
      "stderr": "",
      "spawnErrorCode": null,
      "spawnErrorMessage": null,
-     "observedAtUtc": "2026-09-06T17:22:05.348Z"
+     "observedAtUtc": "2026-09-06T17:52:04.163Z"
     },
     "reportedVersion": "0.34.2",
     "resultClass": "version_reported",
     "observationKind": "present_tense",
-    "observedAtUtc": "2026-09-06T17:22:05.348Z",
+    "observedAtUtc": "2026-09-06T17:52:04.163Z",
     "observationTimeCertainty": "exact",
     "cacheSafeReadOnly": true
    },
@@ -281,7 +281,7 @@
      "exists": true,
      "observationErrorCode": null,
      "observationErrorMessage": null,
-     "observedAtUtc": "2026-09-06T17:22:05.348Z"
+     "observedAtUtc": "2026-09-06T17:52:04.164Z"
     },
     "resolution": "resolved",
     "resolvedPath": "/Users/harmelek/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/pnpm",
@@ -297,12 +297,12 @@
      "stderr": "",
      "spawnErrorCode": null,
      "spawnErrorMessage": null,
-     "observedAtUtc": "2026-09-06T17:22:05.547Z"
+     "observedAtUtc": "2026-09-06T17:52:04.397Z"
     },
     "reportedVersion": "11.19.0",
     "resultClass": "version_reported",
     "observationKind": "present_tense",
-    "observedAtUtc": "2026-09-06T17:22:05.547Z",
+    "observedAtUtc": "2026-09-06T17:52:04.397Z",
     "observationTimeCertainty": "exact",
     "cacheSafeReadOnly": true
    },
@@ -380,9 +380,9 @@
   {
    "stage": "canonical.database-seams-whole-shell",
    "command": "bash scripts/verify-database-seams.sh",
-   "startUtc": "2026-09-06T17:07:22.760760Z",
-   "endUtc": "2026-09-06T17:16:28.156361Z",
-   "durationSeconds": 545.428,
+   "startUtc": "2026-09-06T17:40:10.334243Z",
+   "endUtc": "2026-09-06T17:49:11.970699Z",
+   "durationSeconds": 541.706,
    "exitCode": 0,
    "counts": {
     "notApplicable": true,
@@ -394,31 +394,31 @@
    },
    "teardown": {
     "supervisedProcessGroupAbsent": false,
-    "processGroupId": 30212,
-    "readAtUtc": "2026-09-06T17:16:28.395461Z",
+    "processGroupId": 57608,
+    "readAtUtc": "2026-09-06T17:49:12.206497Z",
     "leftoverBeforeCleanup": [
      {
-      "pid": 3544,
+      "pid": 32384,
       "command": "sleep 90"
      },
      {
-      "pid": 3570,
+      "pid": 32410,
       "command": "sleep 90"
      },
      {
-      "pid": 37427,
+      "pid": 65527,
       "command": "sleep 900"
      }
     ],
     "terminatedOwnedSleepPids": [
-     37427
+     65527
     ]
    },
-   "sourceCommit": "637c83ff5be52016b04a8ab20933a8c3c90c4a09",
+   "sourceCommit": "6127c568ea2d223bf25c10779a65951e6f6efdea",
    "logFile": {
-    "path": "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1707Z.log",
-    "sha256": "0616e22b408eb260767b3dff7a8aa6591021a54df78fdeeb48f4be9c3952c081",
-    "bytes": 661173
+    "path": "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1740Z.log",
+    "sha256": "108c819ee175c0ab3e148bfb4b7bb93f664b9eed407d6ed418caa2891e40c3d7",
+    "bytes": 661068
    },
    "tail": [
     "  retryMaxBackoffMs: 4000",
@@ -453,14 +453,14 @@
     "[verify-db-seams] PASS — 40 stages"
    ],
    "postRunCleanupReadback": {
-    "readAtUtc": "2026-09-06T17:16:50.479006+00:00",
-    "processGroupId": 30212,
+    "readAtUtc": "2026-09-06T17:49:46.791716+00:00",
+    "processGroupId": 57608,
     "terminatedOwnedSleeps": [],
     "remainingGroupMembers": [],
     "supervisedProcessGroupAbsent": true
    },
    "originalCapturePath": {
-    "path": "/tmp/adsecute-codex-release-20260906/d077-canonical-database-seams-whole-shell-2026-09-06T1707Z.log",
+    "path": "/tmp/adsecute-codex-release-20260906/d077-canonical-database-seams-whole-shell-2026-09-06T1740Z.log",
     "note": "capture provenance ONLY — the temporary supervisor output path for this authoritative run; validated byte-identical to the repository copy before it was frozen; generator/test reads use only the portable retained copy"
    },
    "wholeShellProof": {
@@ -636,8 +636,8 @@
      "title": "Release owner references are current (LAST — the tree is final here)"
     },
     "finalPassLine": "[verify-db-seams] PASS — 40 stages",
-    "logSha256": "0616e22b408eb260767b3dff7a8aa6591021a54df78fdeeb48f4be9c3952c081",
-    "logBytes": 661173,
+    "logSha256": "108c819ee175c0ab3e148bfb4b7bb93f664b9eed407d6ed418caa2891e40c3d7",
+    "logBytes": 661068,
     "releaseBoundary": {
      "stageNumber": 26,
      "stageTitle": "Ordinary deploy refuses a cutover-required release",
@@ -1215,6 +1215,605 @@
     "  }",
     "}"
    ]
+  },
+  {
+   "stage": "release-r9.typecheck",
+   "command": "npm run typecheck",
+   "environmentOverrides": {
+    "NODE_OPTIONS": "--max-old-space-size=4096"
+   },
+   "startUtc": "2026-09-06T17:42:29.407380+00:00",
+   "endUtc": "2026-09-06T17:42:35.348747+00:00",
+   "durationSeconds": 5.941,
+   "exitCode": 0,
+   "logFile": {
+    "path": "/tmp/adsecute-codex-release-20260906/r9-a605-typecheck.log",
+    "sha256": "8450795232d2ec742004345b1c022a982518fb3e9a4f9aa184ac0ec0bf189b6f",
+    "bytes": 44
+   },
+   "counts": {
+    "diagnostics": 0
+   },
+   "timeout": {
+    "configuredSeconds": 900,
+    "timedOut": false
+   },
+   "teardown": {
+    "processExited": true
+   },
+   "sourceCommit": "a605184ee4267ca9b5faa56702d77002263653e5",
+   "tail": [
+    "",
+    "> adsecute@0.1.0 typecheck",
+    "> tsc --noEmit",
+    ""
+   ]
+  },
+  {
+   "stage": "release-r9.eslint-r9",
+   "command": "npx eslint lib/meta/launch-intent-producer.test.ts lib/meta/launch-intent-producer.ts lib/notification-producer.ts lib/notification-store-fanout.test.ts scripts/audits/d080b-meta-budget-policy-simulation.test.ts scripts/ephemeral-postgres-decision-launch-chain-seam-child.ts lib/meta/launch-intent-producer-query-window.test.ts",
+   "environmentOverrides": {},
+   "startUtc": "2026-09-06T17:42:29.408092+00:00",
+   "endUtc": "2026-09-06T17:42:30.677531+00:00",
+   "durationSeconds": 1.269,
+   "exitCode": 0,
+   "logFile": {
+    "path": "/tmp/adsecute-codex-release-20260906/r9-a605-eslint-r9.log",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "bytes": 0
+   },
+   "counts": {
+    "files": 7,
+    "errors": 0,
+    "warnings": 0
+   },
+   "timeout": {
+    "configuredSeconds": 900,
+    "timedOut": false
+   },
+   "teardown": {
+    "processExited": true
+   },
+   "sourceCommit": "a605184ee4267ca9b5faa56702d77002263653e5",
+   "tail": []
+  },
+  {
+   "stage": "release-r9.workflow-semantics",
+   "command": "npm run check:workflows",
+   "environmentOverrides": {},
+   "startUtc": "2026-09-06T17:42:29.410082+00:00",
+   "endUtc": "2026-09-06T17:42:29.635576+00:00",
+   "durationSeconds": 0.226,
+   "exitCode": 0,
+   "logFile": {
+    "path": "/tmp/adsecute-codex-release-20260906/r9-a605-workflow-semantics.log",
+    "sha256": "56b4aecd103a95a878f5b2dcf9d749d89e5a86365e630c9c638b64c8cd10dcef",
+    "bytes": 1748
+   },
+   "counts": {
+    "workflows": 12
+   },
+   "timeout": {
+    "configuredSeconds": 900,
+    "timedOut": false
+   },
+   "teardown": {
+    "processExited": true
+   },
+   "sourceCommit": "a605184ee4267ca9b5faa56702d77002263653e5",
+   "tail": [
+    "  deploy-hetzner.yml",
+    "    jobs  : deploy",
+    "    needs : (none)",
+    "    needs \\ jobs : (empty)",
+    "  meta-canary-remediation.yml",
+    "    jobs  : remediate",
+    "    needs : (none)",
+    "    needs \\ jobs : (empty)",
+    "  meta-refresh-reschedule-progress.yml",
+    "    jobs  : progress",
+    "    needs : (none)",
+    "    needs \\ jobs : (empty)",
+    "  meta-watch-window.yml",
+    "    jobs  : watch-window",
+    "    needs : (none)",
+    "    needs \\ jobs : (empty)",
+    "  post-deploy-verify.yml",
+    "    jobs  : verify",
+    "    needs : (none)",
+    "    needs \\ jobs : (empty)",
+    "  promote-release-gate-mode.yml",
+    "    jobs  : promote",
+    "    needs : (none)",
+    "    needs \\ jobs : (empty)",
+    "  zero-base-production-rollout.yml",
+    "    jobs  : rollout",
+    "    needs : (none)",
+    "    needs \\ jobs : (empty)",
+    "[workflow-semantics] actionlint not on PATH; ran built-in checks only (install it for full analysis — deliberately not downloaded automatically)",
+    "[workflow-semantics] PASS — every needs reference resolves, no cycles, every step well-formed"
+   ]
+  },
+  {
+   "stage": "release-r9.meta-mounted-bodies",
+   "command": "npm run meta:verify-mounted-bodies",
+   "environmentOverrides": {},
+   "startUtc": "2026-09-06T17:42:29.635761+00:00",
+   "endUtc": "2026-09-06T17:42:30.441925+00:00",
+   "durationSeconds": 0.806,
+   "exitCode": 0,
+   "logFile": {
+    "path": "/tmp/adsecute-codex-release-20260906/r9-a605-meta-mounted-bodies.log",
+    "sha256": "c4b96f996f35cf8186d9eee616b52d33e9b3848f818fc00bb77d9fac5da46343",
+    "bytes": 178
+   },
+   "counts": {
+    "surfaces": 15
+   },
+   "timeout": {
+    "configuredSeconds": 900,
+    "timedOut": false
+   },
+   "teardown": {
+    "processExited": true
+   },
+   "sourceCommit": "a605184ee4267ca9b5faa56702d77002263653e5",
+   "tail": [
+    "",
+    "> adsecute@0.1.0 meta:verify-mounted-bodies",
+    "> node --import tsx scripts/meta/verify-mounted-bodies.ts",
+    "",
+    "PASS: every registry mountedBody is reachable from a route (15 surfaces)."
+   ]
+  },
+  {
+   "stage": "release-r9.release-authority-preflight",
+   "command": "npm run release:authority:preflight",
+   "environmentOverrides": {
+    "ZERO_BASE_UI_MODE": "off"
+   },
+   "startUtc": "2026-09-06T17:42:30.442055+00:00",
+   "endUtc": "2026-09-06T17:42:31.420838+00:00",
+   "durationSeconds": 0.979,
+   "exitCode": 0,
+   "logFile": {
+    "path": "/tmp/adsecute-codex-release-20260906/r9-a605-release-authority-preflight.log",
+    "sha256": "f106a0bf40b3ea6483c058be307539b62500747c1dd2467d7bfefd2a40cbe303",
+    "bytes": 22007
+   },
+   "counts": {
+    "blockers": 0
+   },
+   "timeout": {
+    "configuredSeconds": 900,
+    "timedOut": false
+   },
+   "teardown": {
+    "processExited": true
+   },
+   "sourceCommit": "a605184ee4267ca9b5faa56702d77002263653e5",
+   "tail": [
+    "    \"carryForward\": {",
+    "      \"summary\": \"No accepted carry-forward gaps remain.\",",
+    "      \"acceptanceGaps\": []",
+    "    },",
+    "    \"reviewOrder\": [",
+    "      \"Review release identity first: live SHA a605184ee4267ca9b5faa56702d77002263653e5 vs main 3f0bf857a9dde41bf2d7f461ef24b5f2ce26a651.\",",
+    "      \"Review the feature matrix next: runtime state, flag posture, and docs posture for each surface.\",",
+    "      \"Review docs/v3-01-release-authority.md before older Phase 02-06 docs when deciding what is truly live.\",",
+    "      \"Review legacy aliases after the main surfaces so redirects do not get mistaken for canonical entrypoints.\",",
+    "      \"Review unresolved drift items before treating the baseline as release-ready.\"",
+    "    ]",
+    "  },",
+    "  \"integrity\": {",
+    "    \"missingPaths\": [],",
+    "    \"missingDocs\": [],",
+    "    \"bannerFailures\": []",
+    "  },",
+    "  \"rolloutMode\": {",
+    "    \"ok\": true,",
+    "    \"detail\": \"ZERO_BASE_UI_MODE is set to a recognised mode.\"",
+    "  },",
+    "  \"summary\": {",
+    "    \"result\": \"pass\",",
+    "    \"blockers\": [],",
+    "    \"notes\": [",
+    "      \"Canonical release-authority doc literal comparison was skipped because the local release candidate differs from current remote main. Regenerate the doc on the exact-SHA main deploy candidate before shipping.\",",
+    "      \"Local release candidate differs from current remote main. This is expected on pull requests but must align before an exact-SHA production deploy.\"",
+    "    ]",
+    "  }",
+    "}"
+   ]
+  },
+  {
+   "stage": "release-r9.launch-date-window-focused",
+   "command": "npx vitest run lib/meta/launch-intent-producer.test.ts lib/meta/launch-intent-producer-query-window.test.ts lib/meta/launch-proposal-producer.test.ts lib/meta/launch-queue-arm.test.ts --reporter=json --outputFile=/tmp/adsecute-codex-release-20260906/launch-date-window-report.json",
+   "startUtc": "2026-09-06T17:39:14.497834+00:00",
+   "endUtc": "2026-09-06T17:39:16.014981+00:00",
+   "durationSeconds": 1.517,
+   "exitCode": 0,
+   "counts": {
+    "numTotalTests": 54,
+    "numPassedTests": 54,
+    "numFailedTests": 0,
+    "numPendingTests": 0
+   },
+   "timeout": {
+    "configuredSeconds": 120,
+    "timedOut": false
+   },
+   "teardown": {
+    "processExited": true
+   },
+   "logFile": {
+    "path": "/tmp/adsecute-codex-release-20260906/launch-date-window-tests.log",
+    "sha256": "334566cdf633e9e59c7af9a4a66e42dc00c3479a1977c4532593211babefe18c",
+    "bytes": 91
+   },
+   "tail": [
+    "JSON report written to /tmp/adsecute-codex-release-20260906/launch-date-window-report.json"
+   ],
+   "sourceContext": "Executed against the R9 working tree before commit; runtime changes subsequently committed as 6127c568e and the then-untracked query test as a605184ee. It is not claimed to have run against the earlier committed tree."
+  },
+  {
+   "command": "npx vitest run scripts/audits/d080b-meta-budget-policy-simulation.test.ts --reporter=default --reporter=json --outputFile.json=/tmp/adsecute-codex-release-20260906/d080b-local-replay-result.json",
+   "startUtc": "2026-09-06T17:37:10.407865+00:00",
+   "endUtc": "2026-09-06T17:40:07.674191+00:00",
+   "durationSeconds": 177.266,
+   "exitCode": 0,
+   "timeout": {
+    "configuredSeconds": null,
+    "timedOut": false,
+    "configuredSecondsNote": "Exact external bound is not included in this retained supervisor record."
+   },
+   "teardown": {
+    "processExited": true
+   },
+   "counts": {
+    "numTotalTests": 116,
+    "numPassedTests": 116,
+    "numFailedTests": 0,
+    "numPendingTests": 0,
+    "numTodoTests": 0
+   },
+   "stage": "release-r9.d080b-replay",
+   "logFile": {
+    "path": "/tmp/adsecute-codex-release-20260906/d080b-local-replay.log",
+    "sha256": "277e4b5e734252a3658d096c5cec1d2f68f57355b7ee0eb6c972f80ac4a8dc2c",
+    "bytes": 2682
+   },
+   "tail": [
+    "     ✓ rejects a missing required field on a read  4421ms",
+    "     ✓ rejects an unregistered new section  4339ms",
+    "     ✓ rejects a duplicated ledger invocation  4340ms",
+    "     ✓ rejects an unexpected extra invocation  4352ms",
+    "     ✓ rejects a forged ledger grain  4303ms",
+    "     ✓ rejects a forged ledger identity  4336ms",
+    "     ✓ rejects a non-digest statement hash  4333ms",
+    "     ✓ rejects a forged read time bound  4383ms",
+    "     ✓ rejects an impossible read date  4608ms",
+    "     ✓ rejects an invented readFailures row  4649ms",
+    "     ✓ rejects a forged proposal sample  4819ms",
+    "     ✓ rejects an asserted causal lift  4524ms",
+    "     ✓ rejects a forged analysis hash  4306ms",
+    "     ✓ rejects a dropped pinned binding  4290ms",
+    "     ✓ rejects a flipped selection flag  4315ms",
+    "     ✓ rejects merged accounts inside a business  4320ms",
+    "     ✓ rejects a mutated snapshot row  4376ms",
+    "     ✓ rejects a coordinated snapshot plus derived lie  4327ms",
+    "     ✓ rejects an altered leakage check  4350ms",
+    "     ✓ rejects an altered stress fixture  4317ms",
+    "     ✓ rejects a forged breakdown  4290ms",
+    "     ✓ rejects a forged exposure figure  4330ms",
+    "     ✓ publishes what each section handler actually checked  4150ms",
+    "",
+    " Test Files  1 passed (1)",
+    "      Tests  116 passed (116)",
+    "   Start at  20:37:10",
+    "   Duration  176.83s (transform 132ms, setup 65ms, import 173ms, tests 176.46s, environment 0ms)",
+    "",
+    "JSON report written to /tmp/adsecute-codex-release-20260906/d080b-local-replay-result.json"
+   ],
+   "sourceContext": "Measured R9 test working tree, subsequently committed as 6127c568e; count/command/assertions unchanged by commit."
+  },
+  {
+   "command": "npm run creative:v2:safety",
+   "startUtc": "2026-09-06T17:41:27.824583+00:00",
+   "endUtc": "2026-09-06T17:41:30.659823+00:00",
+   "durationSeconds": 2.835,
+   "exitCode": 0,
+   "timeout": {
+    "configuredSeconds": null,
+    "timedOut": false,
+    "configuredSecondsNote": "Exact external bound is not included in this retained supervisor record."
+   },
+   "teardown": {
+    "processExited": true
+   },
+   "sourceFreezeSha": "6127c568ea2d223bf25c10779a65951e6f6efdea",
+   "counts": {
+    "archiveImportGuardTests": 1,
+    "goldRows": 78,
+    "macroF1": 97.96,
+    "severeMismatches": 0,
+    "highMismatches": 0,
+    "mediumMismatches": 2,
+    "allSixQueueApplySafetyCounts": 0
+   },
+   "stage": "release-r9.creative-v2-safety",
+   "logFile": {
+    "path": "/tmp/adsecute-codex-release-20260906/r9-creative-v2-safety.log",
+    "sha256": "a1b62a09cad43a8503bb8cb20aa3a3d09fec1ff6fb06c4f25888aec7260ce173",
+    "bytes": 781
+   },
+   "tail": [
+    "",
+    " RUN  v4.1.5 /Users/harmelek/Adsecute",
+    "",
+    "",
+    " Test Files  1 passed (1)",
+    "      Tests  1 passed (1)",
+    "   Start at  20:41:29",
+    "   Duration  992ms (transform 27ms, setup 149ms, import 17ms, tests 520ms, environment 0ms)",
+    "",
+    "{",
+    "  \"creativeV2ArchiveSafetyGate\": \"passed\",",
+    "  \"artifactVersion\": \"gold-v0.1\",",
+    "  \"rowCount\": 78,",
+    "  \"macroF1\": 97.96,",
+    "  \"mismatchCounts\": {",
+    "    \"severe\": 0,",
+    "    \"high\": 0,",
+    "    \"medium\": 2,",
+    "    \"low\": 0,",
+    "    \"none\": 76",
+    "  },",
+    "  \"queueApplySafety\": {",
+    "    \"queueEligibleCount\": 0,",
+    "    \"applyEligibleCount\": 0,",
+    "    \"directScaleCount\": 0,",
+    "    \"inactiveDirectScaleCount\": 0,",
+    "    \"watchPrimaryCount\": 0,",
+    "    \"scaleReviewPrimaryCount\": 0",
+    "  }",
+    "}"
+   ]
+  },
+  {
+   "command": "npx vitest run scripts/audits/d084-commercial-target-evidence.test.ts -t 'negative control: .*re-sealing WITHOUT mutating still verifies|positive control: an untouched artifact verifies|rejects the FULL re-sealed attack' --reporter=default --reporter=json --outputFile.json=/tmp/adsecute-codex-release-20260906/d084-focused-controls-result.json",
+   "startUtc": "2026-09-06T17:47:43.725304+00:00",
+   "endUtc": "2026-09-06T17:48:50.582073+00:00",
+   "durationSeconds": 66.857,
+   "exitCode": 0,
+   "timeout": {
+    "configuredSeconds": null,
+    "timedOut": false,
+    "configuredSecondsNote": "Exact external bound is not included in this retained supervisor record."
+   },
+   "teardown": {
+    "processExited": true
+   },
+   "scope": "4 relevant controls; unselected tests not rerun, not full suite proof",
+   "counts": {
+    "numTotalTests": 144,
+    "numPassedTests": 4,
+    "numFailedTests": 0,
+    "numPendingTests": 140
+   },
+   "passedControls": [
+    {
+     "fullName": "a re-sealed forgery cannot pass verification positive control: an untouched artifact verifies",
+     "status": "passed",
+     "duration": 16031.418749999999
+    },
+    {
+     "fullName": "a re-sealed forgery cannot pass verification negative control: 'full' re-sealing WITHOUT mutating still verifies",
+     "status": "passed",
+     "duration": 20392.8625
+    },
+    {
+     "fullName": "a re-sealed forgery cannot pass verification negative control: 'shallow' re-sealing WITHOUT mutating still verifies",
+     "status": "passed",
+     "duration": 16272.762667000003
+    },
+    {
+     "fullName": "a re-sealed forgery cannot pass verification rejects the FULL re-sealed attack the rejection reproduced against r2",
+     "status": "passed",
+     "duration": 12734.622291999993
+    }
+   ],
+   "stage": "release-r9.d084-targeted-controls",
+   "logFile": {
+    "path": "/tmp/adsecute-codex-release-20260906/d084-focused-controls.log",
+    "sha256": "7d14f86bb1c8b41d9930b0ef16e986ee6c71184eff19f83c806b9ce4ad15ee5d",
+    "bytes": 745
+   },
+   "tail": [
+    "",
+    " RUN  v4.1.5 /Users/harmelek/Adsecute",
+    "",
+    " ✓ scripts/audits/d084-commercial-target-evidence.test.ts (144 tests | 140 skipped) 65433ms",
+    "     ✓ positive control: an untouched artifact verifies  16031ms",
+    "     ✓ negative control: 'full' re-sealing WITHOUT mutating still verifies  20393ms",
+    "     ✓ negative control: 'shallow' re-sealing WITHOUT mutating still verifies  16273ms",
+    "     ✓ rejects the FULL re-sealed attack the rejection reproduced against r2  12735ms",
+    "",
+    " Test Files  1 passed (1)",
+    "      Tests  4 passed | 140 skipped (144)",
+    "   Start at  20:47:44",
+    "   Duration  66.16s (transform 201ms, setup 76ms, import 461ms, tests 65.43s, environment 0ms)",
+    "",
+    "JSON report written to /tmp/adsecute-codex-release-20260906/d084-focused-controls-result.json"
+   ]
+  },
+  {
+   "stage": "historical.ci-772376ed.shard1-failure",
+   "command": "GitHub Actions CI test shard1: run 34048550680/job 101527883175",
+   "startUtc": null,
+   "endUtc": null,
+   "durationSeconds": null,
+   "exitCode": 1,
+   "counts": {
+    "notApplicable": true,
+    "reason": "Retained failure excerpt identifies one test timeout; no aggregate count is invented."
+   },
+   "timeout": {
+    "configuredSeconds": null,
+    "timedOut": null,
+    "note": "The positive-control case exceeded 15000ms; the whole-job timing/budget was not retained in this diagnosis."
+   },
+   "teardown": {
+    "notApplicable": true,
+    "reason": "Remote GitHub Actions runner; no local process group."
+   },
+   "timingCertainty": "unknown: not recorded in retained diagnosis",
+   "failureEvidence": {
+    "runId": 34048550680,
+    "jobId": 101527883175,
+    "head": "772376ed",
+    "failure": "D080B full-package positive control exceeded inherited 15000ms timeout at15048ms.",
+    "measuredEquivalentAttackMs": [
+     13531,
+     15052,
+     15490,
+     15734,
+     15199,
+     15366,
+     15129,
+     15049
+    ],
+    "cause": "Prior timeout repair covered only 15 parametrized attacks; positive control, remaining attacks and audit control replayed the same full package under15s.",
+    "fix": "Reuse existing90s budget at C1 describe scope. Assertions, test count, provider/verifier code and global timeout unchanged."
+   },
+   "excerpt": {
+    "sha256": "737ee74e4632e75a011e306027cbd57dc55782018157d71dc285f2b6805bfec3",
+    "bytes": 2143,
+    "content": "2026-09-06T17:32:52.5515654Z      × full-package positive control: the shipped real snapshot verifies 15048ms\n2026-09-06T17:32:52.5516470Z      ✓ rejects lie 1 — forged entityUniverse entity id  13531ms\n2026-09-06T17:32:52.5517149Z      ✓ rejects lie 2 — denominator 247050 to 1  15052ms\n2026-09-06T17:32:52.5517760Z      ✓ rejects lie 3 — removed origin  15490ms\n2026-09-06T17:32:52.5518384Z      ✓ rejects lie 4 — forged funnel survivor  15734ms\n2026-09-06T17:32:52.5519067Z      ✓ rejects lie 5 — erased performance reads  15199ms\n2026-09-06T17:32:52.5519751Z      ✓ rejects lie 6 — cross-paired account on a read  15366ms\n2026-09-06T17:32:52.5520429Z      ✓ rejects lie 7 — removed ledger invocation  15129ms\n2026-09-06T17:32:52.5521069Z      ✓ rejects lie 8 — ledger row count 999999  15049ms\n2026-09-06T17:32:52.5521905Z      ✓ rejects lie 9 — replaced ledger source-row hash  8829ms\n2026-09-06T17:32:52.5523202Z      ✓ rejects lie 10 — replaced queryContractSha256  8829ms\n2026-09-06T17:32:52.5524750Z      ✓ rejects lie 11 — replaced the pinned D080A hash  8769ms\n2026-09-06T17:32:52.5525519Z      ✓ rejects lie 12 — cutoff moved to 2099  8708ms\n2026-09-06T17:32:52.5526249Z      ✓ rejects lie 13 — flipped transition plus decremented total  8813ms\n2026-09-06T17:32:52.5527106Z      ✓ rejects lie 14 — erased conditional waivers  8784ms\n2026-09-06T17:32:52.5528299Z      ✓ rejects lie 15 — erased leakage checks  8926ms\n2026-09-06T17:32:52.5677658Z  FAIL  scripts/audits/d080b-meta-budget-policy-simulation.test.ts > C1 — the fifteen independently authored lies that v1 accepted > full-package positive control: the shipped real snapshot verifies\n2026-09-06T17:32:52.5685363Z Error: Test timed out in 15000ms.\n2026-09-06T17:32:52.5920245Z  Test Files  1 failed | 319 passed | 3 skipped (323)\n2026-09-06T17:32:52.5945693Z     347|   it(\"full-package positive control: the shipped real snapshot verifie…\n2026-09-06T17:32:52.5955667Z       Tests  1 failed | 4380 passed | 438 skipped | 43 todo (4862)\n2026-09-06T17:32:52.6050655Z ##[error]Error: Test timed out in 15000ms.\n"
+   }
+  },
+  {
+   "stage": "historical.ci-772376ed.shard3-failure",
+   "command": "GitHub Actions CI test shard3: run34048550680/job 101527883395",
+   "startUtc": null,
+   "endUtc": null,
+   "durationSeconds": null,
+   "exitCode": 1,
+   "counts": {
+    "failedTests": 1,
+    "passedTests": 4534,
+    "skippedTests": 52
+   },
+   "timeout": {
+    "configuredSeconds": null,
+    "timedOut": null,
+    "note": "One combined full+shallow control exceeded 90000ms; whole-job timing/budget was not retained in this diagnosis."
+   },
+   "teardown": {
+    "notApplicable": true,
+    "reason": "Remote GitHub Actions runner; no local process group."
+   },
+   "timingCertainty": "unknown: not recorded in retained diagnosis",
+   "failureEvidence": {
+    "runId": 34048550680,
+    "jobId": 101527883395,
+    "failedTests": 1,
+    "passedTests": 4534,
+    "skippedTests": 52,
+    "failure": "D084 combined full+shallow reseal no-mutation controls took94130ms under a90000ms budget.",
+    "measuredSingleVerifyMs": [
+     46133,
+     46744
+    ],
+    "fix": "Split two independent no-mutation assertions into named full and shallow controls; keep existing90000ms bound for each. No verifier/source/assertion changes.",
+    "validationScope": "Two split controls plus untouched control and full-resealed-forgery refusal; not full D084 suite rerun."
+   },
+   "excerpt": {
+    "sha256": "877ca25009f2e677145cd7dc9867898d093d3c39049fd885be96e27a59a498ee",
+    "bytes": 991,
+    "content": "2026-09-06T17:45:36.5817389Z      ✓ verifies against the pinned sources on disk  46744ms\n2026-09-06T17:45:36.5818786Z      ✓ positive control: an untouched artifact verifies  46133ms\n2026-09-06T17:45:36.5820463Z      × negative control: re-sealing WITHOUT mutating still verifies 94130ms\n2026-09-06T17:45:36.5896669Z ⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯\n2026-09-06T17:45:36.5899036Z  FAIL  scripts/audits/d084-commercial-target-evidence.test.ts > a re-sealed forgery cannot pass verification > negative control: re-sealing WITHOUT mutating still verifies\n2026-09-06T17:45:36.5900805Z Error: Test timed out in 90000ms.\n2026-09-06T17:45:36.6190014Z     1499|     \"negative control: re-sealing WITHOUT mutating still verifies\",\n2026-09-06T17:45:36.6213338Z  Test Files  1 failed | 318 passed | 3 skipped (322)\n2026-09-06T17:45:36.6251534Z       Tests  1 failed | 4534 passed | 52 skipped (4587)\n2026-09-06T17:45:36.6353705Z ##[error]Error: Test timed out in 90000ms.\n"
+   }
+  },
+  {
+   "stage": "observed.release-r9.notification-focused-63",
+   "command": "DATABASE_URL=postgresql://unused@127.0.0.1:1/unused npx vitest run lib/notification-producer.test.ts lib/notification-producer-account-scope.test.ts lib/notification-producer-failure-containment.test.ts lib/notification-store-fanout.test.ts lib/notification-contract.test.ts lib/notification-lifecycle.test.ts lib/notification-read-model.test.ts --reporter=dot",
+   "startUtc": null,
+   "endUtc": null,
+   "durationSeconds": null,
+   "exitCode": 0,
+   "counts": {
+    "testFilesPassed": 7,
+    "testsPassed": 63,
+    "testsFailed": 0
+   },
+   "timeout": {
+    "configuredSeconds": null,
+    "timedOut": false,
+    "note": "No command-level timeout configuration was captured in the observed tool record."
+   },
+   "teardown": {
+    "processExited": true,
+    "note": "Exit0 returned by the tool; separate listener/process-group readback was not captured."
+   },
+   "evidenceKind": "reconstructed_observed_tool_return",
+   "provenance": "Reconstructed from observed functions.exec/exec_command tool return records in the release_live_baseline task; this is not a raw shell log and no test was rerun to create it.",
+   "timingLimit": "Exact UTC command start/end were not captured. The Vitest times are the strings printed by the runner and the tool elapsed values are the returned wall_time_seconds; do not invent or backfill execution timestamps from them.",
+   "observedToolRecord": {
+    "id": "notification-focused-63",
+    "command": "DATABASE_URL=postgresql://unused@127.0.0.1:1/unused npx vitest run lib/notification-producer.test.ts lib/notification-producer-account-scope.test.ts lib/notification-producer-failure-containment.test.ts lib/notification-store-fanout.test.ts lib/notification-contract.test.ts lib/notification-lifecycle.test.ts lib/notification-read-model.test.ts --reporter=dot",
+    "exitCode": 0,
+    "toolChunkId": "cfcf99",
+    "toolWallTimeSeconds": 0.659622,
+    "utcStart": null,
+    "utcEnd": null,
+    "vitestPrintedStartTime": "20:37:14",
+    "vitestReportedDurationMs": 377,
+    "testFilesPassed": 7,
+    "testsPassed": 63,
+    "testsFailed": 0,
+    "exactSummaryLines": " Test Files  7 passed (7)\n      Tests  63 passed (63)\n   Start at  20:37:14\n   Duration  377ms (transform 291ms, setup 827ms, import 365ms, tests 50ms, environment 0ms)",
+    "outputNote": "Expected record_failed warnings were printed by failure-containment tests and the dedupe-lookup recovery test."
+   }
+  },
+  {
+   "stage": "observed.release-r9.notification-fanout-final-10",
+   "command": "DATABASE_URL=postgresql://unused@127.0.0.1:1/unused npx vitest run lib/notification-store-fanout.test.ts --reporter=dot",
+   "startUtc": null,
+   "endUtc": null,
+   "durationSeconds": null,
+   "exitCode": 0,
+   "counts": {
+    "testFilesPassed": 1,
+    "testsPassed": 10,
+    "testsFailed": 0
+   },
+   "timeout": {
+    "configuredSeconds": null,
+    "timedOut": false,
+    "note": "No command-level timeout configuration was captured in the observed tool record."
+   },
+   "teardown": {
+    "processExited": true,
+    "note": "Exit0 returned by the tool; separate listener/process-group readback was not captured."
+   },
+   "evidenceKind": "reconstructed_observed_tool_return",
+   "provenance": "Reconstructed from observed functions.exec/exec_command tool return records in the release_live_baseline task; this is not a raw shell log and no test was rerun to create it.",
+   "timingLimit": "Exact UTC command start/end were not captured. The Vitest times are the strings printed by the runner and the tool elapsed values are the returned wall_time_seconds; do not invent or backfill execution timestamps from them.",
+   "observedToolRecord": {
+    "id": "notification-fanout-final-10",
+    "command": "DATABASE_URL=postgresql://unused@127.0.0.1:1/unused npx vitest run lib/notification-store-fanout.test.ts --reporter=dot",
+    "exitCode": 0,
+    "toolChunkId": "9143f8",
+    "toolWallTimeSeconds": 0.670279459,
+    "utcStart": null,
+    "utcEnd": null,
+    "vitestPrintedStartTime": "20:37:58",
+    "vitestReportedDurationMs": 341,
+    "testFilesPassed": 1,
+    "testsPassed": 10,
+    "testsFailed": 0,
+    "exactSummaryLines": " Test Files  1 passed (1)\n      Tests  10 passed (10)\n   Start at  20:37:58\n   Duration  341ms (transform 43ms, setup 124ms, import 44ms, tests 8ms, environment 0ms)",
+    "outputNote": "Expected record_failed warning for dedupe lookup timed out was printed."
+   }
   }
  ],
  "historicalFailFirstEvidence": {
@@ -2023,29 +2622,29 @@
  "teardownReadback": {
   "canonicalSupervisor": {
    "supervisedProcessGroupAbsent": false,
-   "processGroupId": 30212,
-   "readAtUtc": "2026-09-06T17:16:28.395461Z",
+   "processGroupId": 57608,
+   "readAtUtc": "2026-09-06T17:49:12.206497Z",
    "leftoverBeforeCleanup": [
     {
-     "pid": 3544,
+     "pid": 32384,
      "command": "sleep 90"
     },
     {
-     "pid": 3570,
+     "pid": 32410,
      "command": "sleep 90"
     },
     {
-     "pid": 37427,
+     "pid": 65527,
      "command": "sleep 900"
     }
    ],
    "terminatedOwnedSleepPids": [
-    37427
+    65527
    ]
   },
   "canonicalPostRunCleanupReadback": {
-   "readAtUtc": "2026-09-06T17:16:50.479006+00:00",
-   "processGroupId": 30212,
+   "readAtUtc": "2026-09-06T17:49:46.791716+00:00",
+   "processGroupId": 57608,
    "terminatedOwnedSleeps": [],
    "remainingGroupMembers": [],
    "supervisedProcessGroupAbsent": true

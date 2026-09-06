@@ -21,7 +21,53 @@ self-hash cycle.
 | divergence | 44 commits ahead, **0 behind** |
 | release diff | 281 files, +68,404 / −3,603 |
 
-## Codex takeover checkpoint — R8 source freeze
+## Current checkpoint — R9 source and validation
+
+Runtime and seam source is frozen at `6127c568ea2d223bf25c10779a65951e6f6efdea`. Final test freeze
+`4197b6810453c3017d94659b07c4d635c9231c13` additionally pins the six-case query-window test that was
+already present and executed in the 54-case focused suite, and separates two
+independent D084 controls. The two later test-only files are not executed by the
+canonical shell and change no runtime/seam bytes. This checkpoint includes all
+earlier release fixes.
+
+R9 rejects launch decisions later than the requested snapshot date in both the
+SQL read and producer; strict calendar parsing also rejects impossible dates.
+Same-day through 14-day-old evidence remains eligible, and older evidence keeps
+its named refusal. Notification recipient-read failures now propagate before
+event/dedupe creation, so a later healthy read can still deliver the event.
+Business automation and provider advertising state remain unchanged.
+
+The prior candidate's CI run 34048550680, job 101527883175 failed because a D080B
+full-package positive control exceeded its inherited 15-second timeout. The
+existing 90-second full-package budget now covers the whole C1 control group,
+including positive and audit controls; no assertion, test count or global test
+budget was weakened. The local D080B replay passed 116/116 in 177.266 seconds.
+A second prior-candidate failure, job 101527883395, combined full and shallow
+D084 no-mutation checks in one case that took 94130ms under 90000ms. Those
+independent controls now run as two named cases with the same 90000ms bound each.
+The untouched positive control, both split controls and full-forgery refusal
+passed 4/4 in 66.857 seconds. The 140 unselected tests were not rerun locally; this
+is targeted control proof, not a full D084-suite claim.
+Launch projection/query tests passed 54/54 before their changes were committed.
+Notification checks reported 63/63 and the final fanout file 10/10; those observed
+tool records preserve null exact UTC timing rather than inventing a timed run.
+Five recorded checks passed on test freeze `a605184ee4267ca9b5faa56702d77002263653e5`:
+TypeScript, ESLint on its seven R9 files, workflow semantics, Meta mounted bodies
+and release-authority preflight. Their recorded source identity is preserved;
+final packaging lint and typecheck are performed separately. The
+creative-v2 safety run also passed with 78 gold rows and no severe/high mismatch.
+Their true commands, timings, source scope and results are recorded separately
+in the ledger; unavailable historical CI job timing is explicitly unknown.
+
+The 17:40Z whole-shell run passed all 40 ordered stages, exit 0, in 541.706
+seconds on its recorded runtime/seam source freeze. The original supervisor still observed owned process residue; a separate readback at 2026-09-06T17:49:46.791716+00:00 proved that same process group absent. Both observations remain distinct in the ledger.
+Earlier successful captures and the failed 16:53Z attempt keep their own facts.
+Current runtime probes remain separate from the unchanged historical Claude
+provenance contract. Final artifact/owner checks follow generation; final-head
+CI and Codex review are still required before ordinary merge, image publication
+and deployment. This checkpoint is not a deployment claim.
+
+## Prior Codex takeover checkpoint — R8 (historical)
 
 Runtime and regression-test source is frozen at `670bd9d20f282e86a25f9e969a5e088653e79964`;
 final source freeze `637c83ff5be52016b04a8ab20933a8c3c90c4a09` adds only the cutover-harness
@@ -33,7 +79,7 @@ the normalized provider account. Missing brief account scope remains
 unavailable; business-wide notification reads are labelled with null account
 scope. No business automation setting or provider advertising state changed.
 
-The canonical shell above ran once on this source freeze: 40 ordered
+The 17:07Z canonical shell ran once on the R8 source freeze: 40 ordered
 stages, final PASS, exit 0, 545.428 seconds. At completion the supervisor
 reported two owned sleep-90 processes and one sleep-900 process; it terminated
 the latter and still observed the group present. A separate 17:16:50Z readback
@@ -214,18 +260,18 @@ The sixth repin is different in kind from the first five, and the difference is
 the point. Those replaced a PASSING log whose child programs had changed. This
 one replaces a tree that FAILED the shell — see the round-4 section below.
 
-The canonical stage is the 17:07Z run on source freeze
-`637c83ff5be52016b04a8ab20933a8c3c90c4a09`, retained at
-`docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1707Z.log`:
+The canonical stage is the 17:40Z run on runtime/seam source freeze
+`6127c568ea2d223bf25c10779a65951e6f6efdea`, retained at
+`docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1740Z.log`:
 
 | | |
 |---|---|
-| Start / end (UTC) | 2026-09-06T17:07:22.760760Z → 2026-09-06T17:16:28.156361Z |
-| Duration | 545.428 s |
+| Start / end (UTC) | 2026-09-06T17:40:10.334243Z → 2026-09-06T17:49:11.970699Z |
+| Duration | 541.706 s |
 | Exit code | 0 |
 | Stage headers | 40 |
 | Final line | `[verify-db-seams] PASS — 40 stages` |
-| Bytes | 661,173 |
+| Bytes | 661,068 |
 
 The three registered seam children report their counts inside it, each with
 `skipped=0`: `direct Launchpad create route approval-standing` 7/7, `Meta History
@@ -233,11 +279,11 @@ bid verb title` 2/2, and the newly registered `Meta History bid write journal
 admission` 6/6 — the last being the direct evidence that five previously dormant
 database assertions now actually execute.
 
-Fourteen raw captures are retained without editing their bytes: 2026-08-30
+Fifteen raw captures are retained without editing their bytes: 2026-08-30
 (38-stage) and 2026-09-03 (40-stage) as earlier release evidence; 2026-09-06
 07:59Z, 10:30Z, 11:18Z, 11:56Z, 12:34Z, 13:17Z, 13:56Z, 14:43Z, 15:26Z,
-16:07Z, the failed 16:53Z attempt, and 17:07Z. The first ten same-day
-passing captures are superseded for the current tree; 17:07Z is the
+16:07Z, the failed 16:53Z attempt, 17:07Z and 17:40Z. The first eleven same-day
+passing captures are superseded for the current tree; 17:40Z is the
 current canonical capture. The 16:53Z attempt stopped at stage 15 with exit 1
 and is not acceptance evidence. Each capture describes its actual execution.
 

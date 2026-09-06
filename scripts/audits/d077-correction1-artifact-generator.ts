@@ -99,16 +99,17 @@ import { execFileSync, spawnSync } from "node:child_process";
   validator, the intent store, the unattended pre-filter and the activation
   producer.
 
-  The current capture is the 17:07Z Codex-supervised run on source freeze
-  637c83ff5be52016b04a8ab20933a8c3c90c4a09. R8 changed the activation
-  unresolved-journal lookup and the account-scoped brief/notification reads.
-  The prior 16:53Z run failed a C4 setup prerequisite; the current harness
-  stops at and reports that prerequisite failure without retrying it.
-  This run reports 40 ordered headers, `PASS — 40 stages`, exit 0, 545.428 s.
-  Earlier captures remain evidence of their own source trees.
+  The current capture is the 17:40Z Codex-supervised run on runtime/seam
+  source freeze 6127c568ea2d223bf25c10779a65951e6f6efdea. R9 excludes future
+  launch decisions, preserves notification retries on recipient-read failure,
+  and applies the existing replay budget to every full-package D080B control.
+  This run reports 40 ordered headers, `PASS — 40 stages`, exit 0, 541.706 s.
+  Later test-only commits pin the query-window regression test already
+  present during this run and split independent D084 controls within their
+  existing per-case budget; neither file is executed by this canonical shell. Earlier captures preserve their own execution facts.
 */
 const PORTABLE_SHELL_LOG_PATH =
-  "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1707Z.log";
+  "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1740Z.log";
 
 /*
   The branch this candidate actually lives on, read from git rather than typed.

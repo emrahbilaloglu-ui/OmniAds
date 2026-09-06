@@ -1696,8 +1696,8 @@ export async function GET(request: NextRequest) {
         return { eligibility: null, readFailed: false, measurement };
       }
       /*
-        One instance, so the pack that decides whether the store is consulted
-        is the same pack the profile then resolves against.
+        Read the target pack once and pin it on this request-local source, so
+        the store-evidence gate and profile resolver use the same input.
 
         The wrapper is built on `readProviderAccountId` — the parameter the
         measured readers are to be called with — and not on the population's own
@@ -1715,6 +1715,9 @@ export async function GET(request: NextRequest) {
       const targetPack = await dataSource
         .getBusinessTargetPack({ businessId, asOf: decisionAsOfDate })
         .catch(() => null);
+      // A second read could mix a changed target pack with the store evidence
+      // selected for this pack. Preserve null on failure or absence too.
+      dataSource.getBusinessTargetPack = async () => targetPack;
       const profile = await resolveAccountDecisionProfile({
         businessId,
         asOf: decisionAsOfDate,

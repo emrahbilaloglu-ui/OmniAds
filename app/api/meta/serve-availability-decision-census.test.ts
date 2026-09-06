@@ -29,6 +29,8 @@ import {
   serverOperatorApplyForRec,
 } from "@/lib/meta/rec-presentation";
 import type { MetaRecommendation } from "@/lib/meta/recommendations";
+import type { BusinessTargetPack } from "@/lib/creative-decision-engine/data-source";
+import { makeAnchorFlags, makeAnchorTargetPack } from "@/lib/creative-decision-engine/__tests__/anchor-profile-fixture";
 
 const accessMock = vi.hoisted(() => ({ requireBusinessAccess: vi.fn() }));
 const reviewerMock = vi.hoisted(() => ({ isReviewerEmail: vi.fn() }));
@@ -151,7 +153,16 @@ vi.mock("@/lib/creative-decision-engine/data-source", async (importOriginal) => 
   const actual = await importOriginal<
     typeof import("@/lib/creative-decision-engine/data-source")
   >();
-  class StubWarehouseDataSource {
+  const { AnchorProfileDataSource } = await import("@/lib/creative-decision-engine/__tests__/anchor-profile-fixture");
+  const { makeAccountCalibration } = await import("@/lib/creative-decision-engine/__tests__/helpers");
+  class StubWarehouseDataSource extends AnchorProfileDataSource {
+    constructor() {
+      super(null, makeAccountCalibration({
+        metaAttributedAovMean90d: null, metaAttributedAovPurchaseCount90d: 0,
+        metaAttributedRevenue90d: 0, metaAovQuality: "unavailable",
+        accountCpaP50: null, accountCpaSampleCount: 0,
+      }));
+    }
     getBusinessTargetPack = targetPackMock.getBusinessTargetPack;
   }
   return { ...actual, WarehouseDataSource: StubWarehouseDataSource };
@@ -522,8 +533,7 @@ describe("served action census", () => {
 });
 
 describe("serve-time commercial anchor inputs", () => {
-  it("hands the account decision profile the store's own average order value", async () => {
-    const observed = {
+  const observed = {
       contract: "meta.observed-shopify-aov.v1" as const,
       status: "observed" as const,
       source: "shopify_revenue_ledger" as const,
@@ -538,7 +548,8 @@ describe("serve-time commercial anchor inputs", () => {
       aovMinor: 5_800,
       observedAt: "2026-09-04T00:00:00.000Z",
       knowledgeAsOf: "2026-09-04T12:00:00.000Z",
-    };
+  };
+  it("hands the account decision profile the store's own average order value", async () => {
     shopifyAovMock.resolveObservedShopifyAov.mockResolvedValue(observed);
     stubUpstreams(metaLanePayload({ actionNow: [], watching: [], healthy: [], nonSales: [], archive: [], counts: { actionNow: 0, watching: 0, healthy: 0, nonSales: 0, archive: 0 } }));
 
@@ -575,5 +586,82 @@ describe("serve-time commercial anchor inputs", () => {
     expect(anchorMock.resolveAccountDecisionProfile).toHaveBeenCalledWith(
       expect.objectContaining({ observedShopifyAov: null }),
     );
+  });
+
+  async function useRealProfile() {
+    const actual = await vi.importActual<typeof import("@/lib/creative-decision-engine/account-decision-profile")>(
+      "@/lib/creative-decision-engine/account-decision-profile",
+    );
+    anchorMock.resolveAccountDecisionProfile.mockImplementation(
+      (input: Parameters<typeof actual.resolveAccountDecisionProfile>[0]) =>
+        actual.resolveAccountDecisionProfile({ ...input, flags: makeAnchorFlags() }),
+    );
+    shopifyAovMock.resolveObservedShopifyAov.mockResolvedValue(observed);
+    stubUpstreams(metaLanePayload({ actionNow: [], watching: [], healthy: [], nonSales: [], archive: [], counts: { actionNow: 0, watching: 0, healthy: 0, nonSales: 0, archive: 0 } }));
+  }
+
+  it.each([
+    { name: "target CPA", pack: { targetCpa: 24 }, source: "target_cpa", unit: 24 },
+    { name: "operator AOV", pack: { operatorAovAssumption: 44 }, source: "operator_aov", unit: 20 },
+  ])("keeps the selected $name when it is removed before a hypothetical second read", async ({ pack, source, unit }) => {
+    await useRealProfile();
+    const selected = makeAnchorTargetPack({ targetRoas: 2.2, ...pack });
+    targetPackMock.getBusinessTargetPack.mockResolvedValueOnce(selected)
+      .mockResolvedValue(makeAnchorTargetPack({ targetRoas: 2.2 }));
+
+    const { response, payload } = await serve();
+
+    expect(response.status).toBe(200);
+    expect(targetPackMock.getBusinessTargetPack).toHaveBeenCalledTimes(1);
+    expect(shopifyAovMock.resolveObservedShopifyAov).not.toHaveBeenCalled();
+    expect(payload.system.commercialAnchor.explanation).toMatchObject({
+      spendUnitSource: source, spendUnit: unit, missingInputs: [],
+    });
+  });
+
+  it.each([
+    { name: "a new CPA", changed: { targetCpa: 99 } },
+    { name: "a changed ROAS", changed: { targetRoas: 4.4 } },
+  ])("does not mix selected ROAS-only store evidence with $name", async ({ changed }) => {
+    await useRealProfile();
+    const selected = makeAnchorTargetPack({ targetRoas: 2.2 });
+    targetPackMock.getBusinessTargetPack.mockResolvedValueOnce(selected)
+      .mockResolvedValue(makeAnchorTargetPack({ targetRoas: 2.2, ...changed }));
+
+    const { payload } = await serve();
+    const anchor = payload.system.commercialAnchor.explanation;
+
+    expect(targetPackMock.getBusinessTargetPack).toHaveBeenCalledTimes(1);
+    expect(shopifyAovMock.resolveObservedShopifyAov).toHaveBeenCalledTimes(1);
+    expect(anchor).toMatchObject({
+      spendUnitSource: "observed_shopify_aov", missingInputs: [],
+      lineage: { targetRoas: 2.2, targetCpa: null, operatorAovAssumption: null },
+    });
+    expect(anchor.spendUnit).toBeCloseTo(58 / 2.2, 8);
+  });
+
+  it.each(["absent", "unreadable"])("pins %s targets for this request and allows a fresh next request", async (state) => {
+    await useRealProfile();
+    const recovered: BusinessTargetPack = makeAnchorTargetPack({ targetRoas: 2.2 });
+    if (state === "absent") targetPackMock.getBusinessTargetPack.mockResolvedValueOnce(null);
+    else targetPackMock.getBusinessTargetPack.mockRejectedValueOnce(new Error("target history unavailable"));
+    targetPackMock.getBusinessTargetPack.mockResolvedValue(recovered);
+
+    const first = await serve();
+    const anchor = first.payload.system.commercialAnchor.explanation;
+    expect(targetPackMock.getBusinessTargetPack).toHaveBeenCalledTimes(1);
+    expect(anchor.thresholdEligible).toBe(false);
+    expect(anchor.lineage.targetRoas).toBeNull();
+    expect(first.payload.system.commercialAnchor.actions.every(
+      (action: { eligible: boolean }) => !action.eligible,
+    )).toBe(true);
+
+    const second = await serve();
+    expect(targetPackMock.getBusinessTargetPack).toHaveBeenCalledTimes(2);
+    expect(second.payload.system.commercialAnchor.explanation).toMatchObject({
+      spendUnitSource: "observed_shopify_aov", missingInputs: [],
+      lineage: { targetRoas: 2.2 },
+    });
+    expect(second.payload.system.commercialAnchor.explanation.spendUnit).toBeCloseTo(58 / 2.2, 8);
   });
 });

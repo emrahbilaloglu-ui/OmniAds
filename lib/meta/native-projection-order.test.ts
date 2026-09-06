@@ -113,4 +113,12 @@ describe("the native projection runs on its own, after publication", () => {
     expect(insert.text).toContain("ON CONFLICT");
     expect(insert.text).toContain("meta_automation_proposals.status = 'pending'");
   });
+
+  it("rejects a failed projection query so the chain cannot record a successful refresh", async () => {
+    recordingDb();
+    vi.spyOn(db.getDb(), "query").mockRejectedValue(new Error("projection database unavailable"));
+    await expect(projectNativeAdProposals({
+      businessId: BUSINESS, snapshotDate: "2026-09-05",
+    })).rejects.toThrow("projection database unavailable");
+  });
 });

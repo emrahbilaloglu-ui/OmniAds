@@ -91,4 +91,23 @@ describe("ineligible rows are kept OUT of the page, not withheld after the claim
     expect(sweep).toContain("const probeLaunchLineage = autoActions[0] === \"resume\"");
     expect(sweep).toContain("launchIntentId: probeLaunchLineage,");
   });
+
+  it("binds each resume family and the activation gate before the queue page limit", () => {
+    const pending = sweep.slice(sweep.indexOf("const pending = ("), sweep.indexOf("// An unread queue is unknown"));
+    expect(pending).toContain("launch_intent_id IS NULL AND $5::boolean");
+    expect(pending).toContain("launch_intent_id IS NOT NULL AND $6::boolean");
+    expect(pending).toContain('modes.pause === "auto",');
+    expect(pending).toContain('modes.creative === "auto" && launchpadActivationOpen,');
+    expect(sweep).toContain('missingSteps(writeFamily("launchpad_activation")).length === 0');
+  });
+
+  it("excludes only failed native projections, including a NULL-safe recommendation discriminator", () => {
+    const pending = sweep.slice(sweep.indexOf("const pending = ("), sweep.indexOf("// An unread queue is unknown"));
+    expect(pending).toContain("AND origin = 'engine_decision'");
+    expect(pending).toContain("AND rec_type IS NOT DISTINCT FROM 'native_ad_cut'");
+    expect(pending).toContain("AND scope_type = 'ad'");
+    expect(pending).toContain("AND proposed_action = 'pause'");
+    expect(pending).toContain("excludeNativeAdPauses]");
+    expect(sweep).toContain("options.blockedNativeAdBusinessIds?.includes(row.business_id)");
+  });
 });

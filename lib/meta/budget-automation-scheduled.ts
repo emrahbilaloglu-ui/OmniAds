@@ -80,6 +80,10 @@ export const BUDGET_SWEEP_ACTOR_USER = BUDGET_SWEEP_ACTOR;
  */
 export async function runMetaBudgetAutomationSweepIfDue(
   now = new Date(),
+  options: {
+    blockedNativeAdBusinessIds?: readonly string[];
+    blockAllNativeAdProposals?: boolean;
+  } = {},
 ): Promise<BudgetAutomationJobResult> {
   const nowIso = Number.isFinite(now.getTime()) ? now.toISOString() : null;
   const gates = readMetaReleaseGates(process.env);
@@ -181,22 +185,23 @@ export async function runMetaBudgetAutomationSweepIfDue(
     const launchpadCreateOpen =
       readMetaReleaseGates(process.env).launchpadExecution === true
       && missingSteps(writeFamily("launchpad_create")).length === 0;
+    const launchpadActivationOpen =
+      readMetaReleaseGates(process.env).launchpadExecution === true
+      && missingSteps(writeFamily("launchpad_activation")).length === 0;
     /*
       Which action families this business has armed, resolved per action.
 
       `launch` answers to the creative mode; `resume` cannot be resolved from
       the verb at all — an ordinary un-pause is the pause family and an
-      activation is the creative one — so the page below carries both and each
-      claimed row is re-resolved by `decisionTypeForProposal`, which reads the
-      intent lineage rather than the verb.
+      activation is the creative one. The page must narrow that shared verb by
+      intent lineage before LIMIT and claim, preserving rows whose own family
+      is still manual or semi-automatic. Dispatch then re-proves the family.
     */
     const autoActions = AUTOMATABLE_PROPOSAL_ACTIONS.filter((action) => {
       if (action === "launch" && !launchpadCreateOpen) return false;
       if (action === "resume") {
-        // An activation row and an un-pause row share this verb, so the page
-        // admits it when EITHER family is armed and the runtime chosen per row
-        // re-proves the right one against its own standing mode.
-        return modes.pause === "auto" || modes.creative === "auto";
+        return modes.pause === "auto"
+          || (modes.creative === "auto" && launchpadActivationOpen);
       }
       return modes[decisionTypeForProposedAction(action)] === "auto";
     });
@@ -382,6 +387,8 @@ export async function runMetaBudgetAutomationSweepIfDue(
       });
       continue;
     }
+    const excludeNativeAdPauses = options.blockAllNativeAdProposals === true
+      || options.blockedNativeAdBusinessIds?.includes(row.business_id) === true;
     /*
       The database page itself is bounded by the remaining allowance. This is
       before claim and before provider contact; a cap of three cannot turn
@@ -393,6 +400,21 @@ export async function runMetaBudgetAutomationSweepIfDue(
         WHERE business_id = $1::uuid
           AND provider_account_id = $2
           AND proposed_action = ANY($4::text[])
+          -- The shared resume verb has two separately armed families.
+          AND (
+            proposed_action <> 'resume'
+            OR (launch_intent_id IS NULL AND $5::boolean)
+            OR (launch_intent_id IS NOT NULL AND $6::boolean)
+          )
+          -- A failed current native refresh must not consume an older cut.
+          -- Other action families and unaffected businesses remain eligible.
+          AND NOT (
+            $7::boolean
+            AND origin = 'engine_decision'
+            AND rec_type IS NOT DISTINCT FROM 'native_ad_cut'
+            AND scope_type = 'ad'
+            AND proposed_action = 'pause'
+          )
           /*
             Ad rows are in scope now, and they run a different lifecycle.
 
@@ -456,7 +478,10 @@ export async function runMetaBudgetAutomationSweepIfDue(
           AND expires_at > now()
         ORDER BY created_at
         LIMIT $3`,
-      [row.business_id, providerAccountId, remaining, autoActions],
+      [row.business_id, providerAccountId, remaining, autoActions,
+        modes.pause === "auto",
+        modes.creative === "auto" && launchpadActivationOpen,
+        excludeNativeAdPauses],
     ).catch(() => null)) as Array<{ id: string }> | null;
     // An unread queue is unknown, and unknown does nothing.
     if (pending === null) continue;

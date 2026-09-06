@@ -45,7 +45,8 @@
 import { NextRequest } from "next/server";
 
 import { createSession } from "@/lib/auth";
-import { getDb, resetDbClientCache } from "@/lib/db";
+import { getDb, resetDbClientCache, runDbTransaction } from "@/lib/db";
+import { verifyScheduledQueuePageFixtures } from "@/scripts/scheduled-queue-page-fixtures";
 import {
   deleteMetaLaunchDraft,
   upsertMetaLaunchDraft,
@@ -1257,6 +1258,11 @@ async function main() {
   */
   process.env.META_AUTOMATION_LIVE_WRITES = "true";
   process.env.META_LAUNCHPAD_EXECUTION = "true";
+
+  const queuePageCases = await runDbTransaction(() =>
+    verifyScheduledQueuePageFixtures((text, params) => getDb().query(text, params)),
+  );
+  console.log(`[${LABEL}] scheduled queue page: ${queuePageCases} PostgreSQL cases passed`);
 
   const fixture = await seed();
   const provider = installProvider();

@@ -671,19 +671,6 @@ export async function POST(request: NextRequest) {
   // "Fired · 28d" was a permanent, truthful zero. This reaches no provider: a
   // firing's strongest outcome is a queued proposal that still needs operator
   // approval, and the job re-checks the kill switch per business itself.
-  /*
-    D088 C1: the budget automation sweep, registered on the SAME cron the other
-    Meta jobs use. It is inert under current defaults — the first thing it does
-    is read the release gate and return — so registering it changes nothing
-    about today's behaviour and removes the last piece of wiring an activation
-    would otherwise need.
-  */
-  const metaBudgetAutomationJob = await runMetaBudgetAutomationSweepIfDue().catch(
-    (error: unknown) => ({
-      skipped: true as const,
-      reason: error instanceof Error ? error.name : "budget_sweep_failed",
-    }),
-  );
 
   const metaAutomationRuleJob = await runMetaAutomationRuleEvaluationIfDue().catch(
     (error) => {
@@ -734,6 +721,29 @@ export async function POST(request: NextRequest) {
       }
     }
   }
+  // Publish this slot's native decisions and queue projection before consuming
+  // proposals. Otherwise an unexpired morning cut can execute before the
+  // afternoon refresh replaces its evaluation with a non-actionable result.
+  // A failed refresh holds only native cuts for the affected business; budget,
+  // bid, launch and other businesses keep their independent execution paths.
+  const blockedNativeAdBusinessIds = !nativeAdShadowJob.skipped
+    && "results" in nativeAdShadowJob
+    ? (nativeAdShadowJob.results ?? []).filter((result) =>
+        !["success", "previous_success"].includes(result.decisions.status)
+        || !["success", "previous_success"].includes(result.proposalProjection.status),
+      ).map((result) => result.businessId)
+    : [];
+  const blockAllNativeAdProposals = nativeAdShadowJob.skipped
+    && !["already_ran", "outside_slot", "no_enabled_businesses", "no_meta_businesses"]
+      .includes(nativeAdShadowJob.reason ?? "");
+  const metaBudgetAutomationJob = await runMetaBudgetAutomationSweepIfDue(
+    new Date(),
+    { blockedNativeAdBusinessIds, blockAllNativeAdProposals },
+  ).catch((error: unknown) => ({
+    skipped: true as const,
+    reason: error instanceof Error ? error.name : "budget_sweep_failed",
+  }));
+
   const decisionOutcomesJob = await runDecisionOutcomesJobForActiveBusinessesIfDue(
     new Date(),
     businesses,

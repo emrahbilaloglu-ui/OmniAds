@@ -1327,7 +1327,7 @@ async function projectNativeAdPauseProposals(input: {
   snapshotDate: string;
   ttlInterval: string;
 }): Promise<number> {
-  const rows = (await getDb().query<{ id: string }>(
+  const rows = await getDb().query<{ id: string }>(
     `
       WITH decisions AS (
         SELECT DISTINCT ON (d.ad_id)
@@ -1450,8 +1450,8 @@ async function projectNativeAdPauseProposals(input: {
       META_AUTOMATION_PROPOSAL_PRIMARY_CAPTION,
       input.ttlInterval,
     ],
-  ).catch(() => null)) as Array<{ id: string }> | null;
-  return rows?.length ?? 0;
+  );
+  return rows.length;
 }
 
 export interface ReadMetaAutomationProposalsResult {

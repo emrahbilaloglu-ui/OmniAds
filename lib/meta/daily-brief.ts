@@ -91,7 +91,7 @@ function dayBefore(asOf: string): string {
   re-derive it.
 
   Every read in the builder below is bounded to `asOf` and scoped to the
-  resolved provider account, EXCEPT these three, and the exceptions are
+  resolved provider account, EXCEPT these two, and both exceptions are
   structural rather than oversights:
 
   1. "Applied overnight" (`readOvernightLedger`) is asOf-bounded but
@@ -101,22 +101,20 @@ function dayBefore(asOf: string): string {
      `result_receipt_id` — so it cannot be account-scoped without a schema
      change. On a business with two or more assigned Meta accounts, this number
      is business-wide on a card whose other sections are account-scoped.
-  2. `modes` is business-keyed by primary key, so the same applies, and it has
-     no date dimension to bound either.
-  3. Alerts are read business-wide, while the two other surfaces that serve
-     anomalies — the anomalies route and the intelligence server — both pass
-     `providerAccountId` and refuse outright when there is none. The brief is
-     the outlier. The consequence is observable: Home's "Alerts" number can
-     exceed the Alerts screen's for the same business. It is left as it is
-     rather than changed late in a release, because the account filter works
-     from dimension allow-sets and would report a confident `0` where rows are
-     thin — but this is a judgement call on a card whose whole premise is that
-     its sections agree with the screens behind them, and it is recorded as one
-     rather than presented as settled.
+  2. `modes` is business-keyed by primary key —
+     `meta_automation_decision_type_modes` is `PRIMARY KEY (business_id,
+     decision_type)` — so the same applies, and it has no date dimension to
+     bound either.
 
-  None of the three is fixable inside this file. They are limits of the card,
-  not defects in it, and they are written down so a future reader does not
-  mistake a business-wide number for an account-scoped one.
+  Alerts were the third entry here, recorded as an open judgement call rather
+  than a settled limit: read business-wide while every other surface that
+  serves anomalies scopes them. That one IS fixable inside this file and now
+  is — see the alert read below, which scopes to the resolved account or
+  withholds the section, the same shape decisions and the queue already use.
+
+  Neither of the two that remain is fixable inside this file. They are limits
+  of the card, not defects in it, and they are written down so a future reader
+  does not mistake a business-wide number for an account-scoped one.
 */
 export async function buildMetaDailyBrief(input: {
   businessId: string;
@@ -133,26 +131,65 @@ export async function buildMetaDailyBrief(input: {
   */
   const today = new Date().toISOString().slice(0, 10);
   const asOf = input.asOf ?? today;
-  const providerAccountId = input.providerAccountId ?? null;
+  const providerAccountId = input.providerAccountId?.trim() || null;
 
   const [modes, anomalies, snapshot, queuePending, ledger] = await Promise.all([
     resolveEffectiveMetaModes(input.businessId).catch(() => null),
-    readMetaAnomaliesForBusiness({
-      businessId: input.businessId,
-      activeOnly: true,
-      /*
-        The same ceiling the rest of the brief hangs off.
+    /*
+      The alert count is one account's, or it is not read.
 
-        Unbounded, this read takes `MAX(snapshot_date)` over all time — its
-        own doc says so — so a brief for last Tuesday carried today's alerts
-        beside last Tuesday's decisions and ledger, all under one `asOf`. The
-        card would have said "3 high alerts as of 2026-09-01" about anomalies
-        detected days later. `asOf` is that ceiling everywhere else here (the
-        decision snapshot's ceiling, the overnight window's anchor), so it
-        is the ceiling here too: one notion of "as of" per brief.
-      */
-      endDate: asOf,
-    }).catch(() => null),
+      `readMetaAnomaliesForBusiness` reads a missing `providerAccountId` as "no
+      account FILTER", not as "no account" — its filter step is `if
+      (!providerAccountId) return true` — so omitting it served every assigned
+      account's anomalies beside decisions and a queue that are one account's.
+      The consequence was observable rather than theoretical: Home's "Alerts"
+      number could exceed the Alerts screen's for the same business, on a card
+      whose whole premise is that its sections agree with the screens behind
+      them. The two account-scoped surfaces that serve anomalies —
+      `app/api/meta/anomalies/route.ts` and the intelligence server's anomalies
+      authority — both pass the account and refuse the read outright when there
+      is none; this card did neither.
+
+      Not the only other caller, and the qualifier matters: the notification
+      producer also reads business-wide. It was a worse case, because it STAMPS
+      each emitted notification with a provider account while reading across
+      all of them — labelling another account's anomaly as this one's. That is
+      corrected in the same batch as this, so the two account-shaped readers of
+      this function now agree.
+
+      Scoping was held back once because that filter is built from dimension
+      allow-sets (`meta_campaign_dimensions`, `meta_adset_dimensions`), so a
+      thin dimension table can turn real anomalies into a confident `0`. It is
+      taken now because the Alerts screen reads through exactly that filter:
+      thin dimensions already produce that `0` on the screen this card claims
+      to agree with, so sharing the blind spot keeps the two numbers one fact,
+      while not sharing it made them two facts under one label.
+
+      And with zero or several assigned accounts there is no account to scope
+      to, so the section reports itself unread rather than serving a
+      business-wide count as one account's — the shape the decision read below
+      and the queue count already use, so the card has one rule for this and
+      not a fourth.
+    */
+    providerAccountId
+      ? readMetaAnomaliesForBusiness({
+        businessId: input.businessId,
+        providerAccountId,
+        activeOnly: true,
+        /*
+          The same ceiling the rest of the brief hangs off.
+
+          Unbounded, this read takes `MAX(snapshot_date)` over all time — its
+          own doc says so — so a brief for last Tuesday carried today's alerts
+          beside last Tuesday's decisions and ledger, all under one `asOf`. The
+          card would have said "3 high alerts as of 2026-09-01" about anomalies
+          detected days later. `asOf` is that ceiling everywhere else here (the
+          decision snapshot's ceiling, the overnight window's anchor), so it
+          is the ceiling here too: one notion of "as of" per brief.
+        */
+        endDate: asOf,
+      }).catch(() => null)
+      : Promise.resolve(null),
     /*
       The decision read is account-scoped and as-of bounded, or it is skipped.
 
@@ -292,6 +329,8 @@ export async function buildMetaDailyBrief(input: {
       creative: modes?.creative ?? null,
     },
     alerts: {
+      // Two things that are not "no alerts", and both say so: no resolved
+      // account to scope the read to, and a read that did not answer.
       state: anomalyRows ? "read" : UNAVAILABLE,
       high: anomalyRows?.filter((row) => row.severity === "high").length ?? 0,
       total: anomalyRows?.length ?? 0,

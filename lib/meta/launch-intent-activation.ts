@@ -96,6 +96,17 @@ export type ActivationClaimOutcome =
   | "authority_refused"
   /** A previous attempt on this entity is still unresolved. Nothing was sent. */
   | "unresolved_prior_attempt"
+  /**
+   * The unresolved-attempt lookup itself could not be read. Nothing was sent.
+   *
+   * Distinct from `unresolved_prior_attempt`, which is the gate ANSWERING: a
+   * row exists and this names it. Here the question could not be asked at all,
+   * so nothing is known about earlier attempts on the entity — and an
+   * unreadable safety check is refused rather than read as "nothing
+   * unresolved". Like `claim_unavailable`, it is a definite non-write with no
+   * durable row to terminalise.
+   */
+  | "unresolved_lookup_unavailable"
   /** The claim could not be written, so no call was made. */
   | "claim_unavailable";
 
@@ -571,6 +582,9 @@ export interface ActivationJournal {
    * `pending` (claimed, never terminalised) or a non-rehearsal
    * `silent_failure` with no reconciliation event: in both, the write may have
    * landed.
+   *
+   * `null` is an ANSWER — the table was read and holds no such row. A rejection
+   * is not that answer, and the caller refuses on it rather than proceeding.
    */
   findUnresolved(input: {
     businessId: string;
@@ -715,12 +729,47 @@ function providerDeps(input: {
         writes on a live entity. So it refuses, reports itself as ambiguous —
         which stops the sequence rather than failing it — and a person resolves
         the old row before anything else is sent.
+
+        And a lookup that THREW is not a lookup that found nothing.
+
+        `findUnresolvedMetaAdStatusActionLog` is one query against
+        `meta_ads_action_log` and catches nothing of its own, so a statement
+        timeout or an exhausted pool arrives here as a rejection. Folding that
+        into `null` — as this did — handed the failed safety check the same
+        value the successful "nothing outstanding" read returns, and the POST
+        went out: the gate below was never actually asked, and a `pending` or
+        `silent_failure` row for this very entity would have been invisible to
+        it. That is the blind retry this path exists to prevent.
+
+        So the failure is kept as a THIRD answer, the shape this repository
+        already uses for an unreadable control plane (`control_state_unavailable`
+        in `getMetaWriteBlockState`): a named unavailability that blocks, not a
+        clearance. Nothing was sent and no claim was written, so the step
+        settles as a definite non-write with no durable row to terminalise, and
+        the next attempt asks the real question once the table can be read.
       */
-      const unresolved = await input.journal.findUnresolved({
-        businessId: input.businessId,
-        providerAccountId: input.providerAccountId,
-        entityId: target.entityId,
-      }).catch(() => null);
+      const lookup: { readable: boolean; row: { id: string } | null } =
+        await input.journal.findUnresolved({
+          businessId: input.businessId,
+          providerAccountId: input.providerAccountId,
+          entityId: target.entityId,
+        }).then((row) => ({ readable: true, row }))
+          .catch(() => ({ readable: false, row: null }));
+      if (!lookup.readable) {
+        claimsInFlight.set(key, {
+          actionLogId: null,
+          outcome: "unresolved_lookup_unavailable",
+          startedAt: 0,
+          settled: true,
+        });
+        input.onClaim(key, {
+          actionLogId: null,
+          outcome: "unresolved_lookup_unavailable",
+        });
+        return { ok: false, reason: "activation_unresolved_lookup_unavailable" };
+      }
+
+      const unresolved = lookup.row;
       if (unresolved) {
         const entry = {
           actionLogId: unresolved.id,

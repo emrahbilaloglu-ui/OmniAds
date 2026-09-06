@@ -118,6 +118,7 @@ export async function produceNotificationsForBusiness(input: {
 }): Promise<NotificationProducerResult> {
   const now = input.now ?? new Date();
   const occurredOn = now.toISOString().slice(0, 10);
+  const providerAccountId = input.providerAccountId?.trim() || null;
 
   /*
     Bounded to the day being produced for, and typed rather than cast.
@@ -138,13 +139,26 @@ export async function produceNotificationsForBusiness(input: {
   */
   const anomalies = await readMetaAnomaliesForBusiness({
     businessId: input.businessId,
+    /*
+      Scoped to the account these notifications will be STAMPED with.
+
+      The read and every emitted event use the same normalized account id.
+      Reading business-wide while stamping one account means that on a business
+      with several assigned Meta accounts, another account's anomaly is
+      delivered to the operator labelled as this one's — a wrong attribution on
+      the one surface whose whole job is to tell someone what happened where.
+
+      When the caller names no account the read stays business-wide, and the
+      stamp is `null`, so the two halves agree in that case too.
+    */
+    ...(providerAccountId ? { providerAccountId } : {}),
     activeOnly: true,
     endDate: occurredOn,
   }).catch(() => null);
 
   const rows = anomalies?.anomalies ?? [];
-  // Read once for the whole scan rather than per anomaly: the membership list
-  // does not change between two rows of the same batch.
+  // Reuse one recipient snapshot for this scan. Membership changes during the
+  // batch are picked up by the next scan.
   const recipients = input.recipientUserId
     ? [input.recipientUserId]
     : await readNotificationRecipients(input.businessId);
@@ -172,7 +186,7 @@ export async function produceNotificationsForBusiness(input: {
       eventType: eventType(row.type),
       severity,
       businessId: input.businessId,
-      providerAccountId: input.providerAccountId ?? null,
+      providerAccountId,
       entityType: row.scopeType,
       entityId: row.scopeId,
       sourceKind: "meta_anomaly",

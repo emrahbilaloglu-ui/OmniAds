@@ -80,7 +80,13 @@ describe("the alert read is bound to the requested day", () => {
   });
 
   it("bounds the default asOf too, at the day the payload is labelled with", async () => {
-    const brief = await buildMetaDailyBrief({ businessId: BUSINESS });
+    // The account is named because the alert read is now withheld without one
+    // (see the alert scope suite); this case is about the DAY, and without an
+    // account there would be no read here to inspect at all.
+    const brief = await buildMetaDailyBrief({
+      businessId: BUSINESS,
+      providerAccountId: "act_1",
+    });
 
     // No caller-supplied date is not the same as no ceiling: the brief still
     // states a day, and the alerts have to belong to it.

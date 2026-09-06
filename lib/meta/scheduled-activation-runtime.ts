@@ -328,8 +328,13 @@ export function createScheduledActivationRuntime(
 
       The claim outcomes carry the distinction: `activated`, `ambiguous` and
       `refused` are the three that mean a provider answered or failed to.
-      `authority_refused`, `claim_unavailable` and `unresolved_prior_attempt`
-      all mean nothing was sent by this dispatch.
+      `authority_refused`, `claim_unavailable`, `unresolved_prior_attempt` and
+      `unresolved_lookup_unavailable` all mean nothing was sent by this
+      dispatch. The fourth arrived when the no-blind-retry lookup stopped
+      failing open: an unreadable safety check is now its own outcome rather
+      than being folded into "nothing unresolved". The computation below is
+      unaffected — it compares against the three that DID reach a provider —
+      but this sentence is what justifies it, so it has to name all four.
     */
     const contacted = receipt.steps.some(
       (step) =>

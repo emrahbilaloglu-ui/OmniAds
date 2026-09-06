@@ -1,9 +1,9 @@
 {
- "ledgerHash": "530731ef408b0df584cd223a1180012edc9e707c54e36c1dbc7bef86b5095480",
+ "ledgerHash": "0ea1d04ff1a8e64c90674a004db8ab3cb771e8bef91570493464239aa6317231",
  "hashAlgorithm": "sha256",
  "hashBasis": "sha256 over UTF-8 bytes of JSON.stringify(artifact, null, 1) of the artifact WITHOUT its embedded hash fields (the artifact object before {<hashField>, hashAlgorithm, hashBasis} are prepended)",
  "contract": "adsecute.d077.correction2-verification-ledger.v2",
- "generatedAtUtc": "2026-09-06T20:16:43.597Z",
+ "generatedAtUtc": "2026-09-06T20:47:42.733Z",
  "runtimeVersions": {
   "node": "v24.4.1",
   "npm": "11.4.2",
@@ -171,13 +171,13 @@
  },
  "runtimeVersionsScope": {
   "kind": "historical",
-  "sourceLedgerHash": "a639d626aea50ae74ed698481daaeb79fcb07b4e00a58d94f5c64c14bda95757",
-  "sourceGeneratedAtUtc": "2026-09-06T19:40:31.566Z",
+  "sourceLedgerHash": "530731ef408b0df584cd223a1180012edc9e707c54e36c1dbc7bef86b5095480",
+  "sourceGeneratedAtUtc": "2026-09-06T20:16:43.597Z",
   "note": "Frozen earlier audit runtime observations, preserved with their original timestamps and validated by the unchanged historical provenance contract."
  },
  "packagingRuntimeVersions": {
   "actor": "codex",
-  "observedAtUtc": "2026-09-06T20:16:42.938Z",
+  "observedAtUtc": "2026-09-06T20:47:41.939Z",
   "node": "v24.4.1",
   "npm": "11.4.2",
   "pnpm": "11.19.0",
@@ -203,7 +203,7 @@
      "stderr": "",
      "spawnErrorCode": null,
      "spawnErrorMessage": null,
-     "observedAtUtc": "2026-09-06T20:16:42.307Z"
+     "observedAtUtc": "2026-09-06T20:47:41.312Z"
     },
     "resolution": "resolved",
     "resolvedPath": "/Users/harmelek/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/pnpm",
@@ -219,12 +219,12 @@
      "stderr": "",
      "spawnErrorCode": null,
      "spawnErrorMessage": null,
-     "observedAtUtc": "2026-09-06T20:16:42.665Z"
+     "observedAtUtc": "2026-09-06T20:47:41.677Z"
     },
     "reportedVersion": "11.19.0",
     "resultClass": "version_reported",
     "observationKind": "present_tense",
-    "observedAtUtc": "2026-09-06T20:16:42.665Z",
+    "observedAtUtc": "2026-09-06T20:47:41.677Z",
     "observationTimeCertainty": "exact",
     "cacheSafeReadOnly": true
    },
@@ -246,7 +246,7 @@
      "stderr": "",
      "spawnErrorCode": null,
      "spawnErrorMessage": null,
-     "observedAtUtc": "2026-09-06T20:16:42.672Z"
+     "observedAtUtc": "2026-09-06T20:47:41.683Z"
     },
     "resolution": "resolved",
     "resolvedPath": "/usr/local/bin/corepack",
@@ -262,12 +262,12 @@
      "stderr": "",
      "spawnErrorCode": null,
      "spawnErrorMessage": null,
-     "observedAtUtc": "2026-09-06T20:16:42.717Z"
+     "observedAtUtc": "2026-09-06T20:47:41.725Z"
     },
     "reportedVersion": "0.34.2",
     "resultClass": "version_reported",
     "observationKind": "present_tense",
-    "observedAtUtc": "2026-09-06T20:16:42.717Z",
+    "observedAtUtc": "2026-09-06T20:47:41.725Z",
     "observationTimeCertainty": "exact",
     "cacheSafeReadOnly": true
    },
@@ -281,7 +281,7 @@
      "exists": true,
      "observationErrorCode": null,
      "observationErrorMessage": null,
-     "observedAtUtc": "2026-09-06T20:16:42.717Z"
+     "observedAtUtc": "2026-09-06T20:47:41.725Z"
     },
     "resolution": "resolved",
     "resolvedPath": "/Users/harmelek/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/pnpm",
@@ -297,12 +297,12 @@
      "stderr": "",
      "spawnErrorCode": null,
      "spawnErrorMessage": null,
-     "observedAtUtc": "2026-09-06T20:16:42.936Z"
+     "observedAtUtc": "2026-09-06T20:47:41.937Z"
     },
     "reportedVersion": "11.19.0",
     "resultClass": "version_reported",
     "observationKind": "present_tense",
-    "observedAtUtc": "2026-09-06T20:16:42.936Z",
+    "observedAtUtc": "2026-09-06T20:47:41.937Z",
     "observationTimeCertainty": "exact",
     "cacheSafeReadOnly": true
    },
@@ -380,9 +380,9 @@
   {
    "stage": "canonical.database-seams-whole-shell",
    "command": "bash scripts/verify-database-seams.sh",
-   "startUtc": "2026-09-06T20:06:07.602503Z",
-   "endUtc": "2026-09-06T20:15:23.800123Z",
-   "durationSeconds": 556.228,
+   "startUtc": "2026-09-06T20:37:17.440197Z",
+   "endUtc": "2026-09-06T20:46:28.954715Z",
+   "durationSeconds": 551.384,
    "exitCode": 0,
    "counts": {
     "notApplicable": true,
@@ -394,33 +394,33 @@
    },
    "teardown": {
     "supervisedProcessGroupAbsent": true,
-    "processGroupId": 83573,
-    "readAtUtc": "2026-09-06T20:15:24.033671Z",
+    "processGroupId": 13426,
+    "readAtUtc": "2026-09-06T20:46:29.189608Z",
     "leftoverBeforeCleanup": [
      {
-      "pid": 58285,
-      "command": "sleep 90"
-     },
-     {
-      "pid": 58311,
-      "command": "sleep 90"
-     },
-     {
-      "pid": 91462,
+      "pid": 20860,
       "command": "sleep 900"
+     },
+     {
+      "pid": 87442,
+      "command": "sleep 90"
+     },
+     {
+      "pid": 87469,
+      "command": "sleep 90"
      }
     ],
     "terminatedOwnedSleepPids": [
-     58285,
-     58311,
-     91462
+     20860,
+     87442,
+     87469
     ]
    },
-   "sourceCommit": "3a03f2a0d023f89d5f0429664e47bbbee48e37ae",
+   "sourceCommit": "444597262e7d271a0f46dcd93d2a80cdfe326e7f",
    "logFile": {
-    "path": "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T2006Z.log",
-    "sha256": "296e8aff8a108eed0c852b92f5f172da209a51f8d88030703d3788669b08ea5d",
-    "bytes": 662191
+    "path": "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T2037Z.log",
+    "sha256": "1ce50e542110c5461e8e5908b897f9cc882444d69499c8344cf5f02f92d037a3",
+    "bytes": 662047
    },
    "tail": [
     "  retryMaxBackoffMs: 4000",
@@ -455,7 +455,7 @@
     "[verify-db-seams] PASS — 40 stages"
    ],
    "originalCapturePath": {
-    "path": "/tmp/adsecute-codex-release-20260906/d077-canonical-database-seams-whole-shell-2026-09-06T2006Z.log",
+    "path": "/tmp/adsecute-codex-release-20260906/d077-canonical-database-seams-whole-shell-2026-09-06T2037Z.log",
     "note": "capture provenance ONLY — the temporary supervisor output path for this authoritative run; validated byte-identical to the repository copy before it was frozen; generator/test reads use only the portable retained copy"
    },
    "wholeShellProof": {
@@ -631,8 +631,8 @@
      "title": "Release owner references are current (LAST — the tree is final here)"
     },
     "finalPassLine": "[verify-db-seams] PASS — 40 stages",
-    "logSha256": "296e8aff8a108eed0c852b92f5f172da209a51f8d88030703d3788669b08ea5d",
-    "logBytes": 662191,
+    "logSha256": "1ce50e542110c5461e8e5908b897f9cc882444d69499c8344cf5f02f92d037a3",
+    "logBytes": 662047,
     "releaseBoundary": {
      "stageNumber": 26,
      "stageTitle": "Ordinary deploy refuses a cutover-required release",
@@ -4031,6 +4031,288 @@
     "waiting for server to shut down.... done",
     "server stopped"
    ]
+  },
+  {
+   "stage": "historical.r13-packaging.r13-d077-contract",
+   "command": "npx vitest run lib/meta/__tests__/d077-artifact-hash-contract.test.ts --reporter=json --outputFile=/tmp/adsecute-codex-release-20260906/r13-d077-contract-report.json",
+   "startUtc": "2026-09-06T20:17:10.833165+00:00",
+   "endUtc": "2026-09-06T20:17:12.722800+00:00",
+   "durationSeconds": 1.889,
+   "exitCode": 0,
+   "counts": {
+    "numTotalTests": 21,
+    "numPassedTests": 21,
+    "numFailedTests": 0,
+    "numPendingTests": 0
+   },
+   "timeout": {
+    "configuredSeconds": null,
+    "timedOut": null,
+    "configuredSecondsNote": "Not captured by this original record."
+   },
+   "teardown": {
+    "processExited": true,
+    "scope": "Observed command return only; no process-group/listener census was captured."
+   },
+   "sourceContext": "R13 metadata tree later committed as 6d82ea965db08c5d73ad4e3198e4619ce8c7ca2d; this is not current R14 artifact acceptance.",
+   "logFile": {
+    "path": "/tmp/adsecute-codex-release-20260906/r13-d077-contract.log",
+    "sha256": "76894dd7e578f8bc45a0b65b335eb85625d729f148d811c0aed35708b051f505",
+    "bytes": 90
+   },
+   "tail": [
+    "JSON report written to /tmp/adsecute-codex-release-20260906/r13-d077-contract-report.json"
+   ]
+  },
+  {
+   "command": "DATABASE_URL=postgresql://unused@127.0.0.1:1/unused npx vitest run app/api/meta/serve-availability-decision-census.test.ts app/api/meta/decisions-workspace/route.test.ts lib/meta/serve-availability-commercial-anchor-rung.test.ts lib/meta/commercial-anchor-panel.test.ts lib/creative-decision-engine/commercial-anchor.test.ts lib/meta/account-scoped-profile-inputs.test.ts --reporter=dot",
+   "startUtc": "2026-09-06T20:36:11.974388+00:00",
+   "endUtc": "2026-09-06T20:36:13.499855+00:00",
+   "durationSeconds": 1.525262,
+   "exitCode": 0,
+   "counts": {
+    "testsPassed": 98,
+    "filesPassed": 6
+   },
+   "logFile": {
+    "path": "/tmp/adsecute-codex-release-20260906/r14-workspace-target-pin-focused.log",
+    "bytes": 5077,
+    "sha256": "521bd98913d293cd158434a8dbcabf48442c4b0abfe23bc03abcb9e71b7720cd"
+   },
+   "stage": "release-r14.r14-workspace-target-pin-focused",
+   "recordedCounts": {
+    "Test Files": "6",
+    "Tests": "98"
+   },
+   "timeout": {
+    "configuredSeconds": null,
+    "timedOut": false,
+    "configuredSecondsNote": "Wrapper bound not captured; observed successful completion."
+   },
+   "teardown": {
+    "processExited": true,
+    "scope": "Observed command completion only; no process census captured."
+   },
+   "sourceContext": "R14 working tree before source freeze; final unchanged route/test bytes assembled in 444597262e7d271a0f46dcd93d2a80cdfe326e7f. No source SHA was recorded by the running test.",
+   "tail": [
+    "[meta_decisions] as_of_date_lookup_failed {",
+    "  source: 'native_ad_snapshot_union',",
+    "  cause: 'unknown',",
+    "  detail: 'Snapshot date lookup failed for an unrecognised reason.'",
+    "}",
+    "[meta_decisions] as_of_date_lookup_failed {",
+    "  source: 'legacy_decision_snapshot',",
+    "  cause: 'unknown',",
+    "  detail: 'Snapshot date lookup failed for an unrecognised reason.'",
+    "}",
+    "",
+    "··················stderr | app/api/meta/decisions-workspace/route.test.ts > GET /api/meta/decisions-workspace > names a decision-generation failure without misdirecting the operator to sync recovery",
+    "[meta_decisions] as_of_date_lookup_failed {",
+    "  source: 'native_ad_snapshot_union',",
+    "  cause: 'unknown',",
+    "  detail: 'Snapshot date lookup failed for an unrecognised reason.'",
+    "}",
+    "[meta_decisions] as_of_date_lookup_failed {",
+    "  source: 'legacy_decision_snapshot',",
+    "  cause: 'unknown',",
+    "  detail: 'Snapshot date lookup failed for an unrecognised reason.'",
+    "}",
+    "",
+    "···················",
+    "",
+    " Test Files  6 passed (6)",
+    "      Tests  98 passed (98)",
+    "   Start at  23:36:12",
+    "   Duration  948ms (transform 1.76s, setup 850ms, import 2.28s, tests 190ms, environment 0ms)",
+    ""
+   ]
+  },
+  {
+   "stage": "release-r14.r14-route-eslint",
+   "command": "npx eslint app/api/meta/decisions-workspace/route.ts",
+   "startUtc": "2026-09-06T20:35:55.112289+00:00",
+   "endUtc": "2026-09-06T20:35:56.595507+00:00",
+   "durationSeconds": 1.483,
+   "exitCode": 0,
+   "sourceContext": "R14 request-local target pin in working tree over 6d82ea965; test owner edits not yet complete.",
+   "counts": {
+    "notApplicable": true,
+    "reason": "Non-Vitest command; exit code and retained output are the acceptance record."
+   },
+   "timeout": {
+    "configuredSeconds": null,
+    "timedOut": null,
+    "configuredSecondsNote": "Not captured by this original record."
+   },
+   "teardown": {
+    "processExited": true,
+    "scope": "Observed command return only; no process-group/listener census was captured."
+   },
+   "logFile": {
+    "path": "/tmp/adsecute-codex-release-20260906/r14-route-eslint.log",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "bytes": 0
+   },
+   "tail": []
+  },
+  {
+   "stage": "release-r14.r14-source-typecheck",
+   "command": "npm run typecheck",
+   "startUtc": "2026-09-06T20:35:55.112811+00:00",
+   "endUtc": "2026-09-06T20:36:03.242684+00:00",
+   "durationSeconds": 8.13,
+   "exitCode": 0,
+   "sourceContext": "R14 request-local target pin in working tree over 6d82ea965; test owner edits not yet complete.",
+   "counts": {
+    "notApplicable": true,
+    "reason": "Non-Vitest command; exit code and retained output are the acceptance record."
+   },
+   "timeout": {
+    "configuredSeconds": null,
+    "timedOut": null,
+    "configuredSecondsNote": "Not captured by this original record."
+   },
+   "teardown": {
+    "processExited": true,
+    "scope": "Observed command return only; no process-group/listener census was captured."
+   },
+   "logFile": {
+    "path": "/tmp/adsecute-codex-release-20260906/r14-source-typecheck.log",
+    "sha256": "8450795232d2ec742004345b1c022a982518fb3e9a4f9aa184ac0ec0bf189b6f",
+    "bytes": 44
+   },
+   "tail": [
+    "",
+    "> adsecute@0.1.0 typecheck",
+    "> tsc --noEmit",
+    ""
+   ]
+  },
+  {
+   "stage": "release-r14.r14-source-diff",
+   "command": "git diff --check",
+   "startUtc": "2026-09-06T20:35:55.112875+00:00",
+   "endUtc": "2026-09-06T20:35:55.155935+00:00",
+   "durationSeconds": 0.043,
+   "exitCode": 0,
+   "sourceContext": "R14 request-local target pin in working tree over 6d82ea965; test owner edits not yet complete.",
+   "counts": {
+    "notApplicable": true,
+    "reason": "Non-Vitest command; exit code and retained output are the acceptance record."
+   },
+   "timeout": {
+    "configuredSeconds": null,
+    "timedOut": null,
+    "configuredSecondsNote": "Not captured by this original record."
+   },
+   "teardown": {
+    "processExited": true,
+    "scope": "Observed command return only; no process-group/listener census was captured."
+   },
+   "logFile": {
+    "path": "/tmp/adsecute-codex-release-20260906/r14-source-diff.log",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "bytes": 0
+   },
+   "tail": []
+  },
+  {
+   "stage": "historical.r13-ci-success",
+   "command": "GitHub Actions CI run 34057590665",
+   "startUtc": "2026-09-06T20:18:47Z",
+   "endUtc": "2026-09-06T20:38:21Z",
+   "durationSeconds": 1174,
+   "timingBasis": "Envelope of 12 successful GitHub job timestamps; workflow-level and retrieval timestamps were not captured.",
+   "exitCode": 0,
+   "counts": {
+    "successfulJobs": 12,
+    "expectedSkippedPrOnlyJobs": 4
+   },
+   "timeout": {
+    "configuredSeconds": null,
+    "timedOut": false
+   },
+   "teardown": {
+    "notApplicable": true,
+    "reason": "Remote GitHub Actions execution; no local process group."
+   },
+   "sourceCommit": "6d82ea965db08c5d73ad4e3198e4619ce8c7ca2d",
+   "ciReadback": {
+    "headSha": "6d82ea965db08c5d73ad4e3198e4619ce8c7ca2d",
+    "status": "completed",
+    "conclusion": "success",
+    "url": "https://github.com/emrahbilaloglu-ui/OmniAds/actions/runs/34057590665"
+   },
+   "ciReadbackFile": {
+    "path": "/tmp/adsecute-codex-release-20260906/ci-6d82ea965-final.json",
+    "sha256": "a0e990ce135113a50380c6f124bcd78665622e23d48baf8fbc9f1cb2d8fe0f91"
+   },
+   "jobConclusions": [
+    {
+     "name": "database-seams",
+     "conclusion": "success"
+    },
+    {
+     "name": "d080-evidence-c3-c4",
+     "conclusion": "success"
+    },
+    {
+     "name": "test-shard-3-of-4",
+     "conclusion": "success"
+    },
+    {
+     "name": "build",
+     "conclusion": "success"
+    },
+    {
+     "name": "d080-evidence-c5",
+     "conclusion": "success"
+    },
+    {
+     "name": "d080-evidence-c7-c10",
+     "conclusion": "success"
+    },
+    {
+     "name": "test-shard-2-of-4",
+     "conclusion": "success"
+    },
+    {
+     "name": "test-shard-4-of-4",
+     "conclusion": "success"
+    },
+    {
+     "name": "d080-evidence-c6",
+     "conclusion": "success"
+    },
+    {
+     "name": "test-shard-1-of-4",
+     "conclusion": "success"
+    },
+    {
+     "name": "typecheck",
+     "conclusion": "success"
+    },
+    {
+     "name": "detect-runtime-changes",
+     "conclusion": "skipped"
+    },
+    {
+     "name": "test",
+     "conclusion": "success"
+    },
+    {
+     "name": "skip-runtime-deploy",
+     "conclusion": "skipped"
+    },
+    {
+     "name": "publish-web-image",
+     "conclusion": "skipped"
+    },
+    {
+     "name": "publish-worker-image",
+     "conclusion": "skipped"
+    }
+   ]
   }
  ],
  "historicalFailFirstEvidence": {
@@ -4839,26 +5121,26 @@
  "teardownReadback": {
   "canonicalSupervisor": {
    "supervisedProcessGroupAbsent": true,
-   "processGroupId": 83573,
-   "readAtUtc": "2026-09-06T20:15:24.033671Z",
+   "processGroupId": 13426,
+   "readAtUtc": "2026-09-06T20:46:29.189608Z",
    "leftoverBeforeCleanup": [
     {
-     "pid": 58285,
-     "command": "sleep 90"
-    },
-    {
-     "pid": 58311,
-     "command": "sleep 90"
-    },
-    {
-     "pid": 91462,
+     "pid": 20860,
      "command": "sleep 900"
+    },
+    {
+     "pid": 87442,
+     "command": "sleep 90"
+    },
+    {
+     "pid": 87469,
+     "command": "sleep 90"
     }
    ],
    "terminatedOwnedSleepPids": [
-    58285,
-    58311,
-    91462
+    20860,
+    87442,
+    87469
    ]
   },
   "scope": "Original supervisor teardown and subsequent matching-process-group cleanup are separate observations. Child database teardown output is retained in the raw log. This generator does not independently enumerate listeners.",

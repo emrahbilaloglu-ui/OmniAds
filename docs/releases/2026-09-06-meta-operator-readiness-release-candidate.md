@@ -21,7 +21,31 @@ self-hash cycle.
 | divergence | 44 commits ahead, **0 behind** |
 | release diff | 281 files, +68,404 / −3,603 |
 
-## Current checkpoint — R13 source and validation
+## Current checkpoint — R14 source and validation
+
+The reviewed source is frozen at `444597262e7d271a0f46dcd93d2a80cdfe326e7f`; final candidate
+source before evidence packaging is `444597262e7d271a0f46dcd93d2a80cdfe326e7f`. The canonical
+record preserves the source identity that actually ran.
+
+R14 closes review finding 3945183060 at head 6d82ea965. The workspace route passes its request-local target pack into the resolver data source, so the Shopify AOV gate and downstream resolver use the same observed pack. One read supplies both decisions; a null result or read failure stays consistent throughout that request instead of a second read changing authority midway.
+
+Focused workspace/anchor/profile coverage passed 98 tests across six files, including six new route cases using the real profile path. A later fresh loader can recover once data is available; these tests bypass cache and do not prove immediate production cache invalidation. Root-recorded route lint, typecheck and diff checks passed before the test owner completed final edits; their original working-tree scope remains explicit. The final artifact/type checks follow packaging, and no new CI or live outcome is inferred from these local results. Prior R13 CI run 34057590665 completed successfully at head 6d82ea965db08c5d73ad4e3198e4619ce8c7ca2d: 12 eligible jobs passed and four PR-only jobs skipped. This green run does not validate the later R14 source. All known findings are corrected and locally reviewed. The release sequence allows ordinary merge under repository rules, followed by required full merged-main CI and both exact-SHA images before production; no admin bypass, disabled review, skipped test or workflow change is introduced.
+
+The 20:37Z whole-shell run passed all 40 ordered stages, exit 0, in 551.384
+seconds. The supervisor observed its process group absent at 2026-09-06T20:46:29.189608Z.
+The prior R13 20:06Z capture and its 21-case artifact acceptance remain
+historical, as do the R12 19:30Z and earlier captures, R11 final test
+head 2bff98ea and five older checks attributed to a605. None is relabelled as R14.
+Historical Claude runtime observations remain separate from current Codex
+probes. Final artifact, owner, lint and type checks follow packaging. All known
+Codex findings have been corrected and the source delta reviewed locally.
+Ordinary merge may proceed where repository rules allow; no admin bypass or
+workflow gate is disabled. Full CI on the actual merged main SHA and both
+exact-SHA image publications must pass before production deployment. Earlier
+PR CI proves its own source only; merge is not deployment acceptance. This
+checkpoint does not claim deployment or advertising activation.
+
+## Prior checkpoint — R13 (historical)
 
 The reviewed source is frozen at `3a03f2a0d023f89d5f0429664e47bbbee48e37ae`; final candidate
 source before evidence packaging is `3a03f2a0d023f89d5f0429664e47bbbee48e37ae`. The canonical
@@ -344,18 +368,18 @@ The sixth repin is different in kind from the first five, and the difference is
 the point. Those replaced a PASSING log whose child programs had changed. This
 one replaces a tree that FAILED the shell — see the round-4 section below.
 
-The canonical stage is the 20:06Z run on runtime/seam source freeze
-`3a03f2a0d023f89d5f0429664e47bbbee48e37ae`, retained at
-`docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T2006Z.log`:
+The canonical stage is the 20:37Z run on runtime/seam source freeze
+`444597262e7d271a0f46dcd93d2a80cdfe326e7f`, retained at
+`docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T2037Z.log`:
 
 | | |
 |---|---|
-| Start / end (UTC) | 2026-09-06T20:06:07.602503Z → 2026-09-06T20:15:23.800123Z |
-| Duration | 556.228 s |
+| Start / end (UTC) | 2026-09-06T20:37:17.440197Z → 2026-09-06T20:46:28.954715Z |
+| Duration | 551.384 s |
 | Exit code | 0 |
 | Stage headers | 40 |
 | Final line | `[verify-db-seams] PASS — 40 stages` |
-| Bytes | 662,191 |
+| Bytes | 662,047 |
 
 The three registered seam children report their counts inside it, each with
 `skipped=0`: `direct Launchpad create route approval-standing` 7/7, `Meta History
@@ -363,11 +387,11 @@ bid verb title` 2/2, and the newly registered `Meta History bid write journal
 admission` 6/6 — the last being the direct evidence that five previously dormant
 database assertions now actually execute.
 
-Nineteen raw captures are retained without editing their bytes: 2026-08-30
+Twenty raw captures are retained without editing their bytes: 2026-08-30
 (38-stage) and 2026-09-03 (40-stage) as earlier release evidence; 2026-09-06
 07:59Z, 10:30Z, 11:18Z, 11:56Z, 12:34Z, 13:17Z, 13:56Z, 14:43Z, 15:26Z,
-16:07Z, the failed 16:53Z attempt, 17:07Z, 17:40Z, 18:18Z, 18:50Z, 19:30Z and 20:06Z. The first fifteen same-day
-passing captures are superseded for the current tree; 20:06Z is the
+16:07Z, the failed 16:53Z attempt, 17:07Z, 17:40Z, 18:18Z, 18:50Z, 19:30Z, 20:06Z and 20:37Z. The first sixteen same-day
+passing captures are superseded for the current tree; 20:37Z is the
 current canonical capture. The 16:53Z attempt stopped at stage 15 with exit 1
 and is not acceptance evidence. Each capture describes its actual execution.
 

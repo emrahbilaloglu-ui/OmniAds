@@ -51,6 +51,7 @@ import {
   upsertMetaLaunchDraft,
 } from "@/lib/launchpad/meta-store";
 import { getMetaLaunchIntent } from "@/lib/launchpad/meta-launch-intent-store";
+import { handleMetaAddToExistingAction } from "@/lib/launchpad/meta-launch-route-handlers";
 import {
   parseCreateMetaCreativeBriefRequest,
   parsePatchMetaCreativeBriefRequest,
@@ -114,6 +115,58 @@ const MISSING_SOURCE_AD_ID = "2081000000431";
 const REVOKED_CREATIVE_ID = "2081000000341";
 const REVOKED_SOURCE_AD_ID = "2081000000441";
 
+/*
+  The WITHDRAWN-AFTER-STAGING fixtures.
+
+  `7d` and `7e` withdraw an approval before anything is staged, which the
+  producer's own candidate query already sees. These three withdraw it after the
+  intent exists and the queue row has been raised — the interval between the
+  staging and the provider POST, where the intent stores the brief's ID and
+  nothing re-asked whether that brief was still reviewed.
+
+  One withdrawal lands before the sweep, one inside the window between the
+  runtime's gate check and the first POST, and one after the first POST of a
+  three-POST create.
+*/
+const STAGED_WITHDRAWAL_CREATIVE_ID = "2081000000351";
+const STAGED_WITHDRAWAL_SOURCE_AD_ID = "2081000000451";
+const STAGED_WITHDRAWAL_NEW_AD_ID = "2081000000821";
+
+const PREFLIGHT_WITHDRAWAL_CREATIVE_ID = "2081000000361";
+const PREFLIGHT_WITHDRAWAL_SOURCE_AD_ID = "2081000000461";
+const PREFLIGHT_WITHDRAWAL_NEW_AD_ID = "2081000000831";
+
+const MIDSEQUENCE_CREATIVE_ID = "2081000000371";
+const MIDSEQUENCE_SOURCE_AD_ID = "2081000000471";
+const MIDSEQUENCE_NEW_CAMPAIGN_ID = "2081000000911";
+const MIDSEQUENCE_NEW_ADSET_ID = "2081000001011";
+const MIDSEQUENCE_NEW_AD_ID = "2081000001111";
+
+/*
+  And the one that is NOT a withdrawal.
+
+  `patchMetaCreativeBrief` moves a brief to `draft` on a content edit that does
+  not re-state `reviewed`, and leaves it `reviewed` when the edit does. The
+  second is an operator tidying the words of an approval they still stand
+  behind, and it must not stop the launch.
+*/
+/*
+  And the operator-approved mid-sequence case, which is chapter 9's.
+
+  The same withdrawal, on the arm a person presses Approve on: the queue row is
+  dispatched by `executeMetaAutomationProposal` into the Launchpad handler, and
+  the brief is un-reviewed once that handler's campaign create is answered.
+*/
+const MANUAL_MIDSEQUENCE_CREATIVE_ID = "2081000000391";
+const MANUAL_MIDSEQUENCE_SOURCE_AD_ID = "2081000000491";
+const MANUAL_MIDSEQUENCE_NEW_CAMPAIGN_ID = "2081000000921";
+const MANUAL_MIDSEQUENCE_NEW_ADSET_ID = "2081000001021";
+const MANUAL_MIDSEQUENCE_NEW_AD_ID = "2081000001121";
+
+const COSMETIC_CREATIVE_ID = "2081000000381";
+const COSMETIC_SOURCE_AD_ID = "2081000000481";
+const COSMETIC_NEW_AD_ID = "2081000000841";
+
 function fail(label: string, detail?: string): never {
   throw new Error(`${LABEL} FAILED [${label}]${detail ? `: ${detail}` : ""}`);
 }
@@ -126,6 +179,13 @@ function expectEqual(actual: unknown, expected: unknown, label: string) {
 
 function log(message: string) {
   console.log(`[${LABEL}] ${message}`);
+}
+
+/** The provider paths a slice of recorded calls POSTed to, in order. */
+function postPaths(calls: Recorded[]) {
+  return calls
+    .filter((call) => call.method === "POST")
+    .map((call) => new URL(call.url).pathname.split("/").slice(2).join("/"));
 }
 
 // ---------------------------------------------------------------------------
@@ -155,6 +215,26 @@ const SOURCE_ADS: Record<string, { creativeId: string; name: string }> = {
   [TEST_SOURCE_AD_ID]: { creativeId: TEST_CREATIVE_ID, name: "Refresh — hook B" },
   [MISSING_SOURCE_AD_ID]: { creativeId: MISSING_CREATIVE_ID, name: "Unapproved" },
   [REVOKED_SOURCE_AD_ID]: { creativeId: REVOKED_CREATIVE_ID, name: "Revoked" },
+  [STAGED_WITHDRAWAL_SOURCE_AD_ID]: {
+    creativeId: STAGED_WITHDRAWAL_CREATIVE_ID,
+    name: "Withdrawn after staging",
+  },
+  [PREFLIGHT_WITHDRAWAL_SOURCE_AD_ID]: {
+    creativeId: PREFLIGHT_WITHDRAWAL_CREATIVE_ID,
+    name: "Withdrawn during preflight",
+  },
+  [MIDSEQUENCE_SOURCE_AD_ID]: {
+    creativeId: MIDSEQUENCE_CREATIVE_ID,
+    name: "Withdrawn mid-sequence",
+  },
+  [COSMETIC_SOURCE_AD_ID]: {
+    creativeId: COSMETIC_CREATIVE_ID,
+    name: "Edited but still reviewed",
+  },
+  [MANUAL_MIDSEQUENCE_SOURCE_AD_ID]: {
+    creativeId: MANUAL_MIDSEQUENCE_CREATIVE_ID,
+    name: "Withdrawn mid-sequence, operator-approved",
+  },
 };
 
 type CreatedAd = {
@@ -169,11 +249,24 @@ type ProviderState = {
   ads: Map<string, CreatedAd>;
   /** `${adsetId}:${creativeId}` -> adId. A repeat here is a duplicated ad. */
   adSlots: Map<string, string>;
-  campaigns: Map<string, { status: string; objective: string }>;
+  campaigns: Map<string, { name: string; status: string; objective: string }>;
+  /**
+   * Campaign NAME -> id, and ad set `${campaignId}:${name}` -> id.
+   *
+   * The duplicate trap used to be "this file creates at most one campaign and
+   * one ad set", which stopped being sayable the moment a second test launch
+   * existed. A name is what identifies a create to the operator who composed
+   * it, so a repeat of one is a duplicate no matter how many launches the file
+   * grows — and unlike a pool of ids, this catches the duplicate even while
+   * spare ids remain.
+   */
+  campaignSlots: Map<string, string>;
+  adsetSlots: Map<string, string>;
   adsets: Map<
     string,
     {
       campaignId: string;
+      name: string;
       status: string;
       optimizationGoal: string;
       pixelId: string;
@@ -182,8 +275,42 @@ type ProviderState = {
   >;
 };
 
-/** The ids a create is answered with, in the order the fixture expects them. */
-const NEXT_AD_IDS = [NEW_AD_ID, AUTO_NEW_AD_ID, TEST_NEW_AD_ID];
+/**
+ * The ids a create is answered with, in the order the fixture expects them.
+ *
+ * The first five are the creates this file expects to really happen, in the
+ * order the chapters make them — the fourth being the RECOVERY of the launch
+ * whose approval was withdrawn during its preflight, which the operator re-runs
+ * from Launchpad after re-reviewing the brief. The last two belong to
+ * withdrawal chapters that must reach no provider at all, or reach it once and
+ * stop; they exist so that a regression produces a REAL created entity the
+ * assertions can name, rather than the double running out of ids and failing
+ * for a reason that hides which guard lapsed.
+ *
+ * Running out of ids is not the duplicate trap — `adSlots`, `campaignSlots` and
+ * `adsetSlots` are, and they fire on the repeat itself however many ids remain.
+ */
+const NEXT_AD_IDS = [
+  NEW_AD_ID,
+  AUTO_NEW_AD_ID,
+  TEST_NEW_AD_ID,
+  PREFLIGHT_WITHDRAWAL_NEW_AD_ID,
+  COSMETIC_NEW_AD_ID,
+  STAGED_WITHDRAWAL_NEW_AD_ID,
+  MIDSEQUENCE_NEW_AD_ID,
+  MANUAL_MIDSEQUENCE_NEW_AD_ID,
+];
+/** Same, for the three new-campaign launches and the ad sets under them. */
+const NEXT_CAMPAIGN_IDS = [
+  TEST_NEW_CAMPAIGN_ID,
+  MIDSEQUENCE_NEW_CAMPAIGN_ID,
+  MANUAL_MIDSEQUENCE_NEW_CAMPAIGN_ID,
+];
+const NEXT_ADSET_IDS = [
+  TEST_NEW_ADSET_ID,
+  MIDSEQUENCE_NEW_ADSET_ID,
+  MANUAL_MIDSEQUENCE_NEW_ADSET_ID,
+];
 
 function providerPayloadFor(
   objectId: string,
@@ -296,54 +423,86 @@ function installProvider(): {
   calls: Recorded[];
   state: ProviderState;
   restore: () => void;
+  /**
+   * Run something the moment a chosen provider call has been ANSWERED.
+   *
+   * The withdrawal chapters need a revocation committed at an exact point of a
+   * live sequence — during the preflight read, or between the campaign create
+   * and the ad set create. Nothing else can place it there: the sweep is one
+   * `await`, and a revocation written before or after it would prove a
+   * different thing entirely. The hook fires after the first call that matches,
+   * and disarms itself.
+   */
+  armWhen: (
+    match: (call: Recorded) => boolean,
+    hook: (call: Recorded) => Promise<void>,
+  ) => void;
 } {
   const calls: Recorded[] = [];
   const state: ProviderState = {
     ads: new Map(),
     adSlots: new Map(),
     campaigns: new Map(),
+    campaignSlots: new Map(),
+    adsetSlots: new Map(),
     adsets: new Map(),
   };
+  let armed: {
+    match: (call: Recorded) => boolean;
+    hook: (call: Recorded) => Promise<void>;
+  } | null = null;
   const original = globalThis.fetch;
-  globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
-    const url = String(input);
-    const method = (init?.method ?? "GET").toUpperCase();
-    if (!url.startsWith("https://graph.facebook.com/")) {
-      fail("provider double", `unexpected non-provider request to ${url}`);
-    }
-    // The write primitives send `URLSearchParams`, so the body is read through
-    // its own serializer rather than assumed to be a string.
-    const body =
-      typeof init?.body === "string"
-        ? init.body
-        : init?.body instanceof URLSearchParams
-          ? init.body.toString()
-          : init?.body == null
-            ? null
-            : String(init.body);
-    calls.push({ method, url, body });
-    const path = new URL(url).pathname.split("/").filter(Boolean).slice(1).join("/");
 
+  const answer = (input: {
+    method: string;
+    path: string;
+    body: string | null;
+  }): Response => {
+    const { method, path, body } = input;
     // A duplicated ad (creative reuse / winner promotion).
     if (method === "POST" && path === `act_${ACCOUNT_NUMERIC}/ads`) {
       const adsetId = bodyField(body, "adset_id");
       const creativeId = bodyCreativeId(body);
       return createAdOnDouble({ state, adsetId, creativeId, body });
     }
-    // A brand new campaign, for the test launch.
+    // A brand new campaign, for a test launch.
     if (method === "POST" && path === `act_${ACCOUNT_NUMERIC}/campaigns`) {
-      if (state.campaigns.has(TEST_NEW_CAMPAIGN_ID)) {
-        fail("provider double", "a second campaign create reached the provider");
+      const campaignName = bodyField(body, "name");
+      if (state.campaignSlots.has(campaignName)) {
+        fail(
+          "provider double",
+          `a second campaign create reached the provider for ${campaignName}`,
+        );
       }
-      state.campaigns.set(TEST_NEW_CAMPAIGN_ID, {
+      const campaignId = NEXT_CAMPAIGN_IDS[state.campaigns.size];
+      if (!campaignId) {
+        fail("provider double", "more campaign creates than the fixture expects");
+      }
+      state.campaigns.set(campaignId, {
+        name: campaignName,
         status: bodyField(body, "status") || "PAUSED",
         objective: bodyField(body, "objective"),
       });
-      return json({ id: TEST_NEW_CAMPAIGN_ID });
+      state.campaignSlots.set(campaignName, campaignId);
+      return json({ id: campaignId });
     }
-    if (method === "POST" && path === `${TEST_NEW_CAMPAIGN_ID}/adsets`) {
-      if (state.adsets.has(TEST_NEW_ADSET_ID)) {
-        fail("provider double", "a second ad set create reached the provider");
+    if (
+      method === "POST"
+      && path.endsWith("/adsets")
+      && state.campaigns.has(path.split("/")[0]!)
+    ) {
+      const campaignId = path.split("/")[0]!;
+      const adsetName = bodyField(body, "name");
+      const adsetSlot = `${campaignId}:${adsetName}`;
+      if (state.adsetSlots.has(adsetSlot)) {
+        fail(
+          "provider double",
+          `a second ad set create reached the provider for ${adsetSlot}`,
+        );
+      }
+      const adsetId = NEXT_ADSET_IDS[state.adsets.size];
+      if (!adsetId) {
+        fail("provider double", "more ad set creates than the fixture expects");
       }
       let promoted: { pixel_id?: string; custom_event_type?: string } = {};
       try {
@@ -351,14 +510,16 @@ function installProvider(): {
       } catch {
         promoted = {};
       }
-      state.adsets.set(TEST_NEW_ADSET_ID, {
-        campaignId: TEST_NEW_CAMPAIGN_ID,
+      state.adsets.set(adsetId, {
+        campaignId,
+        name: adsetName,
         status: bodyField(body, "status") || "PAUSED",
         optimizationGoal: bodyField(body, "optimization_goal"),
         pixelId: promoted.pixel_id ?? "",
         customEventType: promoted.custom_event_type ?? "",
       });
-      return json({ id: TEST_NEW_ADSET_ID });
+      state.adsetSlots.set(adsetSlot, adsetId);
+      return json({ id: adsetId });
     }
     // The ad inside a newly created ad set.
     if (method === "POST" && path.endsWith("/ads") && state.adsets.has(path.split("/")[0]!)) {
@@ -403,8 +564,41 @@ function installProvider(): {
       { error: { code: 100, message: `unmapped provider path ${method} ${path}` } },
       400,
     );
+  };
+
+  globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
+    const url = String(input);
+    const method = (init?.method ?? "GET").toUpperCase();
+    if (!url.startsWith("https://graph.facebook.com/")) {
+      fail("provider double", `unexpected non-provider request to ${url}`);
+    }
+    // The write primitives send `URLSearchParams`, so the body is read through
+    // its own serializer rather than assumed to be a string.
+    const body =
+      typeof init?.body === "string"
+        ? init.body
+        : init?.body instanceof URLSearchParams
+          ? init.body.toString()
+          : init?.body == null
+            ? null
+            : String(init.body);
+    const record: Recorded = { method, url, body };
+    calls.push(record);
+    const path = new URL(url).pathname.split("/").filter(Boolean).slice(1).join("/");
+    const response = answer({ method, path, body });
+    if (armed?.match(record)) {
+      const { hook } = armed;
+      armed = null;
+      await hook(record);
+    }
+    return response;
   }) as typeof fetch;
-  return { calls, state, restore: () => { globalThis.fetch = original; } };
+  return {
+    calls,
+    state,
+    restore: () => { globalThis.fetch = original; },
+    armWhen: (match, hook) => { armed = { match, hook }; },
+  };
 }
 
 /**
@@ -483,6 +677,14 @@ async function seed() {
        SET kill_switch_engaged = FALSE, guardrails_json = EXCLUDED.guardrails_json`,
     [BUSINESS_ID, JSON.stringify({ dryRunOnly: false })],
   );
+  /*
+    A note for whoever adds the next unattended chapter: `dailyAutoActionCap`
+    is left at its default of 3, and this file already settles exactly three
+    dispatches `approved` (7a, 7c and 8e). `claimScheduledMetaAutomationProposal`
+    refuses at `used >= cap`, so a FOURTH successful dispatch would never be
+    claimed — and the chapter would then pass for the wrong reason. The
+    withdrawal chapters settle `failed`, which that count does not include.
+  */
   /*
     The standing creative mode. `semi_auto` is the only mode this producer
     stages under: the operator approves each queue row and supplies the
@@ -807,11 +1009,25 @@ function reuseDraftPayload(creativeId: string, sourceAdId: string) {
 }
 
 /** The operator's composed TEST LAUNCH: a whole new campaign, all of it theirs. */
-function testLaunchDraftPayload(creativeId: string, sourceAdId: string) {
+/**
+ * `names` is what makes the double's duplicate trap exact.
+ *
+ * Two test launches composed with the same campaign and ad set names produce
+ * byte-identical create bodies, so the double could not tell a second launch
+ * from a second create OF a launch. Every test launch here names itself.
+ */
+function testLaunchDraftPayload(
+  creativeId: string,
+  sourceAdId: string,
+  names: { campaign: string; adSet: string } = {
+    campaign: "Test · refresh hook B",
+    adSet: "Test · broad",
+  },
+) {
   return {
     mode: "new_campaign",
     currencyCode: "USD",
-    campaign: { name: "Test · refresh hook B" },
+    campaign: { name: names.campaign },
     budget: {
       mode: "CBO",
       amountMinor: 5000,
@@ -823,7 +1039,7 @@ function testLaunchDraftPayload(creativeId: string, sourceAdId: string) {
     adSets: [
       {
         clientId: "adset-1",
-        name: "Test · broad",
+        name: names.adSet,
         optimizationGoal: "OFFSITE_CONVERSIONS",
         pixelId: TEST_PIXEL_ID,
         customEventType: "PURCHASE",
@@ -964,6 +1180,55 @@ async function readProposals() {
       ORDER BY created_at, id`,
     [BUSINESS_ID],
   )) as Array<Record<string, unknown>>;
+}
+
+/** The launch row for one intent, with the receipt the sweep settled it under. */
+async function readLaunchRowFor(intentId: string) {
+  const rows = (await getDb().query(
+    `SELECT id::text AS id, status, receipt_json
+       FROM meta_automation_proposals
+      WHERE business_id = $1::uuid
+        AND launch_intent_id = $2::uuid
+        AND proposed_action = 'launch'
+      ORDER BY created_at DESC, id
+      LIMIT 1`,
+    [BUSINESS_ID, intentId],
+  )) as Array<{
+    id: string;
+    status: string;
+    receipt_json: Record<string, unknown> | null;
+  }>;
+  return rows[0] ?? null;
+}
+
+/** The refusal code inside a settled receipt's response envelope, if it has one. */
+function receiptErrorCode(receipt: Record<string, unknown> | null | undefined) {
+  const response = receipt?.response;
+  if (!response || typeof response !== "object" || Array.isArray(response)) return null;
+  const error = (response as Record<string, unknown>).error;
+  if (!error || typeof error !== "object" || Array.isArray(error)) return null;
+  const code = (error as Record<string, unknown>).code;
+  return typeof code === "string" ? code : null;
+}
+
+/**
+ * The withdrawal itself, through the writer an operator's own edit goes
+ * through. `patchMetaCreativeBrief` clears `reviewed_by` and `reviewed_at` by
+ * its own SQL whenever the resulting status is not `reviewed`.
+ */
+async function revokeBriefReview(input: { briefId: string; version: number }) {
+  const brief = await patchMetaCreativeBrief({
+    businessId: BUSINESS_ID,
+    providerAccountId: ACCOUNT_ID,
+    id: input.briefId,
+    patch: parsePatchMetaCreativeBriefRequest({
+      expectedVersion: input.version,
+      status: "draft",
+    }),
+    updatedBy: USER_ID,
+  });
+  expectEqual(brief.status, "draft", "the brief really left `reviewed`");
+  return brief;
 }
 
 async function readIntents() {
@@ -1681,6 +1946,686 @@ async function main() {
       "the unattended chapter really used two distinct decisions",
     );
 
+    // ============================================================
+    // 8. THE APPROVAL WITHDRAWN AFTER THE INTENT WAS STAGED
+    // ============================================================
+    /*
+      7d and 7e withdraw an approval before anything is staged, which the
+      producer's candidate query sees for itself. The interval those two do not
+      cover is the one BETWEEN the staging and the provider POST.
+
+      An intent stores the brief's ID, not its status, so every immutability
+      check on the way to a create — the account, the operation, the idempotency
+      key, the request fingerprint, the four lineage ids — still matches after
+      the brief has been moved off `reviewed`. Nothing re-asked whether the
+      approval those ids point at still stood.
+    */
+
+    // ---------------- 8a. withdrawn after staging, before the sweep
+    const stagedWithdrawal = await seedApprovedDecision({
+      creativeId: STAGED_WITHDRAWAL_CREATIVE_ID,
+      sourceAdId: STAGED_WITHDRAWAL_SOURCE_AD_ID,
+      creativeName: "Withdrawn after staging",
+      label: "scale",
+      briefStatus: "reviewed",
+      draftName: "A launch whose brief is withdrawn once it is already staged",
+      draftPayload: reuseDraftPayload(
+        STAGED_WITHDRAWAL_CREATIVE_ID,
+        STAGED_WITHDRAWAL_SOURCE_AD_ID,
+      ),
+    });
+    const stagedWithdrawalStaging = await stageIntents();
+    expectEqual(
+      stagedWithdrawalStaging.staged,
+      1,
+      "the fully approved decision stages, so the refusal below is the withdrawal's",
+    );
+    const withdrawnIntentId = stagedWithdrawalStaging.stagedIntentIds[0]!;
+    expectEqual(
+      (await projectLaunchRows()).projected,
+      1,
+      "and its launch row is raised",
+    );
+
+    await revokeBriefReview({
+      briefId: stagedWithdrawal.briefId,
+      version: stagedWithdrawal.briefVersion,
+    });
+
+    const beforeWithdrawnSweep = provider.calls.length;
+    const withdrawnSweep = await runScheduledSweep();
+    expectEqual(
+      postPaths(provider.calls.slice(beforeWithdrawnSweep)),
+      [],
+      "a launch whose approval was withdrawn after staging reaches the provider with no write",
+    );
+    /*
+      And no provider request about this launch at all, not merely no write.
+
+      A withdrawal already committed before the sweep is caught where the
+      sequence FIRST asks — in `prepareMetaLaunchIntentForExecution`, ahead of
+      the write-context resolution, the validation and the preflight. The only
+      call the sweep still makes is the account context every tick loads before
+      it routes anything, which belongs to no particular row.
+    */
+    expectEqual(
+      provider.calls
+        .slice(beforeWithdrawnSweep)
+        .filter((call) => !call.url.includes(`act_${ACCOUNT_NUMERIC}?`))
+        .map((call) => `${call.method} ${new URL(call.url).pathname}`),
+      [],
+      "and reads nothing about this launch either",
+    );
+    expectEqual(
+      { executed: withdrawnSweep.executed, skipped: withdrawnSweep.skipped },
+      { executed: 0, skipped: null },
+      "and the sweep executed nothing",
+    );
+    const withdrawnRow = await readLaunchRowFor(withdrawnIntentId);
+    expectEqual(
+      withdrawnRow?.status,
+      "failed",
+      "the queue row is settled rather than left dangling",
+    );
+    expectEqual(
+      receiptErrorCode(withdrawnRow?.receipt_json),
+      "creative_brief_not_reviewed",
+      "and the receipt names the approval that was withdrawn",
+    );
+    expectEqual(
+      withdrawnRow?.receipt_json?.providerMutationAttempted,
+      false,
+      "a refused-authority row is not reported as a provider contact",
+    );
+    const withdrawnIntent = await getMetaLaunchIntent({
+      businessId: BUSINESS_ID,
+      id: withdrawnIntentId,
+    });
+    expectEqual(
+      [withdrawnIntent?.status, withdrawnIntent?.validationReceipt],
+      ["prepared", null],
+      "and the intent is refused rather than consumed — still prepared, still unvalidated",
+    );
+
+    // --------------- 8b. withdrawn INSIDE the preflight, before the first POST
+    /*
+      The interval the once-before-the-sequence read cannot cover.
+
+      8a's revocation lands before the sweep, so the check inside
+      `prepareMetaLaunchIntentForExecution` sees it. This one lands after that
+      check has already passed: the sweep has read its gates, prepared the
+      intent, resolved the write context and is in the middle of the fresh
+      provider preflight when the operator un-reviews the brief. Only a re-read
+      taken after the preflight can still prevent the create — and WHERE it is
+      taken decides what the refusal costs, which is 8c below.
+
+      The revocation is placed there by the provider double — it fires when the
+      preflight's own read of the source ad is answered — because nothing else
+      can put a committed write inside a single `await`.
+    */
+    const preflightWithdrawal = await seedApprovedDecision({
+      creativeId: PREFLIGHT_WITHDRAWAL_CREATIVE_ID,
+      sourceAdId: PREFLIGHT_WITHDRAWAL_SOURCE_AD_ID,
+      creativeName: "Withdrawn during preflight",
+      label: "scale",
+      briefStatus: "reviewed",
+      draftName: "A launch whose brief is withdrawn while the preflight runs",
+      draftPayload: reuseDraftPayload(
+        PREFLIGHT_WITHDRAWAL_CREATIVE_ID,
+        PREFLIGHT_WITHDRAWAL_SOURCE_AD_ID,
+      ),
+    });
+    const preflightStaging = await stageIntents();
+    expectEqual(preflightStaging.staged, 1, "the preflight case stages while approved");
+    const preflightIntentId = preflightStaging.stagedIntentIds[0]!;
+    expectEqual((await projectLaunchRows()).projected, 1, "and raises its launch row");
+
+    let withdrewInsidePreflight = false;
+    let preflightWithdrawnVersion = 0;
+    provider.armWhen(
+      (call) =>
+        call.method === "GET"
+        && call.url.includes(PREFLIGHT_WITHDRAWAL_SOURCE_AD_ID),
+      async () => {
+        const withdrawn = await revokeBriefReview({
+          briefId: preflightWithdrawal.briefId,
+          version: preflightWithdrawal.briefVersion,
+        });
+        preflightWithdrawnVersion = withdrawn.version;
+        withdrewInsidePreflight = true;
+      },
+    );
+    const beforePreflightSweep = provider.calls.length;
+    await runScheduledSweep();
+    expectEqual(
+      withdrewInsidePreflight,
+      true,
+      "the revocation really landed inside the sweep's own provider preflight",
+    );
+    expectEqual(
+      postPaths(provider.calls.slice(beforePreflightSweep)),
+      [],
+      "an approval withdrawn during the preflight still reaches no provider write",
+    );
+    const preflightRow = await readLaunchRowFor(preflightIntentId);
+    expectEqual(preflightRow?.status, "failed", "its queue row is settled too");
+    expectEqual(
+      receiptErrorCode(preflightRow?.receipt_json),
+      "creative_brief_not_reviewed",
+      "and names the withdrawn approval rather than a gate nobody closed",
+    );
+    expectEqual(
+      preflightRow?.receipt_json?.providerMutationAttempted,
+      false,
+      "with no provider contact claimed",
+    );
+    /*
+      And the INTENT is exactly where the sweep found it.
+
+      This is the half that decides whether the refusal above was a save or a
+      trap. `recordMetaLaunchIntentValidation` moves an intent `prepared ->
+      ready`, and `prepared` is the only state any caller may start a create
+      from — so a refusal taken after that write leaves a launch that reached
+      no provider and can never be run again either. The question is asked once
+      more immediately before that write for this reason: nothing was recorded,
+      nothing moved, and 8c is what that is worth.
+    */
+    const strandedIntent = await getMetaLaunchIntent({
+      businessId: BUSINESS_ID,
+      id: preflightIntentId,
+    });
+    expectEqual(
+      [
+        strandedIntent?.status,
+        strandedIntent?.startedAt,
+        strandedIntent?.validationReceipt,
+      ],
+      ["prepared", null, null],
+      "the refused intent is left prepared, unstarted and unvalidated",
+    );
+
+    // ---------------- 8c. and the launch it refused is still runnable after
+    /*
+      The operator un-reviewed the brief by accident, and re-reviews it.
+
+      Nothing in the queue brings a settled row back — a claimed row is always
+      settled, by contract — so recovery is the operator running the same
+      launch again from Launchpad, through the handler their own screen posts
+      to, with the intent the producer staged. It has to complete: one provider
+      ad, PAUSED, under the SAME intent rather than a replacement one, because
+      the producer will never stage a replacement for a decision it has already
+      staged.
+
+      Both authorities stay distinguishable through the recovery: the payload
+      still carries the producer's `decision_staged_approval`, and the action
+      log records the operator who ran it. Neither is invented from the other.
+    */
+    const rereviewed = await patchMetaCreativeBrief({
+      businessId: BUSINESS_ID,
+      providerAccountId: ACCOUNT_ID,
+      id: preflightWithdrawal.briefId,
+      patch: parsePatchMetaCreativeBriefRequest({
+        expectedVersion: preflightWithdrawnVersion,
+        status: "reviewed",
+      }),
+      updatedBy: USER_ID,
+    });
+    expectEqual(rereviewed.status, "reviewed", "the operator re-reviews that brief");
+
+    const recoveryIntent = await getMetaLaunchIntent({
+      businessId: BUSINESS_ID,
+      id: preflightIntentId,
+    });
+    const recoveryRequest = new NextRequest(
+      new URL(
+        "/api/launchpad/meta/add-to-existing",
+        "http://localhost",
+      ),
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          cookie: `${AUTH_COOKIE}=${fixture.token}`,
+        },
+        // The stored payload, replayed field for field. Anything composed here
+        // would be refused as `launch_intent_contract_mismatch`, because the
+        // fingerprint is taken over the whole payload.
+        body: JSON.stringify({
+          actionOrigin: "launchpad_manual_v1",
+          manualConfirmation: "explicit_operator_confirmation",
+          businessId: BUSINESS_ID,
+          providerAccountId: ACCOUNT_ID,
+          idempotencyKey: recoveryIntent?.idempotencyKey,
+          launchIntentId: preflightIntentId,
+          ...(recoveryIntent?.requestPayload as Record<string, unknown>),
+        }),
+      },
+    );
+    const beforeRecovery = provider.calls.length;
+    const recoveryResponse = await handleMetaAddToExistingAction(recoveryRequest);
+    const recoveryBody = (await recoveryResponse.json().catch(() => null)) as
+      | { ok?: boolean }
+      | null;
+    if (recoveryResponse.status !== 200 || recoveryBody?.ok !== true) {
+      fail(
+        "withdrawal recovery",
+        JSON.stringify({ status: recoveryResponse.status, body: recoveryBody }),
+      );
+    }
+    expectEqual(
+      postPaths(provider.calls.slice(beforeRecovery)),
+      [`act_${ACCOUNT_NUMERIC}/ads`],
+      "the re-run creates exactly one provider ad",
+    );
+    const recovered = await getMetaLaunchIntent({
+      businessId: BUSINESS_ID,
+      id: preflightIntentId,
+    });
+    expectEqual(
+      recovered?.status,
+      "succeeded",
+      "the SAME intent settles succeeded, without a replacement being staged",
+    );
+    expectEqual(
+      (recovered?.resultReceipt as { adIds?: string[] } | null)?.adIds,
+      [PREFLIGHT_WITHDRAWAL_NEW_AD_ID],
+      "with the durable identity of the ad the recovery created",
+    );
+    expectEqual(
+      provider.state.ads.get(PREFLIGHT_WITHDRAWAL_NEW_AD_ID)?.status,
+      "PAUSED",
+      "and it is PAUSED, as every launch is",
+    );
+    expectEqual(
+      (recovered?.resultReceipt as { executionAuthority?: unknown } | null)
+        ?.executionAuthority,
+      {
+        actionOrigin: "launchpad_decision_staged_v1",
+        manualConfirmation: "decision_staged_approval",
+      },
+      "the payload still carries the approval it was staged under",
+    );
+    const recoveryLog = (await readAdsActionLog()).filter(
+      (row) => row.launch_intent_id === preflightIntentId,
+    );
+    expectEqual(recoveryLog.length, 1, "one action-log row for the recovered create");
+    const recoveryLogPayload = recoveryLog[0]!.payload_request as Record<
+      string,
+      unknown
+    >;
+    expectEqual(
+      [recoveryLogPayload.action_origin, recoveryLogPayload.manual_confirmation],
+      ["launchpad_manual_v1", "explicit_operator_confirmation"],
+      "and an operator really ran it, which is what recovery is",
+    );
+
+    // ------------- 8d. withdrawn AFTER the first POST of a three-POST create
+    /*
+      A test launch is a campaign, then an ad set, then an ad. The withdrawal
+      lands once the campaign exists.
+
+      What must be true is all three at once: nothing below the campaign is
+      created, the campaign that DOES exist is reported and persisted, and the
+      intent settles `partially_succeeded` rather than claiming either a clean
+      success or a clean refusal.
+    */
+    const midSequence = await seedApprovedDecision({
+      creativeId: MIDSEQUENCE_CREATIVE_ID,
+      sourceAdId: MIDSEQUENCE_SOURCE_AD_ID,
+      creativeName: "Withdrawn mid-sequence",
+      label: "refresh",
+      briefStatus: "reviewed",
+      draftName: "A test launch whose brief is withdrawn after the campaign exists",
+      draftPayload: testLaunchDraftPayload(
+        MIDSEQUENCE_CREATIVE_ID,
+        MIDSEQUENCE_SOURCE_AD_ID,
+        { campaign: "Test · mid-sequence hook C", adSet: "Test · mid-sequence broad" },
+      ),
+    });
+    const midStaging = await stageIntents();
+    expectEqual(midStaging.staged, 1, "the mid-sequence case stages while approved");
+    const midIntentId = midStaging.stagedIntentIds[0]!;
+    expectEqual((await projectLaunchRows()).projected, 1, "and raises its launch row");
+
+    let withdrewAfterFirstPost = false;
+    provider.armWhen(
+      (call) =>
+        call.method === "POST"
+        && call.url.includes(`act_${ACCOUNT_NUMERIC}/campaigns`),
+      async () => {
+        await revokeBriefReview({
+          briefId: midSequence.briefId,
+          version: midSequence.briefVersion,
+        });
+        withdrewAfterFirstPost = true;
+      },
+    );
+    const beforeMidSweep = provider.calls.length;
+    await runScheduledSweep();
+    expectEqual(
+      withdrewAfterFirstPost,
+      true,
+      "the revocation really landed after the campaign create was answered",
+    );
+    expectEqual(
+      postPaths(provider.calls.slice(beforeMidSweep)),
+      [`act_${ACCOUNT_NUMERIC}/campaigns`],
+      "the campaign is created and every POST below it is withheld",
+    );
+    expectEqual(
+      provider.state.campaigns.get(MIDSEQUENCE_NEW_CAMPAIGN_ID)?.status,
+      "PAUSED",
+      "what did get created is the PAUSED campaign, and nothing else",
+    );
+    expectEqual(
+      provider.state.adsets.has(MIDSEQUENCE_NEW_ADSET_ID),
+      false,
+      "no ad set was created under it",
+    );
+    const midSettled = await getMetaLaunchIntent({
+      businessId: BUSINESS_ID,
+      id: midIntentId,
+    });
+    expectEqual(
+      midSettled?.status,
+      "partially_succeeded",
+      "the intent settles partially_succeeded, honestly",
+    );
+    expectEqual(
+      (midSettled?.resultReceipt as { campaignId?: string | null } | null)?.campaignId,
+      MIDSEQUENCE_NEW_CAMPAIGN_ID,
+      "the identity that really exists is durable",
+    );
+    const midError = midSettled?.errorReceipt as
+      | { code?: string; message?: string; failedAt?: string }
+      | null;
+    expectEqual(
+      [midError?.code, midError?.failedAt],
+      ["provider_mutation_withheld", "adset:1"],
+      "and the durable error names the step that was never asked for",
+    );
+    if (!midError?.message?.includes("creative_brief_not_reviewed")) {
+      fail(
+        "mid-sequence receipt",
+        `the reason did not name the withdrawal: ${String(midError?.message)}`,
+      );
+    }
+    const midRow = await readLaunchRowFor(midIntentId);
+    expectEqual(midRow?.status, "failed", "the queue row is settled, not parked");
+    expectEqual(
+      midRow?.receipt_json?.providerMutationAttempted,
+      true,
+      "and it reports the provider contact that really happened",
+    );
+
+    // ------------------ 8e. an edit that leaves the brief reviewed is not this
+    /*
+      The other half of the rule, and the one a fix can get wrong by refusing
+      everything.
+
+      `patchMetaCreativeBrief` is asked to change the brief's words AND to
+      re-state `reviewed`, which is what an operator does when they tidy an
+      approval they still stand behind. The status stays `reviewed`, the source
+      decision is untouched, and the launch must still run: exactly one PAUSED
+      ad, under the staged authority, with no operator confirmation.
+    */
+    const cosmetic = await seedApprovedDecision({
+      creativeId: COSMETIC_CREATIVE_ID,
+      sourceAdId: COSMETIC_SOURCE_AD_ID,
+      creativeName: "Edited but still reviewed",
+      label: "scale",
+      briefStatus: "reviewed",
+      draftName: "A launch whose brief is edited and re-reviewed",
+      draftPayload: reuseDraftPayload(COSMETIC_CREATIVE_ID, COSMETIC_SOURCE_AD_ID),
+    });
+    const cosmeticStaging = await stageIntents();
+    expectEqual(cosmeticStaging.staged, 1, "the edited-but-reviewed case stages");
+    const cosmeticIntentId = cosmeticStaging.stagedIntentIds[0]!;
+    expectEqual((await projectLaunchRows()).projected, 1, "and raises its launch row");
+
+    const editedBrief = await patchMetaCreativeBrief({
+      businessId: BUSINESS_ID,
+      providerAccountId: ACCOUNT_ID,
+      id: cosmetic.briefId,
+      patch: parsePatchMetaCreativeBriefRequest({
+        expectedVersion: cosmetic.briefVersion,
+        content: { keep: "Keep the opening frame — tightened wording" },
+        status: "reviewed",
+      }),
+      updatedBy: USER_ID,
+    });
+    expectEqual(
+      [editedBrief.status, editedBrief.version > cosmetic.briefVersion],
+      ["reviewed", true],
+      "the brief really was edited and really is still reviewed",
+    );
+
+    const beforeCosmeticSweep = provider.calls.length;
+    const cosmeticSweep = await runScheduledSweep();
+    expectEqual(
+      { executed: cosmeticSweep.executed, failed: cosmeticSweep.failed },
+      { executed: 1, failed: 0 },
+      "an edit that kept the review does not stop the launch",
+    );
+    expectEqual(
+      postPaths(provider.calls.slice(beforeCosmeticSweep)),
+      [`act_${ACCOUNT_NUMERIC}/ads`],
+      "and it is exactly one provider ad create",
+    );
+    const cosmeticSettled = await getMetaLaunchIntent({
+      businessId: BUSINESS_ID,
+      id: cosmeticIntentId,
+    });
+    expectEqual(cosmeticSettled?.status, "succeeded", "the intent settled succeeded");
+    const cosmeticAdIds =
+      (cosmeticSettled?.resultReceipt as { adIds?: string[] } | null)?.adIds ?? [];
+    expectEqual(cosmeticAdIds.length, 1, "one durable created identity");
+    expectEqual(
+      provider.state.ads.get(cosmeticAdIds[0]!)?.status,
+      "PAUSED",
+      "and what it created is PAUSED, as every launch is",
+    );
+    const cosmeticLog = (await readAdsActionLog()).filter(
+      (row) => row.launch_intent_id === cosmeticIntentId,
+    );
+    expectEqual(cosmeticLog.length, 1, "one action-log row for it");
+    const cosmeticLogPayload = cosmeticLog[0]!.payload_request as Record<string, unknown>;
+    expectEqual(
+      [cosmeticLog[0]!.source, cosmeticLog[0]!.requested_by],
+      ["launchpad_scheduled_v1", null],
+      "journalled as the sweep's own, with nobody named as requester",
+    );
+    if (JSON.stringify(cosmeticLogPayload).includes("explicit_operator_confirmation")) {
+      fail(
+        "cosmetic edit action log",
+        "an unattended create's journal claims an explicit operator confirmation",
+      );
+    }
+
+    // ------------------------------ 8f. the rerun after all three refusals
+    /*
+      A refusal must not become a duplicate on the next tick. Nothing may stage
+      a second intent for any of the three withdrawn decisions, and nothing may
+      create a second provider entity for the campaign that already exists.
+    */
+    const postsBeforeWithdrawalRerun = provider.calls.filter(
+      (call) => call.method === "POST",
+    ).length;
+    const intentsBeforeWithdrawalRerun = (await readIntents()).length;
+    const adsBeforeWithdrawalRerun = provider.state.ads.size;
+    const withdrawalRerunStaging = await stageIntents();
+    expectEqual(
+      withdrawalRerunStaging.staged,
+      0,
+      "the rerun stages no second intent for a withdrawn approval",
+    );
+    expectEqual(
+      (await projectLaunchRows()).projected,
+      0,
+      "and raises no second launch row",
+    );
+    const withdrawalRerunSweep = await runScheduledSweep();
+    expectEqual(
+      { executed: withdrawalRerunSweep.executed, failed: withdrawalRerunSweep.failed },
+      { executed: 0, failed: 0 },
+      "and the sweep has nothing left to execute",
+    );
+    expectEqual(
+      [
+        provider.calls.filter((call) => call.method === "POST").length,
+        (await readIntents()).length,
+        provider.state.ads.size,
+      ],
+      [
+        postsBeforeWithdrawalRerun,
+        intentsBeforeWithdrawalRerun,
+        adsBeforeWithdrawalRerun,
+      ],
+      "no second provider write, no second intent, no second entity",
+    );
+    expectEqual(
+      (await getMetaLaunchIntent({ businessId: BUSINESS_ID, id: midIntentId }))
+        ?.resultReceipt?.campaignId,
+      MIDSEQUENCE_NEW_CAMPAIGN_ID,
+      "and the partial identity from the interrupted launch is still exactly where it was",
+    );
+
+    // ==================================================================
+    // 9. THE SAME BOUNDARY, ON THE ARM AN OPERATOR APPROVES A ROW THROUGH
+    // ==================================================================
+    /*
+      Chapter 8 is the unattended arm. This is the attended one, and it had the
+      coverage 8b proves insufficient: `executeMetaAutomationProposal` handed
+      the Launchpad handler the dispatch marker alone, so the only approval read
+      on that path was the one inside `prepareMetaLaunchIntentForExecution` —
+      taken before the write context, the validation and a live provider
+      preflight, and then relied on for three or more POSTs.
+
+      A test launch is a campaign, then an ad set, then an ad. The operator
+      approves the row, and the brief is un-reviewed the moment the campaign
+      create is answered. What must be true is what 8d proved for the sweep:
+      the campaign exists and is reported, nothing below it is created, and the
+      intent settles partially_succeeded rather than claiming either outcome.
+    */
+    const manualMidSequence = await seedApprovedDecision({
+      creativeId: MANUAL_MIDSEQUENCE_CREATIVE_ID,
+      sourceAdId: MANUAL_MIDSEQUENCE_SOURCE_AD_ID,
+      creativeName: "Withdrawn mid-sequence, operator-approved",
+      label: "refresh",
+      briefStatus: "reviewed",
+      draftName: "A test launch an operator approves, withdrawn after its campaign",
+      draftPayload: testLaunchDraftPayload(
+        MANUAL_MIDSEQUENCE_CREATIVE_ID,
+        MANUAL_MIDSEQUENCE_SOURCE_AD_ID,
+        { campaign: "Test · approved hook D", adSet: "Test · approved broad" },
+      ),
+    });
+    const approvedArmStaging = await stageIntents();
+    expectEqual(
+      approvedArmStaging.staged,
+      1,
+      "the operator-approved case stages while approved",
+    );
+    const manualIntentId = approvedArmStaging.stagedIntentIds[0]!;
+    expectEqual((await projectLaunchRows()).projected, 1, "and raises its launch row");
+    const manualRowBefore = await readLaunchRowFor(manualIntentId);
+
+    let withdrewAfterManualFirstPost = false;
+    provider.armWhen(
+      (call) =>
+        call.method === "POST"
+        && call.url.includes(`act_${ACCOUNT_NUMERIC}/campaigns`),
+      async () => {
+        await revokeBriefReview({
+          briefId: manualMidSequence.briefId,
+          version: manualMidSequence.briefVersion,
+        });
+        withdrewAfterManualFirstPost = true;
+      },
+    );
+    const beforeManualApproval = provider.calls.length;
+    const manualApproval = await approveProposal({
+      token: fixture.token,
+      proposalId: String(manualRowBefore?.id),
+    });
+    expectEqual(
+      withdrewAfterManualFirstPost,
+      true,
+      "the revocation really landed after the operator's own campaign create",
+    );
+    /*
+      The route's own `ok` is about the REQUEST — it answers with the refreshed
+      queue — so the launch's outcome is read from the row it settled.
+    */
+    expectEqual(manualApproval.status, 200, "the approve request itself is answered");
+    expectEqual(
+      postPaths(provider.calls.slice(beforeManualApproval)),
+      [`act_${ACCOUNT_NUMERIC}/campaigns`],
+      "the campaign is created and every POST below it is withheld",
+    );
+    expectEqual(
+      provider.state.adsets.has(MANUAL_MIDSEQUENCE_NEW_ADSET_ID),
+      false,
+      "no ad set was created under it",
+    );
+    const manualSettled = await getMetaLaunchIntent({
+      businessId: BUSINESS_ID,
+      id: manualIntentId,
+    });
+    expectEqual(
+      manualSettled?.status,
+      "partially_succeeded",
+      "the intent settles partially_succeeded, honestly",
+    );
+    expectEqual(
+      (manualSettled?.resultReceipt as { campaignId?: string | null } | null)
+        ?.campaignId,
+      MANUAL_MIDSEQUENCE_NEW_CAMPAIGN_ID,
+      "the identity that really exists is durable",
+    );
+    const manualError = manualSettled?.errorReceipt as
+      | { code?: string; message?: string; failedAt?: string }
+      | null;
+    expectEqual(
+      [manualError?.code, manualError?.failedAt],
+      ["provider_mutation_withheld", "adset:1"],
+      "and the durable error names the step that was never asked for",
+    );
+    if (!manualError?.message?.includes("creative_brief_not_reviewed")) {
+      fail(
+        "operator-approved mid-sequence receipt",
+        `the reason did not name the withdrawal: ${String(manualError?.message)}`,
+      );
+    }
+    /*
+      And the operator's own authority is untouched by the check that refused.
+      The row was approved with an explicit confirmation, and the campaign that
+      DID get created is journalled under it.
+    */
+    const manualLogRows = (await readAdsActionLog()).filter(
+      (row) => row.launch_intent_id === manualIntentId,
+    );
+    if (manualLogRows.length === 0) {
+      fail("operator-approved mid-sequence log", "the campaign create was not journalled");
+    }
+    const manualLogFirst = manualLogRows[0]!.payload_request as Record<string, unknown>;
+    expectEqual(
+      [manualLogFirst.action_origin, manualLogFirst.manual_confirmation],
+      ["launchpad_manual_v1", "explicit_operator_confirmation"],
+      "the arm's own authority is unchanged: an operator confirmed this launch",
+    );
+    const manualRowAfter = await readLaunchRowFor(manualIntentId);
+    expectEqual(manualRowAfter?.status, "failed", "the queue row is settled, not parked");
+    expectEqual(
+      [
+        manualRowAfter?.receipt_json?.httpStatus,
+        (manualRowAfter?.receipt_json?.response as Record<string, unknown> | null)
+          ?.withheldReason,
+      ],
+      [409, "creative_brief_not_reviewed"],
+      "and its receipt names the withdrawal that stopped the rest of the launch",
+    );
+
     log(
       "PASS: an eligible decision with a reviewed brief and an operator-composed draft "
       + "stages one PAUSED launch intent, raises one launch row, creates exactly one "
@@ -1692,7 +2637,22 @@ async function main() {
       + "PAUSED test-launch hierarchy with no operator confirmation anywhere in the "
       + "journal, activation still waits for its own approval, a family taken off auto "
       + "and a missing or revoked approval each reach the provider with zero writes, and "
-      + "the rerun duplicates neither an intent nor a provider entity.",
+      + "the rerun duplicates neither an intent nor a provider entity. "
+      + "An approval WITHDRAWN after the intent was already staged reaches no "
+      + "provider either — before the sweep, inside the sweep's own preflight, "
+      + "and after the first POST of a three-POST create, where the campaign "
+      + "that exists stays reported and the intent settles partially_succeeded. "
+      + "A refusal that reached no provider leaves the intent prepared, "
+      + "unstarted and unvalidated, so re-reviewing the brief and re-running the "
+      + "SAME launch from Launchpad completes it — one PAUSED ad, the producer's "
+      + "staged approval still on the payload and the operator's own "
+      + "confirmation in the journal. A brief that was edited and re-reviewed "
+      + "still launches; and the rerun after all three refusals duplicates "
+      + "nothing. The same boundary binds on the arm an OPERATOR approves a "
+      + "queue row through: a brief un-reviewed the moment that launch's "
+      + "campaign create is answered leaves the campaign reported and every "
+      + "POST below it unmade, with the operator's own confirmation still the "
+      + "authority on the row.",
     );
   } finally {
     provider.restore();

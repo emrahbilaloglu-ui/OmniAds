@@ -784,6 +784,34 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       );
     }
 
+    /*
+      DELIBERATELY BUSINESS-WIDE, and not scoped to a physical ad account.
+
+      `lib/creative-decision-engine/jobs/decisions-job.ts` and
+      `lib/creative-decision-engine/jobs/lifecycle-job.ts` wrap this same
+      resolver in `AccountScopedDataSource`, because each of their outputs is
+      keyed on one `provider_account_id` and a pooled profile therefore lets one
+      account's samples set another's thresholds. This route is the other case,
+      and scoping it would be the opposite mistake.
+
+      It takes ONE parameter, `businessId` (the sole `searchParams` read in this
+      file), and there is no account to scope to. Every other section it returns
+      is business-grained by construction — `readDataHealth`, `readJobs`,
+      `readMatureCount`, `readDecisionsSummary`, `readNativeAdReadiness` and
+      `readCompactionReadinessSection` are each given `business.id` as their
+      only subject, and `gating` is computed from the business's job runs and
+      this profile. Pinning an arbitrary account onto the profile alone would
+      make one block of this payload speak for a different subject than the
+      rest, and would report one account's calibration readiness as the gate on
+      business-wide jobs.
+
+      It is also the reading the accepted serve path already gives a request
+      that names no account: `app/api/meta/decisions-workspace/route.ts` scopes
+      only when a `providerAccountId` is present, on the grounds that with none
+      "there is nothing to scope to and nothing to contradict". No retained
+      per-account verdict speaks for the business, and this route never claims
+      one does.
+    */
     const dataSource = new WarehouseDataSource();
     const profileInput = {
       businessId: business.id,

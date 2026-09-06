@@ -49,6 +49,7 @@ import {
   type MetaLaunchIntent,
 } from "@/lib/launchpad/meta-launch-intent";
 import { prepareMetaLaunchIntentForExecution } from "@/lib/launchpad/meta-launch-intent-service";
+import { readMetaLaunchIntentApprovalStanding } from "@/lib/launchpad/meta-launch-intent-lineage";
 import {
   getMetaLaunchIntent,
   recordMetaLaunchIntentPreExecutionFailure,
@@ -324,12 +325,25 @@ export function createScheduledLaunchRuntime(
       return withheld("composition_blocked");
     }
     /*
-      `prepared` is the only state a create may start from, and the service
-      refuses anything else. Reading it here means a launch an operator has
-      already run — or one the wizard is running right now — is refused before
-      any account resolution or provider read, not after.
+      A create may start from `prepared`, or from a VALIDATED intent that never
+      started one — and the service applies the identical predicate.
+
+      Validation moves an intent `prepared` -> `ready` before the first provider
+      POST, so a create refused at the pre-POST boundary leaves a `ready` intent
+      that reached nobody. Refusing that here too would make a withdrawn-then-
+      restored approval permanently unlaunchable with nothing created.
+      `started_at` is still the line that matters: `markMetaLaunchIntentExecuting`
+      is its only writer, it demands `ready`, and it runs before the first POST —
+      so an intent that ever reached a provider is refused by the check below.
+
+      Reading both here means a launch an operator has already run — or one the
+      wizard is running right now — is refused before any account resolution or
+      provider read, not after.
     */
-    if (intent.status !== "prepared") return withheld("launch_intent_not_prepared");
+    const mayStart =
+      intent.status === "prepared"
+      || (intent.status === "ready" && intent.startedAt === null);
+    if (!mayStart) return withheld("launch_intent_not_prepared");
     if (intent.startedAt !== null) return withheld("launch_intent_not_prepared");
     /*
       The payload still hashes to what was approved.
@@ -365,10 +379,24 @@ export function createScheduledLaunchRuntime(
       per create is what makes those four gates bind for the whole sequence.
     */
     let lateRefusal: BudgetProposalWithheldReason | null = null;
+    /*
+      The other kind of late refusal: the STAGED APPROVAL was withdrawn.
+
+      It is kept apart from `lateRefusal` because it is not one of the receipt's
+      withheld reasons and must not be flattened into one. A gate an operator
+      closed and an approval an operator withdrew are different facts, and the
+      settled row below names this one with the lineage code itself.
+    */
+    let lateWithdrawal: { code: string; message: string } | null = null;
     const refuse = (
       reason: BudgetProposalWithheldReason,
     ): MetaLaunchProviderMutationVerdict => {
       lateRefusal = reason;
+      // Exactly one of the two describes the LAST boundary answer, so each
+      // clears the other. A gate that closed after a withdrawal was already
+      // seen must not be settled under the withdrawal's code, or the other way
+      // round.
+      lateWithdrawal = null;
       return { allowed: false, reason };
     };
     const beforeProviderMutation = async (): Promise<MetaLaunchProviderMutationVerdict> => {
@@ -388,6 +416,34 @@ export function createScheduledLaunchRuntime(
       if (!verdict.authorized) return refuse(verdict.refusal);
       const lateGate = launchpadCreateGateRefusal();
       if (lateGate) return refuse(lateGate);
+      /*
+        The approval SOURCE, re-read from the current rows before every POST.
+
+        `runScheduledLaunchCreate` asks this through
+        `prepareMetaLaunchIntentForExecution` before it does anything, and once
+        more immediately before the validation receipt is persisted — the last
+        moment a refusal leaves the intent untouched. Both answers are already
+        stale by the time the first request leaves, and for a new campaign two
+        more creates with read-backs between them follow. An operator can
+        un-review the brief in any of those gaps, and this is the only ask that
+        sits between one POST and the next.
+
+        It is asked BEFORE the dispatch marker below, so a withdrawn approval
+        never stamps write-ahead intent for a call that will not be made. The
+        lineage read is the same one `createMetaLaunchIntent` made; it never
+        consults the staged payload, which cannot tell anybody whether the
+        approval behind it still stands.
+      */
+      const standing = await readMetaLaunchIntentApprovalStanding({
+        businessId: intent.businessId,
+        providerAccountId: intent.providerAccountId,
+        lineage: intent.lineage,
+      });
+      if (!standing.stands) {
+        lateRefusal = null;
+        lateWithdrawal = { code: standing.code, message: standing.message };
+        return { allowed: false, reason: standing.code };
+      }
       if (input.beforeProviderPost) {
         /*
           The write-ahead dispatch marker, which is idempotent for one attempt:
@@ -403,6 +459,7 @@ export function createScheduledLaunchRuntime(
         a receipt this one is allowed to write.
       */
       lateRefusal = null;
+      lateWithdrawal = null;
       return true;
     };
 
@@ -449,6 +506,34 @@ export function createScheduledLaunchRuntime(
     const boundaryVetoed = boundaryError === "dispatch_marker_unavailable"
       || boundaryError === META_LAUNCH_PROVIDER_MUTATION_WITHHELD_CODE;
     if (boundaryVetoed && outcome.providerMutationAttempted === false) {
+      /*
+        A withdrawal is not a withheld GATE, and saying it was would name the
+        wrong thing on the operator's own receipt. The row settles with the
+        lineage code that refused it, and `providerMutationAttempted: false`
+        keeps a refused-authority row from reading as a provider contact.
+      */
+      if (lateWithdrawal) {
+        return {
+          ok: false,
+          receipt: {
+            httpStatus: 409,
+            response: {
+              ok: false,
+              error: lateWithdrawal,
+              launchIntentId: intent.id,
+            },
+            dryRun: false,
+            dispatchedAt: now().toISOString(),
+            endpoint,
+            withheld: null,
+            receiptKey: claimToken,
+            providerMutationAttempted: false,
+          },
+          reconcile: false,
+          rollbackRequested: false,
+          journalId: null,
+        };
+      }
       return withheld(lateRefusal ?? "dispatch_marker_unavailable");
     }
 
@@ -494,6 +579,46 @@ function launchpadCreateGateRefusal(): BudgetProposalWithheldReason | null {
     return "launchpad_safety_step_missing";
   }
   return null;
+}
+
+/**
+ * The staged approval, asked about once more at the last moment it is free.
+ *
+ * `prepareMetaLaunchIntentForExecution` asks before any work is done, and the
+ * pre-POST boundary asks before every create. Between those two sits the one
+ * write that costs the intent something: `recordMetaLaunchIntentValidation`
+ * moves it `prepared -> ready`, and `ready` is a state no caller can start a
+ * create from again. A withdrawal seen only at the boundary therefore refuses
+ * correctly — nothing is created — but leaves the intent somewhere the operator
+ * cannot re-run it after re-reviewing the brief, which turns an accident into a
+ * dead launch.
+ *
+ * So the question is asked once more immediately before that transition, where
+ * a refusal still costs nothing at all: no receipt is written, no status
+ * changes, and the intent is left exactly as the sweep found it. The queue
+ * row's own receipt carries the reason.
+ *
+ * This does NOT replace the boundary check and cannot: the two are separated by
+ * that write plus the create primitive's own entry, and only the boundary sits
+ * between the POSTs of a multi-step launch. What it removes is the window that
+ * was seconds wide — the write context, the validation and a live provider
+ * preflight — and left the intent stranded when it closed.
+ */
+async function refuseIfStagedApprovalWithdrawn(
+  intent: MetaLaunchIntent,
+): Promise<MetaLaunchExecutionOutcome | null> {
+  const standing = await readMetaLaunchIntentApprovalStanding({
+    businessId: intent.businessId,
+    providerAccountId: intent.providerAccountId,
+    lineage: intent.lineage,
+  });
+  if (standing.stands) return null;
+  return refusalOutcome({
+    status: 409,
+    code: standing.code,
+    message: standing.message,
+    extra: { launchIntentId: intent.id },
+  });
 }
 
 function refusalOutcome(input: {
@@ -756,6 +881,15 @@ async function runScheduledNewCampaign(
         ?? "The selected Meta creative identity could not be proven."
       }`,
     }));
+  /*
+    The last free moment. The write below moves the intent out of `prepared`,
+    and an approval withdrawn during the validation or the preflight above has
+    to be answered while that is still undone.
+  */
+  if (creativePreflight.ok) {
+    const withdrawn = await refuseIfStagedApprovalWithdrawn(intent);
+    if (withdrawn) return withdrawn;
+  }
   await recordMetaLaunchIntentValidation({
     businessId,
     id: intent.id,
@@ -928,6 +1062,16 @@ async function runScheduledAddToExisting(
       ],
       checks: [],
     };
+  }
+  /*
+    The last free moment, as above. The write below is what moves the intent out
+    of `prepared`, and the live hierarchy preflight it follows is a provider
+    round trip — the widest gap in this sequence for an operator to un-review
+    the brief in.
+  */
+  if (livePreflight.ok) {
+    const withdrawn = await refuseIfStagedApprovalWithdrawn(intent);
+    if (withdrawn) return withdrawn;
   }
   await recordMetaLaunchIntentValidation({
     businessId,

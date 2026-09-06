@@ -139,7 +139,7 @@ describe("Meta LaunchIntent store", () => {
     expect(queries.some((query) => query.includes("INSERT INTO"))).toBe(false);
   });
 
-  it("allows validation only from prepared and outcome only from executing", async () => {
+  it("allows validation from prepared or an unstarted ready, and outcome only from executing", async () => {
     const validationReceipt = buildMetaLaunchIntentValidationReceipt({
       providerAccountId: "act_123",
       ok: true,
@@ -155,7 +155,20 @@ describe("Meta LaunchIntent store", () => {
       receipt: validationReceipt,
     });
     const validationQuery = String(sql.mock.calls[0]?.[0]?.join(" ") ?? "");
-    expect(validationQuery).toContain("AND status = 'prepared'");
+    /*
+      `ready` joined `prepared` here, matching the two sibling writers.
+
+      Validation moves an intent prepared -> ready BEFORE the first provider
+      POST, so a create refused at the pre-POST boundary (a withdrawn approval,
+      a gate that closed) leaves a ready intent that reached nobody. Admitting
+      only prepared made the operator's re-run of that launch throw a transition
+      error on its way back through validation — an unhandled 500 — and left the
+      launch permanently dead with nothing created on Meta. The line that still
+      separates an attempt from a non-attempt is `started_at`, written only by
+      `markMetaLaunchIntentExecuting`, which still demands ready.
+    */
+    expect(validationQuery).toContain("AND status IN ('prepared', 'ready')");
+    expect(validationQuery).not.toContain("AND status = 'prepared'");
 
     sql.mockResolvedValueOnce([
       {

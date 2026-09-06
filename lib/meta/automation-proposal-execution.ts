@@ -39,6 +39,14 @@
  * `handleMetaLaunchIntentActivateAction` — which is why those bodies were moved
  * out of `app/` at all. Nothing about a create or an activation is reimplemented
  * here, and this module still imports no provider client and no action log.
+ *
+ * The one thing a caller of those handlers has to supply for itself is the
+ * pre-POST boundary. The handler asks it before every provider create, and only
+ * the caller knows whether the claim it is dispatching under — and the approval
+ * the payload was staged under — still hold at that moment. Both are answered
+ * by `beforeProviderMutation` in the launch branch below, the second through
+ * the same shipped lineage read the intent was created against rather than a
+ * second copy of the rule, and neither ever manufactures an authority.
  */
 import { NextRequest } from "next/server";
 
@@ -52,6 +60,7 @@ import {
   handleMetaLaunchAction,
 } from "@/lib/launchpad/meta-launch-route-handlers";
 import { handleMetaLaunchIntentActivateAction } from "@/lib/meta/launch-activation-route-handlers";
+import { readMetaLaunchIntentApprovalStanding } from "@/lib/launchpad/meta-launch-intent-lineage";
 import type { MetaLaunchIntent } from "@/lib/launchpad/meta-launch-intent";
 import type {
   MetaAutomationProposal,
@@ -355,12 +364,43 @@ export async function executeMetaAutomationProposal(input: {
         }),
       },
     );
+    /*
+      The pre-POST boundary an approved launch row is dispatched under.
+
+      It used to be the dispatch marker alone. A launch is three or more
+      provider POSTs separated by read-backs, and the handler's own approval
+      read happens once, before the write context, the validation and a live
+      provider preflight — so an operator who un-reviewed the brief in any of
+      those gaps had the rest of the launch built for them anyway. The marker
+      cannot see that: it answers about this claim, not about the approval the
+      payload was staged under.
+
+      Both are asked here, in that order, and the marker is only fired for a
+      create that is still authorized — a withdrawn approval must not leave
+      write-ahead dispatch intent for a call that will not be made. Nothing
+      about WHAT authorizes this arm changes: the body above still carries the
+      operator's own `launchpad_manual_v1` confirmation, and this read never
+      supplies one. `false` is returned unchanged so a marker that could not be
+      written still refuses exactly as it did.
+    */
+    const beforeProviderMutation = async () => {
+      const standing = await readMetaLaunchIntentApprovalStanding({
+        businessId: input.businessId,
+        providerAccountId: intent.providerAccountId,
+        lineage: intent.lineage,
+      });
+      if (!standing.stands) {
+        return { allowed: false as const, reason: standing.code };
+      }
+      if (!input.markDispatchStarted) return true;
+      return input.markDispatchStarted();
+    };
     const launchResponse = addToExisting
       ? await handleMetaAddToExistingAction(launchRequest, {
-          beforeProviderMutation: input.markDispatchStarted,
+          beforeProviderMutation,
         })
       : await handleMetaLaunchAction(launchRequest, {
-          beforeProviderMutation: input.markDispatchStarted,
+          beforeProviderMutation,
         });
     const launchPayload = (await launchResponse.json().catch(() => null)) as unknown;
     return {

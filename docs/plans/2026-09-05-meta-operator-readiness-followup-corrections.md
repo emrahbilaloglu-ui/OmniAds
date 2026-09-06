@@ -591,35 +591,136 @@ corrected.
   pins a sha256 per file in the cumulative release diff, now lists ~78 files
   from this delivery, and is regenerated at release time.
 
+## Round four — the two remaining acceptance gaps
+
+Reviewed at `d7fee45e1`. Two agents closed the gaps, two **adversarial
+verifiers** re-drove them, and three more repaired what the verifiers found.
+Both original fixes were confirmed correct — each verifier reverted the guard on
+a scratch copy and reproduced the defect, then watched the fix remove it — so
+the repairs below are follow-on problems, not redone work.
+
+### Gap 1 — the SERVED account profile used pooled measurements · **CLOSED**
+
+`loadCommercialAnchorProfile` built a plain `WarehouseDataSource`, so
+`getAccountCalibration`, its funnel and by-kind twins and `getMetaAttributedAov`
+all defaulted to the pooled `account/*` scope while only `observedShopifyAov`
+was account-scoped. Reproduced at the real route: account A served
+`scale: eligible` off `accountCpaSampleCount: 38` — A's 6 converters plus B's 32
+— while A's own retained row said `scale: false / scale_calibration_below_floor`.
+
+Fixed with `AccountScopedDataSource`, a **delegating wrapper** that scopes only
+the MEASURED reads and forwards everything else verbatim; configured policy (the
+target pack, the decision calibration profile, engine flags) stays business
+level. A wrapper rather than a subclass, and that was forced by evidence: an ES
+subclass binds its base at class-definition time, which silently defeated a
+suite that `vi.mock`s the data-source module and handed the route the real
+warehouse back.
+
+**Verifier repair 1 — a deploy-day hold.** The named hold
+`account_calibration_scope_not_materialised` is gated on per-account calibration
+scopes, and the job that writes them shipped in `058a1c8f6`. So on deploy every
+account's anchor would go blank until the next calibration run — the same class
+as the Shopify no-backfill regression this delivery already fixed once. The
+probe now distinguishes four states, not two: `materialised`, `absent` (a
+sibling has one, so this account is genuinely uncovered), `per_account_scopes_unwritten`
+(nobody has one — the pass has not run), and `unreadable`. The transitional
+state serves the pooled reading **labelled** `business_pooled` with
+`providerAccountId: null` on `system.commercialAnchor.measurementScope` — which
+is exactly what the previous release served, on the terms it already had — and
+the retention producer reaches the same verdict in the same state, so serve and
+retain never contradict. One calibration run later the account is served its
+own numbers. An unreadable probe says so distinctly rather than posing as
+absence.
+
+**Verifier repair 2 — three more pooled callers.** `decisions-job.ts` and
+`lifecycle-job.ts` resolved the profile business-wide for retained per-ad
+output, so the anchor panel was A's while the cards beside it were still A+B.
+Both now wrap the same way. `app/api/admin/engine-v3/readiness/route.ts` was
+judged genuinely business-grained — it takes only a `businessId` and every other
+section it returns is business-grained by construction — and says so in a
+comment at the site rather than being changed to match.
+
+### Gap 2 — a brief withdrawn AFTER staging reached the automatic create · **CLOSED**
+
+`verifyMetaLaunchIntentLineage` — the function that enforces
+`brief.status === "reviewed"` — had exactly one non-test caller, at intent
+CREATION. The existing-ID branch of `prepareMetaLaunchIntentForExecution`
+compares the account, operation, idempotency key, request fingerprint and the
+four lineage ids, all of which still match after the brief those ids point at is
+reverted to draft, because the intent stores the brief's ID and not its status.
+Reproduced on a migrated database driving the shipped chain: a withdrawn brief
+produced a real provider ad create.
+
+`readMetaLaunchIntentApprovalStanding` re-asks the original question of the
+CURRENT rows, through the same verifier rather than a second copy of the rule.
+It is called last in the existing-ID branch — after the already-consumed and
+ambiguous-outcome checks, so a withdrawal cannot make a launch that may already
+be live look like one that never ran — and inside `beforeProviderMutation`,
+before the write-ahead dispatch marker, so it is asked once per provider POST.
+A verifier confirmed coverage of every reachable POST: campaign, ad set, ad and
+the per target × creative duplicate.
+
+**Verifier repair 3 — six follow-ups.** The serious one: a boundary refusal left
+the intent `ready`, and since a create could only start from `prepared`, the
+launch was **permanently dead with nothing created on Meta** — re-reviewing the
+brief could not revive it and the producer will not stage a replacement. Closed
+from both sides: the standing question is now asked once more immediately before
+the `prepared → ready` transition is persisted, so a refusal there writes
+nothing and moves nothing; and a create may now start from a validated intent
+that never started one (`ready` with `started_at IS NULL`, a structurally proven
+non-attempt — `markMetaLaunchIntentExecuting` is the only writer of
+`started_at`). The manual queue-approval arm passed only the dispatch marker as
+its boundary, so an operator-approved launch had exactly the coverage the
+scheduled arm was just fixed for; it now reads standing first. Three docstrings
+that overstated which withdrawal modes are reachable were corrected —
+`ON DELETE RESTRICT` makes brief-not-found and draft-not-found impossible for a
+bound intent, and the source decision is immutable — the decision-only lineage
+exemption was closed rather than left safe by accident, and the seam's blanket
+duplicate-create trap was restored.
+
 ## Gates
 
-| Gate | Round two (`d1746f1df`) | Round three (`058a1c8f6`) |
-|---|---|---|
-| `npx tsc --noEmit` | 0 | 0 |
-| `npm run lint` | 0 | 0 |
-| `scripts/verify-whitespace.sh` | PASS | PASS |
-| `npx vitest run` (full) | 17,448 passed, 2 failed | **17,551 passed, 3 failed** |
-| `npm run test:migrations-from-zero` | PASS, exit 0 | **PASS, exit 0** |
-| Mounted browser acceptance | card Apply at 1512 px | **card Apply at 1280 and 390 px, 320 px accessibility, STOP and read-only cases** |
+| Gate | Round two (`d1746f1df`) | Round three (`058a1c8f6`) | Round four |
+|---|---|---|---|
+| `npx tsc --noEmit` | 0 | 0 | **0** |
+| `npm run lint` | 0 | 0 | **0** |
+| `scripts/verify-whitespace.sh` | PASS | PASS | **PASS** |
+| `npx vitest run` (full) | 17,448 passed / 2 failed | 17,551 / 3 | **17,590 passed / 8 failed** |
+| `npm run test:migrations-from-zero` | PASS | PASS | **PASS, exit 0** |
+| Mounted browser acceptance | card Apply at 1512 px | 1280 + 390 + 320 px | (unchanged this round) |
 
-The three remaining failures are all out of scope and none is a regression:
+None of the eight failures is a regression, and each was checked individually:
 
-- **Two D077 artifact-hash cases**, kept explicitly separate as instructed. The
-  contract pins a sha256 per file in the cumulative release diff and now lists
-  ~78 files from this delivery; it is regenerated at release time, and §7 of the
-  plan puts D077/D086 evidence-pack maintenance out of scope.
-- **One `generalized-pit-replay` case times out at 420 s under full-suite
-  parallel load.** The whole file passes alone in 201 s — verified this round.
-  Its sibling assertion, the frozen-package drift ledger, is a maintained list
-  and now records the eighth drifted file with the reason it drifted.
+- **Two D077 artifact-hash cases** and **one `generalized-pit-replay` anchored-tier
+  case** — release evidence, kept deliberately separate. D077 pins a sha256 per
+  file in the cumulative release diff and is regenerated at release time.
+- **Five cases across `d080b-meta-budget-policy-simulation` and
+  `d084-commercial-target-evidence`** — both are cryptographic sealing suites
+  that time out under full-suite parallel load. Run alone this round they pass
+  **116/116 in 175 s** and **143/143 in 584 s** respectively. The
+  `generalized-pit-replay` failure is the same effect: 64/64 alone in 201 s.
 
 ## Explicitly unresolved
 
-1. **A bid write is journalled as `action: "launch_adset"`** with
-   `payload_request.operation = "apply_bid"`. History and the client feed
-   disambiguate it, and the mounted receipt above reads "Launch Adset" for a bid.
-   Flagged in the previous report, unchanged here, and outside the eight
-   findings.
-2. **D077 artifact hash contract** — failing since before this work, and §7 of
-   the plan puts D077/D086 evidence-pack maintenance out of scope. It must be
-   regenerated before release.
+This list is the round-two one, corrected. Item 1 below used to say a bid write
+was still journalled as `launch_adset`; **round three fixed that** — the route
+writes `action = "bid"`, History reads both spellings, and the seam-registered
+`Meta History bid verb title DB seam check` proves it. Leaving the old sentence
+standing next to the section that disproves it was exactly the kind of false
+claim this report is supposed to catch.
+
+1. **`orders_coverage_unproven` is a weaker name than `orders_coverage_gap`.**
+   A store with a genuine permanent hole is named precisely when nothing is in
+   flight and vaguely the moment any attempt is running. A recorded limitation,
+   pinned by three seam cases so it cannot drift unnoticed, and scoped as its
+   own item rather than smuggled into this one.
+2. **A closed-day `budget_exhausted_early` row stays open.** That family can
+   never be re-evaluated for a past date, so absence cannot mean recovery.
+   Believed correct — the finding is a fact about that day — and harmless in the
+   reader, which anchors on `MAX(snapshot_date)`. A recorded limitation.
+3. **D077 artifact hash contract, and the release evidence packages.** Kept
+   deliberately separate. D077 pins a sha256 per file in the cumulative release
+   diff and is regenerated at release time; §7 of the plan puts D077/D086
+   evidence-pack maintenance out of scope. The `generalized-pit-replay` frozen
+   package is the same family: its drift ledger is a maintained list and now
+   records this delivery's eighth drifted file with the reason.

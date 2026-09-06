@@ -309,10 +309,31 @@ export async function recordMetaLaunchIntentValidation(input: {
       updated_at = NOW()
     WHERE business_id = ${input.businessId}
       AND id = ${input.id}
-      AND status = 'prepared'
+      /*
+        Both prepared and ready, exactly like the two siblings below
+        (recordMetaLaunchIntentWriteBlocked and
+        recordMetaLaunchIntentPreExecutionFailure).
+
+        Validation moves an intent from prepared to ready BEFORE the first
+        provider POST, so a create refused at the pre-POST boundary — a
+        withdrawn approval, or a gate that closed — leaves a ready intent that
+        reached nobody. Admitting only prepared here meant the operator's re-run
+        of that same launch threw MetaLaunchIntentTransitionError on its way
+        back through validation, which is an unhandled 500 rather than the clean
+        refusal the caller is written for. Nothing here starts a write:
+        markMetaLaunchIntentExecuting is the only writer of started_at and it
+        still demands ready.
+
+        No backticks in this comment on purpose — it sits inside a tagged
+        template literal, where one would end the SQL string.
+      */
+      AND status IN ('prepared', 'ready')
     RETURNING *
   `) as MetaLaunchIntentDbRow[];
-  return requireUpdatedIntent(rows, "Launch intent is not in prepared state.");
+  return requireUpdatedIntent(
+    rows,
+    "Launch intent is not in a state that can record validation.",
+  );
 }
 
 /**

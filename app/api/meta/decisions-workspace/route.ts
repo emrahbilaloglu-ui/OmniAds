@@ -72,9 +72,15 @@ import { WRITE_SAFETY_STEPS } from "@/lib/meta/write-safety-contract";
 import { buildWorkspaceBudgetGateInput } from "@/lib/meta/budget-decision-workspace-adapter";
 import { resolveEngineV3Flags } from "@/lib/creative-decision-engine/feature-flags";
 import {
+  AccountScopedDataSource,
   WarehouseDataSource,
   type BusinessTargetPack,
 } from "@/lib/creative-decision-engine/data-source";
+import {
+  resolveAccountProfileMeasurementScope,
+  type AccountProfileMeasurementScope,
+} from "@/lib/meta/account-profile-output-producer";
+import type { HardActionEligibility } from "@/lib/creative-decision-engine/types";
 import {
   resolveObservedShopifyAov,
   type ObservedShopifyAovEvidence,
@@ -762,9 +768,24 @@ async function readServeTimeAccountCurrency(input: {
  *
  * Every refusal belongs to `resolveObservedShopifyAov` — a thin sample, a
  * mixed or foreign currency, a stale or incompletely covered orders sync. This
- * function converts no currency and invents no exponent: an account currency
- * outside the ISO registry yields `null`, because a number whose scale is
- * unknown is not a number.
+ * function converts no currency of its own.
+ *
+ * WHAT AN ACCOUNT CURRENCY OUTSIDE THE ISO MINOR-UNIT REGISTRY ACTUALLY DOES,
+ * corrected here because the previous wording asserted the opposite.
+ *
+ * It does NOT yield `null`. `resolveMinorUnitExponent` refuses the code, this
+ * passes `currencyExponent: null`, and `resolveObservedShopifyAov` records the
+ * evidence with its own two-decimal fallback exponent. Because
+ * `resolveSpendUnitProfile` then divides by that SAME recorded exponent, the
+ * major amount round-trips unchanged and the derived unit is the store's AOV
+ * over the target ROAS whichever exponent was recorded — so nothing is
+ * rescaled, and the served answer equals what the retention producer resolves
+ * from the identical inputs. `lib/meta/snapshot.ts` is stricter for the
+ * benchmark it writes in MINOR units, where the exponent does not cancel: it
+ * requires a resolved exponent and withholds without one. That difference
+ * between the two paths is real and is stated rather than assumed away;
+ * `app/api/meta/served-profile-account-scope.db.test.ts` pins the behaviour of
+ * this one against a KES store and a KES account.
  */
 async function resolveServeTimeObservedShopifyAov(input: {
   businessId: string;
@@ -1529,12 +1550,129 @@ export async function GET(request: NextRequest) {
    * not a second resolver's guess from configured target fields. A failed read
    * fails closed to `eligibility: null`, which the projection renders as
    * unavailable rather than as "no anchor configured".
+   *
+   * AND IT IS RESOLVED AT THE SELECTED ACCOUNT'S MEASUREMENT SCOPE, which this
+   * call used to skip.
+   *
+   * It built a plain `WarehouseDataSource`, and every measured read
+   * `resolveAccountDecisionProfile` then makes — the account calibration, its
+   * kind-segmented variants, the funnel pack, and the live Meta-attributed AOV
+   * it falls back to — defaults to the business's whole Meta footprint. Only
+   * the store evidence below was account-scoped. So on a business holding two
+   * ad accounts the panel served a verdict computed from BOTH: with account A
+   * carrying 6 converters and account B carrying 32, A's served anchor reported
+   * `scale` ELIGIBLE — the pooled calibration clears the 30-creative
+   * automation-quality floor that A's own six cannot, and the served lineage
+   * carried the pooled `metaAttributedAovPurchaseCount90d: 38` and
+   * `accountCpaSampleCount: 38` — while A's own retained
+   * `engine_v3_account_profile_output` row for the same day said
+   * `scale: false` with `scale_calibration_below_floor`. One response carrying
+   * two contradictory commercial verdicts about the same account, and the
+   * operator-facing half authorising a budget increase the budget path refuses.
+   * Without store evidence the same pooling let an account with no purchases of
+   * its own inherit a sibling's Meta-attributed average order value.
+   * `app/api/meta/served-profile-account-scope.db.test.ts` drives all of it
+   * against a migrated database and fails on every one of those readings if
+   * this scoping is removed.
+   *
+   * `AccountScopedDataSource` is the same move the retention producer already
+   * makes (`PinnedInputDataSource` in
+   * `lib/meta/account-profile-output-producer.ts`): the MEASURED reads name the
+   * account, and the CONFIGURED ones — the target pack, the calibration profile
+   * and the engine flags — stay at business level, because a target ROAS is one
+   * commercial policy for the business rather than a per-account setting.
+   *
+   * WHICH ACCOUNT SCOPE, AND WHETHER THERE IS ONE TO USE, is decided by
+   * `resolveAccountProfileMeasurementScope` below — the retention producer's
+   * own function, over the retention producer's own probe. The wrapper is built
+   * only when that decision names an account. While the calibration pass has
+   * written no per-account scope for ANY account of this business, the measured
+   * reads keep the pooled meaning this route has always given them, and the
+   * response says so in `system.commercialAnchor.measurementScope` and on both
+   * budget-evidence panels rather than presenting a pooled number as this
+   * account's own.
    */
-  const loadCommercialAnchorProfile = async () => {
+  const loadCommercialAnchorProfile = async (): Promise<{
+    eligibility: HardActionEligibility | null;
+    readFailed: boolean;
+    /**
+     * The population the measured reads drew from, and why — published with the
+     * answer, and preserved even when a later read throws, so a failure does
+     * not erase the scope that was already resolved. `null` when the request
+     * named no physical account (there is no per-account scope question to ask)
+     * or when the throw happened before the probe.
+     */
+    measurement: AccountProfileMeasurementScope | null;
+  }> => {
+    let measurement: AccountProfileMeasurementScope | null = null;
     try {
-      // One instance, so the pack that decides whether the store is consulted
-      // is the same pack the profile then resolves against.
-      const dataSource = new WarehouseDataSource();
+      /*
+        WHICH POPULATION THIS ACCOUNT'S MEASURED FACTS MAY COME FROM, asked of
+        the warehouse before anything is read.
+
+        `resolveAccountProfileMeasurementScope` is the retention producer's own
+        decision function, called here with the retention producer's own probe,
+        so the panel and the retained row cannot reach different answers about
+        the same account and day. It returns three things this path needs: the
+        hold (if the state forces one), the account the measured reads may name
+        (or `null` for the business's pooled footprint), and a sentence saying
+        which state it saw.
+
+        THE THREE OUTCOMES.
+
+        - This account has its own retained calibration scope. The reads are
+          scoped to it, which is the whole point of the wrapper below.
+        - No account of this business has one — the calibration pass has never
+          written the per-account dimension here. A scoped read would answer
+          from a runtime aggregate beside an empty funnel pack that claims to be
+          a measurement; the POOLED read is exactly what this route served
+          before the scoping landed, on the terms it already had. It is served,
+          and it is LABELLED
+          `business_pooled` in `system.commercialAnchor.measurementScope` and on
+          both budget-evidence panels, so nothing downstream can read it as this
+          account's own measurement. It ends at the first calibration run, up to
+          the cache lifetime noted below.
+        - Sibling accounts have scopes and this one does not, or the probe
+          failed. Both hold — under two DIFFERENT names, because an account the
+          pass skipped and a read that failed are different facts — and the
+          producer refuses the identical case, so no retained row contradicts
+          the panel.
+
+        With no `providerAccountId` the request names no physical account, so
+        there is nothing to scope to and nothing to contradict: no retained
+        per-account verdict speaks for "the business", and `knownBindings` below
+        is published empty for exactly that reason. That request keeps the
+        business-wide reading it has always had.
+      */
+      const warehouse = new WarehouseDataSource();
+      measurement = providerAccountId
+        ? resolveAccountProfileMeasurementScope({
+            // A source that does not model the precomputed calibration table
+            // has no answer to give, which is what `unprobed` means and what
+            // the producer's own reader does with the same absence.
+            status: warehouse.readAccountScopeCalibrationMaterialisation
+              ? await warehouse.readAccountScopeCalibrationMaterialisation({
+                  businessId,
+                  asOf: decisionAsOfDate,
+                  providerAccountId,
+                })
+              : "unprobed",
+            providerAccountId,
+            asOfDate: decisionAsOfDate,
+          })
+        : null;
+      if (measurement?.hold != null) {
+        return { eligibility: null, readFailed: false, measurement };
+      }
+      /*
+        One instance, so the pack that decides whether the store is consulted
+        is the same pack the profile then resolves against. The wrapper is used
+        only where a scope was actually resolved for it; a pooled reading is the
+        plain warehouse source, unchanged from what this route has always built.
+      */
+      const dataSource = measurement?.providerAccountId
+        ? new AccountScopedDataSource(warehouse, measurement.providerAccountId)
+        : warehouse;
       const targetPack = await dataSource
         .getBusinessTargetPack({ businessId, asOf: decisionAsOfDate })
         .catch(() => null);
@@ -1579,10 +1717,11 @@ export async function GET(request: NextRequest) {
       });
       return {
         eligibility: profile.hardActionEligibility,
-        readFailed: false as const,
+        readFailed: false,
+        measurement,
       };
     } catch {
-      return { eligibility: null, readFailed: true as const };
+      return { eligibility: null, readFailed: true, measurement };
     }
   };
   // Resolving the profile is 12-15 sequential warehouse queries and is not
@@ -1590,15 +1729,22 @@ export async function GET(request: NextRequest) {
   // decision read model, with the same in-test bypass so unit tests never
   // share state across cases.
   //
-  // The account is part of the key because the store evidence above is only
-  // admissible in the AD ACCOUNT'S currency, so two accounts of one business
-  // can legitimately resolve different anchors. Keying without it would have
-  // served the first account's answer to the second.
+  // The account is part of the key because every measured read above is now
+  // scoped to it and the store evidence is only admissible in the AD ACCOUNT'S
+  // currency, so two accounts of one business legitimately resolve different
+  // anchors. Keying without it would have served the first account's answer to
+  // the second. The version is `v4` because the cached value's shape changed
+  // again — `scopeHold` became the whole `measurement` — and a `v3` entry left
+  // in a warm process would be read as having no measurement scope at all.
+  //
+  // The 60s TTL is also what bounds how long a pooled answer outlives the
+  // calibration run that ends it: the probe is part of the loader, so the first
+  // read after the entry expires resolves the account's own scope.
   const commercialAnchorProfilePromise =
     process.env.VITEST === "true" || process.env.NODE_ENV === "test"
       ? loadCommercialAnchorProfile()
       : getCachedValue({
-          key: `meta-decisions-anchor-profile-v2:${businessId}:${providerAccountId ?? "none"}:${decisionAsOfDate}`,
+          key: `meta-decisions-anchor-profile-v4:${businessId}:${providerAccountId ?? "none"}:${decisionAsOfDate}`,
           ttlMs: 60_000,
           staleWhileRevalidateMs: 240_000,
           loader: loadCommercialAnchorProfile,
@@ -1757,16 +1903,37 @@ export async function GET(request: NextRequest) {
       },
       now: requestEvaluatedAt,
     });
+    /*
+      WHICH POPULATION EVERY COMMERCIAL NUMBER BELOW WAS MEASURED FROM.
+
+      Published beside the panels rather than folded into them, and published
+      whether the answer is account-scoped or pooled — a label that only appears
+      in the unusual case is a label nobody learns to read. `scope` is the fact
+      a consumer branches on; `why` is the sentence an operator reads;
+      `materialisation` is the raw warehouse state behind both.
+
+      `null` when the request named no physical account — that request has
+      always been business-wide and there is no per-account scope for it to be
+      in — or when the profile read threw before the probe ran, in which case
+      `profileSourceStatus` is `read_failed` and says so itself.
+    */
+    const measurementScope = commercialAnchorProfile.measurement;
     // Server-owned commercial-anchor explanation. The client renders this
-    // object; it never derives eligibility, thresholds or campaign role.
-    const commercialAnchorPanel = projectMetaCommercialAnchorPanel({
-      eligibility: commercialAnchorProfile.eligibility,
-      profileReadFailed: commercialAnchorProfile.readFailed,
-      currency: pulse.currency ?? null,
-      blockers: tallyAuthorityBlockers(
-        collectCanonicalAuthorityBlockers(decisionReadModel),
-      ),
-    });
+    // object; it never derives eligibility, thresholds or campaign role. The
+    // measurement scope is added HERE rather than inside the projector, which
+    // is a pure function of the eligibility it is given and knows nothing about
+    // where the warehouse read it from.
+    const commercialAnchorPanel = {
+      ...projectMetaCommercialAnchorPanel({
+        eligibility: commercialAnchorProfile.eligibility,
+        profileReadFailed: commercialAnchorProfile.readFailed,
+        currency: pulse.currency ?? null,
+        blockers: tallyAuthorityBlockers(
+          collectCanonicalAuthorityBlockers(decisionReadModel),
+        ),
+      }),
+      measurementScope,
+    };
     /**
      * Server-owned budget-decision evidence, as TWO review-only directional
      * projections.
@@ -1832,11 +1999,31 @@ export async function GET(request: NextRequest) {
           : commercialAnchorProfile.eligibility
             ? ("resolved" as const)
             : ("output_not_retained" as const),
+        /*
+          The reason, with the retention path's own hold code in it when that is
+          what happened — and with the sentence that hold's own resolver wrote.
+
+          `output_not_retained` is exactly right for the hold: the producer
+          refuses to retain any verdict for this account and day under the same
+          code, so there is no output to serve. Naming it here is what keeps the
+          answer a HOLD WITH A NAME rather than an unexplained absence — the
+          operator reads it on the budget evidence panel as
+          `commercialLineage.availability.reason`.
+
+          The sentence comes from `resolveAccountProfileMeasurementScope` rather
+          than being written here, so an account the pass SKIPPED and a probe
+          that FAILED cannot read the same. The previous wording asserted "this
+          ad account has no retained calibration scope of its own" under both
+          codes, which was simply untrue of the unreadable one: a failed probe
+          establishes nothing about what the warehouse holds.
+        */
         profileUnavailableWhy: commercialAnchorProfile.readFailed
           ? "the account decision profile read failed"
           : commercialAnchorProfile.eligibility
             ? null
-            : "the account decision profile read succeeded but retained no hardActionEligibility output",
+            : commercialAnchorProfile.measurement?.hold != null
+              ? `${commercialAnchorProfile.measurement.hold}: ${commercialAnchorProfile.measurement.why}`
+              : "the account decision profile read succeeded but retained no hardActionEligibility output",
         commercialTarget: commercialTargetRead.readFailed
           ? null
           : {
@@ -1889,14 +2076,25 @@ export async function GET(request: NextRequest) {
       directionToAction: { increase: "scale", decrease: "cut" } as const,
       directionToActionWhy:
         "an increase is a scale decision and a decrease is a cut decision; refresh is a creative action and is never a budget-direction substitute",
-      increase: projectBudgetDecisionEvidencePanel({
-        verdict: evaluateBudgetDecisionGates(budgetGateFacts("increase")),
-        counterfactualLabel: null,
-      }),
-      decrease: projectBudgetDecisionEvidencePanel({
-        verdict: evaluateBudgetDecisionGates(budgetGateFacts("decrease")),
-        counterfactualLabel: null,
-      }),
+      // The same label the anchor panel carries, on each direction, because a
+      // budget increase is authorised from these numbers and the operator has
+      // to be able to see that they are the business's pooled reading while
+      // that is what they are.
+      measurementScope,
+      increase: {
+        ...projectBudgetDecisionEvidencePanel({
+          verdict: evaluateBudgetDecisionGates(budgetGateFacts("increase")),
+          counterfactualLabel: null,
+        }),
+        measurementScope,
+      },
+      decrease: {
+        ...projectBudgetDecisionEvidencePanel({
+          verdict: evaluateBudgetDecisionGates(budgetGateFacts("decrease")),
+          counterfactualLabel: null,
+        }),
+        measurementScope,
+      },
     };
     /*
       D085 — the account-scoped budget dry run.

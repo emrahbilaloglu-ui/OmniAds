@@ -1,9 +1,9 @@
 {
- "ledgerHash": "a639d626aea50ae74ed698481daaeb79fcb07b4e00a58d94f5c64c14bda95757",
+ "ledgerHash": "530731ef408b0df584cd223a1180012edc9e707c54e36c1dbc7bef86b5095480",
  "hashAlgorithm": "sha256",
  "hashBasis": "sha256 over UTF-8 bytes of JSON.stringify(artifact, null, 1) of the artifact WITHOUT its embedded hash fields (the artifact object before {<hashField>, hashAlgorithm, hashBasis} are prepended)",
  "contract": "adsecute.d077.correction2-verification-ledger.v2",
- "generatedAtUtc": "2026-09-06T19:40:31.566Z",
+ "generatedAtUtc": "2026-09-06T20:16:43.597Z",
  "runtimeVersions": {
   "node": "v24.4.1",
   "npm": "11.4.2",
@@ -171,13 +171,13 @@
  },
  "runtimeVersionsScope": {
   "kind": "historical",
-  "sourceLedgerHash": "d3a8d8184753003f3da18fbbb9f5244f4e010185ecd1d02c6d5bf368a4448fe9",
-  "sourceGeneratedAtUtc": "2026-09-06T19:00:44.037Z",
+  "sourceLedgerHash": "a639d626aea50ae74ed698481daaeb79fcb07b4e00a58d94f5c64c14bda95757",
+  "sourceGeneratedAtUtc": "2026-09-06T19:40:31.566Z",
   "note": "Frozen earlier audit runtime observations, preserved with their original timestamps and validated by the unchanged historical provenance contract."
  },
  "packagingRuntimeVersions": {
   "actor": "codex",
-  "observedAtUtc": "2026-09-06T19:40:31.058Z",
+  "observedAtUtc": "2026-09-06T20:16:42.938Z",
   "node": "v24.4.1",
   "npm": "11.4.2",
   "pnpm": "11.19.0",
@@ -203,7 +203,7 @@
      "stderr": "",
      "spawnErrorCode": null,
      "spawnErrorMessage": null,
-     "observedAtUtc": "2026-09-06T19:40:30.483Z"
+     "observedAtUtc": "2026-09-06T20:16:42.307Z"
     },
     "resolution": "resolved",
     "resolvedPath": "/Users/harmelek/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/pnpm",
@@ -219,12 +219,12 @@
      "stderr": "",
      "spawnErrorCode": null,
      "spawnErrorMessage": null,
-     "observedAtUtc": "2026-09-06T19:40:30.809Z"
+     "observedAtUtc": "2026-09-06T20:16:42.665Z"
     },
     "reportedVersion": "11.19.0",
     "resultClass": "version_reported",
     "observationKind": "present_tense",
-    "observedAtUtc": "2026-09-06T19:40:30.809Z",
+    "observedAtUtc": "2026-09-06T20:16:42.665Z",
     "observationTimeCertainty": "exact",
     "cacheSafeReadOnly": true
    },
@@ -246,7 +246,7 @@
      "stderr": "",
      "spawnErrorCode": null,
      "spawnErrorMessage": null,
-     "observedAtUtc": "2026-09-06T19:40:30.814Z"
+     "observedAtUtc": "2026-09-06T20:16:42.672Z"
     },
     "resolution": "resolved",
     "resolvedPath": "/usr/local/bin/corepack",
@@ -262,12 +262,12 @@
      "stderr": "",
      "spawnErrorCode": null,
      "spawnErrorMessage": null,
-     "observedAtUtc": "2026-09-06T19:40:30.854Z"
+     "observedAtUtc": "2026-09-06T20:16:42.717Z"
     },
     "reportedVersion": "0.34.2",
     "resultClass": "version_reported",
     "observationKind": "present_tense",
-    "observedAtUtc": "2026-09-06T19:40:30.854Z",
+    "observedAtUtc": "2026-09-06T20:16:42.717Z",
     "observationTimeCertainty": "exact",
     "cacheSafeReadOnly": true
    },
@@ -281,7 +281,7 @@
      "exists": true,
      "observationErrorCode": null,
      "observationErrorMessage": null,
-     "observedAtUtc": "2026-09-06T19:40:30.854Z"
+     "observedAtUtc": "2026-09-06T20:16:42.717Z"
     },
     "resolution": "resolved",
     "resolvedPath": "/Users/harmelek/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/pnpm",
@@ -297,12 +297,12 @@
      "stderr": "",
      "spawnErrorCode": null,
      "spawnErrorMessage": null,
-     "observedAtUtc": "2026-09-06T19:40:31.056Z"
+     "observedAtUtc": "2026-09-06T20:16:42.936Z"
     },
     "reportedVersion": "11.19.0",
     "resultClass": "version_reported",
     "observationKind": "present_tense",
-    "observedAtUtc": "2026-09-06T19:40:31.056Z",
+    "observedAtUtc": "2026-09-06T20:16:42.936Z",
     "observationTimeCertainty": "exact",
     "cacheSafeReadOnly": true
    },
@@ -380,9 +380,9 @@
   {
    "stage": "canonical.database-seams-whole-shell",
    "command": "bash scripts/verify-database-seams.sh",
-   "startUtc": "2026-09-06T19:30:33.412310Z",
-   "endUtc": "2026-09-06T19:39:15.897776Z",
-   "durationSeconds": 522.46,
+   "startUtc": "2026-09-06T20:06:07.602503Z",
+   "endUtc": "2026-09-06T20:15:23.800123Z",
+   "durationSeconds": 556.228,
    "exitCode": 0,
    "counts": {
     "notApplicable": true,
@@ -394,33 +394,33 @@
    },
    "teardown": {
     "supervisedProcessGroupAbsent": true,
-    "processGroupId": 53740,
-    "readAtUtc": "2026-09-06T19:39:16.134349Z",
+    "processGroupId": 83573,
+    "readAtUtc": "2026-09-06T20:15:24.033671Z",
     "leftoverBeforeCleanup": [
      {
-      "pid": 27847,
+      "pid": 58285,
       "command": "sleep 90"
      },
      {
-      "pid": 27873,
+      "pid": 58311,
       "command": "sleep 90"
      },
      {
-      "pid": 61029,
+      "pid": 91462,
       "command": "sleep 900"
      }
     ],
     "terminatedOwnedSleepPids": [
-     27847,
-     27873,
-     61029
+     58285,
+     58311,
+     91462
     ]
    },
-   "sourceCommit": "23531584158f358ddb2717f7af0473c6b6ad7968",
+   "sourceCommit": "3a03f2a0d023f89d5f0429664e47bbbee48e37ae",
    "logFile": {
-    "path": "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1930Z.log",
-    "sha256": "31f22e97cef856fcdb5f6b222b479a472e679131deb2b6e635482dbf366e6792",
-    "bytes": 661875
+    "path": "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T2006Z.log",
+    "sha256": "296e8aff8a108eed0c852b92f5f172da209a51f8d88030703d3788669b08ea5d",
+    "bytes": 662191
    },
    "tail": [
     "  retryMaxBackoffMs: 4000",
@@ -455,7 +455,7 @@
     "[verify-db-seams] PASS — 40 stages"
    ],
    "originalCapturePath": {
-    "path": "/tmp/adsecute-codex-release-20260906/d077-canonical-database-seams-whole-shell-2026-09-06T1930Z.log",
+    "path": "/tmp/adsecute-codex-release-20260906/d077-canonical-database-seams-whole-shell-2026-09-06T2006Z.log",
     "note": "capture provenance ONLY — the temporary supervisor output path for this authoritative run; validated byte-identical to the repository copy before it was frozen; generator/test reads use only the portable retained copy"
    },
    "wholeShellProof": {
@@ -631,8 +631,8 @@
      "title": "Release owner references are current (LAST — the tree is final here)"
     },
     "finalPassLine": "[verify-db-seams] PASS — 40 stages",
-    "logSha256": "31f22e97cef856fcdb5f6b222b479a472e679131deb2b6e635482dbf366e6792",
-    "logBytes": 661875,
+    "logSha256": "296e8aff8a108eed0c852b92f5f172da209a51f8d88030703d3788669b08ea5d",
+    "logBytes": 662191,
     "releaseBoundary": {
      "stageNumber": 26,
      "stageTitle": "Ordinary deploy refuses a cutover-required release",
@@ -3556,6 +3556,481 @@
     "",
     "JSON report written to /tmp/adsecute-codex-release-20260906/r12-launch-related-result.json"
    ]
+  },
+  {
+   "stage": "historical.r12-packaging.r12-d077-contract",
+   "command": "npx vitest run lib/meta/__tests__/d077-artifact-hash-contract.test.ts --reporter=json --outputFile=/tmp/adsecute-codex-release-20260906/r12-d077-contract-report.json",
+   "startUtc": "2026-09-06T19:40:57.923173+00:00",
+   "endUtc": "2026-09-06T19:40:59.596732+00:00",
+   "durationSeconds": 1.673,
+   "exitCode": 0,
+   "counts": {
+    "numTotalTests": 21,
+    "numPassedTests": 21,
+    "numFailedTests": 0,
+    "numPendingTests": 0
+   },
+   "timeout": {
+    "configuredSeconds": null,
+    "timedOut": null,
+    "configuredSecondsNote": "Not captured by this original record."
+   },
+   "teardown": {
+    "processExited": true,
+    "scope": "Observed command return only; no process-group/listener census was captured."
+   },
+   "sourceContext": "R12 metadata tree later committed as 559efc85add7149fb9ce5a13033eba4117c5cf3c; this is not current R13 artifact acceptance.",
+   "logFile": {
+    "path": "/tmp/adsecute-codex-release-20260906/r12-d077-contract.log",
+    "sha256": "a84dbdfd19195a29cd820f10863df16f94fa68c425498f0bc33e6009ec7ef3c7",
+    "bytes": 90
+   },
+   "tail": [
+    "JSON report written to /tmp/adsecute-codex-release-20260906/r12-d077-contract-report.json"
+   ]
+  },
+  {
+   "command": "DATABASE_URL=postgresql://unused@127.0.0.1:1/unused npx vitest run lib/meta/snapshot-historical-target-authority.test.ts lib/meta/snapshot.test.ts lib/meta/commercial-targets.test.ts lib/meta/commercial-action-authority.test.ts lib/business-commercial.test.ts lib/meta/daily-brief-snapshot-ceiling.test.ts lib/meta/daily-brief-actionable-state.test.ts lib/meta/daily-brief.test.ts --reporter=dot",
+   "startUtc": "2026-09-06T19:58:26.243711+00:00",
+   "endUtc": "2026-09-06T19:58:28.195242+00:00",
+   "durationSeconds": 1.95136,
+   "exitCode": 0,
+   "logFile": {
+    "path": "/tmp/adsecute-codex-release-20260906/r13-historical-target-focused.log",
+    "bytes": 11351,
+    "sha256": "183ae1c3d0ad568de5290679a506c13e04aeb5f70767fead6be51325119ff646"
+   },
+   "stage": "release-r13.r13-historical-target-focused",
+   "counts": {
+    "testsPassed": 102,
+    "filesPassed": 8
+   },
+   "timeout": {
+    "configuredSeconds": null,
+    "timedOut": false,
+    "configuredSecondsNote": "Wrapper bound not recorded; successful observed completion."
+   },
+   "teardown": {
+    "processExited": true,
+    "scope": "Observed command exit; no process-group census captured."
+   },
+   "sourceContext": "R13 working tree before source freeze; no commit identity was captured by this test record.",
+   "tail": [
+    "  candidates: 0,",
+    "  projected: 0,",
+    "  refusals: {}",
+    "}",
+    "",
+    "stdout | lib/meta/snapshot.test.ts > meta snapshot job > marks previously active anomalies resolved when absent on rerun",
+    "[meta-snapshot] budget_proposal_projection {",
+    "  businessId: 'biz_1',",
+    "  snapshotDate: '2026-05-06',",
+    "  candidates: 0,",
+    "  projected: 0,",
+    "  refusals: {}",
+    "}",
+    "",
+    "stdout | lib/meta/snapshot.test.ts > meta snapshot job > marks previously active anomalies resolved when absent on rerun",
+    "[meta-snapshot] bid_proposal_projection {",
+    "  businessId: 'biz_1',",
+    "  snapshotDate: '2026-05-06',",
+    "  candidates: 0,",
+    "  projected: 0,",
+    "  refusals: {}",
+    "}",
+    "",
+    "··································",
+    "",
+    " Test Files  8 passed (8)",
+    "      Tests  102 passed (102)",
+    "   Start at  22:58:26",
+    "   Duration  1.34s (transform 2.80s, setup 1.25s, import 3.66s, tests 105ms, environment 0ms)",
+    ""
+   ]
+  },
+  {
+   "stage": "release-r13.r13-historical-meta-targets",
+   "command": "Ephemeral PostgreSQL: node --import tsx --input-type=module -; invoke verifyHistoricalMetaTargetFixtures on actual commercial target and history readers",
+   "startUtc": "2026-09-06T19:58:06.967393+00:00",
+   "endUtc": "2026-09-06T19:58:08.095443+00:00",
+   "durationSeconds": 1.127879,
+   "exitCode": 0,
+   "counts": {
+    "assertionsPassed": 10
+   },
+   "timeout": {
+    "configuredSeconds": null,
+    "timedOut": false,
+    "configuredSecondsNote": "Not captured by this original record."
+   },
+   "teardown": {
+    "ephemeralPostgresStopped": true,
+    "dataDirectory": "/var/folders/ft/2b5f1_qn05g0rjscjj17n8fc0000gn/T/adsecute-launch-zero-write-zppc_bnt/pgdata",
+    "providerCalls": 0
+   },
+   "logFile": {
+    "path": "/tmp/adsecute-codex-release-20260906/r13-historical-meta-targets.log",
+    "bytes": 1562,
+    "sha256": "024e62853dec4e5c9c54d0b61c0dd6f2d5bd34be255b60f26921fa4e82121469"
+   },
+   "sourceContext": "R13 working tree before source freeze; no commit identity was captured by this test record.",
+   "tail": [
+    "selecting default shared_buffers ... 128MB",
+    "selecting default time zone ... Europe/Istanbul",
+    "creating configuration files ... ok",
+    "running bootstrap script ... ok",
+    "performing post-bootstrap initialization ... ok",
+    "syncing data to disk ... ok",
+    "",
+    "Success. You can now start the database server using:",
+    "",
+    "    '/opt/homebrew/opt/postgresql@16/bin/pg_ctl' -D /var/folders/ft/2b5f1_qn05g0rjscjj17n8fc0000gn/T/adsecute-launch-zero-write-zppc_bnt/pgdata -l logfile start",
+    "",
+    "waiting for server to start.... done",
+    "server started",
+    "[startup] db_client_initialized {",
+    "  runtime: 'web',",
+    "  applicationName: 'omniads-web',",
+    "  poolMax: 10,",
+    "  queryTimeoutMs: 8000,",
+    "  connectionTimeoutMs: 10000,",
+    "  idleTimeoutMs: 30000,",
+    "  maxLifetimeSeconds: null,",
+    "  statementTimeoutMs: null,",
+    "  idleInTransactionSessionTimeoutMs: null,",
+    "  retryAttempts: 4,",
+    "  retryBackoffMs: 400,",
+    "  retryMaxBackoffMs: 4000",
+    "}",
+    "PASS: 10 historical Meta target PostgreSQL fixtures",
+    "waiting for server to shut down.... done",
+    "server stopped"
+   ]
+  },
+  {
+   "stage": "historical.r12-ci-success",
+   "command": "GitHub Actions CI run 34055718924",
+   "startUtc": "2026-09-06T19:42:11Z",
+   "endUtc": "2026-09-06T19:55:00Z",
+   "durationSeconds": 769,
+   "timingBasis": "Envelope of 12 successful job timestamps from GitHub; workflow-level and retrieval timestamps were not captured.",
+   "exitCode": 0,
+   "counts": {
+    "successfulJobs": 12,
+    "expectedSkippedPrOnlyJobs": 4
+   },
+   "timeout": {
+    "configuredSeconds": null,
+    "timedOut": false
+   },
+   "teardown": {
+    "notApplicable": true,
+    "reason": "Remote GitHub Actions execution; no local process group."
+   },
+   "sourceCommit": "559efc85add7149fb9ce5a13033eba4117c5cf3c",
+   "ciReadback": {
+    "headSha": "559efc85add7149fb9ce5a13033eba4117c5cf3c",
+    "status": "completed",
+    "conclusion": "success",
+    "url": "https://github.com/emrahbilaloglu-ui/OmniAds/actions/runs/34055718924"
+   },
+   "ciReadbackFile": {
+    "path": "/tmp/adsecute-codex-release-20260906/ci-559efc85a-final.json",
+    "sha256": "8ea4b09511fb0badcb864fd50926f1749a17c4ba89e47fe94dec2768a6b86767"
+   },
+   "jobConclusions": [
+    {
+     "name": "typecheck",
+     "conclusion": "success"
+    },
+    {
+     "name": "test-shard-2-of-4",
+     "conclusion": "success"
+    },
+    {
+     "name": "d080-evidence-c6",
+     "conclusion": "success"
+    },
+    {
+     "name": "database-seams",
+     "conclusion": "success"
+    },
+    {
+     "name": "test-shard-4-of-4",
+     "conclusion": "success"
+    },
+    {
+     "name": "d080-evidence-c3-c4",
+     "conclusion": "success"
+    },
+    {
+     "name": "d080-evidence-c7-c10",
+     "conclusion": "success"
+    },
+    {
+     "name": "test-shard-3-of-4",
+     "conclusion": "success"
+    },
+    {
+     "name": "test-shard-1-of-4",
+     "conclusion": "success"
+    },
+    {
+     "name": "d080-evidence-c5",
+     "conclusion": "success"
+    },
+    {
+     "name": "build",
+     "conclusion": "success"
+    },
+    {
+     "name": "detect-runtime-changes",
+     "conclusion": "skipped"
+    },
+    {
+     "name": "test",
+     "conclusion": "success"
+    },
+    {
+     "name": "publish-worker-image",
+     "conclusion": "skipped"
+    },
+    {
+     "name": "skip-runtime-deploy",
+     "conclusion": "skipped"
+    },
+    {
+     "name": "publish-web-image",
+     "conclusion": "skipped"
+    }
+   ]
+  },
+  {
+   "stage": "release-r13.r13-activation-claim-concurrency",
+   "command": "Ephemeral PostgreSQL: node --import tsx --input-type=module -; invoke verifyLaunchActivationConcurrencyFixtures through independent Node processes using the actual action-claim SQL and a counted provider double",
+   "startUtc": "2026-09-06T20:05:14.555066+00:00",
+   "endUtc": "2026-09-06T20:05:19.073631+00:00",
+   "durationSeconds": 4.518365,
+   "exitCode": 0,
+   "counts": {
+    "assertionsPassed": 18
+   },
+   "timeout": {
+    "configuredSeconds": null,
+    "timedOut": false,
+    "configuredSecondsNote": "Not captured by this original record."
+   },
+   "teardown": {
+    "ephemeralPostgresStopped": true,
+    "dataDirectory": "/var/folders/ft/2b5f1_qn05g0rjscjj17n8fc0000gn/T/adsecute-activation-claim-uwb2xo3q/pgdata",
+    "providerCalls": 0
+   },
+   "logFile": {
+    "path": "/tmp/adsecute-codex-release-20260906/r13-activation-claim-concurrency.log",
+    "bytes": 1217,
+    "sha256": "de298e8537320a7ac9c2ae69b2f0c84d4ec913a8e2d0513fe4323fda82cd268a"
+   },
+   "sourceContext": "R13 working tree before source freeze; final fixture and runtime bytes assembled in 3a03f2a0d023f89d5f0429664e47bbbee48e37ae.",
+   "tail": [
+    "The files belonging to this database system will be owned by user \"harmelek\".",
+    "This user must also own the server process.",
+    "",
+    "The database cluster will be initialized with locale \"C\".",
+    "The default database encoding has accordingly been set to \"SQL_ASCII\".",
+    "The default text search configuration will be set to \"english\".",
+    "",
+    "Data page checksums are disabled.",
+    "",
+    "creating directory /var/folders/ft/2b5f1_qn05g0rjscjj17n8fc0000gn/T/adsecute-activation-claim-uwb2xo3q/pgdata ... ok",
+    "creating subdirectories ... ok",
+    "selecting dynamic shared memory implementation ... posix",
+    "selecting default max_connections ... 100",
+    "selecting default shared_buffers ... 128MB",
+    "selecting default time zone ... Europe/Istanbul",
+    "creating configuration files ... ok",
+    "running bootstrap script ... ok",
+    "performing post-bootstrap initialization ... ok",
+    "syncing data to disk ... ok",
+    "",
+    "Success. You can now start the database server using:",
+    "",
+    "    '/opt/homebrew/opt/postgresql@16/bin/pg_ctl' -D /var/folders/ft/2b5f1_qn05g0rjscjj17n8fc0000gn/T/adsecute-activation-claim-uwb2xo3q/pgdata -l logfile start",
+    "",
+    "waiting for server to start.... done",
+    "server started",
+    "PASS: 18 activation claim concurrency PostgreSQL fixtures",
+    "waiting for server to shut down.... done",
+    "server stopped"
+   ]
+  },
+  {
+   "stage": "release-r13.r13-activation-claim-units",
+   "command": "DATABASE_URL=postgresql://postgres@127.0.0.1:1/adsecute_unreachable npx vitest run lib/meta/activation-unresolved-lookup.test.ts lib/meta/launch-activation-durability.test.ts lib/meta/activation-approval-recheck.test.ts lib/meta/launch-intent-activation.test.ts lib/meta/scheduled-activation-runtime.test.ts lib/meta/activation-identity-coverage.test.ts --reporter=default --reporter=json --outputFile.json=/tmp/adsecute-codex-release-20260906/r13-activation-claim-unit-result.json > /tmp/adsecute-codex-release-20260906/r13-activation-claim-unit.log 2>&1",
+   "startUtc": "2026-09-06T20:01:15.168000+00:00",
+   "endUtc": "2026-09-06T20:01:15.969149+00:00",
+   "durationSeconds": 0.801149,
+   "exitCode": 0,
+   "counts": {
+    "filesPassed": 6,
+    "testsPassed": 71,
+    "testsFailed": 0
+   },
+   "timingBasis": "No supervisor command timestamps captured. Following timestamps are from Vitest JSON only.",
+   "supervisorStartUtc": null,
+   "supervisorEndUtc": null,
+   "sourceContext": "R13 working tree before source freeze; tested runtime/unit bytes assembled in 3a03f2a0d023f89d5f0429664e47bbbee48e37ae. Later changes were fixture SQL timestamp defaults and a comment clarification; no runtime change.",
+   "timeout": {
+    "configuredSeconds": null,
+    "timedOut": false,
+    "configuredSecondsNote": "Wrapper configuration not recorded."
+   },
+   "teardown": {
+    "processExited": true,
+    "scope": "Observed tool exit only; no process census captured."
+   },
+   "logFile": {
+    "path": "/tmp/adsecute-codex-release-20260906/r13-activation-claim-unit.log",
+    "bytes": 699,
+    "sha256": "b7b09bc07f63b3d7caf8c7267fe6a1c3d881d613443deb987cb359fab77a6e2e"
+   },
+   "vitestReport": {
+    "path": "/tmp/adsecute-codex-release-20260906/r13-activation-claim-unit-result.json",
+    "bytes": 27569,
+    "sha256": "c671ef33a50efcd73d7aae3af0ae2502a08cf3a5f658ff251fd1f4771acb6436"
+   },
+   "supplementalUntimedChecks": [
+    {
+     "name": "typecheck final",
+     "command": "NODE_OPTIONS=--max-old-space-size=4096 npm run typecheck > /tmp/adsecute-codex-release-20260906/r13-activation-claim-typecheck-final.log 2>&1",
+     "observedExitCode": 0,
+     "startUtc": null,
+     "endUtc": null,
+     "timingProvenance": "Exit observed from exec session; no supervisor timestamps captured.",
+     "scopeNote": "Ran after shared-child identifier fix, before final fixture-only CREATE TABLE timestamp defaults and comment clarification. The final fixture SQL was subsequently exercised by all 18 PG cases.",
+     "artifacts": [
+      {
+       "path": "/tmp/adsecute-codex-release-20260906/r13-activation-claim-typecheck-final.log",
+       "bytes": 44,
+       "sha256": "8450795232d2ec742004345b1c022a982518fb3e9a4f9aa184ac0ec0bf189b6f"
+      }
+     ]
+    },
+    {
+     "name": "six-file ESLint",
+     "command": "npx eslint lib/meta/ads-action-log.ts lib/meta/launch-intent-activation.ts lib/meta/activation-approval-recheck.test.ts lib/meta/activation-unresolved-lookup.test.ts scripts/launch-activation-concurrency-fixtures.ts scripts/ephemeral-postgres-decision-launch-chain-seam-child.ts > /tmp/adsecute-codex-release-20260906/r13-activation-claim-eslint.log 2>&1",
+     "observedExitCode": 0,
+     "counts": {
+      "files": 6
+     },
+     "startUtc": null,
+     "endUtc": null,
+     "timingProvenance": "Exit observed from exec session; no supervisor timestamps captured.",
+     "scopeNote": "Ran before final fixture-only timestamp defaults and comment clarification.",
+     "artifacts": [
+      {
+       "path": "/tmp/adsecute-codex-release-20260906/r13-activation-claim-eslint.log",
+       "bytes": 0,
+       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+     ]
+    }
+   ],
+   "initialUntimedDiagnostic": {
+    "name": "initial typecheck",
+    "command": "NODE_OPTIONS=--max-old-space-size=4096 npm run typecheck > /tmp/adsecute-codex-release-20260906/r13-activation-claim-typecheck.log 2>&1",
+    "observedExitCode": 2,
+    "failure": "Shared-child fixture invocation used nonexistent DATABASE_URL rather than existing databaseUrl; fixed identifier.",
+    "artifact": {
+     "path": "/tmp/adsecute-codex-release-20260906/r13-activation-claim-typecheck.log",
+     "bytes": 192,
+     "sha256": "39f65be1a986992eedce5ac5cc3b041afd81c1489215f95b2280f3f5aac9d7d1"
+    }
+   },
+   "validationRecord": {
+    "path": "/tmp/adsecute-codex-release-20260906/r13-activation-claim-validation.json",
+    "sha256": "d310c37836a1183b84d822cb6f317384d2b46832bcbb6189768fe15e35cfacdc"
+   },
+   "tail": [
+    "",
+    " RUN  v4.1.5 /Users/harmelek/Adsecute",
+    "",
+    " ✓ lib/meta/launch-intent-activation.test.ts (14 tests) 7ms",
+    " ✓ lib/meta/activation-unresolved-lookup.test.ts (7 tests) 7ms",
+    " ✓ lib/meta/activation-identity-coverage.test.ts (10 tests) 7ms",
+    " ✓ lib/meta/launch-activation-durability.test.ts (8 tests) 9ms",
+    " ✓ lib/meta/activation-approval-recheck.test.ts (15 tests) 17ms",
+    " ✓ lib/meta/scheduled-activation-runtime.test.ts (17 tests) 7ms",
+    "",
+    " Test Files  6 passed (6)",
+    "      Tests  71 passed (71)",
+    "   Start at  23:01:15",
+    "   Duration  699ms (transform 1.55s, setup 821ms, import 2.05s, tests 54ms, environment 0ms)",
+    "",
+    "JSON report written to /tmp/adsecute-codex-release-20260906/r13-activation-claim-unit-result.json"
+   ]
+  },
+  {
+   "stage": "diagnostic.r13.r13-activation-claim-concurrency",
+   "command": "Ephemeral PostgreSQL: node --import tsx --input-type=module -; invoke verifyLaunchActivationConcurrencyFixtures through independent Node processes using the actual action-claim SQL and a counted provider double",
+   "startUtc": "2026-09-06T20:04:20.572564+00:00",
+   "endUtc": "2026-09-06T20:04:21.817381+00:00",
+   "durationSeconds": 1.244621,
+   "exitCode": 1,
+   "counts": {
+    "notApplicable": true,
+    "reason": "Fixture schema failed before the concurrency acceptance assertions; no passing count inferred."
+   },
+   "timeout": {
+    "configuredSeconds": null,
+    "timedOut": false,
+    "configuredSecondsNote": "Not captured by this original record."
+   },
+   "teardown": {
+    "ephemeralPostgresStopped": true,
+    "dataDirectory": "/var/folders/ft/2b5f1_qn05g0rjscjj17n8fc0000gn/T/adsecute-activation-claim-1v_h4j50/pgdata",
+    "providerCalls": 0
+   },
+   "logFile": {
+    "path": "/tmp/adsecute-codex-release-20260906/r13-activation-claim-concurrency-initial.log",
+    "bytes": 2941,
+    "sha256": "feb06e23837092950731ed9fbd2dd7cc9d2a7f4676e90fde8898783a3b2be5fc"
+   },
+   "originalRecordedLogPath": "/tmp/adsecute-codex-release-20260906/r13-activation-claim-concurrency.log",
+   "diagnosis": "Minimal fixture table omitted required created_at/updated_at timestamps. Actual action-log mapper rejected created_at; added database defaults for both required fields. Runtime claim code unchanged.",
+   "sourceContext": "R13 temporary minimal fixture before required timestamp defaults; production action claim code unchanged by the fixture repair.",
+   "evidenceRole": "diagnostic_failure_not_acceptance",
+   "tail": [
+    "  queryTimeoutMs: 8000,",
+    "  connectionTimeoutMs: 10000,",
+    "  idleTimeoutMs: 30000,",
+    "  maxLifetimeSeconds: null,",
+    "  statementTimeoutMs: null,",
+    "  idleInTransactionSessionTimeoutMs: null,",
+    "  retryAttempts: 4,",
+    "  retryBackoffMs: 400,",
+    "  retryMaxBackoffMs: 4000",
+    "}",
+    "TypeError: created_at must be a valid timestamp.",
+    "    at canonicalIsoTimestamp (/Users/harmelek/Adsecute/lib/meta/ads-action-log.ts:544:11)",
+    "    at mapActionLogRow (/Users/harmelek/Adsecute/lib/meta/ads-action-log.ts:683:16)",
+    "    at insertMetaAdsActionLog (/Users/harmelek/Adsecute/lib/meta/ads-action-log.ts:1630:10)",
+    "    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)",
+    "    at async <anonymous> (/Users/harmelek/Adsecute/lib/meta/ads-action-log.ts:1714:43)",
+    "    at async runDbTransaction (/Users/harmelek/Adsecute/lib/db.ts:853:20)",
+    "    at async createMetaLaunchActivationActionClaim (/Users/harmelek/Adsecute/lib/meta/ads-action-log.ts:1691:18)",
+    "    at async claimWorker (/Users/harmelek/Adsecute/scripts/launch-activation-concurrency-fixtures.ts:24:17)",
+    "",
+    "    at ChildProcess.<anonymous> (/Users/harmelek/Adsecute/scripts/launch-activation-concurrency-fixtures.ts:85:41)",
+    "    at ChildProcess.emit (node:events:507:28)",
+    "    at maybeClose (node:internal/child_process:1101:16)",
+    "    at Socket.<anonymous> (node:internal/child_process:457:11)",
+    "    at Socket.emit (node:events:507:28)",
+    "    at Pipe.<anonymous> (node:net:346:12)",
+    "",
+    "Node.js v24.4.1",
+    "waiting for server to shut down.... done",
+    "server stopped"
+   ]
   }
  ],
  "historicalFailFirstEvidence": {
@@ -4364,26 +4839,26 @@
  "teardownReadback": {
   "canonicalSupervisor": {
    "supervisedProcessGroupAbsent": true,
-   "processGroupId": 53740,
-   "readAtUtc": "2026-09-06T19:39:16.134349Z",
+   "processGroupId": 83573,
+   "readAtUtc": "2026-09-06T20:15:24.033671Z",
    "leftoverBeforeCleanup": [
     {
-     "pid": 27847,
+     "pid": 58285,
      "command": "sleep 90"
     },
     {
-     "pid": 27873,
+     "pid": 58311,
      "command": "sleep 90"
     },
     {
-     "pid": 61029,
+     "pid": 91462,
      "command": "sleep 900"
     }
    ],
    "terminatedOwnedSleepPids": [
-    27847,
-    27873,
-    61029
+    58285,
+    58311,
+    91462
    ]
   },
   "scope": "Original supervisor teardown and subsequent matching-process-group cleanup are separate observations. Child database teardown output is retained in the raw log. This generator does not independently enumerate listeners.",

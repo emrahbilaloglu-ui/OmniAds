@@ -1,34 +1,34 @@
 {
- "manifestHash": "776ae2e8f83b3d8c9f90a1512597660e874248de7fbb125095aea5715c17b6f4",
+ "manifestHash": "f3419132016e09accf862943980f28879da41c7cb11fbf53833f0c526e681dd6",
  "hashAlgorithm": "sha256",
  "hashBasis": "sha256 over UTF-8 bytes of JSON.stringify(artifact, null, 1) of the artifact WITHOUT its embedded hash fields (the artifact object before {<hashField>, hashAlgorithm, hashBasis} are prepended)",
  "contract": "adsecute.d077.release-candidate-manifest.v3",
- "generatedAtUtc": "2026-09-06T19:40:32.664Z",
+ "generatedAtUtc": "2026-09-06T20:16:45.189Z",
  "branch": "codex/meta-v2-panel-fidelity",
  "supersededBranchLabel": "codex/meta-disabled-readiness-20260829",
- "head": "23531584158f358ddb2717f7af0473c6b6ad7968",
+ "head": "3a03f2a0d023f89d5f0429664e47bbbee48e37ae",
  "baseMain": "babf158e150fd33057117b39b175da044ac62d2e",
  "originMain": "babf158e150fd33057117b39b175da044ac62d2e",
  "remoteDivergence": {
-  "aheadOfOriginMain": 68,
+  "aheadOfOriginMain": 70,
   "behindOriginMain": 0
  },
  "selfExclusion": "this manifest's own path (docs/audits/generated/d077-release-candidate-manifest-2026-08-30.json) is EXCLUDED from its entry list: a manifest cannot recursively pin its own final bytes; its external SHA-256 is reported in the final response and by Codex's own hashing",
  "gitPorcelainEntryCount": 8,
- "releaseDiffEntryCountIncludingSelf": 772,
- "expandedOnDiskCandidateFileCountIncludingSelf": 772,
- "pinnedNonSelfFileCount": 771,
+ "releaseDiffEntryCountIncludingSelf": 776,
+ "expandedOnDiskCandidateFileCountIncludingSelf": 776,
+ "pinnedNonSelfFileCount": 775,
  "historicalContext": "pre-task freeze was 217 porcelain entries / 265 files — historical context only, NOT the final tree",
  "classCounts": {
-  "tests_only": 321,
+  "tests_only": 322,
   "runtime": 250,
   "runtime_deletion": 2,
   "deploy_config": 1,
   "docs": 48,
-  "generated_evidence": 72,
+  "generated_evidence": 73,
   "migration": 2,
   "audit_script_non_runtime": 24,
-  "script_ops_non_request_path": 51
+  "script_ops_non_request_path": 53
  },
  "entries": [
   {
@@ -1329,21 +1329,27 @@
   },
   {
    "path": "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1930Z.log",
-   "git": "??",
+   "git": "A",
    "class": "generated_evidence",
    "sha256": "31f22e97cef856fcdb5f6b222b479a472e679131deb2b6e635482dbf366e6792"
+  },
+  {
+   "path": "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T2006Z.log",
+   "git": "??",
+   "class": "generated_evidence",
+   "sha256": "296e8aff8a108eed0c852b92f5f172da209a51f8d88030703d3788669b08ea5d"
   },
   {
    "path": "docs/audits/generated/d077-correction1-verification-ledger-2026-08-30.json",
    "git": "A",
    "class": "generated_evidence",
-   "sha256": "3eb8cc5382b93435827bab918f43ff367202ef61674da817c09a5ec1d6d0c939"
+   "sha256": "a2ec5f3d017e3cc58fb062c442e9d0bbf07d616cd957001b6f5bd4f15cc3b39c"
   },
   {
    "path": "docs/audits/generated/d077-database-recovery-approval-packet-2026-08-30.json",
    "git": "A",
    "class": "generated_evidence",
-   "sha256": "6d8ccffb9d017ab54b4fc8c984c17916f3500fc8df53f866fdc11267607d2ccd"
+   "sha256": "ef7b3bc640b9691cd610592cbc02c4fc7b66388ddfc729048fbc14c39a131c78"
   },
   {
    "path": "docs/audits/generated/d077-production-recovery-readonly-evidence-2026-08-30.json",
@@ -1355,7 +1361,7 @@
    "path": "docs/audits/generated/d077-release-deploy-approval-packet-2026-08-30.json",
    "git": "A",
    "class": "generated_evidence",
-   "sha256": "cd04c292fe82a9b40a42407d2d24a8be252b1b8d969ea2aa44a6a939939356be"
+   "sha256": "5ea0f415b8f61f2ab2ffc1958f663e4411ef7d4949c1b6cceee387bf9b045c20"
   },
   {
    "path": "docs/audits/generated/d078-hard-action-recompute-2026-08-30.json",
@@ -1805,7 +1811,7 @@
    "path": "docs/releases/2026-09-06-meta-operator-readiness-release-candidate.md",
    "git": "A",
    "class": "docs",
-   "sha256": "1b8ac00e40ad33a7e41147bd52081e6e304b3f30791e9748a0f111442c3c75d8"
+   "sha256": "ebb2bbe36efeabe28fc1f8d5ec3729826a2bb00b549aa996c6653e3e0905b9d4"
   },
   {
    "path": "lib/api/meta.test.ts",
@@ -2303,7 +2309,7 @@
    "path": "lib/meta/__tests__/d077-artifact-hash-contract.test.ts",
    "git": "A",
    "class": "tests_only",
-   "sha256": "4ea62a0359f68af282943d33ce2bd7afcf962c764d5019d24671d15bd95d368f"
+   "sha256": "322c571acf777ce46b87ac9e9ead63aba3cc2e6074e70abed16afa747daf7571"
   },
   {
    "path": "lib/meta/__tests__/d078-acceptance-guards.test.ts",
@@ -2411,7 +2417,7 @@
    "path": "lib/meta/activation-approval-recheck.test.ts",
    "git": "A",
    "class": "tests_only",
-   "sha256": "6c7c92a01199f2e7dd522842a24ee592a8d514d63544783f5945cdca85c80aed"
+   "sha256": "c5464bb92a2b9ea3971a565bc716480228b91e9827c2ca7d6652b0b4a54dccab"
   },
   {
    "path": "lib/meta/activation-identity-coverage.test.ts",
@@ -2435,13 +2441,13 @@
    "path": "lib/meta/activation-unresolved-lookup.test.ts",
    "git": "A",
    "class": "tests_only",
-   "sha256": "3220c2acae99b103eb3f1efd8aa39771f3e4421614d98817b6de237935b78e14"
+   "sha256": "fa9b6c1fb9aeda374fede1152770e0127391b19c8ebac64774edd5759d70858d"
   },
   {
    "path": "lib/meta/ads-action-log.ts",
    "git": "M",
    "class": "runtime",
-   "sha256": "7159cb721b6b27907c9fcb884616a4816e513de8ebd10763426d5f4378b3c9ff"
+   "sha256": "1d6b9590e846afefbd461e532a72d3baad70cc98d77d6f8ab776a57af6bcc13c"
   },
   {
    "path": "lib/meta/ads-action-routes.ts",
@@ -3437,7 +3443,7 @@
    "path": "lib/meta/launch-intent-activation.ts",
    "git": "A",
    "class": "runtime",
-   "sha256": "75c7f3791d6294c0cebe038c96626d503d165ad92581c24b176ec58c833d6cd0"
+   "sha256": "a7bfb66a5af39079aae5f5d22dd1729a79add22863b0417845661f7c4b72501d"
   },
   {
    "path": "lib/meta/launch-intent-producer-query-window.test.ts",
@@ -3722,6 +3728,12 @@
    "sha256": "851cd0d3da1703996cad0d22bf6954cd1ba53d154855b1344558e1c8eb441b1d"
   },
   {
+   "path": "lib/meta/snapshot-historical-target-authority.test.ts",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "eaf92f390d41155ab7391e06c8b0a97077345eed2e9c0bcaaf743da15155ad08"
+  },
+  {
    "path": "lib/meta/snapshot-rerun-stability.test.ts",
    "git": "A",
    "class": "tests_only",
@@ -3743,7 +3755,7 @@
    "path": "lib/meta/snapshot.ts",
    "git": "M",
    "class": "runtime",
-   "sha256": "07e6863945c9fa72142fe90a78969082f93bea12ebd3fb6168eebe8b88de840d"
+   "sha256": "7977c0a3332908418d83b3b9c071cae338974f4e0e7fa21d0d9b9517494e3742"
   },
   {
    "path": "lib/meta/staged-approval-withdrawal.test.ts",
@@ -4091,7 +4103,7 @@
    "path": "scripts/audits/d077-correction1-artifact-generator.ts",
    "git": "A",
    "class": "audit_script_non_runtime",
-   "sha256": "83d7bcaa37bbfb91acad86c9af2d80cecf892cccc04034550e416af8b95fa9af"
+   "sha256": "f0c0ef4fa7a925fc2beb1589ee032c68dd59dd574dbe8395ff9a343c24cdcedd"
   },
   {
    "path": "scripts/audits/d077-production-recovery-readonly-preflight.ts",
@@ -4331,7 +4343,7 @@
    "path": "scripts/check-release-owner-references.sh",
    "git": "M",
    "class": "script_ops_non_request_path",
-   "sha256": "6b0e67de8858a448bc2440c15ebae96fc087ba29561af131872f4ac29aa48440"
+   "sha256": "9e40b4c2ebf576687ea8433b548d8f6fbf7244ddf085cd0c5f19e63be9f3028e"
   },
   {
    "path": "scripts/creative-decision-center/automatic-campaign-context-shadow.test.ts",
@@ -4493,7 +4505,7 @@
    "path": "scripts/ephemeral-postgres-decision-launch-chain-seam-child.ts",
    "git": "A",
    "class": "script_ops_non_request_path",
-   "sha256": "dfd875a1ce74940a924860d8daf8c50ea88eb4d264e50ae523cbe8db8c5ef8e9"
+   "sha256": "edd0f28be2606d50a845e97b6a850d8463bfb5d3310e1089dbdf3863beec32e6"
   },
   {
    "path": "scripts/ephemeral-postgres-duplicate-ad-reconciliation-seam-child.ts",
@@ -4578,6 +4590,18 @@
    "git": "A",
    "class": "script_ops_non_request_path",
    "sha256": "4d1cdf4f947d95c1aaedb81d7377b601cd437b1c84ff050eec1d93d05a1057ac"
+  },
+  {
+   "path": "scripts/historical-meta-target-fixtures.ts",
+   "git": "A",
+   "class": "script_ops_non_request_path",
+   "sha256": "18b8ac764ad7dd99fa24eab652a2fe5bd78375cd841cb33f8d5577622d832c4e"
+  },
+  {
+   "path": "scripts/launch-activation-concurrency-fixtures.ts",
+   "git": "A",
+   "class": "script_ops_non_request_path",
+   "sha256": "a662cf87ac9cec17cdd99049afd0789939845e3dc6615652a463fb35af4b41fa"
   },
   {
    "path": "scripts/launch-zero-write-claim-fixtures.ts",

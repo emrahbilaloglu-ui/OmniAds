@@ -21,7 +21,29 @@ self-hash cycle.
 | divergence | 44 commits ahead, **0 behind** |
 | release diff | 281 files, +68,404 / −3,603 |
 
-## Current checkpoint — R12 source and validation
+## Current checkpoint — R13 source and validation
+
+The reviewed source is frozen at `3a03f2a0d023f89d5f0429664e47bbbee48e37ae`; final candidate
+source before evidence packaging is `3a03f2a0d023f89d5f0429664e47bbbee48e37ae`. The canonical
+record preserves the source identity that actually ran.
+
+R13 addresses review findings 3945077804 and 3945077809 at head 559efc85a. When a snapshot-date ceiling is requested, commercial target overlays now use the resolved snapshot date and retained target history. An older returned snapshot cannot borrow newer current targets or a looser requested ceiling. Current uncapped reads retain their existing behavior; unavailable historical target evidence keeps actions held. Activation journal insertion and the unresolved/consumed-attempt check now share an atomic entity claim. Manual and scheduled activation at every supported entity grain use the existing lock shared with manual/native ad-status actions. Only the winner can contact the provider; a losing contender preserves the winner's durable receipt. Same-intent stale status cannot consume a successful activation again, while a proven authority nonattempt remains retryable.
+
+Historical target coverage passed 102 tests across eight files and 10 actual PostgreSQL assertions. Prior R12 CI run 34055718924 completed successfully at head 559efc85add7149fb9ce5a13033eba4117c5cf3c: all 12 eligible jobs passed, with four expected PR-only jobs skipped. That run proves the prior candidate and is not R13 CI or deployment acceptance. Activation units passed 71/71 tests across six files. Independent Node processes exercised the real claim SQL in 18 PostgreSQL assertions covering manual/manual and manual/scheduled races across three grains, repeated same-intent consumption, prior status attempts, a known nonattempt retry and business/account/entity isolation. The counted provider double makes no external Meta calls; the temporary database stopped. An initial fixture omitted action-log timestamp defaults and an initial typecheck used the wrong shared-child variable name; both diagnostics are preserved. Unit timings use Vitest timestamps only. Typecheck and six-file lint passed before final fixture timestamp defaults/comment changes; the final PostgreSQL run exercised those fixture bytes, and final packaging checks follow generation.
+
+The 20:06Z whole-shell run passed all 40 ordered stages, exit 0, in 556.228
+seconds. The supervisor observed its process group absent at 2026-09-06T20:15:24.033671Z.
+The prior R12 19:30Z capture and its 21-case artifact acceptance remain
+historical, as do the R11 18:50Z, R10 18:18Z and R9 17:40Z captures,
+R11 final test head 2bff98ea and five older checks attributed to a605.
+None is relabelled as R13.
+Historical Claude runtime observations remain separate from current Codex
+probes. Final artifact, owner, lint and type checks follow packaging. Final-head
+CI and Codex review remain required before ordinary merge, exact-SHA image
+publication and deployment. This checkpoint does not claim deployment or
+advertising activation.
+
+## Prior checkpoint — R12 (historical)
 
 The reviewed source is frozen at `23531584158f358ddb2717f7af0473c6b6ad7968`; final candidate
 source before evidence packaging is `23531584158f358ddb2717f7af0473c6b6ad7968`. The canonical
@@ -322,18 +344,18 @@ The sixth repin is different in kind from the first five, and the difference is
 the point. Those replaced a PASSING log whose child programs had changed. This
 one replaces a tree that FAILED the shell — see the round-4 section below.
 
-The canonical stage is the 19:30Z run on runtime/seam source freeze
-`23531584158f358ddb2717f7af0473c6b6ad7968`, retained at
-`docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1930Z.log`:
+The canonical stage is the 20:06Z run on runtime/seam source freeze
+`3a03f2a0d023f89d5f0429664e47bbbee48e37ae`, retained at
+`docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T2006Z.log`:
 
 | | |
 |---|---|
-| Start / end (UTC) | 2026-09-06T19:30:33.412310Z → 2026-09-06T19:39:15.897776Z |
-| Duration | 522.46 s |
+| Start / end (UTC) | 2026-09-06T20:06:07.602503Z → 2026-09-06T20:15:23.800123Z |
+| Duration | 556.228 s |
 | Exit code | 0 |
 | Stage headers | 40 |
 | Final line | `[verify-db-seams] PASS — 40 stages` |
-| Bytes | 661,875 |
+| Bytes | 662,191 |
 
 The three registered seam children report their counts inside it, each with
 `skipped=0`: `direct Launchpad create route approval-standing` 7/7, `Meta History
@@ -341,11 +363,11 @@ bid verb title` 2/2, and the newly registered `Meta History bid write journal
 admission` 6/6 — the last being the direct evidence that five previously dormant
 database assertions now actually execute.
 
-Eighteen raw captures are retained without editing their bytes: 2026-08-30
+Nineteen raw captures are retained without editing their bytes: 2026-08-30
 (38-stage) and 2026-09-03 (40-stage) as earlier release evidence; 2026-09-06
 07:59Z, 10:30Z, 11:18Z, 11:56Z, 12:34Z, 13:17Z, 13:56Z, 14:43Z, 15:26Z,
-16:07Z, the failed 16:53Z attempt, 17:07Z, 17:40Z, 18:18Z, 18:50Z and 19:30Z. The first fourteen same-day
-passing captures are superseded for the current tree; 19:30Z is the
+16:07Z, the failed 16:53Z attempt, 17:07Z, 17:40Z, 18:18Z, 18:50Z, 19:30Z and 20:06Z. The first fifteen same-day
+passing captures are superseded for the current tree; 20:06Z is the
 current canonical capture. The 16:53Z attempt stopped at stage 15 with exit 1
 and is not acceptance evidence. Each capture describes its actual execution.
 

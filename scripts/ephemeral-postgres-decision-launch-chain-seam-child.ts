@@ -47,6 +47,8 @@ import { NextRequest } from "next/server";
 import { createSession } from "@/lib/auth";
 import { getDb, resetDbClientCache, runDbTransaction } from "@/lib/db";
 import { verifyScheduledQueuePageFixtures } from "@/scripts/scheduled-queue-page-fixtures";
+import { verifyNativeProposalLifecycleFixtures } from "@/scripts/native-proposal-lifecycle-fixtures";
+import { verifyLaunchZeroWriteClaimFixtures } from "@/scripts/launch-zero-write-claim-fixtures";
 import { verifyDailyBriefLedgerWindowFixtures } from "@/scripts/daily-brief-ledger-window-fixtures";
 import {
   deleteMetaLaunchDraft,
@@ -1264,6 +1266,14 @@ async function main() {
     verifyScheduledQueuePageFixtures((text, params) => getDb().query(text, params)),
   );
   console.log(`[${LABEL}] scheduled queue page: ${queuePageCases} PostgreSQL cases passed`);
+  const nativeLifecycleCases = await runDbTransaction(() =>
+    verifyNativeProposalLifecycleFixtures((text, params) => getDb().query(text, params)),
+  );
+  console.log(`[${LABEL}] native proposal lifecycle: ${nativeLifecycleCases} PostgreSQL cases passed`);
+  const launchClaimCases = await runDbTransaction(() =>
+    verifyLaunchZeroWriteClaimFixtures((text, params) => getDb().query(text, params)),
+  );
+  console.log(`[${LABEL}] launch zero-write claims: ${launchClaimCases} PostgreSQL cases passed`);
   const ledgerWindowCases = await runDbTransaction(() =>
     verifyDailyBriefLedgerWindowFixtures((text, params) => getDb().query(text, params)),
   );

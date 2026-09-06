@@ -433,9 +433,64 @@ export async function markMetaLaunchIntentExecuting(input: {
     WHERE business_id = ${input.businessId}
       AND id = ${input.id}
       AND status = 'ready'
-    RETURNING *
+    RETURNING *, started_at::text AS started_at
   `) as MetaLaunchIntentDbRow[];
   return requireUpdatedIntent(rows, "Launch intent is not ready for execution.");
+}
+
+/**
+ * Undo only the caller's claim whose action logs prove no provider dispatch.
+ * The full-precision started_at text is the claim version; pg's Date mapping
+ * would lose microseconds. Approval edits do not change that version and are
+ * deliberately preserved. A different claim, receipt or unresolved log holds.
+ */
+export const RESTORE_META_LAUNCH_INTENT_PRE_PROVIDER_QUERY = `
+  UPDATE meta_launch_intents AS intent
+  SET status = 'ready', started_at = NULL, completed_at = NULL, updated_at = NOW()
+  WHERE intent.business_id = $1::uuid
+    AND intent.id = $2::uuid
+    AND intent.request_fingerprint = $3
+    AND intent.started_at = $4::timestamptz
+    AND intent.status = 'executing'
+    AND intent.result_receipt_json IS NULL
+    AND intent.error_receipt_json IS NULL
+    AND EXISTS (
+      SELECT 1 FROM meta_ads_action_log AS current_log
+      WHERE current_log.id = $5::uuid
+        AND current_log.business_id = intent.business_id
+        AND current_log.launch_intent_id = intent.id
+    )
+    AND NOT EXISTS (
+      SELECT 1 FROM meta_ads_action_log AS log
+      WHERE log.launch_intent_id = intent.id
+        AND (
+          log.business_id IS DISTINCT FROM intent.business_id
+          OR log.status IS DISTINCT FROM 'failure'
+          OR log.error_code IS DISTINCT FROM 'provider_mutation_withheld'
+          OR log.payload_response IS DISTINCT FROM '{"provider_mutation_attempted":false}'::jsonb
+          OR log.resulting_ad_id IS NOT NULL
+          OR log.verification_payload IS NOT NULL
+          OR log.verified_at IS NOT NULL
+        )
+    )
+  RETURNING intent.*
+`;
+
+export async function restoreMetaLaunchIntentBeforeProviderMutation(input: {
+  businessId: string;
+  id: string;
+  requestFingerprint: string;
+  startedAt: string;
+  refusedActionLogId: string;
+}): Promise<MetaLaunchIntent> {
+  if (typeof input.startedAt !== "string" || !input.startedAt) {
+    throw new MetaLaunchIntentTransitionError("Launch execution claim is unavailable.");
+  }
+  const rows = await getDb().query<MetaLaunchIntentDbRow>(
+    RESTORE_META_LAUNCH_INTENT_PRE_PROVIDER_QUERY,
+    [input.businessId, input.id, input.requestFingerprint, input.startedAt, input.refusedActionLogId],
+  );
+  return requireUpdatedIntent(rows, "Launch execution claim has changed or cannot prove zero provider writes.");
 }
 
 export async function recordMetaLaunchIntentWriteBlocked(input: {

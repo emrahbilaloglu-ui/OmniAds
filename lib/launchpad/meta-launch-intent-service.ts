@@ -114,11 +114,11 @@ export async function prepareMetaLaunchIntentForExecution(input: {
       to let the operator try again is withholding, not safety.
 
       `ready` AND `started_at IS NULL` is a proven non-attempt, and the proof is
-      structural rather than a convention: `markMetaLaunchIntentExecuting` is
-      the only writer of `started_at`, it demands `status = 'ready'`, and it
-      runs before the first POST in both `runMetaLaunchIntentCreate` and
-      `runMetaAddToExistingCreate`. An intent that ever reached a provider has a
-      `started_at`, and is still refused below.
+      structural rather than a convention: `markMetaLaunchIntentExecuting`
+      claims ready before the first POST in both create flows. Only the exact
+      owner may clear started_at again, after durable action-log proof that no
+      POST was attempted and with no conflicting log or result receipt. An
+      intent that reached a provider retains started_at and is refused below.
     */
     const mayStart =
       intent.status === "prepared"

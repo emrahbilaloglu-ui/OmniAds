@@ -37,6 +37,7 @@ vi.mock("@/lib/launchpad/meta-launch-intent-service", () => ({
 vi.mock("@/lib/launchpad/meta-launch-intent-store", () => ({
   getMetaLaunchIntent: vi.fn(),
   markMetaLaunchIntentExecuting: vi.fn(async () => ({ status: "executing" })),
+  restoreMetaLaunchIntentBeforeProviderMutation: vi.fn(async () => ({ status: "ready", startedAt: null })),
   recordMetaLaunchIntentOutcome: vi.fn(),
   recordMetaLaunchIntentPreExecutionFailure: vi.fn(async () => null),
   recordMetaLaunchIntentValidation: vi.fn(async () => null),
@@ -299,6 +300,7 @@ beforeEach(() => {
   vi.mocked(actionLog.hasRecentPendingMetaLaunchAction).mockResolvedValue(false);
   vi.mocked(intentStore.markMetaLaunchIntentExecuting).mockResolvedValue({
     status: "executing",
+    startedAt: "2026-09-06 10:00:00.123456+00",
   } as never);
   vi.mocked(intentStore.recordMetaLaunchIntentOutcome).mockImplementation((async (
     input: { status: string },
@@ -577,5 +579,6 @@ describe("a gate closed before the first POST leaves the intent untouched", () =
     expect(posts(provider.calls)).toEqual([]);
     expect(result.receipt.withheld).toBe("mode_not_auto");
     expect(result.receipt.providerMutationAttempted).toBe(false);
+    expect(intentStore.restoreMetaLaunchIntentBeforeProviderMutation).toHaveBeenCalledOnce();
   });
 });

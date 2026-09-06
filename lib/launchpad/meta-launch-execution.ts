@@ -66,6 +66,7 @@ import {
 import {
   markMetaLaunchIntentExecuting,
   recordMetaLaunchIntentOutcome,
+  restoreMetaLaunchIntentBeforeProviderMutation,
 } from "@/lib/launchpad/meta-launch-intent-store";
 import type {
   MetaAddToExistingCreativeStatus,
@@ -208,8 +209,9 @@ async function askProviderMutationBoundary(
  */
 function providerMutationBoundaryHook(
   hook: (() => Promise<MetaLaunchProviderMutationVerdict>) | undefined,
+  onAllowed?: () => void,
 ): (() => Promise<void>) | undefined {
-  if (!hook) return undefined;
+  if (!hook && !onAllowed) return undefined;
   return async () => {
     const verdict = await askProviderMutationBoundary(hook);
     if (!verdict.allowed) {
@@ -218,6 +220,7 @@ function providerMutationBoundaryHook(
         { code: META_LAUNCH_PROVIDER_MUTATION_WITHHELD_CODE },
       );
     }
+    onAllowed?.();
   };
 }
 
@@ -496,6 +499,79 @@ function dispatchMarkerUnavailable(
   };
 }
 
+function isZeroWriteAuthorityRefusal(result: MetaAdsWriteFailure): boolean {
+  return result.error.code === META_LAUNCH_PROVIDER_MUTATION_WITHHELD_CODE
+    && result.providerMutationAttempted !== true
+    && result.mutationAttempt == null
+    && !isProviderOutcomeAmbiguous(result)
+    && !result.resultingAdId
+    && result.responsePayload == null
+    && result.verificationPayload == null;
+}
+
+/** Release only after a durable no-dispatch log and an exact owned-claim CAS. */
+async function restoreUnattemptedLaunch(input: {
+  businessId: string;
+  launchIntentId: string;
+  requestFingerprint: string;
+  claimStartedAt: string | null;
+  logId: string;
+  startedAt: number;
+  error: { code: string; message: string };
+  reason?: string | null;
+}): Promise<MetaLaunchExecutionOutcome> {
+  try {
+    await completeMetaAdsActionLog({
+      id: input.logId,
+      status: "failure",
+      payloadResponse: { provider_mutation_attempted: false },
+      errorCode: input.error.code,
+      errorMessage: input.error.message,
+      resultingAdId: null,
+      durationMs: Date.now() - input.startedAt,
+      verifiedAt: null,
+      verificationPayload: null,
+    });
+    const restored = await restoreMetaLaunchIntentBeforeProviderMutation({
+      businessId: input.businessId,
+      id: input.launchIntentId,
+      requestFingerprint: input.requestFingerprint,
+      startedAt: input.claimStartedAt!,
+      refusedActionLogId: input.logId,
+    });
+    return {
+      ok: false,
+      status: 409,
+      providerMutationAttempted: false,
+      body: {
+        ok: false,
+        error: input.error,
+        withheldReason: input.reason ?? null,
+        launchIntentId: input.launchIntentId,
+        launchIntentStatus: restored.status,
+      },
+    };
+  } catch {
+    // Never settle or release a claim after an unknown log write or a lost
+    // ownership comparison. Another executor's state must remain untouched.
+    return {
+      ok: false,
+      status: 500,
+      providerMutationAttempted: false,
+      body: {
+        ok: false,
+        error: {
+          code: "launch_intent_precreate_restore_failed",
+          message: "No provider write was made, but the execution claim could not be safely restored.",
+        },
+        launchIntentId: input.launchIntentId,
+        launchIntentStatus: "receipt_write_failed",
+        retryAllowed: false,
+      },
+    };
+  }
+}
+
 export interface MetaLaunchIntentCreateInput extends MetaLaunchExecutionOrigin {
   businessId: string;
   launchIntentId: string;
@@ -544,7 +620,7 @@ export async function runMetaLaunchIntentCreate(
     return dispatchMarkerUnavailable(launchIntentId, mayStart.reason);
   }
 
-  await markMetaLaunchIntentExecuting({
+  const executionClaim = await markMetaLaunchIntentExecuting({
     businessId,
     id: launchIntentId,
   });
@@ -569,6 +645,13 @@ export async function runMetaLaunchIntentCreate(
     creativeId?: string;
   }): Promise<MetaLaunchExecutionOutcome> => {
     const error = providerMutationWithheldError(withhold.reason);
+    if (!providerMutationAttempted && !campaignId && adsetIds.length === 0 && adIds.length === 0) {
+      return restoreUnattemptedLaunch({
+        businessId, launchIntentId, requestFingerprint: input.requestFingerprint,
+        claimStartedAt: executionClaim.startedAt,
+        logId: withhold.logId, startedAt: withhold.startedAt, error, reason: withhold.reason,
+      });
+    }
     const result: MetaAdsWriteFailure = {
       ok: false,
       httpStatus: 409,
@@ -677,11 +760,23 @@ export async function runMetaLaunchIntentCreate(
         reason: mayCreateCampaign.reason,
       });
     }
-    providerMutationAttempted = true;
     const campaignResult = await createCampaign(ctx, campaignInput, {
-      beforeMutationAttempt: providerMutationBoundaryHook(input.beforeProviderMutation),
+      beforeMutationAttempt: providerMutationBoundaryHook(input.beforeProviderMutation, () => {
+        providerMutationAttempted = true;
+      }),
     });
+    providerMutationAttempted ||= campaignResult.ok
+      || campaignResult.providerMutationAttempted === true
+      || campaignResult.mutationAttempt != null
+      || isProviderOutcomeAmbiguous(campaignResult);
     if (!campaignResult.ok) {
+      if (!providerMutationAttempted && isZeroWriteAuthorityRefusal(campaignResult)) {
+        return restoreUnattemptedLaunch({
+          businessId, launchIntentId, requestFingerprint: input.requestFingerprint,
+          claimStartedAt: executionClaim.startedAt,
+          logId: campaignLog.id, startedAt: campaignStartedAt, error: campaignResult.error,
+        });
+      }
       await completeFailure({
         logId: campaignLog.id,
         startedAt: campaignStartedAt,
@@ -1148,7 +1243,7 @@ export async function runMetaAddToExistingCreate(
     return dispatchMarkerUnavailable(launchIntentId, mayStart.reason);
   }
 
-  await markMetaLaunchIntentExecuting({
+  const executionClaim = await markMetaLaunchIntentExecuting({
     businessId,
     id: launchIntentId,
   });
@@ -1266,6 +1361,13 @@ export async function runMetaAddToExistingCreate(
           },
         });
         if (!adResult.ok) {
+          if (!providerMutationAttempted && steps.length === 0 && adIds.length === 0 && isZeroWriteAuthorityRefusal(adResult)) {
+            return restoreUnattemptedLaunch({
+              businessId, launchIntentId, requestFingerprint: input.requestFingerprint,
+              claimStartedAt: executionClaim.startedAt,
+              logId: adLog.id, startedAt, error: adResult.error,
+            });
+          }
           await completeDuplicateFailure({ logId: adLog.id, startedAt, result: adResult });
           const status = getDuplicateFailureLogStatus(adResult);
           results.push({

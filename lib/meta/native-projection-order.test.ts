@@ -97,12 +97,11 @@ describe("the native projection runs on its own, after publication", () => {
     });
   });
 
-  it("is safe to call again: the insert only refreshes a pending row", async () => {
+  it("refreshes pending rows and only permits explicit untouched system withdrawals to return", async () => {
     /*
       What makes a partial-account retry safe. The ON CONFLICT targets the
-      projection's own key and the DO UPDATE is guarded on `status =
-      'pending'`, so a second call adds what is missing and never touches a row
-      an operator has already decided.
+      projection's own key. Pending rows refresh; expiry is reversible only
+      for this projection's marker with no provider or operator history.
     */
     const calls = recordingDb();
     await projectNativeAdProposals({
@@ -112,6 +111,23 @@ describe("the native projection runs on its own, after publication", () => {
       call.text.includes("INSERT INTO meta_automation_proposals"))!;
     expect(insert.text).toContain("ON CONFLICT");
     expect(insert.text).toContain("meta_automation_proposals.status = 'pending'");
+    expect(insert.text).toContain("meta_automation_proposals.decision_note IS NOT DISTINCT FROM 'native_ad_decision_withdrawn'");
+    expect(insert.text).toContain("meta_automation_proposals.dispatch_started_at IS NULL");
+    expect(insert.text).toContain("meta_automation_proposals.decided_by IS NULL");
+    expect(insert.text).toContain("rec_id = EXCLUDED.rec_id");
+    expect(insert.text).toContain("engine_version = EXCLUDED.engine_version");
+  });
+
+  it("binds the optional account once for an atomic current-source/withdrawal/reoffer statement", async () => {
+    const calls = recordingDb();
+    await projectNativeAdProposals({
+      businessId: BUSINESS, snapshotDate: "2026-09-05", providerAccountId: " act_1 ",
+    });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.values).toEqual([BUSINESS, "2026-09-05", "Approve & apply", "24 hours", "act_1"]);
+    expect(calls[0]?.text).toContain("WITH latest_decisions AS MATERIALIZED");
+    expect(calls[0]?.text).toContain("UPDATE meta_automation_proposals pending");
+    expect(calls[0]?.text).toContain("INSERT INTO meta_automation_proposals");
   });
 
   it("rejects a failed projection query so the chain cannot record a successful refresh", async () => {

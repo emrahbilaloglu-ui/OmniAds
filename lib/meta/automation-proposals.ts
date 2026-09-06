@@ -1254,9 +1254,8 @@ export async function projectMetaAutomationProposals(input: {
  * a diagnosis, not a proposal, and projecting it would offer an action the
  * engine deliberately refused to authorize.
  *
- * A failure returns zero rather than throwing. The pause projection above has
- * already committed, and losing it because the native table is absent in some
- * environment would trade a working queue for a missing one.
+ * A failed read or write rejects; the native chain must retry an incomplete
+ * projection before unattended execution can use its queue.
  */
 /**
  * Project the native ad decisions this business just published.
@@ -1267,14 +1266,16 @@ export async function projectMetaAutomationProposals(input: {
  * the previous slot's decisions.
  *
  * Idempotent by construction. The insert's ON CONFLICT targets the projection's
- * own unique key (business, account, decision key, rec type, snapshot date) and
- * only refreshes a row that is still `pending`, so a second call after a
- * partial run adds what is missing and touches nothing an operator has decided.
+ * own unique key (business, account, decision key, rec type, snapshot date).
+ * Pending rows are refreshed or withdrawn as the current decision changes.
+ * Only our untouched system-withdrawn rows can be offered again; operator
+ * decisions and provider attempts retain their terminal or in-flight state.
  * Safe to call again for one account, or for all of them.
  */
 export async function projectNativeAdProposals(input: {
   businessId: string;
   snapshotDate: string;
+  providerAccountId?: string | null;
   ttlInterval?: string;
 }): Promise<{
   projected: number;
@@ -1316,22 +1317,44 @@ export async function projectNativeAdProposals(input: {
   const projected = await projectNativeAdPauseProposals({
     businessId: input.businessId,
     snapshotDate: input.snapshotDate,
+    providerAccountId: input.providerAccountId?.trim() || null,
     ttlInterval:
       input.ttlInterval ?? `${META_AUTOMATION_PROPOSAL_TTL_HOURS} hours`,
   });
   return { projected, ran: true, withheld: null };
 }
 
-async function projectNativeAdPauseProposals(input: {
-  businessId: string;
-  snapshotDate: string;
-  ttlInterval: string;
-}): Promise<number> {
-  const rows = await getDb().query<{ id: string }>(
-    `
-      WITH decisions AS (
-        SELECT DISTINCT ON (d.ad_id)
-               d.ad_id,
+const NATIVE_PROJECTION_WITHDRAWAL_NOTE = "native_ad_decision_withdrawn";
+
+/** Only expiry caused by this projection is reversible; never an operator act. */
+function nativeProjectionWithdrawalPredicate(alias: "decided" | "meta_automation_proposals") {
+  return `${alias}.status = 'expired'
+    AND ${alias}.origin = 'engine_decision'
+    AND ${alias}.rec_type = 'native_ad_cut'
+    AND ${alias}.scope_type = 'ad'
+    AND ${alias}.proposed_action = 'pause'
+    AND ${alias}.decision_note IS NOT DISTINCT FROM '${NATIVE_PROJECTION_WITHDRAWAL_NOTE}'
+    AND ${alias}.claim_token IS NULL
+    AND ${alias}.claimed_at IS NULL
+    AND ${alias}.claimed_by IS NULL
+    AND ${alias}.dispatch_started_at IS NULL
+    AND ${alias}.decided_by IS NULL
+    AND ${alias}.decided_at IS NULL
+    AND ${alias}.receipt_json IS NULL`;
+}
+
+/** One atomic statement: the source read, withdrawal and re-offer share a snapshot. */
+export const NATIVE_AD_PAUSE_PROJECTION_SQL = `
+      WITH latest_decisions AS MATERIALIZED (
+        SELECT DISTINCT ON (d.provider_account_id, d.ad_id) d.*
+          FROM engine_v3_ad_decision_snapshots_daily d
+         WHERE d.business_id = $1::text
+           AND d.as_of_date = $2::date
+           AND ($5::text IS NULL OR d.provider_account_id = $5)
+         -- Choose the current verdict before asking whether it remains a cut.
+         ORDER BY d.provider_account_id, d.ad_id, d.computed_at DESC, d.id DESC
+      ), decisions AS MATERIALIZED (
+        SELECT d.ad_id,
                /*
                  The snapshot row's own id, carried so the unattended executor
                  can rebuild the decision-origin request this row came from.
@@ -1351,45 +1374,45 @@ async function projectNativeAdPauseProposals(input: {
                d.spend,
                d.effective_target_roas,
                dim.ad_name_current AS entity_label
-          FROM engine_v3_ad_decision_snapshots_daily d
+          FROM latest_decisions d
           JOIN meta_ad_dimensions dim
             ON dim.business_id = d.business_id
            AND dim.provider_account_id = d.provider_account_id
            AND dim.ad_id = d.ad_id
-         WHERE d.business_id = $1::text
-           AND d.as_of_date = $2::date
-           AND d.label = 'cut'
+         WHERE d.label = 'cut'
            AND d.authorized_action = 'cut'
            -- The identity the ad write must present. Without it the dispatch
            -- builder withholds, so a row that could never execute is never
            -- offered.
            AND NULLIF(BTRIM(d.creative_id), '') IS NOT NULL
            AND COALESCE(UPPER(dim.ad_status), '') <> 'PAUSED'
+      ), withdrawn AS (
+        UPDATE meta_automation_proposals pending
+           SET status = 'expired',
+               decision_note = '${NATIVE_PROJECTION_WITHDRAWAL_NOTE}',
+               expires_at = NOW(),
+               updated_at = NOW()
+         WHERE pending.business_id = $1::uuid
+           AND pending.snapshot_date = $2::date
+           AND ($5::text IS NULL OR pending.provider_account_id = $5)
+           AND pending.status = 'pending'
+           AND pending.origin = 'engine_decision'
+           AND pending.rec_type = 'native_ad_cut'
+           AND pending.scope_type = 'ad'
+           AND pending.proposed_action = 'pause'
+           AND pending.claim_token IS NULL
+           AND pending.claimed_at IS NULL
+           AND pending.claimed_by IS NULL
+           AND pending.dispatch_started_at IS NULL
+           AND pending.decided_by IS NULL
+           AND pending.decided_at IS NULL
+           AND pending.receipt_json IS NULL
            AND NOT EXISTS (
-             SELECT 1
-               FROM meta_automation_proposals decided
-              WHERE decided.business_id = $1::uuid
-                AND decided.provider_account_id = d.provider_account_id
-                AND decided.decision_key = 'ad:' || d.ad_id
-                AND decided.snapshot_date = d.as_of_date
-                AND decided.status NOT IN (${META_AUTOMATION_PROPOSAL_UNDECIDED_STATUS_SQL})
+             SELECT 1 FROM decisions current_cut
+              WHERE current_cut.provider_account_id = pending.provider_account_id
+                AND 'ad:' || current_cut.ad_id = pending.decision_key
            )
-           AND NOT EXISTS (
-             SELECT 1
-               FROM meta_automation_proposals held
-              WHERE held.business_id = $1::uuid
-                AND held.provider_account_id = d.provider_account_id
-                AND held.decision_key = 'ad:' || d.ad_id
-                AND held.proposed_action = 'pause'
-                AND held.status IN (${META_AUTOMATION_PROPOSAL_OPEN_STATUS_SQL})
-                AND NOT (
-                  held.status = 'pending'
-                  AND held.origin = 'engine_decision'
-                  AND held.rec_type = 'native_ad_cut'
-                  AND held.snapshot_date = d.as_of_date
-                )
-           )
-         ORDER BY d.ad_id, d.computed_at DESC
+        RETURNING pending.id
       )
       INSERT INTO meta_automation_proposals (
         business_id, provider_account_id, origin, decision_key, scope_type,
@@ -1433,22 +1456,66 @@ async function projectNativeAdPauseProposals(input: {
              ),
              NOW() + $4::interval,
              'pending'
-        FROM decisions
+        FROM decisions d
+       WHERE NOT EXISTS (
+         SELECT 1 FROM meta_automation_proposals decided
+          WHERE decided.business_id = $1::uuid
+            AND decided.provider_account_id = d.provider_account_id
+            AND decided.decision_key = 'ad:' || d.ad_id
+            AND decided.snapshot_date = d.as_of_date
+            AND decided.status NOT IN (${META_AUTOMATION_PROPOSAL_UNDECIDED_STATUS_SQL})
+            AND NOT (${nativeProjectionWithdrawalPredicate("decided")})
+       )
+         AND NOT EXISTS (
+           SELECT 1 FROM meta_automation_proposals held
+            WHERE held.business_id = $1::uuid
+              AND held.provider_account_id = d.provider_account_id
+              AND held.decision_key = 'ad:' || d.ad_id
+              AND held.proposed_action = 'pause'
+              AND held.status IN (${META_AUTOMATION_PROPOSAL_OPEN_STATUS_SQL})
+              AND NOT (
+                held.status = 'pending'
+                AND held.origin = 'engine_decision'
+                AND held.rec_type = 'native_ad_cut'
+                AND held.snapshot_date = d.as_of_date
+              )
+         )
       ON CONFLICT (business_id, provider_account_id, decision_key, rec_type, snapshot_date)
       DO UPDATE SET
+        status = 'pending',
+        rec_id = EXCLUDED.rec_id,
+        engine_version = EXCLUDED.engine_version,
+        decision_label = EXCLUDED.decision_label,
         reason = EXCLUDED.reason,
         evidence_ref = EXCLUDED.evidence_ref,
         entity_label = EXCLUDED.entity_label,
         expires_at = EXCLUDED.expires_at,
+        decision_note = NULL,
         updated_at = NOW()
-      WHERE meta_automation_proposals.status = 'pending'
+      WHERE meta_automation_proposals.origin = 'engine_decision'
+        AND meta_automation_proposals.scope_type = 'ad'
+        AND meta_automation_proposals.proposed_action = 'pause'
+        AND (
+          meta_automation_proposals.status = 'pending'
+          OR (${nativeProjectionWithdrawalPredicate("meta_automation_proposals")})
+        )
       RETURNING id
-    `,
+    `;
+
+async function projectNativeAdPauseProposals(input: {
+  businessId: string;
+  snapshotDate: string;
+  providerAccountId: string | null;
+  ttlInterval: string;
+}): Promise<number> {
+  const rows = await getDb().query<{ id: string }>(
+    NATIVE_AD_PAUSE_PROJECTION_SQL,
     [
       input.businessId,
       input.snapshotDate,
       META_AUTOMATION_PROPOSAL_PRIMARY_CAPTION,
       input.ttlInterval,
+      input.providerAccountId,
     ],
   );
   return rows.length;

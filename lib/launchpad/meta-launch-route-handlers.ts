@@ -31,6 +31,7 @@ import type { MetaLaunchCreativePreflightCheck } from "@/lib/meta/launch-write";
 import {
   metaWriteBlockedResponse,
   readMetaWritePosture,
+  type MetaWritePosture,
 } from "@/lib/meta/automation-write-guard";
 import {
   normalizeMetaAddToExistingPayload,
@@ -293,6 +294,67 @@ async function bindingLaunchExecutionAuthority(input: {
   return readMetaLaunchExecutionAuthority(stored) ?? input.operatorAuthority;
 }
 
+/**
+ * The refusal a rehearsing business gets from a create, named once.
+ *
+ * A create cannot rehearse — `launch-write.ts` has no dry-run path — so a
+ * rehearsing posture is refused rather than pretended. Both handlers return
+ * this AND file it on the intent, and those two had drifted apart, so the
+ * strings live in one place now.
+ */
+const META_LAUNCH_REHEARSAL_REFUSAL = {
+  code: "dry_run_guardrail",
+  message: "This business is in rehearsal, so nothing was created on Meta.",
+} as const;
+
+/**
+ * What the write-guard refusal above actually said, for the durable receipt.
+ *
+ * Both create handlers recorded the literal `kill_switch_engaged` here no
+ * matter which posture refused, and then transitioned the intent to
+ * `write_blocked` permanently. A business in rehearsal was answered
+ * `dry_run_guardrail` on the wire and filed as a kill switch nobody had
+ * engaged; so was a closed release capability, a demo business and a read-only
+ * readiness tier, now that `metaWriteBlockedResponse` names the posture that
+ * refused. The receipt is the only record a later receipt/history reader has
+ * of why the launch stopped, so it may not name a different posture than the
+ * response did.
+ *
+ * It reads the envelope that is about to be returned rather than re-deriving a
+ * code from `posture.reason`: the posture -> code mapping lives in
+ * `lib/meta/automation-write-guard.ts` (where `business_kill_switch` keeps the
+ * historical `kill_switch_engaged`, because four callers halt a sequence on
+ * that string), and a second copy of that mapping here is exactly how the
+ * receipt and the response would drift apart again. The fallback is for an
+ * unreadable envelope only, and still names the posture that was read instead
+ * of inventing a kill switch.
+ */
+function metaLaunchWriteRefusalReason(input: {
+  posture: MetaWritePosture;
+  payload: Record<string, unknown>;
+}): { code: string; message: string } {
+  const fallback = input.posture.blocked
+    ? {
+      code: input.posture.reason ?? "kill_switch_engaged",
+      message:
+        input.posture.message ?? "Meta writes are blocked for this business.",
+    }
+    : META_LAUNCH_REHEARSAL_REFUSAL;
+  const error = (input.payload as {
+    error?: { code?: unknown; message?: unknown };
+  }).error;
+  return {
+    code:
+      typeof error?.code === "string" && error.code.length > 0
+        ? error.code
+        : fallback.code,
+    message:
+      typeof error?.message === "string" && error.message.length > 0
+        ? error.message
+        : fallback.message,
+  };
+}
+
 function normalizeBodyTargets(body: AddToExistingBody | null) {
   const fromTargets = Array.isArray(body?.targets)
     ? body.targets
@@ -501,16 +563,23 @@ export async function handleMetaLaunchAction(
     : posture.rehearsal
       ? jsonError(
         409,
-        "dry_run_guardrail",
-        "This business is in rehearsal, so nothing was created on Meta.",
+        META_LAUNCH_REHEARSAL_REFUSAL.code,
+        META_LAUNCH_REHEARSAL_REFUSAL.message,
       )
       : null;
   if (blocked) {
+    // Read the refusal BEFORE the receipt is built: the two have to name the
+    // same posture, and this one is the durable half.
+    const payload = (await blocked.clone().json().catch(() => ({}))) as Record<
+      string,
+      unknown
+    >;
+    const refusal = metaLaunchWriteRefusalReason({ posture, payload });
     const receipt = buildMetaLaunchIntentErrorReceipt({
       ...receiptBinding,
       providerAccountId,
-      code: "kill_switch_engaged",
-      message: "Meta writes are disabled by kill switch.",
+      code: refusal.code,
+      message: refusal.message,
       failedAt: "write_guard",
     });
     const intent = await recordMetaLaunchIntentWriteBlocked({
@@ -518,10 +587,6 @@ export async function handleMetaLaunchAction(
       id: launchIntentId,
       receipt,
     });
-    const payload = (await blocked.clone().json().catch(() => ({}))) as Record<
-      string,
-      unknown
-    >;
     return NextResponse.json(
       {
         ...payload,
@@ -1039,26 +1104,29 @@ export async function handleMetaAddToExistingAction(
     : posture.rehearsal
       ? jsonError(
         409,
-        "dry_run_guardrail",
-        "This business is in rehearsal, so nothing was created on Meta.",
+        META_LAUNCH_REHEARSAL_REFUSAL.code,
+        META_LAUNCH_REHEARSAL_REFUSAL.message,
       )
       : null;
   if (blocked) {
+    // Read the refusal BEFORE the receipt is built: the two have to name the
+    // same posture, and this one is the durable half.
+    const payload = (await blocked.clone().json().catch(() => ({}))) as Record<
+      string,
+      unknown
+    >;
+    const refusal = metaLaunchWriteRefusalReason({ posture, payload });
     const intent = await recordMetaLaunchIntentWriteBlocked({
       businessId: access.businessId,
       id: launchIntentId,
       receipt: buildMetaLaunchIntentErrorReceipt({
         ...receiptBinding,
         providerAccountId,
-        code: "kill_switch_engaged",
-        message: "Meta writes are disabled by kill switch.",
+        code: refusal.code,
+        message: refusal.message,
         failedAt: "write_guard",
       }),
     });
-    const payload = (await blocked.clone().json().catch(() => ({}))) as Record<
-      string,
-      unknown
-    >;
     return NextResponse.json(
       { ...payload, launchIntentId, launchIntentStatus: intent.status },
       { status: blocked.status },

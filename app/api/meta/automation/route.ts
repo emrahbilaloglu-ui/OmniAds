@@ -33,7 +33,7 @@ import { fetchAssignedAccountIds } from "@/lib/meta/creatives-fetchers";
 import { resolveMetaCreativesAccountScope } from "@/lib/meta/creatives-warehouse";
 import { rejectIfAutomationDemoWrite } from "./demo-write-authority";
 import { rejectIfMetaGateClosed } from "@/lib/meta/release-gate-guard";
-import { getDb } from "@/lib/db";
+import { getDb, runDbTransaction } from "@/lib/db";
 import {
   disableBudgetAutoExecution,
   setBudgetAutoExecutionEnabled,
@@ -729,16 +729,39 @@ export async function POST(request: NextRequest) {
         Sequential, not concurrent: each write appends a promotion record and an
         activity-ledger row, and interleaving them would produce an audit trail
         whose order does not match what happened.
+
+        ONE transaction, because a partial business mode is worse than none.
+        Each call used to commit on its own, so a failure on the second, third
+        or fourth type answered 500 with the earlier types already changed. On
+        `auto` that is the dangerous half: the caller reads a failed request as
+        "nothing was armed" while one or more unattended action families are in
+        fact armed, and the single business mode this action advertises is left
+        as a custom mixture nobody asked for. Every statement inside
+        `setMetaAutomationDecisionTypeMode` — the mode upsert, the promotion
+        record and the ledger row — reaches the database through `getDb()`,
+        which returns the transaction's own client while `runDbTransaction` is
+        on the stack, so all twelve rows commit together or none of them do
+        without the control plane needing to know it is in a transaction.
+
+        The cost falls on a database where the additive-column migrations have
+        not run: `withAdditiveColumnFallback` retries a `42703` with the
+        pre-migration column list, and a failed statement poisons the
+        transaction around it, so there this action now fails whole instead of
+        degrading. That is the right trade here — all four writes name the same
+        columns, so the fallback was all-or-nothing anyway — and the
+        single-type action above keeps its ungrouped, degrading behaviour.
       */
-      for (const decisionType of META_AUTOMATION_DECISION_TYPES) {
-        await setMetaAutomationDecisionTypeMode({
-          businessId: access.membership.businessId,
-          userId: access.session.user.id,
-          decisionType,
-          mode: body?.mode as MetaAutomationDecisionMode,
-          reason: body?.reason,
-        });
-      }
+      await runDbTransaction(async () => {
+        for (const decisionType of META_AUTOMATION_DECISION_TYPES) {
+          await setMetaAutomationDecisionTypeMode({
+            businessId: access.membership.businessId,
+            userId: access.session.user.id,
+            decisionType,
+            mode: body?.mode as MetaAutomationDecisionMode,
+            reason: body?.reason,
+          });
+        }
+      });
     } else if (action === "set_guardrail_policy") {
       await setMetaAutomationGuardrailPolicy({
         businessId: access.membership.businessId,

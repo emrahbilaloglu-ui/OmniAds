@@ -61,12 +61,20 @@ import { execFileSync, spawnSync } from "node:child_process";
   header comparison cannot see, which is why reusing the earlier log would have
   repeated the error this comment was written about.
 
-  This log is the 10:30Z canonical run of the current script on the current
-  tree: 40 headers, `PASS — 40 stages`, exit 0, 501 s. The three registered
-  children report their counts in it — 7/7, 2/2 and 6/6, each with `skipped=0`.
+  The 10:30Z capture was canonical when the PR was opened, and is superseded for
+  the third time by the same rule: addressing the review's five findings changed
+  `lib/migrations.ts` and `campaign-context-job.ts`, both of which the seam's
+  children execute. Three repins in one day is not churn — it is the rule doing
+  its job, because on each occasion the 40 headings were byte-identical and a
+  header comparison alone would have accepted a log that no longer described
+  what ran.
+
+  This log is the 11:18Z canonical run on the delivered tree: 40 headers,
+  `PASS — 40 stages`, exit 0, 514 s, with the three registered children
+  reporting 7/7, 2/2 and 6/6, each `skipped=0`.
 */
 const PORTABLE_SHELL_LOG_PATH =
-  "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1030Z.log";
+  "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1118Z.log";
 
 /*
   The branch this candidate actually lives on, read from git rather than typed.

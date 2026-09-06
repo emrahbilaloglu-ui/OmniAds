@@ -113,7 +113,13 @@ REGISTRY=(
   # between the two runs the seam's children changed (a previously unregistered
   # DB seam test was registered, and runChildVitest began asserting passing
   # counts), so the earlier log no longer binds what the stage executes.
-  "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1030Z.log|1|Retained whole-shell capture (40-stage run, 10:30Z, CANONICAL): this guard announcing the token it scans for."
+  "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1030Z.log|1|Retained whole-shell capture (40-stage run, 10:30Z, superseded): this guard announcing the token it scans for."
+  # 11:18Z is the canonical capture. Superseded again, and for the same honest
+  # reason: addressing the PR review changed lib/migrations.ts and
+  # campaign-context-job.ts, which the seam's children execute. Each superseded
+  # capture is kept because it is truthful evidence of the tree it ran on; only
+  # the label moves, never the bytes.
+  "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1118Z.log|1|Retained whole-shell capture (40-stage run, 11:18Z, CANONICAL): this guard announcing the token it scans for."
 )
 
 HISTORICAL_COUNTS=(

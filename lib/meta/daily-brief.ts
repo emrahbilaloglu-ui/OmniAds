@@ -186,6 +186,25 @@ export async function buildMetaDailyBrief(input: {
  * Read from the ledger's own result column rather than counted from
  * proposals: a row that was approved and then failed at the provider is not
  * an applied change, and the ledger is where that distinction lives.
+ *
+ * The window is closed at both ends. `created_at >= asOf - 1 day` on its own
+ * was not a 24-hour window at all: opened at 09:00 it counted 33 hours, opened
+ * at 23:00 it counted 47, so the card labelled "Applied overnight" grew all day
+ * and yesterday afternoon's manual approvals landed in this morning's count.
+ * For a past asOf it was worse — with no upper bound it swept in every ledger
+ * row written since, so a brief for last Tuesday reported everything the
+ * automation has done in the days after it.
+ *
+ * Both ends hang off the same anchor: the earlier of now() and the end of the
+ * asOf day. Today that anchor is now(), giving the true rolling 24 hours the
+ * card claims — this morning's 03:00 run counts, yesterday's 15:00 one does
+ * not. For a past asOf it clamps to that day's midnight, giving a fixed window
+ * that cannot drift as more rows arrive. The anchor is still the `$2::date`
+ * boundary the query already used, so the fix bounds the window without moving
+ * the day basis underneath it. Both bounds are stable expressions, so this
+ * still range-scans idx_meta_automation_activity_ledger_business rather than
+ * degrading into the kind of index-unusable predicate that has silently
+ * exceeded the pool read timeout on this schema before.
  */
 async function readOvernightLedger(
   businessId: string,
@@ -195,7 +214,8 @@ async function readOvernightLedger(
     `SELECT result_status, count(*)::int AS count
        FROM meta_automation_activity_ledger
       WHERE business_id = $1::uuid
-        AND created_at >= ($2::date - INTERVAL '1 day')
+        AND created_at >= LEAST(now(), $2::date + INTERVAL '1 day') - INTERVAL '24 hours'
+        AND created_at < LEAST(now(), $2::date + INTERVAL '1 day')
       GROUP BY result_status`,
     [businessId, asOf],
   ).catch(() => null)) as Array<{

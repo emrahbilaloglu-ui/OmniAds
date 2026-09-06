@@ -221,9 +221,32 @@ async function runUnattended() {
   });
 }
 
+/*
+  The clock is PINNED, because this suite's subject is an expiry.
+
+  `beforeEach` used to call `vi.useRealTimers()`, so every case was judged
+  against the wall clock while the shared fixture declared
+  `expiresAt: "2026-09-06T09:00:00.000Z"`. That is a time bomb, and it went off:
+  the file passed every run up to 2026-09-06T09:00Z and failed all 14 of its
+  approval-dependent cases from 09:00Z onward — first observed on CI at 11:12Z,
+  reproduced locally at 11:14Z, and reproducing identically on the two earlier
+  commits of this branch, which is how it was established as a latent defect
+  rather than a regression.
+
+  An expiry test must not be able to expire. Time is frozen inside the approval
+  window instead, so the fixture's absolute dates keep the meaning they were
+  written with. `shouldAdvanceTime` lets the clock creep with real time so that
+  nothing awaiting a timer can stall, which cannot matter here: the nearest
+  boundary is 21 hours away and a run takes milliseconds.
+
+  The one case that is ABOUT the boundary — "sends nothing after the approval
+  expires between two steps" — installs its own fake timers and its own
+  approval, and is unaffected.
+*/
 beforeEach(() => {
   vi.clearAllMocks();
-  vi.useRealTimers();
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  vi.setSystemTime(new Date("2026-09-05T12:00:00.000Z"));
   row = { approval: approval(), requestFingerprint: "a".repeat(64) };
   posted = [];
   settled = [];

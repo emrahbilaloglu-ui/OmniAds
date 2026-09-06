@@ -365,6 +365,18 @@ DO UPDATE SET
 export const CAMPAIGN_ROLE_AUTHORITY_CONTRACT =
   "engine-v3-campaign-role-authority.v1" as const;
 
+/**
+ * What an unresolved day is recorded as, so the withdrawal is a ROW.
+ *
+ * Deliberately not one of the roles. `resolveCampaignRoleAuthority` matches
+ * `AUTOMATIC_CAMPAIGN_ROLES` and `qualifyRoleAuthorityRow` matches
+ * `META_CAMPAIGN_KINDS`, both allow-lists, so this value refuses in both
+ * (`role_kind_unrecognised` / `role_inferred_kind_unknown`) and cannot be
+ * mistaken for a positive answer by a reader that only looks at the newest row.
+ * It must never be added to either list.
+ */
+export const CAMPAIGN_ROLE_AUTHORITY_UNRESOLVED_KIND = "unresolved" as const;
+
 export const UPSERT_CONTEXT_QUERY = `
 INSERT INTO engine_v3_campaign_context_daily (
   business_id, provider_account_id, campaign_id, campaign_name, as_of_date,
@@ -615,62 +627,87 @@ export async function runCampaignContextJob(
             ]);
 
             /*
-              The authority record, for a resolved role only.
+              The authority record — for EVERY day the resolver spoke, the days
+              it withdrew the role included.
 
-              An unresolved kind is not an authority for anything, and writing a
-              row that says "unknown" would give the reader something to find
-              where the honest answer is that nothing was resolved. The
-              confidence class is carried verbatim: this job does not decide
-              what is authoritative, `resolveCampaignRoleAuthority` does, and it
-              requires an exact `high` from a validated resolver.
+              Writing only resolved days made a withdrawal invisible to the
+              readers. Both budget paths select this campaign's rows
+              `ORDER BY as_of_date DESC, recorded_at DESC LIMIT 25` and hand
+              them to `resolveCampaignRoleAuthority`, which judges the NEWEST
+              as-of date and admits it for `maxEvidenceAgeDays: 60`; neither
+              path joins today's context row. So a campaign that resolved
+              `main`/`high` and later became unresolved kept authorising
+              provider writes as `main` for up to 60 days, under a role this job
+              had explicitly withdrawn.
+
+              The sequence that actually reaches that state is a PRODUCER GAP,
+              not the hysteresis paths. An evidence dip inside its grace, and a
+              conflict awaiting confirmation, both publish a held kind first
+              with the class forced down to "medium" — which the reader already
+              refuses — so the newest standing row is harmless. The harmful
+              shape is a gap longer than the previous-state lookback: with no
+              recent row to hold, the resolver publishes null on its first run
+              back, while the last `high` row is still the newest thing the
+              readers can see. Authority outliving its evidence is the exact defect
+              this record exists to prevent, so the withdrawal has to be a row:
+              silence cannot shadow anything.
+
+              An unresolved day is recorded as
+              CAMPAIGN_ROLE_AUTHORITY_UNRESOLVED_KIND, which no reader's
+              allow-list contains, so the tombstone becomes the newest row and
+              denies rather than endorses. The confidence class is still carried
+              verbatim — a null kind only ever publishes "unknown" or "conflict",
+              never "high" — because this job does not decide what is
+              authoritative, `resolveCampaignRoleAuthority` does.
 
               A failure here does not fail the job. The daily context row is
               already written and readable; the authority record is an
               additional retention, and losing one day of it must not cost the
-              inference the job exists to produce.
+              inference the job exists to produce. A lost tombstone is
+              self-healing: the next run writes one for its own day, so the
+              stale row's exposure is a day rather than the full 60.
             */
-            if (hysteresis.publishedKind) {
-              const evidenceHash = canonicalSha256({
-                contract: CAMPAIGN_ROLE_AUTHORITY_CONTRACT,
-                evidence,
-                conflictReasons: resolution.conflictReasons,
-                kindBasis,
-                hysteresis: hysteresis.state,
-              });
-              const inputHash = canonicalSha256({
-                contract: CAMPAIGN_ROLE_AUTHORITY_CONTRACT,
-                businessId: input.businessId,
+            const evidenceHash = canonicalSha256({
+              contract: CAMPAIGN_ROLE_AUTHORITY_CONTRACT,
+              evidence,
+              conflictReasons: resolution.conflictReasons,
+              kindBasis,
+              hysteresis: hysteresis.state,
+            });
+            const inputHash = canonicalSha256({
+              contract: CAMPAIGN_ROLE_AUTHORITY_CONTRACT,
+              businessId: input.businessId,
+              providerAccountId,
+              campaignId: feature.campaignId,
+              asOf: input.asOf,
+              resolverVersion: CAMPAIGN_CONTEXT_RESOLVER_VERSION,
+              sourceWindowStart: rangeStart,
+              sourceWindowEnd: input.asOf,
+              creativeDayRows: accountCreativeDays.length,
+              scores: {
+                testScore: resolution.testScore,
+                mainScore: resolution.mainScore,
+                mixedScore: resolution.mixedScore,
+                agreeingFamilies: resolution.agreeingFamilies,
+              },
+            });
+            await db
+              .query(UPSERT_ROLE_AUTHORITY_QUERY, [
+                CAMPAIGN_ROLE_AUTHORITY_CONTRACT,
+                input.businessId,
                 providerAccountId,
-                campaignId: feature.campaignId,
-                asOf: input.asOf,
-                resolverVersion: CAMPAIGN_CONTEXT_RESOLVER_VERSION,
-                sourceWindowStart: rangeStart,
-                sourceWindowEnd: input.asOf,
-                creativeDayRows: accountCreativeDays.length,
-                scores: {
-                  testScore: resolution.testScore,
-                  mainScore: resolution.mainScore,
-                  mixedScore: resolution.mixedScore,
-                  agreeingFamilies: resolution.agreeingFamilies,
-                },
-              });
-              await db
-                .query(UPSERT_ROLE_AUTHORITY_QUERY, [
-                  CAMPAIGN_ROLE_AUTHORITY_CONTRACT,
-                  input.businessId,
-                  providerAccountId,
-                  feature.campaignId,
-                  input.asOf,
-                  hysteresis.publishedKind,
-                  CAMPAIGN_CONTEXT_RESOLVER_VERSION,
-                  hysteresis.publishedClass,
-                  evidenceHash,
-                  inputHash,
-                  `${input.asOf}T00:00:00.000Z`,
-                  kindBasis,
-                ])
-                .catch(() => null);
-            }
+                feature.campaignId,
+                input.asOf,
+                hysteresis.publishedKind ??
+                  CAMPAIGN_ROLE_AUTHORITY_UNRESOLVED_KIND,
+                CAMPAIGN_CONTEXT_RESOLVER_VERSION,
+                hysteresis.publishedClass,
+                evidenceHash,
+                inputHash,
+                `${input.asOf}T00:00:00.000Z`,
+                kindBasis,
+              ])
+              .catch(() => null);
             rowsWritten += 1;
           }
         }

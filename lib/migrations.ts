@@ -11487,24 +11487,49 @@ export async function runMigrations(options?: {
           concurrently, and "add the column, then backfill it" is only a
           migration if the add happens first.
         */
+        /*
+          NO `.catch(() => {})` on these three steps, and none on the group —
+          unlike the `shopify_sync_state` statements above them.
+
+          Swallowing a failure here does not leave a nicety undone, it lets the
+          deploy announce a successful migration for a release whose code
+          cannot run. Both columns are named unconditionally by the code this
+          same change ships: `upsertShopifySyncState` INSERTs them on every
+          sync (`lib/shopify/sync-state.ts:205-206`), so a lock timeout on
+          either ALTER — the session sets one, see `SET lock_timeout` at the
+          top of this function — leaves every subsequent Shopify sync failing
+          at its state write; and `readOrderSyncCoverage` SELECTs them
+          (`lib/creative-decision-engine/shopify-aov-source.ts:396-397`) behind
+          a bare `catch { return null }`, so the same missing columns silently
+          degrade EVERY store's observed AOV, and the CPA benchmark derived
+          from it, to unavailable with no error recorded anywhere.
+
+          The backfill is on the same footing rather than a best-effort extra.
+          It is the statement that stops this release WITHDRAWING coverage the
+          previous one granted (see the constant's own comment); swallowed, it
+          returns every pre-deploy store to the exact refusal this change
+          exists to remove, and nothing re-runs it.
+
+          Failing the migration loudly is the correct outcome: it is
+          recoverable, and it happens before the release serves anyone.
+
+          Safe on a first-ever run: `shopify_sync_state` is created earlier in
+          this same batch with both columns already in its column list, and the
+          migration client serializes statements in the order they are issued
+          (`createMigrationDb`), so the table is present by the time these run.
+          The ALTERs are then no-ops and the backfill a zero-row UPDATE.
+        */
         orderedMigrationSteps([
           () =>
             sql`ALTER TABLE shopify_sync_state
-              ADD COLUMN IF NOT EXISTS latest_successful_sync_window_start DATE`.catch(
-              () => {},
-            ),
+              ADD COLUMN IF NOT EXISTS latest_successful_sync_window_start DATE`,
           () =>
             sql`ALTER TABLE shopify_sync_state
-              ADD COLUMN IF NOT EXISTS latest_successful_sync_window_end DATE`.catch(
-              () => {},
-            ),
+              ADD COLUMN IF NOT EXISTS latest_successful_sync_window_end DATE`,
           // The pre-deploy rows, given the proof the PREVIOUS release already
           // granted them. See the constant's own comment for the predicate.
-          () =>
-            sql
-              .query(SHOPIFY_SYNC_STATE_RETAINED_WINDOW_BACKFILL_SQL)
-              .catch(() => {}),
-        ]).catch(() => {}),
+          () => sql.query(SHOPIFY_SYNC_STATE_RETAINED_WINDOW_BACKFILL_SQL),
+        ]),
         sql`CREATE INDEX IF NOT EXISTS idx_shopify_sync_state_business
           ON shopify_sync_state (business_id, updated_at DESC)`.catch(() => {}),
         sql`CREATE TABLE IF NOT EXISTS platform_overview_daily_summary (

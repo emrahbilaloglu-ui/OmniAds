@@ -132,17 +132,24 @@ skipped or short child. Both change what the stage EXECUTES while leaving all 40
 headings byte-identical: precisely the blind spot described above. So the 07:59Z
 log cannot speak for the delivered tree either, and the shell was re-run.
 
-The canonical stage is the 10:30Z run, retained at
-`docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1030Z.log`:
+It happened a THIRD time, for the same reason, and that is the rule working
+rather than churn: addressing the review's five findings changed
+`lib/migrations.ts` and `campaign-context-job.ts`, both of which the seam's
+children execute. On all three occasions the 40 headings were byte-identical, so
+a header comparison alone would have accepted a log that no longer described what
+ran.
+
+The canonical stage is the 11:18Z run, retained at
+`docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1118Z.log`:
 
 | | |
 |---|---|
-| Start / end (UTC) | 2026-09-06T10:30:54 → 2026-09-06T10:39:15 |
-| Duration | 501.0 s |
+| Start / end (UTC) | 2026-09-06T11:18:34 → 2026-09-06T11:27:08 |
+| Duration | 514.0 s |
 | Exit code | 0 |
 | Stage headers | 40 |
 | Final line | `[verify-db-seams] PASS — 40 stages` |
-| Bytes | 661,048 |
+| Bytes | 661,046 |
 
 The three registered seam children report their counts inside it, each with
 `skipped=0`: `direct Launchpad create route approval-standing` 7/7, `Meta History
@@ -150,9 +157,12 @@ bid verb title` 2/2, and the newly registered `Meta History bid write journal
 admission` 6/6 — the last being the direct evidence that five previously dormant
 database assertions now actually execute.
 
-Four captures are retained in total and none was relabelled or edited: 2026-08-30
-(38-stage) and 2026-09-03 (40-stage) as the earlier releases' evidence, 2026-09-06
-07:59Z as the Phase 1 checkpoint's — superseded, not historical — and this one.
+Five captures are retained and none was relabelled or edited: 2026-08-30
+(38-stage) and 2026-09-03 (40-stage) as the earlier releases' evidence; 2026-09-06
+07:59Z (Phase 1 checkpoint), 10:30Z (PR open) and 11:18Z (this one, after the
+review fixes). The three same-day captures are superseded rather than historical.
+Each is kept because it is truthful evidence of the tree it ran on — only the
+label moves, never the bytes.
 
 **One executed-source change post-dates that run, and it is named rather than
 glossed.** Retaining the log inside the repository required registering it in
@@ -313,6 +323,52 @@ reported in the delivery message rather than written here: this document is one 
 the files the manifest pins, so naming the commit that contains the manifest
 inside the document would be a self-hash cycle. The historical baseline
 `RELEASE_BASE_SHA` / `deploy/PRODUCTION_BASELINE_SHA` identities are untouched.
+
+## Review round on PR #276
+
+Codex Review completed on head `cae8c886` with five findings — three P1, two P2.
+All five were verified at source, all five were true, and all five are fixed.
+Each fix carries a test that was mutation-checked: the fix was reverted, the test
+observed failing, then restored.
+
+| finding | fix |
+|---|---|
+| P1 `campaign-context-job.ts` — a withdrawn role kept authorising writes for up to 60 days, because publishing `null` wrote no row and both readers take the newest one | The unresolved day is now persisted as a sentinel kind that neither reader's allow-list contains, so the withdrawal shadows the stale row instead of being silence. The frozen readers were not touched. |
+| P1 `lib/migrations.ts` — the Shopify column adds and their backfill were swallowed twice over | Both catch layers removed, exactly as the action-CHECK widening was. Landed with an upgrade-path test, which is the only path that can catch it: from-zero creates the columns in the CREATE TABLE, so the ALTERs are no-ops there. |
+| P1 `automation/route.ts` — `set_business_mode` wrote four rows in a loop, so a mid-loop failure returned 500 having already armed some families | The four mode writes and their audit rows now run inside one `runDbTransaction`. |
+| P2 `meta-launch-route-handlers.ts` — the durable receipt was hard-coded `kill_switch_engaged` whatever the actual refusal was | The receipt is built from the same refusal the response carries, reusing the frozen codes. |
+| P2 `daily-brief.ts` — the "Applied overnight" count had only a lower bound, so it spanned 24–48 hours | Both ends now hang off one anchor, so the span is fixed by construction. |
+
+Two of these are worth naming as classes rather than incidents: the first is
+authority outliving its evidence, which is the defect this whole release exists
+to remove; the fourth contradicts the invariant this release advertises, that a
+refusal names the posture that refused. All five are defects in code this PR
+introduces — none is a shipped production incident.
+
+**Residuals, disclosed rather than fixed.** Making `set_business_mode` atomic
+means an additive-column fallback can no longer retry inside the aborted
+transaction, so on a database missing those columns the endpoint would answer 500
+instead of degrading. Production is not such a database: `clean_approval_threshold`
+and all five activity-ledger tuple columns were re-read and are present. The
+daily-brief anchor resolves in the session time zone, so a session ahead of UTC
+would under-count the tail of a UTC day; nothing sets a session time zone and the
+server default is UTC.
+
+## A latent time bomb CI caught, which local runs could not
+
+`lib/meta/activation-approval-recheck.test.ts` — a file this release adds — pinned
+its shared approval fixture at `expiresAt: 2026-09-06T09:00:00.000Z` and forced
+`vi.useRealTimers()` in `beforeEach`. Every run before 09:00Z today passed;
+every run after it fails 14 of 15 cases. CI first reported it at 11:12Z and it
+reproduced locally at 11:14Z — and, decisively, on both earlier commits of this
+branch, which is how it was established as latent rather than a regression from
+the review fixes.
+
+This is the honest footnote to the `17,613 passed, 0 failed` figure recorded
+above: that sweep ran before 09:00Z and was true when taken. It would not be true
+now, which is exactly why the figure is marked reported-not-pinned while the
+40-stage seam result is pinned by a retained log. The suite's clock is now frozen
+inside the approval window, so an expiry test can no longer expire.
 
 ## Scope: one detour was opened and withdrawn
 

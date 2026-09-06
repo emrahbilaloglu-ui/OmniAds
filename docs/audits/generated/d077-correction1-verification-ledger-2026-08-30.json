@@ -1,9 +1,9 @@
 {
- "ledgerHash": "0e0ed0713711183ce155b4371e68f88cebce18490ffb20c6117cf1b0d7ae3dc5",
+ "ledgerHash": "6591900cc3aa8a14e2d03c9a4b01e3e77e975d09868a60cc6c0b860bab4e70cf",
  "hashAlgorithm": "sha256",
  "hashBasis": "sha256 over UTF-8 bytes of JSON.stringify(artifact, null, 1) of the artifact WITHOUT its embedded hash fields (the artifact object before {<hashField>, hashAlgorithm, hashBasis} are prepended)",
  "contract": "adsecute.d077.correction2-verification-ledger.v2",
- "generatedAtUtc": "2026-09-06T16:18:02.166Z",
+ "generatedAtUtc": "2026-09-06T17:22:06.160Z",
  "runtimeVersions": {
   "node": "v24.4.1",
   "npm": "11.4.2",
@@ -169,6 +169,180 @@
   },
   "pnpmLayoutNote": "supplemental context only: node_modules is a pnpm layout (.bin entries are #!/bin/sh shims) — the reason the seam entrypoint fix exists"
  },
+ "runtimeVersionsScope": {
+  "kind": "historical",
+  "sourceLedgerHash": "0e0ed0713711183ce155b4371e68f88cebce18490ffb20c6117cf1b0d7ae3dc5",
+  "sourceGeneratedAtUtc": "2026-09-06T16:18:02.166Z",
+  "note": "Frozen earlier audit runtime observations, preserved with their original timestamps and validated by the unchanged historical provenance contract."
+ },
+ "packagingRuntimeVersions": {
+  "actor": "codex",
+  "observedAtUtc": "2026-09-06T17:22:05.550Z",
+  "node": "v24.4.1",
+  "npm": "11.4.2",
+  "pnpm": "11.19.0",
+  "vitest": "vitest/4.1.5 darwin-arm64 node-v24.4.1",
+  "postgres": "postgres (PostgreSQL) 16.13 (Homebrew)",
+  "tsc": "Version 5.9.3",
+  "pnpmProbes": [
+   {
+    "probeId": "claude-shell-pnpm",
+    "command": "command -v pnpm  →  /Users/harmelek/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/pnpm --version",
+    "resolutionMechanism": "POSIX `command -v` on the generator shell PATH; on success the resolved binary is executed DIRECTLY (no alias, no Corepack shim activation, no installation)",
+    "resolutionKind": "path_lookup",
+    "resolutionStep": {
+     "executable": "bash",
+     "argv": [
+      "-lc",
+      "command -v pnpm"
+     ],
+     "commandForm": "bash -lc command -v pnpm",
+     "exitStatus": 0,
+     "signal": null,
+     "stdout": "/Users/harmelek/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/pnpm\n",
+     "stderr": "",
+     "spawnErrorCode": null,
+     "spawnErrorMessage": null,
+     "observedAtUtc": "2026-09-06T17:22:04.983Z"
+    },
+    "resolution": "resolved",
+    "resolvedPath": "/Users/harmelek/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/pnpm",
+    "directExecutionStep": {
+     "executable": "/Users/harmelek/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/pnpm",
+     "argv": [
+      "--version"
+     ],
+     "commandForm": "/Users/harmelek/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/pnpm --version",
+     "exitStatus": 0,
+     "signal": null,
+     "stdout": "11.19.0\n",
+     "stderr": "",
+     "spawnErrorCode": null,
+     "spawnErrorMessage": null,
+     "observedAtUtc": "2026-09-06T17:22:05.303Z"
+    },
+    "reportedVersion": "11.19.0",
+    "resultClass": "version_reported",
+    "observationKind": "present_tense",
+    "observedAtUtc": "2026-09-06T17:22:05.303Z",
+    "observationTimeCertainty": "exact",
+    "cacheSafeReadOnly": true
+   },
+   {
+    "probeId": "corepack-program-version",
+    "command": "command -v corepack  →  /usr/local/bin/corepack --version",
+    "resolutionMechanism": "POSIX `command -v corepack`, then direct spawn of the resolved binary; `--version` prints Corepack's OWN program version and performs no package-manager resolution (cache-safe)",
+    "resolutionKind": "path_lookup",
+    "resolutionStep": {
+     "executable": "bash",
+     "argv": [
+      "-lc",
+      "command -v corepack"
+     ],
+     "commandForm": "bash -lc command -v corepack",
+     "exitStatus": 0,
+     "signal": null,
+     "stdout": "/usr/local/bin/corepack\n",
+     "stderr": "",
+     "spawnErrorCode": null,
+     "spawnErrorMessage": null,
+     "observedAtUtc": "2026-09-06T17:22:05.308Z"
+    },
+    "resolution": "resolved",
+    "resolvedPath": "/usr/local/bin/corepack",
+    "directExecutionStep": {
+     "executable": "/usr/local/bin/corepack",
+     "argv": [
+      "--version"
+     ],
+     "commandForm": "/usr/local/bin/corepack --version",
+     "exitStatus": 0,
+     "signal": null,
+     "stdout": "0.34.2\n",
+     "stderr": "",
+     "spawnErrorCode": null,
+     "spawnErrorMessage": null,
+     "observedAtUtc": "2026-09-06T17:22:05.348Z"
+    },
+    "reportedVersion": "0.34.2",
+    "resultClass": "version_reported",
+    "observationKind": "present_tense",
+    "observedAtUtc": "2026-09-06T17:22:05.348Z",
+    "observationTimeCertainty": "exact",
+    "cacheSafeReadOnly": true
+   },
+   {
+    "probeId": "codex-fallback-pnpm",
+    "command": "/Users/harmelek/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/pnpm --version",
+    "resolutionMechanism": "explicit absolute path (the executable Codex's own PATH resolves): fs existence observation, then direct spawn — no shell, no package-manager resolution layer",
+    "resolutionKind": "explicit_path",
+    "existenceObservation": {
+     "path": "/Users/harmelek/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/pnpm",
+     "exists": true,
+     "observationErrorCode": null,
+     "observationErrorMessage": null,
+     "observedAtUtc": "2026-09-06T17:22:05.348Z"
+    },
+    "resolution": "resolved",
+    "resolvedPath": "/Users/harmelek/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/pnpm",
+    "directExecutionStep": {
+     "executable": "/Users/harmelek/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/pnpm",
+     "argv": [
+      "--version"
+     ],
+     "commandForm": "/Users/harmelek/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/pnpm --version",
+     "exitStatus": 0,
+     "signal": null,
+     "stdout": "11.19.0\n",
+     "stderr": "",
+     "spawnErrorCode": null,
+     "spawnErrorMessage": null,
+     "observedAtUtc": "2026-09-06T17:22:05.547Z"
+    },
+    "reportedVersion": "11.19.0",
+    "resultClass": "version_reported",
+    "observationKind": "present_tense",
+    "observedAtUtc": "2026-09-06T17:22:05.547Z",
+    "observationTimeCertainty": "exact",
+    "cacheSafeReadOnly": true
+   },
+   {
+    "probeId": "corepack-pnpm-retained-c4",
+    "resolutionKind": "retained",
+    "command": "corepack pnpm --version",
+    "resolutionMechanism": "RETAINED correction-4 observation; the resolved path was NOT measured by that record and is represented as unmeasured; NOT rerun in later corrections",
+    "resolution": "unmeasured",
+    "resolvedPath": null,
+    "reportedVersion": "11.24.0",
+    "stderr": "",
+    "exitStatus": null,
+    "signal": null,
+    "resultClass": "retained_observation",
+    "observationKind": "retained",
+    "observedAtUtc": null,
+    "observationTimeCertainty": "unknown",
+    "cacheSafeReadOnly": "not_rerun"
+   }
+  ],
+  "probeBindingNote": "Probe IDs preserve the shared command bindings. The legacy claude-shell-pnpm ID names the pnpm PATH lookup; these current measurements were taken by Codex, not Claude.",
+  "corepackScopedInspection": {
+   "inspectedPaths": [
+    {
+     "path": "/Users/harmelek/.cache/node/corepack/lastKnownGood.json",
+     "beforeMtime": "2026-08-30T14:56:33.394Z",
+     "afterMtime": "2026-08-30T14:56:33.394Z"
+    },
+    {
+     "path": "/Users/harmelek/.cache/node/corepack/v1",
+     "beforeMtime": "2026-08-30T14:56:33.389Z",
+     "afterMtime": "2026-08-30T14:56:33.389Z"
+    }
+   ],
+   "changed": "false",
+   "scopeNote": "SCOPED metadata check of the already-known Corepack tracked paths only, before and after this generation's probes; it proves exactly what it inspected and nothing global — the no-mutation statement remains an attestation (globalHostStateClaim), not universal proof"
+  },
+  "pnpmLayoutNote": "supplemental context only: node_modules is a pnpm layout (.bin entries are #!/bin/sh shims) — the reason the seam entrypoint fix exists"
+ },
  "stageSchema": "every entry in `stages`: {stage, command, startUtc, endUtc, durationSeconds, exitCode, counts (parsed vitest counts OR {notApplicable:true, reason}), timeout:{configuredSeconds, timedOut}, teardown (readback string or {notApplicable:true, reason}), tail}",
  "equivalenceMapping": {
   "verify:pre-push": "check:workflows → typecheck → eslint . → vitest run → scripts/verify-database-seams.sh. Correction 2 proves: canonical.check-workflows, canonical.typecheck, canonical.eslint-changed (full `eslint .` was green in correction 1), focused vitest stages on the changed surfaces, and the AUTHORITATIVE canonical.database-seams-whole-shell run (`bash scripts/verify-database-seams.sh` executed as ONE command — including the CUTOVER_REQUIRED/manifest/runbook release-boundary logic the correction-1 extraction missed). The full 13,683-test unit suite is preserved as historical correction-1 evidence (green, timestamped) and was deliberately not rerun to repair audit metadata.",
@@ -206,32 +380,88 @@
   {
    "stage": "canonical.database-seams-whole-shell",
    "command": "bash scripts/verify-database-seams.sh",
-   "startUtc": "2026-09-06T16:07:01+00:00",
-   "endUtc": "2026-09-06T16:16:35+00:00",
-   "durationSeconds": 574,
+   "startUtc": "2026-09-06T17:07:22.760760Z",
+   "endUtc": "2026-09-06T17:16:28.156361Z",
+   "durationSeconds": 545.428,
    "exitCode": 0,
    "counts": {
     "notApplicable": true,
     "reason": "composite shell: the canonical acceptance unit is the exact 40-stage header sequence plus the final '[verify-db-seams] PASS — 40 stages' line (see wholeShellProof). The log contains MANY nested Vitest summaries; taking the first misrepresented the run and summing them would be an unsafe substitute for the shell's own acceptance unit."
    },
    "timeout": {
-    "configuredSeconds": 1800,
+    "configuredSeconds": 1200,
     "timedOut": false
    },
    "teardown": {
-    "command": "pgrep -fl 'sleep 900' | grep -v grep | head -3; pgrep -x postgres | head -3; ls -d /var/folders/*/*/T/adsecute-* /var/folders/*/*/T/omniads-* 2>/dev/null | head -3; lsof -nP -iTCP:15432 -sTCP:LISTEN | tail -1 | awk '{print \"tunnel intact pid \" $2}'; echo teardown-scan-complete",
-    "output": "97690 sleep 900\n/var/folders/ft/2b5f1_qn05g0rjscjj17n8fc0000gn/T/adsecute-pit-replay-anchored-attack-jWzcHc\n/var/folders/ft/2b5f1_qn05g0rjscjj17n8fc0000gn/T/adsecute-runtime-pg-2Qd0HA\n/var/folders/ft/2b5f1_qn05g0rjscjj17n8fc0000gn/T/adsecute-runtime-pg-ENVN5n\ntunnel intact pid 38894\nteardown-scan-complete",
-    "exitCode": 0
+    "supervisedProcessGroupAbsent": false,
+    "processGroupId": 30212,
+    "readAtUtc": "2026-09-06T17:16:28.395461Z",
+    "leftoverBeforeCleanup": [
+     {
+      "pid": 3544,
+      "command": "sleep 90"
+     },
+     {
+      "pid": 3570,
+      "command": "sleep 90"
+     },
+     {
+      "pid": 37427,
+      "command": "sleep 900"
+     }
+    ],
+    "terminatedOwnedSleepPids": [
+     37427
+    ]
    },
+   "sourceCommit": "637c83ff5be52016b04a8ab20933a8c3c90c4a09",
    "logFile": {
-    "path": "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1607Z.log",
-    "sha256": "32f6d5de45a33f6c36d3a0f9f7b0dd7a40c849e86080892b9ba40a2e8ec95b5a",
-    "bytes": 661176
+    "path": "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1707Z.log",
+    "sha256": "0616e22b408eb260767b3dff7a8aa6591021a54df78fdeeb48f4be9c3952c081",
+    "bytes": 661173
    },
-   "tail": "[release-owner-guard] scanning tracked and untracked files for 'erhanrdn'\n[release-owner-guard] PASS — 81 historical occurrence(s) frozen; every active-path reference is registered or marked; 2 meta file(s) covered by the self-test.\n\n[verify-db-seams] PASS — 40 stages",
+   "tail": [
+    "  retryMaxBackoffMs: 4000",
+    "}",
+    "[startup] db_client_timeout_wrapper_initialized {",
+    "  runtime: 'web',",
+    "  applicationName: 'omniads-web',",
+    "  timeoutMs: 5000,",
+    "  poolMax: 10",
+    "}",
+    "[schema-upgrade-seam] U7 PASS partial-migration recovery: re-running after an interrupted upgrade recreates the dropped table, column and index, converges the contract, and leaves every existing row and the table's filenode unchanged",
+    "[startup] db_client_timeout_wrapper_initialized {",
+    "  runtime: 'web',",
+    "  applicationName: 'omniads-web',",
+    "  timeoutMs: 30000,",
+    "  poolMax: 10",
+    "}",
+    "[schema-upgrade-seam] P1 PASS cleanup planning: exactly 1 unreachable Meta orphan and 1 Shopify duplicate identified (oldest row kept), replanning is byte-identical, and resuming past the cursor emits nothing",
+    "[schema-upgrade-seam] P2 PASS dry-run only: planning both targets left every row count unchanged",
+    "[schema-upgrade-seam] P3 PASS execution unavailable: the live fingerprint binds to this database, authority is refused naming all 3 missing receipts, and the module exports no execution entrypoint at all",
+    "[schema-upgrade-seam] PASS",
+    "",
+    "[verify-db-seams] ── 40 Release owner references are current (LAST — the tree is final here)",
+    "",
+    "> adsecute@0.1.0 check:release-owner",
+    "> bash scripts/check-release-owner-references.sh",
+    "",
+    "[release-owner-guard] self-test OK — S1 new active ref, S2 rewritten history, S3 unmarked legacy use, S4 marked use allowed, S5 meta prose free, S6 meta not contagious",
+    "[release-owner-guard] scanning tracked and untracked files for 'erhanrdn'",
+    "[release-owner-guard] PASS — 81 historical occurrence(s) frozen; every active-path reference is registered or marked; 2 meta file(s) covered by the self-test.",
+    "",
+    "[verify-db-seams] PASS — 40 stages"
+   ],
+   "postRunCleanupReadback": {
+    "readAtUtc": "2026-09-06T17:16:50.479006+00:00",
+    "processGroupId": 30212,
+    "terminatedOwnedSleeps": [],
+    "remainingGroupMembers": [],
+    "supervisedProcessGroupAbsent": true
+   },
    "originalCapturePath": {
-    "path": "/tmp/seams12.log",
-    "note": "capture provenance ONLY — the ephemeral Claude-session location where the supervisor wrote the log during the one authoritative run; validated byte-identical to the repository copy before the copy was frozen; no generator/test read path opens it after the freeze"
+    "path": "/tmp/adsecute-codex-release-20260906/d077-canonical-database-seams-whole-shell-2026-09-06T1707Z.log",
+    "note": "capture provenance ONLY — the temporary supervisor output path for this authoritative run; validated byte-identical to the repository copy before it was frozen; generator/test reads use only the portable retained copy"
    },
    "wholeShellProof": {
     "stageHeaderCount": 40,
@@ -406,8 +636,8 @@
      "title": "Release owner references are current (LAST — the tree is final here)"
     },
     "finalPassLine": "[verify-db-seams] PASS — 40 stages",
-    "logSha256": "32f6d5de45a33f6c36d3a0f9f7b0dd7a40c849e86080892b9ba40a2e8ec95b5a",
-    "logBytes": 661176,
+    "logSha256": "0616e22b408eb260767b3dff7a8aa6591021a54df78fdeeb48f4be9c3952c081",
+    "logBytes": 661173,
     "releaseBoundary": {
      "stageNumber": 26,
      "stageTitle": "Ordinary deploy refuses a cutover-required release",
@@ -689,6 +919,302 @@
     "bytes": 212
    },
    "tail": "\n\n Test Files  4 passed (4)\n      Tests  45 passed (45)\n   Start at  17:42:00\n   Duration  1.08s (transform 112ms, setup 235ms, import 184ms, tests 397ms, environment 0ms)"
+  },
+  {
+   "stage": "attempt.database-seams-whole-shell.2026-09-06T1653Z.failed",
+   "command": "bash scripts/verify-database-seams.sh",
+   "startUtc": "2026-09-06T16:53:58.491868Z",
+   "endUtc": "2026-09-06T17:01:13.017777Z",
+   "durationSeconds": 434.542,
+   "exitCode": 1,
+   "counts": {
+    "notApplicable": true,
+    "reason": "Composite shell acceptance is its ordered stage headers and final PASS line."
+   },
+   "timeout": {
+    "configuredSeconds": 1200,
+    "timedOut": false
+   },
+   "teardown": {
+    "supervisedProcessGroupAbsent": false,
+    "processGroupId": 35586,
+    "readAtUtc": "2026-09-06T17:01:13.018188Z"
+   },
+   "sourceCommit": "670bd9d20f282e86a25f9e969a5e088653e79964",
+   "logFile": {
+    "path": "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1653Z.log",
+    "sha256": "6128c413b5ce3e59f231afdabf8bd778dfdfb55bfac2ccd796ce23a55ff1279b",
+    "bytes": 546050
+   },
+   "tail": [
+    "[cutover-real-harness] PASS V4j the next run sweeps the exporter directory a kill -9 left behind (1 before) and completes normally",
+    "[cutover-real-harness] PASS V4k after that run nothing is left on either host",
+    "[cutover-real-harness] PASS V5 the snapshot-bound backup completes with PostgreSQL reachable ONLY over the ssh shim",
+    "[cutover-real-harness] PASS V5b the seam is real: the exporter session and every snapshot-bound read crossed the ssh shim (7 invocations), pg_dump carried --snapshot=00000003-000016DF-1 across it, and the app host's psql/pg_dump/runuser were never touched",
+    "[cutover-real-harness] PASS C1 a credential hash that moved ONLY because plaintext became ciphertext is explained row by row and allowed through",
+    "[cutover-real-harness] PASS C2 an ALREADY-encrypted secret rewritten to a different ciphertext is refused: a re-encryption is not a conversion",
+    "[cutover-real-harness] PASS C3 ciphertext turning back into plaintext is refused, in the direction the rule must never allow",
+    "[cutover-real-harness] FAIL C4 a credential row swapped for a different one is refused by the census even though the row COUNT is unchanged — phase 'fingerprint-post' refused for the wrong reason: [2026-09-06T17:00:20Z] wrapper integrity OK sha256=e1c46e67fa6dff9cd3139bb13020017b14671668a62e35df1e66bd8f0b6c4182",
+    "[2026-09-06T17:00:20Z] ABORT phase 'verify-contract' has not completed in this cutover (chain=''); run it first",
+    "[cutover-real-harness] PASS C5 identical secrets whose rows were nonetheless rewritten are refused: updated_at moving means something wrote them",
+    "[cutover-real-harness] PASS C6 a plaintext secret changed to a DIFFERENT plaintext is refused, and would leave plaintext behind",
+    "[cutover-real-harness] PASS E1 deploy-disabled runs the whole evidence chain: the staged check writes a compact artifact, the phase copies it out of the container, the declared bytes and digest agree, and the strict verifier accepts it",
+    "[cutover-real-harness] PASS E2 the strict verifier really executed: its own report says verified with no failures over exactly the 1147 bytes the phase copied out",
+    "[cutover-real-harness] PASS E3 the artifact is bound to the pinned release and carries no unsubstituted placeholder, so the verifier compared it against the phase's own pins",
+    "[cutover-real-harness] PASS E4 a staged check that exits 0 with NO output cannot pass: silence is not a verdict, and the phase says so instead of proceeding",
+    "[cutover-real-harness] PASS E5 a staged check that claims pass but never reports its artifact's size and digest is not accepted, however healthy its JSON looks",
+    "[cutover-real-harness] PASS E6 a size/digest report with the key present and the numbers missing is refused by the strict pattern rather than read as zero",
+    "[cutover-real-harness] PASS E7 a staged check whose predicate genuinely fails refuses at the predicate, before any artifact is read, and prints its reason code",
+    "[cutover-real-harness] PASS E8 an artifact truncated in transit is caught by the byte count the writer declared, which is the failure that once slipped through as PASSED",
+    "[cutover-real-harness] PASS E9 an artifact whose declared digest does not match its bytes is refused, so a same-length substitution cannot pass the byte count",
+    "[cutover-real-harness] PASS E10 and the refusal names the field: the preserved verifier payload states the digest disagreement rather than only that something failed",
+    "[cutover-real-harness] PASS E11 an intact artifact naming a DIFFERENT build is refused: a proof that some worker staged is not a proof that this release staged",
+    "[cutover-real-harness] PASS E12 both identity paths are named in the refusal: the heartbeat metadata and the runtime row are checked separately, so a proof quoting only one cannot pass",
+    "[cutover-real-harness] PASS E13 an artifact whose staged worker started BEFORE this container is refused, so an old process's registration cannot stand in for this run's",
+    "[cutover-real-harness] PASS E14 and the refusal names the run boundary it violated",
+    "[cutover-real-harness] PASS E15 a runtime row whose health_state is 'staged' is refused: the column is binary, no reader distinguishes a third value, and a proof resting on one is not a proof",
+    "[cutover-real-harness] PASS E16 and the refusal explains the contract: staging is proven by the disabled/all heartbeat and the run identity, not by inventing a health value",
+    "[cutover-real-harness] PASS E17 a runtime row reading 'invalid' is refused too, so the binary model is enforced in both directions rather than only against unknown values",
+    "[cutover-real-harness] PASS E18 after every one of those refusals a correct deploy-disabled still proves itself, so the evidence chain refuses without wedging the cutover",
+    "[cutover-real-harness] 1 check(s) FAILED"
+   ],
+   "originalCapturePath": {
+    "path": "/tmp/adsecute-codex-release-20260906/d077-canonical-database-seams-whole-shell-2026-09-06T1653Z.log",
+    "note": "Original failed attempt; portable raw bytes are retained without relabelling this as a passing run."
+   },
+   "postRunCleanupReadback": {
+    "readAtUtc": "2026-09-06T17:02:44.773880+00:00",
+    "processGroupId": 35586,
+    "terminatedOwnedSleepPids": [
+     43283
+    ],
+    "remainingGroupMembers": []
+   },
+   "diagnosis": {
+    "recordedAtUtc": "2026-09-06T17:07:15.271151+00:00",
+    "verifiedDefect": "credential_case discarded every prerequisite output and ignored failures; later census assertion therefore ran without an established phase chain.",
+    "underlyingIntermittentPrerequisiteCause": "unknown: original transcript discarded and 12 real-Postgres focused repetitions did not reproduce failure.",
+    "change": "Fail immediately on setup failure; report original phase, exit and output. No retry, guard relaxation, census change or production code change.",
+    "validation": {
+     "bashSyntax": "pass",
+     "gitDiffCheck": "pass",
+     "injectedFailedPreflight": "pass: exit31 retained, only preflight called, host result empty",
+     "focusedRealPostgres": {
+      "result": "12/12 passed before harness diagnostic patch; not full harness proof",
+      "path": "/tmp/adsecute-codex-release-20260906/c4-focused-repro.log",
+      "sha256": "6419ff0e3566334b117daa0a5126da5d5960db6b0cf341714860520b9761dd57"
+     }
+    }
+   }
+  },
+  {
+   "stage": "release-r8.typecheck",
+   "command": "npm run typecheck",
+   "environmentOverrides": {
+    "NODE_OPTIONS": "--max-old-space-size=4096"
+   },
+   "startUtc": "2026-09-06T17:07:51.067067+00:00",
+   "endUtc": "2026-09-06T17:07:56.284826+00:00",
+   "durationSeconds": 5.218,
+   "exitCode": 0,
+   "logFile": {
+    "path": "/tmp/adsecute-codex-release-20260906/typecheck.log",
+    "sha256": "8450795232d2ec742004345b1c022a982518fb3e9a4f9aa184ac0ec0bf189b6f",
+    "bytes": 44
+   },
+   "counts": {
+    "diagnostics": 0
+   },
+   "timeout": {
+    "configuredSeconds": 900,
+    "timedOut": false
+   },
+   "teardown": {
+    "processExited": true
+   },
+   "sourceCommit": "637c83ff5be52016b04a8ab20933a8c3c90c4a09",
+   "tail": [
+    "",
+    "> adsecute@0.1.0 typecheck",
+    "> tsc --noEmit",
+    ""
+   ]
+  },
+  {
+   "stage": "release-r8.eslint-r8",
+   "command": "npx eslint lib/meta/daily-brief-alert-window.test.ts lib/meta/daily-brief.ts lib/meta/launch-intent-activation.ts lib/meta/scheduled-activation-runtime.ts lib/notification-producer.ts lib/meta/activation-unresolved-lookup.test.ts lib/meta/daily-brief-alert-scope.test.ts lib/notification-producer-account-scope.test.ts",
+   "environmentOverrides": {},
+   "startUtc": "2026-09-06T17:07:51.067373+00:00",
+   "endUtc": "2026-09-06T17:07:52.196600+00:00",
+   "durationSeconds": 1.129,
+   "exitCode": 0,
+   "logFile": {
+    "path": "/tmp/adsecute-codex-release-20260906/eslint-r8.log",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "bytes": 0
+   },
+   "counts": {
+    "files": 8,
+    "errors": 0,
+    "warnings": 0
+   },
+   "timeout": {
+    "configuredSeconds": 900,
+    "timedOut": false
+   },
+   "teardown": {
+    "processExited": true
+   },
+   "sourceCommit": "637c83ff5be52016b04a8ab20933a8c3c90c4a09",
+   "tail": []
+  },
+  {
+   "stage": "release-r8.workflow-semantics",
+   "command": "npm run check:workflows",
+   "environmentOverrides": {},
+   "startUtc": "2026-09-06T17:07:51.067456+00:00",
+   "endUtc": "2026-09-06T17:07:51.302474+00:00",
+   "durationSeconds": 0.235,
+   "exitCode": 0,
+   "logFile": {
+    "path": "/tmp/adsecute-codex-release-20260906/workflow-semantics.log",
+    "sha256": "56b4aecd103a95a878f5b2dcf9d749d89e5a86365e630c9c638b64c8cd10dcef",
+    "bytes": 1748
+   },
+   "counts": {
+    "workflows": 12
+   },
+   "timeout": {
+    "configuredSeconds": 900,
+    "timedOut": false
+   },
+   "teardown": {
+    "processExited": true
+   },
+   "sourceCommit": "637c83ff5be52016b04a8ab20933a8c3c90c4a09",
+   "tail": [
+    "  deploy-hetzner.yml",
+    "    jobs  : deploy",
+    "    needs : (none)",
+    "    needs \\ jobs : (empty)",
+    "  meta-canary-remediation.yml",
+    "    jobs  : remediate",
+    "    needs : (none)",
+    "    needs \\ jobs : (empty)",
+    "  meta-refresh-reschedule-progress.yml",
+    "    jobs  : progress",
+    "    needs : (none)",
+    "    needs \\ jobs : (empty)",
+    "  meta-watch-window.yml",
+    "    jobs  : watch-window",
+    "    needs : (none)",
+    "    needs \\ jobs : (empty)",
+    "  post-deploy-verify.yml",
+    "    jobs  : verify",
+    "    needs : (none)",
+    "    needs \\ jobs : (empty)",
+    "  promote-release-gate-mode.yml",
+    "    jobs  : promote",
+    "    needs : (none)",
+    "    needs \\ jobs : (empty)",
+    "  zero-base-production-rollout.yml",
+    "    jobs  : rollout",
+    "    needs : (none)",
+    "    needs \\ jobs : (empty)",
+    "[workflow-semantics] actionlint not on PATH; ran built-in checks only (install it for full analysis — deliberately not downloaded automatically)",
+    "[workflow-semantics] PASS — every needs reference resolves, no cycles, every step well-formed"
+   ]
+  },
+  {
+   "stage": "release-r8.meta-mounted-bodies",
+   "command": "npm run meta:verify-mounted-bodies",
+   "environmentOverrides": {},
+   "startUtc": "2026-09-06T17:07:51.302687+00:00",
+   "endUtc": "2026-09-06T17:07:52.003576+00:00",
+   "durationSeconds": 0.701,
+   "exitCode": 0,
+   "logFile": {
+    "path": "/tmp/adsecute-codex-release-20260906/meta-mounted-bodies.log",
+    "sha256": "c4b96f996f35cf8186d9eee616b52d33e9b3848f818fc00bb77d9fac5da46343",
+    "bytes": 178
+   },
+   "counts": {
+    "surfaces": 15
+   },
+   "timeout": {
+    "configuredSeconds": 900,
+    "timedOut": false
+   },
+   "teardown": {
+    "processExited": true
+   },
+   "sourceCommit": "637c83ff5be52016b04a8ab20933a8c3c90c4a09",
+   "tail": [
+    "",
+    "> adsecute@0.1.0 meta:verify-mounted-bodies",
+    "> node --import tsx scripts/meta/verify-mounted-bodies.ts",
+    "",
+    "PASS: every registry mountedBody is reachable from a route (15 surfaces)."
+   ]
+  },
+  {
+   "stage": "release-r8.release-authority-preflight",
+   "command": "npm run release:authority:preflight",
+   "environmentOverrides": {
+    "ZERO_BASE_UI_MODE": "off"
+   },
+   "startUtc": "2026-09-06T17:07:52.003768+00:00",
+   "endUtc": "2026-09-06T17:07:52.935482+00:00",
+   "durationSeconds": 0.932,
+   "exitCode": 0,
+   "logFile": {
+    "path": "/tmp/adsecute-codex-release-20260906/release-authority-preflight.log",
+    "sha256": "ddaf38b7a725c3eb1b1dc3787a3fa7273cca84850aa54cb81e1f52a7a6c72aae",
+    "bytes": 22007
+   },
+   "counts": {
+    "blockers": 0
+   },
+   "timeout": {
+    "configuredSeconds": 900,
+    "timedOut": false
+   },
+   "teardown": {
+    "processExited": true
+   },
+   "sourceCommit": "637c83ff5be52016b04a8ab20933a8c3c90c4a09",
+   "tail": [
+    "    \"carryForward\": {",
+    "      \"summary\": \"No accepted carry-forward gaps remain.\",",
+    "      \"acceptanceGaps\": []",
+    "    },",
+    "    \"reviewOrder\": [",
+    "      \"Review release identity first: live SHA 637c83ff5be52016b04a8ab20933a8c3c90c4a09 vs main 3f0bf857a9dde41bf2d7f461ef24b5f2ce26a651.\",",
+    "      \"Review the feature matrix next: runtime state, flag posture, and docs posture for each surface.\",",
+    "      \"Review docs/v3-01-release-authority.md before older Phase 02-06 docs when deciding what is truly live.\",",
+    "      \"Review legacy aliases after the main surfaces so redirects do not get mistaken for canonical entrypoints.\",",
+    "      \"Review unresolved drift items before treating the baseline as release-ready.\"",
+    "    ]",
+    "  },",
+    "  \"integrity\": {",
+    "    \"missingPaths\": [],",
+    "    \"missingDocs\": [],",
+    "    \"bannerFailures\": []",
+    "  },",
+    "  \"rolloutMode\": {",
+    "    \"ok\": true,",
+    "    \"detail\": \"ZERO_BASE_UI_MODE is set to a recognised mode.\"",
+    "  },",
+    "  \"summary\": {",
+    "    \"result\": \"pass\",",
+    "    \"blockers\": [],",
+    "    \"notes\": [",
+    "      \"Canonical release-authority doc literal comparison was skipped because the local release candidate differs from current remote main. Regenerate the doc on the exact-SHA main deploy candidate before shipping.\",",
+    "      \"Local release candidate differs from current remote main. This is expected on pull requests but must align before an exact-SHA production deploy.\"",
+    "    ]",
+    "  }",
+    "}"
+   ]
   }
  ],
  "historicalFailFirstEvidence": {
@@ -1495,9 +2021,39 @@
   ]
  },
  "teardownReadback": {
-  "taskOwnedProcesses": "none remain (verified after the final stage; exact commands in the final response)",
-  "ephemeralDatabaseListeners": "none remain (seam clusters tear down in their traps)",
-  "preExistingTunnel": "127.0.0.1:15432 SSH tunnel (pid 38894) found running before this task, never started/stopped/touched by it",
-  "claudeEvidenceScratchpad": "INTENTIONALLY RETAINED at the session scratchpad d077/ directory: it holds the raw fail-first logs (embedded above by content and hash), runner sources and planner logs. It is retained evidence, NOT ephemeral database/process residue; nothing in it is a secret."
+  "canonicalSupervisor": {
+   "supervisedProcessGroupAbsent": false,
+   "processGroupId": 30212,
+   "readAtUtc": "2026-09-06T17:16:28.395461Z",
+   "leftoverBeforeCleanup": [
+    {
+     "pid": 3544,
+     "command": "sleep 90"
+    },
+    {
+     "pid": 3570,
+     "command": "sleep 90"
+    },
+    {
+     "pid": 37427,
+     "command": "sleep 900"
+    }
+   ],
+   "terminatedOwnedSleepPids": [
+    37427
+   ]
+  },
+  "canonicalPostRunCleanupReadback": {
+   "readAtUtc": "2026-09-06T17:16:50.479006+00:00",
+   "processGroupId": 30212,
+   "terminatedOwnedSleeps": [],
+   "remainingGroupMembers": [],
+   "supervisedProcessGroupAbsent": true
+  },
+  "scope": "Original supervisor teardown and subsequent matching-process-group cleanup are separate observations. Child database teardown output is retained in the raw log. This generator does not independently enumerate listeners.",
+  "historicalCorrection2Context": {
+   "preExistingTunnel": "HISTORICAL observation from correction 2: a pre-existing 127.0.0.1:15432 SSH tunnel (pid 38894) was left untouched. It is not a current process readback.",
+   "claudeEvidenceScratchpad": "HISTORICAL correction-1/2 Claude scratchpad held the original fail-first logs and runner sources. Embedded fail-first contents and their hashes are preserved; no current Claude execution or scratchpad liveness is asserted."
+  }
  }
 }

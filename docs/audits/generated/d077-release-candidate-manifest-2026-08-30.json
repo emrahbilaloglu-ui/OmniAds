@@ -1,34 +1,34 @@
 {
- "manifestHash": "30e0a2fe29b9cc147fc0878ae130aeb9134cd29f214f854d7c03fdfc9c5ef600",
+ "manifestHash": "24b09ff79e00550881e51ad43d96c847530d92d4e7d156d962fc4ae6bb2eee69",
  "hashAlgorithm": "sha256",
  "hashBasis": "sha256 over UTF-8 bytes of JSON.stringify(artifact, null, 1) of the artifact WITHOUT its embedded hash fields (the artifact object before {<hashField>, hashAlgorithm, hashBasis} are prepended)",
  "contract": "adsecute.d077.release-candidate-manifest.v3",
- "generatedAtUtc": "2026-09-06T16:18:03.521Z",
+ "generatedAtUtc": "2026-09-06T17:22:07.188Z",
  "branch": "codex/meta-v2-panel-fidelity",
  "supersededBranchLabel": "codex/meta-disabled-readiness-20260829",
- "head": "91b585b95f16cfaeb4fdde5c12b536c581673dfa",
+ "head": "637c83ff5be52016b04a8ab20933a8c3c90c4a09",
  "baseMain": "babf158e150fd33057117b39b175da044ac62d2e",
  "originMain": "babf158e150fd33057117b39b175da044ac62d2e",
  "remoteDivergence": {
-  "aheadOfOriginMain": 54,
+  "aheadOfOriginMain": 57,
   "behindOriginMain": 0
  },
  "selfExclusion": "this manifest's own path (docs/audits/generated/d077-release-candidate-manifest-2026-08-30.json) is EXCLUDED from its entry list: a manifest cannot recursively pin its own final bytes; its external SHA-256 is reported in the final response and by Codex's own hashing",
- "gitPorcelainEntryCount": 18,
- "releaseDiffEntryCountIncludingSelf": 753,
- "expandedOnDiskCandidateFileCountIncludingSelf": 753,
- "pinnedNonSelfFileCount": 752,
+ "gitPorcelainEntryCount": 9,
+ "releaseDiffEntryCountIncludingSelf": 759,
+ "expandedOnDiskCandidateFileCountIncludingSelf": 759,
+ "pinnedNonSelfFileCount": 758,
  "historicalContext": "pre-task freeze was 217 porcelain entries / 265 files — historical context only, NOT the final tree",
  "classCounts": {
-  "tests_only": 313,
+  "tests_only": 316,
   "runtime": 250,
   "runtime_deletion": 2,
   "deploy_config": 1,
   "docs": 48,
-  "generated_evidence": 66,
+  "generated_evidence": 68,
   "migration": 2,
   "audit_script_non_runtime": 24,
-  "script_ops_non_request_path": 46
+  "script_ops_non_request_path": 47
  },
  "entries": [
   {
@@ -1281,21 +1281,33 @@
   },
   {
    "path": "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1607Z.log",
-   "git": "??",
+   "git": "A",
    "class": "generated_evidence",
    "sha256": "32f6d5de45a33f6c36d3a0f9f7b0dd7a40c849e86080892b9ba40a2e8ec95b5a"
+  },
+  {
+   "path": "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1653Z.log",
+   "git": "??",
+   "class": "generated_evidence",
+   "sha256": "6128c413b5ce3e59f231afdabf8bd778dfdfb55bfac2ccd796ce23a55ff1279b"
+  },
+  {
+   "path": "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1707Z.log",
+   "git": "??",
+   "class": "generated_evidence",
+   "sha256": "0616e22b408eb260767b3dff7a8aa6591021a54df78fdeeb48f4be9c3952c081"
   },
   {
    "path": "docs/audits/generated/d077-correction1-verification-ledger-2026-08-30.json",
    "git": "A",
    "class": "generated_evidence",
-   "sha256": "d53276852bbf3fcd9698304ceb2cc434da88022fe48fae34fee52654270d78af"
+   "sha256": "5bdc19a5cf31ccd9dbe10668288eceee0a6023961d4ae7006925384f39e343d9"
   },
   {
    "path": "docs/audits/generated/d077-database-recovery-approval-packet-2026-08-30.json",
    "git": "A",
    "class": "generated_evidence",
-   "sha256": "a48967203d0a06946d5265b831a7e8047ab6e65418aaf906119743bb09c3c0b5"
+   "sha256": "af9700ad0029410eea4101c95671a4df4884f4a5b10d3e2b0e7c13c4d6fd4b8f"
   },
   {
    "path": "docs/audits/generated/d077-production-recovery-readonly-evidence-2026-08-30.json",
@@ -1307,7 +1319,7 @@
    "path": "docs/audits/generated/d077-release-deploy-approval-packet-2026-08-30.json",
    "git": "A",
    "class": "generated_evidence",
-   "sha256": "08f8496830b7fd653331d72519d32c9d766f1f0b3c93d90267c17c00e74d42ad"
+   "sha256": "cf5a03c107290df487ec99d5dc6dfdfcc61ac7dcad834556b9625353f8359ede"
   },
   {
    "path": "docs/audits/generated/d078-hard-action-recompute-2026-08-30.json",
@@ -1757,7 +1769,7 @@
    "path": "docs/releases/2026-09-06-meta-operator-readiness-release-candidate.md",
    "git": "A",
    "class": "docs",
-   "sha256": "818482f391629cfb0e80e54bb2b634ef5a352c9a2198c21a00c39d5f7c88726b"
+   "sha256": "9cf9fc5486d5dbc0fa57bf95569e49ea67b6aa9534d6f5898c671f23ee5102f4"
   },
   {
    "path": "lib/api/meta.test.ts",
@@ -2249,7 +2261,7 @@
    "path": "lib/meta/__tests__/d077-artifact-hash-contract.test.ts",
    "git": "A",
    "class": "tests_only",
-   "sha256": "eab0e2aecdef51defc27946d7868facfd02c01082118eab639518c42e71f8324"
+   "sha256": "5c4e065ae10d35748c201a9729e93acda5cc3c9ee60606923936f6ca253249d8"
   },
   {
    "path": "lib/meta/__tests__/d078-acceptance-guards.test.ts",
@@ -2376,6 +2388,12 @@
    "git": "A",
    "class": "runtime",
    "sha256": "d3ee69536f345edc286a7bd1124609959bdf145474ccb9a01046a5b7a32175b7"
+  },
+  {
+   "path": "lib/meta/activation-unresolved-lookup.test.ts",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "3220c2acae99b103eb3f1efd8aa39771f3e4421614d98817b6de237935b78e14"
   },
   {
    "path": "lib/meta/ads-action-log.ts",
@@ -3092,10 +3110,16 @@
    "sha256": "f010d64941647cce566960964403dbb9cd0ff7a451f55ac7620204a55e362e6b"
   },
   {
+   "path": "lib/meta/daily-brief-alert-scope.test.ts",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "4affeb8e5f9df4cade3323a1bf6403abe741edd7663e0bc45d13a3775c6b1b45"
+  },
+  {
    "path": "lib/meta/daily-brief-alert-window.test.ts",
    "git": "A",
    "class": "tests_only",
-   "sha256": "795471bdc9f3596198b29430d9859fe949a98d0c9b2c6ccb54e105ae39e2c9d7"
+   "sha256": "2254ed80dd971cfd516927430c3dc82ae4cf974cda10867f748b38ec9e68115b"
   },
   {
    "path": "lib/meta/daily-brief-decision-scope.test.ts",
@@ -3131,7 +3155,7 @@
    "path": "lib/meta/daily-brief.ts",
    "git": "A",
    "class": "runtime",
-   "sha256": "f36788948d4c83245bc9dbfcd77b25a7350a2c6fdc986d07b6c79d88a6382c8a"
+   "sha256": "6977e0f9c72fcf5d52e794e9abb28ddaea29e4975ab9444c176a7a71f6084d93"
   },
   {
    "path": "lib/meta/decision-availability-posture-independence.test.ts",
@@ -3365,7 +3389,7 @@
    "path": "lib/meta/launch-intent-activation.ts",
    "git": "A",
    "class": "runtime",
-   "sha256": "d3430c5c2cb608c4f70b2934a05d2d1dccdf9870ab435fd10e9dce9316e02d76"
+   "sha256": "75c7f3791d6294c0cebe038c96626d503d165ad92581c24b176ec58c833d6cd0"
   },
   {
    "path": "lib/meta/launch-intent-producer.test.ts",
@@ -3557,7 +3581,7 @@
    "path": "lib/meta/scheduled-activation-runtime.ts",
    "git": "A",
    "class": "runtime",
-   "sha256": "217c334d6de26320ae73d6ab06776d742c2547b2a479c20a5662ad0b3e47a3c8"
+   "sha256": "3d5298fe299a4a3bc97f9f6830f2c22265b63285a80ac6cc52f7fcf3b854f115"
   },
   {
    "path": "lib/meta/scheduled-ad-status-runtime.test.ts",
@@ -3800,6 +3824,12 @@
    "sha256": "6c9d3bff719b6ce25b353e04bb65287c8473f3f9ea2943d171610e48d1cac7b0"
   },
   {
+   "path": "lib/notification-producer-account-scope.test.ts",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "17bdd2e52bfe669d4e0f9f3115985510e5df8d8f29a88c8eab76c6f558a87245"
+  },
+  {
    "path": "lib/notification-producer-failure-containment.test.ts",
    "git": "A",
    "class": "tests_only",
@@ -3809,7 +3839,7 @@
    "path": "lib/notification-producer.ts",
    "git": "M",
    "class": "runtime",
-   "sha256": "22dd78b69d112eac73a62b731470ec0167e4db8ad2929b0ba597be0419d59669"
+   "sha256": "b8d84d85bfa3854a937c41092a689ba9dd52deaa487ce2a87ed7d979f0d89d3e"
   },
   {
    "path": "lib/notification-store-fanout.test.ts",
@@ -4007,7 +4037,7 @@
    "path": "scripts/audits/d077-correction1-artifact-generator.ts",
    "git": "A",
    "class": "audit_script_non_runtime",
-   "sha256": "6a0de71f8df98e4a56163ad4e0b7ed5e9c2a0e0beaaa30312c226f95455243df"
+   "sha256": "1c68708337999c74f1ef9bc8c35b3b2ca080aa7eda4ad5b1f31304f93932e986"
   },
   {
    "path": "scripts/audits/d077-production-recovery-readonly-preflight.ts",
@@ -4247,7 +4277,7 @@
    "path": "scripts/check-release-owner-references.sh",
    "git": "M",
    "class": "script_ops_non_request_path",
-   "sha256": "a3e6d88c4cafbc080b791df335ed10c54a658e8d8d77e71560d90c489924f8da"
+   "sha256": "bf30b3991dcbc4c40ad919eeb21e7a98a6ac56c202e6e65ac806c08078764570"
   },
   {
    "path": "scripts/creative-decision-center/automatic-campaign-context-shadow.test.ts",
@@ -4332,6 +4362,12 @@
    "git": "M",
    "class": "script_ops_non_request_path",
    "sha256": "a52a96b4f09adbb4957ddc0961b7f96d388c34499397ab950c50b9e495043a9f"
+  },
+  {
+   "path": "scripts/cutover-real-postgres-harness.sh",
+   "git": "M",
+   "class": "script_ops_non_request_path",
+   "sha256": "3f6020dfceab0fd703e2ae59e71e96e5ed04a57f74ac9a4559b110c3bc5b8e6b"
   },
   {
    "path": "scripts/d086-capture-to-readiness-child.ts",

@@ -32,11 +32,13 @@ import {
   deriveScopedChange,
   isStrictIsoUtc,
   validatePnpmProvenance,
+  validateProbe,
   type ExecutedStep,
   type ExistenceObservation,
   type PathLookupProbe,
   type PnpmProvenance,
   type ProbeMeasurement,
+  type ProvenanceProbe,
   type RawSpawnResult,
 } from "@/scripts/audits/d077-provenance-contract";
 
@@ -290,6 +292,17 @@ describe("D077 artifact hash contract (fail-closed)", () => {
       runtimeVersions: Record<string, unknown> & {
         pnpmProvenance?: PnpmProvenance;
       };
+      generatedAtUtc: string;
+      runtimeVersionsScope: {
+        kind: string;
+        sourceLedgerHash: string;
+        sourceGeneratedAtUtc: string;
+      };
+      packagingRuntimeVersions: Record<string, unknown> & {
+        actor: string;
+        observedAtUtc: string;
+        pnpmProbes: ProvenanceProbe[];
+      };
     };
     expect(ledger.runtimeVersions, "ledger lacks runtimeVersions").toBeTruthy();
     for (const key of ["node", "npm", "pnpm", "vitest", "postgres", "tsc"]) {
@@ -319,6 +332,33 @@ describe("D077 artifact hash contract (fail-closed)", () => {
     expect(retained.observationKind).toBe("retained");
     expect(retained.cacheSafeReadOnly).toBe("not_rerun");
     expect(retained).toEqual(RETAINED_C4_PROBE);
+    expect(ledger.runtimeVersionsScope.kind).toBe("historical");
+    expect(ledger.runtimeVersionsScope.sourceLedgerHash).toMatch(/^[0-9a-f]{64}$/);
+    expect(Date.parse(ledger.runtimeVersionsScope.sourceGeneratedAtUtc)).toBeLessThanOrEqual(
+      Date.parse(ledger.generatedAtUtc),
+    );
+    const current = ledger.packagingRuntimeVersions;
+    expect(current.actor).toBe("codex");
+    for (const key of ["node", "npm", "pnpm", "vitest", "postgres", "tsc"]) {
+      expect(typeof current[key], `current ${key}`).toBe("string");
+      expect(String(current[key]).trim().length, `current ${key}`).toBeGreaterThan(0);
+    }
+    expect(current.pnpmProbes.map((probe) => probe.probeId).sort()).toEqual(
+      provenance.presentTenseProbes.map((probe) => probe.probeId).sort(),
+    );
+    expect(isStrictIsoUtc(current.observedAtUtc)).toBe(true);
+    expect(Date.parse(current.observedAtUtc)).toBeLessThanOrEqual(Date.parse(ledger.generatedAtUtc));
+    for (const probe of current.pnpmProbes) {
+      validateProbe(probe);
+      if (probe.observedAtUtc !== null)
+        expect(Date.parse(probe.observedAtUtc)).toBeLessThanOrEqual(Date.parse(current.observedAtUtc));
+    }
+    // New environment results remain bound to their real command output.
+    const tampered = JSON.parse(JSON.stringify(
+      current.pnpmProbes.find((probe) => probe.resultClass === "version_reported"),
+    )) as ProvenanceProbe;
+    tampered.reportedVersion = "invented-version";
+    expect(() => validateProbe(tampered)).toThrow();
   });
 
   it("the provenance contract rejects contradictory fixtures", () => {
@@ -568,9 +608,10 @@ describe("D077 artifact hash contract (fail-closed)", () => {
     /*
       Pinned invariants of the retained run itself.
 
-      RELEASE CANDIDATE — repinned to the 2026-09-06 16:07Z capture. These are
-      the bytes `bash scripts/verify-database-seams.sh` produced on THIS
-      release's delivered tree (exit 0, 574 s, 40 stages).
+      RELEASE CANDIDATE — repinned to the 2026-09-06 17:07Z capture. These are
+      the bytes `bash scripts/verify-database-seams.sh` produced on reviewed
+      source freeze 637c83ff5be52016b04a8ab20933a8c3c90c4a09
+      (exit 0, 545.428 s, 40 stages).
 
       Why a repin was required even though the header count did not move.
       `buildWholeShellProof` compares the ordered stage HEADINGS against the
@@ -594,14 +635,14 @@ describe("D077 artifact hash contract (fail-closed)", () => {
 
       The 2026-08-30 (38-stage) and 2026-09-03 (40-stage) logs are likewise
       retained and not relabelled. This log is frozen at
-      `docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1607Z.log`
+      `docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1707Z.log`
       and pinned with this same digest in the release-candidate manifest, which
       the assertion above checks — so these three cannot drift apart.
     */
     expect(recomputed.logSha256).toBe(
-      "32f6d5de45a33f6c36d3a0f9f7b0dd7a40c849e86080892b9ba40a2e8ec95b5a",
+      "0616e22b408eb260767b3dff7a8aa6591021a54df78fdeeb48f4be9c3952c081",
     );
-    expect(recomputed.logBytes).toBe(661176);
+    expect(recomputed.logBytes).toBe(661173);
     /*
       PRE-DEPLOY AUDIT — 38 -> 40, from a REGENERATED run. The two stages added
       are the D088 migration seam and the automation-OFF readback. The ledger,

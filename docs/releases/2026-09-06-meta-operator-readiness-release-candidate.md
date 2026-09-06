@@ -1,13 +1,14 @@
 # Meta operator readiness — release candidate, Phase 1
 
-Local verification only. **Nothing has been pushed, no PR exists, nothing is
-merged or deployed.** This document is the checkpoint a reviewer reads before
-the first push is authorised.
+This report retains the preparation and review history for PR #276. The
+current local checkpoint below supersedes earlier present-tense candidate
+claims; those historical checks keep their original scope and timestamps.
+PR #276 is open. This checkpoint does not claim a merge or production deploy.
 
 The identity table below is the **preparation** snapshot and is kept as written,
 because the numbers in it are exactly right for the commit it names. It is not
-this PR's identity: two evidence-correction commits land after it, so the
-delivered head is larger. The PR body carries the delivered figures; they are
+this PR's current identity: subsequent source and evidence corrections
+follow it, so the delivered head is larger. The PR body carries the delivered figures; they are
 not restated here, because this document is one of the files the release
 manifest pins and quoting the head that contains the manifest would be a
 self-hash cycle.
@@ -19,6 +20,68 @@ self-hash cycle.
 | remote main at preparation | `3f0bf857a9dde41bf2d7f461ef24b5f2ce26a651` |
 | divergence | 44 commits ahead, **0 behind** |
 | release diff | 281 files, +68,404 / −3,603 |
+
+## Codex takeover checkpoint — R8 source freeze
+
+Runtime and regression-test source is frozen at `670bd9d20f282e86a25f9e969a5e088653e79964`;
+final source freeze `637c83ff5be52016b04a8ab20933a8c3c90c4a09` adds only the cutover-harness
+setup-failure diagnostic change described below. The user
+assigned implementation and deployment directly to Codex; Claude execution
+is stopped. R8 closes unresolved-journal lookup failure before any activation
+claim or provider call, and scopes daily-brief/notification anomaly reads to
+the normalized provider account. Missing brief account scope remains
+unavailable; business-wide notification reads are labelled with null account
+scope. No business automation setting or provider advertising state changed.
+
+The canonical shell above ran once on this source freeze: 40 ordered
+stages, final PASS, exit 0, 545.428 seconds. At completion the supervisor
+reported two owned sleep-90 processes and one sleep-900 process; it terminated
+the latter and still observed the group present. A separate 17:16:50Z readback
+found no remaining group members and did not terminate any process. The
+original residue and later absence are both retained. Child teardown output is
+retained in the log; the artifact generator does not assert a separate
+listener inventory. Five recorded checks also passed on the same freeze:
+typecheck, ESLint on all eight R8 files, workflow semantic checks, all 15
+Meta mounted bodies, release-authority preflight with ZERO_BASE_UI_MODE
+off. Their commands, timestamps, results and log hashes are recorded as
+`release-r8.*` stages in the verification ledger. `actionlint` was unavailable
+locally; the workflow semantic checks ran. The feature-branch preflight
+skipped the main-SHA literal comparison by design and is not live readback.
+
+The first local whole-shell attempt started at 16:53:58Z and exited 1 at
+17:01:13Z after stage 15 reported C4 without an established prerequisite
+phase chain. The harness had discarded prerequisite output and ignored
+setup failures, concealing which setup command failed. Twelve focused real
+PostgreSQL repetitions did not reproduce the underlying failure; its cause
+remains unknown. The harness change retains the original phase, status and
+output and stops immediately on setup failure. It introduces no retry and
+does not weaken the credential census or any release gate. The failed raw
+capture is retained at `docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1653Z.log` as failure evidence,
+not a passing gate. Its original supervisor record says the process group
+still existed; a separate 17:02:44Z readback records termination of the owned
+sleep process and no remaining group members. Both facts remain distinct
+in the verification ledger. The later successful canonical capture above
+proves that execution, not a repaired underlying root cause.
+
+The repository is now public and the configured CI/deploy jobs use standard
+`ubuntu-latest` runners. Runner eligibility was proven by successful job
+[101522676472](https://github.com/emrahbilaloglu-ui/OmniAds/actions/runs/34045023130/job/101522676472)
+on old head `8eb5ab898f6d400b01d41bf9b4df1ade770304ba`. This is billing/runner
+evidence only; it is not final candidate CI, review acceptance or deploy proof.
+
+The packaging runtime differs from the earlier Claude audit: the current Codex
+shell resolves pnpm. The old frozen `runtimeVersions` block remains unchanged
+and is explicitly marked historical, including its original timestamps and
+source-ledger hash. `packagingRuntimeVersions` records the current tool versions
+and command probes separately. Each current probe is re-derived from its raw
+measurement; no PATH override or historical outcome change was used.
+
+Current final-head CI and Codex review must complete before an ordinary merge;
+main must then publish both exact-SHA images before the supported Hetzner
+deploy and live readback. Dated D077 approval packets retain earlier
+recovery/preflight context and do not authorize current database recovery or
+advertising writes. Current release scope remains Meta-only; previously
+recorded non-Meta findings are not claimed repaired.
 
 ## How main was integrated
 
@@ -58,7 +121,7 @@ Each was found by **running** a canonical gate, not by reading it.
    duplicate-ad and activation-identity children already do. **The guard is
    untouched — it is what refused.**
 
-## Gate results on this exact tree
+## Preparation gate results (historical)
 
 | gate | result |
 |---|---|
@@ -151,17 +214,18 @@ The sixth repin is different in kind from the first five, and the difference is
 the point. Those replaced a PASSING log whose child programs had changed. This
 one replaces a tree that FAILED the shell — see the round-4 section below.
 
-The canonical stage is the 16:07Z run, retained at
-`docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1607Z.log`:
+The canonical stage is the 17:07Z run on source freeze
+`637c83ff5be52016b04a8ab20933a8c3c90c4a09`, retained at
+`docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1707Z.log`:
 
 | | |
 |---|---|
-| Start / end (UTC) | 2026-09-06T16:07:01 → 2026-09-06T16:16:35 |
-| Duration | 574.0 s |
+| Start / end (UTC) | 2026-09-06T17:07:22.760760Z → 2026-09-06T17:16:28.156361Z |
+| Duration | 545.428 s |
 | Exit code | 0 |
 | Stage headers | 40 |
 | Final line | `[verify-db-seams] PASS — 40 stages` |
-| Bytes | 661,176 |
+| Bytes | 661,173 |
 
 The three registered seam children report their counts inside it, each with
 `skipped=0`: `direct Launchpad create route approval-standing` 7/7, `Meta History
@@ -169,14 +233,13 @@ bid verb title` 2/2, and the newly registered `Meta History bid write journal
 admission` 6/6 — the last being the direct evidence that five previously dormant
 database assertions now actually execute.
 
-Twelve captures are retained and none was relabelled or edited: 2026-08-30
-(38-stage) and 2026-09-03 (40-stage) as the earlier releases' evidence; 2026-09-06
-07:59Z (Phase 1 checkpoint), 10:30Z (PR open), 11:18Z (round 1), 11:56Z (round 2),
-12:34Z (round 3), 13:17Z (round 4), 13:56Z (round 5), 14:43Z (round 6) and
-15:26Z (round 7) and 16:07Z (this one, the NULL-race closure). The ten same-day
-captures are superseded rather than historical.
-Each is kept because it is truthful evidence of the tree it ran on — only the
-label moves, never the bytes.
+Fourteen raw captures are retained without editing their bytes: 2026-08-30
+(38-stage) and 2026-09-03 (40-stage) as earlier release evidence; 2026-09-06
+07:59Z, 10:30Z, 11:18Z, 11:56Z, 12:34Z, 13:17Z, 13:56Z, 14:43Z, 15:26Z,
+16:07Z, the failed 16:53Z attempt, and 17:07Z. The first ten same-day
+passing captures are superseded for the current tree; 17:07Z is the
+current canonical capture. The 16:53Z attempt stopped at stage 15 with exit 1
+and is not acceptance evidence. Each capture describes its actual execution.
 
 **One executed-source change post-dates that run, and it is named rather than
 glossed.** Retaining the log inside the repository required registering it in
@@ -184,11 +247,13 @@ glossed.** Retaining the log inside the repository required registering it in
 occurrence of the token that guard scans for — the guard's own announcement of
 it. That registration cannot precede the log it registers, so the run could not
 have included it; the entries for the 2026-08-30 and 2026-09-03 captures have
-exactly the same property. The guard was therefore re-run standalone on the final
-tree: `npm run check:release-owner` → `PASS — 81 historical occurrence(s)
-frozen`, exit 0. Apart from that one registry entry, every change after the run
-is under `docs/` or is generated evidence, which the shell neither reads nor
-executes.
+exactly the same property. The final packaging validation must therefore run
+`npm run check:release-owner` once after this registry update. Other packaging
+changes update the dated report, artifact generator provenance, contract-test
+pins and generated evidence; product code remains at the named source freeze.
+The artifact-hash contract is checked after manifest generation. Those final
+read-only check results are reported with the release checkpoint rather than
+claimed before they execute.
 
 The manifest's own `manifestHash` and `pinnedNonSelfFileCount` are recorded in
 the artifact itself and are deliberately not restated here: this document is one

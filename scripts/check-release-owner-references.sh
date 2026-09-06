@@ -139,9 +139,11 @@ REGISTRY=(
   # 15:26Z is canonical: round 7 changed the activation-approval route, the
   # profile-output producer and the Automation page.
   "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1526Z.log|1|Retained whole-shell capture (40-stage run, 15:26Z, superseded): this guard announcing the token it scans for."
-  # 16:07Z is canonical: the activation-approval NULL race closure changed
+  # 16:07Z was canonical: the activation-approval NULL race closure changed
   # the approval validator, the store, the unattended gate and the producer.
-  "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1607Z.log|1|Retained whole-shell capture (40-stage run, 16:07Z, CANONICAL): this guard announcing the token it scans for."
+  "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1607Z.log|1|Retained whole-shell capture (40-stage run, 16:07Z, superseded): this guard announcing the token it scans for."
+  # 17:07Z is canonical on source freeze 637c83ff5 after R8 fixes.
+  "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1707Z.log|1|Retained whole-shell capture (40-stage run, 17:07Z, CANONICAL): this guard announcing the token it scans for."
 )
 
 HISTORICAL_COUNTS=(

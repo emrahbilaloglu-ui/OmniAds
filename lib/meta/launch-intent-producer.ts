@@ -117,7 +117,8 @@ export const LAUNCH_INTENT_PRODUCER_CONTRACT =
  * brief written on a Friday and reviewed the following week still stages, short
  * enough that a winner nobody looked at for a month does not silently become a
  * new ad. A candidate outside it is refused by name, not skipped in SQL, so the
- * reason is visible.
+ * reason is visible. Future evidence is excluded by the snapshot-date ceiling
+ * in the query and refused again by the producer for injected candidates.
  */
 export const LAUNCH_INTENT_DECISION_MAX_AGE_DAYS = 14;
 
@@ -275,6 +276,7 @@ export const STAGEABLE_LAUNCH_DECISION_SQL = `
        LIMIT 1
     ) draft ON TRUE
    WHERE s.business_ref_id = $1::uuid
+     AND s.as_of_date <= $5::date
      AND s.label = ANY($2::text[])
      AND s.authority_blocker IS NULL
      AND NOT EXISTS (
@@ -426,10 +428,18 @@ function composeNewCampaignCandidate(
   };
 }
 
+function calendarDateTimestamp(value: string): number | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+  const timestamp = Date.parse(`${value}T00:00:00.000Z`);
+  if (!Number.isFinite(timestamp)
+    || new Date(timestamp).toISOString().slice(0, 10) !== value) return null;
+  return timestamp;
+}
+
 function daysBetween(fromDate: string, toDate: string): number | null {
-  const from = Date.parse(`${fromDate}T00:00:00.000Z`);
-  const to = Date.parse(`${toDate}T00:00:00.000Z`);
-  if (!Number.isFinite(from) || !Number.isFinite(to)) return null;
+  const from = calendarDateTimestamp(fromDate);
+  const to = calendarDateTimestamp(toDate);
+  if (from === null || to === null) return null;
   return Math.round((to - from) / 86_400_000);
 }
 
@@ -440,6 +450,16 @@ export async function projectMetaLaunchIntents(
   const refuse = (code: string) => {
     refusals[code] = (refusals[code] ?? 0) + 1;
   };
+  if (calendarDateTimestamp(deps.snapshotDate) === null) {
+    return {
+      contract: LAUNCH_INTENT_PRODUCER_CONTRACT,
+      ran: true,
+      candidates: 0,
+      staged: 0,
+      stagedIntentIds: [],
+      refusals: { snapshot_date_invalid: 1 },
+    };
+  }
 
   const mode = await (deps.readCreativeMode
     ?? (async () => (await resolveEffectiveMetaModes(deps.businessId)).creative))();
@@ -456,7 +476,7 @@ export async function projectMetaLaunchIntents(
 
   const candidates = deps.listCandidates
     ? await deps.listCandidates()
-    : await listStageableLaunchDecisions(deps.businessId);
+    : await listStageableLaunchDecisions(deps.businessId, deps.snapshotDate);
   const validatePayload = deps.validatePayload ?? validateMetaAddToExistingRequest;
   const validateLaunchPayload =
     deps.validateLaunchPayload ?? validateMetaLaunchRequest;
@@ -487,6 +507,10 @@ export async function projectMetaLaunchIntents(
       continue;
     }
     const age = daysBetween(candidate.snapshotAsOfDate, deps.snapshotDate);
+    if (age !== null && age < 0) {
+      refuse("decision_evidence_in_future");
+      continue;
+    }
     if (age === null || age > LAUNCH_INTENT_DECISION_MAX_AGE_DAYS) {
       refuse("decision_evidence_stale");
       continue;
@@ -618,12 +642,16 @@ export async function projectMetaLaunchIntents(
 
 export async function listStageableLaunchDecisions(
   businessId: string,
+  snapshotDate: string,
 ): Promise<StageableLaunchDecisionCandidate[]> {
+  if (calendarDateTimestamp(snapshotDate) === null)
+    throw new Error("launch_intent_snapshot_date_invalid");
   const rows = (await getDb().query(STAGEABLE_LAUNCH_DECISION_SQL, [
     businessId,
     [...STAGEABLE_LAUNCH_DECISION_LABELS],
     launchOperationForDecisionLabel("scale"),
     launchOperationForDecisionLabel("refresh"),
+    snapshotDate,
   ])) as Array<Record<string, unknown>>;
   return rows.map((row) => ({
     businessId,

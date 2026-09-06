@@ -335,7 +335,12 @@ describe("D080B — lanes never blend", () => {
   });
 });
 
-describe("C1 — the fifteen independently authored lies that v1 accepted", () => {
+// Every case in this block replays the same 247,050-proposal package, including
+// the positive and section-audit controls. CI run 34048550680 measured the
+// positive control at 15,048 ms and neighboring attacks at 15,052–15,734 ms.
+// Apply the attacks' existing 90 s bound to the whole replay block; leaving the
+// other replays on the global 15 s default made equivalent work fail under load.
+describe("C1 — the fifteen independently authored lies that v1 accepted", { timeout: 90_000 }, () => {
   const attack = (mutate: (a: Record<string, any>) => void) => {
     const a = clone();
     mutate(a);
@@ -379,27 +384,7 @@ describe("C1 — the fifteen independently authored lies that v1 accepted", () =
     // Never a stale hash alone: a semantic section must have objected.
     const semantic = r.failures.filter((f) => !f.includes("section_hash_mismatch") && !f.includes("artifact_hash_mismatch"));
     expect(semantic.length, JSON.stringify(r.failures.slice(0, 2))).toBeGreaterThan(0);
-  /*
-    90 s per case, matching this block's REAL cost rather than the 15 s default.
-
-    Each of the fifteen attacks re-verifies a distinct mutation of the sealed
-    package, and verification replays 247,050 proposals — the positive control
-    above asserts that number. The work is irreducible per case: every attack
-    mutates a different field, so nothing can be hoisted and shared without
-    verifying something other than what the case is about.
-
-    Measured under a loaded full-suite sweep, individual cases cost 11.1 s,
-    12.0 s, 11.2 s, 13.6 s, 12.6 s, 11.6 s, 14.5 s and 12.4 s, with one case
-    reaching 16.9 s. Against a 15 s default that is a load-sensitive flake, not
-    a bug: standalone the file is 116/116 in about 170 s and green. A release
-    must not be intermittently red, so the bound is raised to the real cost.
-
-    This is the bound the sibling evidence suite already uses for the same class
-    of work (`d084-commercial-target-evidence.test.ts` runs its cases at
-    90_000). Nothing about coverage or the assertions above changes: same
-    fifteen attacks, same expectations, no case merged, skipped or weakened.
-  */
-  }, 90_000);
+  });
 
   it.each([
     ["a smuggled stable field on a read", (a: any) => { a.snapshot.reads[0].smuggled = 1; }, "read_unexpected_field"],

@@ -1836,7 +1836,7 @@ async function main() {
       draftName: "A launch whose approvals are about to be withdrawn",
       draftPayload: reuseDraftPayload(REVOKED_CREATIVE_ID, REVOKED_SOURCE_AD_ID),
     });
-    const eligibleBefore = (await listStageableLaunchDecisions(BUSINESS_ID)).find(
+    const eligibleBefore = (await listStageableLaunchDecisions(BUSINESS_ID, SNAPSHOT_DATE)).find(
       (row) => row.snapshotId === revokedFixture.snapshotId,
     );
     expectEqual(

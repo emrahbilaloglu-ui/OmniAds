@@ -35,6 +35,9 @@ const pending = { events: [] as EventRow[], deliveries: [] as DeliveryRow[] };
 
 /** Recipients whose delivery insert throws, as a deleted user row would. */
 const failingRecipients = new Set<string>();
+let membershipReadFailure: Error | null = null;
+let dedupeReadFailure: Error | null = null;
+let memberRecipients: string[] = [];
 let inTransaction = false;
 let nextId = 0;
 
@@ -43,7 +46,13 @@ function exec(
   params: unknown[],
   buffer: typeof committed,
 ): unknown {
+  if (text.includes("FROM memberships")) {
+    if (membershipReadFailure) throw membershipReadFailure;
+    return memberRecipients.map((user_id) => ({ user_id }));
+  }
+
   if (text.includes("SELECT id::text AS id FROM notification_events")) {
+    if (dedupeReadFailure) throw dedupeReadFailure;
     // A read sees committed rows plus this transaction's own pending writes.
     const visible = inTransaction
       ? [...committed.events, ...pending.events]
@@ -117,8 +126,21 @@ vi.mock("@/lib/db", () => ({
 vi.mock("@/lib/product-instrumentation", () => ({
   recordProductInstrumentationEvent: vi.fn(async () => ({ recorded: true })),
 }));
+vi.mock("@/lib/meta/anomalies", () => ({
+  readMetaAnomaliesForBusiness: vi.fn(async () => ({
+    anomalies: [{
+      id: "anom-1",
+      type: "spend_without_conversions",
+      severity: "high",
+      scopeType: "campaign",
+      scopeId: "cmp-1",
+    }],
+  })),
+}));
 
 const { recordNotificationEvent } = await import("@/lib/notification-store");
+const { produceNotificationsForBusiness, readNotificationRecipients, runNotificationProducerIfDue } =
+  await import("@/lib/notification-producer");
 
 const BUSINESS_ID = "biz-1";
 const FIRST = "11111111-1111-4111-8111-111111111111";
@@ -147,14 +169,103 @@ function deliveriesFor(userId: string) {
   return committed.deliveries.filter((row) => row.recipient_user_id === userId);
 }
 
+function produceFromAnomaly(recipientUserId: string | null = null) {
+  return produceNotificationsForBusiness({
+    businessId: BUSINESS_ID,
+    providerAccountId: "act_1",
+    recipientUserId,
+    now: new Date("2026-09-06T12:00:00.000Z"),
+  });
+}
+
 beforeEach(() => {
   committed.events.length = 0;
   committed.deliveries.length = 0;
   pending.events.length = 0;
   pending.deliveries.length = 0;
   failingRecipients.clear();
+  membershipReadFailure = null;
+  dedupeReadFailure = null;
+  memberRecipients = [FIRST, SECOND];
   inTransaction = false;
   nextId = 0;
+});
+
+describe("recipient lookup failures do not consume a notification's dedupe key", () => {
+  it("rejects an unreadable membership list instead of treating it as empty", async () => {
+    membershipReadFailure = new Error("membership lookup timed out");
+    await expect(readNotificationRecipients(BUSINESS_ID))
+      .rejects.toThrow("membership lookup timed out");
+  });
+
+  it("delivers the same anomaly to real members after membership lookup recovers", async () => {
+    membershipReadFailure = new Error("membership lookup timed out");
+    await expect(produceFromAnomaly()).rejects.toThrow("membership lookup timed out");
+
+    // The real store has not committed either the dedupe key or a NULL delivery.
+    expect(committed.events).toHaveLength(0);
+    expect(committed.deliveries).toHaveLength(0);
+
+    membershipReadFailure = null;
+    expect(await produceFromAnomaly())
+      .toEqual({ scanned: 1, created: 1, skipped: 0, failed: 0 });
+    expect(committed.events).toHaveLength(1);
+    expect(deliveriesFor(FIRST)).toHaveLength(1);
+    expect(deliveriesFor(SECOND)).toHaveLength(1);
+    expect(committed.deliveries.some((row) => row.recipient_user_id === null)).toBe(false);
+
+    expect(await produceFromAnomaly())
+      .toEqual({ scanned: 1, created: 0, skipped: 1, failed: 0 });
+    expect(committed.deliveries).toHaveLength(2);
+  });
+
+  it("preserves the existing NULL-recipient behavior for a successfully read empty list", async () => {
+    memberRecipients = [];
+    expect(await readNotificationRecipients(BUSINESS_ID)).toEqual([]);
+    expect(await produceFromAnomaly())
+      .toEqual({ scanned: 1, created: 1, skipped: 0, failed: 0 });
+    expect(committed.events).toHaveLength(1);
+    expect(committed.deliveries).toHaveLength(1);
+    expect(committed.deliveries[0]?.recipient_user_id).toBeNull();
+  });
+
+  it("allows the next scheduled scan to deliver after a contained membership failure", async () => {
+    membershipReadFailure = new Error("membership lookup timed out");
+    expect(await runNotificationProducerIfDue(
+      [BUSINESS_ID], new Date("2026-09-06T12:00:00.000Z"),
+    )).toMatchObject({ skipped: false, created: 0 });
+    expect(committed.events).toHaveLength(0);
+    expect(committed.deliveries).toHaveLength(0);
+
+    membershipReadFailure = null;
+    expect(await runNotificationProducerIfDue(
+      [BUSINESS_ID], new Date("2026-09-06T13:00:00.000Z"),
+    )).toMatchObject({ skipped: false, created: 1 });
+    expect(deliveriesFor(FIRST)).toHaveLength(1);
+    expect(deliveriesFor(SECOND)).toHaveLength(1);
+  });
+
+  it("does not require a membership lookup when the caller supplies the recipient", async () => {
+    membershipReadFailure = new Error("membership lookup timed out");
+    expect(await produceFromAnomaly(FIRST))
+      .toEqual({ scanned: 1, created: 1, skipped: 0, failed: 0 });
+    expect(deliveriesFor(FIRST)).toHaveLength(1);
+    expect(committed.deliveries).toHaveLength(1);
+  });
+
+  it("also keeps an unreadable dedupe lookup retryable without creating deliveries", async () => {
+    dedupeReadFailure = new Error("dedupe lookup timed out");
+    expect(await produceFromAnomaly())
+      .toEqual({ scanned: 1, created: 0, skipped: 0, failed: 1 });
+    expect(committed.events).toHaveLength(0);
+    expect(committed.deliveries).toHaveLength(0);
+
+    dedupeReadFailure = null;
+    expect(await produceFromAnomaly())
+      .toEqual({ scanned: 1, created: 1, skipped: 0, failed: 0 });
+    expect(deliveriesFor(FIRST)).toHaveLength(1);
+    expect(deliveriesFor(SECOND)).toHaveLength(1);
+  });
 });
 
 describe("recipient fan-out is retryable", () => {

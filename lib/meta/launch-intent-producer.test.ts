@@ -338,6 +338,64 @@ describe("projectMetaLaunchIntents", () => {
     expect(result.refusals).toEqual({ decision_evidence_stale: 1 });
   });
 
+  it("refuses a future decision before validation or intent staging", async () => {
+    const { deps, stageCalls } = harness({
+      candidates: [candidate({ snapshotAsOfDate: "2026-09-06" })],
+    });
+    let validations = 0;
+    deps.validatePayload = async () => {
+      validations += 1;
+      return { ok: true, blockers: [] };
+    };
+    const result = await projectMetaLaunchIntents(deps);
+    expect(result.refusals).toEqual({ decision_evidence_in_future: 1 });
+    expect(validations).toBe(0);
+    expect(stageCalls).toHaveLength(0);
+  });
+
+  it.each(["2026-09-05", "2026-09-04", "2026-08-22"])(
+    "stages evidence on or before the snapshot within the inclusive 14-day window: %s",
+    async (snapshotAsOfDate) => {
+      const { deps, stageCalls } = harness({
+        candidates: [candidate({ snapshotAsOfDate })],
+      });
+      const result = await projectMetaLaunchIntents(deps);
+      expect(result.refusals).toEqual({});
+      expect(stageCalls).toHaveLength(1);
+    },
+  );
+
+  it("refuses evidence one day beyond the lower window boundary", async () => {
+    const { deps, stageCalls } = harness({
+      candidates: [candidate({ snapshotAsOfDate: "2026-08-21" })],
+    });
+    const result = await projectMetaLaunchIntents(deps);
+    expect(result.refusals).toEqual({ decision_evidence_stale: 1 });
+    expect(stageCalls).toHaveLength(0);
+  });
+
+  it("does not normalize an impossible evidence date into the valid window", async () => {
+    const { deps, stageCalls } = harness({
+      candidates: [candidate({ snapshotAsOfDate: "2026-02-30" })],
+    });
+    deps.snapshotDate = "2026-03-03";
+    const result = await projectMetaLaunchIntents(deps);
+    expect(result.refusals).toEqual({ decision_evidence_stale: 1 });
+    expect(stageCalls).toHaveLength(0);
+  });
+
+  it.each(["2026-02-30", "2026-9-05", "2026-09-05T00:00:00Z"])(
+    "refuses an invalid snapshot calendar date before reading candidates: %s",
+    async (snapshotDate) => {
+      const { deps, stageCalls } = harness();
+      deps.snapshotDate = snapshotDate;
+      deps.listCandidates = async () => { throw new Error("must not read candidates"); };
+      const result = await projectMetaLaunchIntents(deps);
+      expect(result.refusals).toEqual({ snapshot_date_invalid: 1 });
+      expect(stageCalls).toHaveLength(0);
+    },
+  );
+
   it("carries the shipped validator's own refusal code", async () => {
     const { deps, stageCalls } = harness({
       validation: {

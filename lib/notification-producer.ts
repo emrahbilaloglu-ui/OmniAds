@@ -27,14 +27,15 @@ import { logRuntimeWarn } from "@/lib/runtime-logging";
  *
  * Admins and collaborators, active memberships only. A guest can read the
  * product; being interrupted about someone's ad spend is a different thing.
- * An unreadable membership list returns empty, and the caller then writes the
- * NULL-recipient row it always did — no worse than today, and never a
- * broadcast to people who are not members.
+ * A failed lookup must reject before the producer writes an event: treating
+ * it as an empty list commits a NULL-recipient delivery and consumes the
+ * dedupe key, preventing delivery to real members after the lookup recovers.
+ * A successfully read empty list retains the existing NULL-recipient behavior.
  */
 export async function readNotificationRecipients(
   businessId: string,
 ): Promise<string[]> {
-  const rows = (await getDb().query(
+  const rows = await getDb().query<{ user_id: string }>(
     `SELECT user_id::text AS user_id
        FROM memberships
       WHERE business_id = $1::uuid
@@ -42,8 +43,8 @@ export async function readNotificationRecipients(
         AND role IN ('admin', 'collaborator')
       ORDER BY user_id`,
     [businessId],
-  ).catch(() => null)) as Array<{ user_id: string }> | null;
-  return rows?.map((row) => row.user_id) ?? [];
+  );
+  return rows.map((row) => row.user_id);
 }
 
 /**
@@ -158,7 +159,8 @@ export async function produceNotificationsForBusiness(input: {
 
   const rows = anomalies?.anomalies ?? [];
   // Reuse one recipient snapshot for this scan. Membership changes during the
-  // batch are picked up by the next scan.
+  // batch are picked up by the next scan. A lookup failure rejects here,
+  // before any event or dedupe key can be written, so a later scan can retry.
   const recipients = input.recipientUserId
     ? [input.recipientUserId]
     : await readNotificationRecipients(input.businessId);

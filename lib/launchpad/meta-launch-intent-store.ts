@@ -345,20 +345,38 @@ export async function recordMetaLaunchIntentValidation(input: {
  *
  * It takes the whole document, built and validated elsewhere, and it never
  * merges: an approval is a single statement about a single payload, and
- * patching a field of one would produce an approval nobody gave. Passing null
- * clears it, which is how "this is operator-only again" is said.
+ * patching a field of one would produce an approval nobody gave.
+ *
+ * It also never clears. Storing NULL was how "this is operator-only again" used
+ * to be said, and it said it by making the row identical to one nobody had ever
+ * approved — so the withdrawal left no trace, and the route's compare-and-set,
+ * whose version IS this document, could not tell a revoked intent from a fresh
+ * one and let an approval built before the revocation land after it. Withdrawal
+ * is now a document of its own (`buildActivationRevocation`), and this writer
+ * refuses the value that erased it. A caller with nothing to store should not be
+ * calling a writer at all, so this throws rather than quietly doing nothing.
  */
 export async function recordMetaLaunchIntentActivationApproval(input: {
   businessId: string;
   id: string;
-  approval: unknown | null;
+  approval: unknown;
 }): Promise<MetaLaunchIntent> {
+  if (
+    input.approval === null
+    || input.approval === undefined
+    || typeof input.approval !== "object"
+    || Array.isArray(input.approval)
+  ) {
+    // The column's own CHECK allows an object or NULL; this narrows it to the
+    // object, at the only place in the application that writes it.
+    throw new MetaLaunchIntentTransitionError(
+      "An activation approval must be recorded as a document; the column is never cleared.",
+    );
+  }
   const sql = getDb();
   const rows = (await sql`
     UPDATE meta_launch_intents
-    SET activation_approval_json = ${
-      input.approval === null ? null : JSON.stringify(input.approval)
-    }::jsonb,
+    SET activation_approval_json = ${JSON.stringify(input.approval)}::jsonb,
         updated_at = NOW()
     WHERE business_id = ${input.businessId}
       AND id = ${input.id}

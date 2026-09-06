@@ -174,7 +174,7 @@ export async function runMetaBudgetAutomationSweepIfDue(
       A closed `META_LAUNCHPAD_EXECUTION` — or a `launchpad_create` family still
       declaring a missing safety step — must keep launch rows out of the PAGE,
       not withhold them after the claim. A withheld outcome settles the row
-      `failed` (`budget-execution-lifecycle.ts`), so claiming and refusing would
+      failed (`budget-execution-lifecycle.ts`), so claiming and refusing would
       destroy, every ten minutes, rows an operator could still have approved by
       hand. The row stays pending and visible; only the unattended arm is shut.
     */
@@ -427,6 +427,29 @@ export async function runMetaBudgetAutomationSweepIfDue(
                WHERE i.id = meta_automation_proposals.launch_intent_id
                  AND i.business_id = meta_automation_proposals.business_id
                  AND i.activation_approval_json IS NOT NULL
+                 /*
+                   ...and not WITHDRAWN. A revocation is now a durable
+                   non-authorizing document rather than a NULL, because a NULL
+                   moved no version and let a stale approval overwrite it. That
+                   fix makes IS NOT NULL true for a revoked intent, which
+                   would defeat the very purpose of this pre-filter stated
+                   above: the runtime would claim the row, withhold it
+                   activation_approval_revoked before any provider contact,
+                   settle it failed with no dispatch stamp — and the producer
+                   would re-raise it on the next snapshot, because a
+                   non-dispatched failure is deliberately non-consuming. An
+                   indefinite flap, occupying a slot of this page ahead of live
+                   rows by created_at.
+
+                   Never a safety hole — the validator refuses it on every pass
+                   — but it would silently churn away a manual offer the
+                   operator may still want, which is what this filter exists to
+                   protect.
+
+                   No backticks in this comment on purpose: it sits inside a
+                   tagged template literal, where one would end the SQL string.
+                 */
+                 AND i.activation_approval_json->>'revokedAt' IS NULL
             )
           )
           AND status = 'pending'

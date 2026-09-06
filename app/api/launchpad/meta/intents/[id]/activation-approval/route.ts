@@ -29,8 +29,7 @@ import {
 } from "@/lib/launchpad/meta-launch-intent-store";
 import {
   buildActivationApproval,
-  revokeActivationApproval,
-  type ActivationApproval,
+  buildActivationRevocation,
 } from "@/lib/meta/launch-activation-approval";
 import {
   ACTIVATION_POLICY_VERSION,
@@ -139,6 +138,13 @@ export async function POST(
     since. There is no generation column on `meta_launch_intents`, so the
     document itself is the version — jsonb reads back with normalised key order,
     so two reads of an unchanged column stringify identically.
+
+    Which is why the revoke branch below must always leave a document. A version
+    made of the document can only catch a change the document actually recorded,
+    and a revocation that stored NULL over NULL recorded none — the guard was
+    real and the thing it guarded never moved. Nothing writes NULL to this column
+    any more (`recordMetaLaunchIntentActivationApproval` refuses it outright), so
+    a column that has been touched once never again reads as untouched.
   */
   const expectedApproval = approvalVersion(intent.activationApproval);
   /*
@@ -165,6 +171,18 @@ export async function POST(
         and keeping it means the record still says who approved what, and when
         it was withdrawn.
 
+        It writes that document even when it found NOTHING to revoke, which is
+        the whole of the fix here. This branch used to store `null` in that case
+        — the same value the column already held — so a revocation against a
+        never-approved intent was a 200 that changed nothing at all. The approve
+        branch below compares the document it read against the document that
+        stands, and NULL compared to NULL is equal: an approval request that had
+        read NULL a moment before the revocation therefore passed its
+        compare-and-set and stored a live approval on an intent the operator had
+        just withdrawn. The lock and the transaction are not the problem and
+        cannot be the fix — they serialise correctly around a version that never
+        moved. `buildActivationRevocation` is what makes it move.
+
         Deliberately NOT compare-and-set, unlike the approve path below. A
         revocation is the fail-closed direction, so it withdraws whatever stands
         at the moment it runs: refusing it because an approval landed in between
@@ -184,15 +202,28 @@ export async function POST(
           id: intent.id,
         });
         if (!current) return { missing: true as const };
-        const stored = current.activationApproval as ActivationApproval | null;
+        const next = buildActivationRevocation({
+          stored: current.activationApproval,
+          intent: {
+            id: current.id,
+            businessId: current.businessId,
+            providerAccountId: current.providerAccountId,
+          },
+          revokedBy: access.session.user.id,
+          revokedAt: new Date().toISOString(),
+        });
+        /*
+          Already withdrawn, so there is nothing to say again. Writing here
+          would move `revokedAt` forward to this button press and overstate when
+          authority actually ended — and a repeated or retried Revoke is exactly
+          the request that must not rewrite the record it is confirming.
+        */
         return {
           missing: false as const,
           updated: await recordMetaLaunchIntentActivationApproval({
             businessId: access.businessId,
             id: intent.id,
-            approval: stored
-              ? revokeActivationApproval(stored, new Date().toISOString())
-              : null,
+            approval: next.document,
           }),
         };
       });

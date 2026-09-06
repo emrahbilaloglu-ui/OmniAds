@@ -151,17 +151,17 @@ The sixth repin is different in kind from the first five, and the difference is
 the point. Those replaced a PASSING log whose child programs had changed. This
 one replaces a tree that FAILED the shell — see the round-4 section below.
 
-The canonical stage is the 15:26Z run, retained at
-`docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1526Z.log`:
+The canonical stage is the 16:07Z run, retained at
+`docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1607Z.log`:
 
 | | |
 |---|---|
-| Start / end (UTC) | 2026-09-06T15:26:23 → 2026-09-06T15:34:57 |
-| Duration | 514.0 s |
+| Start / end (UTC) | 2026-09-06T16:07:01 → 2026-09-06T16:16:35 |
+| Duration | 574.0 s |
 | Exit code | 0 |
 | Stage headers | 40 |
 | Final line | `[verify-db-seams] PASS — 40 stages` |
-| Bytes | 661,049 |
+| Bytes | 661,176 |
 
 The three registered seam children report their counts inside it, each with
 `skipped=0`: `direct Launchpad create route approval-standing` 7/7, `Meta History
@@ -169,12 +169,12 @@ bid verb title` 2/2, and the newly registered `Meta History bid write journal
 admission` 6/6 — the last being the direct evidence that five previously dormant
 database assertions now actually execute.
 
-Eleven captures are retained and none was relabelled or edited: 2026-08-30
+Twelve captures are retained and none was relabelled or edited: 2026-08-30
 (38-stage) and 2026-09-03 (40-stage) as the earlier releases' evidence; 2026-09-06
 07:59Z (Phase 1 checkpoint), 10:30Z (PR open), 11:18Z (round 1), 11:56Z (round 2),
 12:34Z (round 3), 13:17Z (round 4), 13:56Z (round 5), 14:43Z (round 6) and
-15:26Z (this one, round 7). The nine same-day captures are superseded rather
-than historical.
+15:26Z (round 7) and 16:07Z (this one, the NULL-race closure). The ten same-day
+captures are superseded rather than historical.
 Each is kept because it is truthful evidence of the tree it ran on — only the
 label moves, never the bytes.
 
@@ -400,6 +400,54 @@ their own id, so bootstrap now runs only for a `live` write authority; and
 `notification-producer.ts` carried `as never` on the same anomaly read, whose
 removal exposed a second unsound cast that had only type-checked because the
 first one blinded the compiler.
+
+## The activation-approval NULL race — and the regression inside its first fix
+
+An independent reviewer found the round-7 compare-and-set still open when
+`activation_approval_json` starts NULL: an approval reads NULL, a revoke wins the
+lock, re-reads NULL and writes NULL — moving no version — and the older approval
+then compares NULL against NULL, passes, and lands live. The transaction and the
+advisory lock were correct and irrelevant; they serialize around a version that
+never moved. Reproduced against the real exported POST before anything changed:
+the stale approve answered **200** and left a complete approval with
+`revokedAt: null` — exactly the document the scheduled runtime acts on.
+
+Every revocation now leaves a durable, NON-AUTHORIZING document. A never-approved
+intent gets a tombstone under its own contract carrying no `approvedBy`,
+`approvedAt`, `expiresAt`, `approvedScope`, `approvedAssets` or
+`approvedDestination` — there is no field a reader can turn into permission. A
+standing approval is stamped instead, so the record of who approved what
+survives. The `revokedAt` refusal was hoisted above the field checks, so a
+document that declares itself revoked is refused AS revoked rather than as
+malformed; that hoist can only add refusals, never remove one. And the store now
+refuses to write NULL at all — it is the only SQL in the repository that writes
+this column, so the erasing value is unreachable application-wide.
+
+**The first version of this fix reopened the defect, and the adversarial
+re-check caught it.** It kept a `changed: false` short-circuit: a second Revoke
+against an already-withdrawn document wrote nothing, which preserved `revokedAt`
+but moved no version. "Already withdrawn" is the state that exists after EVERY
+revocation, so a stale approve that read it passed its compare-and-set and landed
+live — measured 409 before the short-circuit existed and 200 after. A comment
+asserted the fence held unconditionally, which was false of the very branch it
+introduced. Both are fixed: `revokedAt` still names when authority ended,
+`reaffirmedAt` moves, so the document differs and every revocation moves the
+version. The `changed` flag is gone rather than left as a dormant trap.
+
+**A second consequence, not in the finding, which this release's own earlier work
+amplifies.** A tombstone makes `activation_approval_json IS NOT NULL` true, so a
+revoked intent passed the unattended pre-filter — whose comment states it exists
+to stop the runtime claiming rows an operator still means to approve by hand. It
+would be claimed, withheld before any provider contact, settled `failed` with no
+dispatch stamp, and then re-raised by the round-4 non-dispatched-failure
+carve-out on the next snapshot: an indefinite flap holding a slot ahead of live
+rows. Never a safety hole — the validator refuses it on every pass — but it would
+silently churn away the manual offers that filter protects. The gate and the
+producer's `approval_present` projection now both exclude withdrawn documents.
+
+Traced end to end and confirmed by the re-check: a tombstone cannot reach a
+provider activation. The scheduled arm validates before `runActivation`, so the
+dispatch marker never fires and no POST is composed.
 
 ## Review round 7 on PR #276
 

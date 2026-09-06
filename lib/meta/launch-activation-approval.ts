@@ -158,6 +158,29 @@ export function validateActivationApproval(input: {
     return { approved: false, refusal: "activation_approval_malformed" };
   }
   const raw = input.stored as Record<string, unknown>;
+  /*
+    Withdrawn, asked before anything else about the document is.
+
+    This used to sit below the required-field block, which was fine for the only
+    revoked document that existed then — a complete approval with `revokedAt`
+    stamped on it, which passes every field check on its way down here. It is
+    not fine for the document a revocation leaves when NOTHING stood: that one
+    deliberately carries no approver, no expiry and no approved set, so the
+    field block refused it as `activation_approval_malformed` — fail-closed, but
+    naming the wrong reason for the one refusal an operator most needs to read.
+
+    Moving it up can only ADD refusals, never remove one. The predicate is a
+    pure function of `raw.revokedAt`: a document that satisfies it was already
+    refused everywhere below — here as `activation_approval_revoked`, or earlier
+    under some other code — and could never have been approved, because reaching
+    the old position meant being refused at it. A document that does NOT satisfy
+    it skips this branch entirely and meets the rest of the function in exactly
+    the order it always did. Nothing that used to be approved is refused now,
+    and nothing that used to be refused is approved.
+  */
+  if (str(raw.revokedAt) !== null) {
+    return { approved: false, refusal: "activation_approval_revoked" };
+  }
   if (str(raw.contractVersion) !== ACTIVATION_APPROVAL_CONTRACT) {
     return { approved: false, refusal: "activation_approval_contract_unknown" };
   }
@@ -221,9 +244,6 @@ export function validateActivationApproval(input: {
     return { approved: false, refusal: "activation_approval_policy_version_unbound" };
   }
 
-  if (str(raw.revokedAt) !== null) {
-    return { approved: false, refusal: "activation_approval_revoked" };
-  }
   const now = (input.now ?? new Date()).getTime();
   const expiresAt = timeOf(raw.expiresAt);
   // An approval with no readable expiry has no end, which is not an approval.
@@ -416,4 +436,118 @@ export function revokeActivationApproval(
   revokedAt: string,
 ): ActivationApproval {
   return { ...approval, revokedAt };
+}
+
+/**
+ * The document a revocation leaves when there was no approval to stamp.
+ *
+ * A tombstone, and deliberately not an approval wearing `revokedAt`. It carries
+ * no `approvedBy`, no `approvedAt`, no `expiresAt`, no `approvedScope` and no
+ * approved set, so no reader can extract an authorization from it however
+ * carelessly it is read: `validateActivationApproval` refuses it as
+ * `activation_approval_revoked` before it looks at any other field, and the
+ * panel's `readStandingApproval` — which demands an approver, an approved-at and
+ * an expiry — cannot build a standing approval out of it either.
+ *
+ * It exists because "nothing stored" and "withdrawn" are different facts and the
+ * column could only say the first. A revocation that found NULL used to write
+ * NULL, which left the row byte-identical to one nobody had ever touched — so an
+ * approval request that had read NULL a moment earlier compared NULL to NULL,
+ * passed its compare-and-set, and stored a live approval on an intent whose
+ * operator had just withdrawn it.
+ */
+export const ACTIVATION_REVOCATION_CONTRACT =
+  "meta.launch-activation-revocation.v1" as const;
+
+export interface ActivationRevocation {
+  contractVersion: typeof ACTIVATION_REVOCATION_CONTRACT;
+  businessId: string;
+  providerAccountId: string;
+  launchIntentId: string;
+  revokedAt: string;
+  /** Who withdrew it. Never `approvedBy`: nobody approved anything here. */
+  revokedBy: string;
+  /**
+   * When a repeat Revoke last restated this withdrawal.
+   *
+   * Not decoration: it is what makes a second Revoke move the document version.
+   * `revokedAt` must keep naming when authority ended, so the version cannot
+   * ride on it — and a revoke that moves no version lets an approval computed
+   * before it pass its compare-and-set.
+   */
+  reaffirmedAt?: string;
+}
+
+/**
+ * What a revocation should store, given whatever the column holds right now.
+ *
+ * Three cases, and the caller does not choose between them:
+ *
+ *  - the column already declares `revokedAt` — nothing is written. The moment
+ *    authority ended is the FIRST revocation's, not this button press, so a
+ *    repeated or retried Revoke leaves the record exactly as it found it.
+ *  - a document that names the approval contract stands — it is stamped rather
+ *    than replaced, so the record still says who approved what and when it was
+ *    withdrawn.
+ *  - anything else, NULL included — a tombstone. `null`, a v1 document and an
+ *    unreadable object all land here, because none of them is an approval this
+ *    build would honour and all of them need the column to stop reading as
+ *    untouched.
+ *
+ * Every case ends with a non-null object in the column, which is the invariant
+ * the compare-and-set on the approve branch rests on: a revocation always moves
+ * the document version, so an approval computed before it can never pass.
+ */
+export function buildActivationRevocation(input: {
+  stored: unknown;
+  intent: Pick<ActivationIntentFacts, "id" | "businessId" | "providerAccountId">;
+  revokedBy: string;
+  revokedAt: string;
+}): { document: ActivationApproval | ActivationRevocation } {
+  const current =
+    input.stored && typeof input.stored === "object" && !Array.isArray(input.stored)
+      ? (input.stored as Record<string, unknown>)
+      : null;
+  if (current && str(current.revokedAt) !== null) {
+    /*
+      Already withdrawn — and it is REAFFIRMED rather than left alone.
+
+      Returning `changed: false` here reopened the exact defect this builder
+      exists to close. "Already withdrawn" is the state that exists after every
+      revocation, and a revoke that writes nothing moves no version: an approval
+      that read the withdrawn document then passes its compare-and-set and lands
+      live, while the operator's concurrent Revoke answers 200. Measured both
+      ways on this code — the stale approve got 409 before the short-circuit
+      existed and 200 after it.
+
+      `revokedAt` is preserved, so it still names when authority actually ended
+      rather than the latest button press. `reaffirmedAt` moves, so the document
+      hash moves with it, and the fence the approve branch rests on holds
+      unconditionally: EVERY revocation changes the version.
+    */
+    return {
+      document: {
+        ...(current as unknown as ActivationApproval),
+        reaffirmedAt: input.revokedAt,
+      } as ActivationApproval,
+    };
+  }
+  if (current && str(current.contractVersion) === ACTIVATION_APPROVAL_CONTRACT) {
+    return {
+      document: revokeActivationApproval(
+        current as unknown as ActivationApproval,
+        input.revokedAt,
+      ),
+    };
+  }
+  return {
+    document: {
+      contractVersion: ACTIVATION_REVOCATION_CONTRACT,
+      businessId: input.intent.businessId,
+      providerAccountId: input.intent.providerAccountId,
+      launchIntentId: input.intent.id,
+      revokedAt: input.revokedAt,
+      revokedBy: input.revokedBy,
+    },
+  };
 }

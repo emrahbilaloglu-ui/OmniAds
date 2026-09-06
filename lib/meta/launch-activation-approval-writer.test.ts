@@ -14,7 +14,9 @@ import { describe, expect, it } from "vitest";
 
 import {
   ACTIVATION_APPROVAL_CONTRACT,
+  ACTIVATION_REVOCATION_CONTRACT,
   buildActivationApproval,
+  buildActivationRevocation,
   revokeActivationApproval,
   validateActivationApproval,
 } from "@/lib/meta/launch-activation-approval";
@@ -209,5 +211,180 @@ describe("what it refuses to write", () => {
   it("refuses one bound to no policy version", () => {
     expect(build({ policyVersion: "" }))
       .toEqual({ ok: false, refusal: "activation_approval_policy_version_unbound" });
+  });
+});
+
+/*
+  Withdrawal, including the withdrawal of nothing.
+
+  A revocation that found no approval used to write NULL — the value already in
+  the column — so it left no trace at all, and the route's compare-and-set (whose
+  version IS this document) could not tell a withdrawn intent from one nobody had
+  ever touched. These cases pin the document each starting state produces.
+*/
+describe("what a revocation leaves behind", () => {
+  const REVOKER = "44444444-4444-4444-8444-444444444444";
+  const AT = "2026-09-05T11:00:00.000Z";
+
+  function revoke(stored: unknown, revokedAt = AT) {
+    return buildActivationRevocation({
+      stored,
+      intent: {
+        id: INTENT,
+        businessId: BUSINESS,
+        providerAccountId: "act_1",
+      },
+      revokedBy: REVOKER,
+      revokedAt,
+    });
+  }
+
+  function verdict(stored: unknown) {
+    return validateActivationApproval({
+      stored,
+      intent: FACTS,
+      identities: IDENTITIES,
+      policyVersion: POLICY,
+      now: new Date("2026-09-05T12:00:00.000Z"),
+    });
+  }
+
+  it("writes a tombstone when nothing stood, and it authorizes nothing", () => {
+    const { document } = revoke(null);
+    expect(document).toEqual({
+      contractVersion: ACTIVATION_REVOCATION_CONTRACT,
+      businessId: BUSINESS,
+      providerAccountId: "act_1",
+      launchIntentId: INTENT,
+      revokedAt: AT,
+      revokedBy: REVOKER,
+    });
+    /*
+      Nothing in it can be mistaken for permission, because none of the fields
+      permission is made of are present. The unattended gate is only
+      `activation_approval_json IS NOT NULL`, so this document does flip that
+      gate true — and the validator is what stands behind it.
+    */
+    expect(verdict(document)).toEqual({
+      approved: false,
+      refusal: "activation_approval_revoked",
+    });
+  });
+
+  it("stamps a standing approval rather than replacing it", () => {
+    const built = build();
+    if (!built.ok) throw new Error("fixture must build");
+
+    const { document } = revoke(built.approval);
+    // The record still says who approved what; only `revokedAt` is added.
+    expect(document).toEqual({ ...built.approval, revokedAt: AT });
+    expect(verdict(document)).toEqual({
+      approved: false,
+      refusal: "activation_approval_revoked",
+    });
+  });
+
+  it("keeps the moment authority ended, and still moves the version, when asked twice", () => {
+    /*
+      Both halves matter and they pull against each other.
+
+      `revokedAt` must keep naming when authority actually ended rather than the
+      latest button press. But a repeat Revoke that wrote nothing moved no
+      version — and "already withdrawn" is the state that exists after EVERY
+      revocation, so an approval that read the withdrawn document passed its
+      compare-and-set and landed live while the operator's Revoke answered 200.
+      Measured on this code: that stale approve got 409 before the
+      write-nothing short-circuit existed, and 200 after it.
+
+      So the withdrawal is REAFFIRMED: `revokedAt` is preserved, `reaffirmedAt`
+      moves, the document differs, and the fence holds unconditionally.
+    */
+    const first = revoke(null).document;
+
+    const second = revoke(first, "2026-09-05T18:00:00.000Z").document;
+
+    expect(second).not.toEqual(first);
+    expect(second).toMatchObject({
+      revokedAt: AT,
+      reaffirmedAt: "2026-09-05T18:00:00.000Z",
+    });
+    // Still refused, and still for being revoked rather than for being odd.
+    expect(verdict(second)).toEqual({
+      approved: false,
+      refusal: "activation_approval_revoked",
+    });
+  });
+
+  it("tombstones a document this build would not honour, rather than stamping it", () => {
+    // A v1 approval, or anything else the reader cannot use. Stamping one would
+    // keep an unreadable document in the column and call it a record.
+    const { document } = revoke({
+      contractVersion: "meta.launch-activation-approval.v1",
+      approvedAsset: { creativeId: "cr_1", version: "v1" },
+    });
+    expect(document).toMatchObject({
+      contractVersion: ACTIVATION_REVOCATION_CONTRACT,
+      revokedBy: REVOKER,
+    });
+    expect(verdict(document)).toEqual({
+      approved: false,
+      refusal: "activation_approval_revoked",
+    });
+  });
+});
+
+/*
+  The order the validator asks its questions in.
+
+  `revokedAt` used to be read after the required-field block, which was fine for
+  the only revoked document that existed then — a whole approval with the field
+  stamped on. A document that declares itself revoked and carries nothing else
+  was refused as `activation_approval_malformed`: fail-closed, and the wrong
+  sentence for the one refusal an operator most needs to read back.
+*/
+describe("a document that declares itself revoked is refused as revoked", () => {
+  function verdict(stored: unknown) {
+    return validateActivationApproval({
+      stored,
+      intent: FACTS,
+      identities: IDENTITIES,
+      policyVersion: POLICY,
+      now: new Date("2026-09-05T12:00:00.000Z"),
+    });
+  }
+
+  it("whatever else the document is missing", () => {
+    expect(verdict({ revokedAt: "2026-09-05T11:00:00.000Z" })).toEqual({
+      approved: false,
+      refusal: "activation_approval_revoked",
+    });
+  });
+
+  it("even when its contract is one this build does not know", () => {
+    expect(verdict({
+      contractVersion: "meta.launch-activation-approval.v1",
+      revokedAt: "2026-09-05T11:00:00.000Z",
+    })).toEqual({ approved: false, refusal: "activation_approval_revoked" });
+  });
+
+  it("and leaves every other refusal exactly where it was", () => {
+    // The hoisted check is a pure predicate on `revokedAt`, so a document that
+    // does not declare it meets the rest of the function unchanged.
+    expect(verdict(null)).toEqual({
+      approved: false, refusal: "activation_approval_absent",
+    });
+    expect(verdict([])).toEqual({
+      approved: false, refusal: "activation_approval_malformed",
+    });
+    expect(verdict({ contractVersion: "meta.launch-activation-approval.v1" })).toEqual({
+      approved: false, refusal: "activation_approval_contract_unknown",
+    });
+    expect(verdict({ contractVersion: ACTIVATION_APPROVAL_CONTRACT })).toEqual({
+      approved: false, refusal: "activation_approval_malformed",
+    });
+    // And nothing that used to be approved stopped being approved.
+    const built = build();
+    if (!built.ok) throw new Error("fixture must build");
+    expect(verdict(built.approval)).toMatchObject({ approved: true });
   });
 });

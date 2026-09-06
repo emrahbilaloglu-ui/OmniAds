@@ -197,7 +197,20 @@ export const ACTIVATABLE_LAUNCH_INTENT_SQL = `
          i.provider_account_id,
          i.operation,
          i.created_at,
-         (i.activation_approval_json IS NOT NULL) AS approval_present,
+         /*
+           Present means USABLE, not merely non-null. A withdrawal is stored as
+           a durable non-authorizing document, so a bare IS NOT NULL test would
+           report approvalPresent true for an intent whose approval the operator
+           withdrew -- and this field's own contract is what the queue may say
+           to them.
+
+           No backticks in this comment on purpose: it sits inside a tagged
+           template literal, where one would end the SQL string.
+         */
+         (
+           i.activation_approval_json IS NOT NULL
+           AND i.activation_approval_json->>'revokedAt' IS NULL
+         ) AS approval_present,
          COALESCE(
            i.result_receipt_json,
            i.error_receipt_json -> 'partialResult'

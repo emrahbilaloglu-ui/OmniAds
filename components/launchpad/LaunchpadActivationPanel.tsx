@@ -114,7 +114,14 @@ export interface LaunchpadStandingApproval {
   policyVersion: string | null;
 }
 
+/** The document a revocation leaves when no approval stood to be stamped. */
+export interface LaunchpadActivationRevocation {
+  revokedAt: string;
+  revokedBy: string | null;
+}
+
 const APPROVAL_CONTRACT = "meta.launch-activation-approval.v2";
+const REVOCATION_CONTRACT = "meta.launch-activation-revocation.v1";
 const ACTIVATION_RECEIPT_CONTRACT = "meta.launch-activation-receipt.v1";
 
 const GRAIN_LABEL: Record<ActivationGrain, string> = {
@@ -186,6 +193,27 @@ export function readStandingApproval(value: unknown): LaunchpadStandingApproval 
     assetVersion: firstVersion,
     policyVersion: text(raw.policyVersion),
   };
+}
+
+/**
+ * Read a withdrawal that never had an approval to stamp itself onto.
+ *
+ * `readStandingApproval` above answers null for this document and is right to:
+ * it names no approver, no expiry and no approved set, because nothing was ever
+ * approved. But "no approval stored" and "an operator withdrew this" are
+ * different sentences, and rendering the first for the second would hide the
+ * only act anybody took. So it is read separately, and only ever into a shape
+ * that cannot authorize: there is no scope and no expiry here to read.
+ */
+export function readActivationRevocation(
+  value: unknown,
+): LaunchpadActivationRevocation | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const raw = value as Record<string, unknown>;
+  if (text(raw.contractVersion) !== REVOCATION_CONTRACT) return null;
+  const revokedAt = text(raw.revokedAt);
+  if (!revokedAt) return null;
+  return { revokedAt, revokedBy: text(raw.revokedBy) };
 }
 
 /**
@@ -304,6 +332,21 @@ export function LaunchpadActivationPanel({
 }) {
   const approvalUnreadable = Boolean(approvalUnavailableReason);
   const standing = approvalUnreadable ? null : readStandingApproval(approval);
+  const revocation = approvalUnreadable ? null : readActivationRevocation(approval);
+  /*
+    Whether pressing Revoke could still change anything.
+
+    It could not when the column already declares a withdrawal — the route
+    writes nothing in that case and the record keeps the time authority actually
+    ended. It could in every other state, including the two this control used to
+    refuse: an intent with no approval stored, and one whose approval could not
+    be read. Both were disabled on the reasoning that there was nothing to take
+    away, which was true of the column and not of the risk — a revocation
+    against NULL now leaves a document that stops a stale in-flight approval
+    from landing, and "I cannot tell what stands" is the state an operator most
+    needs the fail-closed control for.
+  */
+  const alreadyWithdrawn = Boolean(standing?.revokedAt) || Boolean(revocation);
   const stored = readStoredActivation(activationReceipt);
   const [outcome, setOutcome] = useState<LaunchpadActivationOutcome | null>(null);
   const [pending, setPending] = useState<null | "activate" | "approve" | "revoke">(null);
@@ -568,6 +611,29 @@ export function LaunchpadActivationPanel({
                     </p>
                   ) : null}
                 </div>
+              ) : revocation ? (
+                /*
+                  Withdrawn, with no approval behind it to describe. Rendered as
+                  its own state rather than folded into "absent" below: the two
+                  columns look the same to a reader that only asks whether an
+                  approval stands, and they are not the same fact — one is an
+                  intent nobody touched, the other is one an operator closed.
+                */
+                <div
+                  className="mt-1 space-y-0.5 text-[12px] text-[var(--muted)]"
+                  data-activation-approval="revoked"
+                >
+                  <p>withdrawn {revocation.revokedAt}</p>
+                  {revocation.revokedBy ? (
+                    <p className="break-all font-mono text-[11px]">
+                      withdrawn by {revocation.revokedBy}
+                    </p>
+                  ) : null}
+                  <p className="text-[var(--warn)]" data-activation-approval-revoked="">
+                    Withdrawn. Unattended activation is refused; this intent is
+                    operator-only again.
+                  </p>
+                </div>
               ) : (
                 <p
                   className="mt-1 text-[12px] leading-relaxed text-[var(--muted)]"
@@ -647,15 +713,14 @@ export function LaunchpadActivationPanel({
                     Revoking takes no typed phrase. It removes authority rather
                     than granting it, and the write sets `revokedAt` rather than
                     clearing the column, so the record still says who approved
-                    what and when it was withdrawn.
+                    what and when it was withdrawn — and where nothing stood to
+                    stamp, it stores a withdrawal document of its own instead.
                   */}
                   <button
                     type="button"
                     className="btn"
                     data-activation-revoke=""
-                    disabled={
-                      locked || approvalUnreadable || !standing || Boolean(standing.revokedAt)
-                    }
+                    disabled={locked || alreadyWithdrawn}
                     onClick={() => void writeApproval(true)}
                   >
                     {pending === "revoke" ? "Withdrawing..." : "Revoke"}

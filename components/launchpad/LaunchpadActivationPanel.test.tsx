@@ -22,6 +22,7 @@ import {
   LaunchpadActivationPanel,
   approvableScopes,
   describeBlockedHierarchy,
+  readStandingApproval,
 } from "@/components/launchpad/LaunchpadActivationPanel";
 import { LaunchpadProgress } from "@/components/launchpad/LaunchpadProgress";
 
@@ -65,6 +66,19 @@ function storedApproval(overrides: Record<string, unknown> = {}) {
     expiresAt: "2026-09-06T09:00:00.000Z",
     revokedAt: null,
     policyVersion: "meta.activation-policy.v1",
+    ...overrides,
+  };
+}
+
+/** What a revocation stores when there was no approval to stamp. */
+function storedRevocation(overrides: Record<string, unknown> = {}) {
+  return {
+    contractVersion: "meta.launch-activation-revocation.v1",
+    businessId: BUSINESS,
+    providerAccountId: "act_1",
+    launchIntentId: INTENT,
+    revokedAt: "2026-09-05T11:30:00.000Z",
+    revokedBy: APPROVER,
     ...overrides,
   };
 }
@@ -375,6 +389,68 @@ describe("LaunchpadActivationPanel", () => {
     expect(
       (document.querySelector("[data-activation-run]") as HTMLButtonElement).disabled,
     ).toBe(false);
+  });
+
+  /*
+    The withdrawal that has no approval behind it.
+
+    A revocation against an intent nobody had approved used to store NULL, which
+    left the column reading exactly like one nobody had touched. It now stores a
+    document of its own, and this surface has to say which of those two it is
+    looking at without ever presenting it as an authorization.
+  */
+  it("shows a withdrawal with no approval behind it as withdrawn, not as absent", () => {
+    stub({ ok: true });
+    render(panel({ approval: storedRevocation() }));
+
+    expect(document.querySelector('[data-activation-approval="absent"]')).toBeNull();
+    const shown = document.querySelector('[data-activation-approval="revoked"]')!;
+    expect(shown.textContent).toContain("withdrawn 2026-09-05T11:30:00.000Z");
+    expect(shown.textContent).toContain(APPROVER);
+    expect(
+      document.querySelector("[data-activation-approval-revoked]")?.textContent,
+    ).toContain("operator-only again");
+    /*
+      And nothing in it can be read as a standing approval: the reader that
+      builds one demands an approver, an approved-at and an expiry, and the
+      document carries none of them.
+    */
+    expect(readStandingApproval(storedRevocation())).toBeNull();
+    // Nothing left to withdraw, so the control that would do it says so.
+    expect(
+      (document.querySelector("[data-activation-revoke]") as HTMLButtonElement).disabled,
+    ).toBe(true);
+  });
+
+  /*
+    Revoking is the fail-closed direction, so the control is offered in every
+    state a revocation could still change something — which now includes the two
+    it used to refuse. A revocation against NULL leaves a document that stops a
+    stale in-flight approval from landing, so "nothing is stored" and "I cannot
+    read what is stored" are both states worth pressing it in.
+  */
+  it("offers Revoke where a withdrawal would still change something", () => {
+    stub({ ok: true });
+    const { rerender } = render(panel({ approval: null }));
+    expect(
+      (document.querySelector("[data-activation-revoke]") as HTMLButtonElement).disabled,
+    ).toBe(false);
+
+    rerender(
+      panel({
+        approvalUnavailableReason:
+          "The launch record could not be re-read, so its stored activation approval is not stated here.",
+      }),
+    );
+    expect(
+      (document.querySelector("[data-activation-revoke]") as HTMLButtonElement).disabled,
+    ).toBe(false);
+
+    // And withheld only where the column already says it was withdrawn.
+    rerender(panel({ approval: storedApproval({ revokedAt: "2026-09-05T11:30:00.000Z" }) }));
+    expect(
+      (document.querySelector("[data-activation-revoke]") as HTMLButtonElement).disabled,
+    ).toBe(true);
   });
 
   /*

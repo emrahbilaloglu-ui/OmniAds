@@ -435,9 +435,9 @@ async function readPendingProposalCount(
  * asOf day. Today that anchor is now(), giving the true rolling 24 hours the
  * card claims — this morning's 03:00 run counts, yesterday's 15:00 one does
  * not. For a past asOf it clamps to that day's midnight, giving a fixed window
- * that cannot drift as more rows arrive. The anchor is still the `$2::date`
- * boundary the query already used, so the fix bounds the window without moving
- * the day basis underneath it. Both bounds are stable expressions, so this
+ * that cannot drift as more rows arrive. The date boundary is explicitly UTC,
+ * matching the builder's asOf date even when the database session uses another
+ * time zone. Both bounds are stable expressions, so this
  * still range-scans idx_meta_automation_activity_ledger_business rather than
  * degrading into the kind of index-unusable predicate that has silently
  * exceeded the pool read timeout on this schema before.
@@ -450,8 +450,8 @@ async function readOvernightLedger(
     `SELECT result_status, count(*)::int AS count
        FROM meta_automation_activity_ledger
       WHERE business_id = $1::uuid
-        AND created_at >= LEAST(now(), $2::date + INTERVAL '1 day') - INTERVAL '24 hours'
-        AND created_at < LEAST(now(), $2::date + INTERVAL '1 day')
+        AND created_at >= LEAST(now(), ($2::date + INTERVAL '1 day') AT TIME ZONE 'UTC') - INTERVAL '24 hours'
+        AND created_at < LEAST(now(), ($2::date + INTERVAL '1 day') AT TIME ZONE 'UTC')
       GROUP BY result_status`,
     [businessId, asOf],
   ).catch(() => null)) as Array<{

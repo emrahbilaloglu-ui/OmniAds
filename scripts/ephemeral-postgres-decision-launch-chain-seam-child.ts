@@ -47,6 +47,7 @@ import { NextRequest } from "next/server";
 import { createSession } from "@/lib/auth";
 import { getDb, resetDbClientCache, runDbTransaction } from "@/lib/db";
 import { verifyScheduledQueuePageFixtures } from "@/scripts/scheduled-queue-page-fixtures";
+import { verifyDailyBriefLedgerWindowFixtures } from "@/scripts/daily-brief-ledger-window-fixtures";
 import {
   deleteMetaLaunchDraft,
   upsertMetaLaunchDraft,
@@ -1263,6 +1264,10 @@ async function main() {
     verifyScheduledQueuePageFixtures((text, params) => getDb().query(text, params)),
   );
   console.log(`[${LABEL}] scheduled queue page: ${queuePageCases} PostgreSQL cases passed`);
+  const ledgerWindowCases = await runDbTransaction(() =>
+    verifyDailyBriefLedgerWindowFixtures((text, params) => getDb().query(text, params)),
+  );
+  console.log(`[${LABEL}] daily brief ledger windows: ${ledgerWindowCases} PostgreSQL cases passed`);
 
   const fixture = await seed();
   const provider = installProvider();

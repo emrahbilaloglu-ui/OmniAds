@@ -2,7 +2,7 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import {
   buildMetaDecisionCenterExactViewModel,
@@ -4688,8 +4688,18 @@ describe("Meta Decision payload · every claim, proven against the running code"
   /** Every `SURFACE#id` the baselines emit, across every scenario. */
   const knownElements = new Set<string>();
   let fields: readonly ServedField[] = [];
+  let restoreProbeClock = () => {};
+
+  afterAll(() => restoreProbeClock());
 
   beforeAll(async () => {
+    // The real page passes Date.now() to the same adapter that the direct
+    // probes call with PROBE_NOW. Keep both clocks identical for the entire
+    // census: crossing a sync-age rounding boundary during this long hook
+    // otherwise makes unrelated later mutations appear to change MOBILE.
+    // Only Date.now is fixed; the runner's timers and timeout remain real.
+    const pageClock = vi.spyOn(Date, "now").mockReturnValue(Date.parse(PROBE_NOW));
+    restoreProbeClock = () => pageClock.mockRestore();
     realDecisionCentre = (
       await vi.importActual<typeof import("./MetaDecisionCenterExact")>(
         "./MetaDecisionCenterExact",
@@ -4771,6 +4781,13 @@ describe("Meta Decision payload · every claim, proven against the running code"
     // not an assertion failure. Keep a finite 600s bound local to this hook; no
     // probe or assertion is skipped.
   }, 600_000);
+
+  it("keeps mobile freshness on the direct adapter's fixed probe clock", () => {
+    for (const observation of everyBaseline) {
+      const identity = JSON.parse(observation.HEADER) as { syncedLabel: string };
+      expect(observation.MOBILE).toContain(identity.syncedLabel);
+    }
+  });
 
   it("builds a payload that carries every served field", () => {
     // The proof rests entirely on the fixture populating the field under test.

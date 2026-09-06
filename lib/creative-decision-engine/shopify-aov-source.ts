@@ -191,7 +191,7 @@ function withheld(
 }
 
 /**
- * The currencies the window's own rows carry.
+ * The currencies carried by the rows that supply the ledger AOV.
  *
  * Read rather than assumed: a business setting cannot prove what a Shopify
  * order was denominated in, and a mixed window cannot produce one benchmark.
@@ -207,24 +207,26 @@ async function readWindowCurrencies(input: {
     /*
       Bound to the SELECTED store.
 
-      The revenue this evidence is built from is read for one provider account;
-      scoping the currency by business alone let a second store's orders decide
-      whether this one's window was "mixed". Two stores in two currencies is a
-      perfectly ordinary arrangement and it is not a defect in either.
+      Match the ledger's numerator and denominator: order gross sales minus
+      refunds, by EVENT day. A refund of an older order still contributes in
+      this window. Adjustment/return rows do not contribute to ledger AOV.
+      The selected business/store and local-day fallback match that aggregate.
+      Missing currencies must remain visible; discarding one would label its
+      amount with the currency of a different row.
     */
     const rows = (await sql`
       SELECT DISTINCT UPPER(BTRIM(currency_code)) AS currency
-      FROM shopify_orders
+      FROM shopify_sales_events
       WHERE business_id = ${input.businessId}
         AND provider_account_id = ${input.providerAccountId}
-        AND COALESCE(order_created_date_local, order_created_at::date)
+        AND COALESCE(occurred_date_local, occurred_at::date)
               BETWEEN ${input.from}::date AND ${input.to}::date
-        AND currency_code IS NOT NULL
-        AND BTRIM(currency_code) <> ''
+        AND source_kind IN ('order', 'refund')
     `) as Array<{ currency: string | null }>;
-    return rows
-      .map((row) => row.currency)
-      .filter((value): value is string => typeof value === "string" && value.length > 0);
+    if (rows.some((row) => typeof row.currency !== "string" || row.currency.length === 0)) {
+      return null;
+    }
+    return rows.map((row) => row.currency as string);
   } catch {
     return null;
   }

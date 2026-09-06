@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 
+const currencySql = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/db", () => ({ getDb: () => currencySql }));
+
 /*
   The readiness list is the availability gate, so the tables it names are part
   of the contract rather than an implementation detail: a store missing only
@@ -236,6 +239,22 @@ describe("observed Shopify AOV", () => {
       deps: deps({ readCurrencies: async () => [] }),
     });
     expect(absent.status).toBe("currency_absent");
+  });
+
+  it.each([null, ""])("withholds an otherwise single-currency ledger with a missing currency (%s)", async (currency) => {
+    currencySql.mockResolvedValueOnce([{ currency: "USD" }, { currency }]);
+    const evidence = await resolve({ deps: deps({ readCurrencies: undefined }) });
+    expect(evidence.status).toBe("currency_absent");
+    expect(evidence.aovMinor).toBeNull();
+    expect(evidence.currency).toBeNull();
+    expect(observedShopifyAovIsUsable(evidence)).toBe(false);
+  });
+
+  it("keeps mixed-currency refusal when every contributing row has a currency", async () => {
+    currencySql.mockResolvedValueOnce([{ currency: "USD" }, { currency: "EUR" }]);
+    const evidence = await resolve({ deps: deps({ readCurrencies: undefined }) });
+    expect(evidence.status).toBe("currency_mixed");
+    expect(evidence.aovMinor).toBeNull();
   });
 
   it("treats a store that stopped SYNCING as stale", async () => {

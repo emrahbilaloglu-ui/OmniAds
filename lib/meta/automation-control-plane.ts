@@ -1807,20 +1807,22 @@ export async function setMetaAutomationDecisionTypeMode(input: {
  * never chosen a mode has not consented to anything being queued or executed
  * on their behalf. This is the ONLY place the default is decided, so a caller
  * cannot accidentally read an absent row as something more permissive.
+ * A failed read rejects: callers must report modes unavailable or defer work,
+ * rather than mistake an unreadable persisted setting for an absent one.
  */
 export async function resolveEffectiveMetaModes(
   businessId: string,
 ): Promise<Record<MetaAutomationDecisionType, MetaAutomationDecisionMode>> {
-  const rows = await readDecisionTypeModes(businessId).catch(() => null);
+  const rows = await readDecisionTypeModes(businessId);
   const modes = {} as Record<MetaAutomationDecisionType, MetaAutomationDecisionMode>;
   for (const decisionType of META_AUTOMATION_DECISION_TYPES) {
     modes[decisionType] =
-      rows?.find((row) => row.decisionType === decisionType)?.mode ?? "manual";
+      rows.find((row) => row.decisionType === decisionType)?.mode ?? "manual";
   }
   return modes;
 }
 
-/** One decision type's standing mode; `manual` when unread or absent. */
+/** One standing mode; successful absence is `manual`, unreadable rejects. */
 export async function resolveEffectiveMetaMode(
   businessId: string,
   decisionType: MetaAutomationDecisionType,
@@ -1900,8 +1902,8 @@ export interface MetaWriteCapability {
   businessId: string;
   /** `META_AUTOMATION_LIVE_WRITES` — the environment capability. */
   capabilityOpen: boolean;
-  /** Standing mode per decision type; absent rows read `manual`. */
-  effectiveModes: Record<MetaAutomationDecisionType, MetaAutomationDecisionMode>;
+  /** Absent rows read `manual`; null means the required read failed. */
+  effectiveModes: Record<MetaAutomationDecisionType, MetaAutomationDecisionMode> | null;
   /** `guardrails_json.dryRunOnly` — true means every write is a rehearsal. */
   rehearsal: boolean;
   stop: { engaged: boolean; reason: string | null };
@@ -1927,9 +1929,9 @@ export async function resolveMetaWriteCapability(input: {
   const [blockState, control, modes] = await Promise.all([
     getMetaWriteBlockState({ businessId }).catch(() => null),
     readBusinessControlState(businessId).catch(() => null),
-    resolveEffectiveMetaModes(businessId),
+    resolveEffectiveMetaModes(businessId).catch(() => null),
   ]);
-  const verified = blockState !== null && control !== null;
+  const verified = blockState !== null && control !== null && modes !== null;
   const guardrails = control?.controlPersisted
     ? control.control.guardrails
     : DEFAULT_META_AUTOMATION_GUARDRAILS;

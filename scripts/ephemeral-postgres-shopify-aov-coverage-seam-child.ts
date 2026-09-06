@@ -1327,6 +1327,87 @@ async function main() {
     expectEqual(state.evidence.aovMinor, null, "hole_never_offers_a_unit");
   }
 
+  // Currency authority follows the exact order/refund event population used
+  // by ledger AOV, including a refund of an order outside the order window.
+  const currencySql = getDb();
+  const currencyStore = SHOP_REPAIR_FINISHED;
+  const currencyOrderId = `${currencyStore}-order-0`;
+  const setOrderCurrency = async (currency: string | null) => {
+    await currencySql.query(
+      `UPDATE shopify_sales_events SET currency_code = $3
+       WHERE business_id = $1 AND provider_account_id = $2 AND event_id = $4`,
+      [BUSINESS_ID, currencyStore, currency, currencyOrderId],
+    );
+  };
+  const assertCurrency = async (status: string, label: string) => {
+    const evidence = await resolveEvidenceForStore(currencyStore);
+    expectEqual(evidence.status, status, label);
+    if (status !== "observed") {
+      expectEqual(evidence.aovMinor, null, `${label}_no_unit`);
+    }
+    return evidence;
+  };
+  await assertCurrency("observed", "currency_complete_window");
+  for (const currency of [null, "   "]) {
+    await setOrderCurrency(currency);
+    await assertCurrency("currency_absent", `currency_missing_order_${String(currency)}`);
+  }
+  await setOrderCurrency("EUR");
+  await assertCurrency("currency_mixed", "currency_mixed_orders");
+  await setOrderCurrency(" usd ");
+  await assertCurrency("observed", "currency_normalized_orders");
+
+  const currencyEvent = async (input: {
+    id: string; kind: string; day: string | null; at?: string; currency: string | null;
+    store?: string;
+  }) => {
+    await currencySql.query(
+      `INSERT INTO shopify_sales_events (
+        business_id, provider_account_id, shop_id, event_id, source_kind, source_id,
+        order_id, occurred_at, occurred_date_local, gross_sales, refunded_sales,
+        refunded_shipping, refunded_taxes, net_revenue, currency_code
+      ) VALUES ($1, $2, $2, $3, $4, $3, 'older-order-outside-window', $5::timestamptz,
+                $6::date, 100, 100, 0, 0, 100, $7)`,
+      [BUSINESS_ID, input.store ?? currencyStore, input.id, input.kind,
+        input.at ?? `${input.day}T12:00:00Z`, input.day, input.currency],
+    );
+  };
+  await currencyEvent({ id: "currency-carryover", kind: "refund", day: WINDOW.from, currency: null });
+  await assertCurrency("currency_absent", "currency_missing_carryover_refund_at_first_day");
+  await currencySql.query(
+    `UPDATE shopify_sales_events SET currency_code = 'EUR'
+     WHERE business_id = $1 AND provider_account_id = $2 AND event_id = 'currency-carryover'`,
+    [BUSINESS_ID, currencyStore],
+  );
+  await assertCurrency("currency_mixed", "currency_mixed_carryover_refund");
+  await currencySql.query(
+    `UPDATE shopify_sales_events SET currency_code = 'USD'
+     WHERE business_id = $1 AND provider_account_id = $2 AND event_id = 'currency-carryover'`,
+    [BUSINESS_ID, currencyStore],
+  );
+  const refunded = await assertCurrency("observed", "currency_known_carryover_refund");
+  expectEqual(refunded.revenueMinor, (SEEDED_ORDERS * SEEDED_ORDER_VALUE - 100) * 100,
+    "currency_refund_is_in_the_actual_aov_numerator");
+  for (const kind of ["adjustment", "return"]) {
+    await currencyEvent({ id: `currency-irrelevant-${kind}`, kind, day: WINDOW.from, currency: null });
+  }
+  await currencyEvent({ id: "currency-before", kind: "refund", day: addIsoDays(WINDOW.from, -1), currency: null });
+  await currencyEvent({ id: "currency-after", kind: "order", day: addIsoDays(WINDOW.to, 1), currency: null });
+  await currencyEvent({ id: "currency-sibling", kind: "order", day: WINDOW.from, currency: null, store: SHOP_COVERED });
+  await assertCurrency("observed", "currency_ignores_non_aov_events_other_days_and_stores");
+  await currencyEvent({ id: "currency-last-local", kind: "refund", day: WINDOW.to,
+    at: `${addIsoDays(WINDOW.to, 1)}T02:00:00Z`, currency: " " });
+  await assertCurrency("currency_absent", "currency_includes_last_local_day_even_when_utc_is_outside");
+  await currencySql.query(
+    `DELETE FROM shopify_sales_events
+     WHERE business_id = $1 AND provider_account_id = $2 AND event_id = 'currency-last-local'`,
+    [BUSINESS_ID, currencyStore],
+  );
+  await currencyEvent({ id: "currency-fallback", kind: "refund", day: null,
+    at: `${WINDOW.to}T12:00:00Z`, currency: null });
+  await assertCurrency("currency_absent", "currency_uses_ledger_timestamp_fallback_when_local_day_is_absent");
+  console.log(`[${LABEL}] currency membership PASS: 11 cases; order/refund amounts, missing/mixed currencies, exact local-day bounds and selected store`);
+
   console.log(
     `[${LABEL}] PASS: order coverage read from shopify_sync_state through the real `
     + "columns, a fresh returns row unreachable from the result, a short backfill "

@@ -98,6 +98,7 @@ describe("the overnight window is closed at both ends", () => {
     expect(upper).toContain("LEAST");
     expect(upper).toContain("now()");
     expect(upper).toContain("$2::date");
+    expect(upper).toContain("AT TIME ZONE 'UTC'");
     expect(params).toEqual([BUSINESS, "2026-09-01"]);
   });
 

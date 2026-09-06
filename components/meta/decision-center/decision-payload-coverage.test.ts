@@ -3395,6 +3395,11 @@ describe("Meta Decision payload · served-field coverage matrix", () => {
       They are exclusions rather than data — a bid action cannot also carry a
       budget payload, and the legacy branch can carry neither — so the varying
       count is unchanged. A leaf that cannot hold a value never varies.
+
+      MERGE NOTE (origin/main, PR #275): main still carries 757 here, which was
+      correct for main's tree and is not correct for this one. The two extra
+      leaves come from THIS branch's canonical bid action, so the merged tree
+      has 759. The number is asserted, not chosen: the walk below counts it.
     */
     expect(fields.length).toBe(759);
     expect(new Set(fields.map((field) => field.iface)).size).toBe(62);

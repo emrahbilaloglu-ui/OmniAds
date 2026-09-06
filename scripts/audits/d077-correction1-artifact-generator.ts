@@ -51,13 +51,22 @@ import { execFileSync, spawnSync } from "node:child_process";
   `direct-launch-standing-boundary` child at all, because that registration did
   not exist when it ran.
 
-  This log is the real 2026-09-06 canonical run of the current script: 40
-  headers, `PASS — 40 stages`, exit 0, 485 s. Its source revision is the tree of
-  commit 32a5ae332; every commit after it changes only `docs/` and generated
-  evidence, which the shell neither reads nor executes.
+  The 07:59Z capture of 2026-09-06 was canonical for the Phase 1 checkpoint and
+  is kept beside this one, but it is SUPERSEDED rather than historical: between
+  the two runs the seam's CHILDREN changed. `bid-history-writes-journal.db.test.ts`
+  was registered (five of its six cases had been gated on
+  `ADSECUTE_EPHEMERAL_DB_SEAM` while registered in no runner, so they executed
+  nowhere), and `runChildVitest` began reading the JSON report back to refuse a
+  skipped or short child. Both are exactly the kind of child-program change a
+  header comparison cannot see, which is why reusing the earlier log would have
+  repeated the error this comment was written about.
+
+  This log is the 10:30Z canonical run of the current script on the current
+  tree: 40 headers, `PASS — 40 stages`, exit 0, 501 s. The three registered
+  children report their counts in it — 7/7, 2/2 and 6/6, each with `skipped=0`.
 */
 const PORTABLE_SHELL_LOG_PATH =
-  "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06.log";
+  "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1030Z.log";
 
 /*
   The branch this candidate actually lives on, read from git rather than typed.

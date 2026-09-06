@@ -562,9 +562,11 @@ history_entries AS (
       The operator bid route used to journal a cap change as
       action = 'launch_adset' with the real operation in
       payload_request.operation, so this title read "Launch Adset | Broad
-      prospecting" for a verified bid apply. The route now writes 'bid' (which
-      the CHECK and the unattended sweep have always used), and the rows already
-      in the table keep their old spelling forever -- so the title is derived
+      prospecting" for a verified bid apply. The route now writes 'bid' -- a
+      verb this release introduces, together with the CHECK that admits it and
+      the unattended sweep that shares it; none of the three exists in the
+      build being replaced. The rows already in the table keep their old
+      spelling forever, so the title is derived
       from the pair rather than from the column alone. Nothing is rewritten in
       place and the detail object below still carries the stored value
       verbatim: this reads the persisted row, it does not correct it.

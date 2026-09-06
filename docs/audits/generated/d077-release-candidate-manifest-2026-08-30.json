@@ -1,23 +1,23 @@
 {
- "manifestHash": "054ac6bb4b6958d8ed65a2b3812571df2d1080e4826524e369dfc7595d83e67d",
+ "manifestHash": "c706dce7f6792e862bcc3e7fa01b829123afb021874bf7e90b5d4023bcada0fe",
  "hashAlgorithm": "sha256",
  "hashBasis": "sha256 over UTF-8 bytes of JSON.stringify(artifact, null, 1) of the artifact WITHOUT its embedded hash fields (the artifact object before {<hashField>, hashAlgorithm, hashBasis} are prepended)",
  "contract": "adsecute.d077.release-candidate-manifest.v3",
- "generatedAtUtc": "2026-09-06T08:59:08.734Z",
+ "generatedAtUtc": "2026-09-06T10:42:12.014Z",
  "branch": "codex/meta-v2-panel-fidelity",
  "supersededBranchLabel": "codex/meta-disabled-readiness-20260829",
- "head": "8f9f53af5f318f90d8ee8e064ec62f77efd19710",
+ "head": "297ca1497f4fda707df468e10d0843a29de81f26",
  "baseMain": "babf158e150fd33057117b39b175da044ac62d2e",
  "originMain": "babf158e150fd33057117b39b175da044ac62d2e",
  "remoteDivergence": {
-  "aheadOfOriginMain": 45,
+  "aheadOfOriginMain": 46,
   "behindOriginMain": 0
  },
  "selfExclusion": "this manifest's own path (docs/audits/generated/d077-release-candidate-manifest-2026-08-30.json) is EXCLUDED from its entry list: a manifest cannot recursively pin its own final bytes; its external SHA-256 is reported in the final response and by Codex's own hashing",
- "gitPorcelainEntryCount": 9,
- "releaseDiffEntryCountIncludingSelf": 719,
- "expandedOnDiskCandidateFileCountIncludingSelf": 719,
- "pinnedNonSelfFileCount": 718,
+ "gitPorcelainEntryCount": 13,
+ "releaseDiffEntryCountIncludingSelf": 720,
+ "expandedOnDiskCandidateFileCountIncludingSelf": 720,
+ "pinnedNonSelfFileCount": 719,
  "historicalContext": "pre-task freeze was 217 porcelain entries / 265 files — historical context only, NOT the final tree",
  "classCounts": {
   "tests_only": 289,
@@ -25,7 +25,7 @@
   "runtime_deletion": 2,
   "deploy_config": 1,
   "docs": 48,
-  "generated_evidence": 57,
+  "generated_evidence": 58,
   "migration": 2,
   "audit_script_non_runtime": 24,
   "script_ops_non_request_path": 46
@@ -1197,21 +1197,27 @@
   },
   {
    "path": "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06.log",
-   "git": "??",
+   "git": "A",
    "class": "generated_evidence",
    "sha256": "b6105458184f6d53f464cf1cd7174c2a9f22dae4c4de51c8a0d9c0a4dcfa78cd"
+  },
+  {
+   "path": "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1030Z.log",
+   "git": "??",
+   "class": "generated_evidence",
+   "sha256": "e85afc909ba4fcdf9daa96a481637059f3ecf9567827cb1089755687ff515503"
   },
   {
    "path": "docs/audits/generated/d077-correction1-verification-ledger-2026-08-30.json",
    "git": "A",
    "class": "generated_evidence",
-   "sha256": "97de6d4695a9f5d7c86b8cd01fd010e564d72ba01afb10c13a8a5b66425ffeba"
+   "sha256": "aa9e1148b4f6d6e5edf27bfbcf3bb31906dc57eadbdeef481cf3fed967d58393"
   },
   {
    "path": "docs/audits/generated/d077-database-recovery-approval-packet-2026-08-30.json",
    "git": "A",
    "class": "generated_evidence",
-   "sha256": "f3756b554d48be2587b8c55c4e3c68d06ec7846a6bc97cd5b563da70cc0829d6"
+   "sha256": "0013bba81b08b51f455a3aee4221497ea47fa5eb9f2b085b38848d9ab5be68e7"
   },
   {
    "path": "docs/audits/generated/d077-production-recovery-readonly-evidence-2026-08-30.json",
@@ -1223,7 +1229,7 @@
    "path": "docs/audits/generated/d077-release-deploy-approval-packet-2026-08-30.json",
    "git": "A",
    "class": "generated_evidence",
-   "sha256": "971a0be05e9c3690d84c1a12c7baa0c625cfd7421dd77bf32df8d5b3384a211a"
+   "sha256": "dbf866fbfa25a2dad4abbe94da5a8f02f9fac73a2cd49ae53891b0d92d2b1691"
   },
   {
    "path": "docs/audits/generated/d078-hard-action-recompute-2026-08-30.json",
@@ -1673,7 +1679,7 @@
    "path": "docs/releases/2026-09-06-meta-operator-readiness-release-candidate.md",
    "git": "A",
    "class": "docs",
-   "sha256": "fa3db0a5113e0a7fdb86cf313826342eea41d20f293f0c447bc67917110146b6"
+   "sha256": "a5c7458c95f8c39971e03879f988acf4c98be92605e6ec8508ba45d9f185b73d"
   },
   {
    "path": "lib/api/meta.test.ts",
@@ -2153,7 +2159,7 @@
    "path": "lib/meta/__tests__/d077-artifact-hash-contract.test.ts",
    "git": "A",
    "class": "tests_only",
-   "sha256": "0f464fb1b022eb0e553c153955941501409e0f26521b8711c98c1ef4b3b9d6ab"
+   "sha256": "d6557f19e2b73adbd8d399ddd15b6244a097bd79c2e356d686cf5d812eacf06e"
   },
   {
    "path": "lib/meta/__tests__/d078-acceptance-guards.test.ts",
@@ -3077,7 +3083,7 @@
    "path": "lib/meta/entity-action-routes.ts",
    "git": "M",
    "class": "runtime",
-   "sha256": "059c8d77beba4bab8cac2ac1e9bed2e51d83d7b9d68db96f106b25a08391d09b"
+   "sha256": "69c2607cd19474a49120932e729bcb099fab9051db33047dc7783ef81dea3283"
   },
   {
    "path": "lib/meta/entity-state-history.test.ts",
@@ -3131,7 +3137,7 @@
    "path": "lib/meta/history-read-model.ts",
    "git": "M",
    "class": "runtime",
-   "sha256": "2535bd83a7ce647db35563f830f1006da2941e56194588cb6073ef3ebf0a8942"
+   "sha256": "1919c6742b494cd40395a27128f02c0c1872bbf49ac66103d65cb56efeeb14a5"
   },
   {
    "path": "lib/meta/intent-projection-context.test.ts",
@@ -3359,7 +3365,7 @@
    "path": "lib/meta/scheduled-action-execution.ts",
    "git": "A",
    "class": "runtime",
-   "sha256": "c7a6cb0defec2f58c901fb6bc0ea082dc42bbd5d92303ac8287981a1921dc964"
+   "sha256": "b287db34482011f2a8f19d95fa71b39cc6a59271ead82fc7700405473628d121"
   },
   {
    "path": "lib/meta/scheduled-activation-runtime.test.ts",
@@ -3605,7 +3611,7 @@
    "path": "lib/migrations.ts",
    "git": "M",
    "class": "migration",
-   "sha256": "f5be73c3ddb3fa3e3a25d6b02c1546ef3b67e290dea7cbb5b49ad319790df575"
+   "sha256": "eba5b6eb02437d46f1d3318c986c292acf4e5d72bbaa3b47915b441e0c502e80"
   },
   {
    "path": "lib/notification-producer.ts",
@@ -3803,7 +3809,7 @@
    "path": "scripts/audits/d077-correction1-artifact-generator.ts",
    "git": "A",
    "class": "audit_script_non_runtime",
-   "sha256": "a0ad5a9886564f8db8e2b08ca04ca48c9eaed0479c1a8ec6273501bb482ba6c6"
+   "sha256": "0643d63c688bc11eee23da4991c7039f3e73b1899b99f1fb9c367c00c69d27be"
   },
   {
    "path": "scripts/audits/d077-production-recovery-readonly-preflight.ts",
@@ -4043,7 +4049,7 @@
    "path": "scripts/check-release-owner-references.sh",
    "git": "M",
    "class": "script_ops_non_request_path",
-   "sha256": "2a7958f38a537de9819c2ab4630eca9b95ac9eb8b1462e0f9df1fcbf745b34ec"
+   "sha256": "8cc57b2aa276992968aa0316b14d00515239cf769c911c4301b9bea635b8e46b"
   },
   {
    "path": "scripts/creative-decision-center/automatic-campaign-context-shadow.test.ts",
@@ -4241,7 +4247,7 @@
    "path": "scripts/ephemeral-postgres-migrations-check.ts",
    "git": "M",
    "class": "script_ops_non_request_path",
-   "sha256": "c586a7b9c23e0c0cde4efb4f5757abbc84f5fd3a83dbbb4f1d6853d4c76a5533"
+   "sha256": "7bcf699f67c9d2a8256e539d49a3656585eb943781c4dd848491e438a1ca60c9"
   },
   {
    "path": "scripts/ephemeral-postgres-native-ad-decision-seam.ts",

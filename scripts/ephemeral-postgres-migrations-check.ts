@@ -1101,6 +1101,7 @@ async function runChildScript(
   if (exitCode !== 0) {
     throw new Error(`${runLabel} exited with code ${exitCode}.`);
   }
+
   log(`${runLabel} exited clean.`);
 }
 
@@ -1122,8 +1123,27 @@ async function runChildVitest(
   databaseUrl: string,
   testPath: string,
   runLabel: string,
+  expectedPassingTests: number,
 ): Promise<void> {
   log(`running ${runLabel}...`);
+  /*
+    A SKIPPED child is not a pass, and the exit code cannot tell them apart.
+
+    Every file registered here gates itself on `ADSECUTE_EPHEMERAL_DB_SEAM`, so
+    a future edit that renames the flag, or a `describe.skipIf` whose predicate
+    silently stops matching, produces a child that exits 0 having executed no
+    assertions at all — and this runner announced "exited clean". That is the
+    precise failure `scripts/verify-database-seams.sh` warns about in its own
+    header: "a skipped database test reads exactly like a pass."
+
+    So the JSON report is read back and the PASSING count must equal what the
+    caller declared, the same way `scripts/ephemeral-postgres-breakdown-dimension-seam.ts`
+    has always done it. An exit code is a floor, not evidence.
+  */
+  const reportPath = path.join(
+    fs.mkdtempSync(path.join(os.tmpdir(), "d077-child-vitest-")),
+    "report.json",
+  );
   const child = spawn(
     process.execPath,
     /*
@@ -1133,7 +1153,13 @@ async function runChildVitest(
       makes node parse `basedir=$(dirname ...)` as JavaScript and die with
       "SyntaxError: missing ) after argument list" before the test is reached.
     */
-    [path.join("node_modules", "vitest", "vitest.mjs"), "run", testPath],
+    [
+      path.join("node_modules", "vitest", "vitest.mjs"),
+      "run",
+      testPath,
+      "--reporter=json",
+      `--outputFile=${reportPath}`,
+    ],
     {
       cwd: repoRoot,
       stdio: "inherit",
@@ -1157,6 +1183,34 @@ async function runChildVitest(
 
   if (exitCode !== 0) {
     throw new Error(`${runLabel} exited with code ${exitCode}.`);
+  }
+
+  if (!fs.existsSync(reportPath)) {
+    throw new Error(`${runLabel}: vitest wrote no JSON report.`);
+  }
+  const report = JSON.parse(fs.readFileSync(reportPath, "utf8")) as {
+    numTotalTests?: number;
+    numPassedTests?: number;
+    numPendingTests?: number;
+    numFailedTests?: number;
+  };
+  log(
+    `${runLabel} report: total=${report.numTotalTests} ` +
+      `passed=${report.numPassedTests} skipped=${report.numPendingTests} ` +
+      `failed=${report.numFailedTests}`,
+  );
+  if ((report.numFailedTests ?? 0) !== 0) {
+    throw new Error(`${runLabel}: ${report.numFailedTests} test(s) failed.`);
+  }
+  if ((report.numPendingTests ?? 0) !== 0) {
+    throw new Error(
+      `${runLabel}: ${report.numPendingTests} test(s) SKIPPED — a skipped database test is not a pass.`,
+    );
+  }
+  if ((report.numPassedTests ?? 0) !== expectedPassingTests) {
+    throw new Error(
+      `${runLabel}: expected ${expectedPassingTests} passing tests, saw ${report.numPassedTests}.`,
+    );
   }
   log(`${runLabel} exited clean.`);
 }
@@ -3297,6 +3351,7 @@ async function main() {
       databaseUrl,
       path.join("lib", "launchpad", "direct-launch-standing-boundary.db.test.ts"),
       "direct Launchpad create route approval-standing DB seam check",
+      7,
     );
 
     /*
@@ -3315,6 +3370,30 @@ async function main() {
       databaseUrl,
       path.join("lib", "meta", "bid-history-verb-title.db.test.ts"),
       "Meta History bid verb title DB seam check",
+      2,
+    );
+
+    /*
+      The Writes journal ADMITS a bid row — the other half of the verb story,
+      and until now the half nothing ran.
+
+      `lib/meta/bid-history-writes-journal.db.test.ts` gates five of its six
+      cases on `describe.runIf(ADSECUTE_EPHEMERAL_DB_SEAM === "1")`, and it was
+      registered nowhere: not here, not in any sibling seam runner, not in
+      package.json. Under `npx vitest run` the flag is unset, so those five
+      reported as skipped and the file reported green on the strength of its one
+      static assertion. A release note that called this "the lane the 40-stage
+      seam shell runs — and it passed" was describing a run that never happened.
+
+      Registering it is the fix; `runChildVitest` asserting the passing COUNT is
+      what stops the same thing recurring silently.
+    */
+    await runChildVitest(
+      repoRoot,
+      databaseUrl,
+      path.join("lib", "meta", "bid-history-writes-journal.db.test.ts"),
+      "Meta History bid write journal admission DB seam check",
+      6,
     );
 
     // The null-versus-zero contract rests on a claim about the SCHEMA — that a

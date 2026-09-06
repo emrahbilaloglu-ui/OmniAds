@@ -106,7 +106,14 @@ REGISTRY=(
   # above stay registered because they remain the evidence of their own runs;
   # this one is the canonical run of the release candidate's tree. Same single
   # self-reference, same reason.
-  "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06.log|1|Retained whole-shell capture (40-stage run, release candidate): this guard announcing the token it scans for."
+  "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06.log|1|Retained whole-shell capture (40-stage run, 07:59Z, superseded): this guard announcing the token it scans for."
+  # The 10:30Z capture is the canonical one. The 07:59Z run above is kept
+  # because it happened and is honest evidence of the tree it ran on — but it
+  # is SUPERSEDED, not historical in the sense the two earlier captures are:
+  # between the two runs the seam's children changed (a previously unregistered
+  # DB seam test was registered, and runChildVitest began asserting passing
+  # counts), so the earlier log no longer binds what the stage executes.
+  "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-06T1030Z.log|1|Retained whole-shell capture (40-stage run, 10:30Z, CANONICAL): this guard announcing the token it scans for."
 )
 
 HISTORICAL_COUNTS=(

@@ -937,11 +937,18 @@ export async function handleMetaAdsetBidAction(
       This wrote `launch_adset` and carried the real operation down in
       `payload_request.operation`, so Meta History's Writes journal titled a
       verified cap change "Launch Adset | Broad prospecting" — a bid apply
-      presented to the operator as a launch. `bid` has always been legal here:
-      it is in `MetaAdsActionKind`, in the `meta_ads_action_log_action_check`
-      CHECK, and it is exactly what the unattended sweep writes
-      (`lib/meta/scheduled-bid-runtime.ts`), which is why the two origins of the
-      same write disagreed in the journal.
+      presented to the operator as a launch.
+
+      `bid` is legal here AS OF THIS RELEASE, and only as of it. An earlier
+      revision of this comment said it "has always been legal", citing
+      `MetaAdsActionKind`, the `meta_ads_action_log_action_check` CHECK and the
+      unattended sweep. None of the three holds against the build this release
+      replaces: on `origin/main` the union in `lib/meta/ads-action-log.ts` has
+      no `bid` member, the CHECK in `lib/migrations.ts` does not list it, and
+      `lib/meta/scheduled-bid-runtime.ts` does not exist. All three arrive
+      together in this release, which is why the CHECK widening it ships is
+      load-bearing rather than tidying, and why that widening is the one
+      statement in its group that must not fail silently.
 
       `operation: "apply_bid"` stays in the payload below, unchanged: every
       reader that disambiguated the old spelling by it keeps working, and the

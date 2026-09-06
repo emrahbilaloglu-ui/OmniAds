@@ -59,7 +59,7 @@ export interface ScheduledAuthorityExpectation {
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
- * The six checks, in the order that refuses most cheaply first.
+ * The eight checks, in the order that refuses most cheaply first.
  *
  * Pure: it decides from readings the caller made, so the same function can run
  * before the claim and again immediately before the POST without either call

@@ -5410,7 +5410,25 @@ export async function runMigrations(options?: {
                 ));
             END IF;
           END
-          $$`.catch(() => {}),
+          $$`,
+        /*
+          NO `.catch(() => {})` on this one, unlike its neighbours in this
+          group.
+
+          Swallowing a failure here used to be harmless: the widening only ever
+          ADDED a verb nothing wrote yet. It is not harmless now. The operator
+          bid-apply route journals `action: "bid"`
+          (lib/meta/entity-action-routes.ts:957), and the pre-widening CHECK
+          rejects that value at INSERT — so a lock timeout on this statement
+          would leave production announcing a successful migration while every
+          bid apply an operator performs fails at the journal write, with the
+          provider call already made.
+
+          Failing the migration loudly is the correct outcome: it is
+          recoverable, and it happens before the release serves anyone. Five of
+          the seven statement groups in this file already abort for the same
+          reason.
+        */
         sql`CREATE TABLE IF NOT EXISTS discount_codes (
           id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           code        TEXT NOT NULL UNIQUE,

@@ -1,12 +1,12 @@
 {
- "manifestHash": "bb2ecbfee01f0718f7be6cc3e415fe6a37157b83c2bb9e94005914a5dfd66fdf",
+ "manifestHash": "ca802e06efb560a067913fa808089aa400baf66306c0b2a50c4f604ff5c9d888",
  "hashAlgorithm": "sha256",
  "hashBasis": "sha256 over UTF-8 bytes of JSON.stringify(artifact, null, 1) of the artifact WITHOUT its embedded hash fields (the artifact object before {<hashField>, hashAlgorithm, hashBasis} are prepended)",
  "contract": "adsecute.d077.release-candidate-manifest.v3",
- "generatedAtUtc": "2026-09-07T02:10:00.506Z",
+ "generatedAtUtc": "2026-09-07T02:28:36.950Z",
  "branch": "codex/meta-release-finalization",
  "supersededBranchLabel": "codex/meta-disabled-readiness-20260829",
- "head": "e0fb82e80ced1a8978f631a66d19ab2727b111c5",
+ "head": "1bfd044ee27c5ca27cd899377054a60492d3c966",
  "baseMain": "babf158e150fd33057117b39b175da044ac62d2e",
  "originMain": "babf158e150fd33057117b39b175da044ac62d2e",
  "remoteDivergence": {
@@ -14,7 +14,7 @@
   "behindOriginMain": 0
  },
  "selfExclusion": "this manifest's own path (docs/audits/generated/d077-release-candidate-manifest-2026-08-30.json) is EXCLUDED from its entry list: a manifest cannot recursively pin its own final bytes; its external SHA-256 is reported in the final response and by Codex's own hashing",
- "gitPorcelainEntryCount": 148,
+ "gitPorcelainEntryCount": 1,
  "releaseDiffEntryCountIncludingSelf": 871,
  "expandedOnDiskCandidateFileCountIncludingSelf": 871,
  "pinnedNonSelfFileCount": 870,
@@ -1005,13 +1005,13 @@
   },
   {
    "path": "components/creatives/creative-error-copy.test.ts",
-   "git": "??",
+   "git": "A",
    "class": "tests_only",
    "sha256": "1db66d20744e39cc0847516d20f283f5004882c01d0629365ec44703e2e163df"
   },
   {
    "path": "components/creatives/creative-error-copy.ts",
-   "git": "??",
+   "git": "A",
    "class": "runtime",
    "sha256": "aeb16869ad320acde227b835c02ab7c86d1cb1fb7e0a4ad200ff965cdfd99f79"
   },
@@ -1029,7 +1029,7 @@
   },
   {
    "path": "components/creatives/creative-served-classification.test.ts",
-   "git": "??",
+   "git": "A",
    "class": "tests_only",
    "sha256": "2ee283e9716b799c936d5a3e2f2e20e7d0e87bbc21d64f8c7ffd1bd73aa18be5"
   },
@@ -1185,7 +1185,7 @@
   },
   {
    "path": "components/launchpad/LaunchpadCampaignBasics.test.tsx",
-   "git": "??",
+   "git": "A",
    "class": "tests_only",
    "sha256": "6080d6c2d9c148333094c0ddac48a5d043ae0a1c9191d447bf2bcc062b7bec74"
   },
@@ -1319,7 +1319,7 @@
    "path": "components/meta/decision-center/decision-payload-coverage.test.ts",
    "git": "M",
    "class": "tests_only",
-   "sha256": "efa8937c9d061a24bf62d1ac51f38c4602db6cd99bda5aefb7afb7996d8f9942"
+   "sha256": "e3aa68260b36804e0bfb66bc8c137d7edc90ad658d560fcc34908a9c11e0f7f3"
   },
   {
    "path": "components/meta/decision-center/inspector-evidence.test.tsx",

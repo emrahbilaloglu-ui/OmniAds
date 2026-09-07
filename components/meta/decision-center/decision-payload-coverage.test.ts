@@ -1181,8 +1181,8 @@ const COVERAGE: Record<string, Coverage> = {
     "scope-business",
   ),
   "MetaDecisionsWorkspaceReadModel.scope.providerAccountId": R(
-    S.HEADER,
-    "the account label, when no account row was resolved, and the structure scope's 'Provider account' fact",
+    S.MOBILE,
+    "the mobile account label, resolved to the assigned account name or a masked Meta account label without exposing the raw provider id",
   ),
   "MetaDecisionsWorkspaceReadModel.scope.decisionMode": N(
     "The contract admits one value, 'current': a field that cannot vary states nothing when printed.",
@@ -3663,9 +3663,10 @@ const ELEMENT_PROOF_BY_SURFACE: Record<string, [number, number]> = {
   ACTION: [0, 6],
   ARCHIVE: [0, 10],
   BANNERS: [0, 8],
+  MOBILE: [0, 1],
   CREATIVES: [0, 10],
   EVIDENCE: [94, 17],
-  HEADER: [0, 10],
+  HEADER: [0, 9],
   HEALTHY: [0, 10],
   // Five more claims on this panel, none of them keyed to a stable row id:
   // the provenance band is one band, not a table of rows.
@@ -3696,7 +3697,7 @@ const DOM_PROOF_BY_SURFACE: Record<string, [number, number]> = {
   // PRE-DEPLOY AUDIT — 10 -> 9: `MetaOsDecisionActionBase.intent` moves the
   // evidence window's 'Served action' row, not the queue button's tone.
   ACTION: [6, 0],
-  HEADER: [3, 7],
+  HEADER: [2, 7],
   KPI: [12, 10],
   PILLS: [6, 2],
   // Partly: the inspector's own facts render, the ones it only shows for a
@@ -3722,6 +3723,7 @@ const DOM_PROOF_BY_SURFACE: Record<string, [number, number]> = {
   // own right, so a zero here says "not this component" and not "not on
   // screen".
   BANNERS: [0, 8],
+  MOBILE: [0, 1],
   EVIDENCE: [0, 107],
   INVENTORY: [0, 14],
   // D078 R4 (correction 2): the coverage PANEL renders every one of its
@@ -3734,7 +3736,7 @@ const DOM_PROOF_BY_SURFACE: Record<string, [number, number]> = {
 // PRE-DEPLOY AUDIT — [120, 248] -> [159, 249]. The budget panels render in
 // the default markup, so 39 of their claims are proven in the DOM rather than
 // in a view model; one more sits behind a control.
-const DOM_PROOF_TOTALS: [number, number] = [33, 303];
+const DOM_PROOF_TOTALS: [number, number] = [32, 304];
 
 /** Claims on leaves the contract pins to one value, which cannot be varied. */
 // PRE-DEPLOY AUDIT — 7 -> 20. Thirteen more claims sit on leaves the budget

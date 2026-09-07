@@ -10,7 +10,8 @@
  *   be dismissed.
  * - **actor.** The read model distinguishes an actor that is *available*, one
  *   that is *unavailable*, and one that is *not applicable* because no human
- *   acted. Those are three different sentences, and none of them is "System".
+ *   acted. Those are three different buyer-facing states, and none of them is
+ *   the vague attribution "System".
  */
 import type {
   MetaHistoryEntry,
@@ -35,7 +36,7 @@ export interface HistoryRow {
    * than a guessed version.
    */
   replayEngineVersion?: string | null;
-  /** The engine's own reasoning for the entry, served or absent. Never composed here. */
+  /** Buyer-facing explanation mapped from the stored reason, or absent. */
   summary?: string | null;
   /**
    * The money facts the read model served, verbatim.
@@ -89,14 +90,141 @@ function outcomeSummary(status: MetaHistoryEntry["status"]): string | null {
   return null;
 }
 
+const CAMPAIGN_SETUP_REVIEW =
+  "Campaign setup is unclear, so spend changes are waiting for fresher evidence.";
+
+function statusSummary(status: MetaHistoryEntry["status"]): string | null {
+  if (status === "partially_succeeded") {
+    return "Some changes were applied. Review the result before continuing.";
+  }
+  if (
+    status === "failed" ||
+    status === "silent_failure" ||
+    status === "unknown_outcome" ||
+    status === "unknown"
+  ) {
+    return "The result could not be verified.";
+  }
+  if (status === "validation_blocked" || status === "write_blocked") {
+    return "The change was not applied.";
+  }
+  return outcomeSummary(status);
+}
+
+function looksLikeOpaqueIdentifier(value: string): boolean {
+  return (
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+      value,
+    ) ||
+    /^act_\d{6,}$/i.test(value) ||
+    /^\d{10,}$/.test(value)
+  );
+}
+
+const BUYER_REASON_CODES: Record<string, string> = {
+  seasonal_expected: "Seasonal change was expected.",
+  wrong_call: "The decision was marked incorrect.",
+  wrong_target: "The decision targeted the wrong item.",
+};
+
+function containsUnsafeBackendDetail(
+  value: string,
+  allowedIdentifier?: string,
+): boolean {
+  const inspected =
+    allowedIdentifier && looksLikeOpaqueIdentifier(allowedIdentifier)
+      ? value.replaceAll(allowedIdentifier, "")
+      : value;
+  return (
+    /provider response|decision reference|canonical (?:decision|identity)|persisted (?:source|row)|\b(?:provider|database|postgres|supabase|redis|sqlstate|sql|relation|schema|table|column|query|payload|resolver|engine|checkpoint|internal|exception|status code|stack trace|undefined|null|uuid|econn\w*|connection refused|timed? out|timeout|fetch failed|source read failed|access token|rate limit|unauthorized|forbidden|graphql|oauth|launchintent)\b|\b(?:request|response)\b[^.]*\b(?:failed|failure|error|http)\b|\b(?:failed|failure|error)\b[^.]*\b(?:request|response|http)\b/i.test(
+      inspected,
+    ) ||
+    /https?:\/\//i.test(inspected) ||
+    /\bact_\d{6,}\b/i.test(inspected) ||
+    /\b\d{10,}\b/.test(inspected) ||
+    /\b[\w.-]+\.(?:ts|tsx|js|mjs|sql):\d+\b/i.test(inspected) ||
+    /\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/i.test(
+      inspected,
+    )
+  );
+}
+
+function isMachineShaped(value: string): boolean {
+  return (
+    /^[a-z0-9]+(?:[_-][a-z0-9]+)+(?:\.[a-z0-9]+)?:/i.test(value) ||
+    /^[a-z0-9]+(?:[_-][a-z0-9]+)+$/i.test(value) ||
+    /^[\[{]/.test(value)
+  );
+}
+
+function containsCampaignSetupInternals(value: string): boolean {
+  const normalized = value.replace(/[_-]+/g, " ");
+  return (
+    /rerun automatic (?:campaign role |role )?inference/i.test(normalized) ||
+    /(?:automatic (?:main\/test\/mixed )?campaign role(?: inference)?|automatic role inference|campaign role|campaign context|main\/test\/mixed (?:campaign )?context).{0,100}\b(?:unresolved|unknown|low confidence|conflict(?:ed|ing)?|missing|not resolved|cannot be determined)\b/i.test(
+      normalized,
+    ) ||
+    /\b(?:unresolved|unknown|low confidence|conflict(?:ed|ing)?|missing|not resolved|cannot be determined)\b.{0,100}(?:automatic (?:main\/test\/mixed )?campaign role(?: inference)?|automatic role inference|campaign role|campaign context|main\/test\/mixed (?:campaign )?context)/i.test(
+      normalized,
+    )
+  );
+}
+
+function translateResolvedCampaignRole(
+  value: string,
+  context: "action" | "summary",
+): string | null {
+  const match = value.match(
+    /automatic[\s_-]+(?:main\/test\/mixed[\s_-]+)?campaign[\s_-]+role(?:[\s_-]+inference)?[\s_-]+(?:is[\s_-]+)?(?:resolved|confirmed|classified)[\s_-]+(?:as[\s_-]+)?(main|test|mixed)\b[.!]?/i,
+  );
+  if (!match) return null;
+  const role =
+    match[1].slice(0, 1).toUpperCase() + match[1].slice(1).toLowerCase();
+  const replacement =
+    context === "summary"
+      ? `Campaign role: ${role}.`
+      : `Campaign role confirmed: ${role}`;
+  return value
+    .replace(match[0], replacement)
+    .replace(/\.\s*\./g, ".")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
+function campaignSetupSummary(value: string): string {
+  const marker = value.search(
+    /automatic (?:main\/test\/mixed )?campaign(?:-| )role|automatic role inference|role inference|the engine (?:emits?|will not emit) hard|hard actions? stay soft-only/i,
+  );
+  const prefix = marker > 0
+    ? value
+        .slice(0, marker)
+        .replace(/[\s([\u2014:;-]+$/g, "")
+        .trim()
+    : "";
+  if (!prefix) return CAMPAIGN_SETUP_REVIEW;
+  const punctuation = /[.!?]$/.test(prefix) ? "" : ".";
+  return `${prefix}${punctuation} ${CAMPAIGN_SETUP_REVIEW}`;
+}
+
 /**
  * Stored summaries predate the buyer UI and can contain rule names or JSON.
- * Preserve normal explanatory prose. Known KPI rows retain their measured
- * movement and action receipt; unknown machine-shaped detail stays hidden.
+ * Preserve normal explanatory prose and measured facts. Translate known
+ * internal wording; unknown machine-shaped detail stays hidden.
  */
 export function historySummaryFor(entry: MetaHistoryEntry): string | null {
   const summary = entry.summary?.trim() ?? "";
-  if (!summary) return null;
+  if (entry.status === "partially_succeeded") {
+    return statusSummary(entry.status);
+  }
+  if (!summary) return statusSummary(entry.status);
+
+  const knownReason = BUYER_REASON_CODES[summary.toLowerCase()];
+  if (knownReason) return knownReason;
+
+  const resolvedRoleSummary = translateResolvedCampaignRole(summary, "summary");
+  if (resolvedRoleSummary && !containsCampaignSetupInternals(summary)) {
+    return historySummaryFor({ ...entry, summary: resolvedRoleSummary });
+  }
 
   const automaticKpi = summary.match(
     /^auto_kpi_7d:\s*(improved|regressed|flat|inconclusive)\s*\(ROAS\s+(n\/a|-?\d+(?:\.\d+)?)\s*->\s*(n\/a|-?\d+(?:\.\d+)?),\s*operator\s+(acted|did not act)\)$/i,
@@ -122,9 +250,104 @@ export function historySummaryFor(entry: MetaHistoryEntry): string | null {
     return result ? `${result} ${actionCopy}` : actionCopy;
   }
 
-  const machinePrefix = /^[a-z0-9]+(?:[_-][a-z0-9]+)+(?:\.[a-z0-9]+)?:/i;
-  if (machinePrefix.test(summary) || /^[\[{]/.test(summary)) {
-    return outcomeSummary(entry.status);
+  const internalDecisionPrefix = summary.match(
+    /^\[(soft-only[^\]]*|campaign context[^\]]*)\]\s*(.+)$/i,
+  );
+  if (internalDecisionPrefix) {
+    const explicitCampaignContext = containsCampaignSetupInternals(
+      internalDecisionPrefix[1],
+    );
+    const useful = internalDecisionPrefix[2]
+      .replace(/\s*\(threshold baseline[\s\S]*\)\s*$/i, "")
+      .trim();
+    const buyerEvidence = useful
+      ? historySummaryFor({ ...entry, summary: useful })
+      : null;
+    if (!explicitCampaignContext) {
+      return buyerEvidence ?? statusSummary(entry.status);
+    }
+    if (buyerEvidence?.includes(CAMPAIGN_SETUP_REVIEW)) return buyerEvidence;
+    return buyerEvidence
+      ? `${buyerEvidence}${/[.!?]$/.test(buyerEvidence) ? "" : "."} ${CAMPAIGN_SETUP_REVIEW}`
+      : CAMPAIGN_SETUP_REVIEW;
+  }
+
+  if (containsCampaignSetupInternals(summary)) {
+    return campaignSetupSummary(summary);
+  }
+
+  if (/^Mature entity is above the calibrated upper ROAS band/i.test(summary)) {
+    return "Performance is above the upper ROAS range. Leave it unchanged.";
+  }
+  if (/^Entity is not a sales-action candidate/i.test(summary)) {
+    return "This item is outside sales optimization.";
+  }
+  const nonPurchase = summary.match(
+    /^(Campaign|Adset) is configured for (.+?) delivery; not evaluated in the purchase decision engine\.?$/i,
+  );
+  if (nonPurchase) {
+    const [, entity, cohort] = nonPurchase;
+    return `${entity.toLowerCase() === "adset" ? "Ad set" : "Campaign"} is optimized for ${cohort}, so purchase-based changes do not apply.`;
+  }
+  if (/^Paused or inactive entity has no current spend pressure/i.test(summary)) {
+    return "This item is paused or inactive and has no recent spend.";
+  }
+  if (/^Signal is thin or delivery is not mature enough/i.test(summary)) {
+    return "There is not enough evidence for a confident change.";
+  }
+  if (/^Entity is mature enough for coverage but does not meet a scenario action threshold/i.test(summary)) {
+    return "Current performance does not justify a change.";
+  }
+  if (/^Entity state row\.?$/i.test(summary)) return null;
+
+  const stateEvaluation = summary.match(
+    /^.+? is covered by Meta Engine v\d+ state evaluation at (\S+) ROAS on (\d+) purchases\.?$/i,
+  );
+  if (stateEvaluation) {
+    return `ROAS is ${stateEvaluation[1]} across ${stateEvaluation[2]} purchases.`;
+  }
+
+  const cleanedDecisionSummary = summary
+    .replace(/^\[(?:at target|weak target)\]\s*/i, "")
+    .replace(/\s*\(threshold baseline[\s\S]*\)\s*$/i, "")
+    .trim();
+  if (cleanedDecisionSummary !== summary) {
+    return cleanedDecisionSummary
+      ? historySummaryFor({ ...entry, summary: cleanedDecisionSummary })
+      : statusSummary(entry.status);
+  }
+
+  const persistedStatus = summary.match(
+    /^Last persisted (campaign|ad set) status:\s*([a-z0-9_-]+)\.?$/i,
+  );
+  if (persistedStatus) {
+    const [, entity, rawStatus] = persistedStatus;
+    const status = rawStatus.replace(/[_-]+/g, " ").toLowerCase();
+    return `${entity === "campaign" ? "Campaign" : "Ad set"} status: ${status}.`;
+  }
+
+  if (/^Account-scoped PAUSED launch workflow\.?$/i.test(summary)) {
+    return "Launch prepared in paused status.";
+  }
+
+  if (
+    entry.provenance.source === "meta_ads_action_log" ||
+    (entry.provenance.source === "meta_launch_intents" &&
+      (entry.status === "failed" ||
+        entry.status === "validation_blocked" ||
+        entry.status === "write_blocked" ||
+        entry.status === "unknown")) ||
+    entry.provenance.source === "decision_workflow_events"
+  ) {
+    return statusSummary(entry.status);
+  }
+
+  if (containsUnsafeBackendDetail(summary)) {
+    return statusSummary(entry.status);
+  }
+
+  if (isMachineShaped(summary)) {
+    return statusSummary(entry.status);
   }
   return summary;
 }
@@ -133,51 +356,197 @@ export function historySummaryFor(entry: MetaHistoryEntry): string | null {
  * Actor text for one entry.
  *
  * `null` is returned for both "unavailable" and an empty name, which the view
- * renders as "Actor not recorded". Attributing an unnamed change to the system
- * would be a claim about who acted.
+ * renders as "Not recorded". Attributing an unnamed change to the system would
+ * be a claim about who acted.
  */
 export function actorFor(entry: MetaHistoryEntry): string | null {
-  if (entry.actor.availability === "not_applicable")
-    return "No human actor (engine)";
+  const provenanceLabel = () => {
+    if (
+      entry.provenance.attribution === "engine_snapshot" ||
+      entry.provenance.attribution === "engine_transition"
+    ) {
+      return "Automated";
+    }
+    if (
+      entry.provenance.attribution === "warehouse_dimension" ||
+      entry.provenance.attribution === "provider_config_history" ||
+      entry.provenance.attribution === "provider_state_history" ||
+      entry.provenance.attribution === "correlational_outcome" ||
+      entry.kind === "external_changes"
+    ) {
+      return "Observed";
+    }
+    return null;
+  };
+  if (entry.actor.availability === "not_applicable") return provenanceLabel();
   if (entry.actor.availability === "unavailable") return null;
   const name = (entry.actor.name ?? "").trim();
-  return name.length > 0 ? name : null;
+  if (/^(?:system|automated|no human actor \(engine\))$/i.test(name)) {
+    return provenanceLabel();
+  }
+  if (/^(?:user|usr|actor|system)[_-][a-z0-9-]+$/i.test(name)) return null;
+  return name.length > 0 && !looksLikeOpaqueIdentifier(name) ? name : null;
+}
+
+/** A stable buyer-facing entity name that never falls back to a provider id. */
+export function historyEntityLabel(entry: MetaHistoryEntry): string {
+  const entityId = entry.entity.id.trim();
+  const name = (entry.entity.name ?? "").trim();
+  if (name && name !== entityId && !looksLikeOpaqueIdentifier(name)) return name;
+  return {
+    account: "Unnamed account",
+    campaign: "Unnamed campaign",
+    adset: "Unnamed ad set",
+    ad: "Unnamed ad",
+    creative: "Unnamed creative",
+    creative_brief: "Unnamed creative brief",
+    launch_intent: "Unnamed launch",
+    recommendation: "Unnamed recommendation",
+  }[entry.entity.type];
+}
+
+const BUYER_LABELS: Record<string, string> = {
+  scale: "Scale",
+  keep: "Keep",
+  refresh: "Refresh",
+  cut: "Cut",
+  test_more: "Test more",
+  diagnose: "Diagnose",
+  out_of_scope: "Out of scope",
+  active: "Active",
+  paused: "Paused",
+  archived: "Archived",
+  open: "Open",
+  acknowledged: "Acknowledged",
+  deferred: "Deferred",
+  snoozed: "Snoozed",
+  rejected: "Rejected",
+  resolved: "Resolved",
+};
+
+/** Only known product words reach the small row label; storage codes stay out. */
+export function historyLabelFor(entry: MetaHistoryEntry): string | null {
+  const raw = entry.label?.trim() ?? "";
+  if (!raw || raw === entry.entity.id.trim() || looksLikeOpaqueIdentifier(raw)) {
+    return null;
+  }
+  return BUYER_LABELS[raw.toLowerCase()] ?? null;
+}
+
+function fallbackAction(entry: MetaHistoryEntry): string {
+  if (entry.kind === "writes") {
+    if (
+      entry.status === "failed" ||
+      entry.status === "silent_failure" ||
+      entry.status === "unknown_outcome" ||
+      entry.status === "unknown"
+    ) {
+      return "Change failed";
+    }
+    if (
+      entry.status === "validation_blocked" ||
+      entry.status === "write_blocked"
+    ) {
+      return "Change blocked";
+    }
+    if (entry.status === "partially_succeeded") {
+      return "Change partially applied";
+    }
+    if (entry.status === "pending" || entry.status === "executing") {
+      return "Change in progress";
+    }
+    if (entry.status === "verified_success" || entry.status === "succeeded") {
+      return "Change verified";
+    }
+    return "Change recorded";
+  }
+  return {
+    decisions: "Decision recorded",
+    responses: "Action result recorded",
+    label_flips: "Decision changed",
+    outcomes: "Outcome recorded",
+    briefs: "Creative brief updated",
+    launches: "Launch updated",
+    structures: "Structure updated",
+    external_changes: "External change recorded",
+  }[entry.kind];
+}
+
+function buyerFacingAction(entry: MetaHistoryEntry): string {
+  let title = entry.title.trim();
+  if (!title || looksLikeOpaqueIdentifier(title)) return fallbackAction(entry);
+  if (containsCampaignSetupInternals(title)) return "Review campaign setup";
+  title = translateResolvedCampaignRole(title, "action") ?? title;
+  if (/^Persisted (?:Meta journal entry|decision)$/i.test(title)) {
+    return "Decision recorded";
+  }
+  if (/^No immediate operator action\.?$/i.test(title)) {
+    return "No action needed";
+  }
+  if (/^Keep out of sales action queue\.?$/i.test(title)) {
+    return "No sales action needed";
+  }
+  if (/^Provider write attempted$/i.test(title)) return "Change started";
+  if (/^Provider write\b/i.test(title)) return fallbackAction(entry);
+
+  const workflow = title.match(/^Workflow\s+([a-z0-9_-]+)$/i);
+  if (workflow) {
+    const event = workflow[1].replace(/[_-]+/g, " ").toLowerCase();
+    const labels: Record<string, string> = {
+      assign: "Decision assigned",
+      acknowledge: "Decision acknowledged",
+      defer: "Decision deferred",
+      snooze: "Decision snoozed",
+      reject: "Decision rejected",
+      resolve: "Decision resolved",
+      reopen: "Decision reopened",
+      comment: "Decision note added",
+    };
+    return labels[event] ?? "Decision updated";
+  }
+
+  const launchIntent = title.match(/^(New Campaign|Add To Existing) LaunchIntent$/i);
+  if (launchIntent) {
+    return launchIntent[1].toLowerCase() === "new campaign"
+      ? "New campaign launch"
+      : "Add to existing campaign";
+  }
+  if (
+    entry.kind === "structures" &&
+    title === (entry.entity.name ?? "").trim()
+  ) {
+    return `${entry.entity.type === "adset" ? "Ad set" : "Campaign"} status recorded`;
+  }
+  if (
+    containsUnsafeBackendDetail(title, entry.entity.id.trim()) ||
+    isMachineShaped(title)
+  ) {
+    return fallbackAction(entry);
+  }
+  return title;
 }
 
 /**
  * The Action cell's text.
  *
- * Most branches of the journal SQL already fold the entity into the served
- * title (`'… | ' || COALESCE(entity_name, entity_id)`), but the decisions
- * branch does not: it serves a bare verdict such as "Scale budget", which left
- * the operator unable to tell which campaign or ad set the row was about. The
- * entity is appended only when the served title does not already carry it, in
- * the same ` | ` form the SQL uses, so no row gains a duplicate.
+ * Most branches of the journal SQL already fold the entity into the stored
+ * title, but the decisions branch does not. The entity is appended only when
+ * the title does not already carry it. Known storage vocabulary is translated
+ * before display, and an opaque title falls back to the row's truthful kind.
  *
  * The name is preferred. When it is unavailable, the UI uses a neutral entity
  * label instead of exposing a provider identifier.
  */
 export function actionFor(entry: MetaHistoryEntry): string {
   const entityId = entry.entity.id.trim();
-  const servedEntityName = (entry.entity.name ?? "").trim();
-  const entityName =
-    servedEntityName && servedEntityName !== entityId ? servedEntityName : "";
-  const entityLabel =
-    entityName ||
-    {
-      account: "Unnamed account",
-      campaign: "Unnamed campaign",
-      adset: "Unnamed ad set",
-      ad: "Unnamed ad",
-      creative: "Unnamed creative",
-      creative_brief: "Unnamed creative brief",
-      launch_intent: "Unnamed launch",
-      recommendation: "Unnamed recommendation",
-    }[entry.entity.type];
-  let title = entry.title;
+  const entityName = (entry.entity.name ?? "").trim();
+  const entityLabel = historyEntityLabel(entry);
+  let title = buyerFacingAction(entry);
   if (entityId && entityLabel) {
     const rawIdSuffix = ` | ${entityId}`;
-    if (title === entityId) title = entityLabel;
+    if (looksLikeOpaqueIdentifier(entityId) && title.includes(entityId)) {
+      title = title.replaceAll(entityId, entityLabel);
+    } else if (title === entityId) title = entityLabel;
     else if (title.endsWith(rawIdSuffix)) {
       title = `${title.slice(0, -rawIdSuffix.length)} | ${entityLabel}`;
     }

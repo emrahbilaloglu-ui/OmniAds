@@ -1,5 +1,5 @@
 {
- "packetHash": "c4f96ab472b8ba7b646e096da17d2b206d6e6bdac4c1c43ed2430c1f78980654",
+ "packetHash": "699e8356420fc1c6b548a02b360a7df98e1b6b6598646550f2fa0f56154c8cd0",
  "hashAlgorithm": "sha256",
  "hashBasis": "sha256 over UTF-8 bytes of JSON.stringify(artifact, null, 1) of the artifact WITHOUT its embedded hash fields (the artifact object before {<hashField>, hashAlgorithm, hashBasis} are prepended)",
  "contract": "adsecute.d077.release-deploy-approval-packet.v2",
@@ -32,17 +32,17 @@
    "path": "docs/audits/generated/d077-release-candidate-manifest-2026-08-30.json",
    "generationOrderContract": "the manifest is generated LAST by this same inspected generator (phase2), after this packet and every other pinned file is final; it excludes its own path and pins this packet's exact bytes. Its entry counts must equal expectedFinalTree below (asserted at generation).",
    "expectedFinalTree": {
-    "pinnedNonSelfFileCount": 870,
+    "pinnedNonSelfFileCount": 879,
     "classCounts": {
-     "tests_only": 379,
-     "runtime": 287,
+     "tests_only": 385,
+     "runtime": 288,
      "runtime_deletion": 2,
      "deploy_config": 1,
-     "docs": 48,
+     "docs": 49,
      "generated_evidence": 74,
      "migration": 2,
      "audit_script_non_runtime": 24,
-     "script_ops_non_request_path": 53
+     "script_ops_non_request_path": 54
     },
     "historicalContext": "pre-task freeze was 217 porcelain entries / 265 files — historical only, NOT the final tree"
    }

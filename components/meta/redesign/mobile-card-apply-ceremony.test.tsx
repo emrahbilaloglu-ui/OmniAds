@@ -48,6 +48,10 @@ import {
   metaPulse,
   metaRec,
 } from "@/components/meta/redesign/test-fixtures";
+import type {
+  MetaOsDecisionAction,
+  MetaOsStructureNode,
+} from "@/lib/meta/decisions-os-contract";
 
 const CAPPED_ADSET = "9000000000201";
 const CAPPED_CAMPAIGN = "9000000000101";
@@ -68,6 +72,149 @@ function bidRec() {
     type: "scenario_e1_frequency_fatigue",
     proposedAction: { kind: "apply_bid", bidAmountMinor: 1320 },
   });
+}
+
+function blockedRec(action: "pause" | "bid") {
+  const adset = action === "bid";
+  return metaRec({
+    id: `blocked-commercial-${action}`,
+    level: adset ? "adset" : "campaign",
+    adsetId: adset ? CAPPED_ADSET : undefined,
+    campaignId: CAPPED_CAMPAIGN,
+    campaignName: "Blocked commercial decision",
+    decisionLabel: "cut",
+    proposedAction:
+      action === "bid"
+        ? { kind: "apply_bid", bidAmountMinor: 1320 }
+        : { kind: "pause" },
+    automationReadiness: {
+      contractVersion: "meta-automation-readiness.v1",
+      tier: "manual_review",
+      autoExecuteEligible: false,
+      operatorReviewRequired: true,
+      decisionLabel: "cut",
+      blockers: ["missing_commercial_anchor"],
+      missingEvidence: ["commercial_target_or_breakeven"],
+      requiredEvidence: ["commercial_target_or_breakeven"],
+      reason: "The commercial target must be confirmed.",
+    },
+  });
+}
+
+function blockedStructureNode(
+  recommendation: ReturnType<typeof metaRec>,
+  action: MetaOsDecisionAction,
+): MetaOsStructureNode {
+  const adset = recommendation.level === "adset";
+  return {
+    id: `node_${recommendation.id}`,
+    sourceRecommendationId: recommendation.id,
+    level: adset ? "adset" : "campaign",
+    providerEntityId: adset ? CAPPED_ADSET : CAPPED_CAMPAIGN,
+    campaignId: CAPPED_CAMPAIGN,
+    campaignName: "Blocked commercial decision",
+    name: "Blocked commercial decision",
+    lifecycleRole: "main",
+    budgetOwner: adset ? "adset" : "campaign",
+    budgetMode: adset ? "adset_budget" : "campaign_budget",
+    controlOwner: adset ? "adset" : "campaign",
+    status: "ACTIVE",
+    optimizationGoal: "PURCHASE",
+    action,
+    lane: "blocked",
+    priority: {
+      band: "high",
+      rank: 1,
+      version: "meta-os-decisions.presentation.v5",
+    },
+    urgency: { level: "high", rank: 3, label: "High", reason: null },
+    confidence: "low",
+    assessment: "Commercial target is unresolved",
+    whyNow: "The commercial target is unavailable.",
+    expectedImpact: "No change is authorized.",
+    evidence: [],
+    metrics: {
+      spend: 1180,
+      purchases: 28,
+      roas: 2.36,
+      cpa: null,
+      ctr: null,
+      frequency: null,
+      effectiveTargetRoas: null,
+      ratioToTarget: null,
+      currency: "USD",
+      attribution: "meta_attributed",
+      grain: "campaign_or_adset",
+    },
+    suppressedAlternativeCount: 0,
+  };
+}
+
+function structureOs(node: MetaOsStructureNode) {
+  const campaignNode: MetaOsStructureNode =
+    node.level === "campaign"
+      ? node
+      : {
+          ...node,
+          id: `campaign_for_${node.id}`,
+          sourceRecommendationId: null,
+          level: "campaign",
+          providerEntityId: CAPPED_CAMPAIGN,
+          name: "Blocked commercial decision",
+          budgetOwner: "campaign",
+          budgetMode: "campaign_budget",
+          controlOwner: "campaign",
+          action: {
+            code: "child_decisions",
+            label: "Review ad set decisions",
+            intent: "review",
+            targetLevel: "campaign",
+            providerMutation: null,
+            scopeNote: "Review the campaign's ad set decisions.",
+          },
+          lane: "monitor",
+        };
+  return {
+    contractVersion: "meta-os-decisions.presentation.v5",
+    generatedAt: "2026-09-04T12:00:00.000Z",
+    source: {
+      snapshotAsOf: "2026-09-04",
+      engineVersion: "v3-test",
+      structureSource: "meta_recommendations",
+      adsSource: "native_ad_decision",
+      health: "healthy",
+      fallbackReason: null,
+    },
+    structure: {
+      groups: [
+        {
+          id: node.id,
+          campaign: campaignNode,
+          adsets: node.level === "adset" ? [node] : [],
+          highestPriority: node.priority,
+          highestUrgency: node.urgency,
+          urgentAdsetCount: 0,
+        },
+      ],
+      actCount: 0,
+      blockedCount: 1,
+      monitorCount: 0,
+      suppressedAlternativeCount: 0,
+    },
+    ads: {
+      items: [],
+      actCount: 0,
+      blockedCount: 0,
+      monitorCount: 0,
+      statePreCapCounts: { act: 0, blocked: 0, monitor: 0 },
+      eligiblePreCapCount: 0,
+      omittedWithoutVerifiedAdId: 0,
+      omittedAmbiguousIdentity: 0,
+      omittedNotApplicable: 0,
+      sourcePreCapCount: 0,
+    },
+    limitations: [],
+  };
 }
 
 /** The read-model envelope the adapter dereferences before anything else. */
@@ -140,6 +287,9 @@ const state = vi.hoisted(() => ({
   viewer: null as unknown,
   killSwitch: false,
   killSwitchReason: null as string | null,
+  search: "window=28d",
+  decisionRec: null as ReturnType<typeof metaRec> | null,
+  structureNode: null as MetaOsStructureNode | null,
   routerPush: vi.fn(),
   routerReplace: vi.fn(),
 }));
@@ -147,7 +297,7 @@ const state = vi.hoisted(() => ({
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: state.routerPush, replace: state.routerReplace }),
   usePathname: () => "/platforms/meta",
-  useSearchParams: () => new URLSearchParams("window=28d"),
+  useSearchParams: () => new URLSearchParams(state.search),
 }));
 
 vi.mock("@/store/app-store", () => ({
@@ -169,8 +319,9 @@ vi.mock("@tanstack/react-query", () => ({
     });
     if (key === "meta-decisions-workspace") {
       const pulse = metaPulse();
+      const decision = state.decisionRec ?? bidRec();
       const lanes = metaLanePayload({
-        actionNow: [bidRec()],
+        actionNow: [decision],
         watching: [],
         healthy: [metaHealthy()],
         counts: {
@@ -204,6 +355,7 @@ vi.mock("@tanstack/react-query", () => ({
         viewer: state.viewer,
         banners: [],
         decisionReadModel: decisionReadModel(),
+        os: state.structureNode ? structureOs(state.structureNode) : undefined,
       });
     }
     if (key === "meta-provider-accounts") {
@@ -255,6 +407,9 @@ beforeEach(() => {
   };
   state.killSwitch = false;
   state.killSwitchReason = null;
+  state.search = "window=28d";
+  state.decisionRec = null;
+  state.structureNode = null;
   state.routerPush.mockClear();
 });
 
@@ -461,6 +616,83 @@ describe("the mobile decision card's manual apply", () => {
     );
     expect(mobileApply()).not.toBeNull();
     expect(mobileApply()?.getAttribute("aria-disabled")).toBeNull();
+  });
+});
+
+describe("a blocked resolution never inherits an operator write", () => {
+  it.each([
+    {
+      name: "the served review action matches the commercial remediation",
+      operatorAction: "pause" as const,
+      servedAction: {
+        code: "review_commercial_truth",
+        label: "Review Commercial Truth",
+        intent: "review" as const,
+        targetLevel: "campaign" as const,
+        providerMutation: null,
+        scopeNote: "Current target ROAS authority is unavailable.",
+      },
+    },
+    {
+      name: "the served review action does not match the commercial remediation",
+      operatorAction: "bid" as const,
+      servedAction: {
+        code: "review_budget",
+        label: "Review campaign budget",
+        intent: "review" as const,
+        targetLevel: "adset" as const,
+        providerMutation: null,
+        scopeNote: "Review the existing budget evidence.",
+      },
+    },
+  ])("stays read-only when $name", ({ operatorAction, servedAction }) => {
+    const recommendation = blockedRec(operatorAction);
+    expect(recommendation.operatorApply?.action).toBe(operatorAction);
+    state.decisionRec = recommendation;
+    state.search = "window=28d&area=monitor&segment=needs_resolution";
+    state.structureNode = blockedStructureNode(
+      recommendation,
+      servedAction,
+    );
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    mount();
+    const row = document.querySelector<HTMLElement>(
+      `[data-mobile-row-id="${recommendation.id}"]`,
+    );
+    expect(row).not.toBeNull();
+    const readEvidence = [...row!.querySelectorAll("button")].find((button) =>
+      button.textContent?.includes("Read evidence"),
+    );
+    expect(readEvidence).not.toBeUndefined();
+    fireEvent.click(readEvidence!);
+
+    const inspector = document.querySelector<HTMLElement>(
+      "[data-meta-exact-inspector]",
+    );
+    expect(inspector).not.toBeNull();
+    expect(inspector?.textContent).toContain("Confirm commercial target");
+    expect(
+      [...(inspector?.querySelectorAll("button") ?? [])].some((button) =>
+        /Confirm commercial target|Review change|Review pause|Review bid/i.test(
+          button.textContent ?? "",
+        ),
+      ),
+    ).toBe(false);
+    expect(
+      document.querySelector(`[data-mobile-apply="${recommendation.id}"]`),
+    ).toBeNull();
+    expect(document.querySelector("#meta-manual-ceremony")).toBeNull();
+    expect(document.querySelector("#meta-manual-ceremony-mobile")).toBeNull();
+    expect(document.querySelector("[data-mutation-action]")).toBeNull();
+    expect(
+      fetchMock.mock.calls.filter(([url]) =>
+        /\/api\/meta\/(?:decision-action|campaigns|adsets)\//.test(
+          String(url),
+        ),
+      ),
+    ).toEqual([]);
   });
 });
 

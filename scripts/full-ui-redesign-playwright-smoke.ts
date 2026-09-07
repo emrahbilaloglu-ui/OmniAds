@@ -3,6 +3,7 @@ import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { spawn, spawnSync } from "node:child_process";
+import { CAMPAIGN_CONTEXT_RESOLVER_VERSION } from "../lib/creative-decision-engine/campaign-context/resolver";
 
 const FORBIDDEN_DB_PORTS = new Set([15432, 5432]);
 const DB_NAME = "adsecute_full_ui_redesign_smoke";
@@ -205,6 +206,8 @@ async function main() {
       ALLOW_INSECURE_LOCAL_AUTH_COOKIE: "1",
       DATABASE_URL: databaseUrl,
       DATABASE_URL_UNPOOLED: databaseUrl,
+      CAMPAIGN_CONTEXT_AUTHORITY_RESOLVER_VERSION:
+        CAMPAIGN_CONTEXT_RESOLVER_VERSION,
       ENABLE_RUNTIME_MIGRATIONS: "1",
       NEXT_PUBLIC_APP_URL: baseUrl,
       PGDATABASE: DB_NAME,

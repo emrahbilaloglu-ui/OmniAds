@@ -75,6 +75,7 @@ export type MetaHistoryEntryStatus =
   | "positive"
   | "negative"
   | "neutral"
+  | "observed"
   | "draft"
   | "reviewed"
   | "prepared"
@@ -109,6 +110,7 @@ export const META_HISTORY_OUTCOME_GROUPS = {
     "closed",
     "improved",
     "positive",
+    "observed",
   ],
   failed: [
     "failed",
@@ -216,10 +218,10 @@ export type MetaHistorySourceIdKind =
   | "persisted_uuid"
   | "persisted_composite_key";
 
-export type MetaHistoryAccountScopeBasis =
-  | "direct_provider_account_id"
-  | "exact_entity_key"
-  | "exact_snapshot_key"
+export const META_HISTORY_ACCOUNT_SCOPE_BASES = [
+  "direct_provider_account_id",
+  "exact_entity_key",
+  "exact_snapshot_key",
   /**
    * A row written before its source carried a physical-account lineage, whose
    * account was proven by its ENTITY resolving to exactly one account in this
@@ -230,8 +232,27 @@ export type MetaHistoryAccountScopeBasis =
    * uniqueness test and the row is withheld from an account-scoped view rather
    * than attributed. Rows that carry their own lineage never use this basis.
    */
-  | "unique_entity_key"
-  | "unique_creative_key";
+  "unique_entity_key",
+  "unique_creative_key",
+] as const;
+
+export type MetaHistoryAccountScopeBasis =
+  (typeof META_HISTORY_ACCOUNT_SCOPE_BASES)[number];
+
+export const META_HISTORY_ATTRIBUTIONS = [
+  "engine_snapshot",
+  "engine_transition",
+  "operator_recorded",
+  "provider_write_log",
+  "correlational_outcome",
+  "workflow_object",
+  "warehouse_dimension",
+  "provider_config_history",
+  "provider_state_history",
+] as const;
+
+export type MetaHistoryAttribution =
+  (typeof META_HISTORY_ATTRIBUTIONS)[number];
 
 export interface MetaHistoryAccount {
   id: string;
@@ -291,14 +312,7 @@ export interface MetaHistoryEntry {
     source: MetaHistorySource;
     sourceId: string;
     accountScopeBasis: MetaHistoryAccountScopeBasis;
-    attribution:
-      | "engine_snapshot"
-      | "engine_transition"
-      | "operator_recorded"
-      | "provider_write_log"
-      | "correlational_outcome"
-      | "workflow_object"
-      | "warehouse_dimension";
+    attribution: MetaHistoryAttribution;
   };
   correlation: {
     status: "keyed" | "unavailable" | "not_applicable";

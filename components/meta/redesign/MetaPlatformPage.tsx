@@ -58,6 +58,7 @@ import {
 } from "@/components/meta/redesign/meta-native-ad-pause";
 import {
   MetaDecisionCenterExact,
+  metaNeedsResolutionNextStep,
   type MetaDecisionCenterExactDisplayValue,
   type MetaDecisionCenterExactInspectorViewModel,
   type MetaDecisionCenterExactLane,
@@ -1582,8 +1583,8 @@ function mobileQueueRowsForLane(
      *
      * `actionLabel` is deliberately the read affordance rather than a verb: a
      * blocked decision has no authorized action, and the mobile surface is
-     * read-only anyway. The blocker rides in `blockedNote`, which this row
-     * model already draws for the creatives scope.
+     * read-only anyway. The desktop's single resolved next step rides in
+     * `blockedNote`; it must not also be appended to the metrics line.
      */
     return (viewModel.needsResolutionRows ?? []).map((row) => ({
       id: row.id,
@@ -1593,10 +1594,8 @@ function mobileQueueRowsForLane(
       decisionTone: row.decisionTone,
       stateLabel: "Blocked",
       stateTone: "warning" as const,
-      blockedNote: row.resolution ?? row.blocker,
+      blockedNote: metaNeedsResolutionNextStep(row, "en"),
       money: row.money,
-      moneySub: row.resolution,
-      actionLabel: "Read evidence",
       onOpen: row.onOpen,
     }));
   }
@@ -1855,9 +1854,13 @@ function MetaMobileQueueRow({
         ) : null}
       </div>
       <div className="ad-mobile-row-footer">
-        <span className="ad-mobile-action-note">
-          {mobileDisplay(actionLabel)}
-        </span>
+        {actionLabel && mobileDisplay(actionLabel) !== "—" ? (
+          <span className="ad-mobile-action-note">
+            {mobileDisplay(actionLabel)}
+          </span>
+        ) : (
+          <span aria-hidden="true" />
+        )}
         {onOpen ? (
           <button type="button" onClick={onOpen}>
             Read evidence →
@@ -5108,13 +5111,16 @@ export function MetaPlatformPage({
   /*
    * Whether the drilled row can reach the ceremony at all.
    *
-   * Both conditions come from the server: `operatorApply` is the verb it named,
-   * and the decision-bound key is the row's own grain identity. Without either
-   * one the sheet could only preflight a key `parseDecisionKey` refuses, so it
-   * is withheld with a stated reason rather than opened onto a certain 422.
+   * The conditions come from the server: the row must remain outside Blocked,
+   * `operatorApply` is the verb it named, and the decision-bound key is the
+   * row's own grain identity. Without them the sheet would either turn a
+   * resolution into a write or preflight a key `parseDecisionKey` refuses.
    */
   const drillRec =
     drillItem && drillItem.mode !== "anomaly" ? drillItem.rec : null;
+  const blockedStructureIds = new Set(
+    (exactViewModel.needsResolutionRows ?? []).map((row) => row.id),
+  );
   /**
    * The manual action sheet's posture for the selected row.
    *
@@ -5135,15 +5141,22 @@ export function MetaPlatformPage({
    * three gates are the workspace's own.
    *
    * `null` in, `null` out is deliberate: with no row selected there is nothing
-   * to be refused ABOUT.
+   * to be refused ABOUT. A server-blocked row is also null here. Its displayed
+   * next step is a resolution, not an operator write, and only a dedicated
+   * resolver handler may make that resolution clickable.
    */
   const manualActionForRec = (
     rec: MetaRecommendation | null,
-  ): NonNullable<
-    NonNullable<MetaDecisionCenterExactViewModel["inspector"]>["manualAction"]
-  > => {
-    const operatorApply = rec?.operatorApply ?? null;
-    const decisionKey = rec ? toDecisionRow(rec).decisionKey : null;
+  ):
+    | NonNullable<
+        NonNullable<
+          MetaDecisionCenterExactViewModel["inspector"]
+        >["manualAction"]
+      >
+    | null => {
+    if (!rec || blockedStructureIds.has(rec.id)) return null;
+    const operatorApply = rec.operatorApply ?? null;
+    const decisionKey = toDecisionRow(rec).decisionKey;
     const killSwitchEngaged = Boolean(
       workspaceQuery.data?.system.killSwitchEngaged,
     );
@@ -5155,16 +5168,15 @@ export function MetaPlatformPage({
           ? "Meta changes are paused. You can still review this recommendation."
           : !mutationUiEnabled
             ? "Applying changes is unavailable here. You can still review this recommendation."
-            : rec && !operatorApply
+            : !operatorApply
               ? "This recommendation does not include a change to apply."
-              : rec && decisionKey === null
+              : decisionKey === null
                 ? "Select a single campaign or ad set before applying a change."
                 : null,
       onOpen:
         mutationUiEnabled &&
         !isViewerReadOnly &&
         !killSwitchEngaged &&
-        rec !== null &&
         operatorApply !== null &&
         decisionKey !== null
           ? () => setManualCeremonyRec(rec)
@@ -5234,12 +5246,10 @@ export function MetaPlatformPage({
   /**
    * The manual action a mobile card offers, or nothing at all.
    *
-   * `undefined` when the server named no verb for the row: there is no
-   * capability to refuse, and a disabled control on every one of sixty rows
-   * would be noise, not a reason. When it did name one, the control is drawn
-   * with the server's own token in the label and the shared posture behind it —
-   * so a reviewer, a guest or an engaged STOP gets the control and the reason,
-   * not silence.
+   * `undefined` when the server named no verb or classified the row Blocked:
+   * there is no action this surface may offer. Otherwise the control is drawn
+   * with the server's own token in the label and the shared posture behind it,
+   * so a reviewer, a guest or an engaged STOP gets the control and the reason.
    */
   const mobileManualActionFor = (
     rowId: string,
@@ -5247,8 +5257,10 @@ export function MetaPlatformPage({
     const recommendation = servedRecsById.get(rowId);
     const operatorApply = recommendation?.operatorApply ?? null;
     if (!recommendation || !operatorApply) return undefined;
+    const manualAction = manualActionForRec(recommendation);
+    if (!manualAction) return undefined;
     return {
-      ...manualActionForRec(recommendation),
+      ...manualAction,
       // The server's own verb, verbatim. Nothing here renames a write.
       label: `Apply · ${operatorApply.action}`,
     };

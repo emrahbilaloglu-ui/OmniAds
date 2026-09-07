@@ -479,6 +479,7 @@ describe("MetaDecisionCenterExact canonical desktop anatomy", () => {
       "Inspector server label",
       "Inspector Entity",
       "What to do",
+      "server supplied verdict",
       "Why",
       "Reason A",
       "Key metrics",
@@ -566,7 +567,7 @@ describe("MetaDecisionCenterExact branches and callbacks", () => {
     expect(onScopeChange).not.toHaveBeenCalled();
   });
 
-  it("shows the usable next step directly on blocked rows", () => {
+  it("renders one concise safe next step on each compact blocked row", () => {
     const viewModel = exactViewModel({
       needsResolutionRows: [
         {
@@ -577,15 +578,29 @@ describe("MetaDecisionCenterExact branches and callbacks", () => {
           selected: true,
           decisionLabel: "Hold",
           decisionTone: "warning",
-          blocker: "Automatic campaign-role authority is not validated",
+          blocker: "This change must be completed manually in Meta.",
+          blockerBuyerFacing: true,
           blockerCount: 3,
           blockerTone: "warning",
-          resolution: "Validate the automatic resolver before execution.",
+          resolution: "Review and apply this change manually.",
           money: "$420 · ROAS 2.10",
           confidence: "Low",
           confidenceTone: "warning",
           staleDemoted: true,
           staleDemotedReason: "Confidence capped by server evidence",
+        },
+        {
+          id: "blocked-b",
+          name: "Blocked Beta",
+          blocker: "A fresh Meta safety check is required.",
+          blockerBuyerFacing: true,
+          resolution: "Refresh Meta data and run the safety check again.",
+        },
+        {
+          id: "blocked-c",
+          name: "Blocked Gamma",
+          blocker: "missing_executor_schema_receipt",
+          resolution: "Review and apply this change manually.",
         },
       ],
     });
@@ -598,12 +613,36 @@ describe("MetaDecisionCenterExact branches and callbacks", () => {
     expect(row?.textContent).toContain("Auto · Main");
     expect(row?.textContent).toContain("Low confidence · capped");
     expect(row?.textContent).not.toContain("3 checks");
+    expect(row?.textContent).toContain("$420 · ROAS 2.10");
+    expect(row?.textContent).not.toContain("Review and apply");
     expect(row?.textContent).toContain(
-      "Validate the automatic resolver before execution.",
+      "This change must be completed manually in Meta.",
+    );
+    expect(row?.querySelectorAll("[data-el='resolution-step']")).toHaveLength(
+      1,
+    );
+    const preferredResolution = document.querySelector<HTMLElement>(
+      '[data-meta-exact-needsres-row="blocked-b"]',
+    );
+    expect(preferredResolution?.textContent).toContain(
+      "Refresh Meta data and run the safety check again.",
+    );
+    expect(preferredResolution?.textContent).not.toContain(
+      "A fresh Meta safety check is required.",
     );
     expect(
-      row?.querySelector("[data-el='blocker-chip']")?.parentElement?.title,
-    ).toContain("Validate the automatic resolver before execution.");
+      preferredResolution?.querySelectorAll("[data-el='resolution-step']"),
+    ).toHaveLength(1);
+    const unsafeFallback = document.querySelector<HTMLElement>(
+      '[data-meta-exact-needsres-row="blocked-c"]',
+    );
+    expect(unsafeFallback?.textContent).toContain("Open decision details.");
+    expect(unsafeFallback?.textContent).not.toContain(
+      "missing_executor_schema_receipt",
+    );
+    expect(
+      unsafeFallback?.querySelectorAll("[data-el='resolution-step']"),
+    ).toHaveLength(1);
     expect(row?.querySelector("[data-meta-exact-needsres-step]")).toBeNull();
     expect(document.querySelector("[data-meta-exact-inspector]")).toBeTruthy();
   });

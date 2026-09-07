@@ -206,7 +206,7 @@ function renderWithQueue(
 ) {
   return renderToStaticMarkup(
     <MetaAutomationView
-      payload={payload}
+      payload={{ ...payload, sections: SECTIONS }}
       providerAccountId="act_1"
       proposals={proposals}
       viewer={extra?.viewer}
@@ -345,6 +345,8 @@ describe("Dashboard v2 exact Automation presentation", () => {
     expect(html).toContain(">Action modes</h2>");
     expect(html).toContain(">Pending approvals</h2>");
     expect(html).toContain(">Recent activity</h2>");
+    expect(html).not.toContain("Choose how each kind of change is handled");
+    expect(html).not.toContain("Review before applying");
     expect(html).toMatch(
       /<details[^>]*><summary><span>Controls and limits<\/span>/,
     );
@@ -437,7 +439,7 @@ describe("Dashboard v2 exact Automation presentation", () => {
     expect(unavailable).not.toContain('data-field="promotion-count"');
   });
   it("preserves canonical empty geometry without inventing proposals, rules or actions", () => {
-    const html = render();
+    const html = render({ ...payload, sections: SECTIONS });
 
     expect(html).toContain('data-testid="confirmation-empty"');
     expect(html).toContain('data-testid="rules-empty"');
@@ -844,6 +846,9 @@ describe("Dashboard v2 exact Automation presentation", () => {
     expect(html).toContain("<h2>Unavailable</h2>");
     expect(html).not.toContain("Supervised");
     expect(html).not.toContain("+15% max");
+    expect(html).toContain('data-action-modes-state="unavailable"');
+    expect(html).toContain('data-field="action-modes-unavailable"');
+    expect(html).not.toContain('data-mode="manual"');
     expect(html).toContain('data-field="read-error"');
     expect(html).toContain(
       'data-reason="automation_control_state_unavailable"',
@@ -851,6 +856,12 @@ describe("Dashboard v2 exact Automation presentation", () => {
     expect(html).toContain(
       "Automation status is unavailable right now. Refresh to try again.",
     );
+    const emergencyStatus =
+      html.match(
+        /<span[^>]*data-field="business-writes"[^>]*>[\s\S]*?<\/span>/,
+      )?.[0] ?? "";
+    expect(emergencyStatus).toContain(">Unavailable</span>");
+    expect(emergencyStatus).not.toContain(">OFF</span>");
     expect(html).not.toContain("control state could not be read");
   });
   it("treats a payload without control-read provenance as unavailable", () => {
@@ -884,11 +895,14 @@ describe("Dashboard v2 exact Automation presentation", () => {
 
     expect(emptyRow(provenEmpty)).toContain('data-proven-empty="true"');
     expect(emptyRow(provenEmpty)).toContain("No recent activity");
+    expect(provenEmpty).toContain('data-ledger-state="empty"');
     expect(emptyRow(unproven)).toContain('data-proven-empty="false"');
     expect(emptyRow(unproven)).toContain("Activity is unavailable");
+    expect(unproven).toContain('data-ledger-state="unavailable"');
     expect(emptyRow(legacyWithoutProvenance)).toContain(
       'data-proven-empty="false"',
     );
+    expect(render()).toContain('data-ledger-state="ready"');
   });
   it("names an unresolved account scope without backend terminology", () => {
     const unresolved = renderToStaticMarkup(
@@ -926,6 +940,56 @@ describe("Dashboard v2 exact Automation presentation", () => {
     );
     expect(unavailable).toContain("Meta ad accounts are unavailable right now");
     expect(unavailable).not.toContain("No Meta ad account is assigned");
+  });
+
+  it("collapses a narrow unread state into one recovery and the launch invariant", () => {
+    const html = renderToStaticMarkup(
+      <MetaAutomationView
+        payload={null}
+        providerAccountId={null}
+        readError="provider_account_scope_unresolved"
+        onRetryRead={() => {}}
+      />,
+    );
+    const mobile = mobileMarkup(html);
+
+    expect(mobile).toContain('data-testid="automation-mobile-read-recovery"');
+    expect(mobile.match(/data-field="read-error"/g)).toHaveLength(1);
+    expect(mobile).toContain('data-reason="provider_account_scope_unresolved"');
+    expect(mobile).toContain(
+      "Choose a Meta ad account to see its automation status.",
+    );
+    expect(mobile).toContain('data-control="retry-read"');
+    expect(mobile).not.toContain('data-field="action-modes-unavailable"');
+    expect(mobile).not.toContain('data-testid="mobile-stop-control"');
+    expect(mobile).not.toContain("Pending approvals");
+    expect(mobile).not.toContain("Recent activity");
+    expect(mobile).toContain('data-decision-type="launch"');
+    expect(mobile).toContain("Launches · new spend");
+    expect(mobile).toContain("Always manual");
+  });
+
+  it("keeps a local modes failure visible when the account and control read are healthy", () => {
+    const html = render({
+      ...payload,
+      sections: {
+        ...SECTIONS,
+        decisionModes: {
+          status: "unavailable",
+          errorCode: "read_failed",
+          observedAt: OBSERVED_AT,
+        },
+      },
+    });
+    const mobile = mobileMarkup(html);
+
+    expect(mobile).not.toContain(
+      'data-testid="automation-mobile-read-recovery"',
+    );
+    expect(mobile).toContain('data-field="action-modes-unavailable"');
+    expect(mobile).toContain('data-testid="mobile-stop-control"');
+    expect(mobile).toContain("Pending approvals");
+    expect(mobile).toContain("Recent activity");
   });
   it("renders a real proposal in the canonical row shape with all three controls", () => {
     const html = renderWithQueue(
@@ -1019,8 +1083,11 @@ describe("Dashboard v2 exact Automation presentation", () => {
     );
 
     expect(confirmationEmptyEl(html)).toContain('data-proven-empty="false"');
+    expect(confirmationCard(html)).toContain('data-queue-state="unavailable"');
     expect(html).toContain("Pending actions are unavailable");
     expect(html).toContain('data-control="retry-queue"');
+    expect(confirmationCard(html)).not.toContain("Review before applying");
+    expect(confirmationCard(html)).not.toContain('data-field="viewer-refusal"');
     expect(html).not.toContain('data-holds="unreadable"');
     expect(html).not.toContain('data-field="confirmation-count">0<');
   });
@@ -1144,7 +1211,7 @@ describe("Dashboard v2 exact Automation presentation", () => {
   });
 
   it("uses only persisted per-kind modes, never fabricates progress, and keeps launches manual", () => {
-    const html = render();
+    const html = render({ ...payload, sections: SECTIONS });
 
     expect(html).toContain("Budget changes ≤ +15%");
     expect(html).toMatch(
@@ -1302,6 +1369,7 @@ describe("Dashboard v2 exact Automation presentation", () => {
     };
     const proven = render({
       ...payload,
+      sections: SECTIONS,
       readCompleteness: { ...PROVEN_READS, cleanApprovalStreaks: "complete" },
       decisionTypeModes: [
         persistedPause,
@@ -1312,6 +1380,14 @@ describe("Dashboard v2 exact Automation presentation", () => {
     });
     const unproven = render({
       ...payload,
+      sections: {
+        ...SECTIONS,
+        readiness: {
+          status: "unavailable",
+          errorCode: "read_failed",
+          observedAt: OBSERVED_AT,
+        },
+      },
       readCompleteness: {
         ...PROVEN_READS,
         cleanApprovalStreaks: "unavailable",
@@ -1325,6 +1401,7 @@ describe("Dashboard v2 exact Automation presentation", () => {
     });
     const noThreshold = render({
       ...payload,
+      sections: SECTIONS,
       readCompleteness: { ...PROVEN_READS, cleanApprovalStreaks: "complete" },
       decisionTypeModes: [
         { ...persistedPause, cleanApprovalThreshold: null },
@@ -1643,6 +1720,10 @@ describe("Dashboard v2 exact Automation presentation", () => {
       "app/(dashboard)/platforms/meta/automation/automation.module.css",
       "utf8",
     );
+    const narrowCss = css.slice(
+      css.indexOf("@media (max-width: 1023px)"),
+      css.indexOf("@media (min-width: 1024px)"),
+    );
 
     expect(mobile).toContain('data-read-only="false"');
     // The emergency control, reachable whenever this surface is.
@@ -1678,6 +1759,25 @@ describe("Dashboard v2 exact Automation presentation", () => {
     );
     expect(css).toMatch(
       /@media \(max-width: 1023px\)[\s\S]*?\.mobileSurface \{[\s\S]*?display: grid/,
+    );
+    // Both visual-audit widths (390px and 320px) enter this breakpoint. Empty
+    // and unavailable activity are one sentence, so they shed the desktop
+    // table's 660px floor and left-align the cell inside the viewport. Ready
+    // rows keep the base 660px table and its intentional horizontal scroll.
+    expect(css).toMatch(/\.ledgerTable \{[\s\S]*?min-width: 660px/);
+    expect(narrowCss).toContain('.ledgerCard[data-ledger-state="empty"]');
+    expect(narrowCss).toContain('.ledgerCard[data-ledger-state="unavailable"]');
+    expect(narrowCss).toMatch(
+      /\.ledgerCard\[data-ledger-state="empty"\] \.ledgerTable,[\s\S]*?min-width: 100%/,
+    );
+    expect(narrowCss).toMatch(
+      /\.ledgerCard\[data-ledger-state="empty"\] \.ledgerEmpty td,[\s\S]*?overflow-wrap: anywhere;[\s\S]*?text-align: left/,
+    );
+    expect(narrowCss).not.toContain(
+      '.ledgerCard[data-ledger-state="ready"] .ledgerTable',
+    );
+    expect(narrowCss).toMatch(
+      /\.mobileReadRecovery \.accountPicker[\s\S]*?width: 100%/,
     );
     expect(css).toContain("@media (min-width: 1024px)");
   });
@@ -1777,5 +1877,41 @@ describe("the guardrails an operator could read and not set", () => {
     expect(html).not.toContain('data-testid="guardrail-policy-form"');
     expect(html).not.toContain('data-testid="guardrail-roas-floor"');
     expect(html).toContain('data-field="guardrail-roas-floor"');
+  });
+
+  it("offers no clearing form when the business-control read is unproven", () => {
+    const html = renderToStaticMarkup(
+      <MetaAutomationView
+        payload={{
+          ...payload,
+          businessControl: {
+            ...payload.businessControl,
+            guardrails: {
+              ...payload.businessControl.guardrails,
+              minRoasFloor: 2.5,
+              quietHours: {
+                start: "22:00",
+                end: "07:00",
+                timezone: "Europe/Istanbul",
+              },
+            },
+          },
+          readCompleteness: undefined,
+          sections: undefined,
+        }}
+        businessId="biz_1"
+        providerAccountId="act_1"
+        viewer={buildAutomationViewerEnvelope({
+          role: "admin",
+          reviewerReadOnly: false,
+          writeAuthority: "live",
+        })}
+      />,
+    );
+
+    expect(html).not.toContain('data-testid="guardrail-policy-form"');
+    expect(html).not.toContain('data-testid="guardrail-policy-save"');
+    expect(html).not.toContain('value="2.5"');
+    expect(html).not.toContain('value="22:00"');
   });
 });

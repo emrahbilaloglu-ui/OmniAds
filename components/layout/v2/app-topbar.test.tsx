@@ -301,6 +301,38 @@ describe("business-scoped Dashboard v2 topbar", () => {
     expect(state.hookReferenceDates.at(-1)).toBe("2026-08-17");
   });
 
+  it.each([
+    "/c/business_A/meta/automation",
+    "/c/business_A/meta/launchpad",
+  ])("omits the global date control where the screen does not use it: %s", (pathname) => {
+    state.pathname = pathname;
+    window.history.replaceState(null, "", pathname);
+
+    renderTopbar();
+
+    expect(screen.queryByTestId("date-range-picker")).toBeNull();
+    expect(state.pickerProps).toHaveLength(0);
+    expect(state.replace).not.toHaveBeenCalled();
+    expect(screen.queryByText(/date range is not/i)).toBeNull();
+  });
+
+  it.each([
+    "/c/business_A/meta/decisions",
+    "/c/business_A/creative/performance",
+    "/c/business_A/meta/history",
+  ])("keeps the global date control where it drives the screen: %s", (pathname) => {
+    state.pathname = pathname;
+    window.history.replaceState(null, "", `${pathname}?${STATED_WINDOW}`);
+
+    renderTopbar();
+
+    expect(screen.getByTestId("date-range-picker")).toBeTruthy();
+    expect(state.pickerProps).toHaveLength(1);
+    expect(state.pickerProps[0]?.showComparisonTrigger).toBe(
+      pathname.includes("/meta/history") ? false : true,
+    );
+  });
+
   it("posts first and then navigates A to the equivalent B route without optimistic store drift", async () => {
     renderTopbar();
 

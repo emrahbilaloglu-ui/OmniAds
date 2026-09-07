@@ -97,16 +97,16 @@ const EXACT_REFERENCE_SURFACES: readonly ExactReferenceSurface[] = [
     pinsBelowFloorOnly: false,
     stripsCommentsFromSelector: false,
     pins: [
-      { selector: ".pageEyebrow, .asOfLine, .scopeRow > p", size: 11 },
-      { selector: ".kpiLabel, .watchBadge, .inspectorEyebrow", size: 9.5 },
+      { selector: ".pageEyebrow, .asOfLine, .scopeRow > p", size: 12 },
+      { selector: ".kpiLabel, .watchBadge, .inspectorEyebrow", size: 12 },
       {
       selector:
       ".snapshotDetail, .moneySub, .watchSegment, .healthyStats, .resumeButton, .postureDetail, .creativeDecisionLabel, .inspectorMoneyDetail",
-      size: 11.5,
+      size: 12,
       },
       {
       selector: ".modeChip, .scopeOption > span, .healthyStrategy, .inspectorMeta",
-      size: 10.5,
+      size: 12,
       },
       {
       selector:
@@ -114,16 +114,16 @@ const EXACT_REFERENCE_SURFACES: readonly ExactReferenceSurface[] = [
       // fidelity gate grades against the reference type scale, and 11px is both
       // off that scale and below this product's own 12px floor.
       ".laneOption > span, .confidencePill, .nonSalesContext, .archiveStatus, .inspectorDecision, .evidenceRow > span:last-child",
-      size: 11,
+      size: 12,
       },
       {
       selector:
       ".entityLevel, .watchLevel, .nonSalesLevel, .nonSalesMetricLabel, .postureLabel, .inspectorSectionLabel, .reasonHeading, .blockersHeading, .inspectorMiniLabel",
-      size: 9,
+      size: 12,
       },
-      { selector: ".archiveTable th, .provenance", size: 10 },
-      { selector: ".creativeKind", size: 8 },
-      { selector: ".creativeSparkLabel", size: 8.5 },
+      { selector: ".archiveTable th, .provenance", size: 12 },
+      { selector: ".creativeKind", size: 12 },
+      { selector: ".creativeSparkLabel", size: 12 },
     ],
   },
   {
@@ -238,8 +238,7 @@ const EXACT_REFERENCE_SURFACES: readonly ExactReferenceSurface[] = [
       { selector: ".killAction", size: 12 },
       { selector: ".promotionCount", size: 12 },
       {
-      selector:
-      ".confirmationCount, .confirmationHint, .sectionHint, .autonomyTier",
+      selector: ".confirmationCount, .autonomyTier",
       size: 12,
       },
       {

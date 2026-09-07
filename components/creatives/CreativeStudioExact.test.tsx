@@ -220,6 +220,43 @@ describe("CreativeStudioExact canonical shared anatomy", () => {
     expect(statusCells[0]).toHaveAttribute("title", "Held: cut");
   });
 
+  it("states a failed recommendation read once instead of repeating it per row", () => {
+    const unavailableRows = [
+      asset("asset-a", "Alpha asset", 100, 2),
+      asset("asset-b", "Beta asset", 50, 1),
+    ].map((row) => ({
+      ...row,
+      status: "Decision data unavailable",
+      statusTone: "warning" as const,
+      statusDetail: "Recommendation is temporarily unavailable.",
+      decisionCount: 0,
+    }));
+
+    renderStudio("assets", {
+      assets: assetsModel({
+        decisionReadState: "unavailable",
+        rows: unavailableRows,
+      }),
+    });
+
+    expect(
+      screen.getByText(
+        "Recommendations are temporarily unavailable. Creative performance is still shown below.",
+      ),
+    ).toBeTruthy();
+    expect(
+      document.querySelectorAll(
+        '[data-creative-decision-availability="unavailable"]',
+      ),
+    ).toHaveLength(1);
+    expect(screen.queryByRole("columnheader", { name: "Status" })).toBeNull();
+    expect(
+      document.querySelectorAll("[data-creative-classification]"),
+    ).toHaveLength(0);
+    expect(screen.getByText("Alpha asset")).toBeTruthy();
+    expect(screen.getByText("Beta asset")).toBeTruthy();
+  });
+
   it("renders the single canonical header, tab order, Assets board and heat-table controls", () => {
     renderStudio("assets");
 

@@ -555,3 +555,12 @@ comment explaining it: `meta_entity_state_history` carries a composite foreign
 key back to an observation run, so the run is written first and the state row
 second. It issues no production query over this table — the shipped snapshot
 does, and the harness asserts on what that produced.
+
+## Addendum — 2026-09-07 History journal rendering fixture
+
+`lib/meta/history-read-model.test.ts` (new reference, 1) — TEST
+
+The fixture supplies a `meta_entity_state_history` source row to the shipped
+History read-model mapper and verifies that an observed provider-state change
+remains visible with its public attribution. It opens no database connection
+and adds no production content read.

@@ -636,7 +636,7 @@ function autonomyFor(
   // Gated on the decision-mode read too. The server used to degrade this
   // collection to its defaults without recording that it had, so a failed read
   // and a workspace that had configured nothing rendered the same four rows.
-  const modesProven = sectionState(payload, "decisionModes") !== "unavailable";
+  const modesProven = sectionIsComplete(payload, "decisionModes");
   const byType = new Map(
     (modesProven ? (payload?.decisionTypeModes ?? []) : [])
       .filter((item) => item.source === "persisted")
@@ -1547,8 +1547,10 @@ export function MetaAutomationView({
    */
   const queueHolds = proposals.holds ?? null;
   const queueProvenEmpty = proposals.provenEmpty === true;
-  const ledgerIsProvenEmpty =
-    payload?.readCompleteness?.activityLedger === "complete";
+  const activityState = sectionState(payload, "activity");
+  const ledgerIsProvenEmpty = activityState === "complete";
+  const ledgerState =
+    ledger.length > 0 ? "ready" : ledgerIsProvenEmpty ? "empty" : "unavailable";
   /**
    * Whether the footnote may claim a receipt trail — and it may only claim one
    * where something proves it.
@@ -1626,6 +1628,21 @@ export function MetaAutomationView({
           : automationStatus === "Needs setup"
             ? "Automatic actions are selected, but setup still needs attention."
             : "Automation status is unavailable. Refresh before making a change.";
+  const automationStateAvailable = hasServedBusinessControl(payload);
+  const decisionModesState = sectionState(payload, "decisionModes");
+  const actionModesAvailable =
+    automationStateAvailable && decisionModesState === "complete";
+  // A missing account or failed control read makes the whole mobile surface
+  // look unavailable. State the specific cause once, keep the one invariant
+  // the operator can still use (launches always require approval), and retain
+  // any queue/activity data that was independently proven by its own read.
+  const collapseMobileUnavailable =
+    Boolean(readFailure) && !automationStateAvailable;
+  const mobileQueueHasUsefulState =
+    proposals.rows.length > 0 ||
+    queueProvenEmpty ||
+    Boolean(queueHolds && (queueHolds.claimed > 0 || queueHolds.reconcile > 0));
+  const mobileActivityHasUsefulState = ledger.length > 0 || ledgerIsProvenEmpty;
 
   const rules = buildAutomationRulesViewModel({
     payload,
@@ -1679,14 +1696,25 @@ export function MetaAutomationView({
     <article
       className={styles.autonomyCard}
       data-testid={`automation-action-modes-${surface}`}
+      data-action-modes-state={
+        actionModesAvailable ? "available" : "unavailable"
+      }
     >
       <div className={styles.sectionHeaderCompact}>
         <h2>Action modes</h2>
-        <span className={styles.sectionHint}>
-          Choose how each kind of change is handled
-        </span>
       </div>
+      {!actionModesAvailable &&
+      !(surface === "mobile" && collapseMobileUnavailable) ? (
+        <div
+          className={styles.autonomyUnavailable}
+          data-field="action-modes-unavailable"
+        >
+          <span>Current modes</span>
+          <strong>Unavailable</strong>
+        </div>
+      ) : null}
       {autonomy.map((item) => {
+        if (!actionModesAvailable && item.decisionType) return null;
         const current = item.decisionType
           ? currentModeFor(payload, item.decisionType)
           : null;
@@ -1775,6 +1803,7 @@ export function MetaAutomationView({
     <article
       className={styles.ledgerCard}
       data-testid={`automation-recent-activity-${surface}`}
+      data-ledger-state={ledgerState}
     >
       <div className={styles.ledgerHeader}>
         <h2>Recent activity</h2>
@@ -1783,7 +1812,11 @@ export function MetaAutomationView({
         className={styles.tableScroll}
         role="region"
         tabIndex={0}
-        aria-label="Recent activity table, scrolls sideways"
+        aria-label={
+          surface === "mobile" && ledgerState !== "ready"
+            ? "Recent activity"
+            : "Recent activity table, scrolls sideways"
+        }
       >
         <table className={styles.ledgerTable}>
           <thead>
@@ -1857,50 +1890,55 @@ export function MetaAutomationView({
           className={styles.operatingState}
           data-testid="automation-operating-state"
           data-business-master-switch={businessMasterSwitchState.toLowerCase()}
+          data-operating-state={
+            automationStateAvailable ? "available" : "unavailable"
+          }
         >
           <div>
             <p className={styles.operatingStateEyebrow}>Status</p>
             <h2>{automationStatus}</h2>
-            <p>{automationStatusCopy}</p>
+            {readFailure ? (
+              <p
+                className={styles.readError}
+                role="status"
+                data-field="read-error"
+                data-reason={readFailure}
+              >
+                <span>{readFailureMessage(readFailure)}</span>
+                {onSelectProviderAccount && !providerAccountId ? (
+                  <AutomationAccountPicker
+                    accounts={providerAccounts}
+                    loading={providerAccountsLoading}
+                    onSelect={onSelectProviderAccount}
+                  />
+                ) : null}
+                <button
+                  type="button"
+                  className={styles.readRetry}
+                  data-control="retry-read"
+                  disabled={!onRetryRead}
+                  onClick={onRetryRead}
+                >
+                  Retry
+                </button>
+              </p>
+            ) : (
+              <p>{automationStatusCopy}</p>
+            )}
           </div>
-          <dl>
-            <div>
-              <dt>Pending approvals</dt>
-              <dd>{proposals.count}</dd>
-            </div>
-            <div>
-              <dt>Emergency stop</dt>
-              <dd>{automationStopped ? "Active" : "Not active"}</dd>
-            </div>
-          </dl>
+          {automationStateAvailable ? (
+            <dl>
+              <div>
+                <dt>Pending approvals</dt>
+                <dd>{proposals.count}</dd>
+              </div>
+              <div>
+                <dt>Emergency stop</dt>
+                <dd>{automationStopped ? "Active" : "Not active"}</dd>
+              </div>
+            </dl>
+          ) : null}
         </article>
-
-        {readFailure ? (
-          <p
-            className={styles.readError}
-            role="status"
-            data-field="read-error"
-            data-reason={readFailure}
-          >
-            <span>{readFailureMessage(readFailure)}</span>
-            {onSelectProviderAccount && !providerAccountId ? (
-              <AutomationAccountPicker
-                accounts={providerAccounts}
-                loading={providerAccountsLoading}
-                onSelect={onSelectProviderAccount}
-              />
-            ) : null}
-            <button
-              type="button"
-              className={styles.readRetry}
-              data-control="retry-read"
-              disabled={!onRetryRead}
-              onClick={onRetryRead}
-            >
-              Retry
-            </button>
-          </p>
-        ) : null}
 
         {renderActionModes("desktop")}
 
@@ -1940,7 +1978,11 @@ export function MetaAutomationView({
                     data-tone={businessStatus.tone}
                     data-field="business-writes"
                   >
-                    {stopEngaged ? "ON" : "OFF"}
+                    {automationStateAvailable
+                      ? stopEngaged
+                        ? "ON"
+                        : "OFF"
+                      : "Unavailable"}
                   </span>
                 </div>
                 <MetaStopControl
@@ -1982,11 +2024,13 @@ export function MetaAutomationView({
                     </div>
                   ))}
                 </div>
-                {canMutate && viewer.role === "admin" ? (
+                {automationStateAvailable &&
+                canMutate &&
+                viewer.role === "admin" ? (
                   <GuardrailPolicyForm
                     businessId={businessId}
                     providerAccountId={providerAccountId}
-                    canMutate
+                    canMutate={automationStateAvailable && canMutate}
                     minRoasFloor={payloadGuardrails?.minRoasFloor ?? null}
                     quietHours={payloadGuardrails?.quietHours ?? null}
                     onSaved={onGuardrailPolicySaved}
@@ -2097,67 +2141,107 @@ export function MetaAutomationView({
         aria-labelledby="automation-mobile-title"
       >
         <h1 id="automation-mobile-title">Automation</h1>
-        <p className={styles.mobileIntro}>{automationStatusCopy}</p>
-        <dl className={styles.mobileFacts}>
-          <div>
-            <dt>Status</dt>
-            <dd>{automationStatus}</dd>
+        {readFailure ? (
+          <div
+            className={styles.mobileReadRecovery}
+            data-testid="automation-mobile-read-recovery"
+            data-field="read-error"
+            data-reason={readFailure}
+          >
+            <p role="status">{readFailureMessage(readFailure)}</p>
+            {onSelectProviderAccount && !providerAccountId ? (
+              <AutomationAccountPicker
+                accounts={providerAccounts}
+                loading={providerAccountsLoading}
+                onSelect={onSelectProviderAccount}
+              />
+            ) : null}
+            <button
+              type="button"
+              className={styles.readRetry}
+              data-control="retry-read"
+              disabled={!onRetryRead}
+              onClick={onRetryRead}
+            >
+              Retry
+            </button>
           </div>
-          <div>
-            <dt>Pending approvals</dt>
-            <dd>{proposals.count}</dd>
-          </div>
-          <div>
-            <dt>Emergency stop</dt>
-            <dd>{automationStopped ? "Active" : "Not active"}</dd>
-          </div>
-        </dl>
+        ) : null}
+        {!collapseMobileUnavailable ? (
+          <>
+            <p className={styles.mobileIntro}>{automationStatusCopy}</p>
+            <dl className={styles.mobileFacts}>
+              <div>
+                <dt>Status</dt>
+                <dd>{automationStatus}</dd>
+              </div>
+              {automationStateAvailable ? (
+                <>
+                  <div>
+                    <dt>Pending approvals</dt>
+                    <dd>{proposals.count}</dd>
+                  </div>
+                  <div>
+                    <dt>Emergency stop</dt>
+                    <dd>{automationStopped ? "Active" : "Not active"}</dd>
+                  </div>
+                </>
+              ) : null}
+            </dl>
+          </>
+        ) : null}
 
         {renderActionModes("mobile")}
 
-        <div className={styles.mobileStop} data-testid="mobile-stop-control">
-          <MetaStopControl
+        {!collapseMobileUnavailable ? (
+          <div className={styles.mobileStop} data-testid="mobile-stop-control">
+            <MetaStopControl
+              surface="mobile"
+              payload={payload}
+              viewer={viewer}
+              stopEngaged={stopEngaged}
+              stopPending={stopPending}
+              stopError={stopError}
+              stopConfirm={stopConfirm}
+              stopTyped={stopTyped}
+              stopAborted={stopAborted}
+              stopIntent={stopIntent}
+              stopCeremony={stopCeremony}
+              stopOutcome={stopOutcome}
+              stopEngageRefusalReason={stopEngageRefusalReason}
+              stopPhraseFor={stopPhraseFor}
+              setStopConfirm={setStopConfirm}
+              setStopTyped={setStopTyped}
+              setStopAborted={setStopAborted}
+              onStopControl={onStopControl}
+            />
+          </div>
+        ) : null}
+
+        {!collapseMobileUnavailable || mobileQueueHasUsefulState ? (
+          <ConfirmationQueue
             surface="mobile"
-            payload={payload}
+            proposals={proposals}
+            canMutate={canMutate}
+            onProposalControl={onProposalControl}
+            pendingProposalId={pendingProposalId}
+            proposalError={proposalError}
+            proposalNotice={proposalNotice}
+            modifyingProposalId={modifyingProposalId}
+            setModifyingProposalId={setModifyingProposalId}
+            modificationNote={modificationNote}
+            setModificationNote={setModificationNote}
+            queueHolds={queueHolds}
+            queueProvenEmpty={queueProvenEmpty}
+            onRetryRead={onRetryRead}
             viewer={viewer}
-            stopEngaged={stopEngaged}
-            stopPending={stopPending}
-            stopError={stopError}
-            stopConfirm={stopConfirm}
-            stopTyped={stopTyped}
-            stopAborted={stopAborted}
-            stopIntent={stopIntent}
-            stopCeremony={stopCeremony}
-            stopOutcome={stopOutcome}
-            stopEngageRefusalReason={stopEngageRefusalReason}
-            stopPhraseFor={stopPhraseFor}
-            setStopConfirm={setStopConfirm}
-            setStopTyped={setStopTyped}
-            setStopAborted={setStopAborted}
-            onStopControl={onStopControl}
+            ledgerEvidence={ledgerEvidence}
           />
-        </div>
+        ) : null}
 
-        <ConfirmationQueue
-          surface="mobile"
-          proposals={proposals}
-          canMutate={canMutate}
-          onProposalControl={onProposalControl}
-          pendingProposalId={pendingProposalId}
-          proposalError={proposalError}
-          proposalNotice={proposalNotice}
-          modifyingProposalId={modifyingProposalId}
-          setModifyingProposalId={setModifyingProposalId}
-          modificationNote={modificationNote}
-          setModificationNote={setModificationNote}
-          queueHolds={queueHolds}
-          queueProvenEmpty={queueProvenEmpty}
-          onRetryRead={onRetryRead}
-          viewer={viewer}
-          ledgerEvidence={ledgerEvidence}
-        />
-
-        {renderRecentActivity("mobile")}
+        {!collapseMobileUnavailable || mobileActivityHasUsefulState
+          ? renderRecentActivity("mobile")
+          : null}
       </section>
     </div>
   );
@@ -4722,21 +4806,29 @@ function ConfirmationQueue({
   viewer: AutomationViewerEnvelope;
   ledgerEvidence: "complete" | "unavailable" | "no_evidence";
 }) {
+  const queueState =
+    proposals.rows.length > 0
+      ? "ready"
+      : queueProvenEmpty
+        ? "empty"
+        : "unavailable";
+
   return (
     <article
       className={styles.confirmationCard}
       data-surface={surface}
       data-ledger-evidence={ledgerEvidence}
+      data-queue-state={queueState}
     >
       <div className={styles.confirmationHeader}>
         <h2>Pending approvals</h2>
         <span
           className={styles.confirmationCount}
+          data-state={queueState}
           data-field="confirmation-count"
         >
           {proposals.count}
         </span>
-        <span className={styles.confirmationHint}>Review before applying</span>
       </div>
       {proposals.rows.length > 0 ? (
         proposals.rows.map((row) => (
@@ -4908,7 +5000,7 @@ function ConfirmationQueue({
           No new happy-path chrome: `canMutate` is true on every canonical
           render, so this element does not exist there at all.
         */}
-      {!viewer.canMutate && viewer.reason ? (
+      {proposals.rows.length > 0 && !viewer.canMutate && viewer.reason ? (
         <p
           className={styles.sectionFootnote}
           role="status"

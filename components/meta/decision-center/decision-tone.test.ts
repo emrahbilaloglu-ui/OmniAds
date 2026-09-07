@@ -73,7 +73,7 @@ describe("a tone name reaches an actual colour on the card", () => {
 
   it.each([
     ["tonePositive", "#0b7954"],
-    ["toneNegative", "#e11d48"],
+    ["toneNegative", "#be123c"],
     ["toneWarning", "#b45309"],
     ["toneInfo", "#2a5fe2"],
     ["toneAutomation", "#6c41be"],

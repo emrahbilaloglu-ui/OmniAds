@@ -170,6 +170,171 @@ describe("Meta History read model", () => {
     ]);
   });
 
+  it("keeps workflow and provider-attempt rows emitted by the SQL contract", async () => {
+    queryMock.mockResolvedValue([
+      historyRow({
+        source_key: "decision_workflow_events",
+        source_id: "workflow_1",
+        kind: "decisions",
+        title: "Workflow acknowledge",
+        summary: "seasonal_expected",
+        entity_type: "recommendation",
+        entity_id: "ad:ad_1",
+        entity_name: null,
+        label: "acknowledged",
+        status_raw: "recorded",
+        actor_id: "user_1",
+        actor_name: "Operator",
+        actor_availability: "available",
+        account_scope_basis: "direct_provider_account_id",
+        attribution: "workflow_object",
+        correlation_status: "unavailable",
+        correlation_key: null,
+        replay_date: null,
+        engine_version: null,
+      }),
+      historyRow({
+        source_key: "meta_ads_action_mutation_attempt_events",
+        source_id: "attempt_1",
+        kind: "writes",
+        title: "Provider write attempted",
+        summary: null,
+        entity_type: "ad",
+        entity_id: "ad_1",
+        entity_name: null,
+        label: "pause",
+        status_raw: "pending",
+        actor_id: null,
+        actor_name: null,
+        actor_availability: "not_applicable",
+        account_scope_basis: "direct_provider_account_id",
+        attribution: "provider_write_log",
+        correlation_status: "unavailable",
+        correlation_key: null,
+        replay_date: null,
+        engine_version: null,
+      }),
+    ]);
+
+    const payload = await readMetaHistoryJournal({
+      query: baseQuery,
+      account: { id: "act_1", name: "Primary", currency: "EUR", timezone: "UTC" },
+    });
+
+    expect(payload.entries).toHaveLength(2);
+    expect(payload.entries.map((item) => [item.provenance.source, item.kind])).toEqual([
+      ["decision_workflow_events", "decisions"],
+      ["meta_ads_action_mutation_attempt_events", "writes"],
+    ]);
+    expect(payload.entries[0]).toMatchObject({
+      entity: { type: "recommendation", id: "ad:ad_1" },
+      provenance: {
+        accountScopeBasis: "direct_provider_account_id",
+        attribution: "workflow_object",
+      },
+    });
+    expect(payload.entries[1]).toMatchObject({
+      entity: { type: "ad", id: "ad_1" },
+      provenance: {
+        accountScopeBasis: "direct_provider_account_id",
+        attribution: "provider_write_log",
+      },
+    });
+  });
+
+  it("preserves partial success instead of normalizing it to unknown", async () => {
+    queryMock.mockResolvedValue([
+      historyRow({
+        source_id: "partial_1",
+        status_raw: "partially_succeeded",
+      }),
+    ]);
+
+    const payload = await readMetaHistoryJournal({
+      query: { ...baseQuery, limit: 1 },
+      account: { id: "act_1", name: "Primary", currency: "EUR", timezone: "UTC" },
+    });
+
+    expect(payload.entries[0]?.status).toBe("partially_succeeded");
+  });
+
+  it("drops rows whose provenance vocabulary is outside the public contract", async () => {
+    queryMock.mockResolvedValue([
+      historyRow({ source_id: "valid_1" }),
+      historyRow({
+        source_id: "bad_scope",
+        account_scope_basis: "guessed_account",
+      }),
+      historyRow({
+        source_id: "bad_attribution",
+        attribution: "backend_process",
+      }),
+    ]);
+
+    const payload = await readMetaHistoryJournal({
+      query: { ...baseQuery, limit: 3 },
+      account: { id: "act_1", name: "Primary", currency: "EUR", timezone: "UTC" },
+    });
+
+    expect(payload.entries.map((item) => item.identity.sourceId)).toEqual(["valid_1"]);
+  });
+
+  it("keeps observed configuration and state changes in the public journal", async () => {
+    queryMock.mockResolvedValue([
+      historyRow({
+        source_key: "meta_adset_config_history",
+        source_id: "config_1",
+        kind: "external_changes",
+        title: "Ad set configuration changed | Prospecting",
+        entity_type: "adset",
+        entity_id: "adset_1",
+        entity_name: "Prospecting",
+        label: null,
+        status_raw: "observed",
+        actor_id: null,
+        actor_name: null,
+        actor_availability: "not_applicable",
+        account_scope_basis: "direct_provider_account_id",
+        attribution: "provider_config_history",
+        correlation_status: "unavailable",
+        correlation_key: null,
+      }),
+      historyRow({
+        source_key: "meta_entity_state_history",
+        source_id: "state_1",
+        kind: "external_changes",
+        title: "Ad status changed | Summer ad",
+        entity_type: "ad",
+        entity_id: "ad_1",
+        entity_name: "Summer ad",
+        label: "paused",
+        status_raw: "observed",
+        actor_id: null,
+        actor_name: null,
+        actor_availability: "not_applicable",
+        account_scope_basis: "direct_provider_account_id",
+        attribution: "provider_state_history",
+        correlation_status: "unavailable",
+        correlation_key: null,
+      }),
+    ]);
+
+    const payload = await readMetaHistoryJournal({
+      query: baseQuery,
+      account: { id: "act_1", name: "Primary", currency: "EUR", timezone: "UTC" },
+    });
+
+    expect(payload.entries).toHaveLength(2);
+    expect(payload.entries.map((item) => item.status)).toEqual([
+      "observed",
+      "observed",
+    ]);
+    expect(payload.entries.map((item) => item.provenance.attribution)).toEqual([
+      "provider_config_history",
+      "provider_state_history",
+    ]);
+  });
+
   it("withholds monetary values when the account currency is unavailable", async () => {
     queryMock.mockResolvedValue([
       historyRow({

@@ -137,7 +137,7 @@ const LEGACY_TOKEN_LEDGER: ReadonlyArray<{
     category: "compat-boundary",
     why: "legacy readiness and creative blocker codes mapped to fail-closed buyer copy",
     tokens: {
-      missing_campaign_label: 3,
+      missing_campaign_label: 5,
       campaign_label_missing: 1,
       unlabeled_campaign_context: 1,
       unlabeled_campaign_soft_only: 1,

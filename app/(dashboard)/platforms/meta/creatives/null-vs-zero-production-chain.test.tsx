@@ -263,14 +263,17 @@ function showColumns(set: "Performance" | "Engagement" | "Funnel") {
  * it expects would make it blind to the next one added.
  */
 function visibleMetricCells(): Map<string, string> {
-  const headers = Array.from(document.querySelectorAll("thead th"))
-    .map((cell) => (cell.textContent ?? "").replace(/[▲▼]/g, "").trim())
-    .slice(4, -1);
+  const allHeaders = Array.from(document.querySelectorAll("thead th")).map(
+    (cell) => (cell.textContent ?? "").replace(/[▲▼]/g, "").trim(),
+  );
+  const firstMetricIndex = allHeaders.indexOf("Marketing angle") + 1;
+  expect(firstMetricIndex, "the metric columns have no leading anchor").toBeGreaterThan(0);
+  const headers = allHeaders.slice(firstMetricIndex, -1);
   const row = document.querySelector("[data-creative-studio-asset-row]");
   expect(row, "the Assets table rendered no creative row").not.toBeNull();
   const cells = Array.from(row!.querySelectorAll("td"))
     .map((cell) => cell.textContent?.trim() ?? "")
-    .slice(4, -1);
+    .slice(firstMetricIndex, -1);
   expect(cells).toHaveLength(headers.length);
   return new Map(headers.map((header, index) => [header, cells[index] ?? ""]));
 }

@@ -391,9 +391,9 @@
 
 .toneNegative {
   --tone-bg: #fdecf0;
-  --tone-fg: #e11d48;
+  --tone-fg: #be123c;
   --tone-border: #f6c6d2;
-  --tone-solid: #e11d48;
+  --tone-solid: #be123c;
 }
 
 .toneWarning {
@@ -1391,13 +1391,13 @@
 .pageEyebrow,
 .asOfLine,
 .scopeRow > p {
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .kpiLabel,
 .watchBadge,
 .inspectorEyebrow {
-  font-size: 9.5px;
+  font-size: 12px;
 }
 
 .snapshotDetail,
@@ -1408,14 +1408,14 @@
 .postureDetail,
 .creativeDecisionLabel,
 .inspectorMoneyDetail {
-  font-size: 11.5px;
+  font-size: 12px;
 }
 
 .modeChip,
 .scopeOption > span,
 .healthyStrategy,
 .inspectorMeta {
-  font-size: 10.5px;
+  font-size: 12px;
 }
 
 .laneOption > span,
@@ -1424,7 +1424,7 @@
 .archiveStatus,
 .inspectorDecision,
 .evidenceRow > span:last-child {
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .entityLevel,
@@ -1436,20 +1436,20 @@
 .reasonHeading,
 .blockersHeading,
 .inspectorMiniLabel {
-  font-size: 9px;
+  font-size: 12px;
 }
 
 .archiveTable th,
 .provenance {
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .creativeKind {
-  font-size: 8px;
+  font-size: 12px;
 }
 
 .creativeSparkLabel {
-  font-size: 8.5px;
+  font-size: 12px;
 }
 /* dashboard-v2-meta-exact-reference-type:end */
 
@@ -1918,40 +1918,22 @@
 /*
  * The blocked lane's card.
  *
- * Same geometry as an action card, with the primary button's column given to
- * the blocker instead — the row's terminal fact is why it cannot move, not what
- * to press.
+ * Same compact geometry as an action card, with one concise next-step column.
+ * The selected row's evidence inspector carries the full explanation.
  */
 .needsResolutionCard {
   display: grid;
   grid-template-columns:
     minmax(170px, 1.4fr) auto minmax(112px, 0.9fr) auto
-    minmax(120px, 0.8fr);
+    minmax(118px, 0.75fr);
 }
 
-.blockerSummary {
-  display: flex;
+.resolutionStep {
   min-width: 0;
-  align-items: center;
-  gap: 6px;
-  justify-content: flex-end;
-}
-
-.blockerChip {
-  display: inline-flex;
-  align-items: center;
-  min-width: 0;
-  min-height: 24px;
-  max-width: 280px;
-  padding: 3px 10px;
-  border: 1px solid var(--tone-border, #e4e8f0);
-  border-radius: 9999px;
-  background: var(--tone-bg, #fbf3e1);
-  color: var(--tone-fg, #8a3d05);
+  color: #45526b;
   font-size: 12px;
   font-weight: 600;
-  line-height: 18px;
-  white-space: normal;
+  line-height: 16px;
 }
 
 @media (max-width: 720px) {
@@ -1960,12 +1942,8 @@
   }
 
   .needsResolutionCard .actionIdentity,
-  .needsResolutionCard .blockerSummary {
+  .needsResolutionCard .resolutionStep {
     grid-column: 1 / -1;
-  }
-
-  .needsResolutionCard .blockerSummary {
-    justify-content: flex-start;
   }
 }
 

@@ -68,8 +68,6 @@
 }
 
 .confirmationCount,
-.confirmationHint,
-.sectionHint,
 .autonomyTier {
   font-size: 12px;
 }
@@ -117,9 +115,6 @@
 .cardKicker,
 .cardKickerDark,
 .confirmationCount,
-.confirmationHint,
-.sectionHint,
-.sectionFootnote,
 .rulesTable th,
 .ledgerTable th,
 .progressValue,
@@ -165,6 +160,10 @@
   border: 1px solid #d7dde8;
   border-radius: 16px;
   background: linear-gradient(135deg, #f7f9fc 0%, #eef3ff 100%);
+}
+
+.operatingState[data-operating-state="unavailable"] {
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .operatingStateEyebrow {
@@ -492,9 +491,8 @@
   font-weight: 500;
 }
 
-.confirmationHint {
-  margin-left: auto;
-  color: #68707f;
+.confirmationCount[data-state="unavailable"] {
+  background: #68707f;
 }
 
 .confirmationEmpty {
@@ -509,6 +507,16 @@
   border-top: 1px solid #f3f5f9;
   color: #68707f;
   font-size: 13px;
+}
+
+.confirmationCard[data-queue-state="unavailable"] .confirmationHeader {
+  background: #f7f9fc;
+}
+
+.confirmationCard[data-queue-state="unavailable"] .confirmationEmpty {
+  min-height: 0;
+  justify-content: flex-start;
+  padding: 13px 16px;
 }
 
 /* The unresolved-scope account control. It is mounted inside the read-failure
@@ -697,18 +705,15 @@
   font-size: 12px;
 }
 
-/* The read-failure notice: the existing error tone, above the cards it explains. */
+/* Read recovery lives inside the primary status card, beside the unavailable fact. */
 .readError {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 10px;
-  margin: 0;
-  border: 1px solid #f3d7ae;
-  border-radius: 10px;
-  background: #fdf7ec;
-  padding: 10px 14px;
+  margin: 7px 0 0;
   color: #b45309;
-  font-size: 12px;
+  font-size: 14px;
 }
 
 .readRetry {
@@ -763,10 +768,6 @@
 
 .sectionHeader {
   flex-wrap: wrap;
-}
-
-.sectionHint {
-  color: #68707f;
 }
 
 .newRule {
@@ -1034,6 +1035,25 @@
   padding: 12px 16px;
 }
 
+.autonomyUnavailable {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-top: 1px solid #f3f5f9;
+  padding: 12px 16px;
+  color: #45526b;
+  font-size: 13px;
+}
+
+.autonomyUnavailable strong {
+  border-radius: 6px;
+  background: #f1f4f9;
+  padding: 2px 8px;
+  color: #45526b;
+  font-size: 12px;
+}
+
 .autonomyTopline,
 .progressRow {
   display: flex;
@@ -1297,6 +1317,28 @@
   line-height: 1.5;
 }
 
+.mobileReadRecovery {
+  display: grid;
+  min-width: 0;
+  gap: 10px;
+  border: 1px solid #f3d7ae;
+  border-radius: 10px;
+  background: #fdf7ec;
+  padding: 12px;
+  color: #7c3f08;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.mobileReadRecovery p {
+  margin: 0;
+}
+
+.mobileReadRecovery .readRetry {
+  justify-self: start;
+  margin-left: 0;
+}
+
 .mobileFacts {
   display: grid;
   margin: 0;
@@ -1373,6 +1415,51 @@
   .proposalExpiry {
     min-width: 0;
     overflow-wrap: anywhere;
+  }
+
+  .mobileReadRecovery .accountPicker {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  .mobileReadRecovery .accountPicker select {
+    width: 100%;
+    max-width: none;
+  }
+
+  /* A populated ledger keeps its horizontal table. An empty or unread ledger
+     is one sentence, so its four-column desktop floor must not push that
+     sentence beyond a 390px or 320px viewport. */
+  .ledgerCard[data-ledger-state="empty"],
+  .ledgerCard[data-ledger-state="unavailable"],
+  .ledgerCard[data-ledger-state="empty"] .tableScroll,
+  .ledgerCard[data-ledger-state="unavailable"] .tableScroll {
+    overflow-x: hidden;
+  }
+
+  .ledgerCard[data-ledger-state="empty"] .ledgerTable,
+  .ledgerCard[data-ledger-state="unavailable"] .ledgerTable {
+    min-width: 100%;
+    table-layout: fixed;
+  }
+
+  .ledgerCard[data-ledger-state="empty"] .ledgerTable thead,
+  .ledgerCard[data-ledger-state="unavailable"] .ledgerTable thead {
+    display: none;
+  }
+
+  .ledgerCard[data-ledger-state="empty"] .ledgerEmpty,
+  .ledgerCard[data-ledger-state="unavailable"] .ledgerEmpty {
+    height: auto;
+  }
+
+  .ledgerCard[data-ledger-state="empty"] .ledgerEmpty td,
+  .ledgerCard[data-ledger-state="unavailable"] .ledgerEmpty td {
+    padding: 13px 16px;
+    overflow-wrap: anywhere;
+    text-align: left;
   }
 }
 

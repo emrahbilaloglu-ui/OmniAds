@@ -807,6 +807,7 @@ function AssetsView({
   model: CreativeStudioAssetsModel | undefined;
 }) {
   const rows = model?.rows ?? [];
+  const decisionDataUnavailable = model?.decisionReadState === "unavailable";
   const [pinnedIds, setPinnedIds] = useState<string[]>([]);
   const [metricSet, setMetricSet] = useState<MetricSetId>("performance");
   const [customMetrics, setCustomMetrics] = useState<CreativeAssetMetricId[]>([
@@ -1035,6 +1036,17 @@ function AssetsView({
         />
       </div>
 
+      {decisionDataUnavailable ? (
+        <p
+          className={styles.decisionAvailabilityNotice}
+          data-creative-decision-availability="unavailable"
+          role="note"
+        >
+          Recommendations are temporarily unavailable. Creative performance is
+          still shown below.
+        </p>
+      ) : null}
+
       {pinnedRows.length > 0 ? (
         <section className={styles.comparisonBoard}>
           <div className={styles.sectionHeadingRow}>
@@ -1069,12 +1081,14 @@ function AssetsView({
                   <span className={styles.kindBadge}>
                     {displayText(row.kind)}
                   </span>
-                  <span
-                    className={`${styles.statusBadge} ${TONE_CLASSES[row.statusTone]}`}
-                    title={row.statusDetail ?? undefined}
-                  >
-                    {creativeDecisionStatusText(row)}
-                  </span>
+                  {!decisionDataUnavailable ? (
+                    <span
+                      className={`${styles.statusBadge} ${TONE_CLASSES[row.statusTone]}`}
+                      title={row.statusDetail ?? undefined}
+                    >
+                      {creativeDecisionStatusText(row)}
+                    </span>
+                  ) : null}
                 </div>
                 <div className={styles.boardCardBody}>
                   <p className={styles.boardCardName}>
@@ -1252,7 +1266,7 @@ function AssetsView({
               <tr>
                 <th className={styles.selectionColumn} />
                 <th scope="col">Creative</th>
-                <th scope="col">Status</th>
+                {!decisionDataUnavailable ? <th scope="col">Status</th> : null}
                 <th scope="col">Marketing angle</th>
                 {visibleMetrics.map((metric) => {
                   const active = sort.key === metric.id;
@@ -1300,7 +1314,9 @@ function AssetsView({
             <tbody>
               {tableRows.length === 0 ? (
                 <EmptyRow
-                  colSpan={visibleMetrics.length + 5}
+                  colSpan={
+                    visibleMetrics.length + (decisionDataUnavailable ? 4 : 5)
+                  }
                   message={modelMessage(model)}
                 />
               ) : (
@@ -1360,20 +1376,22 @@ function AssetsView({
                           </span>
                         </div>
                       </td>
-                      <td>
-                        <span
-                          className={`${styles.tableStatus} ${TONE_CLASSES[row.statusTone]}`}
-                          data-creative-classification={
-                            row.status?.trim() || "Not evaluated"
-                          }
-                          data-creative-decision-segment={
-                            row.decisionSegment?.trim() || "none"
-                          }
-                          title={row.statusDetail ?? undefined}
-                        >
-                          {creativeDecisionStatusText(row)}
-                        </span>
-                      </td>
+                      {!decisionDataUnavailable ? (
+                        <td>
+                          <span
+                            className={`${styles.tableStatus} ${TONE_CLASSES[row.statusTone]}`}
+                            data-creative-classification={
+                              row.status?.trim() || "Not evaluated"
+                            }
+                            data-creative-decision-segment={
+                              row.decisionSegment?.trim() || "none"
+                            }
+                            title={row.statusDetail ?? undefined}
+                          >
+                            {creativeDecisionStatusText(row)}
+                          </span>
+                        </td>
+                      ) : null}
                       {/*
                         `title` because the cell now truncates: the metric block
                         to its right grew from four or five columns to as many

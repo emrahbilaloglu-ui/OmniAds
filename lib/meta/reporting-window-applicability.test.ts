@@ -55,16 +55,18 @@ describe("metaSurfaceForPathname", () => {
 });
 
 describe("reportingWindowApplicability", () => {
-  it("withholds the picker on every current_state surface", () => {
+  it("withholds the picker when the surface does not read the global range", () => {
     for (const path of [
       "/c/biz_1/meta/automation",
+      "/c/biz_1/meta/launchpad",
       "/app/manage/integrations",
       "/c/biz_1/creative/shares",
       "/c/biz_1/creative/briefs",
     ]) {
       const result = reportingWindowApplicability(path);
       expect(result.applies, path).toBe(false);
-      expect(result.note, path).toContain("not applied");
+      expect(result.comparisonApplies, path).toBe(false);
+      expect(result.note, path).toContain("not used");
     }
   });
 
@@ -74,12 +76,17 @@ describe("reportingWindowApplicability", () => {
       "/c/biz_1/creative/copies",
       "/c/biz_1/meta/history",
       "/c/biz_1/meta/decisions",
-      "/c/biz_1/meta/launchpad",
     ]) {
       const result = reportingWindowApplicability(path);
       expect(result.applies, path).toBe(true);
       expect(result.note, path).toBeNull();
     }
+  });
+
+  it("keeps event windows selectable without offering an unused comparison", () => {
+    const result = reportingWindowApplicability("/c/biz_1/meta/history");
+    expect(result.applies).toBe(true);
+    expect(result.comparisonApplies).toBe(false);
   });
 
   it("leaves an unregistered path fully active", () => {
@@ -88,6 +95,7 @@ describe("reportingWindowApplicability", () => {
     // control it may need.
     const result = reportingWindowApplicability("/app/reports");
     expect(result.applies).toBe(true);
+    expect(result.comparisonApplies).toBe(true);
     expect(result.surfaceId).toBeNull();
     expect(result.note).toBeNull();
   });

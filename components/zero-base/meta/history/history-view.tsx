@@ -17,7 +17,6 @@ import { useState, type ReactNode } from "react";
 import { Button } from "@/components/zero-base/primitives/button";
 import { TextInput } from "@/components/zero-base/primitives/text-input";
 import { UnavailableState } from "@/components/zero-base/states/surface-state";
-import { actorLabel } from "@/lib/zero-base/meta/automation-posture";
 import {
   moneyFactText,
   type HistoryRow,
@@ -42,6 +41,7 @@ const HISTORY_LABELS: Record<string, string> = {
   validation_blocked: "Blocked",
   write_blocked: "Blocked",
   partially_succeeded: "Partially succeeded",
+  observed: "Observed",
   label_flips: "Role changes",
   external_changes: "External changes",
   writes: "Changes",
@@ -64,7 +64,20 @@ function historyLabel(value: string): string {
 }
 
 function historyActorLabel(actor: string | null): string {
-  return actor === "No human actor (engine)" ? "Automated" : actorLabel(actor);
+  const normalized = actor?.trim() ?? "";
+  if (!normalized) return "Not recorded";
+  if (
+    normalized.toLowerCase() === "system" ||
+    normalized === "No human actor (engine)"
+  ) {
+    return "Not recorded";
+  }
+  if (
+    normalized.toLowerCase() === "automated"
+  ) {
+    return "Automated";
+  }
+  return normalized;
 }
 
 export function HistoryView({
@@ -92,12 +105,9 @@ export function HistoryView({
   /**
    * The two days these rows were read for, and where those days came from.
    *
-   * IT IS PRINTED, and that is the point. The journal is bounded now for every
-   * URL shape, including the ones that state no window — and a boundary the
-   * operator cannot see is worse than no boundary at all, because entries are
-   * missing and nothing on screen says why. When the window came from the URL
-   * this line simply agrees with the chip above it; when it is the fallback, the
-   * line says so in the same breath as the dates.
+   * The shared shell prints and changes this range. This surface keeps the
+   * exact resolved dates as DOM metadata for audit/tests without repeating the
+   * same range as a second visible line below the heading.
    *
    * Absent on the unavailable states and in the harnesses that render this view
    * without a route, where there is no window to name.
@@ -184,6 +194,9 @@ export function HistoryView({
       data-history-surface=""
       data-history-layout=""
       data-screen-label="Meta · History"
+      data-history-window-start={dateWindow?.start}
+      data-history-window-end={dateWindow?.end}
+      data-history-window-source={dateWindow?.source}
       className={legacyStyles.workspace}
       style={{
         display: "grid",
@@ -238,20 +251,6 @@ export function HistoryView({
             }}
           >
             Account {visibleAccountLabel}
-          </p>
-        ) : null}
-
-        {dateWindow ? (
-          <p
-            data-history-window=""
-            data-history-window-source={dateWindow.source}
-            style={{
-              margin: "4px 0 0",
-              fontSize: 12,
-              color: "var(--ledger-ink-tertiary)",
-            }}
-          >
-            {dateWindow.start} – {dateWindow.end}
           </p>
         ) : null}
 
@@ -395,15 +394,18 @@ export function HistoryView({
               },
               {
                 id: "actor",
-                header: "Actor",
-                render: (row) => (
-                  <span
-                    data-actor={row.id}
-                    data-actor-known={row.actor ? "yes" : "no"}
-                  >
-                    {historyActorLabel(row.actor)}
-                  </span>
-                ),
+                header: "By",
+                render: (row) => {
+                  const actor = historyActorLabel(row.actor);
+                  return (
+                    <span
+                      data-actor={row.id}
+                      data-actor-known={actor === "Not recorded" ? "no" : "yes"}
+                    >
+                      {actor}
+                    </span>
+                  );
+                },
               },
               {
                 id: "replay",

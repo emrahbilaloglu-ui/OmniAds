@@ -843,7 +843,7 @@ describe("Creative Studio Status column carries the engine's classification", ()
     expect(statusColumn()).toEqual(["Not evaluated"]);
   });
 
-  it("distinguishes an unavailable decision read from a successful unmatched read", () => {
+  it("states an unavailable decision read once without filling every row with the same non-decision", () => {
     const rows = buildApiRows([
       creativeDay({
         creativeId: "cre_unavailable",
@@ -873,7 +873,18 @@ describe("Creative Studio Status column carries the engine's classification", ()
       },
     });
 
-    expect(statusColumn()).toEqual(["Decision data unavailable"]);
+    expect(
+      screen.getByText(
+        "Recommendations are temporarily unavailable. Creative performance is still shown below.",
+      ),
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole("columnheader", { name: "Status" }),
+    ).toBeNull();
+    expect(
+      document.querySelectorAll("[data-creative-classification]"),
+    ).toHaveLength(0);
+    expect(screen.getByText("Endpoint unavailable")).toBeTruthy();
   });
 
   /**

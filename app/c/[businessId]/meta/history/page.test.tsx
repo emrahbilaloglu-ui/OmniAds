@@ -584,14 +584,14 @@ describe("Meta History reads the window the shell states", () => {
     expect(call?.query.to).toBe("2026-08-17");
   });
 
-  it("falls back to the shell's own default when the URL states no window, and SAYS SO", async () => {
+  it("falls back to the shell's own default when the URL states no window", async () => {
     // RESTATED LAW, and the one that reversed.
     //
     // The old assertion was `from: null, to: null`, on the reasoning that an
     // invented default "would hide entries nobody asked to exclude, and would do
     // it without saying so". The first half of that is right and is why the
-    // second half is now false rather than accepted: the fallback is STATED on
-    // the surface, in the same line as the dates, so nothing is hidden silently.
+    // second half is now false rather than accepted: the shell states the
+    // fallback while the body reads that same bounded window.
     //
     // What the old reading actually produced was the opposite lie. The topbar
     // always asserts a window — before hydration it asserts the default, after
@@ -615,11 +615,8 @@ describe("Meta History reads the window the shell states", () => {
       preset: "28d",
       source: "default",
     });
-    // `source` is what the surface prints, so it has to reach the boundary. The
-    // rendering itself is pinned in `history-surface.test.tsx`, where the real
-    // `HistoryClient` mounts the real `HistoryView` — here it is stubbed, so
-    // asserting on the body's own markup would assert on the stub and prove
-    // nothing.
+    // `source` reaches the boundary as audit metadata. Its rendering is pinned
+    // in `history-surface.test.tsx`; here HistoryClient is stubbed.
     //
     // What DOES render here is the §9 surface-state region, which the page owns
     // rather than the body. It is asserted rather than stripped: a page that

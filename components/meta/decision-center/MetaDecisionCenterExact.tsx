@@ -175,12 +175,10 @@ export interface MetaDecisionCenterExactActionRowViewModel {
 /**
  * A row the server classified `blocked`, with what is holding it.
  *
- * The extra fields over an action row are all server text: `blocker` is the
- * readiness blocker vocabulary the inspector already prints, `resolution` is
- * the server's own next step, and neither is composed here. There is no
- * `actionLabel` and no `onPrimary` by design — a blocked decision has no
- * authorized action, and offering one would be the UI deciding something the
- * server refused.
+ * The extra fields over an action row are stable buyer copy mapped from the
+ * server's blocker and resolution codes. There is no `actionLabel` and no
+ * `onPrimary` by design — a blocked decision has no authorized action, and
+ * offering one would be the UI deciding something the server refused.
  */
 export interface MetaDecisionCenterExactNeedsResolutionRowViewModel {
   id: string;
@@ -194,12 +192,14 @@ export interface MetaDecisionCenterExactNeedsResolutionRowViewModel {
   /** The served verdict, still printed: blocked is about authority, not truth. */
   decisionLabel?: MetaDecisionCenterExactDisplayValue;
   decisionTone?: MetaDecisionCenterExactTone;
-  /** Why this row cannot move, in the server's words. */
+  /** Why this row cannot move, mapped to stable buyer-facing copy. */
   blocker?: MetaDecisionCenterExactDisplayValue;
+  /** True only when `blocker` came from the buyer-copy mapping. */
+  blockerBuyerFacing?: boolean;
   /** Exact number of server-owned readiness checks still open. */
   blockerCount?: number | null;
   blockerTone?: MetaDecisionCenterExactTone;
-  /** The server's next step, when it stated one. */
+  /** The next step mapped from the server's resolution code. */
   resolution?: MetaDecisionCenterExactDisplayValue;
   money?: MetaDecisionCenterExactDisplayValue;
   confidence?: MetaDecisionCenterExactDisplayValue;
@@ -822,6 +822,101 @@ function display(value: MetaDecisionCenterExactDisplayValue): string {
   return value.trim() || EM_DASH;
 }
 
+function inspectorDateLocale(language: "en" | "tr"): string {
+  return language === "tr" ? "tr-TR" : "en-US";
+}
+
+function calendarDate(value: string): Date | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value.trim());
+  if (!match) return null;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const parsed = new Date(Date.UTC(year, month - 1, day));
+  return Number.isFinite(parsed.getTime()) &&
+    parsed.toISOString().slice(0, 10) === value.trim()
+    ? parsed
+    : null;
+}
+
+function postgresInstant(value: string): Date | null {
+  const normalized = value
+    .trim()
+    .replace(/^(\d{4}-\d{2}-\d{2})\s+/, "$1T")
+    .replace(/(\.\d{3})\d+/, "$1")
+    .replace(/([+-]\d{2})(\d{2})$/, "$1:$2")
+    .replace(/([+-]\d{2})$/, "$1:00");
+  const parsed = new Date(normalized);
+  return Number.isFinite(parsed.getTime()) ? parsed : null;
+}
+
+function formatInspectorDate(value: string, language: "en" | "tr"): string {
+  const parsed = calendarDate(value);
+  if (!parsed) return value;
+  return new Intl.DateTimeFormat(inspectorDateLocale(language), {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    timeZone: "UTC",
+  }).format(parsed);
+}
+
+function formatInspectorAsOf(
+  value: MetaDecisionCenterExactDisplayValue,
+  language: "en" | "tr",
+): string {
+  const raw = display(value);
+  const dateOnly = calendarDate(raw);
+  if (dateOnly) return formatInspectorDate(raw, language);
+  const parsed = postgresInstant(raw);
+  if (!parsed) return raw;
+  return new Intl.DateTimeFormat(inspectorDateLocale(language), {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZone: "UTC",
+    timeZoneName: "short",
+  }).format(parsed);
+}
+
+function formatInspectorEvidenceWindow(
+  value: MetaDecisionCenterExactDisplayValue,
+  language: "en" | "tr",
+): string {
+  const raw = display(value);
+  const match = /^(\d{4}-\d{2}-\d{2})\s+to\s+(\d{4}-\d{2}-\d{2})$/.exec(
+    raw,
+  );
+  if (!match) return raw;
+  return `${formatInspectorDate(match[1], language)} – ${formatInspectorDate(match[2], language)}`;
+}
+
+const GENERIC_NEEDS_RESOLUTION_COPY = new Set([
+  "Review and apply this change manually.",
+  "Review the evidence before making a change.",
+]);
+
+export function metaNeedsResolutionNextStep(
+  row: MetaDecisionCenterExactNeedsResolutionRowViewModel,
+  language: "en" | "tr",
+): string {
+  const resolution = display(row.resolution);
+  if (
+    meaningfulDisplay(row.resolution) &&
+    !GENERIC_NEEDS_RESOLUTION_COPY.has(resolution)
+  ) {
+    return resolution;
+  }
+  if (row.blockerBuyerFacing && meaningfulDisplay(row.blocker)) {
+    return display(row.blocker);
+  }
+  return language === "tr"
+    ? "Karar ayrıntılarını açın."
+    : "Open decision details.";
+}
+
 function nonBlankDisplay(value: MetaDecisionCenterExactDisplayValue): boolean {
   return typeof value === "string" && value.trim().length > 0;
 }
@@ -1372,11 +1467,10 @@ function ActionLane({
 /**
  * The lane for rows whose authority the server withheld.
  *
- * Deliberately actionless. Every other lane's card ends in a primary button;
- * this one ends in the blocker and the server's next step, because a blocked
- * decision has no authorized action and drawing a disabled one would suggest
- * the operator is one permission away from something the engine has not
- * decided.
+ * Deliberately actionless. Each row carries one concise next step, while the
+ * selected row's evidence inspector carries the full reason. Generic review
+ * prose is suppressed, and the queue preserves the verdict, metrics and
+ * confidence.
  */
 function NeedsResolutionLane({
   rows,
@@ -1461,33 +1555,9 @@ function NeedsResolutionLane({
                 : " · capped"
               : ""}
           </span>
-          {/*
-            The blocker, in the server's words. This is the whole point of the
-            lane: the row is here because `node.lane === "blocked"`, and the
-            operator's next question is what is holding it.
-          */}
-          <div
-            aria-label={
-              meaningfulDisplay(row.resolution)
-                ? display(row.resolution)
-                : display(row.blocker)
-            }
-            className={styles.blockerSummary}
-            title={
-              meaningfulDisplay(row.resolution)
-                ? display(row.resolution)
-                : display(row.blocker)
-            }
-          >
-            <span
-              className={`${styles.blockerChip} ${toneClass(row.blockerTone ?? "warning")}`}
-              data-el="blocker-chip"
-            >
-              {meaningfulDisplay(row.resolution)
-                ? display(row.resolution)
-                : display(row.blocker)}
-            </span>
-          </div>
+          <span className={styles.resolutionStep} data-el="resolution-step">
+            {metaNeedsResolutionNextStep(row, language)}
+          </span>
         </article>
       ))}
       <LanePaging
@@ -2247,6 +2317,9 @@ function EvidenceInspector({
         }
       : null;
   const inspectorTone = toneClass(model.tone);
+  const remediation = meaningfulDisplay(model.serverVerdict)
+    ? model.serverVerdict
+    : model.decisionLabel;
 
   return (
     <aside
@@ -2286,7 +2359,7 @@ function EvidenceInspector({
             {language === "tr" ? "Ne yapılmalı" : "What to do"}
           </p>
           <p className={styles.contractCopy}>
-            <b>{display(model.decisionLabel)}</b>
+            <b>{display(remediation)}</b>
           </p>
         </div>
 
@@ -2343,14 +2416,19 @@ function EvidenceInspector({
             {meaningfulDisplay(model.asOf) ? (
               <div>
                 <dt>{copy.asOf}</dt>
-                <dd data-el="asof-row">{display(model.asOf)}</dd>
+                <dd data-el="asof-row">
+                  {formatInspectorAsOf(model.asOf, language)}
+                </dd>
               </div>
             ) : null}
             {meaningfulDisplay(model.evidenceWindow) ? (
               <div>
                 <dt>{copy.evidenceWindow}</dt>
                 <dd data-el="evidence-window">
-                  {display(model.evidenceWindow)}
+                  {formatInspectorEvidenceWindow(
+                    model.evidenceWindow,
+                    language,
+                  )}
                 </dd>
               </div>
             ) : null}

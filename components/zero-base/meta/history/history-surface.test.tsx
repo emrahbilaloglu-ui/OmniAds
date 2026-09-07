@@ -201,6 +201,37 @@ describe("history limitations stay visible without exposing internals", () => {
     vi.clearAllMocks();
   });
 
+  it("keeps actor copy short and distinguishes automation from missing attribution", () => {
+    const base = UNFILTERED.rows[0]!;
+    render(
+      <HistoryView
+        rows={[
+          { ...base, id: "missing", actor: null },
+          { ...base, id: "engine", actor: "No human actor (engine)" },
+          { ...base, id: "system", actor: "System" },
+          { ...base, id: "automatic", actor: "Automated" },
+          { ...base, id: "named", actor: "Ada" },
+        ]}
+      />,
+    );
+
+    expect(screen.getByRole("columnheader", { name: "By" })).toBeTruthy();
+    expect(
+      Array.from(document.querySelectorAll("[data-actor]")).map((node) =>
+        node.textContent?.trim(),
+      ),
+    ).toEqual([
+      "Not recorded",
+      "Not recorded",
+      "Not recorded",
+      "Automated",
+      "Ada",
+    ]);
+    expect(document.body.textContent).not.toContain("Actor not recorded");
+    expect(document.body.textContent).not.toContain("No human actor");
+    expect(document.body.textContent).not.toContain("System");
+  });
+
   it("summarizes served limitations with stable operator copy", () => {
     render(
       <HistoryView
@@ -323,10 +354,7 @@ describe("the stated window is the window History reads", () => {
     expect(call.cursor).toBeNull();
   });
 
-  it("prints the window these rows were read for", async () => {
-    // The dates on screen are the dates that were read. Without this line the
-    // only statement of the window is the shell's chip, which is a different
-    // component reading a different source.
+  it("keeps the resolved window as audit metadata without repeating the shell range", async () => {
     render(
       <HistoryClient
         businessId="biz_1"
@@ -337,14 +365,16 @@ describe("the stated window is the window History reads", () => {
       />,
     );
 
-    const line = document.querySelector("[data-history-window]")!;
-    expect(line.textContent).toContain("2026-08-11 – 2026-08-17");
-    expect(line.getAttribute("data-history-window-source")).toBe("url");
-    // A window the link stated needs no apology beside it.
-    expect(line.textContent).not.toMatch(/entries outside it are not shown/);
+    const surface = document.querySelector("[data-history-surface]")!;
+    expect(surface.getAttribute("data-history-window-start")).toBe(
+      "2026-08-11",
+    );
+    expect(surface.getAttribute("data-history-window-end")).toBe("2026-08-17");
+    expect(surface.getAttribute("data-history-window-source")).toBe("url");
+    expect(document.querySelector("[data-history-window]")).toBeNull();
   });
 
-  it("reads the defaulted window while keeping the visible date line concise", async () => {
+  it("reads the defaulted window without adding a second visible range", async () => {
     // RESTATED LAW. This test used to assert `from: null, to: null` for a URL
     // that stated no window, with the reasoning that an invented default "would
     // hide entries nobody asked to exclude — and would do it silently".
@@ -356,8 +386,8 @@ describe("the stated window is the window History reads", () => {
     // journal back to the account's first entry, under "Last 28 days".
     //
     // So the server resolves the shell's own default preset and marks it
-    // `source: "default"`, and this surface prints that fact in the same line as
-    // the dates. The exclusion is still real; it is no longer invisible.
+    // `source: "default"`. The shell remains the one visible owner of the
+    // range, while the resolved dates stay inspectable as surface metadata.
     const user = userEvent.setup();
     const defaulted = {
       start: "2026-07-21",
@@ -375,10 +405,13 @@ describe("the stated window is the window History reads", () => {
       />,
     );
 
-    const line = document.querySelector("[data-history-window]")!;
-    expect(line.getAttribute("data-history-window-source")).toBe("default");
-    expect(line.textContent).toContain("2026-07-21 – 2026-08-17");
-    expect(line.textContent).not.toMatch(/default window|entries outside it/i);
+    const surface = document.querySelector("[data-history-surface]")!;
+    expect(surface.getAttribute("data-history-window-start")).toBe(
+      "2026-07-21",
+    );
+    expect(surface.getAttribute("data-history-window-end")).toBe("2026-08-17");
+    expect(surface.getAttribute("data-history-window-source")).toBe("default");
+    expect(document.querySelector("[data-history-window]")).toBeNull();
 
     // And every later read is bounded by the same two days — a search that fell
     // back to unbounded would answer a wider question than the one on screen.

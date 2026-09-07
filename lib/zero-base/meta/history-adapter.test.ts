@@ -4,6 +4,8 @@ import {
   actionFor,
   actorFor,
   historyAccountLabel,
+  historyEntityLabel,
+  historyLabelFor,
   historySummaryFor,
   moneyFactText,
   toHistoryPage,
@@ -17,25 +19,25 @@ import type {
 function entry(overrides: Partial<MetaHistoryEntry> = {}): MetaHistoryEntry {
   return {
     id: "h1",
-    kind: "decision",
+    kind: "writes",
     occurredAt: "2026-08-11T09:00:00.000Z",
     title: "Pause ad",
     summary: null,
     entity: { type: "ad", id: "ad-1", name: "Ad 1" },
     label: null,
-    status: "verified",
+    status: "verified_success",
     actor: { id: "u1", name: "Ada", availability: "available" },
     identity: {
       canonicalDecisionId: null,
       sourceId: "s1",
-      sourceIdKind: "meta_ad_status_attempt",
+      sourceIdKind: "persisted_uuid",
       limitation: "",
     },
     provenance: {
       provider: "meta",
-      source: "meta_ad_status_attempts",
+      source: "meta_ads_action_log",
       sourceId: "s1",
-      accountScopeBasis: "attempt_provider_account",
+      accountScopeBasis: "exact_entity_key",
       attribution: "provider_write_log",
     },
     correlation: { status: "keyed", key: "k1", reason: null },
@@ -44,6 +46,43 @@ function entry(overrides: Partial<MetaHistoryEntry> = {}): MetaHistoryEntry {
     detail: null,
     ...overrides,
   } as MetaHistoryEntry;
+}
+
+function outcomeEntry(
+  overrides: Partial<MetaHistoryEntry> = {},
+): MetaHistoryEntry {
+  return entry({
+    kind: "outcomes",
+    status: "improved",
+    actor: { id: null, name: null, availability: "not_applicable" },
+    provenance: {
+      provider: "meta",
+      source: "meta_decision_action_outcome_logs",
+      sourceId: "outcome-1",
+      accountScopeBasis: "exact_entity_key",
+      attribution: "correlational_outcome",
+    },
+    ...overrides,
+  });
+}
+
+function decisionEntry(
+  overrides: Partial<MetaHistoryEntry> = {},
+): MetaHistoryEntry {
+  return entry({
+    kind: "decisions",
+    status: "published",
+    entity: { type: "creative", id: "creative-1", name: "Creative 1" },
+    actor: { id: null, name: null, availability: "not_applicable" },
+    provenance: {
+      provider: "meta",
+      source: "engine_v3_decision_snapshots_daily",
+      sourceId: "snapshot-1",
+      accountScopeBasis: "unique_creative_key",
+      attribution: "engine_snapshot",
+    },
+    ...overrides,
+  });
 }
 
 function payload(
@@ -94,14 +133,117 @@ describe("actor provenance survives the mapping", () => {
     ).toBeNull();
   });
 
-  it("names the engine when no human actor applies", () => {
+  it("names automation only for engine-owned events", () => {
     expect(
       actorFor(
         entry({
           actor: { id: null, name: null, availability: "not_applicable" },
+          provenance: {
+            provider: "meta",
+            source: "engine_v3_decision_snapshots_daily",
+            sourceId: "snapshot-1",
+            accountScopeBasis: "unique_creative_key",
+            attribution: "engine_snapshot",
+          },
         }),
       ),
-    ).toBe("No human actor (engine)");
+    ).toBe("Automated");
+  });
+
+  it("calls warehouse and outcome facts observed rather than automated", () => {
+    expect(
+      actorFor(
+        entry({
+          kind: "structures",
+          actor: { id: null, name: null, availability: "not_applicable" },
+          provenance: {
+            provider: "meta",
+            source: "meta_campaign_dimensions",
+            sourceId: "campaign-1",
+            accountScopeBasis: "direct_provider_account_id",
+            attribution: "warehouse_dimension",
+          },
+        }),
+      ),
+    ).toBe("Observed");
+  });
+
+  it("does not invent automation for an unattributed write", () => {
+    expect(
+      actorFor(
+        entry({
+          actor: { id: null, name: null, availability: "not_applicable" },
+          provenance: {
+            provider: "meta",
+            source: "meta_decision_action_outcome_logs",
+            sourceId: "action-1",
+            accountScopeBasis: "exact_entity_key",
+            attribution: "provider_write_log",
+          },
+        }),
+      ),
+    ).toBeNull();
+  });
+
+  it("uses event provenance for transitions and measured outcomes", () => {
+    expect(
+      actorFor(
+        entry({
+          kind: "label_flips",
+          actor: { id: null, name: null, availability: "not_applicable" },
+          provenance: {
+            provider: "meta",
+            source: "engine_v3_decision_events",
+            sourceId: "event-1",
+            accountScopeBasis: "unique_creative_key",
+            attribution: "engine_transition",
+          },
+        }),
+      ),
+    ).toBe("Automated");
+    expect(
+      actorFor(
+        entry({
+          kind: "outcomes",
+          actor: { id: null, name: null, availability: "not_applicable" },
+          provenance: {
+            provider: "meta",
+            source: "engine_v3_decision_outcomes_daily",
+            sourceId: "outcome-1",
+            accountScopeBasis: "unique_creative_key",
+            attribution: "correlational_outcome",
+          },
+        }),
+      ),
+    ).toBe("Observed");
+  });
+
+  it("treats unattributed external changes as observations", () => {
+    expect(
+      actorFor(
+        entry({
+          kind: "external_changes",
+          actor: { id: null, name: null, availability: "not_applicable" },
+        }),
+      ),
+    ).toBe("Observed");
+  });
+
+  it("respects unavailable actor evidence even on an engine event", () => {
+    expect(
+      actorFor(
+        entry({
+          actor: { id: null, name: null, availability: "unavailable" },
+          provenance: {
+            provider: "meta",
+            source: "engine_v3_decision_events",
+            sourceId: "manual-event-1",
+            accountScopeBasis: "unique_creative_key",
+            attribution: "engine_transition",
+          },
+        }),
+      ),
+    ).toBeNull();
   });
 
   it("treats an available-but-empty name as unrecorded", () => {
@@ -110,6 +252,21 @@ describe("actor provenance survives the mapping", () => {
         entry({ actor: { id: "u1", name: "  ", availability: "available" } }),
       ),
     ).toBeNull();
+  });
+
+  it("never publishes a pseudo-actor name without trustworthy provenance", () => {
+    expect(
+      actorFor(
+        entry({ actor: { id: "service", name: "System", availability: "available" } }),
+      ),
+    ).toBeNull();
+    expect(
+      actorFor(
+        decisionEntry({
+          actor: { id: "service", name: "System", availability: "available" },
+        }),
+      ),
+    ).toBe("Automated");
   });
 });
 
@@ -206,6 +363,135 @@ describe("the row names the entity it is about", () => {
       ),
     ).toBe("Scale budget");
   });
+
+  it("replaces internal campaign-role instructions with a buyer action", () => {
+    const action = actionFor(
+      entry({
+        title:
+          "Refresh campaign evidence and rerun automatic role inference before taking hard action.",
+        entity: { type: "campaign", id: "campaign-1", name: "Prospecting" },
+      }),
+    );
+
+    expect(action).toBe("Review campaign setup | Prospecting");
+    expect(action).not.toMatch(/inference|engine|hard action/i);
+  });
+
+  it("does not turn a resolved campaign role into an unclear setup", () => {
+    const action = actionFor(
+      decisionEntry({
+        title: "Automatic campaign role resolved as Main",
+        entity: { type: "campaign", id: "campaign-1", name: "Prospecting" },
+      }),
+    );
+
+    expect(action).toBe("Campaign role confirmed: Main | Prospecting");
+    expect(action).not.toContain("Review campaign setup");
+  });
+
+  it("turns workflow storage titles into concise decision activity", () => {
+    expect(
+      actionFor(
+        entry({
+          kind: "decisions",
+          title: "Workflow acknowledge",
+          entity: { type: "recommendation", id: "decision:key", name: null },
+        }),
+      ),
+    ).toBe("Decision acknowledged | Unnamed recommendation");
+  });
+
+  it("turns provider-attempt storage titles into a buyer action", () => {
+    expect(
+      actionFor(
+        entry({
+          kind: "writes",
+          title: "Provider write provider_response_verified_success",
+          status: "verified_success",
+          entity: { type: "ad", id: "ad-1", name: "Summer ad" },
+        }),
+      ),
+    ).toBe("Change verified | Summer ad");
+  });
+
+  it("replaces backend error titles with a truthful status action", () => {
+    const action = actionFor(
+      entry({
+        title: "Database relation history_rows failed at history-read-model.sql:42",
+        status: "failed",
+        entity: { type: "ad", id: "ad-1", name: "Summer ad" },
+      }),
+    );
+
+    expect(action).toBe("Change failed | Summer ad");
+    expect(action).not.toMatch(/database|relation|\.sql/i);
+  });
+
+  it("keeps a partial write truthful when its stored title is unusable", () => {
+    expect(
+      actionFor(
+        entry({
+          title: "provider_partial_write_error",
+          status: "partially_succeeded",
+          entity: { type: "ad", id: "ad-1", name: "Summer ad" },
+        }),
+      ),
+    ).toBe("Change partially applied | Summer ad");
+    expect(
+      actionFor(
+        entry({
+          title: "Provider write provider_partial_write_error",
+          status: "partially_succeeded",
+          entity: { type: "ad", id: "ad-1", name: "Summer ad" },
+        }),
+      ),
+    ).toBe("Change partially applied | Summer ad");
+  });
+
+  it("only translates known launch titles and hides arbitrary LaunchIntent detail", () => {
+    expect(
+      actionFor(
+        entry({
+          kind: "launches",
+          title: "New Campaign LaunchIntent",
+          entity: { type: "launch_intent", id: "launch-1", name: "Prospecting" },
+        }),
+      ),
+    ).toBe("New campaign launch | Prospecting");
+    expect(
+      actionFor(
+        entry({
+          kind: "launches",
+          title: "Retry database_error LaunchIntent",
+          entity: { type: "launch_intent", id: "launch-1", name: "Prospecting" },
+        }),
+      ),
+    ).toBe("Launch updated | Prospecting");
+  });
+
+  it("masks provider ids in the entity heading", () => {
+    expect(
+      historyEntityLabel(
+        entry({
+          entity: {
+            type: "creative",
+            id: "238901234567890",
+            name: "238901234567890",
+          },
+        }),
+      ),
+    ).toBe("Unnamed creative");
+  });
+
+  it("shows only known buyer labels and hides stored codes", () => {
+    expect(historyLabelFor(entry({ label: "test_more" }))).toBe("Test more");
+    expect(
+      historyLabelFor(
+        entry({ label: "role_source_not_system_inferred" }),
+      ),
+    ).toBeNull();
+    expect(historyLabelFor(entry({ label: "238901234567890" }))).toBeNull();
+  });
 });
 
 describe("served detail reaches the row", () => {
@@ -220,7 +506,7 @@ describe("served detail reaches the row", () => {
       },
     ];
     const row = toHistoryRow(
-      entry({ summary: "Spend outran the floor.", money }),
+      outcomeEntry({ summary: "Spend outran the floor.", money }),
     );
     expect(row.summary).toBe("Spend outran the floor.");
     expect(row.money).toEqual(money);
@@ -228,7 +514,7 @@ describe("served detail reaches the row", () => {
 
   it("maps automatic KPI storage text without losing the measured result", () => {
     const raw = "auto_kpi_7d: improved (ROAS 1.25 -> 2.10, operator acted)";
-    const row = toHistoryRow(entry({ status: "improved", summary: raw }));
+    const row = toHistoryRow(outcomeEntry({ status: "improved", summary: raw }));
     expect(row.summary).toBe(
       "ROAS improved from 1.25 to 2.10 over the next 7 days. A recorded action was applied.",
     );
@@ -236,12 +522,235 @@ describe("served detail reaches the row", () => {
   });
 
   it("hides unknown machine summaries while preserving the status", () => {
-    const item = entry({
+    const item = decisionEntry({
       status: "unknown",
       summary: "source_read_failed: relation activity missing",
     });
-    expect(historySummaryFor(item)).toBeNull();
+    expect(historySummaryFor(item)).toBe("The result could not be verified.");
     expect(toHistoryRow(item).outcome).toBe("unknown");
+  });
+
+  it("rewrites campaign-role engine language without dropping the reason", () => {
+    const item = decisionEntry({
+      summary:
+        "Automatic Main/Test/Mixed campaign role is unresolved. Fresh high-confidence context is required before the engine emits hard scale, cut, bid, or budget moves.",
+    });
+    expect(historySummaryFor(item)).toBe(
+      "Campaign setup is unclear, so spend changes are waiting for fresher evidence.",
+    );
+  });
+
+  it("keeps useful evidence before replacing an internal role-inference clause", () => {
+    const item = decisionEntry({
+      summary:
+        "ROAS is 1.4 against a 2.5 target. Automatic campaign-role inference is unresolved, so this hard action is capped to soft-only.",
+    });
+    expect(historySummaryFor(item)).toBe(
+      "ROAS is 1.4 against a 2.5 target. Campaign setup is unclear, so spend changes are waiting for fresher evidence.",
+    );
+  });
+
+  it("preserves a resolved role without fabricating a campaign blocker", () => {
+    expect(
+      historySummaryFor(
+        decisionEntry({ summary: "Automatic campaign role resolved as Main" }),
+      ),
+    ).toBe("Campaign role: Main.");
+  });
+
+  it("keeps buyer metrics beside a translated resolved role", () => {
+    expect(
+      historySummaryFor(
+        decisionEntry({
+          summary:
+            "ROAS improved from 1.8 to 2.3. Automatic campaign role resolved as Main.",
+        }),
+      ),
+    ).toBe("ROAS improved from 1.8 to 2.3. Campaign role: Main.");
+  });
+
+  it("keeps an explicit low-confidence blocker even when a role was classified", () => {
+    expect(
+      historySummaryFor(
+        decisionEntry({
+          summary:
+            "Automatic campaign role resolved as Main, but campaign context has low confidence.",
+        }),
+      ),
+    ).toBe(
+      "Campaign setup is unclear, so spend changes are waiting for fresher evidence.",
+    );
+  });
+
+  it("turns a human workflow reason code into readable copy", () => {
+    expect(historySummaryFor(entry({ summary: "seasonal_expected" }))).toBe(
+      "Seasonal change was expected.",
+    );
+  });
+
+  it("does not expose a technical machine code", () => {
+    expect(
+      historySummaryFor(
+        entry({ status: "failed", summary: "provider_source_read_failed" }),
+      ),
+    ).toBe("The result could not be verified.");
+  });
+
+  it("fails closed on an unknown machine code even when it sounds harmless", () => {
+    expect(
+      historySummaryFor(
+        decisionEntry({ summary: "unknown_operator_reason" }),
+      ),
+    ).toBeNull();
+  });
+
+  it("never exposes provider or database error prose", () => {
+    expect(
+      historySummaryFor(
+        entry({
+          status: "failed",
+          summary:
+            "Provider request failed because database relation decisions does not exist.",
+        }),
+      ),
+    ).toBe("The result could not be verified.");
+  });
+
+  it("states partial application without presenting it as a total failure", () => {
+    expect(
+      historySummaryFor(
+        entry({
+          status: "partially_succeeded",
+          summary: "provider_partial_write_error",
+        }),
+      ),
+    ).toBe(
+      "Some changes were applied. Review the result before continuing.",
+    );
+  });
+
+  it("states partial application even when stored detail sounds successful", () => {
+    expect(
+      historySummaryFor(
+        entry({
+          status: "partially_succeeded",
+          summary: "Two ads were updated and one remains unchanged.",
+        }),
+      ),
+    ).toBe(
+      "Some changes were applied. Review the result before continuing.",
+    );
+    expect(
+      historySummaryFor(
+        entry({ status: "partially_succeeded", summary: null }),
+      ),
+    ).toBe(
+      "Some changes were applied. Review the result before continuing.",
+    );
+  });
+
+  it("falls back on unknown error prose instead of exposing its detail", () => {
+    expect(
+      historySummaryFor(
+        entry({
+          status: "failed",
+          summary: "Request failed with HTTP 500 at apply-change.ts:42.",
+          provenance: {
+            provider: "meta",
+            source: "meta_ads_action_log",
+            sourceId: "action-1",
+            accountScopeBasis: "exact_entity_key",
+            attribution: "provider_write_log",
+          },
+        }),
+      ),
+    ).toBe("The result could not be verified.");
+  });
+
+  it("preserves normal buyer-facing performance evidence", () => {
+    const summary =
+      "ROAS improved from 1.80 to 2.35 while CPA fell from 42 to 31.";
+    expect(historySummaryFor(outcomeEntry({ summary }))).toBe(summary);
+  });
+
+  it("rewrites state-row implementation language", () => {
+    expect(
+      historySummaryFor(
+        decisionEntry({
+          summary:
+            "Entity is mature enough for coverage but does not meet a scenario action threshold.",
+        }),
+      ),
+    ).toBe("Current performance does not justify a change.");
+    expect(
+      historySummaryFor(
+        decisionEntry({
+          summary:
+            "Adset is configured for landing page views delivery; not evaluated in the purchase decision engine.",
+        }),
+      ),
+    ).toBe(
+      "Ad set is optimized for landing page views, so purchase-based changes do not apply.",
+    );
+  });
+
+  it("removes decision-engine tags while keeping ROAS evidence", () => {
+    expect(
+      historySummaryFor(
+        decisionEntry({
+          summary:
+            "[soft-only - cut blocked] ROAS 2.72 (28d) = 49% of target after 4,938 spend. (threshold baseline account_history has low confidence (meta AOV ready))",
+        }),
+      ),
+    ).toBe(
+      "ROAS 2.72 (28d) = 49% of target after 4,938 spend.",
+    );
+  });
+
+  it("does not let a soft-only prefix carry backend detail through", () => {
+    expect(
+      historySummaryFor(
+        decisionEntry({
+          status: "unknown",
+          summary: "[soft-only - cut blocked] Redis connection timed out.",
+        }),
+      ),
+    ).toBe("The result could not be verified.");
+  });
+
+  it("does not let target tags carry backend detail through", () => {
+    expect(
+      historySummaryFor(
+        decisionEntry({
+          status: "unknown",
+          summary: "[at target] Redis connection timed out.",
+        }),
+      ),
+    ).toBe("The result could not be verified.");
+  });
+
+  it("adds campaign setup copy only when the stored blocker says campaign context", () => {
+    expect(
+      historySummaryFor(
+        decisionEntry({
+          summary:
+            "[Campaign context low confidence - hard action restricted] ROAS 1.20 is 34% of target.",
+        }),
+      ),
+    ).toBe(
+      "ROAS 1.20 is 34% of target. Campaign setup is unclear, so spend changes are waiting for fresher evidence.",
+    );
+  });
+
+  it("does not treat a resolved campaign-context tag as a blocker", () => {
+    expect(
+      historySummaryFor(
+        decisionEntry({
+          summary:
+            "[Campaign context resolved] ROAS 2.40 is above target.",
+        }),
+      ),
+    ).toBe("ROAS 2.40 is above target.");
   });
 });
 
@@ -296,19 +805,8 @@ describe("money is only money in a currency", () => {
   });
 });
 
-describe("served text is not re-derived", () => {
-  // Restated, not relaxed. The law was and is: nothing here recomputes what the
-  // read model served — the status word is copied through untouched, and the
-  // served title is never rewritten, reworded or replaced.
-  //
-  // What this test used to also assert, incidentally, was that the Action cell
-  // is *nothing but* the title. That was pinning a data loss: the decisions
-  // branch serves a bare verdict ("Scale budget"), so a money move arrived with
-  // no campaign or ad set on it and the operator could not tell what it was
-  // about. The served entity is now appended after the served title, in the same
-  // " | " form the SQL already uses on the branches that fold it in themselves.
-  // Appended, never substituted.
-  it("copies the served status through and keeps the served title intact", () => {
+describe("stored truth survives the buyer-facing mapping", () => {
+  it("copies the stored status through and keeps a normal action intact", () => {
     const row = toHistoryRow(
       entry({ title: "Resume ad set", status: "silent_failure" }),
     );

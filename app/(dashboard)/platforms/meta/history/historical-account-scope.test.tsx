@@ -1,12 +1,9 @@
 // @vitest-environment jsdom
 //
-// D078 R4 rendered proof: an assigned-but-DESELECTED account must be an
-// EXPLICIT state on the History surface — a separate, clearly-marked
-// read-only group in the account picker, with a scope note stating spend
-// continuity and unserved produced decisions when its scope is chosen. The
-// rejected code offered only selected accounts, so a deselected account
-// with retained history was invisible (these tests fail on it: no optgroup,
-// no note, no deep-link resolution).
+// D078 R4 rendered proof: an assigned-but-DESELECTED account remains an
+// explicit read-only scope in the account picker. Failure of the optional
+// past-account lookup stays visible and does not silently redirect a requested
+// historical scope to the first assigned account.
 import React from "react";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -34,6 +31,9 @@ vi.mock("@/lib/meta/history-client", () => ({
 }));
 vi.mock("@/store/app-store", () => ({
   useAppStore: (selector: (state: unknown) => unknown) => selector(storeMock),
+}));
+vi.mock("next/navigation", () => ({
+  useSearchParams: () => new URLSearchParams(window.location.search),
 }));
 vi.mock("next/link", () => ({
   default: ({ children }: { children: React.ReactNode }) => <a>{children}</a>,
@@ -104,6 +104,14 @@ function journalResponse(providerAccountId: string): MetaHistoryResponse {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  const url = new URL(window.location.href);
+  url.searchParams.delete("providerAccountId");
+  url.searchParams.delete("mode");
+  url.searchParams.delete("replayDate");
+  url.searchParams.set("window", "28d");
+  url.searchParams.set("startDate", "2026-08-09");
+  url.searchParams.set("endDate", "2026-09-05");
+  window.history.replaceState({}, "", url);
   clientMock.fetchMetaHistoryAccountScopes.mockResolvedValue({
     accounts: [SELECTED],
     historicalAccounts: [HISTORICAL],
@@ -164,21 +172,63 @@ describe("History account picker — deselected/historical scopes (D078 R4)", ()
     }
   });
 
-  it("renders an explicit unavailable state when the historical read FAILED (null) — never a silently empty group (C2.3)", async () => {
+  it("defaults to the assigned account only when no account was requested", async () => {
     clientMock.fetchMetaHistoryAccountScopes.mockResolvedValue({
       accounts: [SELECTED],
       historicalAccounts: null,
     });
     render(<MetaHistoryView />);
-    const note = await screen.findByTestId("historical-scope-unavailable");
-    expect(note.textContent).toContain(
-      "Past accounts are temporarily unavailable.",
+    await waitFor(() =>
+      expect(clientMock.fetchMetaHistoryPage).toHaveBeenCalled(),
+    );
+    const lookupNotice = screen.getByTestId("historical-scope-unavailable");
+    expect(lookupNotice).toHaveAttribute("role", "status");
+    expect(lookupNotice).toHaveTextContent(
+      "Past account details are temporarily unavailable.",
+    );
+    expect(screen.getByLabelText("Meta account for History")).toHaveValue(
+      SELECTED.id,
     );
     expect(
       screen.queryByRole("group", {
         name: "Past accounts",
       }),
     ).toBeNull();
+  });
+
+  it("preserves a deep-linked account when the past-account lookup fails", async () => {
+    clientMock.fetchMetaHistoryAccountScopes.mockResolvedValue({
+      accounts: [SELECTED],
+      historicalAccounts: null,
+    });
+    const url = new URL(window.location.href);
+    url.searchParams.set("providerAccountId", HISTORICAL.id);
+    window.history.replaceState({}, "", url);
+
+    render(<MetaHistoryView />);
+
+    await waitFor(() =>
+      expect(clientMock.fetchMetaHistoryPage).toHaveBeenCalled(),
+    );
+    expect(clientMock.fetchMetaHistoryPage).toHaveBeenCalledWith(
+      expect.objectContaining({ providerAccountId: HISTORICAL.id }),
+    );
+    expect(screen.getByLabelText("Meta account for History")).toHaveValue(
+      HISTORICAL.id,
+    );
+    expect(
+      screen.getByRole("option", { name: "Requested account unavailable" }),
+    ).toBeInTheDocument();
+    const lookupNotice = screen.getByTestId("historical-scope-unavailable");
+    expect(lookupNotice).toHaveAttribute("role", "status");
+    expect(lookupNotice).toHaveTextContent(
+      "Past account details are temporarily unavailable.",
+    );
+    expect(
+      clientMock.fetchMetaHistoryPage.mock.calls.some(
+        ([input]) => input.providerAccountId === SELECTED.id,
+      ),
+    ).toBe(false);
   });
 
   it("shows no note for the selected scope", async () => {

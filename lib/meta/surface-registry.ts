@@ -45,6 +45,8 @@ export type SurfaceWindowCapability =
   | "event_window"
   /** What is true right now. Picker does NOT apply and says so. */
   | "current_state"
+  /** The surface owns a fixed evidence window; the global picker does not drive it. */
+  | "fixed_evidence"
   /** Several clocks at once; the picker drives only the part it owns. */
   | "mixed";
 
@@ -178,9 +180,9 @@ export const META_SURFACES: readonly MetaSurface[] = [
     legacyRedirect: ["/platforms/meta/launchpad"],
     mountedBody: "app/(dashboard)/platforms/meta/launchpad/legacy-page.tsx",
     providerAccountCapability: "single_physical",
-    // §8.1 "mixed": candidate evidence and current provider target state are
-    // different clocks and are labelled separately.
-    windowCapability: "mixed",
+    // Candidate evidence uses Launchpad's fixed, labelled eligibility window.
+    // The global reporting picker is not read anywhere on this route.
+    windowCapability: "fixed_evidence",
     actionCapability: "gated_provider_write",
     gate: "META_LAUNCHPAD_EXECUTION",
     activeHrefs: [],
@@ -430,7 +432,10 @@ export function allSurfaceSpellings(): ReadonlyArray<{
  * operator read control state through a window that was not doing anything.
  */
 export function surfaceUsesReportingWindow(surface: MetaSurface): boolean {
-  return surface.windowCapability !== "current_state";
+  return (
+    surface.windowCapability !== "current_state" &&
+    surface.windowCapability !== "fixed_evidence"
+  );
 }
 
 /**
@@ -479,11 +484,8 @@ export function metaSurfaceForPathname(pathname: string): MetaSurface | null {
 /**
  * How the topbar's reporting-range picker should behave on a pathname (§8.2).
  *
- * `applies: false` is the case that matters. Automation, Integrations and the
- * Shares ledger answer "what is true right now"; a range picked above them
- * changed nothing below, so the operator read control state through a window
- * that was doing no work — and had every reason to believe the state they were
- * looking at was the state during those days.
+ * `applies: false` is the case that matters. Current-state surfaces and
+ * surfaces with their own fixed evidence window do not read the global range.
  *
  * A pathname this registry does not know returns `applies: true` with no note.
  * That is the conservative answer: the picker keeps working as it does today
@@ -492,6 +494,8 @@ export function metaSurfaceForPathname(pathname: string): MetaSurface | null {
  */
 export interface ReportingWindowApplicability {
   readonly applies: boolean;
+  /** Whether this surface consumes the comparison range as well. */
+  readonly comparisonApplies: boolean;
   readonly surfaceId: string | null;
   /** Shown beside the disabled picker. Null when the picker applies. */
   readonly note: string | null;
@@ -501,13 +505,27 @@ export function reportingWindowApplicability(
   pathname: string,
 ): ReportingWindowApplicability {
   const surface = metaSurfaceForPathname(pathname);
-  if (!surface) return { applies: true, surfaceId: null, note: null };
+  if (!surface)
+    return {
+      applies: true,
+      comparisonApplies: true,
+      surfaceId: null,
+      note: null,
+    };
   if (surfaceUsesReportingWindow(surface)) {
-    return { applies: true, surfaceId: surface.surfaceId, note: null };
+    return {
+      applies: true,
+      comparisonApplies:
+        surface.windowCapability === "metric_window" ||
+        surface.windowCapability === "mixed",
+      surfaceId: surface.surfaceId,
+      note: null,
+    };
   }
   return {
     applies: false,
+    comparisonApplies: false,
     surfaceId: surface.surfaceId,
-    note: "This screen shows the current state, not a reporting period. The date range is not applied here.",
+    note: "The date range is not used on this screen.",
   };
 }

@@ -133,7 +133,7 @@ describe("history keeps replay and actor gaps visible", () => {
     render(<HistoryView rows={rows} />);
     const unknown = document.querySelector('[data-actor="h2"]')!;
     expect(unknown.getAttribute("data-actor-known")).toBe("no");
-    expect(unknown.textContent).toMatch(/Actor not recorded/);
+    expect(unknown.textContent).toBe("Not recorded");
     expect(unknown.textContent).not.toMatch(/system/i);
   });
 

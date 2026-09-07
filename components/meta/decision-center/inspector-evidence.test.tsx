@@ -34,7 +34,7 @@ describe("the panel states what the verdict was measured over", () => {
       <MetaDecisionCenterExact
         viewModel={viewModel({
           entityName: "Prospecting",
-          asOf: "2026-08-17T06:00:00.000Z",
+          asOf: "2026-08-17 06:00:00.123456+00",
           evidenceWindow: "2026-07-21 to 2026-08-17",
         })}
       />,
@@ -42,8 +42,8 @@ describe("the panel states what the verdict was measured over", () => {
 
     const asOf = document.querySelector('[data-el="asof-row"]');
     const window = document.querySelector('[data-el="evidence-window"]');
-    expect(asOf?.textContent).toBe("2026-08-17T06:00:00.000Z");
-    expect(window?.textContent).toBe("2026-07-21 to 2026-08-17");
+    expect(asOf?.textContent).toBe("Aug 17, 2026, 6:00 AM UTC");
+    expect(window?.textContent).toBe("Jul 21, 2026 – Aug 17, 2026");
     // Two elements, never one: the whole point is that they can disagree.
     expect(asOf).not.toBe(window);
   });

@@ -9,9 +9,11 @@ import {
 import fs from "node:fs";
 import bcrypt from "bcryptjs";
 import { Client } from "pg";
+import { CAMPAIGN_CONTEXT_RESOLVER_VERSION } from "../../lib/creative-decision-engine/campaign-context/resolver";
 import { seedReviewerAccount } from "../helpers/reviewer-auth";
 
 const DEMO_BUSINESS_ID = "11111111-1111-4111-8111-111111111111";
+const META_DECISIONS_BUSINESS_ID = "33333333-3333-4333-8333-333333333333";
 const SMOKE_UUID = "00000000-0000-4000-8000-000000000000";
 // Single source of truth for the request contexts' base URL. Mirrors the value
 // playwright.full-ui-redesign.config.ts derives, avoiding the untyped
@@ -20,11 +22,37 @@ const SMOKE_BASE_URL =
   process.env.PLAYWRIGHT_BASE_URL ?? "http://127.0.0.1:3107";
 const ADMIN_EMAIL = "full-ui-admin@adsecute.local";
 const ADMIN_PASSWORD = "FullUiRedesignSmoke!2026";
+const META_DECISIONS_EMAIL = "full-ui-decisions@adsecute.local";
+const META_DECISIONS_PASSWORD = "FullUiDecisionsSmoke!2026";
+const META_DECISIONS_NEXT_STEP =
+  "Confirm the ROAS or break-even target before acting.";
+const META_DECISIONS_GENERIC_NEXT_STEPS = [
+  "Review the evidence; no change is currently authorized.",
+  "Review the evidence before making a change.",
+] as const;
 
 type SmokeActor = {
   email: string;
   password: string;
 };
+
+function lastCompletedDateInTimeZone(
+  timeZone: string,
+  now: Date = new Date(),
+): string {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(now);
+  const value = (type: "year" | "month" | "day") =>
+    Number(parts.find((part) => part.type === type)?.value);
+  const completed = new Date(
+    Date.UTC(value("year"), value("month") - 1, value("day") - 1),
+  );
+  return completed.toISOString().slice(0, 10);
+}
 
 const PUBLIC_ROUTES = [
   "/login",
@@ -99,7 +127,7 @@ const ADMIN_ROUTES = [
 
 const SCREENSHOT_ROUTES = [
   { actor: "public", path: "/login", name: "login" },
-  { actor: "dashboard", path: "/platforms/meta", name: "meta-decisions" },
+  { actor: "decisions", path: "/platforms/meta", name: "meta-decisions" },
   { actor: "dashboard", path: "/platforms/meta/history", name: "meta-history" },
   {
     actor: "dashboard",
@@ -239,14 +267,18 @@ async function seedAdminAccount(): Promise<SmokeActor> {
   return { email: ADMIN_EMAIL, password: ADMIN_PASSWORD };
 }
 
-async function seedMetaDecisionDemoData() {
+async function seedMetaDecisionLiveData(): Promise<SmokeActor> {
   const databaseUrl = process.env.DATABASE_URL;
   if (!databaseUrl)
     throw new Error(
-      "DATABASE_URL is required for full UI smoke decision seed.",
+      "DATABASE_URL is required for full UI smoke live decision seed.",
     );
 
-  const snapshotDate = new Date().toISOString().slice(0, 10);
+  // The Decisions page expands its default range on the selected Meta
+  // account's clock and excludes today's partial data. Seed that same completed
+  // day; using UTC "today" can put every fixture row beyond the requested
+  // evidence window for accounts west of UTC while the API still returns 200.
+  const snapshotDate = lastCompletedDateInTimeZone("America/Los_Angeles");
   const providerAccountId = "act_210009998877";
   const campaignId = "m-c1";
   const adsetId = "m-as-2";
@@ -308,6 +340,57 @@ async function seedMetaDecisionDemoData() {
   const client = new Client({ connectionString: databaseUrl });
   await client.connect();
   try {
+    const passwordHash = await bcrypt.hash(META_DECISIONS_PASSWORD, 12);
+    const user = await client.query<{ id: string }>(
+      `INSERT INTO users (name, email, password_hash)
+       VALUES ('Full UI Decisions Operator', $1, $2)
+       ON CONFLICT (email)
+       DO UPDATE SET
+         name = EXCLUDED.name,
+         password_hash = EXCLUDED.password_hash
+       RETURNING id::text AS id`,
+      [META_DECISIONS_EMAIL, passwordHash],
+    );
+    const userId = user.rows[0]?.id;
+    if (!userId) {
+      throw new Error("Live decision smoke seed did not return a user id.");
+    }
+    await client.query(
+      `INSERT INTO businesses (
+         id,
+         name,
+         owner_id,
+         timezone,
+         currency,
+         is_demo_business,
+         industry,
+         platform
+       ) VALUES ($1::uuid, 'Decisions Live Smoke', $2::uuid,
+                 'America/Los_Angeles', 'USD', FALSE, 'ecommerce', 'shopify')
+       ON CONFLICT (id)
+       DO UPDATE SET
+         name = EXCLUDED.name,
+         owner_id = EXCLUDED.owner_id,
+         timezone = EXCLUDED.timezone,
+         currency = EXCLUDED.currency,
+         is_demo_business = FALSE,
+         industry = EXCLUDED.industry,
+         platform = EXCLUDED.platform`,
+      [META_DECISIONS_BUSINESS_ID, userId],
+    );
+    await client.query(
+      `DELETE FROM memberships
+       WHERE user_id = $1::uuid
+         AND business_id <> $2::uuid`,
+      [userId, META_DECISIONS_BUSINESS_ID],
+    );
+    await client.query(
+      `INSERT INTO memberships (user_id, business_id, role, status)
+       VALUES ($1::uuid, $2::uuid, 'admin', 'active')
+       ON CONFLICT (user_id, business_id)
+       DO UPDATE SET role = 'admin', status = 'active'`,
+      [userId, META_DECISIONS_BUSINESS_ID],
+    );
     const providerAccount = await client.query<{ id: string }>(
       `INSERT INTO provider_accounts (
          provider,
@@ -346,7 +429,11 @@ async function seedMetaDecisionDemoData() {
          position = 0,
          is_selected = TRUE,
          updated_at = now()`,
-      [DEMO_BUSINESS_ID, providerAccount.rows[0]!.id, providerAccountId],
+      [
+        META_DECISIONS_BUSINESS_ID,
+        providerAccount.rows[0]!.id,
+        providerAccountId,
+      ],
     );
     await client.query(
       `INSERT INTO meta_account_daily (
@@ -379,8 +466,224 @@ async function seedMetaDecisionDemoData() {
          revenue = EXCLUDED.revenue,
          roas = EXCLUDED.roas,
          updated_at = now()`,
-      [DEMO_BUSINESS_ID, providerAccountId, snapshotDate],
+      [META_DECISIONS_BUSINESS_ID, providerAccountId, snapshotDate],
     );
+    await client.query(
+      `INSERT INTO meta_campaign_daily (
+         business_id,
+         provider_account_id,
+         date,
+         campaign_id,
+         campaign_name_current,
+         campaign_status,
+         objective,
+         optimization_goal,
+         custom_event_type,
+         daily_budget,
+         account_timezone,
+         account_currency,
+         spend,
+         impressions,
+         clicks,
+         reach,
+         frequency,
+         conversions,
+         revenue,
+         roas,
+         cpa,
+         ctr,
+         updated_at
+       ) VALUES (
+         $1, $2, $3::date, $4, 'Backpack Video Ads', 'ACTIVE',
+         'OUTCOME_SALES', 'OFFSITE_CONVERSIONS', 'PURCHASE', 500,
+         'America/Los_Angeles', 'USD', 1180, 82000, 2460, 61000, 1.34,
+         28, 2784.8, 2.36, 42.14, 3.0, now()
+       )
+       ON CONFLICT (business_id, provider_account_id, date, campaign_id)
+       DO UPDATE SET
+         campaign_name_current = EXCLUDED.campaign_name_current,
+         campaign_status = EXCLUDED.campaign_status,
+         objective = EXCLUDED.objective,
+         optimization_goal = EXCLUDED.optimization_goal,
+         custom_event_type = EXCLUDED.custom_event_type,
+         daily_budget = EXCLUDED.daily_budget,
+         account_timezone = EXCLUDED.account_timezone,
+         account_currency = EXCLUDED.account_currency,
+         spend = EXCLUDED.spend,
+         impressions = EXCLUDED.impressions,
+         clicks = EXCLUDED.clicks,
+         reach = EXCLUDED.reach,
+         frequency = EXCLUDED.frequency,
+         conversions = EXCLUDED.conversions,
+         revenue = EXCLUDED.revenue,
+         roas = EXCLUDED.roas,
+         cpa = EXCLUDED.cpa,
+         ctr = EXCLUDED.ctr,
+         updated_at = now()`,
+      [
+        META_DECISIONS_BUSINESS_ID,
+        providerAccountId,
+        snapshotDate,
+        campaignId,
+      ],
+    );
+    await client.query(
+      `INSERT INTO meta_adset_daily (
+         business_id,
+         provider_account_id,
+         date,
+         campaign_id,
+         adset_id,
+         adset_name_current,
+         adset_status,
+         optimization_goal,
+         custom_event_type,
+         bid_strategy_type,
+         daily_budget,
+         account_timezone,
+         account_currency,
+         spend,
+         impressions,
+         clicks,
+         reach,
+         frequency,
+         conversions,
+         revenue,
+         roas,
+         cpa,
+         ctr,
+         updated_at
+       ) VALUES (
+         $1, $2, $3::date, $4, $5, 'Prospecting Hook Tests', 'ACTIVE',
+         'OFFSITE_CONVERSIONS', 'PURCHASE', 'cost_cap', 500,
+         'America/Los_Angeles', 'USD', 1180, 82000, 2460, 61000, 1.34,
+         28, 2784.8, 2.36, 42.14, 3.0, now()
+       )
+       ON CONFLICT (business_id, provider_account_id, date, adset_id)
+       DO UPDATE SET
+         campaign_id = EXCLUDED.campaign_id,
+         adset_name_current = EXCLUDED.adset_name_current,
+         adset_status = EXCLUDED.adset_status,
+         optimization_goal = EXCLUDED.optimization_goal,
+         custom_event_type = EXCLUDED.custom_event_type,
+         bid_strategy_type = EXCLUDED.bid_strategy_type,
+         daily_budget = EXCLUDED.daily_budget,
+         account_timezone = EXCLUDED.account_timezone,
+         account_currency = EXCLUDED.account_currency,
+         spend = EXCLUDED.spend,
+         impressions = EXCLUDED.impressions,
+         clicks = EXCLUDED.clicks,
+         reach = EXCLUDED.reach,
+         frequency = EXCLUDED.frequency,
+         conversions = EXCLUDED.conversions,
+         revenue = EXCLUDED.revenue,
+         roas = EXCLUDED.roas,
+         cpa = EXCLUDED.cpa,
+         ctr = EXCLUDED.ctr,
+         updated_at = now()`,
+      [
+        META_DECISIONS_BUSINESS_ID,
+        providerAccountId,
+        snapshotDate,
+        campaignId,
+        adsetId,
+      ],
+    );
+    // Authoritative-finalization v2 is enabled by default in production. Raw
+    // warehouse rows are intentionally invisible until the active publication
+    // pointer names a verified slice, so the smoke must seed the same evidence
+    // a real completed sync would publish instead of disabling the gate.
+    for (const surface of [
+      "account_daily",
+      "campaign_daily",
+      "adset_daily",
+    ] as const) {
+      const slice = await client.query<{ id: string }>(
+        `INSERT INTO meta_authoritative_slice_versions (
+           business_id,
+           provider_account_id,
+           day,
+           surface,
+           candidate_version,
+           state,
+           truth_state,
+           validation_status,
+           status,
+           staged_row_count,
+           aggregated_spend,
+           validation_summary,
+           source_run_id,
+           stage_started_at,
+           stage_completed_at,
+           publish_started_at,
+           published_at,
+           updated_at
+         ) VALUES (
+           $1, $2, $3::date, $4, 1, 'finalized_verified', 'finalized',
+           'passed', 'published', 1, 1180, '{"smoke":"verified"}'::jsonb,
+           'full-ui-decisions-smoke', now(), now(), now(), now(), now()
+         )
+         ON CONFLICT (
+           business_id,
+           provider_account_id,
+           day,
+           surface,
+           candidate_version
+         )
+         DO UPDATE SET
+           state = 'finalized_verified',
+           truth_state = 'finalized',
+           validation_status = 'passed',
+           status = 'published',
+           staged_row_count = 1,
+           aggregated_spend = 1180,
+           validation_summary = '{"smoke":"verified"}'::jsonb,
+           source_run_id = 'full-ui-decisions-smoke',
+           published_at = now(),
+           updated_at = now()
+         RETURNING id::text AS id`,
+        [
+          META_DECISIONS_BUSINESS_ID,
+          providerAccountId,
+          snapshotDate,
+          surface,
+        ],
+      );
+      const sliceId = slice.rows[0]?.id;
+      if (!sliceId) {
+        throw new Error(`Decision smoke ${surface} slice was not returned.`);
+      }
+      await client.query(
+        `INSERT INTO meta_authoritative_publication_pointers (
+           business_id,
+           provider_account_id,
+           day,
+           surface,
+           active_slice_version_id,
+           published_by_run_id,
+           publication_reason,
+           published_at,
+           updated_at
+         ) VALUES (
+           $1, $2, $3::date, $4, $5::uuid,
+           'full-ui-decisions-smoke', 'verified_smoke_fixture', now(), now()
+         )
+         ON CONFLICT (business_id, provider_account_id, day, surface)
+         DO UPDATE SET
+           active_slice_version_id = EXCLUDED.active_slice_version_id,
+           published_by_run_id = EXCLUDED.published_by_run_id,
+           publication_reason = EXCLUDED.publication_reason,
+           published_at = now(),
+           updated_at = now()`,
+        [
+          META_DECISIONS_BUSINESS_ID,
+          providerAccountId,
+          snapshotDate,
+          surface,
+          sliceId,
+        ],
+      );
+    }
     await client.query(
       `INSERT INTO meta_campaign_dimensions (
          business_id,
@@ -395,7 +698,7 @@ async function seedMetaDecisionDemoData() {
          campaign_name_current = EXCLUDED.campaign_name_current,
          campaign_status = EXCLUDED.campaign_status,
          updated_at = now()`,
-      [DEMO_BUSINESS_ID, providerAccountId, campaignId],
+      [META_DECISIONS_BUSINESS_ID, providerAccountId, campaignId],
     );
     await client.query(
       `INSERT INTO meta_adset_dimensions (
@@ -413,7 +716,7 @@ async function seedMetaDecisionDemoData() {
          adset_name_current = EXCLUDED.adset_name_current,
          adset_status = EXCLUDED.adset_status,
          updated_at = now()`,
-      [DEMO_BUSINESS_ID, providerAccountId, campaignId, adsetId],
+      [META_DECISIONS_BUSINESS_ID, providerAccountId, campaignId, adsetId],
     );
 
     // The mounted Decisions workspace builds its evidence from creatives that
@@ -435,7 +738,13 @@ async function seedMetaDecisionDemoData() {
          updated_at
        ) VALUES ($1, $2, $3, 'Backpack Hook A', $4, $5, now())
        ON CONFLICT DO NOTHING`,
-      [DEMO_BUSINESS_ID, providerAccountId, creativeId, campaignId, adsetId],
+      [
+        META_DECISIONS_BUSINESS_ID,
+        providerAccountId,
+        creativeId,
+        campaignId,
+        adsetId,
+      ],
     );
 
     await client.query(
@@ -451,7 +760,14 @@ async function seedMetaDecisionDemoData() {
          updated_at
        ) VALUES ($1, $2, $3, $4, $5, 'Backpack Hook A - Ad', 'ACTIVE', $6, now())
        ON CONFLICT DO NOTHING`,
-      [DEMO_BUSINESS_ID, providerAccountId, campaignId, adsetId, adId, creativeId],
+      [
+        META_DECISIONS_BUSINESS_ID,
+        providerAccountId,
+        campaignId,
+        adsetId,
+        adId,
+        creativeId,
+      ],
     );
 
     await client.query(
@@ -478,7 +794,7 @@ async function seedMetaDecisionDemoData() {
                  'Spend is material while ROAS remains under the account target.',
                  1180, 28, 2.36, now())
        ON CONFLICT DO NOTHING`,
-      [DEMO_BUSINESS_ID, creativeId, snapshotDate],
+      [META_DECISIONS_BUSINESS_ID, creativeId, snapshotDate],
     );
 
     /*
@@ -491,6 +807,50 @@ async function seedMetaDecisionDemoData() {
       comes from `engine_v3_campaign_context_daily`, which the decision-engine
       fixtures seed.
     */
+    await client.query(
+      `INSERT INTO engine_v3_campaign_context_daily (
+         business_id,
+         provider_account_id,
+         campaign_id,
+         campaign_name,
+         as_of_date,
+         inferred_kind,
+         confidence_score,
+         confidence_class,
+         kind_source,
+         kind_basis,
+         resolver_version,
+         signal_scores_json,
+         evidence_json,
+         conflict_reasons_json,
+         hysteresis_state_json,
+         input_freshness_json,
+         updated_at
+       ) VALUES (
+         $1, $2, $3, 'Backpack Video Ads', $4::date,
+         'test', 0.95, 'high', 'system_inferred', 'behavioral',
+         $5,
+         '{}'::jsonb, '[]'::jsonb, '[]'::jsonb, '{}'::jsonb, '{}'::jsonb, now()
+       )
+       ON CONFLICT (business_id, campaign_id, as_of_date)
+       DO UPDATE SET
+         provider_account_id = EXCLUDED.provider_account_id,
+         campaign_name = EXCLUDED.campaign_name,
+         inferred_kind = EXCLUDED.inferred_kind,
+         confidence_score = EXCLUDED.confidence_score,
+         confidence_class = EXCLUDED.confidence_class,
+         kind_source = EXCLUDED.kind_source,
+         kind_basis = EXCLUDED.kind_basis,
+         resolver_version = EXCLUDED.resolver_version,
+         updated_at = now()`,
+      [
+        META_DECISIONS_BUSINESS_ID,
+        providerAccountId,
+        campaignId,
+        snapshotDate,
+        CAMPAIGN_CONTEXT_RESOLVER_VERSION,
+      ],
+    );
 
     await client.query(
       `INSERT INTO meta_decision_snapshots_daily (
@@ -577,7 +937,7 @@ async function seedMetaDecisionDemoData() {
          created_at = now()`,
       [
         adsetId,
-        DEMO_BUSINESS_ID,
+        META_DECISIONS_BUSINESS_ID,
         snapshotDate,
         recommendation.id,
         JSON.stringify({ items: recommendation.evidence, recommendation }),
@@ -591,6 +951,10 @@ async function seedMetaDecisionDemoData() {
   } finally {
     await client.end();
   }
+  return {
+    email: META_DECISIONS_EMAIL,
+    password: META_DECISIONS_PASSWORD,
+  };
 }
 
 /**
@@ -793,54 +1157,82 @@ async function waitForDashboardWorkspaceReady(page: Page, path: string) {
   });
   if (path === "/platforms/meta") {
     const decisions = page.getByTestId("meta-platform-page");
-    await expect(decisions, `${path} responsive Decisions workspace`).toBeVisible({
+    await expect(
+      decisions,
+      `${path} responsive Decisions workspace`,
+    ).toBeVisible({
       timeout: 30_000,
     });
-    await expect(decisions, `${path} server-composed workspace query`).toHaveAttribute(
-      "data-workspace-query-status",
-      /success|error/,
-      { timeout: 120_000 },
-    );
+    await expect(
+      decisions,
+      `${path} server-composed workspace query`,
+    ).toHaveAttribute("data-workspace-query-status", "success", {
+      timeout: 120_000,
+    });
     await expect(
       page.getByText(/Loading decision (workspace|data)/i),
       `${path} decision loading state`,
     ).toHaveCount(0, { timeout: 30_000 });
-    const queryStatus = await decisions.getAttribute("data-workspace-query-status");
-    if (queryStatus === "success") {
       await expect(
-        page.getByRole("tab", { name: /Structure/i }),
-        `${path} Structure layer`,
+      page.getByTestId("meta-briefing-error"),
+      `${path} must not accept the unavailable state as visual proof`,
+    ).toHaveCount(0);
+
+    if ((page.viewportSize()?.width ?? 1440) <= 720) {
+      const mobileDecisions = page.getByTestId("meta-mobile-decisions");
+      await expect(
+        mobileDecisions,
+        `${path} mobile Decisions workspace`,
+      ).toBeVisible();
+      await expect(mobileDecisions).not.toHaveAttribute(
+        "data-mobile-read-state",
+        /.+/,
+      );
+      await expect(
+        mobileDecisions.getByRole("navigation", { name: "Decision scope" }),
+        `${path} mobile Campaigns & Ad sets / Creatives selector`,
       ).toBeVisible();
       await expect(
-        page.getByRole("tab", { name: /Ads/i }),
-        `${path} Ads layer`,
+        mobileDecisions.locator("[data-mobile-row-id]").first(),
+        `${path} populated mobile Action or Needs Resolution row`,
       ).toBeVisible();
     } else {
       await expect(
-        decisions.locator("b:visible").filter({
-          hasText: "Decision workspace could not load.",
-        }),
-        `${path} buyer-facing unavailable state`,
+        decisions.locator('[data-meta-exact-scope="structure"]'),
+        `${path} Campaigns & Ad sets scope`,
       ).toBeVisible();
-      await expect(decisions).not.toContainText("demo_workspace_envelope_unavailable");
+      await expect(
+        decisions.locator('[data-meta-exact-scope="creatives"]'),
+        `${path} Creatives scope`,
+      ).toBeVisible();
+      await expect(
+        decisions
+          .locator(
+            "[data-meta-exact-action-row], [data-meta-exact-needsres-row]",
+          )
+          .first(),
+        `${path} populated Action or Needs Resolution row`,
+      ).toBeVisible();
     }
   } else if (path === "/platforms/meta/history") {
     await expect(
       page.getByLabel("Meta account for History"),
       `${path} explicit provider account`,
     ).toHaveValue("act_210009998877", { timeout: 30_000 });
-    await expect(page.getByTestId("meta-history-page"), `${path} history state`).toHaveAttribute(
-      "data-history-state",
-      /ready|error/,
-      { timeout: 30_000 },
-    );
+    await expect(
+      page.getByTestId("meta-history-page"),
+      `${path} history state`,
+    ).toHaveAttribute("data-history-state", /ready|error/, { timeout: 30_000 });
   } else if (path === "/platforms/meta/creatives") {
     const studioPage = page.getByTestId("creative-studio-page");
     await expect(studioPage, `${path} Creative Studio page`).toBeVisible({
       timeout: 30_000,
     });
     const studio = studioPage.locator('[data-creative-studio-exact="true"]');
-    await expect(studio, `${path} current Studio operating surface`).toBeVisible({
+    await expect(
+      studio,
+      `${path} current Studio operating surface`,
+    ).toBeVisible({
       timeout: 30_000,
     });
     await expect(studioPage, `${path} creative query`).toHaveAttribute(
@@ -883,16 +1275,23 @@ async function waitForDashboardWorkspaceReady(page: Page, path: string) {
       "idle",
       { timeout: 30_000 },
     );
-    await expect(page.getByTestId("loading-skeleton"), `${path} loading skeletons`).toHaveCount(0, {
+    await expect(
+      page.getByTestId("loading-skeleton"),
+      `${path} loading skeletons`,
+    ).toHaveCount(0, {
       timeout: 30_000,
     });
   } else if (path === "/platforms/meta/landing-pages") {
     await expect(
       page.getByTestId("landing-pages-studio-page"),
       `${path} landing source state`,
-    ).toHaveAttribute("data-landing-state", /integration_required|ready|error/, {
+    ).toHaveAttribute(
+      "data-landing-state",
+      /integration_required|ready|error/,
+      {
       timeout: 30_000,
-    });
+      },
+    );
   } else if (path === "/platforms/meta/creative-inbox") {
     await expect(
       page.getByLabel("Select Meta account for Creative Inbox"),
@@ -903,7 +1302,10 @@ async function waitForDashboardWorkspaceReady(page: Page, path: string) {
       `${path} inbox state`,
     ).toHaveAttribute("data-inbox-state", /ready|error/, { timeout: 30_000 });
   } else if (path === "/platforms/meta/audiences") {
-    await expect(page.getByTestId("audience-readiness-ledger"), `${path} readiness ledger`).toBeVisible({
+    await expect(
+      page.getByTestId("audience-readiness-ledger"),
+      `${path} readiness ledger`,
+    ).toBeVisible({
       timeout: 30_000,
     });
   } else if (
@@ -927,7 +1329,9 @@ async function waitForDashboardWorkspaceReady(page: Page, path: string) {
           mobileSurface.getByRole("heading", { name: "Automation" }),
         ).toBeVisible();
       } else {
-        await expect(mobileSurface).toContainText("New campaigns start paused.");
+        await expect(mobileSurface).toContainText(
+          "New campaigns start paused.",
+        );
       }
     }
   }
@@ -968,10 +1372,13 @@ async function assertDarkConsoleContrast(page: Page, path: string) {
     .first();
   if (await logo.isVisible().catch(() => false)) {
     await expect
-      .poll(() => logo.evaluate((element) => getComputedStyle(element).filter), {
+      .poll(
+        () => logo.evaluate((element) => getComputedStyle(element).filter),
+        {
         message: `${path} leaves the black Adsecute mark unadjusted on the dark topbar`,
         timeout: 10_000,
-      })
+        },
+      )
       .not.toBe("none");
   }
 
@@ -980,7 +1387,11 @@ async function assertDarkConsoleContrast(page: Page, path: string) {
 
   const contrastRatios = await primaryActions.evaluateAll((elements) => {
     const rgb = (value: string) => {
-      const channels = value.match(/[\d.]+/g)?.slice(0, 3).map(Number) ?? [];
+      const channels =
+        value
+          .match(/[\d.]+/g)
+          ?.slice(0, 3)
+          .map(Number) ?? [];
       if (channels.length !== 3) return null;
       return channels.map((channel) => channel / 255);
     };
@@ -1037,9 +1448,12 @@ test.describe("full UI redesign route and visual smoke", () => {
     const darkProject = testInfo.project.name.endsWith("-dark");
     if (darkProject) {
       await page.context().addInitScript(() => {
-        const enableDark = () => document.documentElement?.classList.add("dark");
+        const enableDark = () =>
+          document.documentElement?.classList.add("dark");
         enableDark();
-        document.addEventListener("DOMContentLoaded", enableDark, { once: true });
+        document.addEventListener("DOMContentLoaded", enableDark, {
+          once: true,
+        });
       });
     }
 
@@ -1048,7 +1462,7 @@ test.describe("full UI redesign route and visual smoke", () => {
       email: reviewerSeed.reviewer.email,
       password: reviewerSeed.reviewer.password,
     };
-    await seedMetaDecisionDemoData();
+    const decisionsOperator = await seedMetaDecisionLiveData();
     const admin = await seedAdminAccount();
 
     if (testInfo.project.name === "full-ui-desktop" && !VISUAL_ONLY) {
@@ -1077,13 +1491,62 @@ test.describe("full UI redesign route and visual smoke", () => {
     for (const shot of ACTIVE_SCREENSHOT_ROUTES) {
       if (shot.actor === "admin") {
         await signIn(page, admin);
+      } else if (shot.actor === "decisions") {
+        await signIn(page, decisionsOperator);
       } else if (shot.actor === "dashboard") {
         await signIn(page, reviewer);
       }
 
       const shotPage = await page.context().newPage();
+      const decisionWorkspaceResponse =
+        shot.name === "meta-decisions"
+          ? shotPage.waitForResponse(
+              (response) =>
+                new URL(response.url()).pathname ===
+                "/api/meta/decisions-workspace",
+              { timeout: 120_000 },
+            )
+          : null;
       try {
         await assertRouteHealthy(shotPage, shot.path);
+        if (decisionWorkspaceResponse) {
+          const response = await decisionWorkspaceResponse;
+          const responseBody = await response.text();
+          expect(
+            response.status(),
+            `Meta Decisions workspace API returned ${response.status()}: ${responseBody.slice(0, 2_000)}`,
+          ).toBe(200);
+          const workspace = JSON.parse(responseBody) as {
+            businessId?: string;
+            decisionReadModel?: { status?: string };
+            os?: {
+              structure?: {
+                actCount?: number;
+                blockedCount?: number;
+                groups?: unknown[];
+              };
+            };
+          };
+          expect(
+            workspace.businessId,
+            "Meta Decisions smoke must read its dedicated non-demo business",
+          ).toBe(META_DECISIONS_BUSINESS_ID);
+          expect(
+            workspace.decisionReadModel?.status,
+            "Meta Decisions smoke must read an available decision source",
+          ).toBe("available");
+          const structureDecisionCount =
+            (workspace.os?.structure?.actCount ?? 0) +
+            (workspace.os?.structure?.blockedCount ?? 0);
+          expect(
+            structureDecisionCount,
+            `Meta Decisions API returned 200 without Action or Needs Resolution content: ${responseBody.slice(0, 2_000)}`,
+          ).toBeGreaterThan(0);
+          expect(
+            workspace.os?.structure?.groups?.length ?? 0,
+            "Meta Decisions API must serve at least one populated structure group",
+          ).toBeGreaterThan(0);
+        }
         await waitForDashboardWorkspaceReady(shotPage, shot.path);
         await assertRepresentativeVisualSettled(shotPage, shot.path);
 
@@ -1095,10 +1558,12 @@ test.describe("full UI redesign route and visual smoke", () => {
         // unreadable for exactly the thing that evidence is meant to show. This
         // hides the harness's own overlay; it changes nothing about the product
         // and nothing the assertions read from the DOM.
-        await shotPage.addStyleTag({
+        await shotPage
+          .addStyleTag({
           content:
             "nextjs-portal,[data-nextjs-dev-tools-button],#__next-dev-tools-indicator{display:none!important}",
-        }).catch(() => {});
+          })
+          .catch(() => {});
 
         // No surface may scroll the page sideways on a phone. A single
         // overflowing child does it, and it is exactly how the assessment
@@ -1191,7 +1656,9 @@ test.describe("full UI redesign route and visual smoke", () => {
                 if (!text) continue;
                 const label = (cell.getAttribute("data-label") ?? "").trim();
                 if (!label) {
-                  offenders.push(`${table.className || "table"}: "${text.slice(0, 24)}"`);
+                  offenders.push(
+                    `${table.className || "table"}: "${text.slice(0, 24)}"`,
+                  );
                 }
               }
             }
@@ -1248,7 +1715,8 @@ test.describe("full UI redesign route and visual smoke", () => {
               return r.width > 0 && r.height > 0;
             });
             const candidates = visible.filter(
-              (el) => !visible.some((other) => other !== el && other.contains(el)),
+              (el) =>
+                !visible.some((other) => other !== el && other.contains(el)),
             );
 
             const overlaps: string[] = [];
@@ -1278,7 +1746,9 @@ test.describe("full UI redesign route and visual smoke", () => {
             return {
               overlaps: overlaps.slice(0, 6),
               freshnessVisible: Boolean(
-                freshnessRect && freshnessRect.width > 0 && freshnessRect.height > 0,
+                freshnessRect &&
+                freshnessRect.width > 0 &&
+                freshnessRect.height > 0,
               ),
               smallTargets: candidates
                 .filter((el) => {
@@ -1293,7 +1763,6 @@ test.describe("full UI redesign route and visual smoke", () => {
             };
           });
 
-
         // No card may print a percentage for a comparison that was never made.
         //
         // Under Compare=None `changePct` is null, and the summary cards
@@ -1303,7 +1772,9 @@ test.describe("full UI redesign route and visual smoke", () => {
         {
           const fabricated = await shotPage.evaluate(() =>
             Array.from(
-              document.querySelectorAll<HTMLElement>('[data-delta-state="unavailable"]'),
+                document.querySelectorAll<HTMLElement>(
+                  '[data-delta-state="unavailable"]',
+                ),
             )
               .map((el) => (el.textContent ?? "").trim())
               .filter((text) => /\d/.test(text))
@@ -1327,14 +1798,19 @@ test.describe("full UI redesign route and visual smoke", () => {
             // understands; anything it cannot resolve is skipped rather than
             // guessed at.
             const probe = document.createElement("canvas").getContext("2d");
-            const toRgb = (value: string): [number, number, number, number] | null => {
+              const toRgb = (
+                value: string,
+              ): [number, number, number, number] | null => {
               const direct = /rgba?\(([^)]+)\)/.exec(value);
               if (direct) {
                 const parts = direct[1]
                   .split(/[,/\s]+/)
                   .filter(Boolean)
                   .map(Number);
-                if (parts.length >= 3 && parts.slice(0, 3).every(Number.isFinite)) {
+                  if (
+                    parts.length >= 3 &&
+                    parts.slice(0, 3).every(Number.isFinite)
+                  ) {
                   return [parts[0], parts[1], parts[2], parts[3] ?? 1];
                 }
               }
@@ -1353,7 +1829,10 @@ test.describe("full UI redesign route and visual smoke", () => {
                 }
                 const again = /rgba?\(([^)]+)\)/.exec(normalised);
                 if (again) {
-                  const parts = again[1].split(/[,/\s]+/).filter(Boolean).map(Number);
+                    const parts = again[1]
+                      .split(/[,/\s]+/)
+                      .filter(Boolean)
+                      .map(Number);
                   return [parts[0], parts[1], parts[2], parts[3] ?? 1];
                 }
               } catch {
@@ -1391,15 +1870,19 @@ test.describe("full UI redesign route and visual smoke", () => {
               return [r, g, b];
             };
             const offenders: string[] = [];
-            const main = document.querySelector("#main-content") ?? document.body;
-            for (const el of Array.from(main.querySelectorAll<HTMLElement>("*"))) {
+              const main =
+                document.querySelector("#main-content") ?? document.body;
+              for (const el of Array.from(
+                main.querySelectorAll<HTMLElement>("*"),
+              )) {
               const text = Array.from(el.childNodes)
                 .filter((n) => n.nodeType === Node.TEXT_NODE)
                 .map((n) => (n.textContent ?? "").trim())
                 .join("");
               if (text.length < 3) continue;
               const style = getComputedStyle(el);
-              if (style.visibility === "hidden" || style.display === "none") continue;
+                if (style.visibility === "hidden" || style.display === "none")
+                  continue;
               // Decorative and disabled content is exempt by declaration, not
               // by being quietly hard to read.
               if (el.getAttribute("aria-hidden") === "true") continue;
@@ -1448,7 +1931,9 @@ test.describe("full UI redesign route and visual smoke", () => {
               const [hi, lo] = fg > bg ? [fg, bg] : [bg, fg];
               const ratio = (hi + 0.05) / (lo + 0.05);
               if (ratio < 4.5) {
-                offenders.push(`${ratio.toFixed(2)}:1 "${text.slice(0, 22)}"`);
+                  offenders.push(
+                    `${ratio.toFixed(2)}:1 "${text.slice(0, 22)}"`,
+                  );
               }
             }
             return offenders.slice(0, 8);
@@ -1490,9 +1975,12 @@ test.describe("full UI redesign route and visual smoke", () => {
                     reason: "no command-palette launcher in the DOM",
                     topbarPresent: Boolean(bar),
                     topbarChildren: bar
-                      ? Array.from(bar.children).map((c) => c.className.toString().slice(0, 40))
+                        ? Array.from(bar.children).map((c) =>
+                            c.className.toString().slice(0, 40),
+                          )
                       : [],
-                    mdMatches: window.matchMedia("(min-width: 768px)").matches,
+                      mdMatches:
+                        window.matchMedia("(min-width: 768px)").matches,
                   };
                 }
                 return {
@@ -1507,7 +1995,9 @@ test.describe("full UI redesign route and visual smoke", () => {
           } else {
             keyboardCoverage.searchFieldsSeen += 1;
             keyboardCoverage.searchSurfaces.push(shot.path);
-            await shotPage.locator("body").click({ position: { x: 2, y: 2 } });
+              await shotPage
+                .locator("body")
+                .click({ position: { x: 2, y: 2 } });
 
             await shotPage.keyboard.press("ControlOrMeta+k");
             await expect(
@@ -1553,8 +2043,9 @@ test.describe("full UI redesign route and visual smoke", () => {
             expect(
               await shotPage.evaluate(
                 () =>
-                  document.activeElement?.getAttribute("data-mini-trend-chart") ===
-                  "true",
+                    document.activeElement?.getAttribute(
+                      "data-mini-trend-chart",
+                    ) === "true",
               ),
               `${shot.path} trend chart cannot take keyboard focus`,
             ).toBe(true);
@@ -1572,7 +2063,9 @@ test.describe("full UI redesign route and visual smoke", () => {
 
             // And the reading has to be announced, not merely stored.
             expect(
-              (await chart.locator("[aria-live]").first().textContent())?.trim() || "",
+                (
+                  await chart.locator("[aria-live]").first().textContent()
+                )?.trim() || "",
               `${shot.path} trend chart moves without announcing the value`,
             ).not.toBe("");
             keyboardCoverage.chartsExercised += 1;
@@ -1638,7 +2131,8 @@ test.describe("full UI redesign route and visual smoke", () => {
             () =>
               Array.from(document.querySelectorAll("[tabindex]")).filter(
                 (element) =>
-                  Number.parseInt(element.getAttribute("tabindex") ?? "0", 10) > 0,
+                  Number.parseInt(element.getAttribute("tabindex") ?? "0", 10) >
+                  0,
               ).length,
           );
           expect(
@@ -1666,8 +2160,9 @@ test.describe("full UI redesign route and visual smoke", () => {
           //    viewer has asked for stillness.
           await shotPage.emulateMedia({ reducedMotion: "reduce" });
           const animating = await shotPage.evaluate(() => {
-            return Array.from(document.querySelectorAll<HTMLElement>("*")).filter(
-              (element) => {
+            return Array.from(
+              document.querySelectorAll<HTMLElement>("*"),
+            ).filter((element) => {
                 const style = window.getComputedStyle(element);
                 const duration = Number.parseFloat(style.animationDuration);
                 return (
@@ -1675,8 +2170,7 @@ test.describe("full UI redesign route and visual smoke", () => {
                   Number.isFinite(duration) &&
                   duration > 0.05
                 );
-              },
-            ).length;
+            }).length;
           });
           await shotPage.emulateMedia({ reducedMotion: null });
           expect(
@@ -1690,7 +2184,9 @@ test.describe("full UI redesign route and visual smoke", () => {
         // still land under it.
         const tinyText = await shotPage.evaluate(() => {
           const offenders: string[] = [];
-          for (const element of Array.from(document.body.querySelectorAll("*"))) {
+          for (const element of Array.from(
+            document.body.querySelectorAll("*"),
+          )) {
             const text = (element.textContent ?? "").trim();
             if (!text || element.children.length > 0) continue;
             if (
@@ -1721,8 +2217,12 @@ test.describe("full UI redesign route and visual smoke", () => {
           await expect
             .poll(
               () =>
-                shotPage.locator(".ad-console-shell").evaluate((element) =>
-                  getComputedStyle(element).getPropertyValue("--adc-s1").trim(),
+                shotPage
+                  .locator(".ad-console-shell")
+                  .evaluate((element) =>
+                    getComputedStyle(element)
+                      .getPropertyValue("--adc-s1")
+                      .trim(),
                 ),
               {
                 message: `${shot.path} did not activate the dark console token set`,
@@ -1881,7 +2381,6 @@ test.describe("full UI redesign route and visual smoke", () => {
           }
         }
 
-
         const advancedCalendarTestId =
           shot.name === "meta-decisions" || shot.name === "creative-studio"
             ? "shell-date-range-picker-trigger"
@@ -1891,7 +2390,10 @@ test.describe("full UI redesign route and visual smoke", () => {
           const calendarRoot = shotPage.getByTestId(
             advancedCalendarTestId.replace(/-trigger$/, ""),
           );
-          await expect(calendarTrigger, `${shot.name} advanced calendar trigger`).toBeVisible();
+          await expect(
+            calendarTrigger,
+            `${shot.name} advanced calendar trigger`,
+          ).toBeVisible();
           await expect(calendarRoot).toHaveAttribute("data-hydrated", "true");
           await calendarTrigger.click();
           await expect(
@@ -1926,9 +2428,7 @@ test.describe("full UI redesign route and visual smoke", () => {
         }
 
         const singleDatePickerTestId =
-          shot.name === "meta-history"
-            ? "meta-history-from-date-trigger"
-            : shot.name === "admin-discount-new"
+          shot.name === "admin-discount-new"
               ? "discount-valid-from-trigger"
               : null;
         if (singleDatePickerTestId) {
@@ -1936,7 +2436,10 @@ test.describe("full UI redesign route and visual smoke", () => {
           const datePickerRoot = shotPage.getByTestId(
             singleDatePickerTestId.replace(/-trigger$/, ""),
           );
-          await expect(dateTrigger, `${shot.name} date picker trigger`).toBeVisible();
+          await expect(
+            dateTrigger,
+            `${shot.name} date picker trigger`,
+          ).toBeVisible();
           await expect(datePickerRoot).toHaveAttribute("data-hydrated", "true");
           await dateTrigger.click();
           await expect(
@@ -1969,7 +2472,11 @@ test.describe("full UI redesign route and visual smoke", () => {
             "Meta Decisions must keep the single global application sidebar",
           ).toHaveCount(1);
           await expect
-            .poll(() => primarySidebar.evaluate((element) => element.getBoundingClientRect().width))
+            .poll(() =>
+              primarySidebar.evaluate(
+                (element) => element.getBoundingClientRect().width,
+              ),
+            )
             .toBe(248);
 
           // Dashboard v2 has one fixed 248px application rail. The retired
@@ -1982,122 +2489,160 @@ test.describe("full UI redesign route and visual smoke", () => {
             shotPage.getByRole("button", { name: "Expand navigation" }),
           ).toHaveCount(0);
 
-          const evidenceTrigger = shotPage
-            .getByTestId("structure-decision-list")
-            .locator("button[data-child]")
-            .first();
           const decisionWorkspace = shotPage.getByTestId("meta-platform-page");
-          const workspaceStatus = await decisionWorkspace.getAttribute(
+          await expect(decisionWorkspace).toHaveAttribute(
             "data-workspace-query-status",
+            "success",
           );
-          if (workspaceStatus === "error") {
-            const unavailableState = shotPage.getByTestId("meta-briefing-error");
+          const populatedRow = decisionWorkspace
+            .locator(
+              "[data-meta-exact-action-row], [data-meta-exact-needsres-row]",
+            )
+            .first();
             await expect(
-              unavailableState,
-              "Meta Decisions buyer-facing unavailable state",
-            ).toBeVisible();
-            await expect(
-              unavailableState.getByRole("button", { name: "Retry" }),
-              "Meta Decisions unavailable state retry",
-            ).toBeVisible();
-          } else {
+            populatedRow,
+            "Meta Decisions populated Action or Needs Resolution row",
+          ).toContainText("Prospecting Hook Tests");
+          const nextStep = populatedRow.locator('[data-el="resolution-step"]');
+          await expect(
+            nextStep,
+            "Meta Decisions must show one concrete buyer next step",
+          ).toHaveCount(1);
+          await expect(nextStep).toBeVisible();
+          await expect(nextStep).toHaveText(META_DECISIONS_NEXT_STEP);
+          const desktopRowText = await populatedRow.innerText();
+          expect(
+            desktopRowText.split(META_DECISIONS_NEXT_STEP).length - 1,
+            "Meta Decisions must not duplicate the concrete next step",
+          ).toBe(1);
+          for (const generic of META_DECISIONS_GENERIC_NEXT_STEPS) {
+            expect(
+              desktopRowText,
+              `Meta Decisions row fell back to generic copy: ${generic}`,
+            ).not.toContain(generic);
+          }
+          const evidenceTrigger = populatedRow.locator(
+            "button[data-meta-exact-card-open]",
+          );
             await expect(
               evidenceTrigger,
               "Meta Decisions evidence affordance",
-            ).toBeVisible({
-              timeout: 30_000,
-            });
+          ).toBeVisible({ timeout: 30_000 });
             await evidenceTrigger.click();
-            await expect(
-              shotPage.getByRole("complementary", { name: "Decision inspector" }),
-              "Meta Decisions inspector",
-            ).toBeVisible({
+          const inspector = decisionWorkspace.locator(
+            "[data-meta-exact-inspector]",
+          );
+          await expect(inspector, "Meta Decisions inspector").toBeVisible({
               timeout: 30_000,
             });
-            await shotPage.getByRole("button", { name: /How this was decided/i }).click();
-            // The disclosure names the engine record the decision came from. For a
-            // structure node that is the source recommendation and its version; the
-            // ad-level trail shows a post-authority raw label and engine version
-            // instead. Assert the version is actually populated, not merely that a
-            // heading rendered — an empty version is the failure worth catching.
             await expect(
-              shotPage.getByText("Source recommendation", { exact: true }),
-              "Meta Decisions versioned engine evidence",
+            inspector.getByText("Decision details", { exact: true }),
+            "Meta Decisions current inspector heading",
             ).toBeVisible();
             await expect(
-              shotPage
-                .locator("dt", { hasText: /^Recommendation version$/ })
-                .locator("xpath=following-sibling::dd[1]"),
-              "Meta Decisions engine evidence must carry a version",
+            inspector.locator('[data-el="asof-row"]'),
+            "Meta Decisions inspector decision date",
+          ).not.toBeEmpty();
+          await expect(
+            inspector.locator('[data-el="evidence-window"]'),
+            "Meta Decisions inspector evidence window",
             ).not.toBeEmpty();
+          await expect(
+            inspector.getByRole("button", {
+              name: "Confirm commercial target",
+            }),
+            "a blocked commercial resolution must not inherit a write callback",
+          ).toHaveCount(0);
+          await expect(
+            inspector.getByRole("button", { name: "Review change" }),
+            "a blocked commercial resolution must not regain the manual-write fallback",
+          ).toHaveCount(0);
             await shotPage.screenshot({
               path: testInfo.outputPath(
                 `${testInfo.project.name}-${shot.name}-inspector.png`,
               ),
               fullPage: true,
             });
-          }
         } else if (
           shot.name === "meta-decisions" &&
           testInfo.project.name === "full-ui-mobile"
         ) {
-          const mobileEvidenceTrigger = shotPage
-            .getByTestId("structure-decision-list")
-            .locator("button[data-child]")
-            .first();
           const decisionWorkspace = shotPage.getByTestId("meta-platform-page");
-          const workspaceStatus = await decisionWorkspace.getAttribute(
+          await expect(decisionWorkspace).toHaveAttribute(
             "data-workspace-query-status",
+            "success",
           );
-          if (workspaceStatus === "error") {
-            const unavailableState = shotPage.getByTestId("meta-mobile-decisions");
-            await expect(
-              unavailableState,
-              "Meta Decisions mobile buyer-facing unavailable state",
-            ).toBeVisible();
-            await expect(unavailableState).toHaveAttribute(
-              "data-mobile-read-state",
-              "error",
-            );
-            await expect(
-              unavailableState.getByText("Decision workspace could not load.", {
-                exact: true,
-              }),
-              "Meta Decisions mobile unavailable heading",
-            ).toBeVisible();
-            await expect(
-              unavailableState.getByText(
-                "We could not load Meta decisions. Please try again.",
-                { exact: true },
-              ),
-              "Meta Decisions mobile unavailable explanation",
-            ).toBeVisible();
-          } else {
+          const mobileRow = shotPage
+            .getByTestId("meta-mobile-decisions")
+            .locator("[data-mobile-row-id]")
+            .first();
+          await expect(
+            mobileRow,
+            "Meta Decisions populated mobile Action or Needs Resolution row",
+          ).toContainText("Prospecting Hook Tests");
+          const mobileNextStep = mobileRow.locator(
+            '[data-mobile-blocked-note="true"]',
+          );
+          await expect(
+            mobileNextStep,
+            "Meta Decisions mobile row must show one concrete buyer next step",
+          ).toHaveCount(1);
+          await expect(mobileNextStep).toBeVisible();
+          await expect(mobileNextStep).toHaveText(META_DECISIONS_NEXT_STEP);
+          const mobileRowText = await mobileRow.innerText();
+          expect(
+            mobileRowText.split(META_DECISIONS_NEXT_STEP).length - 1,
+            "Meta Decisions mobile row must not duplicate the concrete next step",
+          ).toBe(1);
+          expect(
+            mobileRowText.split("Read evidence").length - 1,
+            "Meta Decisions mobile row must expose one evidence affordance",
+          ).toBe(1);
+          for (const generic of META_DECISIONS_GENERIC_NEXT_STEPS) {
+            expect(
+              mobileRowText,
+              `Meta Decisions mobile row fell back to generic copy: ${generic}`,
+            ).not.toContain(generic);
+          }
+          await expect(
+            mobileRow.locator("[data-mobile-apply]"),
+            "a blocked mobile row must not expose a pause or bid ceremony",
+          ).toHaveCount(0);
+          const mobileEvidenceTrigger = mobileRow.getByRole("button", {
+            name: "Read evidence →",
+          });
             await expect(
               mobileEvidenceTrigger,
               "Meta Decisions mobile evidence affordance",
-            ).toBeVisible({
-              timeout: 30_000,
-            });
+          ).toBeVisible({ timeout: 30_000 });
             await mobileEvidenceTrigger.click();
+          const mobileEvidence = shotPage.getByTestId("meta-mobile-evidence");
             await expect(
-              shotPage.getByRole("complementary", { name: "Decision inspector" }),
+            mobileEvidence,
               "Meta Decisions mobile evidence view",
-            ).toBeVisible({
-              timeout: 30_000,
-            });
+          ).toBeVisible({ timeout: 30_000 });
             await expect(
-              shotPage.getByText(
-                /^(Monitoring · no provider write|Action blocked)$/,
-              ),
-              "Meta Decisions mobile write suppression",
+            mobileEvidence.getByText("Decision details", { exact: true }),
+            "Meta Decisions mobile evidence heading",
             ).toBeVisible();
-          }
+          await expect(
+            mobileEvidence.locator("[data-mobile-apply]"),
+            "blocked mobile evidence must remain actionless without a resolver",
+          ).toHaveCount(0);
+          await expect(
+            shotPage.locator(
+              "#meta-manual-ceremony, #meta-manual-ceremony-mobile",
+            ),
+            "blocked evidence must not open a manual mutation ceremony",
+          ).toHaveCount(0);
         } else if (shot.name === "creative-studio") {
           const assetRow = shotPage
             .locator("[data-creative-studio-asset-row]")
             .first();
-          await expect(assetRow, "Creative Studio current asset row").toBeVisible();
+          await expect(
+            assetRow,
+            "Creative Studio current asset row",
+          ).toBeVisible();
           await assetRow.click();
           await expect(assetRow).toHaveAttribute("aria-checked", "true");
           await expect(
@@ -2134,7 +2679,9 @@ test.describe("full UI redesign route and visual smoke", () => {
               mobileSurface.getByRole("heading", { name: "Automation" }),
             ).toBeVisible();
           } else {
-            await expect(mobileSurface).toContainText("New campaigns start paused.");
+            await expect(mobileSurface).toContainText(
+              "New campaigns start paused.",
+            );
           }
         }
       } finally {
@@ -2185,13 +2732,10 @@ test.describe("full UI redesign route and visual smoke", () => {
     // surface that rendered no reading at all shows up as "not-rendered"
     // rather than silently missing from the evidence.
     if (freshnessEvidence.length > 0) {
-      await testInfo.attach(
-        `freshness-${testInfo.project.name}.json`,
-        {
+      await testInfo.attach(`freshness-${testInfo.project.name}.json`, {
           body: JSON.stringify(freshnessEvidence, null, 2),
           contentType: "application/json",
-        },
-      );
+      });
       await fs.promises.writeFile(
         testInfo.outputPath(`${testInfo.project.name}-freshness.json`),
         JSON.stringify(freshnessEvidence, null, 2),

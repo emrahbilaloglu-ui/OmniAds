@@ -138,6 +138,7 @@ const STATE_HISTORY_REFERENCE_LEDGER: ReadonlyArray<{
   { file: "lib/meta/decisions-os-presentation.test.ts", category: "test", count: 2 },
   { file: "lib/meta/decisions-workspace-read-model.test.ts", category: "test", count: 2 },
   { file: "lib/meta/history-external-change-levels.test.ts", category: "test", count: 3 },
+  { file: "lib/meta/history-read-model.test.ts", category: "test", count: 1 },
   { file: "lib/meta/__tests__/state-history-compaction-observation-order.test.ts", category: "test", count: 1 },
   // PRE-DEPLOY AUDIT 2026-09-03 — the provider-family collateral-admission
   // slice (installMetaTableOverBudget() fixture + its 4 dependent tests)

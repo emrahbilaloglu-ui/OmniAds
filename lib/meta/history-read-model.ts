@@ -8,11 +8,14 @@ import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
 import {
   encodeMetaHistoryCursor,
+  META_HISTORY_ACCOUNT_SCOPE_BASES,
+  META_HISTORY_ATTRIBUTIONS,
   META_HISTORY_ENTITY_TYPES,
   META_HISTORY_KINDS,
   META_HISTORY_SOURCES,
   type MetaHistoryAccount,
   type MetaHistoryAccountScopeBasis,
+  type MetaHistoryAttribution,
   type MetaHistoryEntry,
   type MetaHistoryEntryStatus,
   type MetaHistoryEntityType,
@@ -1309,7 +1312,7 @@ history_entries AS (
     workflow.created_at::date,
     'Workflow ' || REPLACE(workflow.event, '_', ' '),
     NULLIF(workflow.reason_code, ''),
-    'decision',
+    'recommendation',
     workflow.decision_key,
     NULL,
     workflow.to_state,
@@ -1336,8 +1339,8 @@ history_entries AS (
     workflow.actor_user_id::text,
     workflow_actor.name,
     CASE WHEN workflow_actor.id IS NOT NULL THEN 'available' ELSE 'unavailable' END,
-    'decision_key',
-    'operator_workflow',
+    'direct_provider_account_id',
+    'workflow_object',
     'unavailable',
     NULL,
     'Workflow state is owned by the operator, not by the engine.',
@@ -1355,6 +1358,10 @@ history_entries AS (
       'actorUserId', workflow.actor_user_id::text
     )
   FROM decision_workflow_events workflow
+  INNER JOIN decision_workflow_state workflow_state
+    ON workflow_state.business_id = workflow.business_id
+   AND workflow_state.decision_key = workflow.decision_key
+   AND workflow_state.provider_account_id = $2
   LEFT JOIN users workflow_actor
     ON workflow_actor.id = workflow.actor_user_id
   WHERE workflow.business_id = $1
@@ -1368,7 +1375,7 @@ history_entries AS (
     'meta_ads_action_mutation_attempt_events',
     attempt.id::text,
     'persisted_uuid',
-    'actions',
+    'writes',
     attempt.created_at,
     attempt.created_at::date,
     CASE attempt.event_kind
@@ -1392,8 +1399,8 @@ history_entries AS (
     NULL,
     NULL,
     'not_applicable',
-    'exact_ad_key',
-    'provider_attempt',
+    'direct_provider_account_id',
+    'provider_write_log',
     'unavailable',
     NULL,
     'Attempt lineage is append-only and never rewritten.',
@@ -1568,6 +1575,16 @@ const STATUS_VALUES = new Set<MetaHistoryEntryStatus>([
   "positive",
   "negative",
   "neutral",
+  "observed",
+  "draft",
+  "reviewed",
+  "prepared",
+  "validation_blocked",
+  "write_blocked",
+  "ready",
+  "executing",
+  "succeeded",
+  "partially_succeeded",
   "unknown",
 ]);
 
@@ -1684,7 +1701,13 @@ function mapHistoryRow(
   if (
     !META_HISTORY_SOURCES.includes(row.source_key as MetaHistorySource) ||
     !META_HISTORY_KINDS.includes(row.kind as MetaHistoryKind) ||
-    !META_HISTORY_ENTITY_TYPES.includes(row.entity_type as MetaHistoryEntityType)
+    !META_HISTORY_ENTITY_TYPES.includes(row.entity_type as MetaHistoryEntityType) ||
+    !META_HISTORY_ACCOUNT_SCOPE_BASES.includes(
+      row.account_scope_basis as MetaHistoryAccountScopeBasis,
+    ) ||
+    !META_HISTORY_ATTRIBUTIONS.includes(
+      row.attribution as MetaHistoryAttribution,
+    )
   ) {
     return null;
   }
@@ -1757,7 +1780,7 @@ function mapHistoryRow(
       source,
       sourceId: row.source_id,
       accountScopeBasis,
-      attribution: row.attribution as MetaHistoryEntry["provenance"]["attribution"],
+      attribution: row.attribution as MetaHistoryAttribution,
     },
     correlation: {
       status: correlationStatus,

@@ -1183,6 +1183,7 @@ export default function MetaCreativeStudioPage({
     () => ({
       state: assetsState,
       message: assetsMessage,
+      decisionReadState,
       syncedCount:
         assetsState === "ready" || assetsState === "empty"
           ? allRows.length
@@ -1200,6 +1201,7 @@ export default function MetaCreativeStudioPage({
       assetsState,
       allRows,
       businessId,
+      decisionReadState,
       providerAccountId,
     ],
   );

@@ -3092,9 +3092,11 @@ describe("served structure inventory", () => {
       .needsResolutionRows?.[0];
 
     expect(row).toMatchObject({
-      blocker: "This change can only be completed manually.",
+      blocker: "Required decision evidence is still missing.",
       blockerCount: 2,
-      resolution: "Review and apply this change manually.",
+      blockerBuyerFacing: true,
+      resolution:
+        "Resolve the missing evidence, then review this decision again.",
     });
     const serialized = JSON.stringify(row);
     expect(serialized).not.toContain("automation readiness producer");
@@ -3157,7 +3159,7 @@ describe("served structure inventory", () => {
 
     expect(
       model.needsResolutionRows?.find((row) => row.id === reviewOnly.id)?.chips,
-    ).toEqual(["Auto · Unresolved"]);
+    ).toEqual([]);
     expect(
       model.needsResolutionRows?.find((row) => row.id === authoritative.id)
         ?.chips,

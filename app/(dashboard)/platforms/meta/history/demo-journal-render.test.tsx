@@ -42,6 +42,9 @@ vi.mock("@/lib/meta/history-client", () => ({
 vi.mock("@/store/app-store", () => ({
   useAppStore: (selector: (state: unknown) => unknown) => selector(storeMock),
 }));
+vi.mock("next/navigation", () => ({
+  useSearchParams: () => new URLSearchParams(window.location.search),
+}));
 vi.mock("next/link", () => ({
   default: ({ children }: { children: React.ReactNode }) => <a>{children}</a>,
 }));
@@ -102,6 +105,14 @@ function response(
 
 beforeEach(() => {
   vi.clearAllMocks();
+  const url = new URL(window.location.href);
+  url.searchParams.delete("window");
+  url.searchParams.delete("startDate");
+  url.searchParams.delete("endDate");
+  url.searchParams.set("window", "28d");
+  url.searchParams.set("startDate", "2026-08-09");
+  url.searchParams.set("endDate", "2026-09-05");
+  window.history.replaceState({}, "", url);
   clientMock.fetchMetaHistoryAccounts.mockResolvedValue([DEMO_ACCOUNT]);
   clientMock.fetchMetaHistoryAccountScopes.mockResolvedValue({
     accounts: [DEMO_ACCOUNT],
@@ -124,6 +135,26 @@ async function mountDemoJournal(payload: MetaHistoryResponse) {
 }
 
 describe("a demo journal states why it is empty, without being opened", () => {
+  it("uses the global date window and does not render a second date pair", async () => {
+    const url = new URL(window.location.href);
+    url.searchParams.set("window", "28d");
+    url.searchParams.set("startDate", "2026-08-09");
+    url.searchParams.set("endDate", "2026-09-05");
+    window.history.replaceState({}, "", url);
+
+    await mountDemoJournal(response());
+
+    expect(
+      clientMock.fetchMetaHistoryPage.mock.calls.some(
+        ([input]) =>
+          input.filters.from === "2026-08-09" &&
+          input.filters.to === "2026-09-05",
+      ),
+    ).toBe(true);
+    expect(screen.queryByTestId("meta-history-from-date")).toBeNull();
+    expect(screen.queryByTestId("meta-history-to-date")).toBeNull();
+  });
+
   it("shows a concise notice without a technical disclosure", async () => {
     await mountDemoJournal(response());
 
@@ -138,6 +169,10 @@ describe("a demo journal states why it is empty, without being opened", () => {
     );
     expect(notice!.textContent).not.toContain(DEMO_MESSAGE);
     expect(screen.getAllByText("Demo activity is unavailable")).toHaveLength(1);
+    expect(screen.getAllByText(DEMO_ACCOUNT.name!)).toHaveLength(1);
+    expect(
+      screen.queryByText("Past accounts are temporarily unavailable."),
+    ).toBeNull();
     expect(document.querySelector("details")).toBeNull();
   });
 
@@ -158,6 +193,34 @@ describe("a demo journal states why it is empty, without being opened", () => {
     expect(text).not.toContain("end of results");
     expect(text).not.toContain("total unavailable");
     expect(text).toContain("0 shown");
+  });
+});
+
+describe("the journal waits for the shell's canonical reporting window", () => {
+  it.each([
+    ["a URL without a reporting window", ""],
+    ["a preset-only URL", "window=28d"],
+  ])("does not issue a first journal request for %s", async (_label, query) => {
+    const url = new URL(window.location.href);
+    url.searchParams.delete("window");
+    url.searchParams.delete("startDate");
+    url.searchParams.delete("endDate");
+    for (const [key, value] of new URLSearchParams(query)) {
+      url.searchParams.set(key, value);
+    }
+    window.history.replaceState({}, "", url);
+    clientMock.fetchMetaHistoryPage.mockResolvedValue(response());
+
+    render(<MetaHistoryView />);
+
+    await waitFor(() =>
+      expect(screen.getByLabelText("Meta account for History")).toHaveValue(
+        DEMO_ACCOUNT.id,
+      ),
+    );
+    expect(clientMock.fetchMetaHistoryPage).not.toHaveBeenCalled();
+    expect(screen.queryByText("No activity matches")).toBeNull();
+    expect(screen.getByLabelText("Loading Meta History")).toBeInTheDocument();
   });
 });
 

@@ -27,6 +27,7 @@ import {
 import type {
   MetaOsAdDecision,
   MetaOsDecisionsPresentation,
+  MetaOsStructureNode,
 } from "@/lib/meta/decisions-os-contract";
 import type { MetaStructureInventoryEntity } from "@/components/meta/redesign/types";
 
@@ -484,6 +485,61 @@ function exactNativeAdDecision(
     sourceGrain: "ad",
     decisionAvailability: "available",
     ...over,
+  };
+}
+
+function exactStructureNode(
+  overrides: Partial<MetaOsStructureNode> = {},
+): MetaOsStructureNode {
+  return {
+    id: "structure_1",
+    sourceRecommendationId: "rec_blocked",
+    level: "campaign",
+    providerEntityId: "cmp_1",
+    campaignId: "cmp_1",
+    campaignName: "Blocked campaign",
+    name: "Blocked campaign",
+    lifecycleRole: "main",
+    budgetOwner: "campaign",
+    budgetMode: "campaign_budget",
+    controlOwner: "campaign",
+    status: "ACTIVE",
+    optimizationGoal: "PURCHASE",
+    action: {
+      code: "review_budget",
+      label: "Review campaign budget",
+      intent: "review",
+      targetLevel: "campaign",
+      providerMutation: null,
+      scopeNote: "Review only.",
+    },
+    lane: "blocked",
+    priority: {
+      band: "high",
+      rank: 1,
+      version: "meta-os-decisions.presentation.v5",
+    },
+    urgency: { level: "high", rank: 3, label: "High", reason: null },
+    confidence: "low",
+    assessment: "Needs safety review",
+    whyNow: "A fresh safety check is required.",
+    expectedImpact: "No change until the check passes.",
+    evidence: [],
+    metrics: {
+      spend: 1_180,
+      purchases: 28,
+      roas: 2.36,
+      cpa: null,
+      ctr: null,
+      frequency: null,
+      effectiveTargetRoas: 2.5,
+      ratioToTarget: 0.94,
+      currency: "USD",
+      attribution: "meta_attributed",
+      grain: "campaign_or_adset",
+    },
+    suppressedAlternativeCount: 0,
+    ...overrides,
   };
 }
 
@@ -3333,6 +3389,115 @@ describe("mobile decision surface parity", () => {
     // The pre-fix surface sliced at two. Four served rows, four rendered rows.
     expect(mobile.match(/data-mobile-row-id=/g)?.length).toBe(4);
     expect(mobile).toContain("TheSwaf · Act now 4");
+  });
+
+  it("keeps mixed context and commercial blockers aligned across desktop, mobile, and inspector", () => {
+    const rec = metaRec({
+      id: "rec_blocked",
+      campaignId: "cmp_1",
+      campaignName: "Blocked campaign",
+      decisionLabel: "cut",
+      proposedAction: { kind: "pause" },
+      automationReadiness: {
+        contractVersion: "meta-automation-readiness.v1",
+        tier: "manual_review",
+        autoExecuteEligible: false,
+        operatorReviewRequired: true,
+        decisionLabel: "cut",
+        blockers: [
+          "diagnostic_or_watch_state",
+          "campaign_context_unresolved",
+          "missing_commercial_anchor",
+        ],
+        missingEvidence: [
+          "automatic_campaign_context_authority",
+          "commercial_target_or_breakeven",
+        ],
+        requiredEvidence: [
+          "automatic_campaign_context_authority",
+          "commercial_target_or_breakeven",
+        ],
+        reason: "Campaign context and commercial authority require review.",
+      },
+    });
+    const node = exactStructureNode({
+      action: {
+        code: "review_commercial_truth",
+        label: "Review Commercial Truth",
+        intent: "review",
+        targetLevel: "campaign",
+        providerMutation: null,
+        scopeNote: "Current target ROAS authority is unavailable.",
+      },
+    });
+    const os = exactOsPresentation([]);
+    state.lanePayload = metaLanePayload({
+      actionNow: [rec],
+      watching: [],
+      counts: {
+        actionNow: 1,
+        watching: 0,
+        healthy: 0,
+        nonSales: 0,
+        archive: 0,
+      },
+    });
+    state.osPresentation = {
+      ...os,
+      structure: {
+        groups: [
+          {
+            id: "group_1",
+            campaign: node,
+            adsets: [],
+            highestPriority: node.priority,
+            highestUrgency: node.urgency,
+            urgentAdsetCount: 0,
+          },
+        ],
+        actCount: 0,
+        blockedCount: 1,
+        monitorCount: 0,
+        suppressedAlternativeCount: 0,
+      },
+    };
+    state.search =
+      "window=28d&area=monitor&segment=needs_resolution";
+
+    const html = renderToStaticMarkup(
+      <MetaPlatformPage
+        businessId="biz_1"
+        businessName="TheSwaf"
+        mutationUiEnabled
+      />,
+    );
+    const mobile = mobileHtml(html);
+    const rowStart = mobile.indexOf('data-mobile-row-id="rec_blocked"');
+    const row = mobile.slice(rowStart, mobile.indexOf("</article>", rowStart));
+    const desktopRow = exactArticleHtml(
+      html,
+      'data-meta-exact-needsres-row="rec_blocked"',
+    );
+    const nextStep = "Confirm the ROAS or break-even target before acting.";
+
+    expect(rowStart).toBeGreaterThan(-1);
+    expect(countText(row, nextStep)).toBe(1);
+    expect(countText(row, "Read evidence")).toBe(1);
+    expect(countText(desktopRow, nextStep)).toBe(1);
+    expect(state.exactProps.viewModel.inspector).toMatchObject({
+      serverVerdict: "Confirm commercial target",
+      contractDetail: nextStep,
+      reasons: ["A valid performance target is required."],
+      actionLabel: "Confirm commercial target",
+      manualAction: null,
+    });
+    expect(state.exactProps.viewModel.inspector).not.toHaveProperty(
+      "onPrimary",
+    );
+    expect(html).not.toContain(">Confirm commercial target</button>");
+    expect(html).not.toContain(">Review change</button>");
+    expect(html).not.toContain('data-mobile-apply="rec_blocked"');
+    expect(html).not.toContain(">Review campaign context</button>");
   });
 
   it("offers evidence on every row, and a write only where the server named one", () => {

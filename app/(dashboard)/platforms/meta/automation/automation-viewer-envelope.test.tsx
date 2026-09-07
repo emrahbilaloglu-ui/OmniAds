@@ -54,6 +54,27 @@ const MetaAutomationPage = (await import("./automation-view")).default;
 const { buildAutomationViewerEnvelope } = await import("./viewer-envelope");
 
 const OBSERVED_AT = "2026-08-18T09:00:00.000Z";
+const COMPLETE_SECTIONS = {
+  businessControl: {
+    status: "complete",
+    errorCode: null,
+    observedAt: OBSERVED_AT,
+  },
+  rules: { status: "complete", errorCode: null, observedAt: OBSERVED_AT },
+  activity: { status: "complete", errorCode: null, observedAt: OBSERVED_AT },
+  promotionRecords: {
+    status: "complete",
+    errorCode: null,
+    observedAt: OBSERVED_AT,
+  },
+  decisionModes: {
+    status: "complete",
+    errorCode: null,
+    observedAt: OBSERVED_AT,
+  },
+  anchors: { status: "complete", errorCode: null, observedAt: OBSERVED_AT },
+  readiness: { status: "complete", errorCode: null, observedAt: OBSERVED_AT },
+} as const;
 
 /** A payload whose every read completed, including the activity ledger. */
 function controlPlane(
@@ -101,6 +122,7 @@ function controlPlane(
       activityLedger: "complete",
       rules: "complete",
     },
+    sections: COMPLETE_SECTIONS,
     activityLedger: [],
     decisionTypeModes: [],
     ...overrides,
@@ -400,6 +422,44 @@ describe("Automation viewer envelope", () => {
       expect(stated!.getAttribute("data-reason-code")).toBe(refusal.code);
     });
   }
+
+  it("offers no mode mutation when the decision-mode read is unproven", async () => {
+    const unproven = controlPlane({ sections: undefined });
+    const wire = wireServer({
+      automation: () =>
+        new Response(JSON.stringify({ ok: true, automation: unproven }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+    });
+    const { container } = render(
+      <MetaAutomationPage
+        businessId="biz_1"
+        providerAccountId="act_1"
+        initialPayload={unproven}
+        viewer={LIVE_COLLABORATOR}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(
+        container.querySelector(
+          "[data-testid='automation-action-modes-desktop']",
+        ),
+      ).not.toBeNull();
+    });
+    expect(
+      container.querySelectorAll(
+        "[data-testid='automation-action-modes-desktop'] [data-mode]",
+      ),
+    ).toHaveLength(0);
+    expect(
+      container.querySelector(
+        "[data-testid='automation-action-modes-desktop'] [data-field='action-modes-unavailable']",
+      ),
+    ).not.toBeNull();
+    expect(wire.calls.filter((call) => call.method === "POST")).toHaveLength(0);
+  });
 
   it("keeps the queue live for a viewer the server permits", async () => {
     const wire = wireServer();

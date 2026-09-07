@@ -493,11 +493,14 @@ function entityName(recommendation: MetaRecommendation): string {
 function automaticRoleChip(recommendation: MetaRecommendation): string | null {
   const context = recommendation.campaignContext;
   if (!context) return null;
-  return context.source === "system_inferred" &&
-    context.trustedForAction === true &&
-    context.kind
-    ? `Auto · ${titleToken(context.kind)}`
-    : "Auto · Unresolved";
+  if (
+    context.source !== "system_inferred" ||
+    context.trustedForAction !== true ||
+    !context.kind
+  ) {
+    return null;
+  }
+  return `Auto · ${titleToken(context.kind)}`;
 }
 
 function structureChips(recommendation: MetaRecommendation): string[] {
@@ -878,10 +881,14 @@ function needsResolutionNotice(
   return "Decision status is unavailable. Refresh decisions and try again.";
 }
 
+type BuyerReadinessIssue =
+  | MetaAutomationReadinessBlocker
+  | "missing_evidence";
+
 const BUYER_READINESS_BLOCKER_COPY = {
   no_empirical_outcome_model:
     "More verified results are needed before this can run automatically.",
-  unsupported_action_class: "This change needs a manual review.",
+  unsupported_action_class: "This action needs a manual Meta review.",
   not_action_state: "This item is not ready for a change.",
   diagnostic_or_watch_state: "This item is for review or monitoring.",
   low_confidence: "Confidence is too low to act.",
@@ -901,18 +908,20 @@ const BUYER_READINESS_BLOCKER_COPY = {
     "More performance results are needed before acting.",
   empirical_precision_below_floor:
     "Decision confidence is below the automation threshold.",
-  missing_executor: "This change can only be completed manually.",
+  missing_executor: "This action needs a manual Meta review.",
   missing_live_preflight: "A fresh Meta safety check is required.",
   missing_rollback_plan: "A recovery plan is required.",
   missing_post_action_monitor: "A follow-up check is required.",
   missing_holdout_plan: "A comparison plan is required.",
   missing_operator_enablement: "Automatic changes are not enabled.",
-} as const satisfies Record<MetaAutomationReadinessBlocker, string>;
+  missing_evidence: "Required decision evidence is still missing.",
+} as const satisfies Record<BuyerReadinessIssue, string>;
 
 const BUYER_READINESS_RESOLUTION_COPY = {
   no_empirical_outcome_model:
     "Keep this in review until enough verified results are available.",
-  unsupported_action_class: "Review and apply this change manually.",
+  unsupported_action_class:
+    "Review the evidence before making any manual change in Meta.",
   not_action_state: "Review the evidence; no change is currently authorized.",
   diagnostic_or_watch_state:
     "Review the evidence; no change is currently authorized.",
@@ -937,7 +946,8 @@ const BUYER_READINESS_RESOLUTION_COPY = {
     "Wait for more performance data, then review again.",
   empirical_precision_below_floor:
     "Wait for more performance data, then review again.",
-  missing_executor: "Review and apply this change manually.",
+  missing_executor:
+    "Review the evidence before making any manual change in Meta.",
   missing_live_preflight: "Refresh Meta data and run the safety check again.",
   missing_rollback_plan:
     "Complete the safety setup before enabling automatic changes.",
@@ -947,18 +957,123 @@ const BUYER_READINESS_RESOLUTION_COPY = {
     "Complete the safety setup before enabling automatic changes.",
   missing_operator_enablement:
     "An admin must enable automatic changes before they can run.",
-} as const satisfies Record<MetaAutomationReadinessBlocker, string>;
+  missing_evidence:
+    "Resolve the missing evidence, then review this decision again.",
+} as const satisfies Record<BuyerReadinessIssue, string>;
 
-function firstReadinessBlocker(
+const BUYER_READINESS_ACTION_COPY = {
+  no_empirical_outcome_model: "Review verified results",
+  unsupported_action_class: "Review in Meta",
+  not_action_state: "Review evidence",
+  diagnostic_or_watch_state: "Review evidence",
+  low_confidence: "Wait for more data",
+  missing_campaign_label: "Review campaign context",
+  campaign_context_unresolved: "Review campaign context",
+  campaign_context_resolver_unvalidated: "Review campaign context",
+  missing_commercial_anchor: "Confirm commercial target",
+  missing_controlled_causal_evidence: "Review outcome evidence",
+  missing_valid_treatment_receipt: "Review outcome evidence",
+  missing_valid_random_assignment: "Review outcome evidence",
+  missing_valid_control_estimate: "Review outcome evidence",
+  insufficient_empirical_sample: "Wait for more data",
+  empirical_precision_below_floor: "Wait for more data",
+  missing_executor: "Review in Meta",
+  missing_live_preflight: "Refresh Meta data",
+  missing_rollback_plan: "Complete safety setup",
+  missing_post_action_monitor: "Complete safety setup",
+  missing_holdout_plan: "Complete safety setup",
+  missing_operator_enablement: "Enable automatic changes",
+  missing_evidence: "Complete missing evidence",
+} as const satisfies Record<BuyerReadinessIssue, string>;
+
+/**
+ * Buyer priority for a blocked decision's single row-level explanation.
+ *
+ * Specific campaign context and commercial, confidence, safety, and evidence
+ * gaps come first. Generic state blockers are consequences of those gaps, so
+ * they only win when no specific cause is present. Executor availability stays
+ * last. The payload's array order is producer order, not severity.
+ */
+const BUYER_READINESS_ISSUE_PRIORITY: Readonly<
+  Record<BuyerReadinessIssue, number>
+> = {
+  missing_commercial_anchor: 0,
+  campaign_context_unresolved: 1,
+  missing_campaign_label: 2,
+  campaign_context_resolver_unvalidated: 3,
+  low_confidence: 4,
+  missing_live_preflight: 5,
+  missing_rollback_plan: 6,
+  missing_post_action_monitor: 7,
+  missing_holdout_plan: 8,
+  missing_operator_enablement: 9,
+  insufficient_empirical_sample: 10,
+  empirical_precision_below_floor: 11,
+  missing_controlled_causal_evidence: 12,
+  missing_valid_treatment_receipt: 13,
+  missing_valid_random_assignment: 14,
+  missing_valid_control_estimate: 15,
+  no_empirical_outcome_model: 16,
+  missing_evidence: 17,
+  diagnostic_or_watch_state: 18,
+  not_action_state: 19,
+  unsupported_action_class: 20,
+  missing_executor: 21,
+};
+
+const MISSING_EVIDENCE_ISSUE: Readonly<
+  Record<string, BuyerReadinessIssue>
+> = {
+  empirical_outcome_backtest: "no_empirical_outcome_model",
+  controlled_causal_outcomes: "missing_controlled_causal_evidence",
+  valid_treatment_receipt: "missing_valid_treatment_receipt",
+  valid_random_assignment: "missing_valid_random_assignment",
+  valid_control_estimate: "missing_valid_control_estimate",
+  empirical_outcome_sample: "insufficient_empirical_sample",
+  live_preflight: "missing_live_preflight",
+  rollback_plan: "missing_rollback_plan",
+  post_action_monitor: "missing_post_action_monitor",
+  holdout_plan: "missing_holdout_plan",
+  operator_enablement: "missing_operator_enablement",
+  campaign_label: "campaign_context_unresolved",
+  automatic_campaign_context_authority: "campaign_context_unresolved",
+  validated_campaign_context_resolver:
+    "campaign_context_resolver_unvalidated",
+  commercial_target: "missing_commercial_anchor",
+  commercial_target_or_breakeven: "missing_commercial_anchor",
+  current_target_roas_authority: "missing_commercial_anchor",
+  current_break_even_roas_authority: "missing_commercial_anchor",
+};
+
+function readinessIssue(value: string): BuyerReadinessIssue {
+  if (Object.hasOwn(BUYER_READINESS_ISSUE_PRIORITY, value)) {
+    return value as BuyerReadinessIssue;
+  }
+  return MISSING_EVIDENCE_ISSUE[value] ?? "missing_evidence";
+}
+
+function highestPriorityReadinessIssue(
   readiness: MetaRecommendation["automationReadiness"],
-): MetaAutomationReadinessBlocker | null {
-  return readiness?.blockers[0] ?? null;
+): BuyerReadinessIssue | null {
+  if (!readiness) return null;
+  let selected: BuyerReadinessIssue | null = null;
+  for (const value of [...readiness.blockers, ...readiness.missingEvidence]) {
+    const issue = readinessIssue(value);
+    if (
+      selected === null ||
+      BUYER_READINESS_ISSUE_PRIORITY[issue] <
+        BUYER_READINESS_ISSUE_PRIORITY[selected]
+    ) {
+      selected = issue;
+    }
+  }
+  return selected;
 }
 
 function buyerFacingReadinessBlocker(
   readiness: MetaRecommendation["automationReadiness"],
 ): string {
-  const blocker = firstReadinessBlocker(readiness);
+  const blocker = highestPriorityReadinessIssue(readiness);
   if (blocker) return BUYER_READINESS_BLOCKER_COPY[blocker];
   if ((readiness?.missingEvidence.length ?? 0) > 0) {
     return "More verified evidence is required before acting.";
@@ -969,7 +1084,7 @@ function buyerFacingReadinessBlocker(
 function buyerFacingReadinessResolution(
   readiness: MetaRecommendation["automationReadiness"],
 ): string {
-  const blocker = firstReadinessBlocker(readiness);
+  const blocker = highestPriorityReadinessIssue(readiness);
   if (blocker) return BUYER_READINESS_RESOLUTION_COPY[blocker];
   if ((readiness?.missingEvidence.length ?? 0) > 0) {
     return "Review the missing evidence, then check this decision again.";
@@ -1148,6 +1263,7 @@ function needsResolutionRows(input: {
             EM_DASH),
       decisionTone: decisionTone(recommendation.decisionLabel),
       blocker: buyerFacingReadinessBlocker(readiness),
+      blockerBuyerFacing: true,
       blockerCount: blockerParts.length,
       blockerTone: "warning",
       resolution: buyerFacingReadinessResolution(readiness),
@@ -2582,7 +2698,21 @@ function structureInspector(input: {
     readiness?.blockers,
     readiness?.missingEvidence,
   );
-  const actionLabel = buyerFacingStructureAction(action);
+  /*
+   * Readiness is a remediation only when the server placed this decision in
+   * Blocked. Act and Monitor can legitimately retain diagnostic readiness
+   * facts while their served action remains the thing the buyer may open.
+   * Treating every readiness fact as a replacement action hid those served
+   * actions and made the inspector disagree with its lane row.
+   */
+  const blocked = node?.lane === "blocked";
+  const readinessIssue = blocked
+    ? highestPriorityReadinessIssue(readiness)
+    : null;
+  const servedActionLabel = buyerFacingStructureAction(action);
+  const actionLabel = readinessIssue
+    ? BUYER_READINESS_ACTION_COPY[readinessIssue]
+    : servedActionLabel;
   return {
     entityName: entityName(recommendation),
     entityMeta: `${structureLevel(recommendation.level).toLowerCase()} · ${
@@ -2593,7 +2723,9 @@ function structureInspector(input: {
     ),
     tone: decisionTone(recommendation.decisionLabel),
     serverVerdict: actionLabel,
-    contractDetail: buyerFacingStructureScope(action),
+    contractDetail: readinessIssue
+      ? BUYER_READINESS_RESOLUTION_COPY[readinessIssue]
+      : buyerFacingStructureScope(action),
     reasons: [buyerFacingStructureReason(recommendation, node)],
     moneyValue: recommendationMoney(
       recommendation,
@@ -2620,7 +2752,13 @@ function structureInspector(input: {
     actionLabel,
     actionTone: actionTone(action),
     provenance: EM_DASH,
-    ...(node && input.callback
+    /*
+     * `onStructurePrimary` opens the served decision action. It is not a
+     * blocker resolver. A Blocked row therefore stays actionless even when
+     * its review action happens to share the remediation's display label; a
+     * future resolver must arrive as its own explicitly matched handler.
+     */
+    ...(node && input.callback && !blocked
       ? { onPrimary: () => input.callback?.(recommendation, node.action) }
       : {}),
   };

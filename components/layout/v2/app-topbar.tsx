@@ -404,19 +404,11 @@ export function AppTopbar({
     workspaceReferenceDate,
   );
 
-  /*
-   * The window control, published for the mobile scope sheet.
-   *
-   * `reportingWindow.note` is the surface registry's own sentence for a screen
-   * that shows current state rather than a period. It travels with the handle
-   * so the sheet refuses in the same words the topbar does, instead of
-   * offering a picker that silently declines to open.
-   */
+  /* The window control exists only where the current screen actually reads it. */
   const windowTriggerRef = useRef<HTMLButtonElement>(null);
   useRegisterScopeControl("window", {
     trigger: windowTriggerRef,
-    mounted: true,
-    refusalReason: reportingWindow.note,
+    mounted: reportingWindow.applies,
   });
 
   /**
@@ -431,7 +423,7 @@ export function AppTopbar({
   const confirmedBusinessId = useConfirmedShellBusinessId();
   useCanonicalDateWindowUrl({
     referenceDate: workspaceReferenceDate,
-    enabled: Boolean(confirmedBusinessId),
+    enabled: Boolean(confirmedBusinessId) && reportingWindow.applies,
     navigate: (href) => router.replace(href),
   });
 
@@ -496,31 +488,22 @@ export function AppTopbar({
           changeRefusalReason={accountChangeRefusalReason}
         />
 
-        <span className="adv-topbar-divider hidden sm:block" />
-
-        {/*
-          §8.2. The picker stays where the design puts it and keeps working
-          everywhere a reporting period means something. On a control-state
-          surface — Automation, Integrations, the Shares ledger — it goes
-          inactive and says so, because a range picked above those screens
-          changed nothing below them and the operator had every reason to read
-          the state as "the state during those days".
-
-          `reportingWindowApplicability` answers from the one surface registry,
-          so this cannot drift from the capability the registry declares. A
-          pathname the registry does not know keeps the picker fully active.
-        */}
-        <DateRangePicker
-          variant="v2"
-          value={dateRange}
-          onChange={applyDateRange}
-          testId="shell-date-range-picker"
-          triggerRef={windowTriggerRef}
-          label="Date range"
-          referenceDate={workspaceReferenceDate}
-          timeZoneLabel={workspaceTimeZone}
-          inactiveReason={reportingWindow.note}
-        />
+        {reportingWindow.applies ? (
+          <>
+            <span className="adv-topbar-divider hidden sm:block" />
+            <DateRangePicker
+              variant="v2"
+              value={dateRange}
+              onChange={applyDateRange}
+              testId="shell-date-range-picker"
+              triggerRef={windowTriggerRef}
+              label="Date range"
+              referenceDate={workspaceReferenceDate}
+              showComparisonTrigger={reportingWindow.comparisonApplies}
+              timeZoneLabel={workspaceTimeZone}
+            />
+          </>
+        ) : null}
 
         <span className="flex-1" />
 

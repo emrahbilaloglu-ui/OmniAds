@@ -62,6 +62,12 @@ function notice(container: HTMLElement) {
   return container.querySelector("[data-field='read-error']");
 }
 
+function mobileSurface(container: HTMLElement) {
+  return container.querySelector<HTMLElement>(
+    "[data-testid='meta-mobile-automation']",
+  );
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
 });
@@ -128,6 +134,42 @@ describe("Meta Automation account scope", () => {
       "act_2",
     ]);
     expect(picker!.value).toBe("");
+
+    const mobile = mobileSurface(container);
+    expect(mobile).not.toBeNull();
+    expect(mobile!.querySelectorAll("[data-field='read-error']")).toHaveLength(
+      1,
+    );
+    expect(
+      mobile!
+        .querySelector("[data-field='read-error']")
+        ?.getAttribute("data-reason"),
+    ).toBe("provider_account_scope_unresolved");
+    expect(mobile!.textContent).toContain(
+      "Choose a Meta ad account to see its automation status",
+    );
+    expect(
+      mobile!.querySelectorAll("[data-control='account-picker']"),
+    ).toHaveLength(1);
+    expect(
+      mobile!.querySelectorAll("[data-control='retry-read']"),
+    ).toHaveLength(1);
+
+    // One actionable recovery replaces the four repeated unavailable cards on
+    // the narrow surface. The invariant that launches always need approval is
+    // still visible even though no account-scoped mode could be read.
+    expect(
+      mobile!.querySelector("[data-field='action-modes-unavailable']"),
+    ).toBeNull();
+    expect(
+      mobile!.querySelector("[data-testid='mobile-stop-control']"),
+    ).toBeNull();
+    expect(mobile!.textContent).not.toContain("Pending approvals");
+    expect(mobile!.textContent).not.toContain("Recent activity");
+    const launch = mobile!.querySelector("[data-decision-type='launch']");
+    expect(launch).not.toBeNull();
+    expect(launch?.textContent).toContain("Launches · new spend");
+    expect(launch?.textContent).toContain("Always manual");
   });
 
   it("requests the chosen account through the URL, never by granting it", async () => {
@@ -144,7 +186,7 @@ describe("Meta Automation account scope", () => {
     );
 
     const picker = await waitFor(() => {
-      const found = container.querySelector<HTMLSelectElement>(
+      const found = mobileSurface(container)?.querySelector<HTMLSelectElement>(
         "[data-control='account-picker'] select",
       );
       expect(found).not.toBeNull();
@@ -175,7 +217,9 @@ describe("Meta Automation account scope", () => {
     });
 
     // A control rendered live over a null account can only fail: every write
-    // this screen issues is account-scoped and the routes refuse it.
+    // this screen issues is account-scoped and the routes refuse it. The four
+    // unavailable mode rows therefore collapse to one readable state instead
+    // of drawing twelve indistinguishable disabled choices.
     const newRule = Array.from(container.querySelectorAll("button")).find(
       (button) => button.textContent?.includes("New rule"),
     );
@@ -186,12 +230,12 @@ describe("Meta Automation account scope", () => {
     const modeButtons = container.querySelectorAll<HTMLButtonElement>(
       "[data-testid='automation-action-modes-desktop'] [data-mode]",
     );
-    expect(modeButtons).toHaveLength(12);
-    for (const button of modeButtons) {
-      expect(button).toBeDisabled();
-      expect(button).toHaveAttribute("data-mode-refused");
-      expect(button.title).toContain("Choose a Meta ad account");
-    }
+    expect(modeButtons).toHaveLength(0);
+    expect(
+      container.querySelector(
+        "[data-testid='automation-action-modes-desktop'] [data-field='action-modes-unavailable']",
+      ),
+    ).not.toBeNull();
   });
 
   it("distinguishes a business with no assigned account from a failed assignments read", async () => {

@@ -3,6 +3,7 @@ import {
   decodeMetaHistoryCursor,
   encodeMetaHistoryCursor,
   MetaHistoryQueryError,
+  metaHistoryOutcomeRawValues,
   parseMetaHistoryQuery,
 } from "@/lib/meta/history-contract";
 
@@ -83,5 +84,9 @@ describe("Meta History contract", () => {
     expect(() => decodeMetaHistoryCursor("not-a-cursor")).toThrowError(
       expect.objectContaining<Partial<MetaHistoryQueryError>>({ code: "invalid_cursor" }),
     );
+  });
+
+  it("treats an observed provider change as a confirmed history event", () => {
+    expect(metaHistoryOutcomeRawValues("confirmed").values).toContain("observed");
   });
 });

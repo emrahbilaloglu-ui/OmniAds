@@ -213,6 +213,12 @@ export interface CreativeStudioAssetRow {
 export interface CreativeStudioAssetsModel {
   state: CreativeStudioDataState;
   message: string | null;
+  /**
+   * Availability of the recommendation source for the whole Assets read.
+   * When it is unavailable the surface explains that once, rather than
+   * repeating the same non-decision in every creative row.
+   */
+  decisionReadState?: "loading" | "available" | "unavailable";
   syncedCount: number | null;
   rows: CreativeStudioAssetRow[];
   persistenceKey?: string;

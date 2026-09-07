@@ -191,6 +191,17 @@
   flex-wrap: wrap;
 }
 
+.decisionAvailabilityNotice {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid #e4e8f0;
+  border-radius: 9px;
+  background: #f7f9fc;
+  color: #45526b;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
 .tab,
 .tabActive {
   display: inline-flex;

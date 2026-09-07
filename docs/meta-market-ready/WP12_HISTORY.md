@@ -58,7 +58,7 @@ long way from the edit.
 | 6. correlation / identity / provenance / detail | **satisfied** — the SELECT list carries `correlation_status`, `correlation_key`, `correlation_reason`, `account_scope_basis`, `attribution`, `engine_version` and `detail_json` |
 | 9. entity and kind filters sent to the server | **satisfied** — `history-client.tsx` sends `outcome` (with the comment "`outcome`, never `label`: they are different columns") and the query travels to the endpoint |
 | 12. `event_date` and `occurred_at` not merged | **satisfied** — both are separate columns throughout, and `replay_date` is a third |
-| 3. `decision_workflow_events` in the entity-type contract | **satisfied** — the branch is present and carries `entity_type = 'decision'` with `correlation_key = 'decision_key'` |
+| 3. `decision_workflow_events` in the entity-type contract | **satisfied** — the branch emits contract kind `decisions` and entity type `recommendation`, keeps the persisted `decision_key` as the entity id, and admits it to an account journal only through matching workflow-state account lineage; cross-source correlation remains unavailable because no separate correlation key is persisted |
 
 ## 5. Not done in this pass
 

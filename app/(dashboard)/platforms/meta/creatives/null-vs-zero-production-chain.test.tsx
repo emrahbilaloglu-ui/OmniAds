@@ -14,8 +14,14 @@ import {
   coerceRawCreativeRow,
   hydrateWarehouseCreativeMetrics,
 } from "@/lib/meta/creatives-warehouse";
-import type { MetaCreativeApiRow, RawCreativeRow } from "@/lib/meta/creatives-types";
-import type { MetaAdDailyRow, MetaCreativeDailyRow } from "@/lib/meta/warehouse-types";
+import type {
+  MetaCreativeApiRow,
+  RawCreativeRow,
+} from "@/lib/meta/creatives-types";
+import type {
+  MetaAdDailyRow,
+  MetaCreativeDailyRow,
+} from "@/lib/meta/warehouse-types";
 
 /**
  * The null-versus-zero contract, proven along the PRODUCTION chain.
@@ -52,7 +58,9 @@ const navigation = vi.hoisted(() => ({
 }));
 
 const queryState = vi.hoisted(() => ({
-  accounts: [{ id: "act_9", name: "Main", timezone: "UTC", currency: "USD" }] as unknown,
+  accounts: [
+    { id: "act_9", name: "Main", timezone: "UTC", currency: "USD" },
+  ] as unknown,
   creatives: undefined as unknown,
   briefing: undefined as unknown,
 }));
@@ -97,7 +105,9 @@ vi.mock("@/hooks/use-persistent-date-range", () => ({
 }));
 
 vi.mock("@/components/pricing/PlanGate", () => ({
-  PlanGate: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  PlanGate: ({ children }: { children: React.ReactNode }) => (
+    <div>{children}</div>
+  ),
 }));
 
 const useQueryMock = vi.mocked(useQuery);
@@ -176,7 +186,11 @@ function buildApiRowsFromWarehouse(input: {
     return acc;
   }, []);
 
-  const grouped = groupRows(rawRows, "creative", buildCreativeUsageMap(rawRows));
+  const grouped = groupRows(
+    rawRows,
+    "creative",
+    buildCreativeUsageMap(rawRows),
+  );
   return grouped.map((row) =>
     buildMetaCreativeApiRow({
       row,
@@ -189,7 +203,12 @@ function buildApiRowsFromWarehouse(input: {
 
 function renderStudio(rows: MetaCreativeApiRow[]) {
   queryState.creatives = { status: "ok", rows, warehouse_observed_at: null };
-  render(<CreativeStudioPage businessId="biz_1" providerAccountId={PROVIDER_ACCOUNT_ID} />);
+  render(
+    <CreativeStudioPage
+      businessId="biz_1"
+      providerAccountId={PROVIDER_ACCOUNT_ID}
+    />,
+  );
 }
 
 /**
@@ -215,7 +234,19 @@ function metricCell(header: string): string {
   expect(index, `no "${header}" column is on screen`).toBeGreaterThan(-1);
   const row = document.querySelector("[data-creative-studio-asset-row]");
   expect(row, "the Assets table rendered no creative row").not.toBeNull();
-  return Array.from(row!.querySelectorAll("td"))[index]?.textContent?.trim() ?? "";
+  return (
+    Array.from(row!.querySelectorAll("td"))[index]?.textContent?.trim() ?? ""
+  );
+}
+
+function expectMetricColumnHidden(header: string) {
+  const headers = Array.from(document.querySelectorAll("thead th")).map(
+    (cell) => (cell.textContent?.trim() ?? "").replace(/[▲▼↑↓]/g, "").trim(),
+  );
+  expect(
+    headers,
+    `${header} should be omitted when every row withholds it`,
+  ).not.toContain(header);
 }
 
 /** Switch the table to a named column set. A real operator click. */
@@ -259,7 +290,9 @@ function showCatalogueMetric(label: string) {
   fireEvent.click(screen.getByRole("button", { name: "+ Edit metrics" }));
   const picker = document.querySelector("[data-creative-studio-metric-picker]");
   expect(picker, "the metric picker did not open").not.toBeNull();
-  const option = Array.from(picker!.querySelectorAll("button[aria-pressed]")).find(
+  const option = Array.from(
+    picker!.querySelectorAll("button[aria-pressed]"),
+  ).find(
     (button) => button.textContent?.replace(/[✓↑↓]/g, "").trim() === label,
   );
   expect(option, `"${label}" is not in the metric picker`).toBeTruthy();
@@ -276,25 +309,27 @@ beforeEach(() => {
   queryState.creatives = undefined;
   queryState.briefing = undefined;
   useQueryMock.mockReset();
-  useQueryMock.mockImplementation((options: { queryKey?: readonly unknown[] }) => {
-    const key = options.queryKey?.[0];
-    const data =
-      key === "meta-provider-accounts"
-        ? queryState.accounts
-        : key === "meta-creative-studio"
-          ? queryState.creatives
-          : queryState.briefing;
-    return {
-      data,
-      error: null,
-      fetchStatus: "idle",
-      isError: false,
-      isFetching: false,
-      isLoading: false,
-      refetch: vi.fn(),
-      status: data ? "success" : "pending",
-    } as unknown as ReturnType<typeof useQuery>;
-  });
+  useQueryMock.mockImplementation(
+    (options: { queryKey?: readonly unknown[] }) => {
+      const key = options.queryKey?.[0];
+      const data =
+        key === "meta-provider-accounts"
+          ? queryState.accounts
+          : key === "meta-creative-studio"
+            ? queryState.creatives
+            : queryState.briefing;
+      return {
+        data,
+        error: null,
+        fetchStatus: "idle",
+        isError: false,
+        isFetching: false,
+        isLoading: false,
+        refetch: vi.fn(),
+        status: data ? "success" : "pending",
+      } as unknown as ReturnType<typeof useQuery>;
+    },
+  );
 });
 
 afterEach(() => cleanup());
@@ -312,7 +347,13 @@ describe("Creative Studio: null and zero survive the whole producer chain", () =
   it("prints a measured zero as 0, not an em dash", () => {
     const rows = buildApiRowsFromWarehouse({
       factRows: [
-        adDailyRow({ spend: 0, impressions: 0, clicks: 0, conversions: 0, linkClicks: 0 }),
+        adDailyRow({
+          spend: 0,
+          impressions: 0,
+          clicks: 0,
+          conversions: 0,
+          linkClicks: 0,
+        }),
       ],
     });
 
@@ -384,7 +425,7 @@ describe("Creative Studio: null and zero survive the whole producer chain", () =
     renderStudio(rows);
     showCatalogueMetric("Thumbstop");
 
-    expect(metricCell("Thumbstop")).toBe("—");
+    expectMetricColumnHidden("Thumbstop");
     // The measured spend beside it is untouched.
     showColumns("Performance");
     expect(metricCell("Spend")).toBe("$120");
@@ -425,7 +466,7 @@ describe("Creative Studio: null and zero survive the whole producer chain", () =
     renderStudio(rows);
 
     expect(metricCell("Spend")).toBe("$33.5k");
-    expect(metricCell("CPA")).toBe("—");
+    expectMetricColumnHidden("CPA");
   });
 
   /**
@@ -461,7 +502,7 @@ describe("Creative Studio: null and zero survive the whole producer chain", () =
     showColumns("Engagement");
 
     // Frequency was NULL at the source; CPM had both operands measured.
-    expect(metricCell("Frequency (daily avg)")).toBe("—");
+    expectMetricColumnHidden("Frequency (daily avg)");
     expect(metricCell("CPM")).toBe("$20.0");
   });
 
@@ -568,7 +609,7 @@ describe("Creative Studio: null and zero survive the whole producer chain", () =
     renderStudio(rows);
     showCatalogueMetric("Thumbstop");
 
-    expect(metricCell("Thumbstop")).toBe("—");
+    expectMetricColumnHidden("Thumbstop");
   });
 
   /**
@@ -628,7 +669,7 @@ describe("Creative Studio: null and zero survive the whole producer chain", () =
     // ambiguity this pass removed. It is still in the catalogue, so opt it in.
     showCatalogueMetric("Clicks (all)");
     expect(metricCell("Clicks (all)")).toBe("130");
-    expect(metricCell("ATC rate (link clicks)")).toBe("—");
+    expectMetricColumnHidden("ATC rate (link clicks)");
     expect(metricCell("Purchases")).toBe("5");
   });
 
@@ -742,8 +783,8 @@ describe("Creative Studio: link_clicks separates a measured zero from an unsuppl
     // ATC rate and CVR ARE denominated in link clicks, and a share of zero
     // clicks is undefined. Same row, same available field, different answer —
     // because the arithmetic is different, not because the source is.
-    expect(metricCell("ATC rate (link clicks)")).toBe("—");
-    expect(metricCell("CVR (link clicks)")).toBe("—");
+    expectMetricColumnHidden("ATC rate (link clicks)");
+    expectMetricColumnHidden("CVR (link clicks)");
     // The all-clicks counter is no longer a Funnel column: the ladder is
     // denominated in LINK clicks, and two clicks columns side by side is the
     // ambiguity this pass removed. It is still in the catalogue, so opt it in.
@@ -804,10 +845,10 @@ describe("Creative Studio: link_clicks separates a measured zero from an unsuppl
 
     renderStudio(rows);
     showColumns("Engagement");
-    expect(metricCell("CTR (link)")).toBe("—");
+    expectMetricColumnHidden("CTR (link)");
     showColumns("Funnel");
-    expect(metricCell("ATC rate (link clicks)")).toBe("—");
-    expect(metricCell("CVR (link clicks)")).toBe("—");
+    expectMetricColumnHidden("ATC rate (link clicks)");
+    expectMetricColumnHidden("CVR (link clicks)");
     // Not blanked out wholesale: the clicks the provider DID report are there.
     // The all-clicks counter is no longer a Funnel column: the ladder is
     // denominated in LINK clicks, and two clicks columns side by side is the
@@ -894,10 +935,7 @@ describe("Creative Studio: link_clicks separates a measured zero from an unsuppl
 
     renderStudio(rows);
     showColumns("Funnel");
-    const atcRate = metricCell("ATC rate (link clicks)");
-    expect(atcRate).toBe("—");
-    expect(atcRate).not.toContain("Infinity");
-    expect(atcRate).not.toBe("0.0%");
+    expectMetricColumnHidden("ATC rate (link clicks)");
     // The measured numerator is still a fact and still on screen.
     expect(mapApiRowToUiRow(rows[0]).observedMetrics?.addToCart).toBe(22);
   });
@@ -958,7 +996,9 @@ const CREATIVE_ID = "cre_1";
  * `addToCart` and `initiateCheckout` are resolved by `payloadMetricNumber` from
  * `payload_json` and come back null when the sync never wrote the key.
  */
-function creativeDailyRow(overrides: Partial<MetaCreativeDailyRow> = {}): MetaCreativeDailyRow {
+function creativeDailyRow(
+  overrides: Partial<MetaCreativeDailyRow> = {},
+): MetaCreativeDailyRow {
   return {
     businessId: "biz_1",
     providerAccountId: PROVIDER_ACCOUNT_ID,
@@ -1062,7 +1102,11 @@ function buildApiRowsFromCreativeWarehouse(input: {
     acc.push(hydrateWarehouseCreativeMetrics({ row: projectionRow, factRow }));
     return acc;
   }, []);
-  const grouped = groupRows(rawRows, "creative", buildCreativeUsageMap(rawRows));
+  const grouped = groupRows(
+    rawRows,
+    "creative",
+    buildCreativeUsageMap(rawRows),
+  );
   return grouped.map((row) =>
     buildMetaCreativeApiRow({
       row,
@@ -1200,7 +1244,7 @@ describe("Creative Studio Assets: the sidecar fires on groupBy=creative", () => 
 
     renderStudio(rows);
 
-    expect(metricCell("Age (days since created)")).toBe("—");
+    expectMetricColumnHidden("Age (days since created)");
     // The measured numbers beside it are untouched: the absent date withholds
     // the age, not the row.
     expect(metricCell("Spend")).toBe("$8");
@@ -1255,7 +1299,7 @@ describe("Creative Studio Assets: the sidecar fires on groupBy=creative", () => 
 
     expect(metricCell("Spend")).toBe("$33.5k");
     showColumns("Funnel");
-    expect(metricCell("ATC rate (link clicks)")).toBe("—");
+    expectMetricColumnHidden("ATC rate (link clicks)");
     // The all-clicks counter is no longer a Funnel column: the ladder is
     // denominated in LINK clicks, and two clicks columns side by side is the
     // ambiguity this pass removed. It is still in the catalogue, so opt it in.
@@ -1301,7 +1345,7 @@ describe("Creative Studio Assets: the sidecar fires on groupBy=creative", () => 
     renderStudio(rows);
 
     expect(metricCell("Spend")).toBe("$33.5k");
-    expect(metricCell("CPA")).toBe("—");
+    expectMetricColumnHidden("CPA");
   });
 
   /**
@@ -1367,8 +1411,8 @@ describe("Creative Studio Assets: the sidecar fires on groupBy=creative", () => 
     renderStudio(rows);
     showCatalogueMetric("Thumbstop");
 
-    expect(metricCell("Thumbstop")).toBe("—");
-    expect(metricCell("CPM")).toBe("—");
+    expectMetricColumnHidden("Thumbstop");
+    expectMetricColumnHidden("CPM");
   });
 
   /**
@@ -1436,7 +1480,7 @@ describe("Creative Studio Assets: the sidecar fires on groupBy=creative", () => 
     // ambiguity this pass removed. It is still in the catalogue, so opt it in.
     showCatalogueMetric("Clicks (all)");
     expect(metricCell("Clicks (all)")).toBe("130");
-    expect(metricCell("ATC rate (link clicks)")).toBe("—");
+    expectMetricColumnHidden("ATC rate (link clicks)");
     expect(metricCell("Purchases")).toBe("5");
   });
 
@@ -1535,7 +1579,10 @@ describe("Creative Studio Assets: no default column is a permanent em dash", () 
       const blank = [...cells.entries()]
         .filter(([, value]) => value === "—")
         .map(([header]) => header);
-      expect(blank, `${set} columns blank against a fully measured day`).toEqual([]);
+      expect(
+        blank,
+        `${set} columns blank against a fully measured day`,
+      ).toEqual([]);
     }
   });
 
@@ -1553,7 +1600,7 @@ describe("Creative Studio Assets: no default column is a permanent em dash", () 
 
     renderStudio(rows);
     showCatalogueMetric("Thumbstop");
-    expect(metricCell("Thumbstop")).toBe("—");
+    expectMetricColumnHidden("Thumbstop");
   });
 
   /**
@@ -1570,7 +1617,9 @@ describe("Creative Studio Assets: no default column is a permanent em dash", () 
     showColumns("Funnel");
     const cells = visibleMetricCells();
 
-    expect([...cells.keys()].map((header) => header.replace(/[↑↓]/g, "").trim())).toEqual([
+    expect(
+      [...cells.keys()].map((header) => header.replace(/[↑↓]/g, "").trim()),
+    ).toEqual([
       "Impressions",
       "CTR (link)",
       "Link clicks",
@@ -1599,7 +1648,9 @@ describe("Creative Studio Assets: no default column is a permanent em dash", () 
       "ATC to purchase ↑",
       "CVR (link clicks) ↑",
     ]) {
-      expect(cells.get(rate), `${rate} did not render a rate`).toMatch(/^\d+(\.\d+)?%$/);
+      expect(cells.get(rate), `${rate} did not render a rate`).toMatch(
+        /^\d+(\.\d+)?%$/,
+      );
     }
   });
 
@@ -1639,7 +1690,7 @@ describe("Creative Studio Assets: no default column is a permanent em dash", () 
     // Spent everything, earned nothing: ROAS over a measured zero revenue is a
     // measured zero, while CPA over zero purchases is undefined.
     expect(cells.get("ROAS ↑")).toBe("0.0");
-    expect(cells.get("CPA ↓")).toBe("—");
-    expect(cells.get("AOV ↑")).toBe("—");
+    expect(cells.has("CPA ↓")).toBe(false);
+    expect(cells.has("AOV ↑")).toBe(false);
   });
 });

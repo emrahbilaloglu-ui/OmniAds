@@ -1,6 +1,12 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const scopeMocks = vi.hoisted(() => ({
@@ -111,7 +117,9 @@ describe("Meta Launchpad authorized client scope", () => {
     );
 
     await waitFor(() => {
-      expect(container.querySelector("[data-testid='launchpad-exact']")).not.toBeNull();
+      expect(
+        container.querySelector("[data-testid='launchpad-exact']"),
+      ).not.toBeNull();
     });
 
     // The law is about the *chosen account*, not about presentation: an id the
@@ -151,9 +159,11 @@ describe("Meta Launchpad authorized client scope", () => {
       "Meta ad account for Launchpad",
     )) as HTMLSelectElement;
     await waitFor(() => {
-      expect(
-        Array.from(picker.options).map((option) => option.value),
-      ).toEqual(["", "act_1", "act_2"]);
+      expect(Array.from(picker.options).map((option) => option.value)).toEqual([
+        "",
+        "act_1",
+        "act_2",
+      ]);
     });
 
     fireEvent.change(picker, { target: { value: "act_2" } });
@@ -204,8 +214,8 @@ describe("Meta Launchpad reviewer write boundary", () => {
     );
 
     expect(saveTemplate).toHaveProperty("disabled", true);
-    expect(saveTemplate.getAttribute("title")).toContain(
-      "Reviewer access is read-only",
+    expect(saveTemplate.getAttribute("title")).toBe(
+      "Changes are unavailable for this workspace.",
     );
   });
 
@@ -224,8 +234,8 @@ describe("Meta Launchpad reviewer write boundary", () => {
     );
 
     expect(saveTemplate).toHaveProperty("disabled", true);
-    expect(saveTemplate.getAttribute("title")).toContain(
-      "Demo workspaces have zero Meta write authority",
+    expect(saveTemplate.getAttribute("title")).toBe(
+      "Changes are unavailable for this workspace.",
     );
   });
 
@@ -242,8 +252,8 @@ describe("Meta Launchpad reviewer write boundary", () => {
     );
 
     expect(saveTemplate).toHaveProperty("disabled", true);
-    expect(saveTemplate.getAttribute("title")).toContain(
-      "could not be confirmed as a live",
+    expect(saveTemplate.getAttribute("title")).toBe(
+      "Changes are unavailable for this workspace.",
     );
   });
 
@@ -259,8 +269,8 @@ describe("Meta Launchpad reviewer write boundary", () => {
     );
 
     expect(saveTemplate).toHaveProperty("disabled", true);
-    expect(saveTemplate.getAttribute("title")).toContain(
-      "require collaborator access",
+    expect(saveTemplate.getAttribute("title")).toBe(
+      "Changes are unavailable for this workspace.",
     );
   });
 

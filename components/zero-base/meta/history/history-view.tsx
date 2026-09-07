@@ -17,8 +17,11 @@ import { useState, type ReactNode } from "react";
 import { Button } from "@/components/zero-base/primitives/button";
 import { TextInput } from "@/components/zero-base/primitives/text-input";
 import { UnavailableState } from "@/components/zero-base/states/surface-state";
-import { REPLAY_BANNER, actorLabel } from "@/lib/zero-base/meta/automation-posture";
-import { moneyFactText, type HistoryRow } from "@/lib/zero-base/meta/history-adapter";
+import { actorLabel } from "@/lib/zero-base/meta/automation-posture";
+import {
+  moneyFactText,
+  type HistoryRow,
+} from "@/lib/zero-base/meta/history-adapter";
 import type { HistoryDateWindow } from "@/lib/meta/history-date-window";
 import {
   META_HISTORY_ENTITY_TYPES,
@@ -29,11 +32,46 @@ import legacyStyles from "@/components/zero-base/legacy-workspace-interior.modul
 
 export type { HistoryRow };
 
+const HISTORY_LABELS: Record<string, string> = {
+  all: "All",
+  confirmed: "Confirmed",
+  unsettled: "Needs review",
+  verified_success: "Verified",
+  silent_failure: "Needs review",
+  unknown_outcome: "Needs review",
+  validation_blocked: "Blocked",
+  write_blocked: "Blocked",
+  partially_succeeded: "Partially succeeded",
+  label_flips: "Role changes",
+  external_changes: "External changes",
+  writes: "Changes",
+  briefs: "Creative briefs",
+  structures: "Structure changes",
+  adset: "Ad set",
+  creative_brief: "Creative brief",
+  launch_intent: "Launch",
+};
+
+const REPLAY_NOTICE =
+  "Some entries were reconstructed after the fact and may differ from the original state.";
+
+function historyLabel(value: string): string {
+  const known = HISTORY_LABELS[value];
+  if (known) return known;
+  return value
+    .replaceAll("_", " ")
+    .replace(/^./, (character) => character.toUpperCase());
+}
+
+function historyActorLabel(actor: string | null): string {
+  return actor === "No human actor (engine)" ? "Automated" : actorLabel(actor);
+}
+
 export function HistoryView({
   rows,
   dateWindow,
   disclosure,
-  limitations,
+  limitations = [],
   accountLabel,
   unavailableReason,
   unavailableAction,
@@ -113,6 +151,8 @@ export function HistoryView({
   const anyReplayed = rows.some((row) => row.replayed);
   const [replayId, setReplayId] = useState<string | null>(initialReplayId);
   const replayRow = rows.find((row) => row.id === replayId) ?? null;
+  const visibleAccountLabel =
+    accountLabel && !/^act_/i.test(accountLabel.trim()) ? accountLabel : null;
 
   if (unavailableReason) {
     return (
@@ -121,7 +161,16 @@ export function HistoryView({
         data-screen-label="Meta · History"
         className={legacyStyles.workspace}
       >
-        <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, lineHeight: "26px" }}>{copy.metaHistory}</h1>
+        <h1
+          style={{
+            margin: 0,
+            fontSize: 20,
+            fontWeight: 700,
+            lineHeight: "26px",
+          }}
+        >
+          {copy.metaHistory}
+        </h1>
         <div style={{ marginTop: 12 }}>
           <UnavailableState reason={unavailableReason} />
           {unavailableAction}
@@ -136,242 +185,385 @@ export function HistoryView({
       data-history-layout=""
       data-screen-label="Meta · History"
       className={legacyStyles.workspace}
-      style={{ display: "grid", gridTemplateColumns: replayRow ? "minmax(0, 1fr) 360px" : "1fr", gap: 16, alignItems: "start" }}
+      style={{
+        display: "grid",
+        gridTemplateColumns: replayRow ? "minmax(0, 1fr) 360px" : "1fr",
+        gap: 16,
+        alignItems: "start",
+      }}
     >
       <div style={{ minWidth: 0 }}>
-      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12 }}>
-        <div><p style={{ margin: 0, fontFamily: "var(--font-adc-mono), monospace", fontSize: 12, textTransform: "uppercase", letterSpacing: ".08em", color: "var(--ledger-ink-tertiary)" }}>{copy.metaWorkspace}</p><h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, lineHeight: "26px" }}>{copy.metaHistory}</h1><p style={{ margin: "4px 0 0", fontSize: 12, color: "var(--ledger-ink-secondary)" }}>{copy.decisionWorkflowProviderJournal}</p></div>
-        {onClose ? (
-          <Button variant="secondary" data-ctl="live:close" onClick={onClose}>
-            {copy.close}
-          </Button>
-        ) : null}
-      </div>
-      {accountLabel ? (
-        <p data-history-account="" style={{ margin: "4px 0 0", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
-          Account {accountLabel}
-        </p>
-      ) : null}
-
-      {dateWindow ? (
-        <p
-          data-history-window=""
-          data-history-window-source={dateWindow.source}
-          style={{ margin: "4px 0 0", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}
-        >
-          {`Window ${dateWindow.start} to ${dateWindow.end}`}
-          {dateWindow.source === "default"
-            ? " · default window; this link states none, so entries outside it are not shown"
-            : null}
-        </p>
-      ) : null}
-
-      {anyReplayed ? (
-        // No dismiss control: the caveat has to outlive the reader's attention.
-        <p
-          role="status"
-          data-replay-banner=""
-          data-el="replay-banner"
+        <div
           style={{
-            marginTop: 12,
-            padding: "10px 14px",
-            borderRadius: "var(--ledger-radius-card)",
-            border: "1px solid var(--ledger-semantic-warn)",
-            fontSize: 13,
-            lineHeight: "19px",
-            color: "var(--ledger-semantic-warn)",
+            display: "flex",
+            alignItems: "baseline",
+            justifyContent: "space-between",
+            gap: 12,
           }}
         >
-          {REPLAY_BANNER}
-        </p>
-      ) : null}
-
-
-      {limitations && limitations.length > 0 ? (
-        <ul data-history-limitations="" style={{ margin: "8px 0 0", paddingLeft: 16 }}>
-          {limitations.map((item) => (
-            <li key={item} style={{ fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
-              {item}
-            </li>
-          ))}
-        </ul>
-      ) : null}
-
-      {onQueryChange || onOutcomeFilterChange || onKindFilterChange || onEntityFilterChange ? (
-        <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-end", marginTop: 16 }}>
-          {onQueryChange ? (
-            <div style={{ maxWidth: 280, flex: "1 1 220px" }}>
-              <TextInput
-                label={copy.searchHistory}
-                data-ctl="live:META-HIST-05 search"
-                value={query}
-                onChange={(event) => onQueryChange(event.target.value)}
-                hint={copy.historySearchIsServerSide}
-              />
-            </div>
-          ) : null}
-          {onOutcomeFilterChange ? (
-            <label style={{ fontSize: 12, display: "grid", gap: 4 }}>
-              {copy.outcome}
-              <select
-                data-ctl="live:META-HIST-05 filter"
-                data-history-filter="outcome"
-                value={outcomeFilter}
-                onChange={(event) => onOutcomeFilterChange(event.target.value)}
-                style={{ minHeight: 44, padding: "6px 8px" }}
-              >
-                {["all", "confirmed", "failed", "unsettled"].map((value) => (
-                  <option key={value} value={value}>
-                    {value}
-                  </option>
-                ))}
-              </select>
-            </label>
-          ) : null}
-          {onKindFilterChange ? (
-            <label style={{ fontSize: 12, display: "grid", gap: 4 }}>
-              {copy.eventFamily}
-              <select
-                data-ctl="live:META-HIST-05 kind"
-                data-history-filter="kind"
-                value={kindFilter}
-                onChange={(event) => onKindFilterChange(event.target.value)}
-                style={{ minHeight: 44, padding: "6px 8px" }}
-              >
-                {["all", ...META_HISTORY_KINDS].map((value) => (
-                  <option key={value} value={value}>
-                    {value}
-                  </option>
-                ))}
-              </select>
-            </label>
-          ) : null}
-          {onEntityFilterChange ? (
-            <label style={{ fontSize: 12, display: "grid", gap: 4 }}>
-              {copy.entity}
-              <select
-                data-ctl="live:META-HIST-05 entity"
-                data-history-filter="entity"
-                value={entityFilter}
-                onChange={(event) => onEntityFilterChange(event.target.value)}
-                style={{ minHeight: 44, padding: "6px 8px" }}
-              >
-                {["all", ...META_HISTORY_ENTITY_TYPES].map((value) => (
-                  <option key={value} value={value}>
-                    {value}
-                  </option>
-                ))}
-              </select>
-            </label>
+          <div>
+            <h1
+              style={{
+                margin: 0,
+                fontSize: 20,
+                fontWeight: 700,
+                lineHeight: "26px",
+              }}
+            >
+              {copy.metaHistory}
+            </h1>
+            <p
+              style={{
+                margin: "4px 0 0",
+                fontSize: 12,
+                color: "var(--ledger-ink-secondary)",
+              }}
+            >
+              Changes and actions on this account.
+            </p>
+          </div>
+          {onClose ? (
+            <Button variant="secondary" data-ctl="live:close" onClick={onClose}>
+              {copy.close}
+            </Button>
           ) : null}
         </div>
-      ) : null}
-
-      <div style={{ marginTop: 16 }}>
-        <DataTable
-          collection="history"
-          caption={copy.metaActionHistory}
-          rows={[...rows]}
-          rowKey={(row) => row.id}
-          columns={[
-            { id: "occurredAt", header: "When", render: (row) => row.occurredAt },
-            { id: "action", header: "Action", render: (row) => row.action },
-            { id: "outcome", header: "Outcome", render: (row) => row.outcome },
-            {
-              id: "actor",
-              header: "Actor",
-              render: (row) => (
-                <span data-actor={row.id} data-actor-known={row.actor ? "yes" : "no"}>
-                  {actorLabel(row.actor)}
-                </span>
-              ),
-            },
-            {
-              id: "provenance",
-              header: "Provenance",
-              render: (row) =>
-                row.replayed ? (
-                  <span data-replayed={row.id} style={{ color: "var(--ledger-semantic-warn)" }}>
-                    {t.replayed}
-                  </span>
-                ) : (
-                  <span data-recorded={row.id}>{t.recordedAtTheTime}</span>
-                ),
-            },
-            {
-              id: "replay",
-              header: "Replay",
-              render: (row) =>
-                onReplay ? (
-                  <Button
-                    variant="secondary"
-                    data-ctl="live:META-HIST-06 replay"
-                    onClick={() => {
-                      setReplayId(row.id);
-                      onReplay(row.id);
-                    }}
-                  >
-                    {t.replay}
-                  </Button>
-                ) : (
-                  <span style={{ color: "var(--ledger-ink-tertiary)", fontSize: 12 }}>
-                    {t.notAvailable}
-                  </span>
-                ),
-            },
-          ]}
-        />
-        {onLoadMore ? (
-          <Button
-            variant="secondary"
-            data-ctl="live:META-HIST-05 cursor"
-            onClick={onLoadMore}
-            style={{ marginTop: 8 }}
+        {visibleAccountLabel ? (
+          <p
+            data-history-account=""
+            style={{
+              margin: "4px 0 0",
+              fontSize: 12,
+              color: "var(--ledger-ink-tertiary)",
+            }}
           >
-            {copy.loadMore}
-          </Button>
+            Account {visibleAccountLabel}
+          </p>
         ) : null}
-      </div>
-      {disclosure ? (
-        <p data-history-disclosure="" data-el="history-gap" style={{ margin: "8px 0 0", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
-          {disclosure}
-        </p>
-      ) : null}
+
+        {dateWindow ? (
+          <p
+            data-history-window=""
+            data-history-window-source={dateWindow.source}
+            style={{
+              margin: "4px 0 0",
+              fontSize: 12,
+              color: "var(--ledger-ink-tertiary)",
+            }}
+          >
+            {dateWindow.start} – {dateWindow.end}
+          </p>
+        ) : null}
+
+        {anyReplayed ? (
+          // No dismiss control: the caveat has to outlive the reader's attention.
+          <p
+            role="status"
+            data-replay-banner=""
+            data-el="replay-banner"
+            style={{
+              marginTop: 12,
+              padding: "10px 14px",
+              borderRadius: "var(--ledger-radius-card)",
+              border: "1px solid var(--ledger-semantic-warn)",
+              fontSize: 13,
+              lineHeight: "19px",
+              color: "var(--ledger-semantic-warn)",
+            }}
+          >
+            {REPLAY_NOTICE}
+          </p>
+        ) : null}
+        {limitations.length > 0 ? (
+          <p
+            role="status"
+            data-history-limitations=""
+            style={{
+              margin: "8px 0 0",
+              padding: "8px 10px",
+              borderRadius: "var(--ledger-radius-card)",
+              border: "1px solid var(--ledger-semantic-warn)",
+              fontSize: 12,
+              lineHeight: "18px",
+              color: "var(--ledger-semantic-warn)",
+            }}
+          >
+            Some history details are unavailable. The entries shown may be
+            incomplete.
+          </p>
+        ) : null}
+        {onQueryChange ||
+        onOutcomeFilterChange ||
+        onKindFilterChange ||
+        onEntityFilterChange ? (
+          <div
+            style={{
+              display: "flex",
+              gap: 12,
+              flexWrap: "wrap",
+              alignItems: "flex-end",
+              marginTop: 16,
+            }}
+          >
+            {onQueryChange ? (
+              <div style={{ maxWidth: 280, flex: "1 1 220px" }}>
+                <TextInput
+                  label={copy.searchHistory}
+                  data-ctl="live:META-HIST-05 search"
+                  value={query}
+                  onChange={(event) => onQueryChange(event.target.value)}
+                  hint={copy.historySearchIsServerSide}
+                />
+              </div>
+            ) : null}
+            {onOutcomeFilterChange ? (
+              <label style={{ fontSize: 12, display: "grid", gap: 4 }}>
+                {copy.outcome}
+                <select
+                  data-ctl="live:META-HIST-05 filter"
+                  data-history-filter="outcome"
+                  value={outcomeFilter}
+                  onChange={(event) =>
+                    onOutcomeFilterChange(event.target.value)
+                  }
+                  style={{ minHeight: 44, padding: "6px 8px" }}
+                >
+                  {["all", "confirmed", "failed", "unsettled"].map((value) => (
+                    <option key={value} value={value}>
+                      {historyLabel(value)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
+            {onKindFilterChange ? (
+              <label style={{ fontSize: 12, display: "grid", gap: 4 }}>
+                {copy.eventFamily}
+                <select
+                  data-ctl="live:META-HIST-05 kind"
+                  data-history-filter="kind"
+                  value={kindFilter}
+                  onChange={(event) => onKindFilterChange(event.target.value)}
+                  style={{ minHeight: 44, padding: "6px 8px" }}
+                >
+                  {["all", ...META_HISTORY_KINDS].map((value) => (
+                    <option key={value} value={value}>
+                      {historyLabel(value)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
+            {onEntityFilterChange ? (
+              <label style={{ fontSize: 12, display: "grid", gap: 4 }}>
+                {copy.entity}
+                <select
+                  data-ctl="live:META-HIST-05 entity"
+                  data-history-filter="entity"
+                  value={entityFilter}
+                  onChange={(event) => onEntityFilterChange(event.target.value)}
+                  style={{ minHeight: 44, padding: "6px 8px" }}
+                >
+                  {["all", ...META_HISTORY_ENTITY_TYPES].map((value) => (
+                    <option key={value} value={value}>
+                      {historyLabel(value)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
+          </div>
+        ) : null}
+
+        <div style={{ marginTop: 16 }}>
+          <DataTable
+            collection="history"
+            caption={copy.metaActionHistory}
+            rows={[...rows]}
+            rowKey={(row) => row.id}
+            columns={[
+              {
+                id: "occurredAt",
+                header: "When",
+                render: (row) => row.occurredAt,
+              },
+              { id: "action", header: "Action", render: (row) => row.action },
+              {
+                id: "outcome",
+                header: "Outcome",
+                render: (row) => historyLabel(row.outcome),
+              },
+              {
+                id: "actor",
+                header: "Actor",
+                render: (row) => (
+                  <span
+                    data-actor={row.id}
+                    data-actor-known={row.actor ? "yes" : "no"}
+                  >
+                    {historyActorLabel(row.actor)}
+                  </span>
+                ),
+              },
+              {
+                id: "replay",
+                header: "Replay",
+                render: (row) =>
+                  onReplay ? (
+                    <Button
+                      variant="secondary"
+                      data-ctl="live:META-HIST-06 replay"
+                      onClick={() => {
+                        setReplayId(row.id);
+                        onReplay(row.id);
+                      }}
+                    >
+                      {t.replay}
+                    </Button>
+                  ) : (
+                    <span
+                      style={{
+                        color: "var(--ledger-ink-tertiary)",
+                        fontSize: 12,
+                      }}
+                    >
+                      {t.notAvailable}
+                    </span>
+                  ),
+              },
+            ]}
+          />
+          {onLoadMore ? (
+            <Button
+              variant="secondary"
+              data-ctl="live:META-HIST-05 cursor"
+              onClick={onLoadMore}
+              style={{ marginTop: 8 }}
+            >
+              {copy.loadMore}
+            </Button>
+          ) : null}
+        </div>
+        {disclosure ? (
+          <p
+            data-history-disclosure=""
+            data-el="history-gap"
+            style={{
+              margin: "8px 0 0",
+              fontSize: 12,
+              color: "var(--ledger-ink-tertiary)",
+            }}
+          >
+            {disclosure}
+          </p>
+        ) : null}
       </div>
       {replayRow ? (
         <aside
           data-replay-drawer={replayRow.id}
           aria-label={`Replay — ${replayRow.action}`}
-          style={{ minHeight: 420, padding: 18, border: "1px solid var(--ledger-border-subtle)", borderRadius: "var(--ledger-radius-card)", background: "var(--ledger-bg-surface)", boxShadow: "-12px 0 30px color-mix(in srgb, var(--ledger-ink-primary) 8%, transparent)" }}
+          style={{
+            minHeight: 420,
+            padding: 18,
+            border: "1px solid var(--ledger-border-subtle)",
+            borderRadius: "var(--ledger-radius-card)",
+            background: "var(--ledger-bg-surface)",
+            boxShadow:
+              "-12px 0 30px color-mix(in srgb, var(--ledger-ink-primary) 8%, transparent)",
+          }}
         >
-          <div style={{ display: "flex", alignItems: "start", justifyContent: "space-between", gap: 12 }}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "start",
+              justifyContent: "space-between",
+              gap: 12,
+            }}
+          >
             <div>
-              <p style={{ margin: 0, font: "12px/1.3 var(--font-mono, monospace)", color: "var(--ledger-ink-tertiary)" }}>REPLAY · DECISION SNAPSHOT</p>
-              <h2 style={{ margin: "5px 0 0", fontSize: 16 }}>{replayRow.action}</h2>
+              <p
+                style={{
+                  margin: 0,
+                  fontSize: 12,
+                  color: "var(--ledger-ink-tertiary)",
+                }}
+              >
+                Replay
+              </p>
+              <h2 style={{ margin: "5px 0 0", fontSize: 16 }}>
+                {replayRow.action}
+              </h2>
             </div>
-            <Button variant="quiet" data-ctl="live:close-replay" onClick={() => setReplayId(null)}>{copy.close}</Button>
+            <Button
+              variant="quiet"
+              data-ctl="live:close-replay"
+              onClick={() => setReplayId(null)}
+            >
+              {copy.close}
+            </Button>
           </div>
-          <p style={{ margin: "14px 0 0", padding: 10, border: "1px solid var(--ledger-semantic-warn)", borderRadius: "var(--ledger-radius-card)", fontSize: 12, lineHeight: "18px", color: "var(--ledger-semantic-warn)" }}>
-            Replay of a stored snapshot — not live state. It shows what the engine served then; it cannot reconstruct today&apos;s account.
+          <p
+            style={{
+              margin: "14px 0 0",
+              padding: 10,
+              border: "1px solid var(--ledger-semantic-warn)",
+              borderRadius: "var(--ledger-radius-card)",
+              fontSize: 12,
+              lineHeight: "18px",
+              color: "var(--ledger-semantic-warn)",
+            }}
+          >
+            Historical view. It may differ from the account today.
           </p>
-          <dl style={{ margin: "16px 0 0", display: "grid", gap: 10, fontSize: 12 }}>
-            <div><dt style={{ color: "var(--ledger-ink-tertiary)" }}>{copy.observed}</dt><dd style={{ margin: 0 }}>{replayRow.occurredAt}</dd></div>
-            <div><dt style={{ color: "var(--ledger-ink-tertiary)" }}>{copy.outcome}</dt><dd style={{ margin: 0 }}>{replayRow.outcome}</dd></div>
-            <div><dt style={{ color: "var(--ledger-ink-tertiary)" }}>{copy.actor}</dt><dd style={{ margin: 0 }}>{actorLabel(replayRow.actor)}</dd></div>
-            <div><dt style={{ color: "var(--ledger-ink-tertiary)" }}>{copy.evidenceBasis}</dt><dd style={{ margin: 0 }}>{replayRow.replayed ? "Replayed projection; historical caveat applies." : "Recorded at the time."}</dd></div>
-            {/* The version the caveat above is about. A replay that cannot name
-                its engine says so with an em-dash rather than borrowing the
-                current version, which would date a reconstruction wrongly. */}
-            {replayRow.replayed ? (
-              <div><dt style={{ color: "var(--ledger-ink-tertiary)" }}>{copy.engineVersion}</dt><dd data-replay-engine-version={replayRow.id} style={{ margin: 0 }}>{replayRow.replayEngineVersion ?? "—"}</dd></div>
-            ) : null}
+          <dl
+            style={{
+              margin: "16px 0 0",
+              display: "grid",
+              gap: 10,
+              fontSize: 12,
+            }}
+          >
+            <div>
+              <dt style={{ color: "var(--ledger-ink-tertiary)" }}>
+                {copy.observed}
+              </dt>
+              <dd style={{ margin: 0 }}>{replayRow.occurredAt}</dd>
+            </div>
+            <div>
+              <dt style={{ color: "var(--ledger-ink-tertiary)" }}>
+                {copy.outcome}
+              </dt>
+              <dd style={{ margin: 0 }}>{historyLabel(replayRow.outcome)}</dd>
+            </div>
+            <div>
+              <dt style={{ color: "var(--ledger-ink-tertiary)" }}>
+                {copy.actor}
+              </dt>
+              <dd style={{ margin: 0 }}>
+                {historyActorLabel(replayRow.actor)}
+              </dd>
+            </div>
             {replayRow.summary ? (
-              <div><dt style={{ color: "var(--ledger-ink-tertiary)" }}>{copy.summary}</dt><dd data-replay-summary={replayRow.id} style={{ margin: 0 }}>{replayRow.summary}</dd></div>
+              <div>
+                <dt style={{ color: "var(--ledger-ink-tertiary)" }}>
+                  {copy.summary}
+                </dt>
+                <dd data-replay-summary={replayRow.id} style={{ margin: 0 }}>
+                  {replayRow.summary}
+                </dd>
+              </div>
             ) : null}
             {/* The served money facts, not re-derived ones. A budget change with
                 no amounts is a budget change nobody can check. */}
             {(replayRow.money ?? []).map((fact) => (
-              <div key={fact.label}><dt style={{ color: "var(--ledger-ink-tertiary)" }}>{fact.label}</dt><dd data-replay-money={fact.label} style={{ margin: 0 }}>{moneyFactText(fact)}</dd></div>
+              <div key={fact.label}>
+                <dt style={{ color: "var(--ledger-ink-tertiary)" }}>
+                  {fact.label}
+                </dt>
+                <dd data-replay-money={fact.label} style={{ margin: 0 }}>
+                  {moneyFactText(fact)}
+                </dd>
+              </div>
             ))}
           </dl>
         </aside>

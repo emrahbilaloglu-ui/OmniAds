@@ -46,7 +46,9 @@ vi.mock("@/lib/access/require-business-page-context", () => ({
   requireBusinessPageContext: vi.fn(),
 }));
 vi.mock("@/lib/zero-base/auth-routing", () => ({
-  loginUrlFor: vi.fn((next: string) => `/login?next=${encodeURIComponent(next)}`),
+  loginUrlFor: vi.fn(
+    (next: string) => `/login?next=${encodeURIComponent(next)}`,
+  ),
 }));
 vi.mock("@/lib/zero-base/provider-scope-server", () => ({
   /**
@@ -58,9 +60,10 @@ vi.mock("@/lib/zero-base/provider-scope-server", () => ({
   resolveProviderAccountScope: async (input: unknown) => {
     // Reaches the same mock through the module itself, because the factory
     // runs before the file's own bindings exist and cannot close over one.
-    const { resolveProviderAccountId: resolveId } = (await import(
-      "@/lib/zero-base/provider-scope-server"
-    )) as { resolveProviderAccountId: (value: unknown) => Promise<string | null> };
+    const { resolveProviderAccountId: resolveId } =
+      (await import("@/lib/zero-base/provider-scope-server")) as {
+        resolveProviderAccountId: (value: unknown) => Promise<string | null>;
+      };
     const id = await resolveId(input);
     return id
       ? { providerAccountId: id, refusal: null, requestedButUnassigned: null }
@@ -70,7 +73,10 @@ vi.mock("@/lib/zero-base/provider-scope-server", () => ({
           requestedButUnassigned: null,
         };
   },
-  readProviderScopeCatalog: async () => ({ provider: "meta" as const, accounts: [] }),
+  readProviderScopeCatalog: async () => ({
+    provider: "meta" as const,
+    accounts: [],
+  }),
   resolveProviderAccountId: vi.fn(),
 }));
 vi.mock("@/lib/meta/history-read-model", () => ({
@@ -97,9 +103,8 @@ vi.mock("@/components/zero-base/meta/history/history-client", () => ({
 const MetaHistoryPage = (await import("@/app/c/[businessId]/meta/history/page"))
   .default;
 const auth = await import("@/lib/auth");
-const businessPageAccess = await import(
-  "@/lib/access/require-business-page-context"
-);
+const businessPageAccess =
+  await import("@/lib/access/require-business-page-context");
 const providerScope = await import("@/lib/zero-base/provider-scope-server");
 const readModel = await import("@/lib/meta/history-read-model");
 const access = await import("@/lib/access");
@@ -113,8 +118,18 @@ const WORKSPACE_TIME_ZONE = "America/New_York";
  *  still 2026-08-18 in New York, so both clocks name the same day. */
 const WORKSPACE_NOW = "2026-08-18T12:00:00.000Z";
 
-const ACCOUNT_A = { id: "act_A", name: "First account", currency: "USD", timezone: "UTC" };
-const ACCOUNT_B = { id: "act_B", name: "Second account", currency: "EUR", timezone: "UTC" };
+const ACCOUNT_A = {
+  id: "act_A",
+  name: "First account",
+  currency: "USD",
+  timezone: "UTC",
+};
+const ACCOUNT_B = {
+  id: "act_B",
+  name: "Second account",
+  currency: "EUR",
+  timezone: "UTC",
+};
 
 function session() {
   return {
@@ -181,7 +196,9 @@ function journal(providerAccountId: string, providerAccountName: string) {
   };
 }
 
-async function renderPage(searchParams: Record<string, string | string[] | undefined> = {}) {
+async function renderPage(
+  searchParams: Record<string, string | string[] | undefined> = {},
+) {
   const element = await MetaHistoryPage({
     params: Promise.resolve({ businessId: "biz_route" }),
     searchParams: Promise.resolve(searchParams),
@@ -214,14 +231,20 @@ beforeEach(() => {
     "act_A",
     "act_B",
   ] as never);
-  vi.mocked(readModel.readMetaHistoryJournal).mockImplementation((async (input: {
-    account: { id: string; name: string | null };
-  }) => journal(input.account.id, input.account.name ?? input.account.id)) as never);
+  vi.mocked(readModel.readMetaHistoryJournal).mockImplementation(
+    (async (input: { account: { id: string; name: string | null } }) =>
+      journal(
+        input.account.id,
+        input.account.name ?? input.account.id,
+      )) as never,
+  );
 });
 
 describe("Meta History reads the selected account", () => {
   it("reads the requested account, not the first assigned one", async () => {
-    vi.mocked(providerScope.resolveProviderAccountId).mockResolvedValue("act_B");
+    vi.mocked(providerScope.resolveProviderAccountId).mockResolvedValue(
+      "act_B",
+    );
 
     await renderPage({ providerAccountId: "act_B" });
 
@@ -245,8 +268,11 @@ describe("Meta History reads the selected account", () => {
     const html = await renderPage({ providerAccountId: "act_FOREIGN" });
 
     expect(readModel.readMetaHistoryJournal).not.toHaveBeenCalled();
-    expect(html).toContain("act_FOREIGN");
-    expect(html).toMatch(/not assigned to this business/);
+    expect(html).toContain(
+      "That Meta ad account is not assigned to this business.",
+    );
+    expect(html).not.toContain("act_FOREIGN");
+    expect(html).not.toContain("journal");
   });
 
   it("asks for a choice rather than picking one of several assigned accounts", async () => {
@@ -255,14 +281,18 @@ describe("Meta History reads the selected account", () => {
     const html = await renderPage();
 
     expect(readModel.readMetaHistoryJournal).not.toHaveBeenCalled();
-    expect(html).toMatch(/Select one to read its journal/);
+    expect(html).toContain("Select a Meta ad account to view its history.");
   });
 
   it("still resolves the single assigned account with no parameter in the URL", async () => {
     // One assigned account is not a choice, so the operator is not asked to make
     // one; `resolveProviderAccountId` owns that rule.
-    vi.mocked(readModel.readMetaHistoryAccounts).mockResolvedValue([ACCOUNT_A] as never);
-    vi.mocked(providerScope.resolveProviderAccountId).mockResolvedValue("act_A");
+    vi.mocked(readModel.readMetaHistoryAccounts).mockResolvedValue([
+      ACCOUNT_A,
+    ] as never);
+    vi.mocked(providerScope.resolveProviderAccountId).mockResolvedValue(
+      "act_A",
+    );
 
     await renderPage();
 
@@ -274,12 +304,17 @@ describe("Meta History reads the selected account", () => {
   it("refuses when the resolved account is absent from the journal's account read", async () => {
     // Never invent a MetaHistoryAccount for an id the journal read did not
     // return: the currency and name on the surface would then be guesses.
-    vi.mocked(providerScope.resolveProviderAccountId).mockResolvedValue("act_C");
+    vi.mocked(providerScope.resolveProviderAccountId).mockResolvedValue(
+      "act_C",
+    );
 
     const html = await renderPage({ providerAccountId: "act_C" });
 
     expect(readModel.readMetaHistoryJournal).not.toHaveBeenCalled();
-    expect(html).toMatch(/could not be scoped to account act_C/);
+    expect(html).toContain(
+      "History is unavailable for the selected Meta ad account.",
+    );
+    expect(html).not.toContain("account act_C");
   });
 
   it("refuses an account whose assignment was withdrawn, even if the shared guard says yes", async () => {
@@ -293,12 +328,17 @@ describe("Meta History reads the selected account", () => {
     vi.mocked(readModel.readMetaHistoryAssignedAccountIds).mockResolvedValue([
       "act_A",
     ] as never);
-    vi.mocked(providerScope.resolveProviderAccountId).mockResolvedValue("act_B");
+    vi.mocked(providerScope.resolveProviderAccountId).mockResolvedValue(
+      "act_B",
+    );
 
     const html = await renderPage({ providerAccountId: "act_B" });
 
     expect(readModel.readMetaHistoryJournal).not.toHaveBeenCalled();
-    expect(html).toMatch(/could not be scoped to account act_B/);
+    expect(html).toContain(
+      "History is unavailable for the selected Meta ad account.",
+    );
+    expect(html).not.toContain("account act_B");
   });
 
   it("refuses an id belonging to another business, and never widens to one of its own", async () => {
@@ -310,10 +350,15 @@ describe("Meta History reads the selected account", () => {
       "act_FOREIGN_BUSINESS",
     );
 
-    const html = await renderPage({ providerAccountId: "act_FOREIGN_BUSINESS" });
+    const html = await renderPage({
+      providerAccountId: "act_FOREIGN_BUSINESS",
+    });
 
     expect(readModel.readMetaHistoryJournal).not.toHaveBeenCalled();
-    expect(html).toMatch(/could not be scoped to account act_FOREIGN_BUSINESS/);
+    expect(html).toContain(
+      "History is unavailable for the selected Meta ad account.",
+    );
+    expect(html).not.toContain("account act_FOREIGN_BUSINESS");
     expect(historyClient).not.toHaveBeenCalled();
   });
 
@@ -324,7 +369,9 @@ describe("Meta History reads the selected account", () => {
     vi.mocked(readModel.readMetaHistoryAssignedAccountIds).mockResolvedValue([
       "act_A",
     ] as never);
-    vi.mocked(providerScope.resolveProviderAccountId).mockResolvedValue("act_A");
+    vi.mocked(providerScope.resolveProviderAccountId).mockResolvedValue(
+      "act_A",
+    );
 
     await renderPage();
 
@@ -334,7 +381,7 @@ describe("Meta History reads the selected account", () => {
     expect(historyClient.mock.calls[0]?.[0].providerAccountId).toBe("act_A");
   });
 
-  it("says unavailable when the assignment cannot be read, not \"none assigned\"", async () => {
+  it('says unavailable when the assignment cannot be read, not "none assigned"', async () => {
     // A failed read is unknown. Reporting it as an empty assignment states a
     // fact about the business's configuration that nobody established, and the
     // operator would go looking for a setting that is already correct. It must
@@ -347,7 +394,39 @@ describe("Meta History reads the selected account", () => {
 
     expect(readModel.readMetaHistoryJournal).not.toHaveBeenCalled();
     expect(html).toMatch(/unavailable right now/);
-    expect(html).not.toMatch(/No Meta account is assigned/);
+    expect(html).not.toMatch(/Assign a Meta ad account/);
+    expect(html).not.toContain("persisted Meta journal");
+  });
+
+  it("explains an unassigned business without journal terminology", async () => {
+    vi.mocked(readModel.readMetaHistoryAccounts).mockResolvedValue([] as never);
+    vi.mocked(readModel.readMetaHistoryAssignedAccountIds).mockResolvedValue(
+      [] as never,
+    );
+
+    const html = await renderPage();
+
+    expect(readModel.readMetaHistoryJournal).not.toHaveBeenCalled();
+    expect(html).toContain("Assign a Meta ad account to view its history.");
+    expect(html).not.toContain("persisted Meta journal");
+    expect(html).not.toContain("journal to read");
+  });
+
+  it("uses concise buyer copy when the selected account history read fails", async () => {
+    vi.mocked(providerScope.resolveProviderAccountId).mockResolvedValue(
+      "act_B",
+    );
+    vi.mocked(readModel.readMetaHistoryJournal).mockRejectedValue(
+      new Error("history source failed"),
+    );
+
+    const html = await renderPage({ providerAccountId: "act_B" });
+
+    expect(html).toContain(
+      "History could not be loaded for this Meta ad account. Refresh to try again.",
+    );
+    expect(html).not.toContain("persisted Meta journal");
+    expect(html).not.toContain("journal could not be read");
   });
 
   it("offers the assigned accounts as a choice instead of a dead end", async () => {
@@ -413,7 +492,9 @@ describe("Meta History reads the selected account", () => {
  */
 describe("Meta History reads the window the shell states", () => {
   beforeEach(() => {
-    vi.mocked(providerScope.resolveProviderAccountId).mockResolvedValue("act_B");
+    vi.mocked(providerScope.resolveProviderAccountId).mockResolvedValue(
+      "act_B",
+    );
     // Every rolling preset below is expanded against a pinned instant, so these
     // assertions cannot start lying tomorrow morning.
     vi.useFakeTimers();
@@ -545,7 +626,9 @@ describe("Meta History reads the window the shell states", () => {
     // stopped stating its read state would otherwise pass this test unchanged.
     expect(html).toContain('data-meta-surface-state="meta-history"');
     expect(html).toContain('data-read-state="empty-proven"');
-    expect(html.replace(/<div data-meta-surface-state[\s\S]*?<\/div>/, "")).toBe("");
+    expect(
+      html.replace(/<div data-meta-surface-state[\s\S]*?<\/div>/, ""),
+    ).toBe("");
   });
 
   it("marks a window the URL did state as coming from the URL, not from a default", async () => {

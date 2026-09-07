@@ -172,10 +172,10 @@ function wireServer(input?: {
     }
     return (
       input?.automation?.() ??
-      new Response(
-        JSON.stringify({ ok: true, automation: controlPlane() }),
-        { status: 200, headers: { "Content-Type": "application/json" } },
-      )
+      new Response(JSON.stringify({ ok: true, automation: controlPlane() }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      })
     );
   }) as typeof fetch);
   return { calls };
@@ -188,7 +188,7 @@ const LIVE_COLLABORATOR = buildAutomationViewerEnvelope({
 });
 
 function footnote(container: HTMLElement) {
-  return container.querySelector("[data-field='queue-footnote']");
+  return container.querySelector("[data-ledger-evidence]");
 }
 
 beforeEach(() => {
@@ -300,6 +300,7 @@ describe("Automation viewer envelope", () => {
         writeAuthority: "live",
       }),
       code: "reviewer_read_only",
+      operatorMessage: "This workspace is read-only.",
     },
     {
       label: "a demo workspace",
@@ -309,6 +310,7 @@ describe("Automation viewer envelope", () => {
         writeAuthority: "demo",
       }),
       code: "demo_business_read_only",
+      operatorMessage: "Automation changes are unavailable in demo workspaces.",
     },
     {
       label: "a guest",
@@ -318,6 +320,7 @@ describe("Automation viewer envelope", () => {
         writeAuthority: "live",
       }),
       code: "insufficient_role",
+      operatorMessage: "Collaborator access is required to change automation.",
     },
     {
       label: "an unverifiable workspace",
@@ -327,6 +330,7 @@ describe("Automation viewer envelope", () => {
         writeAuthority: "unverified",
       }),
       code: "demo_status_unverified",
+      operatorMessage: "Automation changes are unavailable right now.",
     },
   ];
 
@@ -364,7 +368,9 @@ describe("Automation viewer envelope", () => {
 
       // Real provider write count for this test: zero, and it is zero because
       // nothing left the browser — not because a route refused it.
-      expect(wire.calls.filter((call) => call.method === "POST")).toHaveLength(0);
+      expect(wire.calls.filter((call) => call.method === "POST")).toHaveLength(
+        0,
+      );
 
       // + New rule answers to the same authority. Matched by its caption
       // because `aria-expanded` is also on Modify, and matching that instead
@@ -376,10 +382,21 @@ describe("Automation viewer envelope", () => {
       expect(newRule!.disabled).toBe(true);
       expect(newRule!.getAttribute("aria-disabled")).toBe("true");
 
-      // The server's own sentence and the server's own code, restated.
+      const modeButtons = container.querySelectorAll<HTMLButtonElement>(
+        "[data-testid='automation-action-modes-desktop'] [data-mode]",
+      );
+      expect(modeButtons).toHaveLength(12);
+      for (const button of modeButtons) {
+        expect(button.disabled).toBe(true);
+        expect(button).toHaveAttribute("data-mode-refused");
+      }
+
+      // The server code stays intact while its internal sentence is replaced
+      // with concise operator copy.
       const stated = container.querySelector("[data-field='viewer-refusal']");
       expect(stated).not.toBeNull();
-      expect(stated!.textContent).toBe(refusal.viewer.reason);
+      expect(stated!.textContent).toBe(refusal.operatorMessage);
+      expect(stated!.textContent).not.toBe(refusal.viewer.reason);
       expect(stated!.getAttribute("data-reason-code")).toBe(refusal.code);
     });
   }
@@ -407,8 +424,132 @@ describe("Automation viewer envelope", () => {
 
     fireEvent.click(approve);
     await waitFor(() => {
-      expect(wire.calls.filter((call) => call.method === "POST")).toHaveLength(1);
+      expect(wire.calls.filter((call) => call.method === "POST")).toHaveLength(
+        1,
+      );
     });
+  });
+
+  it("lets a collaborator choose Manual or Approval while keeping Automatic admin-only", async () => {
+    const wire = wireServer();
+    const { container } = render(
+      <MetaAutomationPage
+        businessId="biz_1"
+        providerAccountId="act_1"
+        initialPayload={controlPlane()}
+        viewer={LIVE_COLLABORATOR}
+      />,
+    );
+
+    const automaticButtons = await waitFor(() => {
+      const found = container.querySelectorAll<HTMLButtonElement>(
+        "[data-testid='automation-action-modes-desktop'] [data-mode='auto']",
+      );
+      expect(found).toHaveLength(4);
+      return found;
+    });
+    for (const button of automaticButtons) {
+      expect(button.disabled).toBe(true);
+      expect(button.title).toBe(
+        "Admin access is required to turn on automatic actions.",
+      );
+      expect(button).toHaveAttribute("data-mode-refused");
+      fireEvent.click(button);
+    }
+    expect(wire.calls.filter((call) => call.method === "POST")).toHaveLength(0);
+
+    const manual = container.querySelector<HTMLButtonElement>(
+      "[data-decision-type='budget'] [data-mode='manual']",
+    );
+    const approval = container.querySelector<HTMLButtonElement>(
+      "[data-decision-type='budget'] [data-mode='semi_auto']",
+    );
+    expect(manual).not.toBeNull();
+    expect(approval).not.toBeNull();
+    expect(manual!.disabled).toBe(false);
+    expect(approval!.disabled).toBe(false);
+
+    fireEvent.click(manual!);
+    await waitFor(() => {
+      expect(wire.calls.filter((call) => call.method === "POST")).toHaveLength(
+        1,
+      );
+    });
+  });
+});
+
+describe("Automation mutation error copy", () => {
+  it("does not expose a rule mutation's server message", async () => {
+    const rawMessage = "rule_update_failed: row_lock_revision_mismatch";
+    const payload = controlPlane({
+      commercialAnchors: {
+        target_roas: 3.8,
+        break_even_roas: 2.5,
+        target_cpa: null,
+        break_even_cpa: null,
+      },
+      rules: [
+        {
+          id: "rule_1",
+          businessId: "biz_1",
+          name: "Breakeven guard",
+          entityLevel: "adset",
+          trigger: {
+            kind: "roas_below_anchor",
+            anchor: "break_even_roas",
+            anchorMultiplier: 1,
+            consecutiveDays: 3,
+          },
+          action: { kind: "propose_pause" },
+          mode: "confirm",
+          active: true,
+          locked: false,
+          firedCount: 0,
+          lastFiredAt: null,
+          createdAt: OBSERVED_AT,
+          updatedAt: OBSERVED_AT,
+        },
+      ],
+    });
+    wireServer({
+      post: () =>
+        new Response(
+          JSON.stringify({
+            ok: false,
+            error: { code: "rule_update_failed", message: rawMessage },
+          }),
+          { status: 409, headers: { "Content-Type": "application/json" } },
+        ),
+      automation: () =>
+        new Response(JSON.stringify({ ok: true, automation: payload }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+    });
+    const { container } = render(
+      <MetaAutomationPage
+        businessId="biz_1"
+        providerAccountId="act_1"
+        initialPayload={payload}
+        viewer={LIVE_COLLABORATOR}
+      />,
+    );
+
+    const toggle = await waitFor(() => {
+      const found = container.querySelector<HTMLButtonElement>(
+        '[data-rule-id="rule_1"] button',
+      );
+      expect(found).not.toBeNull();
+      return found!;
+    });
+    fireEvent.click(toggle);
+
+    await waitFor(() =>
+      expect(container.textContent).toContain(
+        "The rule could not be changed. Try again.",
+      ),
+    );
+    expect(container.textContent).not.toContain(rawMessage);
   });
 });
 
@@ -430,9 +571,8 @@ describe("Automation ledger completeness after a reload", () => {
         "complete",
       );
     });
-    expect(footnote(container)?.textContent).toContain(
-      "lands in the ledger with a receipt",
-    );
+    expect(container.querySelector("[data-field='queue-footnote']")).toBeNull();
+    expect(footnote(container)?.textContent).not.toContain("receipt");
   });
 
   it("makes no promise after a reload whose activity read did not complete", async () => {
@@ -467,10 +607,7 @@ describe("Automation ledger completeness after a reload", () => {
     });
     // Neither claim is made: nothing proves the ledger works, and no decision
     // was made here to have failed.
-    expect(footnote(container)?.textContent).not.toContain("every outcome");
-    expect(footnote(container)?.textContent).not.toContain(
-      "could not be written to the activity ledger",
-    );
+    expect(container.querySelector("[data-field='queue-footnote']")).toBeNull();
   });
 
   it("treats a response that is not JSON as unknown, never as a receipt trail", async () => {
@@ -504,7 +641,7 @@ describe("Automation ledger completeness after a reload", () => {
         "unavailable",
       );
     });
-    expect(footnote(container)?.textContent).not.toContain("every outcome");
+    expect(footnote(container)?.textContent).not.toContain("receipt");
   });
 
   it("does not let a queue refetch restore a promise a decision already broke", async () => {
@@ -580,7 +717,9 @@ describe("Automation ledger completeness after a reload", () => {
     // A failed read is not evidence that the ledger recovered. The withdrawn
     // promise stays withdrawn, and the queue stays unproven rather than empty.
     await waitFor(() => {
-      expect(container.querySelector("[data-holds='unreadable']")).not.toBeNull();
+      expect(
+        container.querySelector("[data-testid='confirmation-empty']"),
+      ).not.toBeNull();
     });
     expect(
       container
@@ -590,7 +729,7 @@ describe("Automation ledger completeness after a reload", () => {
     expect(footnote(container)?.getAttribute("data-ledger-evidence")).toBe(
       "unavailable",
     );
-    expect(footnote(container)?.textContent).not.toContain("every outcome");
+    expect(container.querySelector("[data-holds='unreadable']")).toBeNull();
   });
 
   it("clears the withdrawn promise when the account changes", async () => {
@@ -691,11 +830,13 @@ describe("Automation account selector and Retry, the approved exception", () => 
     await waitFor(() => {
       expect(container.querySelector("select")).not.toBeNull();
     });
-    expect(container.querySelector("[data-control='retry-read']")).not.toBeNull();
     expect(
-      container.querySelector("[data-field='read-error']")?.getAttribute(
-        "data-reason",
-      ),
+      container.querySelector("[data-control='retry-read']"),
+    ).not.toBeNull();
+    expect(
+      container
+        .querySelector("[data-field='read-error']")
+        ?.getAttribute("data-reason"),
     ).toBe("provider_account_scope_unresolved");
   });
 
@@ -717,7 +858,9 @@ describe("Automation account selector and Retry, the approved exception", () => 
         container.querySelector("[data-control='retry-read']"),
       ).not.toBeNull();
     });
-    expect(container.querySelector("[data-control='retry-queue']")).not.toBeNull();
+    expect(
+      container.querySelector("[data-control='retry-queue']"),
+    ).not.toBeNull();
     // A failure, not a picker: the account resolved, so nothing here is a
     // choice the operator can make.
     expect(container.querySelector("select")).toBeNull();

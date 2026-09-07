@@ -148,7 +148,12 @@ describe("LaunchpadAddToExistingTarget", () => {
       <LaunchpadAddToExistingTarget
         businessId="biz"
         providerAccountId="act_1"
-        value={{ targetCampaign: campaign, targetAdset: adset, copyMode: "rebuild_creative", nameOverrides: {} }}
+        value={{
+          targetCampaign: campaign,
+          targetAdset: adset,
+          copyMode: "rebuild_creative",
+          nameOverrides: {},
+        }}
         selectedCreatives={[creative()]}
         campaignOptions={[campaign]}
         adsetOptions={[adset]}
@@ -157,7 +162,11 @@ describe("LaunchpadAddToExistingTarget", () => {
     );
 
     expect(html).toContain("Prospecting");
-    expect(html).toContain("pixel_1");
+    expect(html).toContain("Pixel connected");
+    expect(html).toContain("Conversions");
+    expect(html).not.toContain("pixel_1");
+    expect(html).not.toContain("OFFSITE_CONVERSIONS");
+    expect(html).not.toContain("OUTCOME_SALES");
     expect(html).toContain("1 creatives -&gt; 10 ads");
     expect(html).toContain("Creative One (added)");
   });
@@ -204,12 +213,17 @@ describe("LaunchpadAddToExistingTarget", () => {
     expect(html).toContain("Retargeting Campaign");
   });
 
-  it("renders copy mode choices", () => {
+  it("shows only the supported duplicate behavior", () => {
     const html = renderToStaticMarkup(
       <LaunchpadAddToExistingTarget
         businessId="biz"
         providerAccountId="act_1"
-        value={{ targetCampaign: campaign, targetAdset: adset, copyMode: "reuse_creative", nameOverrides: {} }}
+        value={{
+          targetCampaign: campaign,
+          targetAdset: adset,
+          copyMode: "reuse_creative",
+          nameOverrides: {},
+        }}
         selectedCreatives={[creative()]}
         campaignOptions={[campaign]}
         adsetOptions={[adset]}
@@ -217,13 +231,11 @@ describe("LaunchpadAddToExistingTarget", () => {
       />,
     );
 
-    expect(html).toContain("Creative copy mode");
+    expect(html).toContain("Duplicate creatives");
     expect(html).toContain("Duplicate");
-    expect(html).toContain("Recreate exact ad · review-only");
-    expect(html).toContain(
-      "image, creative, and ad writes each have a durable step receipt",
-    );
-    expect(html).toContain("disabled");
+    expect(html).toContain("Each new ad will use the selected Meta creative.");
+    expect(html).not.toContain("Recreate");
+    expect(html).not.toContain("creative_1");
   });
 
   it("retries an empty ad set response when the campaign reports active ad sets", async () => {
@@ -270,7 +282,9 @@ describe("LaunchpadAddToExistingTarget", () => {
   });
 
   it("does not cache an empty result as loaded when active ad sets were expected", async () => {
-    const fetchImpl = vi.fn().mockImplementation(() => Promise.resolve(jsonResponse({ adsets: [] })));
+    const fetchImpl = vi
+      .fn()
+      .mockImplementation(() => Promise.resolve(jsonResponse({ adsets: [] })));
 
     const result = await fetchLaunchpadCampaignAdsets({
       businessId: "biz",

@@ -17,12 +17,12 @@
 
 /* dashboard-v2-automation-exact-reference-type:start */
 .eyebrow {
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .cardKicker,
 .cardKickerDark {
-  font-size: 9.5px;
+  font-size: 12px;
 }
 
 /*
@@ -64,26 +64,26 @@
 }
 
 .promotionCount {
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .confirmationCount,
 .confirmationHint,
 .sectionHint,
 .autonomyTier {
-  font-size: 10.5px;
+  font-size: 12px;
 }
 
 .sectionFootnote,
 .rulesTable th,
 .ledgerTable th,
 .progressValue {
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .autonomyNext,
 .ledgerResult {
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .ledgerTime {
@@ -96,20 +96,20 @@
 
 .proposalEvidence,
 .proposalExpiry {
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .ruleTrigger,
 .ruleComposerNote {
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .modeChip {
-  font-size: 10.5px;
+  font-size: 12px;
 }
 
 .ruleFired {
-  font-size: 11px;
+  font-size: 12px;
 }
 /* dashboard-v2-automation-exact-reference-type:end */
 
@@ -147,6 +147,14 @@
   font-weight: 700;
   letter-spacing: -0.02em;
   line-height: normal;
+}
+
+.pageIntro {
+  max-width: 62ch;
+  margin: 6px 0 0;
+  color: #555d6d;
+  font-size: 13px;
+  line-height: 1.5;
 }
 
 .operatingState {
@@ -1262,6 +1270,23 @@
 .mobileStop input {
   min-width: 0;
   max-width: 100%;
+}
+
+.mobileStop .killRow {
+  justify-content: flex-start;
+}
+
+.mobileStop .killAction {
+  border-color: #d7dde8;
+  color: #0e1526;
+}
+
+.mobileStop .killAction[aria-disabled="true"] {
+  color: #68707f;
+}
+
+.mobileStop .killNote {
+  color: #68707f;
 }
 
 .mobileIntro {

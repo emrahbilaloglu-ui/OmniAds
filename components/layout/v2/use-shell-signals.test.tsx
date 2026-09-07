@@ -23,7 +23,9 @@ const state = vi.hoisted(() => ({
     asOf: string | null;
     businessId: string | null;
     retryKey: string | null;
+    errorCode?: string | null;
   } | null,
+  runRetry: vi.fn(),
   queryOptions: [] as Array<{
     queryKey?: readonly unknown[];
     enabled?: boolean;
@@ -47,8 +49,11 @@ vi.mock("@/components/workspace/workspace-context-provider", () => ({
 
 vi.mock("@/store/tier-zero-freshness-store", () => ({
   useTierZeroFreshnessStore: (
-    selector: (value: { active: typeof state.active }) => unknown,
-  ) => selector({ active: state.active }),
+    selector: (value: {
+      active: typeof state.active;
+      runRetry: typeof state.runRetry;
+    }) => unknown,
+  ) => selector({ active: state.active, runRetry: state.runRetry }),
 }));
 
 vi.mock("@tanstack/react-query", () => ({
@@ -88,6 +93,7 @@ describe("workspace sync topbar state", () => {
     state.app.hasHydrated = true;
     state.app.authBootstrapStatus = "ready";
     state.queryOptions.length = 0;
+    state.runRetry.mockReset();
   });
 
   afterEach(() => {
@@ -118,10 +124,8 @@ describe("workspace sync topbar state", () => {
   it.each([
     ["loading", "syncing", "Syncing now"],
     ["refreshing", "syncing", "Syncing now"],
-    ["partial", "attention", "Sync needs attention"],
-    ["error", "attention", "Sync needs attention"],
   ] as const)(
-    "maps %s without exposing a refresh control",
+    "maps %s without inventing a refresh control",
     (surfaceState, tone, label) => {
       state.active = {
         surface: "reports",
@@ -138,6 +142,34 @@ describe("workspace sync topbar state", () => {
         label,
         freshnessState: surfaceState,
       });
+    },
+  );
+
+  it.each(["partial", "error"] as const)(
+    "offers the real registered retry for %s",
+    (surfaceState) => {
+      state.active = {
+        surface: "reports",
+        state: surfaceState,
+        asOf: null,
+        businessId: "biz_1",
+        retryKey: "tier0:reports",
+        errorCode: surfaceState === "error" ? "source_read_failed" : null,
+      };
+
+      const { result } = renderHook(() => useWorkspaceSyncState());
+
+      expect(result.current).toMatchObject({
+        tone: "attention",
+        label: "Sync needs attention",
+        freshnessState: surfaceState,
+        ...(surfaceState === "error"
+          ? { errorCode: "source_read_failed" }
+          : {}),
+      });
+      expect(result.current.onRetry).toBeTypeOf("function");
+      result.current.onRetry?.();
+      expect(state.runRetry).toHaveBeenCalledWith("tier0:reports");
     },
   );
 

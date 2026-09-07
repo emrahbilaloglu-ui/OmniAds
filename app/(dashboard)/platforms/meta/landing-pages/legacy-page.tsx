@@ -50,7 +50,8 @@ function downloadCsv(rows: MetaCreativesResponse["rows"]) {
     "Purchase value",
     "Currency",
   ];
-  const escape = (value: unknown) => `"${String(value ?? "").replace(/"/g, '""')}"`;
+  const escape = (value: unknown) =>
+    `"${String(value ?? "").replace(/"/g, '""')}"`;
   const body = rows.map((row) =>
     [
       row.destination_url,
@@ -95,7 +96,9 @@ function downloadCsv(rows: MetaCreativesResponse["rows"]) {
  * a data age. A live read therefore keeps the honest "age unknown" instead of
  * borrowing a reassuring number nobody should trust.
  */
-function measuredTableInstant(payload: MetaCreativesResponse | undefined): string | null {
+function measuredTableInstant(
+  payload: MetaCreativesResponse | undefined,
+): string | null {
   if (!payload) return null;
   if (payload.warehouse_observed_at) return payload.warehouse_observed_at;
   if (payload.snapshot_source !== "persisted") return null;
@@ -113,10 +116,12 @@ export default function LandingPagesPage({
   const workspaceResolved = useAppStore((state) => state.workspaceResolved);
   const [dashboardRange] = usePersistentDateRange();
   const hasAuthorizedScope = authorizedBusinessId !== undefined;
-  const businessId = hasAuthorizedScope ? authorizedBusinessId : storeBusinessId ?? "";
+  const businessId = hasAuthorizedScope
+    ? authorizedBusinessId
+    : (storeBusinessId ?? "");
   const requestedProviderAccountId = hasAuthorizedScope
-    ? authorizedProviderAccountId?.trim() ?? ""
-    : searchParams?.get("providerAccountId")?.trim() ?? "";
+    ? (authorizedProviderAccountId?.trim() ?? "")
+    : (searchParams?.get("providerAccountId")?.trim() ?? "");
 
   const providerAccountsQuery = useQuery({
     queryKey: ["meta-provider-accounts", businessId],
@@ -129,12 +134,16 @@ export default function LandingPagesPage({
   const providerAccountId = hasAuthorizedScope
     ? requestedProviderAccountId
     : requestedProviderAccountId &&
-        providerAccounts.some((account) => account.id === requestedProviderAccountId)
+        providerAccounts.some(
+          (account) => account.id === requestedProviderAccountId,
+        )
       ? requestedProviderAccountId
       : providerAccounts.length === 1
         ? providerAccounts[0]!.id
         : "";
-  const account = providerAccounts.find((candidate) => candidate.id === providerAccountId) ?? null;
+  const account =
+    providerAccounts.find((candidate) => candidate.id === providerAccountId) ??
+    null;
   const referenceDate = getTodayIsoForTimeZone(account?.timezone || "UTC");
   const creativeRange = standardDateRangeToCreative(dashboardRange);
   const shellWindow = resolveCreativeDateRange(creativeRange, referenceDate);
@@ -152,12 +161,20 @@ export default function LandingPagesPage({
   //
   // The destinations read below is keyed on the result, so the rows are the
   // ones the link asked for.
-  const linkWindow = hasDateWindowParams(searchParams) ? null : serverDateWindow;
+  const linkWindow = hasDateWindowParams(searchParams)
+    ? null
+    : serverDateWindow;
   const start = linkWindow?.start ?? shellWindow.start;
   const end = linkWindow?.end ?? shellWindow.end;
 
   const query = useQuery({
-    queryKey: ["meta-creative-destinations", businessId, providerAccountId, start, end],
+    queryKey: [
+      "meta-creative-destinations",
+      businessId,
+      providerAccountId,
+      start,
+      end,
+    ],
     enabled: Boolean(businessId && providerAccountId),
     queryFn: () =>
       fetchMetaCreatives({
@@ -221,15 +238,13 @@ export default function LandingPagesPage({
     dataState === "loading"
       ? "Loading Meta destinations…"
       : dataState === "error"
-        ? "Meta destination data is unavailable."
+        ? "Landing page data could not be loaded. Try again."
         : dataState === "account_required"
-          ? "Select one assigned Meta ad account."
+          ? "Select a Meta ad account to view landing pages."
           : dataState === "unavailable"
-            ? sourceHealth.kind === "unavailable"
-              ? sourceHealth.message
-              : "Meta destination data could not be read for this scope."
+            ? "Landing page data could not be loaded. Try again."
             : dataState === "empty"
-              ? "No Meta-reported destinations are available for this window."
+              ? "No landing pages found for this date range."
               : null;
   const model = {
     ...buildCreativeStudioLandingModel({
@@ -279,7 +294,9 @@ export default function LandingPagesPage({
    * skip rule changes, the landing-pages test that pins the two together fails.
    */
   const unresolvedDestinationCount = useMemo(
-    () => (query.data?.rows ?? []).filter((row) => !row.destination_url?.trim()).length,
+    () =>
+      (query.data?.rows ?? []).filter((row) => !row.destination_url?.trim())
+        .length,
     [query.data?.rows],
   );
 
@@ -297,10 +314,12 @@ export default function LandingPagesPage({
   // on a served table, which is what a partial is; dropping it presented an
   // in-progress window as a complete one.
   if (sourceHealth.kind === "serving" && sourceHealth.partialReason) {
-    partialReasons.push(sourceHealth.partialReason);
+    partialReasons.push("Some landing page data is unavailable. Try again.");
   }
   if (hasAuthorizedScope && providerAccountsQuery.isError) {
-    partialReasons.push("Account timezone could not be read; the window was computed in UTC");
+    partialReasons.push(
+      "Dates are shown in UTC because the account timezone is unavailable.",
+    );
   }
   if (unresolvedDestinationCount > 0) {
     partialReasons.push(
@@ -316,8 +335,10 @@ export default function LandingPagesPage({
     isFetching: query.isFetching || providerAccountsQuery.isFetching,
     // Scoped for the same reason `dataState` is: on the server-scoped route a
     // failed timezone lookup is a partial, not a failed read of the table.
-    error: query.error ?? (hasAuthorizedScope ? null : providerAccountsQuery.error),
-    partialReason: partialReasons.length > 0 ? partialReasons.join(" · ") : null,
+    error:
+      query.error ?? (hasAuthorizedScope ? null : providerAccountsQuery.error),
+    partialReason:
+      partialReasons.length > 0 ? partialReasons.join(" · ") : null,
     asOf: measuredAsOf(measuredTableInstant(query.data)),
     businessId: businessId || null,
     onRetry: () => {
@@ -326,7 +347,8 @@ export default function LandingPagesPage({
     },
   });
 
-  if (!hasAuthorizedScope && workspaceResolved && !businessId) return <BusinessEmptyState />;
+  if (!hasAuthorizedScope && workspaceResolved && !businessId)
+    return <BusinessEmptyState />;
 
   return (
     <PlanGate requiredPlan="growth">
@@ -351,7 +373,11 @@ export default function LandingPagesPage({
           activeTab="landing-pages"
           counts={buildCreativeStudioTabCounts({})}
           landingPages={model}
-          onExport={model.rows.length > 0 ? () => downloadCsv(query.data?.rows ?? []) : undefined}
+          onExport={
+            model.rows.length > 0
+              ? () => downloadCsv(query.data?.rows ?? [])
+              : undefined
+          }
           tabHrefs={tabHrefs}
         />
       </div>

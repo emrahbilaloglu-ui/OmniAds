@@ -315,6 +315,16 @@
   font-weight: 700;
 }
 
+.exactReceiptStatus[data-status="verified"] {
+  background: #eaf7ef;
+  color: #18794e;
+}
+
+.exactReceiptStatus[data-status="review"] {
+  background: #fff0f0;
+  color: #b42318;
+}
+
 .exactReceiptStatus[data-empty="true"] {
   background: #f1f4f9;
   color: #555d6d;
@@ -358,10 +368,13 @@
   font-size: 13px;
 }
 
-.exactStartChip,
 .exactSectionHeader span,
 .exactReceiptStatus {
   font-size: 10.5px;
+}
+
+.exactStartChip {
+  font-size: 12px;
 }
 
 .exactStartTitle {
@@ -381,7 +394,7 @@
 }
 
 .exactDraftTable th {
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .exactDraftActionCell button,

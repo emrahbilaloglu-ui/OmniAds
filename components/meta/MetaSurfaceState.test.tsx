@@ -16,7 +16,10 @@ import { renderToStaticMarkup } from "react-dom/server";
 
 import { MetaSurfaceState } from "@/components/meta/MetaSurfaceState";
 import { META_READ_STATES } from "@/lib/meta/read-state-contract";
-import type { MetaReadState, MetaResponseEnvelope } from "@/lib/meta/read-state-contract";
+import type {
+  MetaReadState,
+  MetaResponseEnvelope,
+} from "@/lib/meta/read-state-contract";
 
 function envelopeFor(state: MetaReadState): MetaResponseEnvelope<null> {
   return {
@@ -24,7 +27,10 @@ function envelopeFor(state: MetaReadState): MetaResponseEnvelope<null> {
     data: null,
     failure:
       state === "partial" || state === "degraded" || state === "refused"
-        ? { code: "source_read_failed", message: "One source could not be read." }
+        ? {
+            code: "source_read_failed",
+            message: "One source could not be read.",
+          }
         : null,
     scope: { businessId: "biz", providerAccountId: "act_1" },
     evidence: { freshness: "fresh", asOf: null },
@@ -34,7 +40,10 @@ function envelopeFor(state: MetaReadState): MetaResponseEnvelope<null> {
 
 function render(state: MetaReadState): string {
   return renderToStaticMarkup(
-    <MetaSurfaceState envelope={envelopeFor(state)} surfaceId="creative-studio" />,
+    <MetaSurfaceState
+      envelope={envelopeFor(state)}
+      surfaceId="creative-studio"
+    />,
   );
 }
 
@@ -74,26 +83,26 @@ describe("a notice that will vanish never sits in the layout", () => {
   }
 
   it("covers every state in the contract, so a new one cannot slip through unplaced", () => {
-    expect([...TRANSIENT, ...PERSISTENT, ...SILENT].sort()).toEqual([...META_READ_STATES].sort());
+    expect([...TRANSIENT, ...PERSISTENT, ...SILENT].sort()).toEqual(
+      [...META_READ_STATES].sort(),
+    );
   });
 });
 
-describe("moving the notice changed nothing an operator or a gate reads", () => {
-  it("keeps the sentence the runtime gate matches on", () => {
-    /*
-     * `meta-runtime-read-state.spec.ts` asserts this text on the loading state.
-     * Pinning the card moved it in the viewport, not out of the document, and
-     * the gate reads `textContent` of the marker element — so the sentence must
-     * still be inside it.
-     */
-    expect(render("loading")).toMatch(/Nothing below is final yet/);
-    expect(render("refreshing-with-stale")).toMatch(/previous figures/);
+describe("the notice keeps machine-readable state without exposing diagnostics", () => {
+  it("uses concise user-facing loading copy", () => {
+    expect(render("loading")).toMatch(/Loading the latest Meta data/);
+    expect(render("refreshing-with-stale")).toMatch(
+      /Updating the latest Meta data/,
+    );
   });
 
   it("keeps every marker on the element the gates query", () => {
     for (const state of META_READ_STATES) {
       const html = render(state);
-      expect(html, state).toContain('data-meta-surface-state="creative-studio"');
+      expect(html, state).toContain(
+        'data-meta-surface-state="creative-studio"',
+      );
       expect(html, state).toContain(`data-read-state="${state}"`);
     }
     // The updating flag is on the marker, not on the card that moved.
@@ -102,9 +111,17 @@ describe("moving the notice changed nothing an operator or a gate reads", () => 
     );
   });
 
-  it("still prints the §9.1 code beside a failure, in both placements", () => {
+  it("keeps failure codes on the marker without printing them", () => {
     for (const state of [...PERSISTENT] as MetaReadState[]) {
-      expect(render(state), state).toContain("Reference: source_read_failed");
+      expect(render(state), state).toContain(
+        'data-failure-code="source_read_failed"',
+      );
+      expect(render(state), state).not.toContain(
+        "Reference: source_read_failed",
+      );
+      expect(render(state), state).not.toContain(
+        "One source could not be read",
+      );
     }
   });
 

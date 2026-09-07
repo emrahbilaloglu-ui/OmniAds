@@ -108,7 +108,10 @@ function buildDestinationRow(input?: {
     currency: "USD",
     name: input?.id ?? "ad_1",
     launch_date: "2026-07-01",
-    destination_url: input?.destinationUrl === undefined ? "https://shop.example/a" : input.destinationUrl,
+    destination_url:
+      input?.destinationUrl === undefined
+        ? "https://shop.example/a"
+        : input.destinationUrl,
     spend: input?.spend ?? 100,
     purchase_value: 300,
     purchases: 5,
@@ -142,22 +145,28 @@ beforeEach(() => {
   queryState.destinationsLoading = false;
   freshness.mockReset();
   useQueryMock.mockReset();
-  useQueryMock.mockImplementation((options: { queryKey?: readonly unknown[] }) => {
-    const accountQuery = options.queryKey?.[0] === "meta-provider-accounts";
-    const data = accountQuery ? queryState.accounts : queryState.destinations;
-    const error = accountQuery ? queryState.accountsError : queryState.destinationsError;
-    const loading = accountQuery ? queryState.accountsLoading : queryState.destinationsLoading;
-    return {
-      data,
-      error,
-      fetchStatus: loading ? "fetching" : "idle",
-      isError: Boolean(error),
-      isFetching: loading,
-      isLoading: loading,
-      refetch: vi.fn(),
-      status: error ? "error" : data ? "success" : "pending",
-    } as unknown as ReturnType<typeof useQuery>;
-  });
+  useQueryMock.mockImplementation(
+    (options: { queryKey?: readonly unknown[] }) => {
+      const accountQuery = options.queryKey?.[0] === "meta-provider-accounts";
+      const data = accountQuery ? queryState.accounts : queryState.destinations;
+      const error = accountQuery
+        ? queryState.accountsError
+        : queryState.destinationsError;
+      const loading = accountQuery
+        ? queryState.accountsLoading
+        : queryState.destinationsLoading;
+      return {
+        data,
+        error,
+        fetchStatus: loading ? "fetching" : "idle",
+        isError: Boolean(error),
+        isFetching: loading,
+        isLoading: loading,
+        refetch: vi.fn(),
+        status: error ? "error" : data ? "success" : "pending",
+      } as unknown as ReturnType<typeof useQuery>;
+    },
+  );
 });
 
 afterEach(() => cleanup());
@@ -181,20 +190,29 @@ describe("Landing Pages: a timezone lookup is not the table", () => {
     };
 
     render(
-      <LandingPagesPage businessId="biz_authorized" providerAccountId="act_authorized" />,
+      <LandingPagesPage
+        businessId="biz_authorized"
+        providerAccountId="act_authorized"
+      />,
     );
 
     expect(
-      screen.getByTestId("landing-pages-studio-page").getAttribute("data-landing-state"),
+      screen
+        .getByTestId("landing-pages-studio-page")
+        .getAttribute("data-landing-state"),
     ).toBe("ready");
-    expect(screen.queryByText("Meta destination data is unavailable.")).toBeNull();
+    expect(
+      screen.queryByText("Meta destination data is unavailable."),
+    ).toBeNull();
 
     const reported = lastFreshnessCall();
     // The failure is reported, not swallowed — and as a partial, because
     // deriveTierZeroFreshnessState ranks `error` above `partial` and would put
     // the bar straight back into the total-outage state.
     expect(reported.error).toBeNull();
-    expect(reported.partialReason).toContain("Account timezone could not be read");
+    expect(reported.partialReason).toContain(
+      "Dates are shown in UTC because the account timezone is unavailable.",
+    );
   });
 
   /**
@@ -209,7 +227,9 @@ describe("Landing Pages: a timezone lookup is not the table", () => {
     render(<LandingPagesPage />);
 
     expect(
-      screen.getByTestId("landing-pages-studio-page").getAttribute("data-landing-state"),
+      screen
+        .getByTestId("landing-pages-studio-page")
+        .getAttribute("data-landing-state"),
     ).toBe("error");
     expect(lastFreshnessCall().error).toBeInstanceOf(Error);
   });
@@ -225,32 +245,30 @@ describe("Landing Pages: a 200 with no rows is not automatically empty", () => {
    * operator's account produced by a read that never happened.
    */
   it.each([
-    [
-      "no_connection",
-      "This business has no connected Meta account, so no creative data was read.",
-    ],
-    [
-      "no_accounts_assigned",
-      "No Meta ad account is assigned to this business, so no creative data was read.",
-    ],
-  ])("reports %s as unavailable rather than an empty window", (status, message) => {
-    queryState.accounts = [{ id: "act_authorized", name: "Main", timezone: "UTC" }];
-    queryState.destinations = { status, rows: [] };
+    ["no_connection", "Creative data is temporarily unavailable."],
+    ["no_accounts_assigned", "Creative data is temporarily unavailable."],
+  ])(
+    "reports %s as unavailable rather than an empty window",
+    (status, message) => {
+      queryState.accounts = [
+        { id: "act_authorized", name: "Main", timezone: "UTC" },
+      ];
+      queryState.destinations = { status, rows: [] };
 
-    render(
-      <LandingPagesPage businessId="biz_authorized" providerAccountId="act_authorized" />,
-    );
+      render(
+        <LandingPagesPage
+          businessId="biz_authorized"
+          providerAccountId="act_authorized"
+        />,
+      );
 
-    const surface = screen.getByTestId("landing-pages-studio-page");
-    expect(surface.getAttribute("data-landing-state")).toBe("unavailable");
-    expect(surface.getAttribute("data-landing-source-status")).toBe(status);
-    expect(screen.getAllByText(message).length).toBeGreaterThan(0);
-    expect(
-      screen.queryByText(
-        "No Meta-reported destinations are available for this window.",
-      ),
-    ).toBeNull();
-  });
+      const surface = screen.getByTestId("landing-pages-studio-page");
+      expect(surface.getAttribute("data-landing-state")).toBe("unavailable");
+      expect(surface.getAttribute("data-landing-source-status")).toBe(status);
+      expect(screen.getAllByText(message).length).toBeGreaterThan(0);
+      expect(screen.queryByText("No data for this view.")).toBeNull();
+    },
+  );
 
   /**
    * WHY: the distinction only means something if the true-empty case still
@@ -258,20 +276,25 @@ describe("Landing Pages: a 200 with no rows is not automatically empty", () => {
    * account served no destinations, and it must keep saying so.
    */
   it("still calls a served-but-empty window empty", () => {
-    queryState.accounts = [{ id: "act_authorized", name: "Main", timezone: "UTC" }];
+    queryState.accounts = [
+      { id: "act_authorized", name: "Main", timezone: "UTC" },
+    ];
     queryState.destinations = { status: "ok", rows: [] };
 
     render(
-      <LandingPagesPage businessId="biz_authorized" providerAccountId="act_authorized" />,
+      <LandingPagesPage
+        businessId="biz_authorized"
+        providerAccountId="act_authorized"
+      />,
     );
 
     expect(
-      screen.getByTestId("landing-pages-studio-page").getAttribute("data-landing-state"),
+      screen
+        .getByTestId("landing-pages-studio-page")
+        .getAttribute("data-landing-state"),
     ).toBe("empty");
     expect(
-      screen.getAllByText(
-        "No Meta-reported destinations are available for this window.",
-      ).length,
+      screen.getAllByText("No data for this view.").length,
     ).toBeGreaterThan(0);
   });
 
@@ -281,21 +304,27 @@ describe("Landing Pages: a 200 with no rows is not automatically empty", () => {
    * a window still being prepared read as a finished one.
    */
   it("states the server's own partial reason alongside its own", () => {
-    queryState.accounts = [{ id: "act_authorized", name: "Main", timezone: "UTC" }];
+    queryState.accounts = [
+      { id: "act_authorized", name: "Main", timezone: "UTC" },
+    ];
     queryState.destinations = {
       status: "ok",
       rows: [buildDestinationRow({ id: "ad_1" })],
       isPartial: true,
-      notReadyReason: "Current-day live Meta creative data is still being prepared.",
+      notReadyReason:
+        "Current-day live Meta creative data is still being prepared.",
       warehouse_observed_at: "2026-08-18T04:59:40.635Z",
     };
 
     render(
-      <LandingPagesPage businessId="biz_authorized" providerAccountId="act_authorized" />,
+      <LandingPagesPage
+        businessId="biz_authorized"
+        providerAccountId="act_authorized"
+      />,
     );
 
-    expect(lastFreshnessCall().partialReason).toContain(
-      "Current-day live Meta creative data is still being prepared.",
+    expect(lastFreshnessCall().partialReason).toBe(
+      "Some landing page data is unavailable. Try again.",
     );
   });
 });
@@ -311,7 +340,9 @@ describe("Landing Pages: the freshness chip reports a measured instant", () => {
    * the bar must claim.
    */
   it("prefers the warehouse observation instant over the snapshot stamp", () => {
-    queryState.accounts = [{ id: "act_authorized", name: "Main", timezone: "UTC" }];
+    queryState.accounts = [
+      { id: "act_authorized", name: "Main", timezone: "UTC" },
+    ];
     queryState.destinations = {
       status: "ok",
       rows: [buildDestinationRow({ id: "ad_1" })],
@@ -321,7 +352,10 @@ describe("Landing Pages: the freshness chip reports a measured instant", () => {
     };
 
     render(
-      <LandingPagesPage businessId="biz_authorized" providerAccountId="act_authorized" />,
+      <LandingPagesPage
+        businessId="biz_authorized"
+        providerAccountId="act_authorized"
+      />,
     );
 
     expect(lastFreshnessCall().asOf).toBe("2026-08-18T04:59:40.635Z");
@@ -335,7 +369,9 @@ describe("Landing Pages: the freshness chip reports a measured instant", () => {
    * page has no excuse to report "age unknown".
    */
   it("dates the table from the persisted snapshot's last_synced_at", () => {
-    queryState.accounts = [{ id: "act_authorized", name: "Main", timezone: "UTC" }];
+    queryState.accounts = [
+      { id: "act_authorized", name: "Main", timezone: "UTC" },
+    ];
     queryState.destinations = {
       rows: [buildDestinationRow({ id: "ad_1" })],
       snapshot_source: "persisted",
@@ -343,7 +379,10 @@ describe("Landing Pages: the freshness chip reports a measured instant", () => {
     };
 
     render(
-      <LandingPagesPage businessId="biz_authorized" providerAccountId="act_authorized" />,
+      <LandingPagesPage
+        businessId="biz_authorized"
+        providerAccountId="act_authorized"
+      />,
     );
 
     expect(lastFreshnessCall().asOf).toBe("2026-07-28T09:15:00.000Z");
@@ -356,7 +395,9 @@ describe("Landing Pages: the freshness chip reports a measured instant", () => {
    * unknown" is the honest answer here; a reassuring number is not.
    */
   it("refuses the live path's fetch time and keeps age unknown", () => {
-    queryState.accounts = [{ id: "act_authorized", name: "Main", timezone: "UTC" }];
+    queryState.accounts = [
+      { id: "act_authorized", name: "Main", timezone: "UTC" },
+    ];
     queryState.destinations = {
       rows: [buildDestinationRow({ id: "ad_1" })],
       snapshot_source: "live",
@@ -364,7 +405,10 @@ describe("Landing Pages: the freshness chip reports a measured instant", () => {
     };
 
     render(
-      <LandingPagesPage businessId="biz_authorized" providerAccountId="act_authorized" />,
+      <LandingPagesPage
+        businessId="biz_authorized"
+        providerAccountId="act_authorized"
+      />,
     );
 
     expect(lastFreshnessCall().asOf).toBeNull();
@@ -383,11 +427,16 @@ describe("Landing Pages: dropped ads are counted, not swallowed", () => {
    */
   it("names how many ads have no resolvable destination", () => {
     const rows = [
-      buildDestinationRow({ id: "ad_1", destinationUrl: "https://shop.example/a" }),
+      buildDestinationRow({
+        id: "ad_1",
+        destinationUrl: "https://shop.example/a",
+      }),
       buildDestinationRow({ id: "ad_2", destinationUrl: null }),
       buildDestinationRow({ id: "ad_3", destinationUrl: "   " }),
     ];
-    queryState.accounts = [{ id: "act_authorized", name: "Main", timezone: "UTC" }];
+    queryState.accounts = [
+      { id: "act_authorized", name: "Main", timezone: "UTC" },
+    ];
     queryState.destinations = {
       rows,
       snapshot_source: "persisted",
@@ -395,18 +444,26 @@ describe("Landing Pages: dropped ads are counted, not swallowed", () => {
     };
 
     render(
-      <LandingPagesPage businessId="biz_authorized" providerAccountId="act_authorized" />,
+      <LandingPagesPage
+        businessId="biz_authorized"
+        providerAccountId="act_authorized"
+      />,
     );
 
     const model = buildCreativeStudioLandingModel({ rows, state: "ready" });
     expect(model.rows.map((row) => row.id)).toEqual(["https://shop.example/a"]);
 
     const reason = lastFreshnessCall().partialReason;
-    expect(reason).toBe("2 ads have no resolvable destination and are not in this table");
+    expect(reason).toBe(
+      "2 ads have no resolvable destination and are not in this table",
+    );
 
     // The invariant worth pinning: every ad the response carried is either in
     // the table or in the stated count. Nothing may fall between them.
-    const adsInTable = model.rows.reduce((total, row) => total + (row.ads ?? 0), 0);
+    const adsInTable = model.rows.reduce(
+      (total, row) => total + (row.ads ?? 0),
+      0,
+    );
     const adsReportedMissing = Number(/^(\d+)/.exec(reason!)![1]);
     expect(adsInTable + adsReportedMissing).toBe(rows.length);
   });
@@ -416,7 +473,9 @@ describe("Landing Pages: dropped ads are counted, not swallowed", () => {
    * operator-facing prose, not a debug dump.
    */
   it("says it in the singular when one ad was dropped", () => {
-    queryState.accounts = [{ id: "act_authorized", name: "Main", timezone: "UTC" }];
+    queryState.accounts = [
+      { id: "act_authorized", name: "Main", timezone: "UTC" },
+    ];
     queryState.destinations = {
       rows: [
         buildDestinationRow({ id: "ad_1" }),
@@ -427,7 +486,10 @@ describe("Landing Pages: dropped ads are counted, not swallowed", () => {
     };
 
     render(
-      <LandingPagesPage businessId="biz_authorized" providerAccountId="act_authorized" />,
+      <LandingPagesPage
+        businessId="biz_authorized"
+        providerAccountId="act_authorized"
+      />,
     );
 
     expect(lastFreshnessCall().partialReason).toBe(
@@ -440,15 +502,23 @@ describe("Landing Pages: dropped ads are counted, not swallowed", () => {
    * "partial" chip is noise, and noise is how a real partial gets ignored.
    */
   it("reports no partial when every ad resolved a destination", () => {
-    queryState.accounts = [{ id: "act_authorized", name: "Main", timezone: "UTC" }];
+    queryState.accounts = [
+      { id: "act_authorized", name: "Main", timezone: "UTC" },
+    ];
     queryState.destinations = {
-      rows: [buildDestinationRow({ id: "ad_1" }), buildDestinationRow({ id: "ad_2" })],
+      rows: [
+        buildDestinationRow({ id: "ad_1" }),
+        buildDestinationRow({ id: "ad_2" }),
+      ],
       snapshot_source: "persisted",
       last_synced_at: "2026-07-28T09:15:00.000Z",
     };
 
     render(
-      <LandingPagesPage businessId="biz_authorized" providerAccountId="act_authorized" />,
+      <LandingPagesPage
+        businessId="biz_authorized"
+        providerAccountId="act_authorized"
+      />,
     );
 
     expect(lastFreshnessCall().partialReason).toBeNull();

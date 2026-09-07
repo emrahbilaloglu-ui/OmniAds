@@ -273,7 +273,6 @@ describe("release evidence measures the mounted bodies", () => {
       'data-ctl="gated:AUTO-01A engage"',
       'data-ctl="gated:AUTO-02 release"',
       'data-ctl="gated:AUTO-03 mode"',
-      'data-el="google-posture-row"',
       'data-el="guardrails-readonly"',
       // The KIND, not the artboard-prefixed id: `collectionKind` strips `h19-`
       // before comparing, so a body carrying the prefix fails the gate.

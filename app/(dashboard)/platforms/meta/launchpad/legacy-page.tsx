@@ -170,24 +170,21 @@ const LAUNCH_START_CARDS: Array<{
     mode: "new_campaign",
     chip: "Rebuild",
     cta: "Continue draft",
-    description:
-      "Routed from Decisions with evidence attached. Fresh structure, fatigued creative excluded.",
+    description: "Create a new campaign from a Decision recommendation.",
   },
   {
     role: "duplicate",
     mode: "add_to_existing",
     chip: "Duplicate",
     cta: "Continue draft",
-    description:
-      "Clone the winning structure into a new market with its own budget and target pack.",
+    description: "Add a Decision recommendation to an existing campaign.",
   },
   {
     role: "manual",
     mode: "new_campaign",
     chip: "Manual",
     cta: "New blank draft",
-    description:
-      "Blank campaign draft. Validation and the PAUSED boundary apply the same way.",
+    description: "Build a new campaign from scratch. It will start paused.",
   },
 ];
 
@@ -238,7 +235,6 @@ function todayIso() {
   return new Date().toISOString().slice(0, 10);
 }
 
-
 function defaultCampaignName() {
   return `Meta Sales Launch ${todayIso()}`;
 }
@@ -287,14 +283,6 @@ function parseLaunchpadLegacyHandoff(
     sourceDecisionSnapshotId,
     creativeBriefId,
   };
-}
-
-function hasCompleteLaunchpadLineageIdentifiers(
-  handoff: LaunchpadLegacyHandoff | null,
-): boolean {
-  if (!handoff) return false;
-  if (handoff.source === "brief") return Boolean(handoff.creativeBriefId);
-  return Boolean(handoff.sourceDecisionId && handoff.sourceDecisionSnapshotId);
 }
 
 /**
@@ -373,8 +361,7 @@ function stateFromPayloadAdSet(
  * refusal rendered as a measurement.
  */
 type LaunchpadRead =
-  | { ok: true; payload: unknown }
-  | { ok: false; httpStatus: number | null };
+  { ok: true; payload: unknown } | { ok: false; httpStatus: number | null };
 
 async function readLaunchpadJson(url: string): Promise<LaunchpadRead> {
   try {
@@ -390,10 +377,10 @@ async function readLaunchpadJson(url: string): Promise<LaunchpadRead> {
 }
 
 export const LAUNCHPAD_LIBRARY_REFUSED_MESSAGE =
-  "Saved drafts, templates and receipts are not readable for this viewer, so none are listed here.";
+  "Saved work is unavailable for this account.";
 
 export const LAUNCHPAD_LIBRARY_UNAVAILABLE_MESSAGE =
-  "Saved drafts, templates and receipts could not be read, so none are listed here.";
+  "Saved work is temporarily unavailable.";
 
 /**
  * The store exists in the product and not yet in this database.
@@ -404,7 +391,7 @@ export const LAUNCHPAD_LIBRARY_UNAVAILABLE_MESSAGE =
  * for `schema_not_ready` are "It is unavailable, not empty."
  */
 export const LAUNCHPAD_LIBRARY_MIGRATION_MESSAGE =
-  "Saved drafts, templates and receipts are not readable until a pending database migration is applied. They are unavailable here, not empty.";
+  "Saved work is temporarily unavailable.";
 
 function launchpadReadPayload(read: LaunchpadRead): unknown {
   return read.ok ? read.payload : null;
@@ -475,6 +462,7 @@ export interface LaunchpadWorkspaceRead {
   templates: LaunchTemplate[];
   drafts: LaunchDraft[];
   intents: MetaLaunchIntent[];
+  launchIntentsRead: boolean;
   launchIntentCapability: MetaLaunchIntentCapability | null;
   draftCapability: MetaLaunchStoreCapability | null;
   templateCapability: MetaLaunchStoreCapability | null;
@@ -631,7 +619,8 @@ export async function loadLaunchpadWorkspace(
      */
     unavailableMessage: (() => {
       const unread = readOutcomes.filter(
-        (source) => source.outcome === "failed" || source.outcome === "not-ready",
+        (source) =>
+          source.outcome === "failed" || source.outcome === "not-ready",
       );
       if (unread.length === 0) return null;
       if (unread.some((source) => source.failureCode === "schema_not_ready")) {
@@ -648,6 +637,7 @@ export async function loadLaunchpadWorkspace(
     templates: [...recentTemplates, ...manualTemplates],
     drafts: draftRows,
     intents: intentRows,
+    launchIntentsRead: sectionRead("intents"),
     launchIntentCapability: launchIntentCapabilityFromPayload({
       capability: capability.intents,
     }),
@@ -697,7 +687,11 @@ export async function readLaunchpadDraftValidation(input: {
       ok?: unknown;
       blockers?: unknown;
     } | null;
-    if (!body || typeof body.ok !== "boolean" || !Array.isArray(body.blockers)) {
+    if (
+      !body ||
+      typeof body.ok !== "boolean" ||
+      !Array.isArray(body.blockers)
+    ) {
       return { status: "unavailable" };
     }
     return {
@@ -959,6 +953,9 @@ export default function MetaLaunchpadPage({
    */
   const executionEnabled = authorizedExecutionEnabled === true;
   const writeRefusalReason = viewer.reason;
+  const writeUnavailableMessage = writeRefusalReason
+    ? "Changes are unavailable for this workspace."
+    : null;
   const serverProviderAccountId = authorizedProviderAccountId?.trim() || "";
   const requestedProviderAccountId = hasAuthorizedProviderScope
     ? serverProviderAccountId
@@ -1090,13 +1087,18 @@ export default function MetaLaunchpadPage({
   const [templates, setTemplates] = useState<LaunchTemplate[]>([]);
   const [drafts, setDrafts] = useState<LaunchDraft[]>([]);
   const [launchIntents, setLaunchIntents] = useState<MetaLaunchIntent[]>([]);
+  const [launchIntentsRead, setLaunchIntentsRead] = useState<boolean | null>(
+    null,
+  );
   const [launchIntentCapability, setLaunchIntentCapability] =
     useState<MetaLaunchIntentCapability | null>(null);
   const [draftCapability, setDraftCapability] =
     useState<MetaLaunchStoreCapability | null>(null);
   const [templateCapability, setTemplateCapability] =
     useState<MetaLaunchStoreCapability | null>(null);
-  const [libraryLoading, setLibraryLoading] = useState(false);
+  const [libraryLoading, setLibraryLoading] = useState(
+    Boolean(businessId && providerAccountId),
+  );
   /**
    * Why the library is empty, when it is empty for a reason other than being
    * empty. `null` means every read answered and an empty table is a measured
@@ -1139,9 +1141,8 @@ export default function MetaLaunchpadPage({
    * A failed intent read is not an intent without an approval, and the panel
    * must not turn one into the other.
    */
-  const [activationIntentUnavailable, setActivationIntentUnavailable] = useState<
-    string | null
-  >(null);
+  const [activationIntentUnavailable, setActivationIntentUnavailable] =
+    useState<string | null>(null);
   const launchIntentId = launchResult?.launchIntentId?.trim() ?? "";
   const launchIntentActivatable =
     launchResult?.launchIntentStatus === "succeeded" ||
@@ -1169,7 +1170,7 @@ export default function MetaLaunchpadPage({
       */
       setActivationIntent(null);
       setActivationIntentUnavailable(
-        "The launch record cannot be re-read without a resolved account, so its stored activation approval is not stated here.",
+        "Activation status is temporarily unavailable.",
       );
       return;
     }
@@ -1194,8 +1195,7 @@ export default function MetaLaunchpadPage({
       if (!intent?.id) {
         setActivationIntent(null);
         setActivationIntentUnavailable(
-          body?.error?.message ??
-            "The launch record could not be re-read, so its stored activation approval is not stated here.",
+          "Activation status is temporarily unavailable.",
         );
         return;
       }
@@ -1210,12 +1210,10 @@ export default function MetaLaunchpadPage({
         activationReceipt: intent.activationReceipt ?? null,
       });
       setActivationIntentUnavailable(null);
-    } catch (error) {
+    } catch {
       setActivationIntent(null);
       setActivationIntentUnavailable(
-        error instanceof Error
-          ? `${error.message} — the stored activation approval is not stated here.`
-          : "The launch record could not be re-read, so its stored activation approval is not stated here.",
+        "Activation status is temporarily unavailable.",
       );
     }
   }, [businessId, launchIntentId, providerAccountId]);
@@ -1228,9 +1226,7 @@ export default function MetaLaunchpadPage({
     }
     // Unknown until the read answers. A pending read is not an absent approval,
     // and the panel must not say "operator only" while it is still looking.
-    setActivationIntentUnavailable(
-      "The stored activation approval is still being read.",
-    );
+    setActivationIntentUnavailable("Checking activation status…");
     void refreshActivationIntent();
   }, [launchIntentActivatable, launchIntentId, refreshActivationIntent]);
 
@@ -1264,6 +1260,7 @@ export default function MetaLaunchpadPage({
     setProviderAccountsError(null);
     if (providerAccountId) {
       setLibraryLoading(true);
+      setLaunchIntentsRead(null);
     } else {
       // With no account scope the account-scoped sections are not read at all,
       // so the surface must not keep showing the previous account's rows. No
@@ -1271,6 +1268,7 @@ export default function MetaLaunchpadPage({
       setTemplates([]);
       setDrafts([]);
       setLaunchIntents([]);
+      setLaunchIntentsRead(null);
       setLaunchIntentCapability(null);
       setDraftCapability(null);
       setTemplateCapability(null);
@@ -1309,6 +1307,7 @@ export default function MetaLaunchpadPage({
         setTemplates(workspace.templates);
         setDrafts(workspace.drafts);
         setLaunchIntents(workspace.intents);
+        setLaunchIntentsRead(workspace.launchIntentsRead);
         setLaunchIntentCapability(workspace.launchIntentCapability);
         setDraftCapability(workspace.draftCapability);
         setTemplateCapability(workspace.templateCapability);
@@ -1343,6 +1342,7 @@ export default function MetaLaunchpadPage({
         setTemplates([]);
         setDrafts([]);
         setLaunchIntents([]);
+        setLaunchIntentsRead(false);
         setLaunchIntentCapability(null);
         setDraftCapability(null);
         setTemplateCapability(null);
@@ -1379,9 +1379,9 @@ export default function MetaLaunchpadPage({
    * creative landed on an empty picker and had to find it again by hand. The
    * ids come from the record the server re-verified, never from the URL.
    *
-   * `unsupported` is restated verbatim. A copy handoff carries an alternate
-   * line that no Launchpad payload field can hold, and saying so beats a draft
-   * that silently drops it.
+   * A copy handoff can preselect the creative without being able to write its
+   * alternate copy. Keep that distinction visible and give the operator the
+   * actual line to paste; never surface the server's implementation wording.
    */
   useEffect(() => {
     if (!serverPrefill) return;
@@ -1391,9 +1391,10 @@ export default function MetaLaunchpadPage({
       setSelectedCreativeIds(serverPrefill.selection.creativeIds);
     }
     setTemplateMessage(
-      [serverPrefill.summary, serverPrefill.unsupported]
-        .filter(Boolean)
-        .join(" · "),
+      serverPrefill.origin === "copy" &&
+        (serverPrefill.actionEligible !== true || serverPrefill.unsupported)
+        ? "Copy needs manual entry."
+        : "Decision details applied.",
     );
   }, [serverPrefill]);
 
@@ -1409,7 +1410,7 @@ export default function MetaLaunchpadPage({
    */
   useEffect(() => {
     if (!serverPrefillRefusalMessage) return;
-    setTemplateMessage(serverPrefillRefusalMessage);
+    setTemplateMessage("This decision cannot be opened in Launchpad.");
   }, [serverPrefillRefusalMessage]);
 
   /**
@@ -1428,15 +1429,11 @@ export default function MetaLaunchpadPage({
   useEffect(() => {
     if (!unconsumedHandoffReference) return;
     if (handoffPrefillEnvelope.status !== "none") return;
-    setTemplateMessage(
-      "That launch handoff was not consumed here: this page cannot verify one. Open Launchpad from your workspace to use it.",
-    );
+    setTemplateMessage("This decision cannot be opened in Launchpad.");
   }, [handoffPrefillEnvelope.status, unconsumedHandoffReference]);
 
   useEffect(() => {
     if (!legacyHandoff) return;
-    const hasLineageIdentifiers =
-      hasCompleteLaunchpadLineageIdentifiers(legacyHandoff);
     const actionEligible = hasServerAuthorizedLaunchpadHandoff(legacyHandoff);
     const exactWorkflowAvailable = legacyHandoff.requestedMode !== "apply_bid";
     const nextMode: LaunchpadMode =
@@ -1459,21 +1456,9 @@ export default function MetaLaunchpadPage({
       setStep("source");
     }
     setTemplateMessage(
-      [
-        `${legacyHandoff.source === "decision" ? "Decision" : "Brief"} handoff detected`,
-        actionEligible
-          ? exactWorkflowAvailable
-            ? "server-authorized lineage will be persisted in the launch record"
-            : "apply-bid execution is not part of the Launchpad contract"
-          : hasLineageIdentifiers
-            ? "lineage identifiers are present, but server-owned action eligibility is unavailable"
-            : "legacy URL prefill has no complete lineage identifiers",
-        legacyHandoff.requestedMode
-          ? `mode=${legacyHandoff.requestedMode}`
-          : null,
-      ]
-        .filter(Boolean)
-        .join(" · "),
+      actionEligible && exactWorkflowAvailable
+        ? "Decision details applied."
+        : "This decision cannot be opened in Launchpad.",
     );
   }, [legacyHandoff]);
 
@@ -1500,13 +1485,9 @@ export default function MetaLaunchpadPage({
         if (cancelled) return;
         setCreatives(payload.rows.map(mapApiRowToUiRow));
       })
-      .catch((error: unknown) => {
+      .catch(() => {
         if (!cancelled)
-          setCreativeError(
-            error instanceof Error
-              ? error.message
-              : "Could not load creatives.",
-          );
+          setCreativeError("Creatives are temporarily unavailable.");
       })
       .finally(() => {
         if (!cancelled) setCreativeLoading(false);
@@ -1532,7 +1513,10 @@ export default function MetaLaunchpadPage({
         new Set(
           creatives
             .map((creative) => creative.creativeId)
-            .filter((id): id is string => typeof id === "string" && id.trim().length > 0),
+            .filter(
+              (id): id is string =>
+                typeof id === "string" && id.trim().length > 0,
+            ),
         ),
       ),
     })
@@ -1585,10 +1569,14 @@ export default function MetaLaunchpadPage({
       // The same composed read the first load uses. A refresh after a save
       // re-reads recent actions and the target CPA too, which is free here and
       // used to need two more requests.
-      const library = await loadLaunchpadWorkspace(businessId, providerAccountId);
+      const library = await loadLaunchpadWorkspace(
+        businessId,
+        providerAccountId,
+      );
       setTemplates(library.templates);
       setDrafts(library.drafts);
       setLaunchIntents(library.intents);
+      setLaunchIntentsRead(library.launchIntentsRead);
       setLaunchIntentCapability(library.launchIntentCapability);
       setDraftCapability(library.draftCapability);
       setTemplateCapability(library.templateCapability);
@@ -1599,6 +1587,7 @@ export default function MetaLaunchpadPage({
       setTemplates([]);
       setDrafts([]);
       setLaunchIntents([]);
+      setLaunchIntentsRead(false);
       setLaunchIntentCapability(null);
       setDraftCapability(null);
       setTemplateCapability(null);
@@ -1944,7 +1933,7 @@ export default function MetaLaunchpadPage({
       }, {});
       setMode("add_to_existing");
       setAppliedTemplateName(null);
-        setSelectedCreativeIds(next.creativeIds);
+      setSelectedCreativeIds(next.creativeIds);
       setAddToExistingTarget({
         targetCampaign: targetCampaigns[0] ?? null,
         targetAdset: targetCampaigns[0]
@@ -1996,15 +1985,14 @@ export default function MetaLaunchpadPage({
     // check: a reviewer, a demo workspace or a sub-collaborator gets the reason,
     // not a POST that returns 403 with a generic "save failed".
     if (!viewer.canMutate) {
-      setTemplateMessage(writeRefusalReason ?? "Launchpad writes are unavailable.");
+      setTemplateMessage(
+        writeUnavailableMessage ??
+          "Changes are unavailable for this workspace.",
+      );
       return;
     }
     if (templateCapability?.canWrite !== true) {
-      setTemplateMessage(
-        templateCapability?.status === "migration_required"
-          ? "Saved templates require the pending account-scope database migration"
-          : "Saved template storage capability is unavailable",
-      );
+      setTemplateMessage("Templates are temporarily unavailable.");
       return;
     }
     const name =
@@ -2031,15 +2019,14 @@ export default function MetaLaunchpadPage({
     // Same law as saveTemplate: the server already decided this viewer may not
     // write, so say so instead of sending a request that will be refused.
     if (!viewer.canMutate) {
-      setTemplateMessage(writeRefusalReason ?? "Launchpad writes are unavailable.");
+      setTemplateMessage(
+        writeUnavailableMessage ??
+          "Changes are unavailable for this workspace.",
+      );
       return;
     }
     if (draftCapability?.canWrite !== true) {
-      setTemplateMessage(
-        draftCapability?.status === "migration_required"
-          ? "Drafts require the pending account-scope database migration"
-          : "Draft storage capability is unavailable",
-      );
+      setTemplateMessage("Drafts are temporarily unavailable.");
       return;
     }
     const response = await fetch("/api/launchpad/meta/drafts", {
@@ -2097,10 +2084,7 @@ export default function MetaLaunchpadPage({
             launchIntentCapability?.status === "migration_required"
               ? "launch_intent_migration_required"
               : "launch_intent_capability_unavailable",
-          message:
-            launchIntentCapability?.status === "migration_required"
-              ? "LaunchIntent storage needs the pending database migration. No provider request was sent."
-              : "LaunchIntent storage capability could not be verified. No provider request was sent.",
+          message: "Launching is temporarily unavailable.",
         },
       });
       return;
@@ -2115,7 +2099,7 @@ export default function MetaLaunchpadPage({
             : "account_currency_required",
           message: !providerAccountId
             ? "Select an assigned Meta ad account before launching."
-            : "The selected Meta account currency is unavailable; minor-unit writes are blocked.",
+            : "The selected Meta account needs a currency before launching.",
         },
       });
       return;
@@ -2286,27 +2270,34 @@ export default function MetaLaunchpadPage({
     appliedTemplateName != null &&
     templateMessage === `Applied ${appliedTemplateName}`;
   // A server-verified handoff prefills; a URL-shaped one never does.
-  const wizardPrefilled = Boolean(serverPrefill) || Boolean(activeLegacyHandoff);
+  const wizardPrefilled =
+    Boolean(serverPrefill) || Boolean(activeLegacyHandoff);
+  const copyHandoffNeedsManualEntry = Boolean(
+    serverPrefill?.origin === "copy" &&
+    (serverPrefill.actionEligible !== true || serverPrefill.unsupported),
+  );
   // The chip is the ONLY place a prefill speaks while the wizard is prefilled
   // (the save-message line renders `templateMessage` exclusively when it is
   // not), so the "cannot be applied" half has to travel here or it is invisible.
   const wizardPrefillLabel = serverPrefill
-    ? [serverPrefill.summary, serverPrefill.unsupported]
-        .filter(Boolean)
-        .join(" · ")
+    ? copyHandoffNeedsManualEntry
+      ? "Copy needs manual entry"
+      : "Decision details applied"
     : wizardPrefilled && legacyHandoff
-      ? formatLaunchpadPrefillLabel(legacyHandoff, selectedCreativeIds.length)
+      ? activeLegacyHandoff
+        ? "Decision details applied"
+        : "Decision unavailable"
       : null;
   const sourceLineageLabel = serverPrefill
     ? serverPrefill.origin === "copy"
-      ? `Copy line · ${serverPrefill.copy?.copyId ?? "unidentified"}`
-      : `Decision snapshot · ${serverPrefill.lineage?.sourceSnapshotId ?? "unidentified"}`
+      ? "Copy selection"
+      : "Decision"
     : sourceDraftId
-      ? `Draft · ${sourceDraftId}`
+      ? "Saved draft"
       : activeLegacyHandoff
         ? activeLegacyHandoff.source === "brief"
-          ? "Reviewed Creative Brief"
-          : "Decision snapshot"
+          ? "Creative brief"
+          : "Decision"
         : "Manual";
   const verifiedLandingRole: LaunchStartRole | null =
     hasServerAuthorizedLaunchpadHandoff(legacyHandoff) &&
@@ -2391,14 +2382,14 @@ export default function MetaLaunchpadPage({
 
   if (accountScopeBlocked) {
     const scopeMessage = !businessId
-      ? "Select a business. Launch data and provider writes remain withheld."
+      ? "Select a business to use Launchpad."
       : providerAccountsLoading
-        ? "Loading assigned Meta ad accounts."
+        ? "Loading Meta ad accounts."
         : providerAccountsError
-          ? providerAccountsError
+          ? "Meta ad accounts are temporarily unavailable."
           : !providerAccountId
-            ? "Select one assigned Meta ad account. Launch data and provider writes remain withheld until the scope is explicit."
-            : "The selected account currency is unavailable. Minor-unit budgets and provider writes remain blocked.";
+            ? "Select a Meta ad account to use Launchpad."
+            : "The selected Meta account needs a currency before launching.";
     return (
       <div
         className={`ad-final meta-launchpad-final ${styles.route}`}
@@ -2408,7 +2399,6 @@ export default function MetaLaunchpadPage({
           businessName={businessName}
           currency={currency}
           mode={mode}
-          step={step}
           selectedCount={selectedCreativeIds.length}
           draftCount={drafts.length}
           templateCount={templates.length}
@@ -2418,8 +2408,7 @@ export default function MetaLaunchpadPage({
           }
           libraryLoading={libraryLoading}
           creativeLoading={creativeLoading}
-          providerAccountId={providerAccountId}
-          sourceLineageLabel={sourceLineageLabel}
+          providerAccountName={selectedProviderAccount?.name ?? "Not selected"}
           desktopHref={desktopHref}
           statusMessage={scopeMessage}
         />
@@ -2440,6 +2429,11 @@ export default function MetaLaunchpadPage({
             intents={[]}
             loading={providerAccountsLoading}
             scopeReady={false}
+            recentLaunchesUnavailableReason={
+              providerAccountsError
+                ? "Recent launches are temporarily unavailable."
+                : "Select a Meta ad account to view recent launches."
+            }
             verifiedRole={verifiedLandingRole}
             verifiedHandoffName={verifiedHandoffName}
             draftValidations={draftValidations}
@@ -2460,7 +2454,6 @@ export default function MetaLaunchpadPage({
         businessName={businessName}
         currency={currency}
         mode={mode}
-        step={step}
         selectedCount={selectedCreativeIds.length}
         draftCount={drafts.length}
         templateCount={templates.length}
@@ -2470,8 +2463,7 @@ export default function MetaLaunchpadPage({
         }
         libraryLoading={libraryLoading}
         creativeLoading={creativeLoading}
-        providerAccountId={providerAccountId}
-        sourceLineageLabel={sourceLineageLabel}
+        providerAccountName={selectedProviderAccount?.name ?? "Meta account"}
         desktopHref={desktopHref}
       />
       <div className={styles.desktopSurface}>
@@ -2480,7 +2472,16 @@ export default function MetaLaunchpadPage({
             drafts={drafts}
             intents={launchIntents}
             loading={libraryLoading}
-            libraryUnavailableReason={libraryUnavailableMessageState}
+            libraryUnavailableReason={
+              libraryUnavailableMessageState
+                ? "Drafts are temporarily unavailable."
+                : null
+            }
+            recentLaunchesUnavailableReason={
+              !libraryLoading && launchIntentsRead === false
+                ? "Recent launches are temporarily unavailable."
+                : null
+            }
             verifiedRole={verifiedLandingRole}
             verifiedHandoffName={verifiedHandoffName}
             draftValidations={draftValidations}
@@ -2498,21 +2499,6 @@ export default function MetaLaunchpadPage({
               accountLoading={providerAccountsLoading}
               onProviderAccountChange={changeProviderAccount}
             />
-            {/* Standing write-boundary notice — the surface's contract, not a
-              transient state, so it renders on every Launchpad step. */}
-            <div
-              className={styles.scopeBlock}
-              data-testid="launchpad-write-boundary"
-            >
-              <ShieldCheck aria-hidden="true" className="h-4 w-4" />
-              <div>
-                <strong>Launches create PAUSED campaigns.</strong>
-                <p>
-                  Activation is a separate manual step with its own
-                  confirmation. Every write records an immutable receipt.
-                </p>
-              </div>
-            </div>
             <div className={styles.wizardFrame}>
               <div className={styles.wizardHeader}>
                 <div className={styles.wizardIdentity}>
@@ -2529,7 +2515,9 @@ export default function MetaLaunchpadPage({
                   <div className={styles.wizardTitle}>
                     <strong>{launchpadModeLabel(mode)}</strong>
                     <span>
-                      {sourceLineageLabel} · {providerAccountId} · {currency}
+                      {sourceLineageLabel} ·{" "}
+                      {selectedProviderAccount?.name ?? "Meta account"} ·{" "}
+                      {currency}
                     </span>
                   </div>
                   {wizardPrefilled ? (
@@ -2564,9 +2552,9 @@ export default function MetaLaunchpadPage({
                         writeRefusalReason != null
                       }
                       title={
-                        writeRefusalReason ??
+                        writeUnavailableMessage ??
                         (templateCapability?.canWrite === false
-                          ? "Pending account-scope database migration"
+                          ? "Templates are temporarily unavailable"
                           : undefined)
                       }
                     >
@@ -2593,34 +2581,42 @@ export default function MetaLaunchpadPage({
                     </>
                   ) : (
                     <div className={styles.receiptRail}>
-                      <span className="chip chip--info">
-                        Provider write receipt
-                      </span>
+                      <span className="chip chip--info">Launch result</span>
                       <p className="text-[11.5px] leading-relaxed text-[var(--muted)]">
-                        Result state comes from the completed route response. No
-                        simulated progress is shown.
+                        Review what changed before leaving this page.
                       </p>
                     </div>
                   )}
                 </aside>
 
                 <main className={styles.editor}>
+                  {copyHandoffNeedsManualEntry && serverPrefill?.copy ? (
+                    <div
+                      className="mb-4 rounded-[8px] border border-[var(--warn-bd)] bg-[var(--warn-bg)] p-3 text-[12px] text-[var(--warn)]"
+                      data-testid="launchpad-manual-copy-remedy"
+                    >
+                      <strong className="font-semibold">
+                        Add this copy manually in Meta Ads after creating the
+                        paused ad:
+                      </strong>{" "}
+                      <span className="text-[var(--ink)]">
+                        “{serverPrefill.copy.alternateText}”
+                      </span>
+                    </div>
+                  ) : null}
                   {creativeError ? (
                     <div className="mb-4 rounded-[8px] border border-[var(--danger-bd)] bg-[var(--danger-bg)] p-3 text-[13px] text-[var(--danger)]">
-                      {creativeError}
+                      Creatives are temporarily unavailable.
                     </div>
                   ) : null}
 
                   {step === "scope" ? (
                     <LaunchpadScopeStep
                       businessName={businessName}
-                      providerAccountId={providerAccountId}
                       providerAccountName={
-                        selectedProviderAccount?.name ?? providerAccountId
+                        selectedProviderAccount?.name ?? "Meta account"
                       }
                       currency={currency}
-                      mode={mode}
-                      sourceLineageLabel={sourceLineageLabel}
                     />
                   ) : null}
                   {step === "creatives" ? (
@@ -2664,19 +2660,15 @@ export default function MetaLaunchpadPage({
                       <LaunchpadBoundaryStep
                         title={
                           mode === "add_to_existing"
-                            ? "Campaign and budget are inherited"
-                            : "No creation settings in this workflow"
+                            ? "Campaign settings stay unchanged"
+                            : "Selected ads"
                         }
                         description={
                           mode === "add_to_existing"
-                            ? "The selected target campaign and ad set remain authoritative. Launchpad does not rewrite their budget while adding PAUSED ads."
-                            : "Manage existing operates on selected ads. It does not create or edit campaign budgets."
+                            ? "The selected campaign and ad set keep their current budget. New ads start paused."
+                            : "Pause or activate the selected ads. Campaign and ad set settings stay unchanged."
                         }
-                        rows={[
-                          ["Mode", launchpadModeLabel(mode)],
-                          ["Write boundary", "No budget mutation"],
-                          ["Delivery", "PAUSED or risk-reducing pause only"],
-                        ]}
+                        rows={[]}
                       />
                     )
                   ) : null}
@@ -2706,12 +2698,9 @@ export default function MetaLaunchpadPage({
                       />
                     ) : (
                       <LaunchpadBoundaryStep
-                        title="Selected ads define the provider scope"
-                        description="Pause applies only to the exact selected Meta ad IDs. Campaign and ad-set structure remains unchanged."
-                        rows={[
-                          ["Selected ads", String(selectedCreativeIds.length)],
-                          ["Available actions", "Pause · Activate"],
-                        ]}
+                        title="Selected ads"
+                        description={`${selectedCreativeIds.length} selected · Pause or Activate. Campaign and ad set settings stay unchanged.`}
+                        rows={[]}
                       />
                     )
                   ) : null}
@@ -2798,7 +2787,7 @@ export default function MetaLaunchpadPage({
                       // A viewer the backend will refuse keeps the control on
                       // screen and disabled with the reason, instead of
                       // watching it disappear with no explanation.
-                      viewerWriteRefusalReason={writeRefusalReason}
+                      viewerWriteRefusalReason={writeUnavailableMessage}
                       onLaunch={launchPaused}
                       executionBlockedReason={
                         // Viewer first, gate second. Being a reviewer is a fact
@@ -2806,19 +2795,19 @@ export default function MetaLaunchpadPage({
                         // to hear; a closed gate is a fact about the product
                         // and applies to everyone. Both refuse, and the server
                         // enforces both regardless of which sentence is shown.
-                        writeRefusalReason ??
+                        writeUnavailableMessage ??
                         (!executionEnabled
                           ? META_GATE_REFUSAL_REASONS.launchpadExecution
                           : null) ??
                         (mode === "add_to_existing" &&
                         addToExistingPayload.copyMode === "rebuild_creative"
-                          ? "Recreate exact ad is review-only until durable receipts cover every provider image, creative, and ad write."
+                          ? "Recreating ads requires review."
                           : launchIntentCapability?.canWrite
                             ? null
                             : launchIntentCapability?.status ===
                                 "migration_required"
-                              ? "LaunchIntent storage migration is required before PAUSED creation can run."
-                              : "LaunchIntent storage capability is still being verified.")
+                              ? "Launching is temporarily unavailable."
+                              : "Launching is temporarily unavailable.")
                       }
                     />
                   ) : null}
@@ -2832,7 +2821,9 @@ export default function MetaLaunchpadPage({
                           <LaunchpadActivationPanel
                             businessId={businessId}
                             intentId={launchIntentId}
-                            intentStatus={launchResult?.launchIntentStatus ?? null}
+                            intentStatus={
+                              launchResult?.launchIntentStatus ?? null
+                            }
                             /*
                               The intent's own operation when it has been read,
                               and the wizard mode otherwise. `manage_existing`
@@ -2844,8 +2835,12 @@ export default function MetaLaunchpadPage({
                                 ? "add_to_existing"
                                 : "new_campaign")
                             }
-                            approval={activationIntent?.activationApproval ?? null}
-                            approvalUnavailableReason={activationIntentUnavailable}
+                            approval={
+                              activationIntent?.activationApproval ?? null
+                            }
+                            approvalUnavailableReason={
+                              activationIntentUnavailable
+                            }
                             activationReceipt={
                               activationIntent?.activationReceipt ?? null
                             }
@@ -2855,7 +2850,7 @@ export default function MetaLaunchpadPage({
                               // viewer's own refusal first, then the release
                               // gate, which is a deployment fact and applies to
                               // everyone. The route enforces both regardless.
-                              writeRefusalReason ??
+                              writeUnavailableMessage ??
                               (!executionEnabled
                                 ? META_GATE_REFUSAL_REASONS.launchpadExecution
                                 : null)
@@ -2886,24 +2881,24 @@ export default function MetaLaunchpadPage({
                           })}
                         </strong>
                       </div>
-                      {selectionSummary.count > 0 ? (
+                      {selectionSummary.count > 0 &&
+                      (selectionSummary.totalSpend != null ||
+                        selectionSummary.averageRoas != null) ? (
                         <div className="mt-0.5 text-[11px] text-[var(--muted-2)] tabular-nums">
-                          selection · spend{" "}
-                          {selectionSummary.totalSpend == null
-                            ? "unavailable"
-                            : formatMoney(
-                                selectionSummary.totalSpend,
-                                currency,
-                              )}{" "}
-                          · weighted ROAS{" "}
-                          {selectionSummary.averageRoas == null
-                            ? "—"
-                            : `${selectionSummary.averageRoas.toFixed(1)}x`}
+                          {selectionSummary.totalSpend != null
+                            ? `Spend ${formatMoney(selectionSummary.totalSpend, currency)}`
+                            : ""}
+                          {selectionSummary.totalSpend != null &&
+                          selectionSummary.averageRoas != null
+                            ? " · "
+                            : ""}
+                          {selectionSummary.averageRoas != null
+                            ? `ROAS ${selectionSummary.averageRoas.toFixed(1)}x`
+                            : ""}
                         </div>
                       ) : (
                         <div className="mt-0.5 text-[11px] text-[var(--muted-2)]">
-                          Create changes provider state to PAUSED and cannot
-                          begin delivery.
+                          New items will be created as paused.
                         </div>
                       )}
                     </div>
@@ -2947,24 +2942,21 @@ export default function MetaLaunchpadPage({
 function LaunchpadMobileSurface({
   businessName,
   currency,
-  providerAccountId,
+  providerAccountName,
   mode,
-  step,
   selectedCount,
   draftCount,
   templateCount,
   libraryReadable,
   libraryLoading,
   creativeLoading,
-  sourceLineageLabel,
   desktopHref,
   statusMessage = null,
 }: {
   businessName: string;
   currency: string | null;
-  providerAccountId: string;
+  providerAccountName: string;
   mode: LaunchpadMode;
-  step: WizardStep;
   selectedCount: number;
   draftCount: number;
   templateCount: number;
@@ -2972,7 +2964,6 @@ function LaunchpadMobileSurface({
   libraryReadable: boolean;
   libraryLoading: boolean;
   creativeLoading: boolean;
-  sourceLineageLabel: string;
   desktopHref: string;
   statusMessage?: string | null;
 }) {
@@ -2982,10 +2973,10 @@ function LaunchpadMobileSurface({
     <section
       className={`meta-mobile-surface-stage ${styles.mobileSurface}`}
       data-testid="meta-mobile-launchpad"
-      aria-label="Launchpad mobile read-only"
+      aria-label="Launchpad mobile"
     >
       <header className={styles.mobileHeader}>
-        <p>Launchpad · read-only</p>
+        <p>Launchpad</p>
         <h1>{businessName}</h1>
         <span>{launchpadModeLabel(mode)}</span>
       </header>
@@ -2998,16 +2989,8 @@ function LaunchpadMobileSurface({
         ) : null}
         <dl className={styles.mobileFacts}>
           <div>
-            <dt>Current step</dt>
-            <dd>{step}</dd>
-          </div>
-          <div>
-            <dt>Lineage</dt>
-            <dd>{sourceLineageLabel}</dd>
-          </div>
-          <div>
             <dt>Ad account</dt>
-            <dd>{providerAccountId || "Not selected"}</dd>
+            <dd>{providerAccountName}</dd>
           </div>
           <div>
             <dt>Currency</dt>
@@ -3035,18 +3018,24 @@ function LaunchpadMobileSurface({
         </dl>
         <div className={styles.mobilePolicy}>
           <ShieldCheck aria-hidden="true" className="h-4 w-4" />
-          <p>
-            No write controls are rendered on mobile. Desktop creation remains
-            PAUSED-only and server validation runs before provider writes.
-          </p>
+          <p>Use desktop to create campaigns. New campaigns start paused.</p>
         </div>
         <Link href={desktopHref} className={styles.mobileDeepLink}>
-          Open this exact workflow on desktop
+          Open Launchpad on desktop
           <ArrowRight aria-hidden="true" className="h-4 w-4" />
         </Link>
       </div>
     </section>
   );
+}
+
+function launchpadAccountLabel(account: MetaHistoryAccount): string {
+  const name = account.name?.trim();
+  if (name) return name;
+  const accountId = account.id.replace(/^act_/, "");
+  return accountId
+    ? `Meta account ••••${accountId.slice(-4)}`
+    : "Unnamed Meta account";
 }
 
 function LaunchpadContextBar({
@@ -3069,18 +3058,15 @@ function LaunchpadContextBar({
   return (
     <div className="flex flex-wrap items-end gap-x-3 gap-y-2 pb-3">
       <div className="min-w-0">
-        {/* v2 page head: mono eyebrow over a display-weight title. */}
-        <p className="m-0 font-[family-name:var(--adv-font-mono)] text-[11px] uppercase tracking-[0.12em] text-[var(--adv-ink-3)]">
-          Meta · Guarded write surface
-        </p>
-        <h1 className="m-0 mt-1 font-[family-name:var(--adv-font-display)] text-[26px] font-bold leading-[1.1] tracking-[-0.02em] text-[var(--adv-ink)]">
+        <h1 className="m-0 font-[family-name:var(--adv-font-display)] text-[26px] font-bold leading-[1.1] tracking-[-0.02em] text-[var(--adv-ink)]">
           Launchpad
         </h1>
         <div className="mono mt-1 text-[11px] text-[var(--muted)]">
-          {businessName} · {currency ?? "currency unavailable"}
+          {businessName}
+          {currency ? ` · ${currency}` : ""}
         </div>
       </div>
-      <span className="chip chip--warn">Everything launches PAUSED</span>
+      <span className="chip chip--warn">Creates as paused</span>
       <div className="min-w-0 flex-1" />
       <label className="inline-flex h-8 items-center gap-2 rounded-[6px] border border-[var(--border)] bg-[var(--surface-2)] px-2 text-[11px] text-[var(--muted)]">
         Ad account
@@ -3102,13 +3088,12 @@ function LaunchpadContextBar({
           </option>
           {providerAccounts.map((account) => (
             <option key={account.id} value={account.id}>
-              {account.name ?? account.id}
+              {launchpadAccountLabel(account)}
               {account.currency ? ` · ${account.currency}` : ""}
             </option>
           ))}
         </select>
       </label>
-      <span className="chip chip--ghost">guards checked at write time</span>
       <Link
         href={buildMetaScopedHref("/platforms/meta", {
           businessId,
@@ -3120,20 +3105,6 @@ function LaunchpadContextBar({
       </Link>
     </div>
   );
-}
-
-function formatLaunchpadPrefillLabel(
-  handoff: LaunchpadLegacyHandoff,
-  selectedCount: number,
-) {
-  const action =
-    handoff.requestedMode === "duplicate"
-      ? "duplicate"
-      : handoff.requestedMode === "apply_bid"
-        ? "apply bid"
-        : "rebuild";
-  const count = Math.max(1, selectedCount);
-  return `${hasCompleteLaunchpadLineageIdentifiers(handoff) ? "Lineage identifiers" : "Legacy prefill"} · ${handoff.source} · ${action} · ${count} creative${count === 1 ? "" : "s"}`;
 }
 
 function launchpadFooterMathLine(input: {
@@ -3153,7 +3124,7 @@ function launchpadFooterMathLine(input: {
       input.creativeCount * targetCount
     } ads`;
   }
-  return `${input.creativeCount} selected ads · PAUSE is current · ACTIVE is contract-required`;
+  return `${input.creativeCount} selected ads · choose Pause or Activate`;
 }
 
 function LaunchpadModeChooser({
@@ -3197,27 +3168,19 @@ function LaunchpadModeChooser({
 
 function LaunchpadScopeStep({
   businessName,
-  providerAccountId,
   providerAccountName,
   currency,
-  mode,
-  sourceLineageLabel,
 }: {
   businessName: string;
-  providerAccountId: string;
   providerAccountName: string;
   currency: string;
-  mode: LaunchpadMode;
-  sourceLineageLabel: string;
 }) {
   return (
     <section className={styles.scopePanel} data-testid="launchpad-scope-step">
       <div className={styles.editorHeading}>
         <div>
-          <p>Account & scope</p>
-          <h2>Confirm the provider boundary</h2>
+          <h2>Confirm account</h2>
         </div>
-        <span className="chip chip--healthy">Explicit scope</span>
       </div>
       <dl className={styles.scopeFacts}>
         <div>
@@ -3226,31 +3189,13 @@ function LaunchpadScopeStep({
         </div>
         <div>
           <dt>Meta ad account</dt>
-          <dd>
-            {providerAccountName} · {providerAccountId}
-          </dd>
+          <dd>{providerAccountName}</dd>
         </div>
         <div>
           <dt>Currency</dt>
           <dd>{currency}</dd>
         </div>
-        <div>
-          <dt>Workflow</dt>
-          <dd>{launchpadModeLabel(mode)}</dd>
-        </div>
-        <div>
-          <dt>Lineage</dt>
-          <dd>{sourceLineageLabel}</dd>
-        </div>
-        <div>
-          <dt>Write posture</dt>
-          <dd>Server validation · guard check · PAUSED creation</dd>
-        </div>
       </dl>
-      <p className={styles.boundaryNote}>
-        Currency is never inferred across accounts. Provider writes remain
-        blocked if this account scope or its currency becomes unreadable.
-      </p>
     </section>
   );
 }
@@ -3268,29 +3213,30 @@ function LaunchpadBoundaryStep({
     <section className={styles.boundaryPanel}>
       <div className={styles.editorHeading}>
         <div>
-          <p>Workflow boundary</p>
           <h2>{title}</h2>
         </div>
         <ShieldCheck aria-hidden="true" className="h-4 w-4" />
       </div>
       <p className={styles.boundaryDescription}>{description}</p>
-      <dl className={styles.boundaryFacts}>
-        {rows.map(([label, value]) => (
-          <div key={label}>
-            <dt>{label}</dt>
-            <dd>{value}</dd>
-          </div>
-        ))}
-      </dl>
+      {rows.length > 0 ? (
+        <dl className={styles.boundaryFacts}>
+          {rows.map(([label, value]) => (
+            <div key={label}>
+              <dt>{label}</dt>
+              <dd>{value}</dd>
+            </div>
+          ))}
+        </dl>
+      ) : null}
     </section>
   );
 }
 
 function draftLandingMode(draft: LaunchDraft) {
-  if (draft.payload.mode !== "add_to_existing") return "—";
+  if (draft.payload.mode !== "add_to_existing") return "New campaign";
   if (draft.payload.copyMode === "rebuild_creative") return "Rebuild";
   if (draft.payload.copyMode === "reuse_creative") return "Duplicate";
-  return "—";
+  return "Existing campaign";
 }
 
 /**
@@ -3309,11 +3255,13 @@ export function draftLandingValidation(
   validations: Record<string, LaunchpadDraftValidation | undefined>,
 ) {
   const validation = validations[draft.id];
-  if (!validation || validation.status !== "checked") return "—";
+  if (!validation) return "Not checked";
+  if (validation.status === "pending") return "Checking…";
+  if (validation.status === "unavailable") return "Unavailable";
   if (validation.blockerCount > 0) {
-    return `${validation.blockerCount} blocker${validation.blockerCount === 1 ? "" : "s"}`;
+    return `${validation.blockerCount} issue${validation.blockerCount === 1 ? "" : "s"}`;
   }
-  return validation.ok ? "Ready" : "—";
+  return validation.ok ? "Ready" : "Needs review";
 }
 
 function draftLandingValidationStatus(
@@ -3332,6 +3280,7 @@ export function LaunchpadExactLanding({
   loading,
   scopeReady = true,
   libraryUnavailableReason = null,
+  recentLaunchesUnavailableReason = null,
   verifiedRole,
   verifiedHandoffName,
   draftValidations = {},
@@ -3350,6 +3299,7 @@ export function LaunchpadExactLanding({
    * indistinguishable from a real empty account.
    */
   libraryUnavailableReason?: string | null;
+  recentLaunchesUnavailableReason?: string | null;
   verifiedRole: LaunchStartRole | null;
   verifiedHandoffName: string | null;
   draftValidations?: Record<string, LaunchpadDraftValidation | undefined>;
@@ -3363,16 +3313,13 @@ export function LaunchpadExactLanding({
       data-testid="launchpad-exact"
     >
       <div className={styles.exactHeader}>
-        <p>Meta · Guarded write surface</p>
         <h1>Launchpad</h1>
       </div>
 
       <div className={styles.exactNotice} data-testid="launchpad-notice">
         <Shield aria-hidden="true" />
         <p>
-          <b>Launches create PAUSED campaigns.</b> Activation is a separate
-          manual step with its own confirmation. Every write records an
-          immutable LaunchIntent lineage.
+          <b>New campaigns start paused.</b> You can activate them after review.
         </p>
       </div>
 
@@ -3439,7 +3386,6 @@ export function LaunchpadExactLanding({
       <article className={styles.exactTableCard} data-testid="launchpad-drafts">
         <div className={styles.exactSectionHeader}>
           <h2>Drafts</h2>
-          <span>validation runs before any provider call</span>
         </div>
         <table className={styles.exactDraftTable}>
           <thead>
@@ -3464,7 +3410,7 @@ export function LaunchpadExactLanding({
                 return (
                   <tr key={draft.id} data-testid="launchpad-draft-row">
                     <td className={styles.exactDraftName}>
-                      {draft.name || "—"}
+                      {draft.name || "Untitled draft"}
                     </td>
                     <td>
                       <span className={styles.exactModeChip}>
@@ -3486,13 +3432,14 @@ export function LaunchpadExactLanding({
                       {formatRelativeTime(draft.updatedAt)}
                     </td>
                     <td className={styles.exactDraftActionCell}>
-                      <button
-                        type="button"
-                        onClick={() => onApplyDraft(draft)}
-                        disabled={!resumable}
-                      >
-                        {resumable ? "Resume editing" : "—"}
-                      </button>
+                      {resumable ? (
+                        <button
+                          type="button"
+                          onClick={() => onApplyDraft(draft)}
+                        >
+                          Resume editing
+                        </button>
+                      ) : null}
                     </td>
                   </tr>
                 );
@@ -3502,11 +3449,9 @@ export function LaunchpadExactLanding({
                 data-testid="launchpad-draft-empty"
                 data-unread={libraryUnavailableReason ? "true" : undefined}
               >
-                <td>{libraryUnavailableReason ?? "—"}</td>
-                <td>—</td>
-                <td>—</td>
-                <td>—</td>
-                <td className={styles.exactDraftActionCell}>—</td>
+                <td colSpan={5}>
+                  {libraryUnavailableReason ?? "No drafts yet."}
+                </td>
               </tr>
             )}
           </tbody>
@@ -3519,9 +3464,13 @@ export function LaunchpadExactLanding({
         aria-busy={loading}
       >
         <div className={styles.exactSectionHeader}>
-          <h2>Launch receipts</h2>
+          <h2>Recent launches</h2>
         </div>
-        <LaunchIntentReceiptRows intents={intents} />
+        <LaunchIntentReceiptRows
+          intents={intents}
+          loading={loading}
+          unavailableReason={recentLaunchesUnavailableReason}
+        />
       </article>
     </section>
   );

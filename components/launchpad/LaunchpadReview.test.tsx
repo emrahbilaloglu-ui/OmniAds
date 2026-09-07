@@ -10,9 +10,14 @@ import {
   buildLaunchpadValidationRequest,
   buildLaunchpadBudgetReview,
   buildEngineAggregate,
+  launchpadIssueRemedies,
 } from "@/components/launchpad/LaunchpadReview";
 
-function makeCreative(id: string, spend: number, roas: number): MetaCreativeRow {
+function makeCreative(
+  id: string,
+  spend: number,
+  roas: number,
+): MetaCreativeRow {
   return {
     id,
     creativeId: id,
@@ -101,7 +106,11 @@ function makeDecision(overrides: Partial<DecisionOutput>): DecisionOutput {
 }
 
 const payload = normalizeMetaLaunchPayload({
-  campaign: { name: "Launch", objective: "OUTCOME_SALES", specialAdCategories: [] },
+  campaign: {
+    name: "Launch",
+    objective: "OUTCOME_SALES",
+    specialAdCategories: [],
+  },
   currencyCode: "USD",
   budget: {
     mode: "CBO",
@@ -130,15 +139,28 @@ const payload = normalizeMetaLaunchPayload({
 });
 
 describe("LaunchpadReview", () => {
+  it("turns validation codes into unique buyer remedies without server text", () => {
+    expect(
+      launchpadIssueRemedies([
+        { code: "billing_not_ok" },
+        { code: "billing_check_failed" },
+        { code: "pixel_not_active" },
+        { code: "unknown_backend_code" },
+      ]),
+    ).toEqual([
+      "Resolve the Meta account billing issue.",
+      "Select an active Meta pixel.",
+      "Review the highlighted campaign setting.",
+    ]);
+  });
+
   it("invalidates manual confirmation whenever the reviewed payload changes", () => {
     const source = readFileSync(
       "components/launchpad/LaunchpadReview.tsx",
       "utf8",
     );
     expect(source).toContain("setAck(false);");
-    expect(source).toContain(
-      "[businessId, mode, payload, providerAccountId]",
-    );
+    expect(source).toContain("[businessId, mode, payload, providerAccountId]");
   });
 
   it("binds validation to the exact provider account under review", () => {
@@ -177,13 +199,22 @@ describe("LaunchpadReview", () => {
         makeCreative("creative_2", 300, 1),
       ],
       decisionByCreativeId: new Map([
-        ["creative_1", makeDecision({ creativeId: "creative_1", label: "scale" })],
+        [
+          "creative_1",
+          makeDecision({ creativeId: "creative_1", label: "scale" }),
+        ],
         [
           "creative_2",
           makeDecision({
             creativeId: "creative_2",
             label: "cut",
-            badges: [{ type: "below_breakeven", label: "Below breakeven", severity: "warning" }],
+            badges: [
+              {
+                type: "below_breakeven",
+                label: "Below breakeven",
+                severity: "warning",
+              },
+            ],
             metrics: { spend: 300, purchases: 1, roas: 1, recent7dRoas: 1 },
           }),
         ],
@@ -203,7 +234,7 @@ describe("LaunchpadReview", () => {
   it("builds review budget math in the real account currency", () => {
     expect(buildLaunchpadBudgetReview(payload, "USD")).toMatchObject({
       amount: "$50.00/day",
-      detail: "CBO · LOWEST_COST_WITHOUT_CAP",
+      detail: "Campaign budget",
       complete: true,
     });
     expect(buildLaunchpadBudgetReview(payload, null)).toMatchObject({
@@ -227,24 +258,13 @@ describe("LaunchpadReview", () => {
       />,
     );
 
-    expect(html).toContain("1 of 1 selected creatives are engine-flagged");
+    expect(html).toContain("1 of 1 need attention");
     expect(html).toContain("$50.00/day");
-    expect(html).toContain("Validation unavailable until the server returns a result");
-    expect(html).toContain("raw launch JSON");
+    expect(html).toContain("Campaign checks are temporarily unavailable.");
+    expect(html).not.toContain("raw launch JSON");
     expect(html).not.toContain("&quot;campaign&quot;:");
-    expect(html).toContain("Create PAUSED");
-    /*
-      The panel used to say no activation executor was wired and describe the
-      contract one "would" need. That executor exists: it activates campaign,
-      then ad set, then ad, reads each back, and stops at the first step that
-      does not come back active. So the panel says where the step happens
-      instead of claiming it cannot.
-
-      It is still not a button HERE — this panel renders before the launch, and
-      there is nothing to activate until there are real identities to check.
-    */
-    expect(html).toContain("Everything is created paused");
-    expect(html).toContain("separate, deliberate step you take from the receipt");
+    expect(html).toContain("Create as paused");
+    expect(html).toContain("The campaign and ads will be created as paused.");
     expect(html).not.toContain("No activation executor is wired");
     expect(html).not.toContain("Activation in Adsecute is unavailable");
     expect(html).toContain("disabled");
@@ -263,9 +283,12 @@ describe("LaunchpadReview", () => {
       />,
     );
 
-    expect(html).toContain("currency_unavailable");
+    expect(html).not.toContain("currency_unavailable");
+    expect(html).toContain(
+      "Confirm the Meta account currency before continuing.",
+    );
     expect(html).toContain("50 (Currency unavailable)/day");
-    expect(html).toContain("Create PAUSED");
+    expect(html).toContain("Create as paused");
     expect(html).toContain("disabled");
   });
 
@@ -286,7 +309,13 @@ describe("LaunchpadReview", () => {
         },
       ],
       creativeIds: ["creative_1"],
-      creatives: [{ creativeId: "creative_1", name: "Creative 1", nameOverride: "Creative 1 added" }],
+      creatives: [
+        {
+          creativeId: "creative_1",
+          name: "Creative 1",
+          nameOverride: "Creative 1 added",
+        },
+      ],
       names: { creative_1: "Creative 1 added" },
     };
     const html = renderToStaticMarkup(
@@ -316,8 +345,10 @@ describe("LaunchpadReview", () => {
       />,
     );
 
-    expect(html).toContain("1 creatives -&gt; existing ad set Ad set under campaign Campaign");
-    expect(html).toContain("Creative copy: recreate exact ad");
+    expect(html).toContain(
+      "1 creatives → existing ad set Ad set under campaign Campaign",
+    );
+    expect(html).not.toContain("Creative copy: recreate exact ad");
     expect(html).toContain("after launch: 5");
     expect(html).toContain("$25.00/day");
     expect(html).not.toContain("Save as template");

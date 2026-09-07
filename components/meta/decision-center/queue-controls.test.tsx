@@ -1,23 +1,5 @@
 // @vitest-environment jsdom
-/**
- * The three queue-level controls the design names and the surface had none of.
- *
- * `live:INV-18 share-view` — the contract is "copies URL carrying
- * account/lane/level/window params; recipient with permission reproduces
- * view", announced through `role="status"`, with a manual-copy fallback when
- * the clipboard is denied. Every one of those parameters is already in the URL
- * because every control that sets them writes there, so the control is a COPY
- * and not a link: there is nowhere to navigate that is not where the operator
- * already is.
- *
- * `live:META-DEC-17 search` — "click or / key". The box existed; the key did
- * not, and the marker did not.
- *
- * `live:META-DEC-13 open` — "opens advisory inactive-assets strip detail
- * (read-only)". The Archive lane IS that detail: every row in it is an inactive
- * campaign, ad set or withheld Ad decision and none carries an action. What was
- * missing was the strip that says how many there are and opens it.
- */
+/** Queue controls retained by the concise Decisions surface. */
 import React from "react";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -34,7 +16,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe("copying a link to this view", () => {
+describe("removed queue chrome", () => {
   beforeEach(() => {
     window.history.replaceState(
       {},
@@ -43,55 +25,33 @@ describe("copying a link to this view", () => {
     );
   });
 
-  it("copies the current URL and announces that it did", async () => {
-    const writeText = vi.fn().mockResolvedValue(undefined);
+  it("does not render the removed share control or touch the clipboard", () => {
+    const writeText = vi.fn();
     vi.stubGlobal("navigator", { clipboard: { writeText } });
 
     render(<MetaDecisionCenterExact viewModel={VIEW_MODEL} />);
-    fireEvent.click(
-      document.querySelector('[data-ctl="live:INV-18 share-view"]')!,
-    );
-    await vi.waitFor(() =>
-      expect(
-        document.querySelector("[data-meta-exact-share-copied]"),
-      ).toBeTruthy(),
-    );
-
-    // The URL, verbatim — every scoping parameter the contract names is in it
-    // because every control that sets one writes it there.
-    const copied = writeText.mock.calls[0]![0] as string;
-    expect(copied).toContain("providerAccountId=act_1");
-    expect(copied).toContain("segment=needs_resolution");
-    expect(copied).toContain("levels=campaign");
-    expect(copied).toContain("window=28d");
-    // Announced, not merely changed: the operator's hands are on the keyboard.
     expect(
-      document.querySelector("[data-meta-exact-share-copied]")?.getAttribute("role"),
-    ).toBe("status");
+      document.querySelector('[data-ctl="live:INV-18 share-view"]'),
+    ).toBeNull();
+    expect(
+      document.querySelector("[data-meta-exact-share-copied]"),
+    ).toBeNull();
+    expect(
+      document.querySelector("[data-meta-exact-share-manual]"),
+    ).toBeNull();
+    expect(writeText).not.toHaveBeenCalled();
   });
 
-  it("falls back to a selectable field when the clipboard refuses", async () => {
-    vi.stubGlobal("navigator", {
-      clipboard: {
-        writeText: vi.fn().mockRejectedValue(new Error("denied")),
-      },
-    });
-
+  it("keeps the scoped URL intact while the surface renders", () => {
     render(<MetaDecisionCenterExact viewModel={VIEW_MODEL} />);
-    fireEvent.click(
-      document.querySelector('[data-ctl="live:INV-18 share-view"]')!,
-    );
 
-    const manual = await vi.waitFor(() => {
-      const node = document.querySelector<HTMLInputElement>(
-        "[data-meta-exact-share-manual]",
-      );
-      expect(node).toBeTruthy();
-      return node!;
-    });
-    // A denied clipboard costs a keystroke, never the link itself.
-    expect(manual.value).toContain("/c/biz/meta/decisions");
-    expect(manual.readOnly).toBe(true);
+    expect(window.location.search).toContain("providerAccountId=act_1");
+    expect(window.location.search).toContain("segment=needs_resolution");
+    expect(window.location.search).toContain("levels=campaign");
+    expect(window.location.search).toContain("window=28d");
+    expect(
+      document.querySelector('[data-meta-exact-action-row="row_1"]'),
+    ).toBeTruthy();
   });
 });
 
@@ -114,13 +74,12 @@ describe("the search box answers the / key", () => {
     const box = screen.getByRole("textbox", { name: "Find entities" });
     box.focus();
     fireEvent.keyDown(box, { key: "/" });
-    // `/` is a character in a search term, an entity name and a reason code.
     expect(document.activeElement).toBe(box);
   });
 });
 
-describe("the inactive-assets strip", () => {
-  it("states the count and opens the lane that holds the detail", () => {
+describe("secondary navigation", () => {
+  it("keeps the removed inactive strip and archive lane out of the main queue", () => {
     const onLaneChange = vi.fn();
     render(
       <MetaDecisionCenterExact
@@ -129,16 +88,16 @@ describe("the inactive-assets strip", () => {
       />,
     );
 
-    const strip = document.querySelector("[data-meta-exact-inactive-strip]");
-    expect(strip?.textContent).toContain("Inactive assets 12");
-    // Advisory, and said so: none of these rows carries an action.
-    expect(strip?.textContent).toContain("advisory only");
-
-    fireEvent.click(document.querySelector('[data-ctl="live:META-DEC-13 open"]')!);
-    expect(onLaneChange).toHaveBeenCalledWith("archive");
+    expect(
+      document.querySelector("[data-meta-exact-inactive-strip]"),
+    ).toBeNull();
+    expect(
+      document.querySelector('[data-meta-exact-lane="archive"]'),
+    ).toBeNull();
+    expect(onLaneChange).not.toHaveBeenCalled();
   });
 
-  it("draws the Ads Manager link as a way out, never as an action", () => {
+  it("exposes Meta Ads as a normal external link, never as a decision action", () => {
     render(
       <MetaDecisionCenterExact
         adsManagerHref="https://adsmanager.facebook.com/adsmanager/manage/campaigns?act=1"
@@ -146,22 +105,15 @@ describe("the inactive-assets strip", () => {
       />,
     );
 
-    const link = document.querySelector("[data-meta-exact-ads-manager-link]");
-    expect(link?.getAttribute("target")).toBe("_blank");
-    expect(link?.getAttribute("rel")).toBe("noopener noreferrer");
-    expect(link?.textContent).toContain("Nothing here is executed");
-    /*
-     * No `data-ctl`. The design's contract has no key for an Ads Manager link;
-     * `live:META-DEC-13 open` is the inactive-assets strip, and stamping this
-     * control with it would name it as something it is not.
-     */
-    expect(link?.getAttribute("data-ctl")).toBeNull();
+    const link = screen.getByRole("link", { name: "Open Meta Ads" });
+    expect(link.getAttribute("target")).toBe("_blank");
+    expect(link.getAttribute("rel")).toBe("noopener noreferrer");
+    expect(link.getAttribute("data-ctl")).toBeNull();
+    expect(link.getAttribute("href")).toContain("adsmanager.facebook.com");
   });
 
-  it("draws no link at all for an account id Meta's URL cannot take", () => {
+  it("draws no Meta Ads link when no safe destination was supplied", () => {
     render(<MetaDecisionCenterExact viewModel={VIEW_MODEL} />);
-    expect(
-      document.querySelector("[data-meta-exact-ads-manager-link]"),
-    ).toBeNull();
+    expect(screen.queryByRole("link", { name: "Open Meta Ads" })).toBeNull();
   });
 });

@@ -35,10 +35,15 @@ describe("Launchpad mobile read-only contract", () => {
       "utf8",
     );
     const mobileStart = source.indexOf("function LaunchpadMobileSurface(");
-    const mobileEnd = source.indexOf("function LaunchpadContextBar(", mobileStart);
+    const mobileEnd = source.indexOf(
+      "function LaunchpadContextBar(",
+      mobileStart,
+    );
     const mobileComponent = source.slice(mobileStart, mobileEnd);
 
-    expect(mobileComponent).toContain("No write controls are rendered on mobile");
+    expect(mobileComponent).toContain(
+      "Use desktop to create campaigns. New campaigns start paused.",
+    );
     expect(mobileComponent).not.toContain("<button");
     expect(mobileComponent).not.toContain('method: "POST"');
     expect(mobileComponent).not.toContain('method: "DELETE"');

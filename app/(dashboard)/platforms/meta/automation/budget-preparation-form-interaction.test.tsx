@@ -34,11 +34,16 @@ afterEach(() => {
 });
 
 const ADMIN_DESKTOP: BudgetMasterSwitchAuthorization = {
-  canConfigure: true, canDisable: true,
-  reason: null, reasonCode: null, surface: "desktop",
+  canConfigure: true,
+  canDisable: true,
+  reason: null,
+  reasonCode: null,
+  surface: "desktop",
 };
 
-const prepared = (over: Partial<BudgetPreparationView> = {}): BudgetPreparationView => ({
+const prepared = (
+  over: Partial<BudgetPreparationView> = {},
+): BudgetPreparationView => ({
   contract: BUDGET_PREPARATION_READ_CONTRACT,
   rowRead: true,
   rowExists: true,
@@ -95,27 +100,53 @@ function model(
   };
 }
 
-const mockFetch = (body: Record<string, unknown> = { ok: true, saved: true, autoExecutionEnabled: false }) =>
+const mockFetch = (
+  body: Record<string, unknown> = {
+    ok: true,
+    saved: true,
+    autoExecutionEnabled: false,
+  },
+) =>
   vi.spyOn(global, "fetch").mockResolvedValue({
     ok: true,
     json: async () => body,
   } as Response);
 
 const dryRunSelect = (container: HTMLElement) =>
-  container.querySelector('[data-testid="preparation-dry-run-only"]') as HTMLSelectElement;
+  container.querySelector(
+    '[data-testid="preparation-dry-run-only"]',
+  ) as HTMLSelectElement;
 const minHoursInput = (container: HTMLElement) =>
-  container.querySelector('[data-testid="preparation-min-hours"]') as HTMLInputElement;
+  container.querySelector(
+    '[data-testid="preparation-min-hours"]',
+  ) as HTMLInputElement;
+const ceilingInput = (container: HTMLElement) =>
+  container.querySelector(
+    '[data-testid="preparation-ceiling-minor"]',
+  ) as HTMLInputElement;
+const ceilingCurrencyInput = (container: HTMLElement) =>
+  container.querySelector(
+    '[data-testid="preparation-ceiling-currency"]',
+  ) as HTMLInputElement;
 const saveButton = (container: HTMLElement) =>
-  container.querySelector('[data-testid="preparation-save"]') as HTMLButtonElement;
+  container.querySelector(
+    '[data-testid="preparation-save"]',
+  ) as HTMLButtonElement;
 const preparationForm = (container: HTMLElement) =>
-  container.querySelector('[data-testid="budget-preparation-form"]') as HTMLFormElement;
+  container.querySelector(
+    '[data-testid="budget-preparation-form"]',
+  ) as HTMLFormElement;
 
 describe("preparation form (interaction) — dry-run is a tri-state, not a fabricated default", () => {
   it("shows no selection when the row is unset, and Save stays disabled until one is made", () => {
     mockFetch();
     const { container } = render(
       <BudgetWriteReadinessSection
-        readiness={model("b1", "act_1", prepared({ dryRunOnly: { state: "unset", value: null } }))}
+        readiness={model(
+          "b1",
+          "act_1",
+          prepared({ dryRunOnly: { state: "unset", value: null } }),
+        )}
         authorization={ADMIN_DESKTOP}
       />,
     );
@@ -130,7 +161,11 @@ describe("preparation form (interaction) — dry-run is a tri-state, not a fabri
   it("shows no selection when the row is unknown (a failed read, not an absent one)", () => {
     const { container } = render(
       <BudgetWriteReadinessSection
-        readiness={model("b1", "act_1", prepared({ dryRunOnly: { state: "unknown", value: null } }))}
+        readiness={model(
+          "b1",
+          "act_1",
+          prepared({ dryRunOnly: { state: "unknown", value: null } }),
+        )}
         authorization={ADMIN_DESKTOP}
       />,
     );
@@ -140,7 +175,11 @@ describe("preparation form (interaction) — dry-run is a tri-state, not a fabri
   it("shows the persisted selection when one was actually made", () => {
     const { container } = render(
       <BudgetWriteReadinessSection
-        readiness={model("b1", "act_1", prepared({ dryRunOnly: { state: "persisted", value: true } }))}
+        readiness={model(
+          "b1",
+          "act_1",
+          prepared({ dryRunOnly: { state: "persisted", value: true } }),
+        )}
         authorization={ADMIN_DESKTOP}
       />,
     );
@@ -151,12 +190,16 @@ describe("preparation form (interaction) — dry-run is a tri-state, not a fabri
     const fetchSpy = mockFetch();
     const { container } = render(
       <BudgetWriteReadinessSection
-        readiness={model("b1", "act_1", prepared({ dryRunOnly: { state: "unset", value: null } }))}
+        readiness={model(
+          "b1",
+          "act_1",
+          prepared({ dryRunOnly: { state: "unset", value: null } }),
+        )}
         authorization={ADMIN_DESKTOP}
       />,
     );
     expect(container.textContent).toContain(
-      "Choose whether this setup should remain dry-run only.",
+      "Choose whether changes should stay in preview mode.",
     );
     expect(
       container.querySelector('[data-rejection="dry_run_only_not_boolean"]'),
@@ -180,10 +223,15 @@ describe("preparation form (interaction) — fails CLOSED when the row was not s
     const form = preparationForm(container);
     expect(form.getAttribute("data-fields-locked")).toBe("true");
     const controls = form.querySelectorAll("select, input, button");
-    expect(controls.length).toBeGreaterThanOrEqual(7); // 6 fields + Save
+    expect(controls.length).toBe(8); // preview + five numeric limits + currency + Save
     for (const element of Array.from(controls)) {
-      const disabled = (element as HTMLInputElement | HTMLSelectElement | HTMLButtonElement).disabled;
-      expect(disabled, element.getAttribute("data-testid") ?? element.tagName).toBe(true);
+      const disabled = (
+        element as HTMLInputElement | HTMLSelectElement | HTMLButtonElement
+      ).disabled;
+      expect(
+        disabled,
+        element.getAttribute("data-testid") ?? element.tagName,
+      ).toBe(true);
     }
     fireEvent.submit(form);
     expect(fetchSpy).not.toHaveBeenCalled();
@@ -224,7 +272,9 @@ describe("preparation form (interaction) — first setup stays editable", () => 
         authorization={ADMIN_DESKTOP}
       />,
     );
-    expect(preparationForm(container).getAttribute("data-fields-locked")).toBe("false");
+    expect(preparationForm(container).getAttribute("data-fields-locked")).toBe(
+      "false",
+    );
     expect(minHoursInput(container).disabled).toBe(false);
     expect(minHoursInput(container).value).toBe("");
 
@@ -249,8 +299,11 @@ describe("preparation form (interaction) — scope changes discard stale state, 
     rerender(
       <BudgetWriteReadinessSection
         readiness={model(
-          "b2", "act_2",
-          prepared({ budgetMinHoursBetweenChanges: { state: "persisted", value: 4 } }),
+          "b2",
+          "act_2",
+          prepared({
+            budgetMinHoursBetweenChanges: { state: "persisted", value: 4 },
+          }),
         )}
         authorization={ADMIN_DESKTOP}
       />,
@@ -273,8 +326,11 @@ describe("preparation form (interaction) — scope changes discard stale state, 
     rerender(
       <BudgetWriteReadinessSection
         readiness={model(
-          "b1", "act_2",
-          prepared({ budgetMinHoursBetweenChanges: { state: "unset", value: null } }),
+          "b1",
+          "act_2",
+          prepared({
+            budgetMinHoursBetweenChanges: { state: "unset", value: null },
+          }),
         )}
         authorization={ADMIN_DESKTOP}
       />,
@@ -338,7 +394,11 @@ describe("preparation form (interaction) — persisted values render true/false 
   it("renders a persisted `false` as the false option, not as unset", () => {
     const { container } = render(
       <BudgetWriteReadinessSection
-        readiness={model("b1", "act_1", prepared({ dryRunOnly: { state: "persisted", value: false } }))}
+        readiness={model(
+          "b1",
+          "act_1",
+          prepared({ dryRunOnly: { state: "persisted", value: false } }),
+        )}
         authorization={ADMIN_DESKTOP}
       />,
     );
@@ -348,7 +408,11 @@ describe("preparation form (interaction) — persisted values render true/false 
   it("renders a persisted `true` as the true option", () => {
     const { container } = render(
       <BudgetWriteReadinessSection
-        readiness={model("b1", "act_1", prepared({ dryRunOnly: { state: "persisted", value: true } }))}
+        readiness={model(
+          "b1",
+          "act_1",
+          prepared({ dryRunOnly: { state: "persisted", value: true } }),
+        )}
         authorization={ADMIN_DESKTOP}
       />,
     );
@@ -362,9 +426,11 @@ describe("preparation form (interaction) — role and surface gating hold under 
       <BudgetWriteReadinessSection
         readiness={model("b1", "act_1", prepared())}
         authorization={{
-          canConfigure: false, canDisable: false,
+          canConfigure: false,
+          canDisable: false,
           reason: "Only an admin may change automatic execution.",
-          reasonCode: "insufficient_role", surface: "desktop",
+          reasonCode: "insufficient_role",
+          surface: "desktop",
         }}
       />,
     );
@@ -376,9 +442,11 @@ describe("preparation form (interaction) — role and surface gating hold under 
       <BudgetWriteReadinessSection
         readiness={model("b1", "act_1", prepared())}
         authorization={{
-          canConfigure: false, canDisable: false,
+          canConfigure: false,
+          canDisable: false,
           reason: "This pane is read-only.",
-          reasonCode: "read_only_surface", surface: "mobile_read_only",
+          reasonCode: "read_only_surface",
+          surface: "mobile_read_only",
         }}
       />,
     );
@@ -387,7 +455,9 @@ describe("preparation form (interaction) — role and surface gating hold under 
 
   it("no authorization prop at all (the fail-closed default): the form is absent", () => {
     const { container } = render(
-      <BudgetWriteReadinessSection readiness={model("b1", "act_1", prepared())} />,
+      <BudgetWriteReadinessSection
+        readiness={model("b1", "act_1", prepared())}
+      />,
     );
     expect(preparationForm(container)).toBeNull();
   });
@@ -403,15 +473,28 @@ describe("preparation form (interaction) — the save invariant holds under a re
       />,
     );
     expect(saveButton(container).disabled).toBe(false);
+    expect(ceilingInput(container).value).toBe("5000.00");
+    expect(ceilingCurrencyInput(container).value).toBe("TRY");
+    fireEvent.change(ceilingInput(container), { target: { value: "7500" } });
+    fireEvent.change(ceilingCurrencyInput(container), {
+      target: { value: "usd" },
+    });
     fireEvent.click(saveButton(container));
 
     await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(1));
     const [url, init] = fetchSpy.mock.calls[0]!;
-    expect(String(url)).toContain("/api/meta/automation?businessId=b1&providerAccountId=act_1");
-    const body = JSON.parse((init as RequestInit).body as string) as Record<string, unknown>;
+    expect(String(url)).toContain(
+      "/api/meta/automation?businessId=b1&providerAccountId=act_1",
+    );
+    const body = JSON.parse((init as RequestInit).body as string) as Record<
+      string,
+      unknown
+    >;
     expect(body.action).toBe("save_budget_automation_config");
     // The dry-run choice the operator actually made travels verbatim.
     expect(body.dryRunOnly).toBe(false);
+    expect(body.perActionSpendCeilingMinor).toBe(750000);
+    expect(body.perActionSpendCeilingCurrency).toBe("USD");
     // The request itself never carries an enable action or a phrase — this
     // is the preparation verb, not the ceremony.
     expect(body).not.toHaveProperty("confirmationPhrase");
@@ -435,7 +518,10 @@ describe("preparation form (interaction) — the save invariant holds under a re
   it("does NOT call onSaved when the server refuses the save", async () => {
     vi.spyOn(global, "fetch").mockResolvedValue({
       ok: true,
-      json: async () => ({ ok: false, error: { code: "unauthorized", message: "no" } }),
+      json: async () => ({
+        ok: false,
+        error: { code: "unauthorized", message: "no" },
+      }),
     } as Response);
     const onActivationChanged = vi.fn();
     const { container } = render(
@@ -446,7 +532,10 @@ describe("preparation form (interaction) — the save invariant holds under a re
       />,
     );
     fireEvent.click(saveButton(container));
-    await waitFor(() => expect(container.textContent).toContain("unauthorized"));
+    await waitFor(() =>
+      expect(container.textContent).toContain("Limits could not be saved."),
+    );
+    expect(container.textContent).not.toContain("unauthorized");
     expect(onActivationChanged).not.toHaveBeenCalled();
   });
 });

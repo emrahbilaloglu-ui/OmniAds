@@ -9,6 +9,13 @@ function normalizeMetaAdStatus(value: string | null | undefined) {
   return status && status.length > 0 ? status : "UNKNOWN";
 }
 
+function metaAdStatusLabel(value: string | null | undefined) {
+  const status = normalizeMetaAdStatus(value);
+  if (status === "ACTIVE") return "Active";
+  if (status === "PAUSED") return "Paused";
+  return "Status unavailable";
+}
+
 export function LaunchpadManageExistingReview({
   selectedCreatives,
   onRun,
@@ -33,8 +40,7 @@ export function LaunchpadManageExistingReview({
       <div>
         <h2 className="text-[15px] font-semibold text-[var(--ink)]">Manage existing ads</h2>
         <p className="text-[13px] text-[var(--muted)]">
-          Pause and activation both apply to the exact selected Meta ad IDs. Campaign and
-          ad-set structure is never changed here.
+          Pause or activate the selected ads. Campaign and ad set settings will not change.
         </p>
       </div>
 
@@ -47,7 +53,7 @@ export function LaunchpadManageExistingReview({
 
       {missingActionIds.length > 0 ? (
         <div className="rounded-[8px] border border-[var(--danger-bd)] bg-[var(--danger-bg)] p-3 text-[13px] text-[var(--danger)]">
-          {missingActionIds.length} selected row cannot be mapped to a Meta ad id.
+          {missingActionIds.length} selected ad{missingActionIds.length === 1 ? "" : "s"} cannot be changed because the Meta connection is unavailable.
         </div>
       ) : null}
 
@@ -60,7 +66,7 @@ export function LaunchpadManageExistingReview({
             <div className="min-w-0 flex-1">
               <p className="text-[14px] font-semibold text-[var(--ink)]">Pause selected active ads</p>
               <p className="mt-1 text-[13px] text-[var(--muted)]">
-                {activeRows.length} active ad{activeRows.length === 1 ? "" : "s"} will be set to PAUSED.
+                {activeRows.length} active ad{activeRows.length === 1 ? "" : "s"} will be paused.
               </p>
               <button
                 type="button"
@@ -95,13 +101,11 @@ export function LaunchpadManageExistingReview({
             <div className="min-w-0 flex-1">
               <p className="text-[14px] font-semibold text-[var(--ink)]">Activate selected paused ads</p>
               <p className="mt-1 text-[13px] text-[var(--muted)]">
-                {pausedRows.length} paused ad{pausedRows.length === 1 ? "" : "s"} will be set to ACTIVE.
+                {pausedRows.length} paused ad{pausedRows.length === 1 ? "" : "s"} will be activated.
               </p>
               <p className="mt-2 text-[12px] leading-relaxed text-[var(--muted)]">
-                Before each write the account billing, the ad&apos;s live state, its creative
-                identity and both parents&apos; effective status are re-read from Meta. An ad
-                whose ad set or campaign is paused is refused by name rather than left
-                looking published.
+                Meta checks each ad and its campaign before activation. Ads whose campaign
+                or ad set is paused will remain off.
               </p>
               <button
                 type="button"
@@ -124,11 +128,11 @@ export function LaunchpadManageExistingReview({
             <div key={creative.id} className="flex items-center justify-between gap-3 px-4 py-3">
               <div className="min-w-0">
                 <p className="truncate text-[13px] font-medium text-[var(--ink)]">{creative.name}</p>
-                <p className="mono text-[11px] text-[var(--muted)]">
-                  {resolveLaunchpadAdActionId(creative) || "Meta ad id unavailable"} · {creative.campaignName ?? "No campaign"}
+                <p className="text-[11px] text-[var(--muted)]">
+                  {creative.campaignName ?? "Campaign unavailable"}
                 </p>
               </div>
-              <span className="chip">{normalizeMetaAdStatus(creative.effectiveStatus)}</span>
+              <span className="chip">{metaAdStatusLabel(creative.effectiveStatus)}</span>
             </div>
           ))}
           {selectedCreatives.length === 0 ? (

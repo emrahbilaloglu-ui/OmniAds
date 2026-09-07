@@ -81,7 +81,8 @@ vi.mock("@tanstack/react-query", () => ({
 }));
 
 const freshnessInput = () =>
-  tierZeroFreshness.mock.calls.at(-1)?.[0] as Record<string, unknown> | undefined;
+  tierZeroFreshness.mock.calls.at(-1)?.[0] as
+    Record<string, unknown> | undefined;
 
 describe("MetaAudiencesPage", () => {
   beforeEach(() => {
@@ -105,17 +106,15 @@ describe("MetaAudiencesPage", () => {
     vi.unstubAllGlobals();
   });
 
-  it("keeps the canonical audience geometry while withholding unsupported metrics", () => {
+  it("withholds empty audience panels when no measured rows exist", () => {
     const html = renderToStaticMarkup(<MetaAudiencesPage />);
 
     expect(html).toContain('data-creative-studio-exact="true"');
     expect(html).toContain('data-creative-studio-tab="audiences"');
-    expect(html.match(/data-audience-summary=/g)).toHaveLength(4);
-    expect(html.match(/data-audience-breakdown=/g)).toHaveLength(5);
-    expect(html).toContain("Creative × audience matrix");
-    expect(html).toContain(
-      "Audience-level creative evidence is unavailable for this assigned Meta account.",
-    );
+    expect(html).not.toContain("data-audience-summary=");
+    expect(html).not.toContain("data-audience-breakdown=");
+    expect(html).not.toContain("Creative × audience matrix");
+    expect(html).toContain("No data for this view.");
     expect(html).not.toContain("No live audience score");
     expect(html).not.toContain("buyerAction");
   });
@@ -123,11 +122,14 @@ describe("MetaAudiencesPage", () => {
   it("uses the server-authorized scope and keeps every tab in the scoped route family", () => {
     pathname = "/c/biz_authorized/creative/audiences";
     const html = renderToStaticMarkup(
-      <MetaAudiencesPage businessId="biz_authorized" providerAccountId="act_authorized" />,
+      <MetaAudiencesPage
+        businessId="biz_authorized"
+        providerAccountId="act_authorized"
+      />,
     );
 
-    expect(html).toContain('/c/biz_authorized/creative/performance?');
-    expect(html).toContain('/c/biz_authorized/creative/audiences?');
+    expect(html).toContain("/c/biz_authorized/creative/performance?");
+    expect(html).toContain("/c/biz_authorized/creative/audiences?");
     expect(html).toContain("providerAccountId=act_authorized");
     expect(html).not.toContain("biz_1");
     expect(html).not.toContain("act_1");
@@ -152,7 +154,6 @@ describe("MetaAudiencesPage", () => {
       "/platforms/meta/creatives",
       "/platforms/meta/copies",
       "/platforms/meta/landing-pages",
-      "/platforms/meta/creative-inbox",
       "/platforms/meta/audiences",
     ]) {
       expect(html).toContain(
@@ -165,11 +166,14 @@ describe("MetaAudiencesPage", () => {
 
   it("shows the account-required state without inventing a default account", () => {
     const html = renderToStaticMarkup(
-      <MetaAudiencesPage businessId="biz_authorized" providerAccountId={null} />,
+      <MetaAudiencesPage
+        businessId="biz_authorized"
+        providerAccountId={null}
+      />,
     );
 
     expect(html).toContain('data-audiences-state="account_required"');
-    expect(html).toContain("Select one assigned Meta ad account.");
+    expect(html).toContain("Select a Meta account to continue.");
     expect(html).not.toContain("USD");
     expect(html).not.toContain("$0");
   });
@@ -186,7 +190,10 @@ describe("MetaAudiencesPage", () => {
    */
   it("reads the shell's range when the URL states no window", async () => {
     renderToStaticMarkup(
-      <MetaAudiencesPage businessId="biz_authorized" providerAccountId="act_authorized" />,
+      <MetaAudiencesPage
+        businessId="biz_authorized"
+        providerAccountId="act_authorized"
+      />,
     );
     const fetchStub = vi.fn(async (_url: string) => ({
       ok: true,
@@ -319,7 +326,7 @@ describe("MetaAudiencesPage", () => {
     const html = renderToStaticMarkup(<MetaAudiencesPage />);
 
     expect(html).toContain('data-audiences-state="loading"');
-    expect(html).toContain("Loading audience breakdowns.");
+    expect(html).toContain("Loading creative data…");
     expect(html).not.toContain(
       "Audience-level creative evidence is unavailable for this assigned Meta account.",
     );
@@ -331,7 +338,8 @@ describe("MetaAudiencesPage", () => {
     const html = renderToStaticMarkup(<MetaAudiencesPage />);
 
     expect(html).toContain('data-audiences-state="error"');
-    expect(html).toContain("Meta breakdowns could not be read (500).");
+    expect(html).toContain("Creative data is temporarily unavailable.");
+    expect(html).not.toContain("Meta breakdowns could not be read (500).");
     expect(html).not.toContain(
       "Audience-level creative evidence is unavailable for this assigned Meta account.",
     );
@@ -350,17 +358,23 @@ describe("MetaAudiencesPage", () => {
     const html = renderToStaticMarkup(<MetaAudiencesPage />);
 
     expect(html).toContain('data-audiences-state="empty"');
-    expect(html).toContain("Meta integration is not connected.");
-    expect(html).not.toContain(
-      "Audience-level creative evidence is unavailable for this assigned Meta account.",
-    );
+    expect(html).toContain("No data for this view.");
+    expect(html).not.toContain("Meta integration is not connected.");
   });
 
   it("says a range is still being prepared even when rows already drew", () => {
     queryState.data = {
       status: "ok",
       age: [
-        { key: "25-34", label: "25-34", spend: 10, revenue: 20, purchases: 1, clicks: 2, impressions: 40 },
+        {
+          key: "25-34",
+          label: "25-34",
+          spend: 10,
+          revenue: 20,
+          purchases: 1,
+          clicks: 2,
+          impressions: 40,
+        },
       ],
       placement: [],
       isPartial: true,
@@ -369,7 +383,10 @@ describe("MetaAudiencesPage", () => {
     const html = renderToStaticMarkup(<MetaAudiencesPage />);
 
     expect(html).toContain('data-audiences-state="ready"');
-    expect(html).toContain("Breakdown warehouse data is still being prepared.");
+    expect(html).toContain("Some audience data is unavailable. Try again.");
+    expect(html).not.toContain(
+      "Breakdown warehouse data is still being prepared.",
+    );
   });
 
   /**

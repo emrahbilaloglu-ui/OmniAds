@@ -1,20 +1,5 @@
 // @vitest-environment jsdom
-/**
- * The workflow menu (H11) and the version-conflict dialog (H12).
- *
- * Both were reachable-but-invisible before this: `/api/meta/decision-workflow`
- * has carried all seven transitions with `expectedVersion` optimistic
- * concurrency for a long time, the hook has always returned a structured 409,
- * and the page threw it away — so a refused transition changed the row's state
- * on screen and said nothing about why.
- *
- * The menu had a second problem that was worse than invisibility. Seven bare
- * buttons were drawn, and three of them could not work: `assign`, `snooze` and
- * `reject` were fired with their required fields hard-coded null, so two were
- * guaranteed 422s and `assign` was a no-op that still incremented
- * `stateVersion` — which made every other open tab conflict over a change that
- * changed nothing.
- */
+/** The concise Decisions surface keeps workflow state, without workflow chrome. */
 import React from "react";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -28,21 +13,50 @@ afterEach(() => {
   document.body.innerHTML = "";
 });
 
-function renderWorkflow(workflow: MetaDecisionCenterExactWorkflow) {
-  return render(
+function renderWorkflow(
+  workflow: MetaDecisionCenterExactWorkflow,
+  options: { onOpen?: () => void; onPrimary?: () => void } = {},
+) {
+  const onOpen = options.onOpen ?? vi.fn();
+  render(
     <MetaDecisionCenterExact
       viewModel={{
-        actionRows: [{ id: "row_1", name: "Prospecting", onOpen: () => {} }],
-        inspector: { entityName: "Prospecting", workflow },
+        actionRows: [
+          {
+            id: "row_1",
+            name: "Prospecting",
+            decisionLabel: "Scale",
+            actionLabel: "Review decision",
+            workflowChip: {
+              state: workflow.state,
+              label: workflow.stateLabel,
+              detail: workflow.assignee,
+            },
+            onOpen,
+            onPrimary: options.onPrimary,
+          },
+        ],
+        inspector: {
+          entityName: "Prospecting",
+          decisionLabel: "Scale",
+          workflow,
+        },
       }}
     />,
   );
+  return { onOpen };
 }
 
 const OPEN_ACTIONS = (
   onSelect: (values: Record<string, string>) => void,
 ): MetaDecisionCenterExactWorkflow["actions"] => [
-  { id: "acknowledge", label: "Acknowledge", refusalReason: null, requires: [], onSelect },
+  {
+    id: "acknowledge",
+    label: "Acknowledge",
+    refusalReason: null,
+    requires: [],
+    onSelect,
+  },
   {
     id: "assign",
     label: "Assign",
@@ -59,38 +73,28 @@ const OPEN_ACTIONS = (
   },
 ];
 
-describe("the transition menu", () => {
-  it("opens, moves with the arrows, and Escape returns focus to the trigger", () => {
-    renderWorkflow({
+describe("workflow state on the concise decision row", () => {
+  it("keeps the served state visible and the evidence action reachable", () => {
+    const { onOpen } = renderWorkflow({
       state: "open",
       stateLabel: "Open",
-      assignee: "—",
+      assignee: "Jamie",
       holdUntil: "—",
       actions: OPEN_ACTIONS(() => {}),
     });
 
-    const trigger = document.querySelector<HTMLButtonElement>(
-      '[data-ctl="gated:META-WF-02..08 menu"]',
-    )!;
-    expect(trigger.getAttribute("aria-haspopup")).toBe("menu");
-    fireEvent.click(trigger);
+    const chip = document.querySelector('[data-el="wf-chip"]');
+    expect(chip?.getAttribute("data-workflow-state")).toBe("open");
+    expect(chip?.textContent).toBe("Open");
+    expect(chip?.getAttribute("title")).toBe("Jamie");
 
-    const menu = screen.getByRole("menu");
-    const items = Array.from(menu.querySelectorAll('[role="menuitem"]'));
-    expect(items).toHaveLength(3);
-
-    (items[0] as HTMLElement).focus();
-    fireEvent.keyDown(menu, { key: "ArrowDown" });
-    expect(document.activeElement).toBe(items[1]);
-    fireEvent.keyDown(menu, { key: "ArrowUp" });
-    expect(document.activeElement).toBe(items[0]);
-
-    fireEvent.keyDown(menu, { key: "Escape" });
-    expect(screen.queryByRole("menu")).toBeNull();
-    expect(document.activeElement).toBe(trigger);
+    fireEvent.click(
+      document.querySelector("[data-meta-exact-card-open]")!,
+    );
+    expect(onOpen).toHaveBeenCalledOnce();
   });
 
-  it("sends a fieldless transition immediately", () => {
+  it("does not render the removed transition menu or required-field forms", () => {
     const onSelect = vi.fn();
     renderWorkflow({
       state: "open",
@@ -100,79 +104,59 @@ describe("the transition menu", () => {
       actions: OPEN_ACTIONS(onSelect),
     });
 
-    fireEvent.click(
-      document.querySelector('[data-ctl="gated:META-WF-02..08 menu"]')!,
-    );
-    fireEvent.click(document.querySelector('[data-workflow-action="acknowledge"]')!);
-    expect(onSelect).toHaveBeenCalledWith({});
-  });
-
-  it("collects the field a transition cannot be sent without", () => {
-    const onSelect = vi.fn();
-    renderWorkflow({
-      state: "open",
-      stateLabel: "Open",
-      assignee: "—",
-      holdUntil: "—",
-      actions: OPEN_ACTIONS(onSelect),
-    });
-
-    fireEvent.click(
-      document.querySelector('[data-ctl="gated:META-WF-02..08 menu"]')!,
-    );
-    fireEvent.click(document.querySelector('[data-workflow-action="reject"]')!);
-
-    // Nothing sent yet: `reject` with no reason code is a guaranteed 422.
-    expect(onSelect).not.toHaveBeenCalled();
-    const form = document.querySelector('[data-meta-exact-workflow-form="reject"]')!;
-    fireEvent.change(form.querySelector("input")!, {
-      target: { value: "duplicate_of_open_work" },
-    });
-    fireEvent.submit(form);
-
-    expect(onSelect).toHaveBeenCalledWith({
-      reasonCode: "duplicate_of_open_work",
-    });
-  });
-
-  it("keeps the trigger and states the reason when the gate is shut", () => {
-    renderWorkflow({
-      state: "open",
-      stateLabel: "Open",
-      assignee: "—",
-      holdUntil: "—",
-      actionsRefusedReason:
-        "Decision ownership actions are not enabled on this workspace yet.",
-      menuRefusedReason:
-        "Decision ownership actions are not enabled on this workspace yet.",
-      actions: OPEN_ACTIONS(() => {}),
-    });
-
-    const trigger = document.querySelector(
-      '[data-ctl="gated:META-WF-02..08 menu"]',
-    );
-    // Present and refusing: a menu that vanished would take its own
-    // explanation with it, which is the contract's own failure clause.
-    expect(trigger).toBeTruthy();
-    expect(trigger?.getAttribute("aria-disabled")).toBe("true");
-    fireEvent.click(trigger!);
-    expect(screen.queryByRole("menu")).toBeNull();
     expect(
-      document.querySelector("[data-workflow-menu-refusal]")?.textContent,
-    ).toContain("not enabled");
+      document.querySelector('[data-ctl="gated:META-WF-02..08 menu"]'),
+    ).toBeNull();
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(document.querySelector("[data-workflow-action]")).toBeNull();
+    expect(
+      document.querySelector("[data-meta-exact-workflow-form]"),
+    ).toBeNull();
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it("keeps a decision action disabled when no authorized callback was served", () => {
+    renderWorkflow({
+      state: "open",
+      stateLabel: "Open",
+      assignee: "—",
+      holdUntil: "—",
+      actionsRefusedReason: "raw internal workflow gate reason",
+      menuRefusedReason: "raw internal workflow gate reason",
+      actions: OPEN_ACTIONS(() => {}),
+    });
+
+    expect(
+      screen.getByRole("button", { name: "Review decision" }),
+    ).toBeDisabled();
+    expect(document.body.textContent).not.toContain(
+      "raw internal workflow gate reason",
+    );
+    expect(document.querySelector("[data-workflow-menu-refusal]")).toBeNull();
+  });
+
+  it("keeps an authorized decision action working independently of workflow", () => {
+    const onPrimary = vi.fn();
+    renderWorkflow(
+      {
+        state: "acknowledged",
+        stateLabel: "Acknowledged",
+        assignee: "—",
+        holdUntil: "—",
+        actions: OPEN_ACTIONS(() => {}),
+      },
+      { onPrimary },
+    );
+
+    const action = screen.getByRole("button", { name: "Review decision" });
+    expect(action).not.toBeDisabled();
+    fireEvent.click(action);
+    expect(onPrimary).toHaveBeenCalledOnce();
   });
 });
 
-describe("the version-conflict dialog", () => {
-  const CONFLICT = {
-    currentStateLabel: "Acknowledged",
-    currentVersion: 4,
-    attemptedLabel: "Resolve",
-    attemptedFromVersion: 3,
-    message: "This decision changed while you were reading it.",
-  };
-
-  it("shows both states and offers keep-mine and take-server", () => {
+describe("removed workflow conflict chrome", () => {
+  it("shows the current server state without rendering conflict controls", () => {
     const onKeepMine = vi.fn();
     const onTakeServer = vi.fn();
     renderWorkflow({
@@ -181,34 +165,36 @@ describe("the version-conflict dialog", () => {
       assignee: "—",
       holdUntil: "—",
       actions: OPEN_ACTIONS(() => {}),
-      conflict: { ...CONFLICT, onKeepMine, onTakeServer },
+      conflict: {
+        currentStateLabel: "Acknowledged",
+        currentVersion: 4,
+        attemptedLabel: "Resolve",
+        attemptedFromVersion: 3,
+        message: "raw internal version conflict",
+        onKeepMine,
+        onTakeServer,
+      },
     });
 
-    const dialog = document.querySelector('[data-el="conflict-dialog"]');
-    expect(dialog?.getAttribute("role")).toBe("dialog");
     expect(
-      dialog?.querySelector("[data-meta-exact-conflict-current]")?.textContent,
-    ).toContain("Acknowledged · version 4");
+      document.querySelector('[data-workflow-state="acknowledged"]')
+        ?.textContent,
+    ).toBe("Acknowledged");
+    expect(document.querySelector('[data-el="conflict-dialog"]')).toBeNull();
     expect(
-      dialog?.querySelector("[data-meta-exact-conflict-attempted]")?.textContent,
-    ).toContain("Resolve · from version 3");
-
-    /*
-     * The two keys read backwards and they are the design's own: `keep` is
-     * KEEP MINE — "re-submits transition with fresh expectedVersion" — and
-     * `reapply` is TAKE SERVER — "discards local transition; row re-renders
-     * server state".
-     */
-    fireEvent.click(document.querySelector('[data-ctl="live:META-WF-11 keep"]')!);
-    expect(onKeepMine).toHaveBeenCalledTimes(1);
-    fireEvent.click(
-      document.querySelector('[data-ctl="live:META-WF-11 reapply"]')!,
+      document.querySelector('[data-ctl="live:META-WF-11 keep"]'),
+    ).toBeNull();
+    expect(
+      document.querySelector('[data-ctl="live:META-WF-11 reapply"]'),
+    ).toBeNull();
+    expect(document.body.textContent).not.toContain(
+      "raw internal version conflict",
     );
-    expect(onTakeServer).toHaveBeenCalledTimes(1);
+    expect(onKeepMine).not.toHaveBeenCalled();
+    expect(onTakeServer).not.toHaveBeenCalled();
   });
 
-  it("refuses keep-mine in words when the transition no longer applies", () => {
-    const onKeepMine = vi.fn();
+  it("does not expose a stale keep-mine refusal on a resolved row", () => {
     renderWorkflow({
       state: "resolved",
       stateLabel: "Resolved",
@@ -216,33 +202,23 @@ describe("the version-conflict dialog", () => {
       holdUntil: "—",
       actions: [],
       conflict: {
-        ...CONFLICT,
         currentStateLabel: "Resolved",
-        keepRefusedReason:
-          "Resolve no longer applies to a decision that is Resolved.",
-        onKeepMine,
+        currentVersion: 4,
+        attemptedLabel: "Resolve",
+        attemptedFromVersion: 3,
+        message: "raw conflict message",
+        keepRefusedReason: "raw transition no longer applies",
+        onKeepMine: () => {},
         onTakeServer: () => {},
       },
     });
 
-    const keep = document.querySelector('[data-ctl="live:META-WF-11 keep"]')!;
-    expect(keep.getAttribute("aria-disabled")).toBe("true");
-    fireEvent.click(keep);
-    expect(onKeepMine).not.toHaveBeenCalled();
     expect(
-      document.querySelector("[data-meta-exact-conflict-keep-refused]")
-        ?.textContent,
-    ).toContain("no longer applies");
-  });
-
-  it("draws no dialog when there is no conflict", () => {
-    renderWorkflow({
-      state: "open",
-      stateLabel: "Open",
-      assignee: "—",
-      holdUntil: "—",
-      actions: OPEN_ACTIONS(() => {}),
-    });
+      document.querySelector('[data-workflow-state="resolved"]')?.textContent,
+    ).toBe("Resolved");
     expect(document.querySelector('[data-el="conflict-dialog"]')).toBeNull();
+    expect(document.body.textContent).not.toContain(
+      "raw transition no longer applies",
+    );
   });
 });

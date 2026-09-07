@@ -80,11 +80,11 @@ const EXACT_REFERENCE_SURFACES: readonly ExactReferenceSurface[] = [
     pinsBelowFloorOnly: false,
     stripsCommentsFromSelector: false,
     pins: [
-      { selector: ".adv-rail-version, .adv-rail-group", size: 9.5 },
-      { selector: ".adv-rail-count", size: 10.5 },
-      { selector: ".adv-rail-badge", size: 9 },
-      { selector: ".adv-rail-avatar", size: 11.5 },
-      { selector: ".adv-kbd", size: 10 },
+      { selector: ".adv-rail-version, .adv-rail-group", size: 12 },
+      { selector: ".adv-rail-count", size: 12 },
+      { selector: ".adv-rail-badge", size: 12 },
+      { selector: ".adv-rail-avatar", size: 12 },
+      { selector: ".adv-kbd", size: 12 },
     ],
   },
   {
@@ -139,8 +139,6 @@ const EXACT_REFERENCE_SURFACES: readonly ExactReferenceSurface[] = [
       { selector: ".pageEyebrow", size: 11 },
       { selector: ".sharedLinksCount", size: 10 },
       { selector: ".shareNudgeDismiss", size: 11 },
-      { selector: ".tabCount, .tabCountActive", size: 10 },
-      { selector: ".mutedMono", size: 10.5 },
       { selector: ".unpinButton", size: 11 },
       { selector: ".kindBadge", size: 10 },
       { selector: ".statusBadge", size: 10.5 },
@@ -149,16 +147,12 @@ const EXACT_REFERENCE_SURFACES: readonly ExactReferenceSurface[] = [
       ".boardMetric > span:first-child, .summaryMetric > span:first-child",
       size: 8.5,
       },
-      { selector: ".columnsLabel", size: 9.5 },
       { selector: ".metricPickerHeader > span", size: 10 },
       { selector: ".metricCategory", size: 9 },
       { selector: ".metricCheckbox, .metricCheckboxSelected", size: 9 },
       { selector: ".metricDirection", size: 10 },
       { selector: ".heatLegend", size: 10 },
-      { selector: ".assetTable th", size: 10 },
       { selector: ".rowCheckbox, .rowCheckboxSelected", size: 10 },
-      { selector: ".creativeIdentityText > span:last-child", size: 10 },
-      { selector: ".tableStatus", size: 10.5 },
       { selector: ".emptyTableCell", size: 11 },
       { selector: ".closingNote", size: 11 },
       { selector: ".angleCardHeader > span", size: 10 },
@@ -216,10 +210,9 @@ const EXACT_REFERENCE_SURFACES: readonly ExactReferenceSurface[] = [
       },
       {
       selector:
-      ".exactStartChip, .exactSectionHeader span, .exactReceiptStatus",
+      ".exactSectionHeader span, .exactReceiptStatus",
       size: 10.5,
       },
-      { selector: ".exactDraftTable th", size: 10 },
     ],
   },
   {
@@ -232,8 +225,8 @@ const EXACT_REFERENCE_SURFACES: readonly ExactReferenceSurface[] = [
     pinsBelowFloorOnly: false,
     stripsCommentsFromSelector: true,
     pins: [
-      { selector: ".eyebrow", size: 11 },
-      { selector: ".cardKicker, .cardKickerDark", size: 9.5 },
+      { selector: ".eyebrow", size: 12 },
+      { selector: ".cardKicker, .cardKickerDark", size: 12 },
       /*
        * 12, not 11.5. The reference's type scale has no 11.5 step — the
        * fidelity gate reports it as "not a step of the reference type scale
@@ -243,24 +236,24 @@ const EXACT_REFERENCE_SURFACES: readonly ExactReferenceSurface[] = [
       { selector: ".statusPill, .killNote", size: 12 },
       // The Meta Stop's engage/release control, sitting exactly ON the floor.
       { selector: ".killAction", size: 12 },
-      { selector: ".promotionCount", size: 11 },
+      { selector: ".promotionCount", size: 12 },
       {
       selector:
       ".confirmationCount, .confirmationHint, .sectionHint, .autonomyTier",
-      size: 10.5,
+      size: 12,
       },
       {
       selector:
       ".sectionFootnote, .rulesTable th, .ledgerTable th, .progressValue",
-      size: 10,
+      size: 12,
       },
-      { selector: ".autonomyNext, .ledgerResult", size: 11 },
+      { selector: ".autonomyNext, .ledgerResult", size: 12 },
       { selector: ".ledgerTime", size: 12 },
       { selector: ".proposalAction", size: 12 },
-      { selector: ".proposalEvidence, .proposalExpiry", size: 10 },
-      { selector: ".ruleTrigger, .ruleComposerNote", size: 10 },
-      { selector: ".modeChip", size: 10.5 },
-      { selector: ".ruleFired", size: 11 },
+      { selector: ".proposalEvidence, .proposalExpiry", size: 12 },
+      { selector: ".ruleTrigger, .ruleComposerNote", size: 12 },
+      { selector: ".modeChip", size: 12 },
+      { selector: ".ruleFired", size: 12 },
     ],
   },
   {

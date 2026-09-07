@@ -228,26 +228,27 @@ describe("CreativeStudioExact canonical shared anatomy", () => {
     );
     expect(root).toBeTruthy();
     expect(
-      screen.getByText("Meta · Analysis-first — writes stay in Launchpad"),
-    ).toBeTruthy();
+      screen.queryByText("Meta · Analysis-first — writes stay in Launchpad"),
+    ).toBeNull();
     expect(
       screen.getByRole("heading", { level: 1, name: "Creative Studio" }),
     ).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Export CSV" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Export CSV" })).toBeNull();
     expect(
-      screen.getByRole("button", { name: "Share selected creatives with client" }),
-    ).toBeDisabled();
+      screen.queryByRole("button", {
+        name: "Share selected creatives with client",
+      }),
+    ).toBeNull();
     expect(textOf("[data-creative-studio-tab]")).toEqual([
       "Assets2",
       "Copies",
       "Landing Pages",
-      "Inbox—",
       "Audiences",
     ]);
 
     expect(
-      screen.getByText("visual assets · heat table + comparison board"),
-    ).toBeTruthy();
+      screen.queryByText("visual assets · heat table + comparison board"),
+    ).toBeNull();
     expect(screen.getByRole("option", { name: "Sort: Spend" })).toBeTruthy();
     expect(screen.getByRole("option", { name: "Sort: ROAS" })).toBeTruthy();
     expect(
@@ -255,10 +256,10 @@ describe("CreativeStudioExact canonical shared anatomy", () => {
     ).toBeTruthy();
     expect(screen.getByPlaceholderText("Search creatives…")).toBeTruthy();
     expect(
-      screen.getByRole("heading", { level: 2, name: "Comparison board" }),
-    ).toBeTruthy();
-    expect(screen.getByText("Board is empty")).toBeTruthy();
-    expect(screen.getByText("2 synced · Meta")).toBeTruthy();
+      screen.queryByRole("heading", { level: 2, name: "Comparison board" }),
+    ).toBeNull();
+    expect(screen.queryByText("Board is empty")).toBeNull();
+    expect(screen.getByText("2 creatives")).toBeTruthy();
 
     // "Spend▼" is the sort indicator, not a stray glyph: Spend is the default
     // sort column and the header says so in the same place a person looks to
@@ -305,7 +306,11 @@ describe("CreativeStudioExact canonical shared anatomy", () => {
     renderStudio("assets", { onExport, onShare, shareSelectedCount: 2 });
 
     fireEvent.click(screen.getByRole("button", { name: "Export CSV" }));
-    fireEvent.click(screen.getByRole("button", { name: "Share selected creatives with client" }));
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Share selected creatives with client",
+      }),
+    );
     expect(onExport).toHaveBeenCalledOnce();
     expect(onShare).toHaveBeenCalledOnce();
   });
@@ -323,17 +328,19 @@ describe("CreativeStudioExact canonical shared anatomy", () => {
     renderStudio("assets", { onShare, shareSelectedCount: 0 });
 
     fireEvent.click(
-      screen.getByRole("button", { name: "Share selected creatives with client" }),
+      screen.getByRole("button", {
+        name: "Share selected creatives with client",
+      }),
     );
 
     expect(onShare).not.toHaveBeenCalled();
     expect(
-      screen.getByText("Select at least one creative to create a frozen snapshot."),
+      screen.getByText("Select at least one creative to share."),
     ).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
     expect(
-      screen.queryByText("Select at least one creative to create a frozen snapshot."),
+      screen.queryByText("Select at least one creative to share."),
     ).toBeNull();
   });
 
@@ -347,11 +354,14 @@ describe("CreativeStudioExact canonical shared anatomy", () => {
     expect(onOpenSharedLinks).toHaveBeenCalledOnce();
   });
 
-  it("shows an em dash for the shared-links count while unread, not a zero", () => {
-    renderStudio("assets", { onOpenSharedLinks: vi.fn(), sharedLinksCount: null });
-    expect(screen.getByRole("button", { name: /Shared links/ }).textContent).toBe(
-      "Shared links—",
-    );
+  it("hides the shared-links count while unread", () => {
+    renderStudio("assets", {
+      onOpenSharedLinks: vi.fn(),
+      sharedLinksCount: null,
+    });
+    expect(
+      screen.getByRole("button", { name: /Shared links/ }).textContent,
+    ).toBe("Shared links");
   });
 });
 
@@ -401,7 +411,7 @@ describe("CreativeStudioExact Assets interaction state", () => {
     ).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Unpin Alpha asset" }));
-    expect(screen.getByText("Board is empty")).toBeTruthy();
+    expect(document.querySelector('[data-pinned-asset="asset-a"]')).toBeNull();
     await waitFor(() => {
       expect(onPinnedIdsChange).toHaveBeenLastCalledWith([]);
     });
@@ -996,7 +1006,7 @@ describe("Creative Studio column honesty laws", () => {
     }
   });
 
-  it("prints a measured zero as 0 and an unmeasured metric as an em dash", () => {
+  it("prints a measured zero as 0 and omits wholly unmeasured metric columns", () => {
     const measuredZero: CreativeStudioAssetRow = {
       ...asset("asset-zero", "Zero asset", 0, 0),
       currency: "USD",
@@ -1046,8 +1056,8 @@ describe("Creative Studio column honesty laws", () => {
     // about the creative, and blanking it would hide the failure.
     expect(performance.get("Revenue")).toBe("$0");
     expect(performance.get("Purchases")).toBe("0");
-    expect(performance.get("ROAS")).toBe("—");
-    expect(performance.get("CPA")).toBe("—");
+    expect(performance.has("ROAS")).toBe(false);
+    expect(performance.has("CPA")).toBe(false);
 
     const funnel = new Map(
       headersFor("Funnel").map((header, index) => [
@@ -1057,10 +1067,10 @@ describe("Creative Studio column honesty laws", () => {
     );
     expect(funnel.get("Link clicks")).toBe("0");
     expect(funnel.get("Adds to cart")).toBe("0");
-    // Never served, so never a zero.
-    expect(funnel.get("Landing page views")).toBe("—");
-    expect(funnel.get("Checkouts")).toBe("—");
-    expect(funnel.get("ATC to purchase")).toBe("—");
+    // Never served, so the table does not create empty metric columns.
+    expect(funnel.has("Landing page views")).toBe(false);
+    expect(funnel.has("Checkouts")).toBe(false);
+    expect(funnel.has("ATC to purchase")).toBe(false);
 
     // The same column, the other way round: a creative whose launch date the
     // payload never supplied has NO age, and printing 0 for it would claim it
@@ -1089,9 +1099,9 @@ describe("Creative Studio column honesty laws", () => {
         cellsFor("Performance", "asset-ageless")[index],
       ]),
     );
-    expect(ageless.get("Age (days since created)")).toBe("—");
-    // ...and the measured zeros beside it are untouched, so the em dash above
-    // is about the age alone and not about the row being blanked.
+    expect(ageless.has("Age (days since created)")).toBe(false);
+    // ...and the measured zeros beside it are untouched, so only the absent
+    // age column is withheld.
     expect(ageless.get("Spend")).toBe("$0");
     expect(ageless.get("Impressions")).toBe("0");
   });
@@ -1130,7 +1140,7 @@ describe("Creative Studio column honesty laws", () => {
 });
 
 describe("CreativeStudioExact source-backed tab shapes", () => {
-  it("keeps four Copies angle slots and the exact table shell without prototype seeds", () => {
+  it("shows the Copies table without empty angle placeholders", () => {
     const onOpenRow = vi.fn();
     const copies: CreativeStudioCopiesModel = {
       state: "ready",
@@ -1161,8 +1171,8 @@ describe("CreativeStudioExact source-backed tab shapes", () => {
     };
     renderStudio("copies", { copies });
 
-    expect(document.querySelectorAll("[data-copy-angle]")).toHaveLength(4);
-    expect(screen.getByText("Angle coverage")).toBeTruthy();
+    expect(document.querySelectorAll("[data-copy-angle]")).toHaveLength(0);
+    expect(screen.queryByText("Angle coverage")).toBeNull();
     expect(textOf("table th")).toEqual([
       "Copy",
       "Angle",
@@ -1181,7 +1191,7 @@ describe("CreativeStudioExact source-backed tab shapes", () => {
     expect(document.body.textContent).not.toContain("Summer sale ends Sunday");
   });
 
-  it("keeps the Meta-only Landing table, missing, test and history shapes", () => {
+  it("keeps the Meta-only Landing table without empty companion panels", () => {
     renderStudio("landing-pages", {
       landingPages: {
         state: "empty",
@@ -1194,9 +1204,9 @@ describe("CreativeStudioExact source-backed tab shapes", () => {
     });
 
     expect(screen.getByText("Destinations behind ads")).toBeTruthy();
-    expect(screen.getByText("What’s missing")).toBeTruthy();
-    expect(screen.getByText("What to try")).toBeTruthy();
-    expect(screen.getByText("Destination history")).toBeTruthy();
+    expect(screen.queryByText("What’s missing")).toBeNull();
+    expect(screen.queryByText("What to try")).toBeNull();
+    expect(screen.queryByText("Destination history")).toBeNull();
     expect(textOf("table th")).toEqual([
       "Destination",
       "Ads",
@@ -1288,10 +1298,10 @@ describe("CreativeStudioExact source-backed tab shapes", () => {
     expect(screen.queryByText("Drop new exports here")).toBeNull();
     expect(screen.queryByRole("button", { name: /Browse files/ })).toBeNull();
     expect(screen.queryByRole("button", { name: /approve/i })).toBeNull();
-    expect(document.body.textContent).toContain("are not built");
+    expect(document.body.textContent).not.toContain("are not built");
   });
 
-  it("keeps four Audience summary slots, five fixed breakdowns and the matrix shell when unavailable", () => {
+  it("shows one useful Audience state without empty summary or matrix placeholders", () => {
     renderStudio("audiences", {
       audiences: {
         state: "account_required",
@@ -1304,24 +1314,17 @@ describe("CreativeStudioExact source-backed tab shapes", () => {
     });
 
     expect(document.querySelectorAll("[data-audience-summary]")).toHaveLength(
-      4,
+      0,
     );
+    expect(document.querySelectorAll("[data-audience-breakdown]")).toHaveLength(
+      0,
+    );
+    expect(screen.queryByText("Creative × audience matrix")).toBeNull();
+    expect(textOf("table th")).toEqual([]);
+    expect(screen.getByText("Select a Meta account to continue.")).toBeTruthy();
     expect(
-      textOf("[data-audience-breakdown]").map((text) =>
-        text.split("—")[0]?.trim(),
-      ),
-    ).toEqual([
-      "Frequencyexposures / user",
-      "Agespend share · ROAS",
-      "Genderspend share · ROAS",
-      "Placementspend share · ROAS",
-      "Platformspend share · ROAS",
-    ]);
-    expect(screen.getByText("Creative × audience matrix")).toBeTruthy();
-    expect(textOf("table th")).toEqual(["Creative", "—", "—", "—", "—"]);
-    expect(
-      screen.getAllByText("Audience dimensions were not served."),
-    ).toHaveLength(2);
+      screen.queryByText("Audience dimensions were not served."),
+    ).toBeNull();
     expect(document.body.textContent).not.toContain("Broad US");
     expect(document.body.textContent).not.toContain("Retarg 7d");
     expect(document.body.textContent).not.toContain("Carousel — 5 SKUs");

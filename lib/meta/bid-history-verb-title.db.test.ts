@@ -45,7 +45,7 @@ const SEAM = process.env.ADSECUTE_EPHEMERAL_DB_SEAM === "1";
  *
  * Anchored on the two ends that cannot move without the title moving with
  * them: it begins at the `INITCAP(REPLACE(` that opens the writes-journal
- * title and ends at the entity-name coalesce it concatenates.
+ * title and ends immediately before the action-log summary column.
  */
 export function extractWritesJournalTitleExpression(sql: string): string {
   /*
@@ -53,7 +53,7 @@ export function extractWritesJournalTitleExpression(sql: string): string {
     this SQL and only one of them titles the action-log branch: the one that
     concatenates the resolved entity name, which appears exactly once.
   */
-  const endMarker = "COALESCE(resolved.entity_name, resolved.entity_id)";
+  const endMarker = "\n    ),\n    NULLIF(action_log.error_message";
   const end = sql.indexOf(endMarker);
   const start = end < 0 ? -1 : sql.lastIndexOf("INITCAP(REPLACE(", end);
   if (start < 0 || end < 0) {
@@ -61,7 +61,7 @@ export function extractWritesJournalTitleExpression(sql: string): string {
       "the writes-journal title expression is no longer in META_HISTORY_READ_SQL",
     );
   }
-  return sql.slice(start, end + endMarker.length);
+  return sql.slice(start, end + "\n    )".length);
 }
 
 describe("the Writes journal title names the verb the write actually was", () => {
@@ -97,7 +97,12 @@ describe("the Writes journal title names the verb the write actually was", () =>
             ('launch_adset',
              '{"scope_type":"adset","body":{"campaign_id":"9000000000101"}}'::jsonb)
         ) AS action_log(action, payload_request),
-        LATERAL (SELECT 'Broad prospecting'::text AS entity_name, '9000000000201'::text AS entity_id) AS resolved
+        LATERAL (
+          SELECT
+            'Broad prospecting'::text AS entity_name,
+            '9000000000201'::text AS entity_id,
+            'adset'::text AS entity_type
+        ) AS resolved
       `);
 
       expect(rows).toHaveLength(3);

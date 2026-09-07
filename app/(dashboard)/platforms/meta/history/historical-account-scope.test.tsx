@@ -70,7 +70,9 @@ function journalResponse(providerAccountId: string): MetaHistoryResponse {
   return {
     mode: "read_only",
     accountScope:
-      providerAccountId === HISTORICAL.id ? "deselected_historical" : "selected",
+      providerAccountId === HISTORICAL.id
+        ? "deselected_historical"
+        : "selected",
     scope: {
       businessId: "biz_1",
       providerAccountId,
@@ -121,15 +123,15 @@ describe("History account picker — deselected/historical scopes (D078 R4)", ()
     );
 
     const group = (await screen.findByRole("group", {
-      name: /Historical \/ deselected — read-only/,
+      name: "Past accounts",
     })) as HTMLOptGroupElement;
     const option = Array.from(group.querySelectorAll("option")).find((item) =>
       item.value.includes("act_second"),
     );
-    expect(option?.textContent).toContain("deselected · read-only");
+    expect(option?.textContent).toContain("Second · past");
     // The selected group keeps its own clean labelling.
     const mainOption = screen.getByRole("option", {
-      name: "Main | act_main",
+      name: "Main",
     }) as HTMLOptionElement;
     expect(mainOption.closest("optgroup")).toBeNull();
   });
@@ -141,16 +143,12 @@ describe("History account picker — deselected/historical scopes (D078 R4)", ()
     try {
       render(<MetaHistoryView />);
       const note = await screen.findByTestId("historical-account-scope-note");
-      expect(note.textContent).toContain("Deselected account");
-      expect(note.textContent).toContain("read-only historical evidence");
-      expect(note.textContent).toContain("excluded from serving");
-      expect(note.textContent).toContain("Currency USD · timezone America/Chicago");
-      expect(note.textContent).toContain("Spend continued through 2026-08-20");
-      expect(note.textContent).toContain("126 produced decision rows");
-      // The exact operator policy implication is visible text (C2.4).
+      expect(note.textContent).toContain("This account is no longer assigned.");
       expect(note.textContent).toContain(
-        "Re-selecting it (or stopping its production) is an explicit operator decision.",
+        "Its past activity remains available here.",
       );
+      expect(note.textContent).not.toContain("read-only historical evidence");
+      expect(note.textContent).not.toContain("produced decision rows");
       // The journal fetch really targeted the historical scope.
       await waitFor(() =>
         expect(
@@ -173,11 +171,12 @@ describe("History account picker — deselected/historical scopes (D078 R4)", ()
     });
     render(<MetaHistoryView />);
     const note = await screen.findByTestId("historical-scope-unavailable");
-    expect(note.textContent).toContain("Historical account scope unavailable");
-    expect(note.textContent).toContain("do not treat this picker as complete");
+    expect(note.textContent).toContain(
+      "Past accounts are temporarily unavailable.",
+    );
     expect(
       screen.queryByRole("group", {
-        name: /Historical \/ deselected — read-only/,
+        name: "Past accounts",
       }),
     ).toBeNull();
   });

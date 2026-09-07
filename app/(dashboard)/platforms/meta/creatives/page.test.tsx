@@ -196,7 +196,7 @@ describe("/platforms/meta/creatives page", () => {
     expect(html).toContain('data-creative-studio-exact="true"');
     expect(html).toContain('data-creative-studio-exact-section="assets"');
     expect(html).toContain("Creative Studio");
-    expect(html).toContain("Export CSV");
+    expect(html).not.toContain("Export CSV");
     expect(html).toContain("Share with client");
     expect(html).toContain('data-responsive-studio="true"');
     expect(html).toContain('data-provider-writes="none"');
@@ -222,9 +222,7 @@ describe("/platforms/meta/creatives page", () => {
       ],
     });
 
-    expect(html).toContain(
-      "Select one assigned Meta ad account. Assets remain withheld until the provider scope is explicit.",
-    );
+    expect(html).toContain("Select a Meta account to continue.");
     expect(html).not.toContain("server_account");
     expect(html).not.toContain("url_account");
   });
@@ -256,21 +254,17 @@ describe("/platforms/meta/creatives page", () => {
       ],
     });
 
-    expect(html).toContain(
-      "Select one assigned Meta ad account. Assets remain withheld until the provider scope is explicit.",
-    );
+    expect(html).toContain("Select a Meta account to continue.");
   });
 
-  it("keeps Export CSV disabled until the Assets tab has rows the export can write", () => {
+  it("shows Export CSV only when Assets has rows to export", () => {
     const whileLoading = renderPage({
       businessId: "biz_1",
       providerAccounts: [{ id: "act_1", timezone: "UTC", currency: "USD" }],
     });
 
-    expect(whileLoading).toContain("Loading creative assets.");
-    expect(headerButtonMarkup(whileLoading, "Export CSV")).toContain(
-      "disabled",
-    );
+    expect(whileLoading).toContain("Loading creative data…");
+    expect(headerButtonMarkup(whileLoading, "Export CSV")).toBe("");
 
     const withoutRows = renderPage({
       businessId: "biz_1",
@@ -278,10 +272,8 @@ describe("/platforms/meta/creatives page", () => {
       creativeApiRows: [],
     });
 
-    expect(withoutRows).toContain(
-      "No creative assets were served for this window.",
-    );
-    expect(headerButtonMarkup(withoutRows, "Export CSV")).toContain("disabled");
+    expect(withoutRows).toContain("No data for this view.");
+    expect(headerButtonMarkup(withoutRows, "Export CSV")).toBe("");
 
     const withRows = renderPage({
       businessId: "biz_1",
@@ -315,22 +307,9 @@ describe("Creative Studio Assets: a 200 with no rows is not automatically empty"
    * window.": a definite statement about the operator's Meta account, produced
    * by a read that never happened. An operator can cut a creative on that.
    */
-  it.each([
-    [
-      "no_connection",
-      "This business has no connected Meta account, so no creative data was read.",
-    ],
-    [
-      "no_access_token",
-      "The Meta connection has no usable access token, so no creative data was read.",
-    ],
-    [
-      "no_accounts_assigned",
-      "No Meta ad account is assigned to this business, so no creative data was read.",
-    ],
-  ])(
+  it.each(["no_connection", "no_access_token", "no_accounts_assigned"])(
     "reports %s as unavailable rather than an empty window",
-    (status, message) => {
+    (status) => {
       const html = renderPage({
         businessId: "biz_1",
         providerAccounts: [{ id: "act_1", timezone: "UTC", currency: "USD" }],
@@ -340,12 +319,11 @@ describe("Creative Studio Assets: a 200 with no rows is not automatically empty"
 
       expect(html).toContain(`data-assets-state="unavailable"`);
       expect(html).toContain(`data-assets-source-status="${status}"`);
-      expect(html).toContain(message);
-      expect(html).not.toContain(
-        "No creative assets were served for this window.",
-      );
+      expect(html).toContain("Creative data is temporarily unavailable.");
+      expect(html).not.toContain("No creatives found for this date range.");
       // A count is only a count when a read produced one.
-      expect(html).toContain("— synced · Meta");
+      expect(html).not.toContain("synced · Meta");
+      expect(html).not.toContain("0 creatives");
     },
   );
 
@@ -363,8 +341,8 @@ describe("Creative Studio Assets: a 200 with no rows is not automatically empty"
     });
 
     expect(html).toContain(`data-assets-state="empty"`);
-    expect(html).toContain("No creative assets were served for this window.");
-    expect(html).toContain("0 synced · Meta");
+    expect(html).toContain("No data for this view.");
+    expect(html).toContain("0 creatives");
   });
 });
 

@@ -25,15 +25,19 @@ function viewModel(
     text: "fixture served copy line",
     angle: "—",
     angleTone: "neutral",
-    edgeTone: "warning",
-    read: "—",
     stats: [
       { id: "see-more", label: "See more", value: "—", sub: "—" },
       { id: "ctr", label: "CTR", value: "1.72%", sub: "median 1.34%" },
       { id: "engage", label: "Engage", value: "—", sub: "—" },
-      { id: "roas", label: "ROAS", value: "5.2", sub: "target 3.80", tone: "positive" },
+      {
+        id: "roas",
+        label: "ROAS",
+        value: "5.2",
+        sub: "target 3.80",
+        tone: "positive",
+      },
     ],
-    alternatesNote: "served with this creative · Meta-reported",
+    alternatesNote: "Used with this creative",
     alternates: [
       {
         id: "alt-1",
@@ -41,12 +45,10 @@ function viewModel(
         angleTone: "neutral",
         text: "fixture alternate",
         why: "—",
-        draftHref: "/platforms/meta/launchpad",
+        draftHref: null,
       },
     ],
     footnote: "fixture footnote",
-    draftAllLabel: "Draft all 1 in Launchpad",
-    draftAllHref: "/platforms/meta/launchpad",
     ...over,
   };
 }
@@ -57,10 +59,6 @@ describe("CopyDetailDrawerExact geometry", () => {
     expect(CSS).toContain("background: #f3f5f9");
     expect(CSS).toContain("box-shadow: -28px 0 70px rgba(11, 16, 32, 0.35)");
     expect(CSS).toContain("background: rgba(11, 16, 32, 0.46)");
-  });
-
-  it("gives the Read card the design's 3px tone edge", () => {
-    expect(CSS).toContain("border-left: 3px solid var(--tone-solid)");
   });
 
   it("keeps the stat sub-line on the mono face, matching its label", () => {
@@ -82,32 +80,32 @@ describe("CopyDetailDrawerExact geometry", () => {
 describe("CopyDetailDrawerExact composition", () => {
   it("renders the eyebrow with the asset type and the character count", () => {
     render(<CopyDetailDrawerExact onClose={vi.fn()} viewModel={viewModel()} />);
-    expect(screen.getByText("Copy detail · Primary Text · 24 chars")).toBeInTheDocument();
+    expect(
+      screen.getByText("Copy detail · Primary Text · 24 chars"),
+    ).toBeInTheDocument();
   });
 
   it("renders the design's four stat tiles in order", () => {
     const { container } = render(
       <CopyDetailDrawerExact onClose={vi.fn()} viewModel={viewModel()} />,
     );
-    const labels = Array.from(container.querySelectorAll('[class*="statLabel"]')).map(
-      (node) => node.textContent,
-    );
+    const labels = Array.from(
+      container.querySelectorAll('[class*="statLabel"]'),
+    ).map((node) => node.textContent);
     expect(labels).toEqual(["See more", "CTR", "Engage", "ROAS"]);
   });
 
-  it("carries the Read card and the alternates card the design defines", () => {
+  it("shows alternate lines without an empty Read card", () => {
     render(<CopyDetailDrawerExact onClose={vi.fn()} viewModel={viewModel()} />);
-    expect(screen.getByText("Read")).toBeInTheDocument();
+    expect(screen.queryByText("Read")).not.toBeInTheDocument();
     expect(screen.getByText("Alternative lines")).toBeInTheDocument();
-    expect(screen.getByText("served with this creative · Meta-reported")).toBeInTheDocument();
+    expect(screen.getByText("Used with this creative")).toBeInTheDocument();
     expect(screen.getByText("fixture footnote")).toBeInTheDocument();
   });
 
-  it("keeps the design's footer pair", () => {
+  it("keeps only the working Close action in the footer", () => {
     render(<CopyDetailDrawerExact onClose={vi.fn()} viewModel={viewModel()} />);
-    expect(
-      screen.getByRole("link", { name: "Draft all 1 in Launchpad" }),
-    ).toBeInTheDocument();
+    expect(screen.queryByText(/Draft all/i)).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Close" })).toBeInTheDocument();
   });
 
@@ -115,11 +113,30 @@ describe("CopyDetailDrawerExact composition", () => {
     const { container } = render(
       <CopyDetailDrawerExact
         onClose={vi.fn()}
-        viewModel={viewModel({ alternates: [], draftAllHref: null })}
+        viewModel={viewModel({ alternates: [] })}
       />,
     );
-    expect(container.querySelector('[data-copy-alternate="none"]')).not.toBeNull();
-    expect(screen.getByRole("button", { name: "Draft all 1 in Launchpad" })).toBeDisabled();
+    expect(
+      container.querySelector('[data-copy-alternate="none"]'),
+    ).not.toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Draft →" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("keeps the working single-line Launchpad draft callback", () => {
+    const onDraftAlternate = vi.fn();
+    render(
+      <CopyDetailDrawerExact
+        onClose={vi.fn()}
+        onDraftAlternate={onDraftAlternate}
+        viewModel={viewModel()}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Draft →" }));
+    expect(onDraftAlternate).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "alt-1", text: "fixture alternate" }),
+    );
   });
 
   it("closes on the backdrop, the close glyph, the footer Close and Escape", () => {
@@ -127,7 +144,9 @@ describe("CopyDetailDrawerExact composition", () => {
     const { container } = render(
       <CopyDetailDrawerExact onClose={onClose} viewModel={viewModel()} />,
     );
-    fireEvent.click(container.querySelector('[data-testid="copy-detail-drawer"]')!);
+    fireEvent.click(
+      container.querySelector('[data-testid="copy-detail-drawer"]')!,
+    );
     fireEvent.click(screen.getByRole("button", { name: "Close copy detail" }));
     fireEvent.click(screen.getByRole("button", { name: "Close" }));
     fireEvent.keyDown(document, { key: "Escape" });

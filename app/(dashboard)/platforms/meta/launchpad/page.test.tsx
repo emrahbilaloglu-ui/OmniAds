@@ -40,9 +40,9 @@ describe("MetaLaunchpadPage", () => {
     const html = renderToStaticMarkup(<MetaLaunchpadPage />);
 
     expect(html).toContain('data-testid="launchpad-exact"');
-    expect(html).toContain("Launchpad · read-only");
-    expect(html).toContain("Meta · Guarded write surface");
-    expect(html).toContain("Launches create PAUSED campaigns.");
+    expect(html).not.toContain("Launchpad · read-only");
+    expect(html).not.toContain("Meta · Guarded write surface");
+    expect(html).toContain("New campaigns start paused.");
     // No routed entity means no name — the card carries its own, rather than
     // a pair of quotes around a dash, which reads as a value that failed to load.
     expect(html).toContain("Rebuild");
@@ -50,14 +50,16 @@ describe("MetaLaunchpadPage", () => {
     expect(html).not.toContain("Rebuild “—”");
     expect(html).not.toContain("Duplicate “—”");
     expect(html).toContain("Start from scratch");
-    expect(html).toContain("validation runs before any provider call");
-    expect(html).toContain("Launch receipts");
+    expect(html).not.toContain("validation runs before any provider call");
+    expect(html).toContain("Recent launches");
     expect(html).not.toContain("Templates");
     expect(html).not.toContain("Continue from evidence or start manually");
     expect(html).not.toContain('data-testid="launchpad-wizard"');
     expect(html).not.toContain("Delete draft");
     expect(html).toContain('data-testid="meta-mobile-launchpad"');
-    expect(html).toContain("No write controls are rendered on mobile");
+    expect(html).toContain(
+      "Use desktop to create campaigns. New campaigns start paused.",
+    );
     expect(html).toContain(
       'href="/platforms/meta/launchpad?launchpadMode=new_campaign&amp;launchpadStep=source"',
     );
@@ -89,8 +91,8 @@ describe("MetaLaunchpadPage", () => {
     expect(deepLink.searchParams.get("sourceDecisionSnapshotId")).toBeNull();
     expect(deepLink.searchParams.get("creativeIds")).toBeNull();
     expect(deepLink.searchParams.get("mode")).toBeNull();
-    expect(html).toContain("Current step");
-    expect(html).toContain("source");
+    expect(html).not.toContain("Current step");
+    expect(html).not.toContain("Lineage");
     expect(html).not.toContain('data-testid="launchpad-wizard"');
     expect(html.match(/disabled=""/g)?.length).toBeGreaterThanOrEqual(3);
   });

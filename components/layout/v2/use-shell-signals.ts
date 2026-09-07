@@ -148,6 +148,10 @@ export interface WorkspaceSyncState {
   tone: WorkspaceSyncTone;
   label: string;
   freshnessState: TierZeroFreshnessState | "unknown";
+  /** Bounded diagnostic metadata for automation and QA; never rendered as copy. */
+  errorCode?: string | null;
+  /** Present only when the active surface registered a real retry handler. */
+  onRetry?: () => void;
 }
 
 export interface WorkspaceSyncOptions {
@@ -188,6 +192,9 @@ export function useWorkspaceSyncState(
   // another workspace's name.
   const businessId = useConfirmedShellBusinessId();
   const activeSurface = useTierZeroFreshnessStore((state) => state.active);
+  const runFreshnessRetry = useTierZeroFreshnessStore(
+    (state) => state.runRetry,
+  );
   const hasHydrated = useAppStore((state) => state.hasHydrated);
   const authBootstrapStatus = useAppStore((state) => state.authBootstrapStatus);
   const enabled =
@@ -248,6 +255,15 @@ export function useWorkspaceSyncState(
         tone: "attention",
         label: "Sync needs attention",
         freshnessState: activeSurfaceForBusiness.state,
+        ...(activeSurfaceForBusiness.state === "error"
+          ? { errorCode: activeSurfaceForBusiness.errorCode ?? "unknown" }
+          : {}),
+        ...(activeSurfaceForBusiness.retryKey
+          ? {
+              onRetry: () =>
+                runFreshnessRetry(activeSurfaceForBusiness.retryKey!),
+            }
+          : {}),
       };
     }
     const surfaceAge = minutesSince(activeSurfaceForBusiness.asOf, now);

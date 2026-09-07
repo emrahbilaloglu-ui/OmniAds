@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import {
   HistoricalReplayChrome,
+  META_HISTORY_PARTIAL_REASON,
   MetaHistoryEntries,
 } from "@/app/(dashboard)/platforms/meta/history/history-view";
 import type { MetaHistoryEntry } from "@/lib/meta/history-contract";
@@ -12,7 +13,8 @@ const unavailableEntry: MetaHistoryEntry = {
   kind: "writes",
   occurredAt: "2026-07-10T10:00:00.000Z",
   title: "Pause | Summer ad",
-  summary: "Provider response was recorded, but no decision reference was persisted.",
+  summary:
+    "Provider response was recorded, but no decision reference was persisted.",
   entity: { type: "ad", id: "ad_1", name: "Summer ad" },
   label: "cut",
   status: "silent_failure",
@@ -49,6 +51,13 @@ const unavailableEntry: MetaHistoryEntry = {
 };
 
 describe("Meta History route UI", () => {
+  it("uses buyer-facing copy for incomplete optional history sources", () => {
+    expect(META_HISTORY_PARTIAL_REASON).toBe(
+      "Some history data is unavailable. Try again.",
+    );
+    expect(META_HISTORY_PARTIAL_REASON).not.toMatch(/optional|source|journal/i);
+  });
+
   /**
    * D078 R5: the manual Test/Main campaign-label product is gone (D074/
    * D074b); no buyer-facing Meta surface may advertise it. The persisted
@@ -64,10 +73,7 @@ describe("Meta History route UI", () => {
       summary: "Served decision changed between snapshots.",
     };
     const html = renderToStaticMarkup(
-      <MetaHistoryEntries
-        entries={[labelFlipEntry]}
-        onOpenReplay={vi.fn()}
-      />,
+      <MetaHistoryEntries entries={[labelFlipEntry]} onOpenReplay={vi.fn()} />,
     );
     expect(html).toContain("Decision transitions");
     expect(html).not.toContain("Label flips");
@@ -75,32 +81,57 @@ describe("Meta History route UI", () => {
     expect(html).not.toMatch(/manage labels|label campaign|label is required/i);
   });
 
-  it("renders unmistakable read-only Historical Replay chrome", () => {
+  it("renders concise past-decision chrome without engine details", () => {
     const html = renderToStaticMarkup(
       <HistoricalReplayChrome date="2026-07-10" engineVersions={["v3-test"]} />,
     );
 
-    expect(html).toContain("Historical Replay");
-    expect(html).toContain("actions disabled");
-    expect(html).toContain("Persisted decision snapshots only");
-    expect(html).toContain("read only");
+    expect(html).toContain("Past decisions");
+    expect(html).toContain("Review decisions recorded on this date.");
+    expect(html).toContain("Actions unavailable");
+    expect(html).not.toContain("v3-test");
     expect(html).not.toContain("<form");
-    expect(html).not.toContain("method=\"post\"");
+    expect(html).not.toContain('method="post"');
   });
 
-  it("shows unavailable joins, actors, and currency rather than fabricated values", () => {
+  it("shows user-facing status and unavailable currency without technical joins", () => {
     const html = renderToStaticMarkup(
-      <MetaHistoryEntries entries={[unavailableEntry]} onOpenReplay={vi.fn()} />,
+      <MetaHistoryEntries
+        entries={[unavailableEntry]}
+        onOpenReplay={vi.fn()}
+      />,
     );
 
-    expect(html).toContain("Silent failure");
-    expect(html).toContain("Actor unavailable");
-    expect(html).toContain("Join unavailable");
-    expect(html).toContain("The action log does not persist a decision reference");
-    expect(html).toContain("unavailable - currency not persisted");
-    expect(html).toContain("meta_ads_action_log");
-    expect(html).toContain("type=\"button\"");
+    expect(html).toContain("Needs review");
+    expect(html).toContain("System");
+    expect(html).toContain("currency unavailable");
+    expect(html).not.toContain("Join unavailable");
+    expect(html).not.toContain(
+      "The action log does not persist a decision reference",
+    );
+    expect(html).not.toContain("meta_ads_action_log");
+    expect(html).toContain('type="button"');
     expect(html).not.toContain("$0");
     expect(html).not.toContain("USD");
+  });
+
+  it("maps stored automatic KPI summaries to buyer-facing result copy", () => {
+    const html = renderToStaticMarkup(
+      <MetaHistoryEntries
+        entries={[
+          {
+            ...unavailableEntry,
+            status: "regressed",
+            summary:
+              "auto_kpi_7d: regressed (ROAS 2.40 -> 1.30, operator did not act)",
+          },
+        ]}
+      />,
+    );
+
+    expect(html).toContain(
+      "ROAS declined from 2.40 to 1.30 over the next 7 days. No action was recorded.",
+    );
+    expect(html).not.toContain("auto_kpi_7d");
   });
 });

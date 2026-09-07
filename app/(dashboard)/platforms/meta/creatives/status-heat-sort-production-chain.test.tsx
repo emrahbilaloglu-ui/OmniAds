@@ -551,7 +551,11 @@ describe("Creative Studio frozen-share production flow", () => {
     await waitFor(() => expect(writeText).toHaveBeenCalledWith(expected));
 
     fireEvent.click(screen.getByRole("button", { name: "Open page" }));
-    expect(open).toHaveBeenCalledWith(expected, "_blank", "noopener,noreferrer");
+    expect(open).toHaveBeenCalledWith(
+      expected,
+      "_blank",
+      "noopener,noreferrer",
+    );
     // Copying and opening the already-ready link mint nothing new.
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
@@ -620,7 +624,9 @@ describe("Creative Studio frozen-share production flow", () => {
       screen.getByText("Creating frozen snapshot — controls locked"),
     ).toBeTruthy();
     expect(screen.getByRole("button", { name: "Close" })).toBeDisabled();
-    fireEvent.click(document.querySelector('[data-testid="studio-share-modal-scrim"]')!);
+    fireEvent.click(
+      document.querySelector('[data-testid="studio-share-modal-scrim"]')!,
+    );
     expect(screen.getByRole("dialog")).toBeTruthy();
 
     resolveFetch(
@@ -1318,7 +1324,7 @@ describe("Creative Studio metric columns sort both ways", () => {
     // spend column rather than being pushed out with the unavailable values.
     expect(metricColumn("Spend")).toEqual(["$0", "$300", "$900"]);
     expect(screen.getByRole("status").textContent).toContain(
-      "sorted by Spend · low to high",
+      "Sorted by Spend · low to high",
     );
   });
 

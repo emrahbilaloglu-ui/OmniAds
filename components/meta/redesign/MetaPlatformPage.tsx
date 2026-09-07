@@ -9,7 +9,11 @@ import {
   type ReactNode,
 } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  keepPreviousData,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import {
   TrackingConfirmModal,
   useDeferState,
@@ -28,10 +32,7 @@ import {
   META_DECISIONS_AD_CANDIDATE_MAX_LIMIT,
   type MetaCanonicalDecision,
 } from "@/lib/meta/decisions-workspace-contract";
-import {
-  describeDecisionWorkspaceFailure,
-  MetaRequestFailure,
-} from "@/lib/meta/workspace-failure";
+import { MetaRequestFailure } from "@/lib/meta/workspace-failure";
 import type {
   MetaOsAdDecision,
   MetaOsDecisionAction,
@@ -51,9 +52,9 @@ import { cn } from "@/lib/utils";
 import { MetaLaunchpadOverlay } from "@/components/meta/redesign/MetaLaunchpadOverlay";
 import {
   authorizeMetaNativeAdPause,
-  describeMetaNativeAdPauseFailure,
   executeMetaNativeAdPause,
   type MetaNativeAdPauseAuthorization,
+  type MetaNativeAdPauseFailure,
 } from "@/components/meta/redesign/meta-native-ad-pause";
 import {
   MetaDecisionCenterExact,
@@ -67,13 +68,9 @@ import {
   type MetaDecisionCenterExactRowWorkflowChip,
   type MetaDecisionCenterExactWorkflow,
 } from "@/components/meta/decision-center/MetaDecisionCenterExact";
-import { BudgetDecisionEvidencePanel } from "@/components/meta/decision-center/BudgetDecisionEvidencePanel";
-import { BudgetDryRunPanel } from "@/components/meta/decision-center/BudgetDryRunPanel";
 import {
   buildMetaDecisionCenterExactViewModel,
-  buildMetaStructureInventoryViewModel,
   type MetaDecisionCenterExactArchiveItem,
-  type MetaStructureInventoryViewModel,
 } from "@/components/meta/decision-center/meta-decision-center-exact-adapter";
 import {
   CreativeEvidenceWindowExact,
@@ -97,6 +94,7 @@ import {
   formatMoney,
 } from "@/components/meta/redesign/meta-card-utils";
 import { formatCurrency } from "@/lib/briefing/utils";
+import { formatMetaDateTime } from "@/lib/meta/ui";
 import { emitProductInstrumentation } from "@/lib/product-instrumentation-client";
 import { useTierZeroFreshness } from "@/components/states/useTierZeroFreshness";
 import { measuredAsOf } from "@/lib/tier-zero-as-of";
@@ -269,6 +267,97 @@ type MetaDecisionNotice = {
   title: string;
   detail?: string | null;
 };
+
+const META_READ_ONLY_BUYER_DETAIL =
+  "You can review recommendations, but you cannot apply changes.";
+
+function metaNativeAdPauseBuyerFailure(
+  result: MetaNativeAdPauseFailure,
+): string {
+  if (
+    result.providerMutationSucceeded === true ||
+    result.providerOutcomeAmbiguous === true ||
+    result.reconciliationRequired
+  ) {
+    return "Meta may have received this pause, but the final ad status is not confirmed. Check the ad in Meta Ads and do not retry yet.";
+  }
+  if (result.retryAllowed === false) {
+    return "This pause could not be confirmed. Refresh decisions before trying again.";
+  }
+  return "We could not pause this ad. Please try again.";
+}
+
+function metaBuyerCreativeEvidenceViewModel(
+  model: CreativeEvidenceWindowExactViewModel,
+  primaryAuthority: {
+    kind: "launchpad_handoff" | "native_ad_pause";
+    offered: boolean;
+    refusalReason: string | null;
+  } | null,
+): CreativeEvidenceWindowExactViewModel {
+  const coverage =
+    model.coverage && model.coverage.state !== "served-and-canonical"
+      ? {
+          ...model.coverage,
+          headline: "Some decision details are unavailable.",
+          servedLabel: "Available",
+          served: ["Recommendation and performance metrics"],
+          unavailableLabel: "Unavailable",
+          unavailable: ["Action confirmation"],
+          note: "Review this recommendation in Meta Ads before making changes.",
+        }
+      : null;
+  const actionAvailability =
+    primaryAuthority && !primaryAuthority.offered
+      ? [
+          {
+            id:
+              primaryAuthority.kind === "launchpad_handoff"
+                ? "launchpad-route"
+                : "primary-action-authority",
+            label: "Action",
+            value:
+              primaryAuthority.refusalReason ??
+              "Review this recommendation in Meta Ads before making changes.",
+            tone: "warning" as const,
+          },
+        ]
+      : [];
+  const actionNotice =
+    primaryAuthority && !primaryAuthority.offered
+      ? {
+          tone: "warning" as const,
+          text:
+            primaryAuthority.kind === "launchpad_handoff"
+              ? "This recommendation can be reviewed, but it cannot open Launchpad."
+              : "This ad can be reviewed, but it cannot be changed here.",
+        }
+      : coverage
+        ? {
+            tone: "warning" as const,
+            text: "Decision confirmation is unavailable. Review this recommendation in Meta Ads before making changes.",
+          }
+        : model.actionNotice;
+
+  return {
+    ...model,
+    verdict: model.decisionLabel,
+    readNotice: model.readNotice
+      ? {
+          tone: model.readNotice.tone,
+          text:
+            model.readNotice.tone === "info"
+              ? "Creative metrics are still loading."
+              : "Some creative metrics are unavailable. Refresh decisions and try again.",
+        }
+      : null,
+    coverage,
+    authority: actionAvailability,
+    actionNotice,
+    diagnostics: [],
+    provenance: undefined,
+  };
+}
 function metaNoticeToneClass(tone: MetaDecisionNotice["tone"]): string {
   if (tone === "danger") return "danger";
   if (tone === "success") return "success";
@@ -277,12 +366,7 @@ function metaNoticeToneClass(tone: MetaDecisionNotice["tone"]): string {
 }
 
 type MetaLaneView =
-  | "action"
-  | "needsres"
-  | "watching"
-  | "healthy"
-  | "nonSales"
-  | "archive";
+  "action" | "needsres" | "watching" | "healthy" | "nonSales" | "archive";
 
 /**
  * Two lane vocabularies reach this screen and both now resolve.
@@ -857,14 +941,14 @@ export function metaActionFailureMessage(
     was engaged.
   */
   if (
-    error?.code === "release_capability_closed"
-    || error?.reason === "release_capability_closed"
+    error?.code === "release_capability_closed" ||
+    error?.reason === "release_capability_closed"
   ) {
     return "Live Meta writes are not enabled in this environment, so nothing was sent.";
   }
   if (
-    error?.code === "kill_switch_engaged"
-    && error?.reason !== "release_capability_closed"
+    error?.code === "kill_switch_engaged" &&
+    error?.reason !== "release_capability_closed"
   ) {
     return "Meta writes are temporarily disabled (kill switch). Try again later.";
   }
@@ -1105,15 +1189,13 @@ function metaEvidenceReadState(query: {
   return "unread";
 }
 
-/** The failed read's own message, never a message this client composed. */
+/** Keep provider and transport errors behind a stable buyer-facing boundary. */
 function metaEvidenceReadError(query: {
   isError: boolean;
   error: unknown;
 }): string | null {
   if (!query.isError) return null;
-  const error = query.error;
-  if (error instanceof Error && error.message.trim()) return error.message;
-  return null;
+  return "Creative metrics could not be loaded.";
 }
 
 function titleCaseCompact(value: string | null | undefined) {
@@ -1125,11 +1207,38 @@ function titleCaseCompact(value: string | null | undefined) {
     .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
+function metaAccountDisplayLabel(
+  name: string | null | undefined,
+  providerAccountId: string | null | undefined,
+): string | null {
+  const cleanName = name?.trim();
+  if (cleanName) return cleanName;
+  const cleanId = providerAccountId?.replace(/^act_/, "").trim();
+  if (!cleanId) return null;
+  return `Meta account ••••${cleanId.slice(-4)}`;
+}
+
 function mobileTimestamp(value: string | null | undefined) {
   if (!value) return "—";
   const date = new Date(value);
   if (!Number.isFinite(date.getTime())) return "—";
   return `${date.toISOString().slice(11, 16)} UTC`;
+}
+
+function metaAnomalyBuyerCopy(anomaly: MetaAnomaly) {
+  const titleByType: Record<MetaAnomaly["type"], string> = {
+    roas_drop_sudden: "ROAS dropped sharply",
+    delivery_stall: "Delivery needs attention",
+    policy_block: "A policy issue is blocking delivery",
+    pacing_failure: "Delivery is behind pace",
+    cpm_spike: "CPM increased sharply",
+    zero_conversions_with_spend: "Spend has not produced purchases",
+    budget_exhausted_early: "Budget was spent earlier than expected",
+  };
+  return {
+    title: titleByType[anomaly.type],
+    detail: `${anomaly.scopeLabel} · detected ${mobileTimestamp(anomaly.detectedAt)}`,
+  };
 }
 
 function mobileDecisionTone(
@@ -1146,6 +1255,7 @@ function mobileDecisionLine(
   rec: MetaRecommendation,
   targetRoas: number | null | undefined,
   currency: string | null | undefined,
+  inspector: MetaDecisionCenterExactInspectorViewModel | null | undefined,
 ) {
   const metrics = structuredMetricsForRec(rec);
   const parts: string[] = [];
@@ -1160,11 +1270,9 @@ function mobileDecisionLine(
         : roas,
     );
   }
-  return `${titleCaseCompact(decisionLabelForRec(rec))} · ${
-    parts.length > 0
-      ? parts.join(" · ")
-      : rec.expectedImpact || rec.summary || "server summary —"
-  }`;
+  const decisionLabel = mobileDisplay(inspector?.decisionLabel);
+  const label = decisionLabel === "—" ? "Decision" : decisionLabel;
+  return parts.length > 0 ? `${label} · ${parts.join(" · ")}` : label;
 }
 
 function MobileDecisionConfidence({
@@ -1234,12 +1342,7 @@ function MetaMobileEvidenceScreen({
   ceremony?: ReactNode;
 }) {
   if (item.mode === "anomaly") {
-    const citationItems = item.anomaly.diagnostics
-      .slice(0, 2)
-      .map((diagnostic, index) => ({
-        label: `Diagnostic ${index + 1}`,
-        value: diagnostic,
-      }));
+    const anomalyCopy = metaAnomalyBuyerCopy(item.anomaly);
     return (
       <section
         className="meta-mobile-decision-stage"
@@ -1248,39 +1351,21 @@ function MetaMobileEvidenceScreen({
         <div className="ad-mobile-device">
           <div className="ad-mobile-screen">
             <div className="ad-mobile-status">
-              <span>--:--</span>
-              <span>evidence · read-only</span>
+              <span>Account issue</span>
             </div>
             <button type="button" className="ad-mobile-back" onClick={onBack}>
               ← Decisions
             </button>
             <div className="ad-mobile-title">
               <h2>{item.anomaly.scopeLabel}</h2>
-              <p>
-                {titleCaseCompact(item.anomaly.scopeType)} · anomaly · detected{" "}
-                {mobileTimestamp(item.anomaly.detectedAt)}
-              </p>
+              <p>{anomalyCopy.detail}</p>
             </div>
             <article className="ad-mobile-heat">
-              <strong>{item.anomaly.title}</strong>
-              <span>{item.anomaly.detail}</span>
+              <strong>{anomalyCopy.title}</strong>
+              <span>
+                Review this issue in Meta Ads before applying changes.
+              </span>
             </article>
-            <p className="ad-mobile-copy">
-              {item.anomaly.diagnostics[0] ??
-                "The anomaly remains open in the server scan"}
-              {citationItems[0] ? (
-                <>
-                  {" "}
-                  <span className="ad-mobile-cite">[1]</span>
-                </>
-              ) : null}
-              . Mobile keeps this as evidence review only.
-            </p>
-            <MetaMobileCitationList items={citationItems} />
-            <div className="ad-mobile-desktop-note">
-              An anomaly is a condition, not a change to apply: it carries no
-              operator verb on either surface.
-            </div>
           </div>
         </div>
       </section>
@@ -1292,15 +1377,17 @@ function MetaMobileEvidenceScreen({
   const roasText =
     typeof metrics?.roas === "number" && Number.isFinite(metrics.roas)
       ? `${metrics.roas.toFixed(2)}x${typeof targetRoas === "number" && Number.isFinite(targetRoas) ? ` vs ${targetRoas.toFixed(2)}x target` : ""}`
-      : "ROAS —";
+      : null;
   const spendText =
     typeof metrics?.spend === "number" && Number.isFinite(metrics.spend)
       ? formatMoney(metrics.spend, moneyCurrency)
-      : "spend —";
-  const citationItems = rec.evidence.slice(0, 2).map((evidence) => ({
-    label: evidence.label,
-    value: evidence.value,
-  }));
+      : null;
+  const metricLine = [spendText, roasText].filter(Boolean).join(" · ");
+  const reason =
+    inspector?.reasons
+      ?.map((value) => mobileDisplay(value))
+      .find((value) => value !== "—") ??
+    "No verified reason is available for this decision.";
 
   return (
     <section
@@ -1310,116 +1397,43 @@ function MetaMobileEvidenceScreen({
       <div className="ad-mobile-device">
         <div className="ad-mobile-screen">
           <div className="ad-mobile-status">
-            <span>--:--</span>
-            <span>evidence · read-only</span>
+            <span>Decision details</span>
           </div>
           <button type="button" className="ad-mobile-back" onClick={onBack}>
             ← Decisions
           </button>
           <div className="ad-mobile-title">
             <h2>{scopeNameForRec(rec)}</h2>
-            <p>
-              {titleCaseCompact(rec.level)} ·{" "}
-              {rec.rowPresentation?.accountBadge ?? "account —"}
-            </p>
+            <p>{titleCaseCompact(rec.level)}</p>
           </div>
           <article className="ad-mobile-heat">
             <strong>
-              {mobileDecisionLine(rec, targetRoas, moneyCurrency)}
+              {mobileDecisionLine(rec, targetRoas, moneyCurrency, inspector)}
             </strong>
-            <span>
-              {spendText} · {roasText}
-            </span>
+            {metricLine ? <span>{metricLine}</span> : null}
           </article>
-          <p className="ad-mobile-copy">
-            {rec.why ||
-              rec.summary ||
-              "Decision reasoning is unavailable in this payload"}
-            {citationItems[0] ? (
-              <>
-                {" "}
-                <span className="ad-mobile-cite">[1]</span>
-              </>
-            ) : null}
-            ; confidence is {rec.confidence}
-            {citationItems[1] ? (
-              <>
-                {" "}
-                <span className="ad-mobile-cite">[2]</span>
-              </>
-            ) : null}
-            .
-          </p>
-          <MetaMobileCitationList items={citationItems} />
-          {inspector ? (
-            <section
-              className="ad-mobile-posture"
-              data-mobile-posture="inspector"
-              data-tone={
-                inspector.blockerTone === "negative" ? "danger" : "info"
-              }
-            >
-              <b>Authority &amp; readiness</b>
-              <div>contract: {mobileDisplay(inspector.contractDetail)}</div>
-              <div>readiness: {mobileDisplay(inspector.readiness)}</div>
-              <div>blockers: {mobileDisplay(inspector.blockers)}</div>
-              {/*
-                What the server can STATE but cannot measure. It used to arrive
-                inside `blockers` — `risk_tier_unclassified` sat there and
-                vetoed every exact-Ad action, because the risk-tier producer is
-                not persisted. Moving it out of the veto must not also move it
-                off the phone: the desktop inspector grew an Advisories line and
-                this one did not, so a phone silently stopped saying that risk
-                is unclassified at all. Same fact, both surfaces.
-              */}
-              <div>advisories: {mobileDisplay(inspector.advisories)}</div>
-              <div>{mobileDisplay(inspector.provenance)}</div>
-            </section>
-          ) : null}
-          {/*
-            The manual action, from the inspector object the DESKTOP renders.
-
-            Not a second control: `inspector.manualAction` is composed once by
-            the page from the served `operatorApply`, the decision-bound key,
-            the viewer, the STOP and the mutation gate, and the desktop
-            inspector draws this exact object. It is present-and-refusing for
-            the same reason there: the reason must not leave with the control.
-          */}
-          {inspector?.manualAction ? (
+          <p className="ad-mobile-copy">{reason}</p>
+          <MobileDecisionConfidence confidence={rec.confidence} />
+          {inspector?.manualAction &&
+          !inspector.manualAction.refusalReason &&
+          inspector.manualAction.onOpen ? (
             <div
               className="ad-mobile-manual-action"
               data-mobile-manual-action={rec.id}
             >
               <button
-                aria-disabled={
-                  inspector.manualAction.refusalReason ? true : undefined
-                }
                 data-mobile-apply={rec.id}
                 data-surface="mobile"
-                onClick={
-                  inspector.manualAction.refusalReason
-                    ? undefined
-                    : inspector.manualAction.onOpen
-                }
+                onClick={inspector.manualAction.onOpen}
                 type="button"
               >
-                {/* Same fallback the desktop inspector applies. */}
                 {mobileDisplay(inspector.manualAction.label) === "—"
-                  ? "Open manual action"
+                  ? "Open action"
                   : mobileDisplay(inspector.manualAction.label)}
               </button>
             </div>
           ) : null}
-          {inspector?.manualAction?.refusalReason ? (
-            <p data-mobile-apply-refusal={rec.id} data-tone="caution">
-              {inspector.manualAction.refusalReason}
-            </p>
-          ) : null}
           {ceremony}
-          <div className="ad-mobile-desktop-note">
-            The engine's own routed action stays on the desktop pane; the
-            operator verb above applies here, through the same server ceremony.
-          </div>
         </div>
       </div>
     </section>
@@ -1432,6 +1446,15 @@ function mobileDisplay(value: MetaDecisionCenterExactDisplayValue): string {
     return Number.isFinite(value) ? String(value) : "—";
   if (typeof value !== "string") return "—";
   return value.trim() || "—";
+}
+
+function positiveMobileCount(
+  value: MetaDecisionCenterExactDisplayValue,
+): boolean {
+  if (typeof value === "number") return Number.isFinite(value) && value > 0;
+  if (typeof value !== "string") return false;
+  const normalized = value.trim().replaceAll(",", "");
+  return /^\d+$/.test(normalized) && Number(normalized) > 0;
 }
 
 /** The mobile row card only paints three tones; everything else stays caution. */
@@ -1533,7 +1556,8 @@ function mobileQueueRowsForLane(
         ? (viewModel.creativeDecisions ?? [])
         : viewModel.creativeGroups
             .filter(
-              (group) => selectedGroupId === null || group.id === selectedGroupId,
+              (group) =>
+                selectedGroupId === null || group.id === selectedGroupId,
             )
             .flatMap((group) => group.rows);
     return creativeRows.map((row) => ({
@@ -1569,7 +1593,7 @@ function mobileQueueRowsForLane(
       decisionTone: row.decisionTone,
       stateLabel: "Blocked",
       stateTone: "warning" as const,
-      blockedNote: row.blocker,
+      blockedNote: row.resolution ?? row.blocker,
       money: row.money,
       moneySub: row.resolution,
       actionLabel: "Read evidence",
@@ -1648,79 +1672,6 @@ function mobileQueueRowsForLane(
  * inferred or re-classified: an absent field stays absent rather than becoming
  * a reassuring default.
  */
-interface MetaMobilePosture {
-  viewerRole: string | null;
-  viewerReadOnlyReason: string | null;
-  killSwitchReason: string | null;
-  adsSource: string | null;
-  sourceHealth: string | null;
-  structureSource: string | null;
-  fallbackReason: string | null;
-  readModelUnavailable: string | null;
-  limitations: Array<{ code: string; message: string }>;
-  capabilityGaps: Array<{ key: string; status: string; reason: string | null }>;
-  inactiveAdCount: number | null;
-  inactiveUnknownCount: number | null;
-  adCandidates: {
-    sourcePreCap: number;
-    eligiblePreCap: number;
-    selected: number;
-    act: number;
-    monitor: number;
-    blocked: number;
-  } | null;
-}
-
-function buildMetaMobilePosture(input: {
-  workspace: MetaDecisionsWorkspacePayload | undefined;
-  viewerReadOnlyReason: string | null;
-}): MetaMobilePosture {
-  const workspace = input.workspace;
-  const osSource = workspace?.os?.source ?? null;
-  const readModel = workspace?.decisionReadModel ?? null;
-  const capabilities = readModel?.capabilities ?? null;
-  const inactive = readModel?.queue?.inactiveAssets ?? null;
-  const candidates = readModel?.queue?.adCandidates ?? null;
-  return {
-    viewerRole: workspace?.viewer?.role ?? null,
-    viewerReadOnlyReason: input.viewerReadOnlyReason,
-    killSwitchReason: workspace?.system.killSwitchEngaged
-      ? (workspace.system.killSwitchReason ?? "Meta writes are disabled.")
-      : null,
-    adsSource: osSource?.adsSource ?? null,
-    sourceHealth: osSource?.health ?? null,
-    structureSource: osSource?.structureSource ?? null,
-    fallbackReason:
-      osSource?.fallbackReason ?? readModel?.source.fallbackReason ?? null,
-    readModelUnavailable: readModel?.unavailable?.message ?? null,
-    limitations: (workspace?.os?.limitations ?? []).map((limitation) => ({
-      code: limitation.code,
-      message: limitation.message,
-    })),
-    capabilityGaps: capabilities
-      ? Object.entries(capabilities)
-          .filter(([, state]) => state.status !== "available")
-          .map(([key, state]) => ({
-            key,
-            status: state.status,
-            reason: state.reason,
-          }))
-      : [],
-    inactiveAdCount: inactive?.inactiveCount ?? null,
-    inactiveUnknownCount: inactive?.unknownCount ?? null,
-    adCandidates: candidates
-      ? {
-          sourcePreCap: candidates.preCapCount,
-          eligiblePreCap: candidates.eligiblePreCapCount,
-          selected: candidates.selectedCount,
-          act: candidates.stateCounts.act.selectedCount,
-          monitor: candidates.stateCounts.monitor.selectedCount,
-          blocked: candidates.stateCounts.blocked.selectedCount,
-        }
-      : null,
-  };
-}
-
 /**
  * The creative evidence screen, mobile.
  *
@@ -1739,10 +1690,32 @@ function MetaMobileCreativeEvidenceScreen({
   viewModel: CreativeEvidenceWindowExactViewModel;
   onBack: () => void;
 }) {
-  const authority = viewModel.authority ?? [];
-  const diagnostics = viewModel.diagnostics ?? [];
-  const funnel = viewModel.funnel ?? [];
-  const facts = viewModel.facts ?? [];
+  const isMeaningful = (value: MetaDecisionCenterExactDisplayValue) => {
+    const displayValue = mobileDisplay(value);
+    return (
+      displayValue !== "—" &&
+      displayValue !== "…" &&
+      displayValue !== "unreadable"
+    );
+  };
+  const funnel = (viewModel.funnel ?? []).filter(
+    (step) => isMeaningful(step.label) && isMeaningful(step.value),
+  );
+  const facts = (viewModel.facts ?? []).filter(
+    (fact) => isMeaningful(fact.label) && isMeaningful(fact.value),
+  );
+  const subtitle = [viewModel.kind, viewModel.band]
+    .filter(isMeaningful)
+    .map((value) => mobileDisplay(value))
+    .join(" · ");
+  const reason = [...(viewModel.reasons ?? []), viewModel.verdictSub]
+    .filter(isMeaningful)
+    .map((value) => mobileDisplay(value))
+    .join(" ");
+  const money = [viewModel.money, viewModel.moneySub]
+    .filter(isMeaningful)
+    .map((value) => mobileDisplay(value))
+    .join(" · ");
   return (
     <section
       className="meta-mobile-decision-stage"
@@ -1751,43 +1724,34 @@ function MetaMobileCreativeEvidenceScreen({
       <div className="ad-mobile-device">
         <div className="ad-mobile-screen">
           <div className="ad-mobile-status">
-            <span>--:--</span>
-            <span>evidence · read-only</span>
+            <span>Decision details</span>
           </div>
           <button type="button" className="ad-mobile-back" onClick={onBack}>
             ← Decisions
           </button>
           <div className="ad-mobile-title">
             <h2>{mobileDisplay(viewModel.name)}</h2>
-            <p>
-              {mobileDisplay(viewModel.kind)} · {mobileDisplay(viewModel.band)}
-            </p>
+            {subtitle ? <p>{subtitle}</p> : null}
           </div>
           {viewModel.readNotice ? (
-            <section
-              className="ad-mobile-posture"
-              data-mobile-posture="read-state"
-              data-tone={
-                viewModel.readNotice.tone === "negative" ? "danger" : "info"
-              }
-            >
-              <b>Evidence read</b>
-              <div>{viewModel.readNotice.text}</div>
-            </section>
+            <p className="ad-mobile-copy" data-mobile-creative-read-notice>
+              {viewModel.readNotice.text}
+            </p>
           ) : null}
-          <article className="ad-mobile-heat">
-            <strong>{mobileDisplay(viewModel.verdict)}</strong>
-            <span>
-              {mobileDisplay(viewModel.money)} ·{" "}
-              {mobileDisplay(viewModel.moneySub)}
-            </span>
-          </article>
-          <p className="ad-mobile-copy">
-            {(viewModel.reasons ?? [])
-              .map((reason) => mobileDisplay(reason))
-              .join(" ")}{" "}
-            {mobileDisplay(viewModel.verdictSub)}
-          </p>
+          {viewModel.actionNotice ? (
+            <p className="ad-mobile-copy" data-mobile-creative-action-notice>
+              {viewModel.actionNotice.text}
+            </p>
+          ) : null}
+          {isMeaningful(viewModel.verdict) || money ? (
+            <article className="ad-mobile-heat">
+              {isMeaningful(viewModel.verdict) ? (
+                <strong>{mobileDisplay(viewModel.verdict)}</strong>
+              ) : null}
+              {money ? <span>{money}</span> : null}
+            </article>
+          ) : null}
+          {reason ? <p className="ad-mobile-copy">{reason}</p> : null}
           <MetaMobileCitationList
             items={funnel.map((step) => ({
               label: mobileDisplay(step.label),
@@ -1801,39 +1765,6 @@ function MetaMobileCreativeEvidenceScreen({
               value: mobileDisplay(fact.value),
             }))}
           />
-          {authority.length > 0 ? (
-            <section
-              className="ad-mobile-posture"
-              data-mobile-posture="authority"
-              data-tone="info"
-            >
-              <b>Authority &amp; eligibility</b>
-              {authority.map((row) => (
-                <div key={row.id}>
-                  {mobileDisplay(row.label)}: {mobileDisplay(row.value)}
-                </div>
-              ))}
-            </section>
-          ) : null}
-          {diagnostics.length > 0 ? (
-            <details className="ad-mobile-diagnostics" data-mobile-diagnostics>
-              <summary>Diagnostics · hashes &amp; lineage</summary>
-              {diagnostics.map((row) => (
-                <div key={row.id}>
-                  {mobileDisplay(row.label)}: {mobileDisplay(row.value)}
-                </div>
-              ))}
-            </details>
-          ) : null}
-          <div className="ad-mobile-desktop-note">
-            {/*
-              Creative-grain writes are the native ad path, which this surface
-              does not project. Stated as the specific absence it is, rather
-              than as a device-wide law the Decisions rows no longer follow.
-            */}
-            {mobileDisplay(viewModel.provenance)} · Creative writes are not
-            offered on this device; this screen is the complete evidence.
-          </div>
         </div>
       </div>
     </section>
@@ -1925,7 +1856,7 @@ function MetaMobileQueueRow({
       </div>
       <div className="ad-mobile-row-footer">
         <span className="ad-mobile-action-note">
-          {mobileDisplay(actionLabel)} · desktop
+          {mobileDisplay(actionLabel)}
         </span>
         {onOpen ? (
           <button type="button" onClick={onOpen}>
@@ -1959,142 +1890,6 @@ function MetaMobileQueueRow({
         </p>
       ) : null}
     </article>
-  );
-}
-
-/**
- * Everything the server says about its own authority, rendered ALONGSIDE the
- * rows rather than instead of them.
- *
- * The desktop equivalent (`creativesNotice`) only appears when the creative
- * queue is completely empty, so a degraded source under a full queue is silent
- * and the operator reads low-authority rows as ordinary ones. On this surface
- * the posture is unconditional: if the payload says the ad source is
- * `legacy_creative_review_only` with `health: degraded`, that sentence is on
- * screen whether there are 0 rows or 60.
- */
-function MetaMobilePosturePanel({ posture }: { posture: MetaMobilePosture }) {
-  const sourceLine = [
-    posture.adsSource ? `ads ${titleCaseCompact(posture.adsSource)}` : null,
-    posture.sourceHealth
-      ? `health ${titleCaseCompact(posture.sourceHealth)}`
-      : null,
-    posture.structureSource
-      ? `structure ${titleCaseCompact(posture.structureSource)}`
-      : null,
-  ]
-    .filter((value): value is string => Boolean(value))
-    .join(" · ");
-  const degraded =
-    posture.sourceHealth !== null && posture.sourceHealth !== "healthy";
-  return (
-    <section
-      className="ad-mobile-posture"
-      data-mobile-posture="source"
-      data-tone={degraded ? "danger" : "info"}
-    >
-      <b>Source authority</b>
-      <div>{sourceLine || "—"}</div>
-      {posture.fallbackReason ? (
-        <div>fallback: {posture.fallbackReason}</div>
-      ) : null}
-      {posture.readModelUnavailable ? (
-        <div>read model: {posture.readModelUnavailable}</div>
-      ) : null}
-      {posture.limitations.map((limitation) => (
-        <div key={limitation.code} data-mobile-limitation={limitation.code}>
-          {limitation.message}
-        </div>
-      ))}
-      {posture.capabilityGaps.length > 0 ? (
-        <div data-mobile-capability-gaps>
-          capability gaps:{" "}
-          {posture.capabilityGaps
-            .map(
-              (gap) =>
-                `${titleCaseCompact(gap.key.replace(/([a-z])([A-Z])/g, "$1 $2"))} ${gap.status}`,
-            )
-            .join(" · ")}
-        </div>
-      ) : null}
-    </section>
-  );
-}
-
-/** Viewer authority, stated rather than implied by the absence of buttons. */
-function MetaMobileAuthorityPanel({ posture }: { posture: MetaMobilePosture }) {
-  return (
-    <section
-      className="ad-mobile-posture"
-      data-mobile-posture="viewer"
-      data-tone="info"
-    >
-      <b>Viewer authority</b>
-      <div>
-        role {posture.viewerRole ?? "—"} ·{" "}
-        {posture.viewerReadOnlyReason ? "read-only" : "write-capable"}
-      </div>
-      {posture.viewerReadOnlyReason ? (
-        <div>{posture.viewerReadOnlyReason}</div>
-      ) : null}
-      {posture.killSwitchReason ? (
-        <div>kill switch: {posture.killSwitchReason}</div>
-      ) : null}
-      {/*
-        The law, as it now stands.
-
-        This used to read "This device is read-only by design: it shows every
-        decision the desktop shows and executes none of them." That was true of
-        the surface and false of the product: the same operator, the same
-        authority and the same server ceremony were one viewport away, so a
-        buyer holding a phone was told to go and find a desktop. The sentence
-        follows the behaviour — a read-only viewer still reads a read-only
-        sentence, because for them nothing changed.
-      */}
-      <div>
-        {posture.viewerReadOnlyReason
-          ? "This device shows every decision the desktop shows and executes none of them."
-          : "This device shows every decision the desktop shows, and applies the ones that name a change through the same server ceremony the desktop uses: manual_operator_v1, a typed confirmation, a re-checked target and a durable receipt."}
-      </div>
-    </section>
-  );
-}
-
-/** Rows the server withheld from the live queues, counted rather than hidden. */
-function MetaMobileWithheldPanel({ posture }: { posture: MetaMobilePosture }) {
-  const lines: string[] = [];
-  if (posture.inactiveAdCount !== null) {
-    lines.push(
-      `${posture.inactiveAdCount} inactive Ad${posture.inactiveAdCount === 1 ? "" : "s"}` +
-        (posture.inactiveUnknownCount
-          ? ` (${posture.inactiveUnknownCount} unknown status)`
-          : "") +
-        " withheld from the live queues",
-    );
-  }
-  if (posture.adCandidates) {
-    lines.push(
-      `${posture.adCandidates.selected} of ${posture.adCandidates.eligiblePreCap} eligible exact Ad identities selected` +
-        (posture.adCandidates.sourcePreCap !==
-        posture.adCandidates.eligiblePreCap
-          ? ` · ${posture.adCandidates.sourcePreCap} source identities before eligibility`
-          : "") +
-        " · " +
-        `act ${posture.adCandidates.act} · monitor ${posture.adCandidates.monitor} · blocked ${posture.adCandidates.blocked}`,
-    );
-  }
-  if (lines.length === 0) return null;
-  return (
-    <section
-      className="ad-mobile-posture"
-      data-mobile-posture="withheld"
-      data-tone="info"
-    >
-      <b>Withheld from the queue</b>
-      {lines.map((line) => (
-        <div key={line}>{line}</div>
-      ))}
-    </section>
   );
 }
 
@@ -2176,8 +1971,6 @@ function MetaManualCeremonySheet({
 function MetaMobileDecisionsScreen({
   businessName,
   viewModel,
-  structureInventory,
-  posture,
   scope,
   lane,
   onScopeChange,
@@ -2188,7 +1981,6 @@ function MetaMobileDecisionsScreen({
   banners,
   historyHref,
   pathname,
-  onClearSearch,
   onOpenAnomaly,
   anomalyError,
   canLoadMoreCreatives,
@@ -2201,8 +1993,6 @@ function MetaMobileDecisionsScreen({
 }: {
   businessName?: string | null;
   viewModel: MetaDecisionCenterExactViewModel;
-  structureInventory: MetaStructureInventoryViewModel;
-  posture: MetaMobilePosture;
   scope: MetaDecisionCenterExactScope;
   lane: MetaLaneView;
   onScopeChange: (scope: MetaDecisionCenterExactScope) => void;
@@ -2213,7 +2003,6 @@ function MetaMobileDecisionsScreen({
   banners: MetaWorkspaceBanner[];
   historyHref: string;
   pathname: string | null;
-  onClearSearch: () => void;
   onOpenAnomaly: (anomaly: MetaAnomaly) => void;
   anomalyError: Error | null;
   canLoadMoreCreatives: boolean;
@@ -2233,12 +2022,16 @@ function MetaMobileDecisionsScreen({
   ceremonyRowId?: string | null;
   ceremony?: ReactNode;
 }) {
-  const [inventoryOpen, setInventoryOpen] = useState(false);
   const counts = viewModel.counts ?? {};
   const creativeLaneCounts = viewModel.operatorSummary?.scopeCounts?.creatives;
   const identity = viewModel.identity ?? {};
   const actCount = loading || error ? "—" : mobileDisplay(counts.action);
   const rows = mobileQueueRows(viewModel, scope, lane, manualActionFor);
+  const bannerPresentation = compactWorkspaceBannerPresentation({
+    banners,
+    historyHref,
+    pathname,
+  });
   if (loading || error) {
     return (
       <section
@@ -2255,10 +2048,7 @@ function MetaMobileDecisionsScreen({
             {loading ? (
               <article className="ad-mobile-row-card" role="status">
                 <h3>Loading decision data</h3>
-                <p>
-                  Reading the assigned Meta account and its complete server
-                  decision workspace.
-                </p>
+                <p>Your Meta decisions will appear here shortly.</p>
               </article>
             ) : (
               <article
@@ -2267,10 +2057,7 @@ function MetaMobileDecisionsScreen({
                 role="alert"
               >
                 <b>Decision workspace could not load.</b>
-                <div>
-                  {error?.message ||
-                    "Backend decision data is unavailable. Retry after connectivity recovers."}
-                </div>
+                <div>We could not load Meta decisions. Please try again.</div>
               </article>
             )}
           </div>
@@ -2294,123 +2081,62 @@ function MetaMobileDecisionsScreen({
             </span>
           </div>
           <div className="ad-mobile-freshness">
-            {mobileDisplay(identity.syncedLabel)} ·{" "}
-            {mobileDisplay(identity.snapshotLabel)} ·{" "}
-            {mobileDisplay(identity.engineLabel)} ·{" "}
+            Updated {mobileDisplay(identity.syncedLabel)} ·{" "}
             {mobileDisplay(identity.currency)}
           </div>
 
-          <MetaMobileAuthorityPanel posture={posture} />
-          <MetaMobilePosturePanel posture={posture} />
-
-          {/*
-            The budget-decision evidence, projected onto the phone.
-
-            Below 720px the stylesheet hides every sibling of this stage, so
-            the desktop-mounted `BudgetDecisionEvidencePanel` — a descendant of
-            one of those siblings — was simply absent on a phone: both
-            direction panels measured 0x0 on the authenticated route. This
-            renders the SAME component from the SAME server-owned
-            `viewModel.budgetEvidence` object the desktop reads. It re-derives
-            nothing, adds no threshold, maps no direction to an action of its
-            own, and creates no write authority: the panel's own CTAs stay
-            disabled and mobile remains read-only.
-          */}
-          <BudgetDecisionEvidencePanel
-            evidence={viewModel.budgetEvidence ?? null}
-          />
-
-          {/*
-            D085 on the phone. Same server object, same component, same
-            read-only law as the desktop mount.
-          */}
-          <BudgetDryRunPanel panel={viewModel.budgetDryRun ?? null} />
-
-          {/*
-            Same banners, same order as the desktop chrome
-            (`workspaceBannerPriority`): a blocking kill switch must not sit
-            below a tracking warning on one surface and above it on the other.
-          */}
-          {[...banners]
-            .sort(
-              (left, right) =>
-                workspaceBannerPriority(left) - workspaceBannerPriority(right),
-            )
-            .map((banner) => {
-              /*
-                Same destination as the desk, from the same helper. A phone
-                that is told an action's outcome is unknown and given no way to
-                reach the screen that knows has been handed the alarm without
-                the answer; the link is a READ, which is all this device does.
-              */
-              const destination = workspaceBannerDestination(
-                banner,
-                historyHref,
-                pathname,
-              );
-              return (
-                <article
-                  key={banner.id}
-                  className="ad-mobile-anomaly"
-                  data-tone={banner.tone === "danger" ? "danger" : "info"}
-                  data-mobile-banner={banner.id}
-                  data-mobile-banner-scope={banner.scope ?? "workspace"}
+          {bannerPresentation ? (
+            <article
+              className="ad-mobile-anomaly"
+              data-tone={
+                bannerPresentation.primary.blocking ? "danger" : "info"
+              }
+              data-mobile-banner={bannerPresentation.primary.id}
+              data-critical-evidence={
+                bannerPresentation.hasEvidenceWarning ? "true" : undefined
+              }
+              data-critical-unverified-action={
+                bannerPresentation.hasUnverifiedAction ? "true" : undefined
+              }
+            >
+              <b>{bannerPresentation.copy.title}</b>
+              <div>{bannerPresentation.copy.detail}</div>
+              {bannerPresentation.destinations.map((destination) => (
+                <a
+                  className="meta-posture-banner__button"
+                  href={destination.href}
+                  key={destination.href}
                 >
-                  <b>{banner.title}</b>
-                  <div>{banner.detail}</div>
-                  {destination ? (
-                    <a
-                      className="meta-posture-banner__button"
-                      href={destination.href}
-                    >
-                      {destination.label}
-                    </a>
-                  ) : null}
-                </article>
-              );
-            })}
-
-          {anomalyError ? (
+                  {destination.label}
+                </a>
+              ))}
+            </article>
+          ) : anomalyError ? (
             <article
               className="ad-mobile-anomaly"
               data-tone="warning"
               data-mobile-anomaly-error
             >
-              <b>Integrity scan is unavailable.</b>
-              <div>
-                {anomalyError.message ||
-                  "Integrity evidence is withheld; the decision queue remains readable."}
-              </div>
+              <b>Some account checks could not update.</b>
+              <div>The decisions below are still available.</div>
             </article>
-          ) : anomalies.length === 0 ? (
-            <article className="ad-mobile-anomaly" data-tone="info">
-              <b>No active anomaly.</b>
-              <div>
-                Rows still open evidence, and the ones naming a change still
-                offer the manual action sheet.
-              </div>
-            </article>
-          ) : (
-            anomalies.map((anomaly) => (
-              <button
-                key={anomaly.id}
-                type="button"
-                className="ad-mobile-anomaly ad-mobile-anomaly-button"
-                onClick={() => onOpenAnomaly(anomaly)}
-              >
-                <b>Anomaly:</b> {anomaly.title}
-                <div>
-                  {/*
-                    An anomaly is a condition, not a change to apply: it carries
-                    no `operatorApply` on either surface, so the caption names
-                    the read rather than a device.
-                  */}
-                  detected {mobileTimestamp(anomaly.detectedAt)} · read the
-                  evidence
-                </div>
-              </button>
-            ))
-          )}
+          ) : anomalies[0] ? (
+            (() => {
+              const anomaly = anomalies[0]!;
+              const copy = metaAnomalyBuyerCopy(anomaly);
+              return (
+                <button
+                  key={anomaly.id}
+                  type="button"
+                  className="ad-mobile-anomaly ad-mobile-anomaly-button"
+                  onClick={() => onOpenAnomaly(anomaly)}
+                >
+                  <b>{copy.title}</b>
+                  <div>{copy.detail} · Review details</div>
+                </button>
+              );
+            })()
+          ) : null}
 
           <nav className="ad-mobile-tabs" aria-label="Decision scope">
             {(
@@ -2436,32 +2162,28 @@ function MetaMobileDecisionsScreen({
               {(
                 [
                   ["action", "Action", counts.action],
-                  // The same six lanes the desktop draws. A phone that offered
-                  // five would put the blocked rows nowhere: they are no longer
-                  // inside Action, so omitting the lane would hide them.
                   ["needsres", "Needs Resolution", counts.needsres],
                   ["watching", "Watching", counts.watching],
-                  ["healthy", "Healthy", counts.healthy],
-                  ["nonSales", "Non-sales", counts.nonsales],
-                  ["archive", "Archive", counts.archive],
                 ] as const
-              ).map(([key, label, count]) => (
-                <button
-                  key={key}
-                  type="button"
-                  aria-pressed={lane === key}
-                  data-active={lane === key ? "true" : "false"}
-                  onClick={() => onLaneChange(key)}
-                >
-                  {label} {mobileDisplay(count)}
-                </button>
-              ))}
+              )
+                .filter(
+                  ([key, , count]) =>
+                    key === lane || positiveMobileCount(count),
+                )
+                .map(([key, label, count]) => (
+                  <button
+                    key={key}
+                    type="button"
+                    aria-pressed={lane === key}
+                    data-active={lane === key ? "true" : "false"}
+                    onClick={() => onLaneChange(key)}
+                  >
+                    {label} {mobileDisplay(count)}
+                  </button>
+                ))}
             </nav>
           ) : (
-            <nav
-              className="ad-mobile-tabs"
-              aria-label="Creative decision lane"
-            >
+            <nav className="ad-mobile-tabs" aria-label="Creative decision lane">
               {(
                 [
                   ["action", "Action", creativeLaneCounts?.action],
@@ -2472,17 +2194,22 @@ function MetaMobileDecisionsScreen({
                   ],
                   ["watching", "Watching", creativeLaneCounts?.watching],
                 ] as const
-              ).map(([key, label, count]) => (
-                <button
-                  key={key}
-                  type="button"
-                  aria-pressed={lane === key}
-                  data-active={lane === key ? "true" : "false"}
-                  onClick={() => onLaneChange(key)}
-                >
-                  {label} {mobileDisplay(count)}
-                </button>
-              ))}
+              )
+                .filter(
+                  ([key, , count]) =>
+                    key === lane || positiveMobileCount(count),
+                )
+                .map(([key, label, count]) => (
+                  <button
+                    key={key}
+                    type="button"
+                    aria-pressed={lane === key}
+                    data-active={lane === key ? "true" : "false"}
+                    onClick={() => onLaneChange(key)}
+                  >
+                    {label} {mobileDisplay(count)}
+                  </button>
+                ))}
             </nav>
           )}
 
@@ -2515,82 +2242,9 @@ function MetaMobileDecisionsScreen({
 
           {!loading && !error && rows.length === 0 ? (
             <article className="ad-mobile-row-card">
-              <h3>No rows in this lane</h3>
-              <p>the server queue served none for this scope and lane</p>
+              <h3>No decisions in this view</h3>
             </article>
           ) : null}
-
-          {scope === "structure" ? (
-            <details
-              className="ad-mobile-diagnostics"
-              data-mobile-structure-inventory
-              open={inventoryOpen}
-              onToggle={(event) => setInventoryOpen(event.currentTarget.open)}
-            >
-              <summary>
-                Account inventory ·{" "}
-                {structureInventory.servedCount === null
-                  ? "—"
-                  : `${structureInventory.servedCount.toLocaleString("en-US")} served`}
-              </summary>
-              {inventoryOpen ? (
-                <>
-                  <div>
-                    Complete campaign and ad-set census in server order. A row
-                    here is inventory only and grants no action.
-                  </div>
-                  {structureInventory.searchApplied ? (
-                    <div>
-                      {structureInventory.shownCount.toLocaleString("en-US")}{" "}
-                      rows match the active search.{" "}
-                      <button type="button" onClick={onClearSearch}>
-                        Clear active search
-                      </button>
-                    </div>
-                  ) : null}
-                  {structureInventory.unavailableReason ? (
-                    <div data-mobile-structure-inventory-empty>
-                      {structureInventory.unavailableReason}
-                    </div>
-                  ) : structureInventory.rows.length === 0 ? (
-                    <div data-mobile-structure-inventory-empty>
-                      No served entity matches the active search.
-                    </div>
-                  ) : (
-                    structureInventory.rows.map((row) => (
-                      <article
-                        key={row.id}
-                        className="ad-mobile-row-card"
-                        data-mobile-structure-inventory-row={row.id}
-                      >
-                        <h3>{row.name}</h3>
-                        <p>
-                          {row.grain} · {row.lineage} · {row.status}
-                        </p>
-                        <p>
-                          Spend {row.spend} · ROAS {row.roas} · Purchases{" "}
-                          {row.purchases}
-                        </p>
-                        <p>
-                          CPA {row.cpa} · CTR {row.ctr}
-                        </p>
-                        <p>Setup {row.configuration}</p>
-                      </article>
-                    ))
-                  )}
-                </>
-              ) : null}
-            </details>
-          ) : null}
-
-          <MetaMobileWithheldPanel posture={posture} />
-
-          <div className="ad-mobile-desktop-note">
-            Rows here open evidence, and a decision that names a change carries
-            the same manual action sheet the desktop carries — the server
-            re-proves the target, the STOP and the current entity state before
-            anything is sent. Hit targets ≥44px.
-          </div>
         </div>
       </div>
     </section>
@@ -3008,8 +2662,8 @@ function rowWorkflowChip(input: {
       tone: "warning",
       detail:
         input.readState === "loading"
-          ? "The workflow overlay is still being read."
-          : "The workflow overlay could not be read for this row.",
+          ? "Assignment is loading."
+          : "Assignment is temporarily unavailable.",
     };
   }
   return {
@@ -3017,9 +2671,9 @@ function rowWorkflowChip(input: {
     label: WORKFLOW_STATE_LABEL[input.record.state],
     tone: input.record.state === "resolved" ? "positive" : "neutral",
     detail: input.record.assigneeUserId
-      ? `Owner ${input.record.assigneeUserId}`
+      ? "Assigned to a team member"
       : input.record.snoozeUntil
-        ? `Held until ${input.record.snoozeUntil}`
+        ? `Held until ${formatMetaDateTime(input.record.snoozeUntil, "en")}`
         : null,
   };
 }
@@ -3376,7 +3030,11 @@ function workspaceBannerDestination(
   if (servedHref.startsWith("/") && servedLabel) {
     return {
       href: dashboardHrefForRouteFamily(servedHref, pathname ?? ""),
-      label: servedLabel,
+      label:
+        banner.id === "commercial_target_authority_missing" ||
+        banner.id === "commercial_target_authority_unavailable"
+          ? "Set target"
+          : "Open Automation",
     };
   }
   if (banner.id === "meta_write_kill_switch") {
@@ -3385,27 +3043,174 @@ function workspaceBannerDestination(
         "/platforms/meta/automation",
         pathname ?? "",
       ),
-      label: "System Status",
+      label: "Open Automation",
     };
   }
   if (banner.id === "silent_action_failures") {
-    return { href: historyHref, label: "Meta History" };
+    return { href: historyHref, label: "Open History" };
+  }
+  if (banner.id === "meta_execution_governance_unavailable") {
+    return {
+      href: dashboardHrefForRouteFamily(
+        "/platforms/meta/automation",
+        pathname ?? "",
+      ),
+      label: "Open Automation",
+    };
   }
   return null;
 }
 
-function workspaceBannerDetail(banner: MetaWorkspaceBanner) {
-  const scopeDetail =
-    banner.scope === "target_hard_actions"
-      ? " This applies to hard Scale/Cut authority; the rest of the queue remains readable."
-      : "";
-  if (banner.id === "tracking_write_gate") {
-    return `${banner.detail} Pause, bid and rebuild writes ask for confirmation first. Hiding this banner does not unlock writes; the gate stays active.${scopeDetail}`;
+function workspaceBannerCopy(banner: MetaWorkspaceBanner) {
+  if (
+    banner.id === "meta_decision_pipeline_health" ||
+    banner.id === "snapshot_health" ||
+    banner.id === "exact_ad_decision_freshness"
+  ) {
+    return {
+      title: "Decisions are updating.",
+      detail:
+        "Recommendations remain visible while current Meta data is prepared.",
+    };
+  }
+  if (banner.id === "meta_execution_governance_unavailable") {
+    return {
+      title: "Applying changes is unavailable.",
+      detail: "Review recommendations here and finish setup in Automation.",
+    };
   }
   if (banner.id === "meta_write_kill_switch") {
-    return `${banner.detail} The queue stays readable; execute and route actions are locked until an Admin releases it.${scopeDetail}`;
+    return {
+      title: "Meta changes are paused.",
+      detail: "Recommendations remain visible until the stop is released.",
+    };
   }
-  return `${banner.detail}${scopeDetail}`;
+  if (banner.id === "tracking_write_gate") {
+    return {
+      title: "Purchase tracking needs attention.",
+      detail: "Recommendations remain read-only until tracking recovers.",
+    };
+  }
+  if (
+    banner.id === "commercial_target_authority_missing" ||
+    banner.id === "commercial_target_authority_unavailable"
+  ) {
+    return {
+      title: "A ROAS target is required.",
+      detail: "Set the target used to evaluate Scale and Cut recommendations.",
+    };
+  }
+  if (
+    banner.id === "reviewer_read_only" ||
+    banner.id === "workspace_read_only"
+  ) {
+    return {
+      title: "Read-only access.",
+      detail: "You can review recommendations, but you cannot apply changes.",
+    };
+  }
+  if (banner.id === "silent_action_failures") {
+    return {
+      title: "Some recent changes need review.",
+      detail:
+        "One or more recent Meta changes have an unverified result. Open History to check them.",
+    };
+  }
+  if (banner.id === "readiness_evidence_source") {
+    return {
+      title: "Performance figures need verification.",
+      detail:
+        "The figures shown here are sample or unverified data, not confirmed measurements for this Meta account.",
+    };
+  }
+  if (banner.id === "data_readiness") {
+    return {
+      title: "Recent data is still loading.",
+      detail: "The recommendations shown here may update.",
+    };
+  }
+  return {
+    title: banner.blocking
+      ? "Actions are temporarily unavailable."
+      : "Data is still updating.",
+    detail: banner.blocking
+      ? "Recommendations remain visible while the issue is resolved."
+      : "Some recent information may be incomplete.",
+  };
+}
+
+const COMPACT_CRITICAL_BANNER_IDS: ReadonlySet<string> = new Set([
+  "readiness_evidence_source",
+  "silent_action_failures",
+]);
+
+/**
+ * Keep one compact status card without letting a higher-priority operating
+ * gate erase two facts that change how the page must be read: unverified
+ * figures and a Meta write whose outcome is still unknown. The primary gate
+ * keeps its title, tone and action. Any hidden critical fact is appended in
+ * stable buyer-facing copy, and the History destination remains reachable.
+ */
+function compactWorkspaceBannerPresentation(input: {
+  banners: readonly MetaWorkspaceBanner[];
+  historyHref: string;
+  pathname: string | null;
+}) {
+  const ordered = [...input.banners].sort(
+    (left, right) =>
+      workspaceBannerPriority(left) - workspaceBannerPriority(right),
+  );
+  const primary =
+    ordered.find(
+      (banner) =>
+        banner.blocking || workspaceBannerToneClass(banner) === "danger",
+    ) ?? ordered[0];
+  if (!primary) return null;
+
+  const hiddenCritical = ordered.filter(
+    (banner) =>
+      banner.id !== primary.id && COMPACT_CRITICAL_BANNER_IDS.has(banner.id),
+  );
+  const primaryCopy = workspaceBannerCopy(primary);
+  const criticalDetails = hiddenCritical.map(
+    (banner) => workspaceBannerCopy(banner).detail,
+  );
+  const copy = {
+    title: primaryCopy.title,
+    detail: [
+      // Critical facts lead and the critical variant may wrap, so they cannot
+      // be clipped behind the primary gate's secondary explanation. The title
+      // already states that primary gate.
+      ...criticalDetails,
+      primaryCopy.detail,
+    ].join(" "),
+  };
+
+  const destinations = [primary, ...hiddenCritical]
+    .map((banner) =>
+      workspaceBannerDestination(banner, input.historyHref, input.pathname),
+    )
+    .filter(
+      (destination): destination is NonNullable<typeof destination> =>
+        destination !== null,
+    )
+    .filter(
+      (destination, index, all) =>
+        all.findIndex((candidate) => candidate.href === destination.href) ===
+        index,
+    );
+
+  return {
+    primary,
+    copy,
+    destinations,
+    hasEvidenceWarning: ordered.some(
+      (banner) => banner.id === "readiness_evidence_source",
+    ),
+    hasUnverifiedAction: ordered.some(
+      (banner) => banner.id === "silent_action_failures",
+    ),
+  };
 }
 
 function MetaWorkspacePostureBanners({
@@ -3433,41 +3238,50 @@ function MetaWorkspacePostureBanners({
     );
   if (visibleBanners.length === 0) return null;
 
-  const renderBanner = (banner: MetaWorkspaceBanner, primary: boolean) => {
+  const presentation = compactWorkspaceBannerPresentation({
+    banners: visibleBanners,
+    historyHref,
+    pathname,
+  });
+  if (!presentation) return null;
+
+  const renderBanner = (
+    current: NonNullable<ReturnType<typeof compactWorkspaceBannerPresentation>>,
+  ) => {
+    const { primary: banner, copy, destinations } = current;
     const tone = workspaceBannerToneClass(banner);
-    const detail = workspaceBannerDetail(banner);
-    const destination = workspaceBannerDestination(
-      banner,
-      historyHref,
-      pathname,
-    );
     return (
       <div
         key={banner.id}
         className={cn(
           "meta-posture-banner",
           `meta-posture-banner--${tone}`,
-          primary && "meta-posture-banner--primary",
+          "meta-posture-banner--primary",
+          (current.hasEvidenceWarning || current.hasUnverifiedAction) &&
+            "meta-posture-banner--critical",
         )}
         data-banner-id={banner.id}
         data-banner-blocking={banner.blocking ? "true" : "false"}
         data-banner-scope={banner.scope ?? "workspace"}
+        data-critical-evidence={current.hasEvidenceWarning ? "true" : undefined}
+        data-critical-unverified-action={
+          current.hasUnverifiedAction ? "true" : undefined
+        }
         role={banner.blocking || tone === "danger" ? "alert" : "status"}
       >
         <span className="meta-posture-banner__mark" aria-hidden="true" />
-        <span className="meta-posture-banner__title">{banner.title}</span>
-        <span className="meta-posture-banner__detail" title={detail}>
-          {detail}
-        </span>
+        <span className="meta-posture-banner__title">{copy.title}</span>
+        <span className="meta-posture-banner__detail">{copy.detail}</span>
         <span className="meta-posture-banner__spacer" aria-hidden="true" />
-        {destination ? (
+        {destinations.map((destination) => (
           <a
             className="meta-posture-banner__button"
             href={destination.href}
+            key={destination.href}
           >
             {destination.label}
           </a>
-        ) : null}
+        ))}
         {banner.id === "tracking_write_gate" ? (
           <>
             <button
@@ -3490,172 +3304,10 @@ function MetaWorkspacePostureBanners({
     );
   };
 
-  const blockingBanners = visibleBanners.filter(
-    (banner) => banner.blocking || workspaceBannerToneClass(banner) === "danger",
-  );
-  const expandedBanners =
-    blockingBanners.length > 0 ? blockingBanners : visibleBanners.slice(0, 1);
-  const expandedIds = new Set(expandedBanners.map((banner) => banner.id));
-  const informationalBanners = visibleBanners.filter(
-    (banner) => !expandedIds.has(banner.id),
-  );
   return (
     <div className="meta-posture-banners" data-testid="meta-posture-banners">
-      <p className="meta-posture-banners__eyebrow">Current operating status</p>
-      {expandedBanners.map((banner, index) => renderBanner(banner, index === 0))}
-      {informationalBanners.length > 0 ? (
-        <details className="meta-posture-banners__details">
-          <summary>
-            {informationalBanners.length} additional data note
-            {informationalBanners.length === 1 ? "" : "s"}
-          </summary>
-          <div className="meta-posture-banners__detail-list">
-            {informationalBanners.map((banner) => renderBanner(banner, false))}
-          </div>
-        </details>
-      ) : null}
+      {renderBanner(presentation)}
     </div>
-  );
-}
-
-/**
- * The served account inventory, browsable without going through Archive.
- *
- * MEASURED on Grandmix (5dbc7147-f051-4681-a4d6-20617170074f /
- * act_805150454596350, window 28d, snapshot 2026-08-18): the payload serves
- * `lanes.structureInventory` with 1,230 entities — 476 campaigns, 754 ad sets.
- * The lanes that render them are Action Now 3, Watching 19, Healthy 0,
- * Non-sales 0, Archive 1,211 structure rows (+83 withheld Ad decisions). So
- * 1,211 of 1,230 — 98.5% — were reachable ONLY by opening a lane named
- * Archive, and `os.structure.groups`, the server's grouped census of the same
- * 1,230 entities, was read at exactly one place in the client
- * (`structureNodesByRecommendationId`) purely to enrich rows that already had
- * a lane. It was served and rendered nowhere.
- *
- * WHAT THIS IS NOT. Inventory visibility is not recommendation or execution
- * eligibility (INVARIANTS.md). No row here carries an action, a lane, a
- * decision label, a priority or an urgency — not because they are suppressed
- * but because `MetaStructureInventoryEntity` never carried them, and the
- * builder behind this panel deliberately reads that contract instead of
- * `os.structure`, whose nodes do. There is no button, no menu and no row
- * click: the panel cannot hand anything to Launchpad or to a provider write,
- * and nothing in it re-files a row into a different lane. Rows the server put
- * in Archive are still in Archive; this panel says the account also HAS them.
- *
- * It renders inside the structure scope only, and only when the operator opens
- * it, so 1,230 rows never land in the DOM behind the creatives scope or behind
- * a closed disclosure.
- */
-function MetaStructureInventoryPanel({
-  view,
-  open,
-  onToggle,
-  windowLabel,
-}: {
-  view: MetaStructureInventoryViewModel;
-  open: boolean;
-  onToggle: (open: boolean) => void;
-  windowLabel: string;
-}) {
-  const served =
-    view.servedCount === null ? "—" : view.servedCount.toLocaleString("en-US");
-  const grains =
-    view.campaignCount === null || view.adsetCount === null
-      ? "—"
-      : `${view.campaignCount.toLocaleString("en-US")} campaigns · ${view.adsetCount.toLocaleString(
-          "en-US",
-        )} ad sets`;
-  return (
-    <details
-      className={styles.inventoryPanel}
-      data-meta-structure-inventory
-      data-meta-structure-inventory-served={served}
-      open={open}
-      onToggle={(event) => onToggle(event.currentTarget.open)}
-    >
-      <summary>
-        Account inventory
-        <span data-meta-structure-inventory-summary>
-          {served} served · {grains}
-          {view.searchApplied
-            ? ` · ${view.shownCount.toLocaleString("en-US")} match the search`
-            : ""}
-        </span>
-      </summary>
-      <p className={styles.inventoryNote}>
-        Everything the server serves for this account, in the order it served
-        it. Listing an entity here is not a recommendation and grants no action
-        — decisions stay in the lanes above.
-      </p>
-      {/*
-        The body is gated on the open state, not on the disclosure triangle.
-
-        `<details>` renders its children whether or not it is open, so leaving
-        the table unconditional put all 1,230 of Grandmix's served rows into
-        the DOM on every render of the Decision Center, behind a closed
-        triangle nobody had clicked. The summary line is always rendered, so
-        the native toggle still fires and brings the table with it.
-      */}
-      {!open ? null : view.unavailableReason ? (
-        <p className={styles.inventoryNote} data-meta-structure-inventory-empty>
-          {view.unavailableReason}
-        </p>
-      ) : view.rows.length === 0 ? (
-        <p className={styles.inventoryNote} data-meta-structure-inventory-empty>
-          No served entity matches the search term. Clear it to see all {served}
-          .
-        </p>
-      ) : (
-        <div className={styles.inventoryScroll}>
-          <table className={styles.inventoryTable}>
-            <thead>
-              <tr>
-                <th>Entity</th>
-                <th>Grain</th>
-                <th>Campaign</th>
-                <th>Status</th>
-                <th>{`Spend · ${windowLabel}`}</th>
-                <th>ROAS</th>
-                <th>Purchases</th>
-                {/*
-                  CPA and CTR were served on every census row
-                  (`MetaStructureInventoryEntity.metrics`) and rendered nowhere,
-                  so the table could say what an entity spent and what it earned
-                  but not what a purchase cost or how the creative was clicked.
-                  Both are formatted in the adapter, which also states their
-                  units. Frequency, the third unrendered metric on the same
-                  object, is deliberately still absent — it is derived from a
-                  reach figure summed across days, which counts one person once
-                  per day and drags the ratio below the truth.
-                  @see components/meta/decision-center/decision-payload-coverage.test.ts
-                */}
-                <th>CPA</th>
-                <th>CTR</th>
-                <th>Setup</th>
-              </tr>
-            </thead>
-            <tbody>
-              {view.rows.map((row) => (
-                <tr key={row.id} data-meta-structure-inventory-row={row.id}>
-                  <td>{row.name}</td>
-                  <td>
-                    <span className={styles.inventoryGrain}>{row.grain}</span>
-                  </td>
-                  <td>{row.lineage}</td>
-                  <td>{row.status}</td>
-                  <td>{row.spend}</td>
-                  <td>{row.roas}</td>
-                  <td>{row.purchases}</td>
-                  <td>{row.cpa}</td>
-                  <td>{row.ctr}</td>
-                  <td>{row.configuration}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </details>
   );
 }
 
@@ -3697,20 +3349,18 @@ function MetaNativeAdPauseDialog({
       >
         <div className="meta-label-modal-head">
           <div>
-            <h2 id="meta-native-ad-pause-title">Pause this exact Meta Ad?</h2>
+            <h2 id="meta-native-ad-pause-title">Pause this Meta ad?</h2>
             <p id="meta-native-ad-pause-description">
-              {adName ?? "This Ad"} in{" "}
-              {accountLabel ?? "the selected Meta account"} will be requested as
-              PAUSED. The server will re-read the immutable decision lineage and
-              live hierarchy before one provider attempt.
+              {adName ?? "This ad"} in{" "}
+              {accountLabel ?? "the selected Meta account"} will stop delivering
+              after Meta confirms the change.
             </p>
           </div>
         </div>
         <div className="meta-label-modal-body">
           <p>
-            No campaign, ad set, sibling Ad, budget or creative is changed by
-            this control. An ambiguous provider result is quarantined for
-            reconciliation and is never retried automatically.
+            Only this ad will be paused. Its campaign, ad set, budget, creative,
+            and sibling ads will stay unchanged.
           </p>
           {error ? (
             <p role="alert" data-meta-native-ad-pause-error>
@@ -3736,8 +3386,8 @@ function MetaNativeAdPauseDialog({
               {pending
                 ? "Pausing…"
                 : confirmLocked
-                  ? "Await fresh read-back"
-                  : "Pause exact Ad"}
+                  ? "Refresh before retrying"
+                  : "Pause ad"}
             </button>
           </div>
         </div>
@@ -3809,8 +3459,8 @@ export function MetaPlatformPage({
     arrivalHandoffRefusal
       ? {
           tone: "warning",
-          title: "Launchpad handoff refused.",
-          detail: describeLaunchpadHandoffRefusal(arrivalHandoffRefusal),
+          title: "Launchpad could not open.",
+          detail: "Return to Decisions and try again.",
         }
       : arrivalCompatibility.length > 0
         ? {
@@ -3819,12 +3469,13 @@ export function MetaPlatformPage({
               arrivalCompatibility.length === 1
                 ? "One part of that link could not be restored."
                 : `${arrivalCompatibility.length} parts of that link could not be restored.`,
-            detail: metaDeepLinkCompatibilityDetail(arrivalCompatibility),
+            detail: "The current decision list is shown instead.",
           }
         : null,
   );
   const [refreshingSnapshot, setRefreshingSnapshot] = useState(false);
   const [activeLane, setActiveLane] = useState<MetaLaneView>(initialLane);
+  const automaticInitialLaneResolvedRef = useRef(false);
   const [activeScope, setActiveScope] =
     useState<MetaDecisionCenterExactScope>(initialScope);
   const [rowSort, setRowSort] = useState<MetaRowSort>("money");
@@ -3891,15 +3542,6 @@ export function MetaPlatformPage({
   const [nativeAdPauseError, setNativeAdPauseError] = useState<string | null>(
     null,
   );
-  /*
-   * The inventory disclosure is closed on arrival and its state lives here.
-   *
-   * Closed means the 1,230 served rows are not in the DOM at all: `<details>`
-   * still mounts its children when it is collapsed, and mounting a table that
-   * large behind a closed triangle on every render of the Decision Center is a
-   * cost the operator never asked for.
-   */
-  const [structureInventoryOpen, setStructureInventoryOpen] = useState(false);
   const latestSearchParamsRef = useRef(searchParams.toString());
 
   useEffect(() => {
@@ -4082,7 +3724,10 @@ export function MetaPlatformPage({
    * envelope showing rather than asserting anything.
    */
   useEffect(() => {
-    publishMetaSurfaceState("meta-decisions", workspaceQuery.data?.readState ?? null);
+    publishMetaSurfaceState(
+      "meta-decisions",
+      workspaceQuery.data?.readState ?? null,
+    );
   }, [workspaceQuery.data?.readState]);
 
   /**
@@ -4101,7 +3746,11 @@ export function MetaPlatformPage({
       (workspaceQuery.isFetching && workspaceQuery.data !== undefined) ||
         workspaceQuery.isPlaceholderData,
     );
-  }, [workspaceQuery.isFetching, workspaceQuery.isPlaceholderData, workspaceQuery.data]);
+  }, [
+    workspaceQuery.isFetching,
+    workspaceQuery.isPlaceholderData,
+    workspaceQuery.data,
+  ]);
 
   /**
    * The CTR trail behind every creative row's sparkline.
@@ -4379,10 +4028,9 @@ export function MetaPlatformPage({
     ? workspaceQuery.data.system.trackingBlocked
     : isTrackingWriteBlocked(pulseQuery.data);
   const viewerReadOnlyReason = !workspaceQuery.data?.viewer
-    ? "Decision authority is unavailable; write controls remain disabled."
+    ? "You can review decisions, but changes are unavailable."
     : workspaceQuery.data.viewer.readOnly
-      ? (workspaceQuery.data.viewer.readOnlyReason ??
-        "Current viewer is read-only; write controls are downgraded to review.")
+      ? "You can review decisions, but you cannot apply changes."
       : null;
   const isViewerReadOnly = viewerReadOnlyReason !== null;
   const workspaceBanners = useMemo<MetaWorkspaceBanner[]>(() => {
@@ -4682,8 +4330,8 @@ export function MetaPlatformPage({
     if (isViewerReadOnly) {
       setNotice({
         tone: "info",
-        title: "Snapshot refresh is unavailable.",
-        detail: viewerReadOnlyReason ?? "Current viewer is read-only.",
+        title: "Decision refresh is unavailable.",
+        detail: META_READ_ONLY_BUYER_DETAIL,
       });
       return;
     }
@@ -4706,17 +4354,17 @@ export function MetaPlatformPage({
         tone: outcome.status === "ran" ? "success" : "info",
         title:
           outcome.status === "cooldown"
-            ? "Decision snapshot refresh is in cooldown."
+            ? "Decisions were refreshed recently."
             : outcome.status === "already_running"
-              ? "Decision snapshot refresh is already running."
-              : "Decision snapshot refreshed.",
+              ? "Decisions are already refreshing."
+              : "Decisions refreshed.",
       });
       await refreshDecisionData();
-    } catch (error) {
+    } catch {
       setNotice({
         tone: "danger",
-        title: "Decision snapshot refresh failed.",
-        detail: error instanceof Error ? error.message : null,
+        title: "Decisions could not be refreshed.",
+        detail: "Please try again.",
       });
     } finally {
       setRefreshingSnapshot(false);
@@ -4729,7 +4377,7 @@ export function MetaPlatformPage({
         tone: "info",
         title: "Recommendation is review-only.",
         detail:
-          "Campaign and ad-set bid recommendations cannot write to Meta until a canonical execution-authority contract is available.",
+          "Review this recommendation and its evidence before making changes in Meta Ads.",
       });
       openDrillForRec(rec);
       return;
@@ -4914,7 +4562,7 @@ export function MetaPlatformPage({
         combined.length === 1
           ? "One part of that link could not be restored."
           : `${combined.length} parts of that link could not be restored.`,
-      detail: metaDeepLinkCompatibilityDetail(combined),
+      detail: "The current decision list is shown instead.",
     });
   }, [
     entityParam,
@@ -4938,7 +4586,7 @@ export function MetaPlatformPage({
       setNotice({
         tone: "info",
         title: "Read-only access.",
-        detail: viewerReadOnlyReason,
+        detail: META_READ_ONLY_BUYER_DETAIL,
       });
       openDrillForRec(rec);
       return;
@@ -4967,7 +4615,11 @@ export function MetaPlatformPage({
       the target, the capability, the rehearsal posture, the STOP and the
       current entity state before it POSTs anything.
     */
-    if (rec.operatorApply && mutationUiEnabled && toDecisionRow(rec).decisionKey !== null) {
+    if (
+      rec.operatorApply &&
+      mutationUiEnabled &&
+      toDecisionRow(rec).decisionKey !== null
+    ) {
       setManualCeremonyRec(rec);
       return;
     }
@@ -4975,8 +4627,7 @@ export function MetaPlatformPage({
       tone: "info",
       title: "Recommendation is review-only.",
       detail:
-        action.scopeNote?.trim() ||
-        `${action.label || "This recommendation"} carries no routed execution authority on this surface.`,
+        "Review this recommendation and its evidence before making changes in Meta Ads.",
     });
     openDrillForRec(rec);
   };
@@ -5003,7 +4654,7 @@ export function MetaPlatformPage({
       setNotice({
         tone: "info",
         title: "Read-only access.",
-        detail: viewerReadOnlyReason,
+        detail: META_READ_ONLY_BUYER_DETAIL,
       });
       setOverlay(EMPTY_OVERLAY);
       openDrillForRec(rec);
@@ -5015,7 +4666,7 @@ export function MetaPlatformPage({
         tone: "info",
         title: "Recommendation is review-only.",
         detail:
-          "Campaign and ad-set bid recommendations cannot write to Meta without canonical execution authority.",
+          "Review this recommendation and its evidence before making changes in Meta Ads.",
       });
       setOverlay(EMPTY_OVERLAY);
       openDrillForRec(rec);
@@ -5030,9 +4681,8 @@ export function MetaPlatformPage({
     // recorded until an actual execution or durable action receipt exists.
     setNotice({
       tone: "info",
-      title: "Launchpad opened without decision lineage.",
-      detail:
-        "This recommendation is at campaign/ad-set level, so no canonical ad decision could be carried into the launch. The wizard starts manually in the requested mode; the decision itself stays in Action now with its evidence.",
+      title: "Launchpad opened.",
+      detail: "Review the prepared setup before continuing.",
     });
     router.push(dashboardHrefForRouteFamily(href, pathname));
   };
@@ -5070,7 +4720,7 @@ export function MetaPlatformPage({
       setNotice({
         tone: "info",
         title: "Read-only access.",
-        detail: viewerReadOnlyReason,
+        detail: META_READ_ONLY_BUYER_DETAIL,
       });
       return;
     }
@@ -5078,8 +4728,7 @@ export function MetaPlatformPage({
       setNotice({
         tone: "warning",
         title: "No Meta ad account is in scope.",
-        detail:
-          "A launch handoff is minted against an assigned provider account; none is resolved for this workspace.",
+        detail: "Select a Meta ad account before opening Launchpad.",
       });
       return;
     }
@@ -5094,20 +4743,10 @@ export function MetaPlatformPage({
         sourceSnapshotId: canonical.sourceSnapshotId,
       });
       if (!minted.ok || !minted.handoff) {
-        const refusal = minted.message ?? "The launch handoff was refused.";
         setNotice({
           tone: "warning",
-          title: "Launchpad handoff refused.",
-          // The server's reason first, then the SERVER's own caption for the
-          // control that was refused — label, code and intent, verbatim off the
-          // tuple that travelled here. This is the only use the tuple gets, and
-          // it is the point of carrying it: a refusal that cannot name what was
-          // refused sends the operator back to guess, and re-deriving that name
-          // from the decision label would put a classification in an action's
-          // place.
-          detail: servedAction
-            ? `${refusal} Refused control: ${servedAction.label} (${servedAction.code}, intent ${servedAction.intent}).`
-            : refusal,
+          title: "Launchpad could not open.",
+          detail: "Refresh the decision and try again.",
         });
         return;
       }
@@ -5233,24 +4872,6 @@ export function MetaPlatformPage({
         )) &&
       rowLevelMatch(row.level),
   );
-  /*
-   * The served census, built once per payload / search term.
-   *
-   * It honours the SAME search box the queue toolbar owns, because that box
-   * already filters every lane on this page and a second, invisible filter
-   * would be a table narrowing itself for no visible reason. The panel reports
-   * the served total beside the matched total so a typed term can never look
-   * like a shrinking account.
-   */
-  const structureInventoryView = useMemo(
-    () =>
-      buildMetaStructureInventoryViewModel({
-        workspace: workspaceQuery.data,
-        fallbackCurrency: moneyCurrency,
-        search: rowSearch,
-      }),
-    [moneyCurrency, rowSearch, workspaceQuery.data],
-  );
   /**
    * The operator workflow overlay, on the body an operator actually reaches.
    *
@@ -5266,11 +4887,7 @@ export function MetaPlatformPage({
    */
   const servedDecisionKeys = useMemo(
     () =>
-      [
-        ...exactActionRows,
-        ...exactWatchingRows,
-        ...exactNonSalesRows,
-      ]
+      [...exactActionRows, ...exactWatchingRows, ...exactNonSalesRows]
         .map((recommendation) => recommendation.id)
         .filter(Boolean)
         .slice(0, DECISION_WORKFLOW_KEY_CAP),
@@ -5398,13 +5015,47 @@ export function MetaPlatformPage({
     : {
         activeWindow: exactWindowForMetaWindow(selectedWindow),
         identity: {
-          accountLabel:
-            selectedProviderAccount?.name ??
-            selectedProviderAccount?.id ??
-            null,
+          accountLabel: metaAccountDisplayLabel(
+            selectedProviderAccount?.name,
+            selectedProviderAccount?.id,
+          ),
           currency: moneyCurrency,
         },
       };
+
+  useEffect(() => {
+    if (automaticInitialLaneResolvedRef.current || !workspaceQuery.data) return;
+    automaticInitialLaneResolvedRef.current = true;
+
+    const explicitLane =
+      searchParams.get("lane") !== null ||
+      searchParams.get("area") !== null ||
+      searchParams.get("segment") !== null ||
+      searchParams.get("entity") !== null ||
+      searchParams.get("row") !== null;
+    if (
+      explicitLane ||
+      activeScope !== "structure" ||
+      activeLane !== "action"
+    ) {
+      return;
+    }
+
+    if (
+      (exactViewModel.actionRows?.length ?? 0) === 0 &&
+      (exactViewModel.needsResolutionRows?.length ?? 0) > 0
+    ) {
+      selectLane("needsres");
+    }
+  }, [
+    activeLane,
+    activeScope,
+    exactViewModel.actionRows,
+    exactViewModel.needsResolutionRows,
+    searchParams,
+    selectLane,
+    workspaceQuery.data,
+  ]);
 
   /**
    * The Workflow section, composed onto the inspector the adapter already
@@ -5462,7 +5113,8 @@ export function MetaPlatformPage({
    * one the sheet could only preflight a key `parseDecisionKey` refuses, so it
    * is withheld with a stated reason rather than opened onto a certain 422.
    */
-  const drillRec = drillItem && drillItem.mode !== "anomaly" ? drillItem.rec : null;
+  const drillRec =
+    drillItem && drillItem.mode !== "anomaly" ? drillItem.rec : null;
   /**
    * The manual action sheet's posture for the selected row.
    *
@@ -5496,17 +5148,17 @@ export function MetaPlatformPage({
       workspaceQuery.data?.system.killSwitchEngaged,
     );
     return {
-      label: "Open manual action",
+      label: "Review change",
       refusalReason: isViewerReadOnly
-        ? viewerReadOnlyReason
+        ? META_READ_ONLY_BUYER_DETAIL
         : killSwitchEngaged
-          ? "Meta writes are stopped for this workspace, so no manual action can be prepared."
+          ? "Meta changes are paused. You can still review this recommendation."
           : !mutationUiEnabled
-            ? "The manual action sheet is not enabled on this workspace yet. The decision and its evidence are shown above."
+            ? "Applying changes is unavailable here. You can still review this recommendation."
             : rec && !operatorApply
-              ? "This decision names no change to apply, so no manual action can be prepared. The decision and its evidence are shown above."
+              ? "This recommendation does not include a change to apply."
               : rec && decisionKey === null
-                ? "This decision does not name a single campaign or ad set, so no manual action can be prepared."
+                ? "Select a single campaign or ad set before applying a change."
                 : null,
       onOpen:
         mutationUiEnabled &&
@@ -5521,9 +5173,7 @@ export function MetaPlatformPage({
   };
   const inspectorManualAction: NonNullable<
     MetaDecisionCenterExactViewModel["inspector"]
-  >["manualAction"] = selectedDecisionKey
-    ? manualActionForRec(drillRec)
-    : null;
+  >["manualAction"] = selectedDecisionKey ? manualActionForRec(drillRec) : null;
   /*
    * The per-row ownership chip, attached after the adapter has built the rows.
    *
@@ -5564,12 +5214,6 @@ export function MetaPlatformPage({
         }
       : exactViewModelWithRowChips;
 
-  // Served authority the mobile surface states beside its rows. Read-only
-  // projection of already-fetched fields: no extra query, no derivation.
-  const mobilePosture = buildMetaMobilePosture({
-    workspace: workspaceQuery.data,
-    viewerReadOnlyReason,
-  });
   /**
    * The way back from a served row id to the recommendation the server stamped.
    *
@@ -5691,17 +5335,14 @@ export function MetaPlatformPage({
         ? {
             kind: "native_ad_pause",
             offered: false,
-            refusalReason:
-              viewerReadOnlyReason ??
-              "Current viewer is not authorized to mutate Meta Ads.",
+            refusalReason: META_READ_ONLY_BUYER_DETAIL,
           }
         : workspaceQuery.data?.system.killSwitchEngaged
           ? {
               kind: "native_ad_pause",
               offered: false,
               refusalReason:
-                workspaceQuery.data.system.killSwitchReason ??
-                "Meta writes are disabled by the kill switch.",
+                "Meta changes are paused. You can still review this recommendation.",
             }
           : {
               kind: "native_ad_pause",
@@ -5712,14 +5353,15 @@ export function MetaPlatformPage({
           kind: "native_ad_pause",
           offered: false,
           refusalReason:
-            creativeEvidenceNativePause?.refusalReason ??
-            "Exact-Ad pause authority is unavailable.",
+            "This recommendation can be reviewed, but it cannot pause this ad.",
         }
     : creativeEvidenceLaunchpad
       ? {
           kind: "launchpad_handoff",
           offered: creativeEvidenceLaunchpad.offered,
-          refusalReason: creativeEvidenceLaunchpad.refusalReason,
+          refusalReason: creativeEvidenceLaunchpad.offered
+            ? null
+            : "This recommendation can be reviewed, but it cannot open Launchpad.",
         }
       : null;
   const creativeEvidenceNativePauseControl =
@@ -5769,7 +5411,12 @@ export function MetaPlatformPage({
 
   const creativeEvidenceViewModel: CreativeEvidenceWindowExactViewModel =
     creativeEvidenceSharedInput
-      ? buildCreativeEvidenceWindowExactViewModel(creativeEvidenceSharedInput)
+      ? metaBuyerCreativeEvidenceViewModel(
+          buildCreativeEvidenceWindowExactViewModel(
+            creativeEvidenceSharedInput,
+          ),
+          creativeEvidencePrimaryAuthority,
+        )
       : {};
 
   const closeNativeAdPauseDialog = () => {
@@ -5793,7 +5440,7 @@ export function MetaPlatformPage({
       request: nativeAdPauseAuthorization.request,
     });
     if (!result.ok) {
-      setNativeAdPauseError(describeMetaNativeAdPauseFailure(result));
+      setNativeAdPauseError(metaNativeAdPauseBuyerFailure(result));
       if (
         result.reconciliationRequired ||
         result.retryAllowed === false ||
@@ -5818,9 +5465,11 @@ export function MetaPlatformPage({
     setNotice({
       tone: "success",
       title: result.duplicate
-        ? "Exact Ad pause was already verified."
-        : "Exact Ad paused.",
-      detail: result.message,
+        ? "This Meta ad was already paused."
+        : "Meta ad paused.",
+      detail: result.duplicate
+        ? "Meta had already confirmed this ad as paused."
+        : "Meta confirmed the change. Decisions are refreshing.",
     });
     await refreshDecisionData();
   };
@@ -5871,8 +5520,6 @@ export function MetaPlatformPage({
         <MetaMobileDecisionsScreen
           businessName={businessName}
           viewModel={exactViewModel}
-          structureInventory={structureInventoryView}
-          posture={mobilePosture}
           scope={activeScope}
           lane={activeLane}
           onScopeChange={selectScope}
@@ -5883,7 +5530,6 @@ export function MetaPlatformPage({
           banners={workspaceBanners}
           historyHref={metaHistoryHref}
           pathname={pathname}
-          onClearSearch={() => setRowSearchParam("")}
           anomalyError={anomalyError}
           canLoadMoreCreatives={canLoadMoreCreatives}
           loadingMoreCreatives={workspaceQuery.isFetching}
@@ -5913,8 +5559,7 @@ export function MetaPlatformPage({
             <div className="msg">
               <b>Select a Meta ad account.</b>
               <span className="sub">
-                Decisions stay withheld until an explicitly assigned provider
-                account defines identity and currency scope.
+                Select the account whose decisions you want to review.
               </span>
               <label>
                 <span className="sr-only">Meta ad account</span>
@@ -5932,7 +5577,8 @@ export function MetaPlatformPage({
                   </option>
                   {providerAccounts.map((account) => (
                     <option key={account.id} value={account.id}>
-                      {account.name ?? account.id}
+                      {metaAccountDisplayLabel(account.name, account.id) ??
+                        "Unnamed Meta account"}
                       {account.currency ? " · " + account.currency : ""}
                     </option>
                   ))}
@@ -5952,7 +5598,7 @@ export function MetaPlatformPage({
             <div className="msg">
               <b>Decision workspace could not load.</b>
               <span className="sub">
-                {describeDecisionWorkspaceFailure(briefingError)}
+                We could not load Meta decisions. Please try again.
               </span>
             </div>
             <button
@@ -5984,8 +5630,7 @@ export function MetaPlatformPage({
             <div className="msg">
               <b>Loading decision data.</b>
               <span className="sub">
-                Reading the assigned Meta account and its complete server
-                decision workspace for this date range.
+                Your Meta decisions will appear here shortly.
               </span>
             </div>
           </div>
@@ -6007,12 +5652,8 @@ export function MetaPlatformPage({
             <div className="msg">
               <b>Account details are unavailable.</b>
               <span className="sub">
-                The assigned account is in scope and its decisions loaded, but
-                the account record could not be read, so its name and currency
-                show as &quot;—&quot; rather than a guess.
-                {providerAccountMetadataError
-                  ? ` ${providerAccountMetadataError.message}`
-                  : ""}
+                Decisions are available, but the account name and currency could
+                not be refreshed.
               </span>
             </div>
             <button
@@ -6035,11 +5676,9 @@ export function MetaPlatformPage({
           >
             <div className="icon">!</div>
             <div className="msg">
-              <b>Integrity scan is unavailable.</b>
+              <b>Some checks are unavailable.</b>
               <span className="sub">
-                {anomalyQuery.error instanceof Error
-                  ? anomalyQuery.error.message
-                  : "Integrity evidence is withheld; the decision workspace remains readable."}
+                The decisions below are still available.
               </span>
             </div>
           </div>
@@ -6056,8 +5695,10 @@ export function MetaPlatformPage({
               <b>{notice.title}</b>
               <span className="sub">
                 {notice.detail ??
-                  selectedProviderAccount?.name ??
-                  selectedProviderAccount?.id ??
+                  metaAccountDisplayLabel(
+                    selectedProviderAccount?.name,
+                    selectedProviderAccount?.id,
+                  ) ??
                   "Selected account"}
               </span>
             </div>
@@ -6068,23 +5709,6 @@ export function MetaPlatformPage({
             >
               Dismiss
             </button>
-          </div>
-        ) : null}
-
-        {workspaceQuery.data?.decisionReadModel.status === "unavailable" ? (
-          <div
-            className="banner danger"
-            data-testid="meta-decision-unavailable"
-            role="alert"
-          >
-            <div className="icon">!</div>
-            <div className="msg">
-              <b>Canonical decision source is unavailable.</b>
-              <span className="sub">
-                {workspaceQuery.data.decisionReadModel.unavailable?.message ??
-                  "Decision rows are withheld because source authority could not be verified."}
-              </span>
-            </div>
           </div>
         ) : null}
 
@@ -6195,22 +5819,6 @@ export function MetaPlatformPage({
             </button>
           </div>
         ) : null}
-
-        {/*
-          The census, under the queue it is not part of.
-
-          It renders only inside the structure scope: the creatives scope has
-          its own served set and a campaign/ad-set census sitting beneath it
-          would be a list with no relationship to what is above it.
-        */}
-        {workspaceQuery.data && activeScope === "structure" ? (
-          <MetaStructureInventoryPanel
-            view={structureInventoryView}
-            open={structureInventoryOpen}
-            onToggle={setStructureInventoryOpen}
-            windowLabel={exactViewModel.activeWindow ?? "—"}
-          />
-        ) : null}
       </div>
 
       {creativeDrill && creativeEvidenceSharedInput ? (
@@ -6221,87 +5829,90 @@ export function MetaPlatformPage({
             setNativeAdPauseError(null);
             setCreativeDrill(null);
           }}
-          viewModel={buildCreativeEvidenceWindowExactViewModel({
-            ...creativeEvidenceSharedInput,
-            // The primary is a control, not a link, because the destination
-            // does not exist until the server mints it. Same slot, same label,
-            // same styling — what changed is that clicking it now produces a
-            // verified handoff or a stated refusal instead of a URL Launchpad
-            // was always going to throw away.
-            //
-            // The callback receives the SERVED action tuple by reference. It is
-            // not rebuilt, renamed or narrowed on the way: `action.code`,
-            // `action.intent` and `action.providerMutation` reach this boundary
-            // exactly as the payload carried them, and the handler asserts
-            // nothing about them — it names a decision and lets the server
-            // re-read it.
-            //
-            // The `&& creativeDrill.canonical` is the fail-closed half, not a
-            // type ceremony: `openLaunchpadFromCanonicalDecision` mints against
-            // a canonical decision, and a row that has none must reach no
-            // provider-write path at all. `creativeEvidenceLaunchpadRoute`
-            // already refuses such a row, so the two agree; this makes the
-            // agreement unfalsifiable rather than assumed.
-            callbacks: creativeEvidenceNativePauseControl
-              ? {
-                  onPrimary: (action: MetaOsDecisionAction) => {
-                    if (action !== creativeDrill.decision?.action) {
-                      setNotice({
-                        tone: "danger",
-                        title: "Served action changed.",
-                        detail:
-                          "The evidence control no longer matches the decision row. Reopen the row before acting.",
-                      });
-                      return;
-                    }
-                    const requestWasLocked =
-                      creativeEvidenceNativePauseControl.request
-                        .idempotencyKey === nativeAdPauseLockedKey;
-                    setNativeAdPauseError(
-                      requestWasLocked
-                        ? "This exact pause request already has a non-retryable or reconciliation result. Wait for a fresh server read-back before acting again."
-                        : null,
-                    );
-                    if (trackingBlocked && !requestWasLocked) {
-                      setPendingNativePauseTracking(
-                        creativeEvidenceNativePauseControl,
-                      );
-                      return;
-                    }
-                    setNativeAdPauseAuthorization(
-                      creativeEvidenceNativePauseControl,
-                    );
-                  },
-                }
-              : creativeEvidenceLaunchpad?.offered && creativeDrill.canonical
+          viewModel={metaBuyerCreativeEvidenceViewModel(
+            buildCreativeEvidenceWindowExactViewModel({
+              ...creativeEvidenceSharedInput,
+              // The primary is a control, not a link, because the destination
+              // does not exist until the server mints it. Same slot, same label,
+              // same styling — what changed is that clicking it now produces a
+              // verified handoff or a stated refusal instead of a URL Launchpad
+              // was always going to throw away.
+              //
+              // The callback receives the SERVED action tuple by reference. It is
+              // not rebuilt, renamed or narrowed on the way: `action.code`,
+              // `action.intent` and `action.providerMutation` reach this boundary
+              // exactly as the payload carried them, and the handler asserts
+              // nothing about them — it names a decision and lets the server
+              // re-read it.
+              //
+              // The `&& creativeDrill.canonical` is the fail-closed half, not a
+              // type ceremony: `openLaunchpadFromCanonicalDecision` mints against
+              // a canonical decision, and a row that has none must reach no
+              // provider-write path at all. `creativeEvidenceLaunchpadRoute`
+              // already refuses such a row, so the two agree; this makes the
+              // agreement unfalsifiable rather than assumed.
+              callbacks: creativeEvidenceNativePauseControl
                 ? {
                     onPrimary: (action: MetaOsDecisionAction) => {
-                      void openLaunchpadFromCanonicalDecision(
-                        creativeDrill.canonical!,
-                        action,
+                      if (action !== creativeDrill.decision?.action) {
+                        setNotice({
+                          tone: "danger",
+                          title: "This decision changed.",
+                          detail:
+                            "Reopen the decision before applying this change.",
+                        });
+                        return;
+                      }
+                      const requestWasLocked =
+                        creativeEvidenceNativePauseControl.request
+                          .idempotencyKey === nativeAdPauseLockedKey;
+                      setNativeAdPauseError(
+                        requestWasLocked
+                          ? "This pause is waiting for confirmation. Refresh decisions before trying again."
+                          : null,
+                      );
+                      if (trackingBlocked && !requestWasLocked) {
+                        setPendingNativePauseTracking(
+                          creativeEvidenceNativePauseControl,
+                        );
+                        return;
+                      }
+                      setNativeAdPauseAuthorization(
+                        creativeEvidenceNativePauseControl,
                       );
                     },
                   }
-                : undefined,
-            hrefs: {
-              primary: null,
-              compareInStudio: creativeEvidenceStudioHref({
-                canonical: creativeDrill.canonical,
-                decision: creativeDrill.decision,
-                pathname,
-              }),
-              adsManager: buildMetaAdsManagerHref({
-                providerAccountId:
-                  creativeDrill.canonical?.providerAccountId ??
-                  creativeDrill.decision?.providerAccountId ??
-                  null,
-                adId:
-                  creativeDrill.canonical?.parentChain.ad?.id ??
-                  creativeDrill.decision?.adId ??
-                  null,
-              }),
-            },
-          })}
+                : creativeEvidenceLaunchpad?.offered && creativeDrill.canonical
+                  ? {
+                      onPrimary: (action: MetaOsDecisionAction) => {
+                        void openLaunchpadFromCanonicalDecision(
+                          creativeDrill.canonical!,
+                          action,
+                        );
+                      },
+                    }
+                  : undefined,
+              hrefs: {
+                primary: null,
+                compareInStudio: creativeEvidenceStudioHref({
+                  canonical: creativeDrill.canonical,
+                  decision: creativeDrill.decision,
+                  pathname,
+                }),
+                adsManager: buildMetaAdsManagerHref({
+                  providerAccountId:
+                    creativeDrill.canonical?.providerAccountId ??
+                    creativeDrill.decision?.providerAccountId ??
+                    null,
+                  adId:
+                    creativeDrill.canonical?.parentChain.ad?.id ??
+                    creativeDrill.decision?.adId ??
+                    null,
+                }),
+              },
+            }),
+            creativeEvidencePrimaryAuthority,
+          )}
         />
       ) : null}
 
@@ -6312,11 +5923,10 @@ export function MetaPlatformPage({
           creativeDrill?.decision?.adName ??
           null
         }
-        accountLabel={
-          selectedProviderAccount?.name ??
-          selectedProviderAccount?.id ??
-          providerAccountId
-        }
+        accountLabel={metaAccountDisplayLabel(
+          selectedProviderAccount?.name,
+          selectedProviderAccount?.id ?? providerAccountId,
+        )}
         pending={nativeAdPausePending}
         confirmLocked={
           nativeAdPauseAuthorization?.request.idempotencyKey ===
@@ -6358,7 +5968,7 @@ export function MetaPlatformPage({
         }
         description={
           pendingNativePauseTracking
-            ? "Pausing an exact Ad while tracking is degraded may rely on incomplete purchase evidence. Continue to the exact-Ad confirmation, or resolve tracking first?"
+            ? "Purchase tracking is incomplete, so this recommendation may use partial results. Continue to review the pause before confirming it."
             : undefined
         }
         onClose={() => {
@@ -6377,11 +5987,9 @@ export function MetaPlatformPage({
             ) {
               setNotice({
                 tone: "danger",
-                title: "Exact-Ad pause is no longer available.",
+                title: "This ad cannot be paused right now.",
                 detail:
-                  viewerReadOnlyReason ??
-                  workspaceQuery.data?.system.killSwitchReason ??
-                  "Meta writes are unavailable. Reopen the row after a fresh server read-back.",
+                  "Meta changes are unavailable. Refresh decisions before trying again.",
               });
               return;
             }

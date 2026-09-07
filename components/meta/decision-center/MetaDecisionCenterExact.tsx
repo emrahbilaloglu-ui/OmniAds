@@ -8,8 +8,6 @@ import {
 } from "@/components/zero-base/i18n/copy-provider";
 
 import styles from "./MetaDecisionCenterExact.module.css";
-import { BudgetDecisionEvidencePanel } from "./BudgetDecisionEvidencePanel";
-import { BudgetDryRunPanel } from "./BudgetDryRunPanel";
 import type { MetaBudgetDryRunPanel } from "@/lib/meta/budget-dry-run-panel";
 import type { MetaBudgetDecisionEvidenceByDirection } from "@/lib/meta/budget-decision-evidence-panel";
 
@@ -848,70 +846,6 @@ function positiveDisplayCount(
   return /^\d+$/.test(normalized) && Number(normalized) > 0;
 }
 
-/**
- * The disclosure stays compact, but its closed state must never hide why a
- * budget decision is blocked. Every reason below is carried by the server
- * panel; this helper only chooses which served status sentences to expose.
- */
-function budgetDecisionReadinessSummary(
-  evidence?: MetaBudgetDecisionEvidenceByDirection | null,
-  dryRun?: MetaBudgetDryRunPanel | null,
-): {
-  text: string;
-  state: "blocked" | "unavailable" | "review_only" | "unknown";
-} {
-  const blockingStates: string[] = [];
-  let hasBlockedState = false;
-  let hasUnavailableState = false;
-
-  for (const [label, panel] of [
-    ["Increase", evidence?.increase],
-    ["Decrease", evidence?.decrease],
-  ] as const) {
-    if (!panel) continue;
-    if (panel.status === "unavailable") {
-      hasUnavailableState = true;
-      blockingStates.push(
-        `${label} unavailable · ${panel.executionReadiness.why}`,
-      );
-      continue;
-    }
-    if (panel.authority === "blocked") {
-      hasBlockedState = true;
-      blockingStates.push(
-        `${label} blocked · ${panel.primaryBlocker?.reason ?? panel.executionReadiness.why}`,
-      );
-    }
-  }
-
-  if (dryRun?.status === "unavailable") {
-    hasUnavailableState = true;
-    blockingStates.push(`Dry run unavailable · ${dryRun.headline}`);
-  } else if (dryRun?.required.blockers[0]) {
-    hasBlockedState = true;
-    blockingStates.push(`Dry run blocked · ${dryRun.required.blockers[0].why}`);
-  }
-
-  if (blockingStates.length > 0) {
-    return {
-      text: blockingStates.join(" · "),
-      state: hasBlockedState
-        ? "blocked"
-        : hasUnavailableState
-          ? "unavailable"
-          : "unknown",
-    };
-  }
-  if (dryRun) return { text: dryRun.headline, state: "review_only" };
-  if (evidence) {
-    return {
-      text: evidence.increase.executionReadiness.why,
-      state: "review_only",
-    };
-  }
-  return { text: EM_DASH, state: "unknown" };
-}
-
 function toneClass(
   tone: MetaDecisionCenterExactTone | null | undefined,
 ): string {
@@ -932,13 +866,6 @@ function unservedActionName(
   subject: string,
 ): string | undefined {
   return label === EM_DASH ? `No action available: ${subject}` : undefined;
-}
-
-function slots<T>(
-  values: readonly T[] | null | undefined,
-  count: number,
-): Array<T | undefined> {
-  return Array.from({ length: count }, (_, index) => values?.[index]);
 }
 
 function callWithPropagationStopped(event: MouseEvent, callback?: () => void) {
@@ -1122,7 +1049,6 @@ function ExactKpiBand({
 }) {
   const copy = useCopy();
   const language = useZeroBaseLanguage();
-  const modeChips = slots(kpis?.mode?.chips, 2);
   return (
     <div className={styles.kpiGrid} data-meta-exact-section="kpis">
       <article className={styles.kpiCard}>
@@ -1187,71 +1113,6 @@ function ExactKpiBand({
           />
         </svg>
       </article>
-
-      <article className={styles.kpiCard}>
-        <p className={styles.kpiLabel}>
-          {language === "tr"
-            ? "Öneri anlık görüntüsü"
-            : "Recommendation snapshot"}
-        </p>
-        <span className={styles.freshnessPill}>
-          {display(kpis?.snapshot?.freshness)}
-        </span>
-        <p className={styles.snapshotDetail}>
-          {display(kpis?.snapshot?.detail)}
-        </p>
-      </article>
-
-      <article className={styles.kpiCard}>
-        <p className={styles.kpiLabel}>
-          {language === "tr" ? "Kampanya rolleri" : "Campaign roles"}
-        </p>
-        <p className={styles.kpiValue}>
-          {display(kpis?.campaignRoles?.coverage)}{" "}
-          <span className={styles.rolePercentage}>
-            {display(kpis?.campaignRoles?.percentage)}
-          </span>
-        </p>
-        <p className={styles.roleInference}>
-          {display(
-            kpis?.campaignRoles?.status === "no_active"
-              ? language === "tr"
-                ? "Otomatik çıkarım · aktif kampanya yok"
-                : "Automatic inference · no active campaigns"
-              : kpis?.campaignRoles?.status === "unresolved"
-                ? language === "tr"
-                  ? `Otomatik çıkarım · ${display(kpis.campaignRoles.unresolvedCount)} çözümlenmedi · yetki ${display(kpis.campaignRoles.actionAuthoritativeCount)}/${display(kpis.campaignRoles.activeCount)}`
-                  : `Automatic inference · ${display(kpis.campaignRoles.unresolvedCount)} unresolved · authority ${display(kpis.campaignRoles.actionAuthoritativeCount)}/${display(kpis.campaignRoles.activeCount)}`
-                : kpis?.campaignRoles?.status === "resolved"
-                  ? language === "tr"
-                    ? `Otomatik çıkarım · tümü sınıflandırıldı · yetki ${display(kpis.campaignRoles.actionAuthoritativeCount)}/${display(kpis.campaignRoles.activeCount)}`
-                    : `Automatic inference · all classified · authority ${display(kpis.campaignRoles.actionAuthoritativeCount)}/${display(kpis.campaignRoles.activeCount)}`
-                  : kpis?.campaignRoles?.status === "unavailable"
-                    ? language === "tr"
-                      ? "Otomatik çıkarım kullanılamıyor · kesin aksiyonlar engelli"
-                      : "Automatic inference unavailable · hard actions remain blocked"
-                    : (kpis?.campaignRoles?.detail ??
-                      (language === "tr"
-                        ? "Otomatik sınıflandırma"
-                        : "Automatic inference")),
-          )}
-        </p>
-      </article>
-
-      <article className={styles.kpiCard}>
-        <p className={styles.kpiLabel}>{copy.kpiModeLabel}</p>
-        <p className={styles.modeValue}>{display(kpis?.mode?.value)}</p>
-        <div className={styles.modeChips}>
-          {modeChips.map((chip, index) => (
-            <span
-              className={`${styles.modeChip} ${toneClass(chip?.tone)}`}
-              key={`mode-chip-${index}`}
-            >
-              {display(chip?.label)}
-            </span>
-          ))}
-        </div>
-      </article>
     </div>
   );
 }
@@ -1292,16 +1153,11 @@ function LanePaging({
   return (
     <p className={styles.lanePaging} data-meta-exact-lane-paging={label}>
       <span data-lane-count="">
-        {copy.showingOfServedRows
+        {(complete ? copy.allServedRowsShown : copy.showingOfServedRows)
           .replace("{shown}", String(shown))
           .replace("{served}", String(served))}
       </span>
-      {complete ? (
-        <span data-lane-paging-complete="">
-          {" · "}
-          {copy.allServedRowsShown.replace("{served}", String(served))}
-        </span>
-      ) : (
+      {!complete ? (
         <button
           className={styles.lanePagingMore}
           data-ctl="live:META-DEC-05 load-more"
@@ -1310,7 +1166,7 @@ function LanePaging({
         >
           {copy.showMore}
         </button>
-      )}
+      ) : null}
     </p>
   );
 }
@@ -1394,71 +1250,6 @@ function LevelFilter({
         ) : null}
       </select>
     </label>
-  );
-}
-
-/**
- * Copy a link that reproduces this view (`live:INV-18 share-view`).
- *
- * The URL already carries everything the contract names — account, lane, level,
- * window — because every one of those controls writes to it. So the control is
- * a copy, not a link: there is nowhere to navigate to that is not where the
- * operator already is.
- *
- * Three states, because the clipboard can refuse. Idle offers the copy; copied
- * announces through `role="status"`, which is what "'copied' announced
- * (role=status)" in the contract asks for; refused falls back to a selectable
- * field holding the URL, so a denied clipboard costs the operator a keystroke
- * rather than the link.
- */
-function ShareViewControl() {
-  const copy = useCopy();
-  const [state, setState] = useState<
-    { kind: "idle" } | { kind: "copied" } | { kind: "manual"; url: string }
-  >({ kind: "idle" });
-
-  const share = async () => {
-    const url = typeof window === "undefined" ? "" : window.location.href;
-    if (!url) return;
-    try {
-      await navigator.clipboard.writeText(url);
-      setState({ kind: "copied" });
-    } catch {
-      // Denied, unavailable, or an insecure context. All three are the same
-      // fact for the operator: the browser will not copy for them.
-      setState({ kind: "manual", url });
-    }
-  };
-
-  return (
-    <span className={styles.shareView} data-meta-exact-share-view={state.kind}>
-      <button
-        className={styles.shareViewButton}
-        data-ctl="live:INV-18 share-view"
-        onClick={() => void share()}
-        type="button"
-      >
-        {copy.copyLinkToThisView}
-      </button>
-      {state.kind === "copied" ? (
-        <span data-meta-exact-share-copied="" role="status">
-          {copy.linkCopiedReproducesView}
-        </span>
-      ) : null}
-      {state.kind === "manual" ? (
-        <span role="status">
-          <label>
-            {copy.copyThisLink}
-            <input
-              data-meta-exact-share-manual=""
-              onFocus={(event) => event.currentTarget.select()}
-              readOnly
-              value={state.url}
-            />
-          </label>
-        </span>
-      ) : null}
-    </span>
   );
 }
 
@@ -1678,13 +1469,13 @@ function NeedsResolutionLane({
           <div
             aria-label={
               meaningfulDisplay(row.resolution)
-                ? `${display(row.blocker)}. ${display(row.resolution)}`
+                ? display(row.resolution)
                 : display(row.blocker)
             }
             className={styles.blockerSummary}
             title={
               meaningfulDisplay(row.resolution)
-                ? `${display(row.blocker)} · ${display(row.resolution)}`
+                ? display(row.resolution)
                 : display(row.blocker)
             }
           >
@@ -1692,13 +1483,9 @@ function NeedsResolutionLane({
               className={`${styles.blockerChip} ${toneClass(row.blockerTone ?? "warning")}`}
               data-el="blocker-chip"
             >
-              {typeof row.blockerCount === "number" && row.blockerCount > 0
-                ? language === "tr"
-                  ? `${row.blockerCount} kontrolü incele`
-                  : `Review ${row.blockerCount} check${row.blockerCount === 1 ? "" : "s"}`
-                : language === "tr"
-                  ? "Kanıtı incele"
-                  : "Review evidence"}
+              {meaningfulDisplay(row.resolution)
+                ? display(row.resolution)
+                : display(row.blocker)}
             </span>
           </div>
         </article>
@@ -1721,20 +1508,20 @@ function WatchingLane({
   rows: readonly MetaDecisionCenterExactWatchingRowViewModel[];
 }) {
   const copy = useCopy();
+  const visibleSegments = segments.filter((segment) =>
+    positiveDisplayCount(segment.count),
+  );
   return (
     <>
-      <div className={styles.watchSegments}>
-        {slots(segments, 5).map((segment, index) => (
-          <span
-            className={styles.watchSegment}
-            key={segment?.id ?? `watch-segment-${index}`}
-          >
-            {segment
-              ? `${display(segment.label)} ${display(segment.count)}`
-              : EM_DASH}
-          </span>
-        ))}
-      </div>
+      {visibleSegments.length > 0 ? (
+        <div className={styles.watchSegments}>
+          {visibleSegments.map((segment) => (
+            <span className={styles.watchSegment} key={segment.id}>
+              {display(segment.label)} {display(segment.count)}
+            </span>
+          ))}
+        </div>
+      ) : null}
       {rows.map((row) => (
         <article
           aria-current={row.selected ? "true" : undefined}
@@ -1822,7 +1609,9 @@ function NonSalesCard({
   card?: MetaDecisionCenterExactNonSalesViewModel | null;
   id?: string;
 }) {
-  const metrics = slots(card?.metrics, 4);
+  const metrics = (card?.metrics ?? []).filter((metric) =>
+    meaningfulDisplay(metric.value),
+  );
   return (
     <article
       className={styles.nonSalesCard}
@@ -1837,16 +1626,13 @@ function NonSalesCard({
         </span>
       </div>
       <div className={styles.nonSalesMetrics}>
-        {metrics.map((metric, index) => (
-          <div
-            className={styles.nonSalesMetric}
-            key={metric?.id ?? `non-sales-metric-${index}`}
-          >
+        {metrics.map((metric) => (
+          <div className={styles.nonSalesMetric} key={metric.id}>
             <p className={styles.nonSalesMetricLabel}>
-              {display(metric?.label)}
+              {display(metric.label)}
             </p>
             <p className={styles.nonSalesMetricValue}>
-              {display(metric?.value)}
+              {display(metric.value)}
             </p>
           </div>
         ))}
@@ -1953,9 +1739,6 @@ function CreativeCard({
   const stripeB = row.stripeB?.trim() || "#F7F9FC";
   return (
     <article
-      aria-label={
-        row.onOpen ? `Open evidence for ${display(row.name)}` : undefined
-      }
       className={`${styles.creativeCard} ${toneClass(row.edgeTone)}`}
       data-meta-exact-creative-row={row.id}
       data-meta-exact-creative-state={
@@ -1963,14 +1746,6 @@ function CreativeCard({
           ? String(row.stateLabel).trim()
           : undefined
       }
-      {...(row.onOpen
-        ? {
-            role: "button" as const,
-            tabIndex: 0,
-            onClick: row.onOpen,
-            onKeyDown: (event: KeyboardEvent) => activate(event, row.onOpen),
-          }
-        : {})}
     >
       <span
         className={styles.creativeThumb}
@@ -2062,192 +1837,7 @@ function CreativeCard({
       >
         {copy.reviewEvidence}
       </button>
-      <span
-        className={styles.evidenceLink}
-        {...controlProps(
-          row.onOpen ? () => row.onOpen?.() : undefined,
-          `Evidence for ${display(row.name)}`,
-        )}
-        onClick={(event) => callWithPropagationStopped(event, row.onOpen)}
-      >
-        Evidence →
-      </span>
     </article>
-  );
-}
-
-function SourceFactGroup({
-  facts,
-  group,
-  heading,
-}: {
-  facts?: readonly MetaDecisionCenterExactSourceFactViewModel[];
-  group: string;
-  heading: string;
-}) {
-  if (!facts || facts.length === 0) return null;
-  return (
-    <div
-      className={styles.provenanceGroup}
-      data-meta-exact-source-group={group}
-    >
-      <p className={styles.provenanceHeading}>{heading}</p>
-      <dl className={styles.provenanceGrid}>
-        {facts.map((fact) => (
-          <div
-            className={styles.provenanceFact}
-            data-meta-exact-source-fact={fact.id}
-            key={fact.id}
-          >
-            <dt className={styles.provenanceLabel}>{display(fact.label)}</dt>
-            <dd className={`${styles.provenanceValue} ${toneClass(fact.tone)}`}>
-              {display(fact.value)}
-            </dd>
-          </div>
-        ))}
-      </dl>
-    </div>
-  );
-}
-
-/**
- * The served decision source, stated beside the rows.
- *
- * LAW: this renders whenever the Creatives scope renders. The previous notice
- * appeared only when `decisions.length === 0`, which meant a degraded source
- * with rows — the normal case on a real account — said nothing at all. Source
- * health is a property of the source, never of how many rows survived the cap.
- *
- * Every value inside is the server's own token, string or count; the component
- * writes the field LABELS and nothing else. `<details open>` keeps the rows
- * primary without hiding anything by default, and the summary repeats the
- * load-bearing facts so a folded panel still states the authority, the health,
- * the fallback reason, the shown-vs-served counts and the capability gaps.
- */
-function SourceProvenancePanel({
-  model,
-  notice,
-  scope,
-  defaultOpen = true,
-}: {
-  model?: MetaDecisionCenterExactSourceProvenanceViewModel | null;
-  /**
-   * `viewModel.creativesNotice` — the served limitation joined to the served
-   * fallback reason. It lives here now rather than under the queue, because
-   * under the queue it was gated on the queue being empty.
-   *
-   * ONLY the Creatives scope passes it. Every limitation the notice joins is
-   * ad-grain, so handing it to the Structures panel would attach an ads
-   * refusal to campaign and ad-set rows it does not govern.
-   */
-  notice?: MetaDecisionCenterExactDisplayValue;
-  /** Which scope's envelope this is, for the operator and for assertions. */
-  scope: MetaDecisionCenterExactScope;
-  /**
-   * Open in Creatives, folded in Structures — and nothing is hidden either way.
-   *
-   * The Creatives scope opens onto a posture band, so the panel is one block
-   * among several and stands open. The Structures scope opens onto the rows
-   * themselves; an expanded panel of five fact groups there would be a wall
-   * between the operator and the queue, which is not what a statement beside
-   * the rows means. Folded, the summary still carries the source token, the
-   * status, the coverage pairing and the count of capability gaps, so the
-   * screen cannot read as "fine" while folded — which is the only property
-   * that ever mattered about `open`.
-   */
-  defaultOpen?: boolean;
-}) {
-  const copy = useCopy();
-  if (!model) return null;
-  return (
-    <details
-      className={`${styles.provenancePanel} ${toneClass(model.tone)}`}
-      data-meta-exact-source-provenance
-      data-meta-exact-source-scope={scope}
-      open={defaultOpen}
-    >
-      <summary className={styles.provenanceSummary}>
-        <span className={styles.provenanceEyebrow}>{copy.decisionSource}</span>
-        <span
-          className={`${styles.provenanceHeadline} ${toneClass(model.tone)}`}
-          data-meta-exact-source-authority
-        >
-          {display(model.headline)}
-        </span>
-        <span
-          className={styles.provenanceSummaryFact}
-          data-meta-exact-source-coverage
-        >
-          {display(model.coverageSummary)}
-        </span>
-        <span
-          className={styles.provenanceSummaryFact}
-          data-meta-exact-source-capability-summary
-        >
-          {display(model.capabilitySummary)}
-        </span>
-      </summary>
-      {nonBlankDisplay(notice) ? (
-        <p
-          className={styles.creativeNotice}
-          data-meta-exact-creative-notice
-          role="status"
-        >
-          {display(notice)}
-        </p>
-      ) : null}
-      <SourceFactGroup facts={model.source} group="source" heading="Source" />
-      <SourceFactGroup
-        facts={model.coverage}
-        group="coverage"
-        heading={copy.coverage}
-      />
-      <SourceFactGroup
-        facts={model.suppression}
-        group="suppression"
-        heading={copy.withheldFromQueue}
-      />
-      <SourceFactGroup
-        facts={model.limitations}
-        group="limitations"
-        heading={copy.limitations}
-      />
-      <SourceFactGroup
-        facts={model.commercialAnchor}
-        group="commercial-anchor"
-        heading="Commercial anchor"
-      />
-
-      {model.capabilityGaps && model.capabilityGaps.length > 0 ? (
-        <div
-          className={styles.provenanceGroup}
-          data-meta-exact-source-group="capabilities"
-        >
-          <p className={styles.provenanceHeading}>{copy.capabilityGaps}</p>
-          <ul className={styles.provenanceCapabilities}>
-            {model.capabilityGaps.map((gap) => (
-              <li
-                className={styles.provenanceCapability}
-                data-meta-exact-source-capability={gap.id}
-                key={gap.id}
-              >
-                <span className={styles.provenanceLabel}>
-                  {display(gap.label)}
-                </span>
-                <span
-                  className={`${styles.provenanceStatus} ${toneClass(gap.tone)}`}
-                >
-                  {display(gap.status)}
-                </span>
-                <span className={styles.provenanceReason}>
-                  {display(gap.reason)}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
-    </details>
   );
 }
 
@@ -2265,8 +1855,6 @@ function CreativesScope({
   decisions,
   groups,
   lane,
-  provenance,
-  notice,
   footnote,
   onOpenCreativeStudio,
 }: {
@@ -2274,12 +1862,13 @@ function CreativesScope({
   decisions: readonly MetaDecisionCenterExactCreativeDecisionViewModel[];
   groups?: readonly MetaDecisionCenterExactCreativeGroupViewModel[];
   lane: MetaDecisionCenterExactLane;
-  provenance?: MetaDecisionCenterExactSourceProvenanceViewModel | null;
-  notice?: MetaDecisionCenterExactDisplayValue;
   footnote?: MetaDecisionCenterExactDisplayValue;
   onOpenCreativeStudio?: () => void;
 }) {
   const copy = useCopy();
+  const visiblePosture = posture.filter(
+    (item) => meaningfulDisplay(item.value) || meaningfulDisplay(item.detail),
+  );
   const servedGroups = (groups ?? []).filter((group) => group.rows.length > 0);
   const selectedGroupId = creativeGroupIdForLane(lane);
   const visibleGroups = selectedGroupId
@@ -2288,18 +1877,24 @@ function CreativesScope({
   const hasGroupedDecisions = groups !== undefined;
   return (
     <>
-      <div className={styles.postureGrid} data-meta-exact-creative-posture>
-        {slots(posture, 4).map((item, index) => (
-          <div
-            className={`${styles.postureCard} ${toneClass(item?.tone)}`}
-            key={item?.id ?? `posture-${index}`}
-          >
-            <p className={styles.postureLabel}>{display(item?.label)}</p>
-            <p className={styles.postureValue}>{display(item?.value)}</p>
-            <p className={styles.postureDetail}>{display(item?.detail)}</p>
-          </div>
-        ))}
-      </div>
+      {visiblePosture.length > 0 ? (
+        <div className={styles.postureGrid} data-meta-exact-creative-posture>
+          {visiblePosture.map((item) => (
+            <div
+              className={`${styles.postureCard} ${toneClass(item.tone)}`}
+              key={item.id}
+            >
+              <p className={styles.postureLabel}>{display(item.label)}</p>
+              {meaningfulDisplay(item.value) ? (
+                <p className={styles.postureValue}>{display(item.value)}</p>
+              ) : null}
+              {meaningfulDisplay(item.detail) ? (
+                <p className={styles.postureDetail}>{display(item.detail)}</p>
+              ) : null}
+            </div>
+          ))}
+        </div>
+      ) : null}
       {hasGroupedDecisions && visibleGroups.length === 0 ? (
         <LaneEmpty lane={`creatives-${lane}`} reason={copy.laneServedNoRows} />
       ) : hasGroupedDecisions ? (
@@ -2330,12 +1925,6 @@ function CreativesScope({
       ) : (
         decisions.map((row) => <CreativeCard key={row.id} row={row} />)
       )}
-      <SourceProvenancePanel
-        defaultOpen={false}
-        model={provenance}
-        notice={notice}
-        scope="creatives"
-      />
       <div className={styles.creativeFootnote}>
         <p data-meta-exact-creative-footnote>{display(footnote)}</p>
         <span {...controlProps(onOpenCreativeStudio)}>
@@ -2585,15 +2174,13 @@ function WorkflowConflictDialog({
         <div>
           <dt>{copy.serverNow}</dt>
           <dd data-meta-exact-conflict-current>
-            {display(conflict.currentStateLabel)} · version{" "}
-            {conflict.currentVersion}
+            {display(conflict.currentStateLabel)}
           </dd>
         </div>
         <div>
           <dt>{copy.youTried}</dt>
           <dd data-meta-exact-conflict-attempted>
-            {display(conflict.attemptedLabel)} · from version{" "}
-            {conflict.attemptedFromVersion}
+            {display(conflict.attemptedLabel)}
           </dd>
         </div>
       </dl>
@@ -2604,7 +2191,7 @@ function WorkflowConflictDialog({
           onClick={conflict.keepRefusedReason ? undefined : conflict.onKeepMine}
           type="button"
         >
-          {copy.keepMineReapplyAgainstVersion} {conflict.currentVersion}
+          {copy.keepMineReapplyAgainstVersion}
         </button>
         <button
           data-ctl="live:META-WF-11 reapply"
@@ -2635,31 +2222,32 @@ function EvidenceInspector({
 }) {
   const copy = useCopy();
   const language = useZeroBaseLanguage();
-  const reasons = (model?.reasons ?? []).filter(meaningfulDisplay);
-  const evidence = (model?.evidence ?? []).filter(
-    (item) => meaningfulDisplay(item.label) && meaningfulDisplay(item.value),
-  );
-  const inspectorTone = toneClass(model?.tone);
-  const hasContractDetail = meaningfulDisplay(model?.contractDetail);
-  const hasTargetComparison = meaningfulDisplay(model?.targetComparison);
-  const hasMoneyDetail = meaningfulDisplay(model?.moneyDetail);
-  const hasBlockers = meaningfulDisplay(model?.blockers);
-  const blockerItems = hasBlockers
-    ? display(model?.blockers)
-        .split(" · ")
-        .map((item) => item.trim())
-        .filter(Boolean)
-    : [];
-  const hasAdvisories = meaningfulDisplay(model?.advisories);
-  const hasProvenance = meaningfulDisplay(model?.provenance);
-  /*
-   * No selection, no panel.
-   *
-   * This used to render regardless, so once the inspector became closable — and
-   * once a lane could have no selected row — the operator would have met a
-   * fully drawn panel of em dashes rather than an absent one.
-   */
   if (!model) return null;
+
+  const reason = (model.reasons ?? []).find(meaningfulDisplay);
+  const hasTargetComparison = meaningfulDisplay(model.targetComparison);
+  const hasMoneyDetail = meaningfulDisplay(model.moneyDetail);
+  const manualAction =
+    model.manualAction &&
+    !model.manualAction.refusalReason &&
+    model.manualAction.onOpen
+      ? model.manualAction
+      : null;
+  const primaryAction = model.onPrimary
+    ? {
+        label: model.actionLabel,
+        onClick: model.onPrimary,
+        tone: model.actionTone,
+      }
+    : manualAction
+      ? {
+          label: manualAction.label,
+          onClick: manualAction.onOpen,
+          tone: model.actionTone,
+        }
+      : null;
+  const inspectorTone = toneClass(model.tone);
+
   return (
     <aside
       className={`${styles.inspector} ${inspectorTone}`}
@@ -2667,10 +2255,10 @@ function EvidenceInspector({
     >
       <div className={styles.inspectorHeader}>
         <span className={styles.inspectorEyebrow}>
-          {copy.evidenceInspector}
+          {language === "tr" ? "Karar ayrıntıları" : "Decision details"}
         </span>
         <span className={`${styles.inspectorDecision} ${inspectorTone}`}>
-          {display(model?.decisionLabel)}
+          {display(model.decisionLabel)}
         </span>
         {onClose ? (
           <button
@@ -2684,300 +2272,103 @@ function EvidenceInspector({
           </button>
         ) : null}
       </div>
+
       <div className={styles.inspectorBody}>
         <div>
-          <p className={styles.inspectorEntity}>{display(model?.entityName)}</p>
-          <p className={styles.inspectorMeta}>{display(model?.entityMeta)}</p>
+          <p className={styles.inspectorEntity}>{display(model.entityName)}</p>
+          {meaningfulDisplay(model.entityMeta) ? (
+            <p className={styles.inspectorMeta}>{display(model.entityMeta)}</p>
+          ) : null}
         </div>
+
         <div className={styles.contractCard}>
           <p className={styles.inspectorSectionLabel}>
-            {copy.decisionContract}
+            {language === "tr" ? "Ne yapılmalı" : "What to do"}
           </p>
           <p className={styles.contractCopy}>
-            {copy.serverVerdict}: <b>{display(model?.serverVerdict)}</b>
-            {hasContractDetail ? `. ${display(model?.contractDetail)}` : null}
+            <b>{display(model.decisionLabel)}</b>
           </p>
         </div>
-        {reasons.length > 0 ? (
+
+        {reason ? (
           <div>
-            <p className={styles.reasonHeading}>{copy.engineReasoning}</p>
-            {reasons.map((reason, index) => (
-              <p className={styles.reasonRow} key={`reason-${index}`}>
-                <span />
-                <span>{display(reason)}</span>
-              </p>
-            ))}
+            <p className={styles.reasonHeading}>
+              {language === "tr" ? "Neden" : "Why"}
+            </p>
+            <p className={styles.reasonRow}>
+              <span />
+              <span>{display(reason)}</span>
+            </p>
           </div>
         ) : null}
+
         <div className={styles.moneyImpact}>
           <p className={styles.inspectorSectionLabel}>
-            {copy.moneyImpactVsTarget}
+            {language === "tr" ? "Temel metrikler" : "Key metrics"}
           </p>
           <p className={styles.inspectorMoneyValue}>
-            {display(model?.moneyValue)}
+            {display(model.moneyValue)}
             {hasTargetComparison ? (
               <>
                 {" "}
-                <span>{display(model?.targetComparison)}</span>
+                <span>{display(model.targetComparison)}</span>
               </>
             ) : null}
           </p>
-          <svg
-            aria-hidden="true"
-            viewBox="0 0 100 24"
-            preserveAspectRatio="none"
-          >
-            <path
-              d="M0 14 L100 14"
-              stroke="#C9D2E0"
-              strokeWidth="1"
-              strokeDasharray="3 3"
-              vectorEffect="non-scaling-stroke"
-            />
-            <path
-              d={model?.moneySparkPath ?? ""}
-              fill="none"
-              stroke="var(--tone-solid)"
-              strokeWidth="1.6"
-              vectorEffect="non-scaling-stroke"
-            />
-          </svg>
           {hasMoneyDetail ? (
             <p className={styles.inspectorMoneyDetail}>
-              {display(model?.moneyDetail)}
+              {display(model.moneyDetail)}
             </p>
           ) : null}
         </div>
-        <div className={styles.inspectorMiniTiles}>
-          <span
-            className={`${styles.inspectorMiniTile} ${styles.confidenceTile}`}
-          >
-            <span className={styles.inspectorMiniLabel}>{copy.confidence}</span>
-            <span className={styles.inspectorMiniValue}>
-              {display(model?.confidence)}
-            </span>
-          </span>
-          <span
-            className={`${styles.inspectorMiniTile} ${styles.readinessTile}`}
-          >
-            <span className={styles.inspectorMiniLabel}>{copy.readiness}</span>
-            <span className={styles.inspectorMiniValue}>
-              {display(model?.readiness)}
-            </span>
-          </span>
-        </div>
-        {hasBlockers ? (
-          <div>
-            <p className={styles.blockersHeading}>{copy.blockers}</p>
-            <ul
-              className={styles.inspectorBlockerList}
-              data-meta-exact-blockers
-            >
-              {blockerItems.map((blocker, index) => (
-                <li
-                  className={`${styles.blockersCopy} ${toneClass(model?.blockerTone)}`}
-                  key={`inspector-blocker-${index}`}
-                >
-                  {blocker}
-                </li>
-              ))}
-            </ul>
-          </div>
-        ) : null}
-        {hasAdvisories ? (
-          <div>
-            <p className={styles.blockersHeading}>{copy.advisories}</p>
-            <p className={`${styles.blockersCopy} ${toneClass("neutral")}`}>
-              {display(model?.advisories)}
-            </p>
-          </div>
-        ) : null}
-        {/*
-          What this verdict was measured over.
 
-          Two facts and never one: `asof-row` is when the engine wrote the
-          snapshot, `evidence-window` is the range the figures above cover. A
-          verdict without the window is unfalsifiable — the reader cannot tell
-          what it was measured over — and a snapshot time presented as the
-          window is how a stale read passes for a current one.
-        */}
-        {meaningfulDisplay(model?.asOf) ||
-        meaningfulDisplay(model?.evidenceWindow) ? (
+        {meaningfulDisplay(model.confidence) ? (
+          <div className={styles.inspectorMiniTiles}>
+            <span
+              className={`${styles.inspectorMiniTile} ${styles.confidenceTile}`}
+            >
+              <span className={styles.inspectorMiniLabel}>
+                {copy.confidence}
+              </span>
+              <span className={styles.inspectorMiniValue}>
+                {display(model.confidence)}
+              </span>
+            </span>
+          </div>
+        ) : null}
+
+        {meaningfulDisplay(model.asOf) ||
+        meaningfulDisplay(model.evidenceWindow) ? (
           <dl className={styles.evidenceProvenance}>
-            <div>
-              <dt>{copy.asOf}</dt>
-              <dd data-el="asof-row">{display(model?.asOf)}</dd>
-            </div>
-            <div>
-              <dt>{copy.evidenceWindow}</dt>
-              <dd data-el="evidence-window">
-                {display(model?.evidenceWindow)}
-              </dd>
-            </div>
+            {meaningfulDisplay(model.asOf) ? (
+              <div>
+                <dt>{copy.asOf}</dt>
+                <dd data-el="asof-row">{display(model.asOf)}</dd>
+              </div>
+            ) : null}
+            {meaningfulDisplay(model.evidenceWindow) ? (
+              <div>
+                <dt>{copy.evidenceWindow}</dt>
+                <dd data-el="evidence-window">
+                  {display(model.evidenceWindow)}
+                </dd>
+              </div>
+            ) : null}
           </dl>
         ) : null}
-        {(model?.provenanceGaps ?? []).filter(meaningfulDisplay).length > 0 ? (
-          <div>
-            <p className={styles.blockersHeading}>
-              {copy.notServedAtThisGrain}
-            </p>
-            <p className={styles.provenanceGap} data-el="provenance-gap">
-              {(model?.provenanceGaps ?? [])
-                .filter(meaningfulDisplay)
-                .map((gap) => display(gap))
-                .join(" · ")}
-            </p>
-          </div>
-        ) : null}
-        {/*
-          The row's own onward actions, as opposed to the decision's primary
-          action. Grouped under one marker because the design treats them as one
-          band: what an operator can do with THIS row without executing it.
-        */}
-        {model?.workflow ? (
-          <div
-            data-meta-exact-workflow
-            data-workflow-state={model.workflow.state}
+
+        {primaryAction ? (
+          <button
+            className={`${styles.inspectorPrimary} ${toneClass(primaryAction.tone)}`}
+            onClick={primaryAction.onClick}
+            type="button"
           >
-            <p className={styles.inspectorSectionLabel}>{copy.workflow}</p>
-            {model.workflow.unavailableReason ? (
-              /*
-                A failed read is said, not defaulted. Rendering "open" here
-                would claim nobody owns these decisions — a statement about
-                other people's work made on no evidence.
-              */
-              <p className={styles.contractCopy} role="status">
-                {model.workflow.unavailableReason}
-              </p>
-            ) : (
-              <>
-                <p className={styles.contractCopy}>
-                  {display(model.workflow.stateLabel)}
-                  {" · "}
-                  {display(model.workflow.assignee)}
-                </p>
-                {meaningfulDisplay(model.workflow.holdUntil) ? (
-                  <p className={styles.inspectorMeta}>
-                    {display(model.workflow.holdUntil)}
-                  </p>
-                ) : null}
-              </>
-            )}
-            {model.workflow.actions.length > 0 ? (
-              <WorkflowMenu workflow={model.workflow} />
-            ) : null}
-            {model.workflow.conflict ? (
-              <WorkflowConflictDialog conflict={model.workflow.conflict} />
-            ) : null}
-            {model.workflow.actionsRefusedReason ? (
-              <p className={styles.inspectorMeta} data-workflow-refusal>
-                {model.workflow.actionsRefusedReason}
-              </p>
-            ) : null}
-          </div>
-        ) : null}
-        {model?.stickyBar ? (
-          <div className={styles.stickyBar} data-meta-exact-sticky-bar>
-            <button
-              aria-disabled={
-                model.manualAction?.refusalReason ? true : undefined
-              }
-              className={styles.manualActionButton}
-              data-ctl="gated:META-WRITE-01"
-              onClick={
-                model.manualAction?.refusalReason
-                  ? undefined
-                  : model.manualAction?.onOpen
-              }
-              type="button"
-            >
-              {copy.openManualAction}
-            </button>
-            <a
-              className={styles.stickyBarNav}
-              data-ctl="live:nav"
-              href={model.stickyBar.metaStopHref}
-            >
-              {copy.metaStop}
-            </a>
-          </div>
-        ) : null}
-        {model?.manualAction ? (
-          <p className={styles.rowAction}>
-            <button
-              aria-disabled={
-                model.manualAction.refusalReason ? true : undefined
-              }
-              className={styles.manualActionButton}
-              data-ctl="gated:META-WRITE-01 open-manual"
-              onClick={
-                model.manualAction.refusalReason
-                  ? undefined
-                  : model.manualAction.onOpen
-              }
-              type="button"
-            >
-              {meaningfulDisplay(model.manualAction.label)
-                ? display(model.manualAction.label)
-                : copy.openManualAction}
-            </button>
-            {model.manualAction.refusalReason ? (
-              <span
-                className={styles.manualActionRefusal}
-                data-meta-exact-manual-refusal
-              >
-                {model.manualAction.refusalReason}
-              </span>
-            ) : null}
-          </p>
-        ) : null}
-        {model?.brief ? (
-          <p className={styles.rowAction} data-el="row-action">
-            {"href" in model.brief ? (
-              <a
-                data-ctl="live:CREATIVE-07 brief"
-                href={model.brief.href}
-                rel="noopener"
-              >
-                {meaningfulDisplay(model.brief.label)
-                  ? display(model.brief.label)
-                  : copy.openTheBrief}
-              </a>
-            ) : (
-              <button
-                aria-disabled="true"
-                data-ctl="live:CREATIVE-07 brief"
-                data-refused=""
-                type="button"
-              >
-                {model.brief.refusalReason}
-              </button>
-            )}
-          </p>
-        ) : null}
-        {evidence.map((item, index) => (
-          <div
-            className={styles.evidenceRow}
-            key={item?.id ?? `evidence-${index}`}
-          >
-            <span>{display(item?.label)}</span>
-            <span>{display(item?.value)}</span>
-          </div>
-        ))}
-        <button
-          aria-label={unservedActionName(
-            display(model?.actionLabel),
-            "the inspector has no selection to act on",
-          )}
-          className={`${styles.inspectorPrimary} ${toneClass(model?.actionTone)}`}
-          disabled={!model?.onPrimary}
-          onClick={model?.onPrimary}
-          type="button"
-        >
-          {display(model?.actionLabel)}
-        </button>
-        {hasProvenance ? (
-          <p className={styles.provenance}>{display(model?.provenance)}</p>
+            {meaningfulDisplay(primaryAction.label)
+              ? display(primaryAction.label)
+              : language === "tr"
+                ? "İşlemi aç"
+                : "Open action"}
+          </button>
         ) : null}
       </div>
     </aside>
@@ -2996,7 +2387,6 @@ export function MetaDecisionCenterExact({
   onScopeChange,
   onLaneChange,
   onRunSnapshot,
-  onNewCampaign,
   onSortChange,
   levels = [],
   onLevelsChange,
@@ -3083,9 +2473,20 @@ export function MetaDecisionCenterExact({
     viewModel.activeWindow === undefined ? "28d" : viewModel.activeWindow;
   const counts = viewModel.counts;
   const identity = viewModel.identity;
-  const budgetReadinessSummary = budgetDecisionReadinessSummary(
-    viewModel.budgetEvidence,
-    viewModel.budgetDryRun,
+  const identityParts = [
+    "Meta",
+    meaningfulDisplay(identity?.accountLabel)
+      ? display(identity?.accountLabel)
+      : null,
+    meaningfulDisplay(identity?.currency) ? display(identity?.currency) : null,
+  ].filter((value): value is string => Boolean(value));
+  const structureLaneItems = LANES.filter(
+    (item) =>
+      item.id === "action" ||
+      item.id === "needsres" ||
+      item.id === "watching" ||
+      item.id === activeLane ||
+      (item.id === "healthy" && positiveDisplayCount(counts?.healthy)),
   );
   // The reference opens the evidence rail beside the selected queue row. Each
   // decision-bearing structure lane now has a default selection, so switching
@@ -3165,16 +2566,14 @@ export function MetaDecisionCenterExact({
         data-el={language === "tr" ? "turkish-strings" : undefined}
       >
         <div>
-          <p className={styles.pageEyebrow}>
-            Meta · {display(identity?.accountLabel)} ·{" "}
-            {display(identity?.currency)}
-          </p>
+          <p className={styles.pageEyebrow}>{identityParts.join(" · ")}</p>
           <h1>{copy.decisionCenter}</h1>
-          <p className={styles.asOfLine} data-meta-exact-source-identity>
-            {display(identity?.syncedLabel)} ·{" "}
-            {display(identity?.snapshotLabel)} ·{" "}
-            {display(identity?.engineLabel)} · {display(identity?.timeLabel)}
-          </p>
+          {meaningfulDisplay(identity?.syncedLabel) ? (
+            <p className={styles.asOfLine} data-meta-exact-source-identity>
+              {language === "tr" ? "Güncellendi" : "Updated"}:{" "}
+              {display(identity?.syncedLabel)}
+            </p>
+          ) : null}
         </div>
         {/* The 7d/14d/28d/90d pills are gone: the shell topbar picker already
             owns the window, and it offers a wider vocabulary than these four.
@@ -3184,22 +2583,25 @@ export function MetaDecisionCenterExact({
             SERVED for, and the archive column header and the ROAS label
             still name it. */}
         <div className={styles.headerTools}>
-          <button
-            className={styles.snapshotButton}
-            disabled={!onRunSnapshot}
-            onClick={onRunSnapshot}
-            type="button"
-          >
-            {copy.runSnapshot}
-          </button>
-          <button
-            className={styles.newCampaignButton}
-            disabled={!onNewCampaign}
-            onClick={onNewCampaign}
-            type="button"
-          >
-            {copy.newCampaign}
-          </button>
+          {onRunSnapshot ? (
+            <button
+              className={styles.snapshotButton}
+              onClick={onRunSnapshot}
+              type="button"
+            >
+              {language === "tr" ? "Kararları yenile" : "Refresh decisions"}
+            </button>
+          ) : null}
+          {adsManagerHref ? (
+            <a
+              className={styles.snapshotButton}
+              href={adsManagerHref}
+              rel="noopener noreferrer"
+              target="_blank"
+            >
+              {language === "tr" ? "Meta Ads'i aç" : "Open Meta Ads"}
+            </a>
+          ) : null}
         </div>
       </div>
 
@@ -3219,7 +2621,9 @@ export function MetaDecisionCenterExact({
             {...controlProps(() => selectScope("structure"))}
           >
             {copy.campaignsAndAdSets}
-            <span>{display(counts?.structure)}</span>
+            {meaningfulDisplay(counts?.structure) ? (
+              <span>{display(counts?.structure)}</span>
+            ) : null}
           </span>
           <span
             aria-pressed={activeScope === "creatives"}
@@ -3230,18 +2634,11 @@ export function MetaDecisionCenterExact({
             {...controlProps(() => selectScope("creatives"))}
           >
             {copy.creatives}
-            <span>{display(counts?.creatives)}</span>
+            {meaningfulDisplay(counts?.creatives) ? (
+              <span>{display(counts?.creatives)}</span>
+            ) : null}
           </span>
         </span>
-        <p data-meta-exact-queue-snapshot>
-          queue reflects {display(identity?.snapshotLabel)} —{" "}
-          {copy.queueReflectsSnapshot}
-        </p>
-        {/*
-          Beside the controls that scope the list, not after every row: the link
-          reproduces the VIEW, so it belongs where the view is chosen.
-        */}
-        <ShareViewControl />
       </div>
 
       {activeScope === "structure" ? (
@@ -3258,7 +2655,9 @@ export function MetaDecisionCenterExact({
             className={styles.laneGroup}
             data-ctl="live:lane"
             onKeyDown={(event) => {
-              const index = LANES.findIndex((item) => item.id === activeLane);
+              const index = structureLaneItems.findIndex(
+                (item) => item.id === activeLane,
+              );
               if (index < 0) return;
               const step =
                 event.key === "ArrowRight" || event.key === "ArrowDown"
@@ -3269,12 +2668,15 @@ export function MetaDecisionCenterExact({
               if (step === 0) return;
               event.preventDefault();
               selectLane(
-                LANES[(index + step + LANES.length) % LANES.length]!.id,
+                structureLaneItems[
+                  (index + step + structureLaneItems.length) %
+                    structureLaneItems.length
+                ]!.id,
               );
             }}
             role="radiogroup"
           >
-            {LANES.map((item) => (
+            {structureLaneItems.map((item) => (
               <button
                 key={item.id}
                 {...controlProps(() => selectLane(item.id))}
@@ -3296,7 +2698,9 @@ export function MetaDecisionCenterExact({
                 type="button"
               >
                 {copy[item.labelKey]}
-                <span>{display(counts?.[item.id])}</span>
+                {meaningfulDisplay(counts?.[item.id]) ? (
+                  <span>{display(counts?.[item.id])}</span>
+                ) : null}
               </button>
             ))}
           </span>
@@ -3396,7 +2800,9 @@ export function MetaDecisionCenterExact({
                 type="button"
               >
                 {item.label}
-                <span>{display(item.count)}</span>
+                {meaningfulDisplay(item.count) ? (
+                  <span>{display(item.count)}</span>
+                ) : null}
               </button>
             ))}
           </span>
@@ -3472,10 +2878,8 @@ export function MetaDecisionCenterExact({
               footnote={viewModel.creativeFootnote}
               groups={viewModel.creativeGroups}
               lane={activeCreativeLane}
-              notice={viewModel.creativesNotice}
               onOpenCreativeStudio={onOpenCreativeStudio}
               posture={viewModel.creativePosture ?? []}
-              provenance={viewModel.sourceProvenance}
             />
           ) : null}
           {/*
@@ -3486,34 +2890,6 @@ export function MetaDecisionCenterExact({
            *
            * @see structureProvenance in meta-decision-center-exact-adapter.ts
            */}
-          {activeScope === "structure" ? (
-            <SourceProvenancePanel
-              defaultOpen={false}
-              model={viewModel.structureProvenance}
-              scope="structure"
-            />
-          ) : null}
-          {viewModel.budgetEvidence || viewModel.budgetDryRun ? (
-            <details className={styles.technicalDisclosure}>
-              <summary>
-                <span
-                  className={styles.technicalDisclosureSummary}
-                  data-readiness-state={budgetReadinessSummary.state}
-                >
-                  <span>Budget decision readiness</span>
-                  <small data-meta-exact-budget-readiness-summary>
-                    {budgetReadinessSummary.text}
-                  </small>
-                </span>
-              </summary>
-              <div className={styles.technicalDisclosureBody}>
-                <BudgetDecisionEvidencePanel
-                  evidence={viewModel.budgetEvidence ?? null}
-                />
-                <BudgetDryRunPanel panel={viewModel.budgetDryRun ?? null} />
-              </div>
-            </details>
-          ) : null}
         </div>
         {showInspector ? (
           <EvidenceInspector
@@ -3539,171 +2915,6 @@ export function MetaDecisionCenterExact({
           />
         ) : null}
       </div>
-
-      {/*
-        Supporting account coverage follows the decisions. These facts remain
-        available for audit, but they must not displace the queue from the
-        first viewport.
-
-        D078 R4 (correction 2): every assigned identity keeps its selection
-        state, currency, timezone, own-window spend, fact freshness, latest
-        generation, decision counts and policy visible inside this disclosure.
-      */}
-      {viewModel.assignedAccountStates === null ? (
-        <p
-          className={styles.inactiveStrip}
-          data-meta-exact-account-coverage
-          data-testid="assigned-account-coverage-unavailable"
-          role="alert"
-        >
-          Assigned-account coverage unavailable — the account-state read failed.
-          Do not assume there is only one account or no historical account for
-          this business.
-        </p>
-      ) : null}
-      {viewModel.assignedAccountStates &&
-      viewModel.assignedAccountStates.length === 0 ? (
-        <p
-          className={styles.inactiveStrip}
-          data-meta-exact-account-coverage
-          data-testid="assigned-account-coverage-empty"
-        >
-          Account-state read succeeded and found ZERO assigned Meta identities —
-          anomalous for an active Meta workspace; verify the account assignment
-          before trusting any decision surface here.
-        </p>
-      ) : null}
-      {viewModel.assignedAccountStates &&
-      viewModel.assignedAccountStates.length > 0 ? (
-        <details
-          className={`${styles.inactiveStrip} ${styles.accountCoverageDisclosure}`}
-          data-meta-exact-account-coverage
-          data-testid="assigned-account-coverage"
-        >
-          <summary className={styles.accountCoverageSummary}>
-            <strong>
-              {language === "tr"
-                ? `${viewModel.assignedAccountStates.length} atanmış Meta hesabı`
-                : `${viewModel.assignedAccountStates.length} assigned Meta account${viewModel.assignedAccountStates.length === 1 ? "" : "s"}`}
-            </strong>
-            <span>
-              {(() => {
-                const deselected =
-                  viewModel.assignedAccountStates?.filter(
-                    (state) => state.selectionState === "deselected_historical",
-                  ) ?? [];
-                const deselectedWithSpend = deselected.filter(
-                  (state) => state.spend14d !== null && state.spend14d > 0,
-                );
-                const deselectedWithoutSpendProof = deselected.filter(
-                  (state) => state.spend14d === null,
-                );
-                if (deselectedWithSpend.length > 0) {
-                  return language === "tr"
-                    ? `Uyarı: Seçili olmayan ${deselectedWithSpend.length} hesapta son 14 gün harcaması var; bu hesaplar salt okunur ve sunulan kararların dışında.`
-                    : `Warning: ${deselectedWithSpend.length} deselected account${deselectedWithSpend.length === 1 ? " has" : "s have"} recorded 14-day spend; ${deselectedWithSpend.length === 1 ? "it is" : "they are"} read-only and excluded from served decisions.`;
-                }
-                if (deselectedWithoutSpendProof.length > 0) {
-                  return language === "tr"
-                    ? `Uyarı: Seçili olmayan ${deselectedWithoutSpendProof.length} hesabın son 14 gün harcaması doğrulanamadı; karar kapsamına güvenmeden önce ayrıntıları inceleyin.`
-                    : `Warning: ${deselectedWithoutSpendProof.length} deselected account${deselectedWithoutSpendProof.length === 1 ? " has" : "s have"} no verified 14-day spend; review details before trusting the decision scope.`;
-                }
-                const selected = viewModel.assignedAccountStates?.find(
-                  (state) => state.selectionState === "selected",
-                );
-                return selected?.latestFactDate
-                  ? language === "tr"
-                    ? `Seçili hesap verileri ${selected.latestFactDate} tarihine kadar`
-                    : `Selected account data through ${selected.latestFactDate}`
-                  : language === "tr"
-                    ? "Hesap kapsamı ayrıntılarını açın"
-                    : "Open account coverage details";
-              })()}
-            </span>
-          </summary>
-          <strong>Assigned accounts</strong>
-          {viewModel.assignedAccountStates.map((state) => (
-            <div
-              key={state.providerAccountId}
-              data-account-coverage-id={state.providerAccountId}
-              data-account-selection-state={state.selectionState}
-              style={{ display: "grid", gap: 2, margin: "6px 0" }}
-            >
-              <span>
-                {state.accountName
-                  ? `${state.accountName} | ${state.providerAccountId}`
-                  : state.providerAccountId}{" "}
-                —{" "}
-                {state.selectionState === "selected"
-                  ? "selected · serving"
-                  : "deselected · read-only history"}
-              </span>
-              <span data-account-coverage-facts>
-                {[
-                  state.accountCurrency
-                    ? `currency ${state.accountCurrency}`
-                    : null,
-                  state.accountTimezone
-                    ? `timezone ${state.accountTimezone}`
-                    : null,
-                  state.spend14d !== null
-                    ? `spend 14d ${state.spend14d.toLocaleString("en-US", { maximumFractionDigits: 0 })}${state.accountCurrency ? ` ${state.accountCurrency}` : ""}`
-                    : "spend 14d unavailable",
-                  state.latestFactDate
-                    ? `facts to ${state.latestFactDate}`
-                    : "fact freshness unavailable",
-                  state.latestDecisionAsOf
-                    ? `latest decisions ${state.latestDecisionAsOf}`
-                    : "no produced decision generation",
-                  state.latestDecisionRows !== null
-                    ? `${state.latestDecisionRows} decision rows` +
-                      (state.latestDecisionAuthorizedRows
-                        ? ` (${state.latestDecisionAuthorizedRows} authorized)`
-                        : "") +
-                      (state.selectionState === "deselected_historical" &&
-                      state.latestDecisionRows > 0
-                        ? " — unserved"
-                        : "")
-                    : null,
-                ]
-                  .filter(Boolean)
-                  .join(" · ")}
-              </span>
-              <span data-account-coverage-policy>{state.policy}</span>
-            </div>
-          ))}
-        </details>
-      ) : null}
-      {activeScope === "structure" ? (
-        <p className={styles.inactiveStrip} data-meta-exact-inactive-strip>
-          <span>
-            {copy.inactiveAssets} {display(counts?.archive)} —{" "}
-            {copy.outsideDecisionLanesAdvisory}
-          </span>
-          <button
-            className={styles.inactiveStripOpen}
-            data-ctl="live:META-DEC-13 open"
-            onClick={() => selectLane("archive")}
-            type="button"
-          >
-            {copy.openInactiveAssetsDetail}
-          </button>
-          {adsManagerHref ? (
-            <a
-              className={styles.adsManagerLink}
-              data-meta-exact-ads-manager-link
-              href={adsManagerHref}
-              rel="noopener noreferrer"
-              target="_blank"
-            >
-              {copy.openMetaAdsManager}
-              <span className={styles.adsManagerNote}>
-                {copy.opensMetaNothingExecuted}
-              </span>
-            </a>
-          ) : null}
-        </p>
-      ) : null}
     </section>
   );
 }

@@ -22,6 +22,28 @@
  */
 import { postureView, type EnginePosture } from "@/lib/zero-base/creative/engine-posture";
 
+const BUYER_COPY: Record<
+  Exclude<EnginePosture, "serving">,
+  { title: string; detail: string }
+> = {
+  unavailable: {
+    title: "Creative recommendations are unavailable.",
+    detail: "Performance data remains visible. Try again later.",
+  },
+  disabled: {
+    title: "Creative recommendations are off.",
+    detail: "Performance data remains available for review.",
+  },
+  shadow_only: {
+    title: "Creative recommendations are being reviewed.",
+    detail: "They are for comparison only and cannot apply changes.",
+  },
+  hidden: {
+    title: "Creative recommendations are unavailable here.",
+    detail: "Performance data remains available for review.",
+  },
+};
+
 /** The four postures that change what the operator may believe. */
 const ANNOUNCED: readonly EnginePosture[] = [
   "unavailable",
@@ -39,6 +61,7 @@ export function EnginePostureNotice({
 }) {
   const view = postureView(posture);
   const announced = ANNOUNCED.includes(posture);
+  const copy = posture === "serving" ? null : BUYER_COPY[posture];
 
   return (
     <div
@@ -65,8 +88,8 @@ export function EnginePostureNotice({
     >
       {announced ? (
         <p role="status" style={{ margin: 0 }}>
-          <strong style={{ fontWeight: 600 }}>{view.label}</strong>
-          {` — ${view.explanation}`}
+          <strong style={{ fontWeight: 600 }}>{copy?.title}</strong>
+          {` ${copy?.detail}`}
         </p>
       ) : null}
     </div>

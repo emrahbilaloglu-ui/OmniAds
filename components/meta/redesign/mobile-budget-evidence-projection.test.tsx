@@ -41,23 +41,22 @@ function mobileScreenSource(): string {
   return source.slice(start, next === -1 ? source.length : next);
 }
 
-describe("Correction 5 / D — mobile budget-evidence projection", () => {
-  it("mounts the panel INSIDE the mobile decision stage", () => {
+describe("Correction 5 / D — buyer-facing mobile decision stage", () => {
+  it("keeps the technical evidence panel out of the mobile decision stage", () => {
     const body = mobileScreenSource();
-    expect(body).toContain("<BudgetDecisionEvidencePanel");
+    expect(body).not.toContain("<BudgetDecisionEvidencePanel");
     expect(body).toContain("meta-mobile-decision-stage");
-    // The evidence must be the server object off the shared view model, not a
-    // locally assembled one.
-    expect(body).toMatch(/evidence=\{viewModel\.budgetEvidence \?\? null\}/);
+    expect(body).not.toMatch(/evidence=\{viewModel\.budgetEvidence \?\? null\}/);
   });
 
-  it("passes the SAME expression the desktop mount passes", () => {
+  it("keeps the technical evidence panel out of both decision surfaces", () => {
     const desktop = readFileSync(
       resolve("components/meta/decision-center/MetaDecisionCenterExact.tsx"), "utf8",
     );
     const expression = "evidence={viewModel.budgetEvidence ?? null}";
-    expect(desktop).toContain(expression);
-    expect(mobileScreenSource()).toContain(expression);
+    expect(desktop).not.toContain("<BudgetDecisionEvidencePanel");
+    expect(desktop).not.toContain(expression);
+    expect(mobileScreenSource()).not.toContain(expression);
   });
 
   it("re-derives no commercial truth on the mobile path", () => {
@@ -82,7 +81,7 @@ describe("Correction 5 / D — mobile budget-evidence projection", () => {
     }
   });
 
-  it("assembles no request of its own, even now that it can apply", () => {
+  it("assembles no request of its own", () => {
     /*
       RESTATED LAW. This used to read "adds no write control to the mobile
       stage", which stopped being true when the manual action sheet was
@@ -101,8 +100,7 @@ describe("Correction 5 / D — mobile budget-evidence projection", () => {
     for (const forbidden of [/onExecute/, /method:\s*"POST"/, /fetch\(/]) {
       expect(body, String(forbidden)).not.toMatch(forbidden);
     }
-    // And the budget panel it projects still carries no control of its own.
-    expect(body).toContain("<BudgetDecisionEvidencePanel");
+    expect(body).not.toContain("<BudgetDecisionEvidencePanel");
   });
 
   it("renders both directions and every canonical field from one server object", () => {

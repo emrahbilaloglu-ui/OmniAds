@@ -32,11 +32,12 @@ vi.mock("@/components/date-range/DateRangePicker", () => ({
   DateRangePicker: () => React.createElement("div", null, "date-range-picker"),
 }));
 
-const { CreativeDetailExperience } = await import(
-  "@/components/creatives/CreativeDetailExperience"
-);
+const { CreativeDetailExperience } =
+  await import("@/components/creatives/CreativeDetailExperience");
 
-function buildApiRow(overrides: Partial<MetaCreativeApiRow> = {}): MetaCreativeApiRow {
+function buildApiRow(
+  overrides: Partial<MetaCreativeApiRow> = {},
+): MetaCreativeApiRow {
   return {
     id: "creative_1",
     creative_id: "cr_1",
@@ -166,7 +167,7 @@ describe("CreativeDetailExperience", () => {
     observedQueries.keys = [];
   });
 
-  it("passes only the exact selected account and real Ad identity to evidence", () => {
+  it("passes the exact selected account and real Ad identity to actions without mounting raw evidence", () => {
     const row = mapApiRowToUiRow(
       buildApiRow({
         id: "row-1",
@@ -178,14 +179,18 @@ describe("CreativeDetailExperience", () => {
     renderDetail(row);
 
     expect(observedQueries.keys).toContainEqual([
-      "engine-v3-native-ad-evidence",
+      "meta-ad-actions",
       "biz",
-      "act_1",
       "ad-1",
     ]);
+    expect(
+      observedQueries.keys.some(
+        ([key]) => key === "engine-v3-native-ad-evidence",
+      ),
+    ).toBe(false);
   });
 
-  it("does not require creative grouping metadata for exact Ad evidence", () => {
+  it("does not mount raw evidence when creative grouping metadata is absent", () => {
     const row = mapApiRowToUiRow(
       buildApiRow({
         id: "row-without-creative-group",
@@ -197,22 +202,24 @@ describe("CreativeDetailExperience", () => {
 
     renderDetail(row);
 
-    expect(observedQueries.keys).toContainEqual([
-      "engine-v3-native-ad-evidence",
-      "biz",
-      "act_1",
-      "ad-without-creative-group",
-    ]);
+    expect(
+      observedQueries.keys.some(
+        ([key]) => key === "engine-v3-native-ad-evidence",
+      ),
+    ).toBe(false);
   });
 
   it("fails closed instead of treating a row id as a provider Ad id", () => {
     const html = renderDetail(
-      mapApiRowToUiRow(
-        buildApiRow({ id: "synthetic-row", real_ad_id: null }),
-      ),
+      mapApiRowToUiRow(buildApiRow({ id: "synthetic-row", real_ad_id: null })),
     );
 
-    expect(html).toContain("Exact Ad evidence unavailable");
+    expect(html).toContain(
+      "Actions are unavailable because this row could not be matched to one confirmed Meta ad. Review it in Ads Manager.",
+    );
+    expect(html).not.toContain("provider Ad id");
+    expect(html).not.toContain("exact ad, creative, and account identity");
+    expect(html).not.toContain("Exact Ad evidence unavailable");
     expect(observedQueries.keys).not.toContainEqual([
       "engine-v3-native-ad-evidence",
       "biz",
@@ -280,7 +287,9 @@ describe("CreativeDetailExperience", () => {
     );
     const html = renderDetail(row);
 
-    expect(html).toContain("No renderable preview is available for this creative.");
+    expect(html).toContain(
+      "No renderable preview is available for this creative.",
+    );
     expect(html).not.toContain("decision-window");
     expect(html).not.toContain("metrics-only");
   });

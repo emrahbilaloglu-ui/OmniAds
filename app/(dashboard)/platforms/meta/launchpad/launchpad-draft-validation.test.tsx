@@ -1,6 +1,12 @@
 // @vitest-environment jsdom
 
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import {
+  cleanup,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -49,14 +55,21 @@ function json(body: unknown) {
  * One page of drafts is one request: billing and the pixel list belong to the
  * account, so asking per row cost a Graph read per draft.
  */
-function batchReply(verdict: { ok: boolean; blockers: unknown[]; warnings: unknown[] }, keys: string[]) {
+function batchReply(
+  verdict: { ok: boolean; blockers: unknown[]; warnings: unknown[] },
+  keys: string[],
+) {
   return {
     ok: true,
     results: keys.map((key) => ({ key, ...verdict })),
   };
 }
 
-function stubEndpoints(validate: { ok: boolean; blockers: unknown[]; warnings: unknown[] }) {
+function stubEndpoints(validate: {
+  ok: boolean;
+  blockers: unknown[];
+  warnings: unknown[];
+}) {
   const validateCalls: unknown[] = [];
   const fetchMock = vi.fn(async (url: string, init?: { body?: string }) => {
     if (url.startsWith("/api/launchpad/meta/workspace"))
@@ -128,7 +141,7 @@ describe("Launchpad drafts validation is the server's verdict", () => {
 
     const row = await screen.findByTestId("launchpad-draft-row");
     await waitFor(() => {
-      expect(within(row).getByText("2 blockers")).toBeTruthy();
+      expect(within(row).getByText("2 issues")).toBeTruthy();
     });
     // One request for the page, carrying each draft's own persisted payload
     // keyed by its id — not one request per row.

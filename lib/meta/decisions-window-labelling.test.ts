@@ -1,4 +1,3 @@
-import { ZERO_BASE_COPY } from "@/lib/zero-base/copy";
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
@@ -49,21 +48,8 @@ describe("the range control names what it actually changes", () => {
     expect(view).not.toMatch(/data-meta-exact-window/);
   });
 
-  it("states in the UI that the range scopes metrics, not decisions", () => {
-    /*
-     * The label alone is not enough: an operator who already believes the old
-     * meaning needs to be told, once, beside the queue the window sits above.
-     *
-     * The sentence moved into the copy catalogue when this surface was
-     * translated, so the check follows it there — a regex over the component
-     * would now pass on a `{copy.x}` binding that resolved to anything at all.
-     * Both languages are asserted, because the claim has to be made in the
-     * language the operator is reading.
-     */
-    expect(view).toMatch(/\{copy\.queueReflectsSnapshot\}/);
-    expect(ZERO_BASE_COPY.en.queueReflectsSnapshot).toBe(
-      "the date range scopes metrics, not decisions",
-    );
-    expect(ZERO_BASE_COPY.tr.queueReflectsSnapshot.length).toBeGreaterThan(10);
+  it("does not replace the removed control with an explanatory backend note", () => {
+    expect(view).not.toMatch(/\{copy\.queueReflectsSnapshot\}/);
+    expect(view).not.toContain("the date range scopes metrics, not decisions");
   });
 });

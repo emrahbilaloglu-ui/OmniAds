@@ -185,25 +185,6 @@ export function getPlatformLayer2Items(
           // row below; a row must not claim a surface it does not own.
         },
         {
-          /**
-           * Addressed by its `/app` spelling, not a `/platforms` one.
-           *
-           * Account Intelligence is new in v2 and has no pre-v2 route, so
-           * inventing `/platforms/meta/intelligence` would name a path that
-           * 404s — and it could not even be a compatibility shim, because
-           * `compatibilityTargetFor` only knows paths the vendored contract
-           * records as *changed*, which this never was.
-           * `dashboardHrefForRouteFamily` rewrites `/app/**` into whichever
-           * family the operator is already in, so a `/c/:id` visitor stays
-           * inside their explicit business scope rather than being handed to
-           * `session.activeBusinessId`.
-           */
-          id: "meta-intelligence",
-          label: t.accountIntelligence,
-          href: "/app/meta/intelligence",
-          icon: Lightbulb,
-        },
-        {
           id: "creative-studio",
           label: t.creativeStudio,
           href: "/platforms/meta/creatives",

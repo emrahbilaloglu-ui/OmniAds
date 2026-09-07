@@ -350,9 +350,9 @@ describe("G7 — manual write ceremony", () => {
   interactionCase("gated:META-WRITE-02 continue", async () => {
     const user = userEvent.setup();
     ceremony(COLLECT);
-    // The preflight's age is stated before it goes stale, not only after.
+    // The status check and mandatory dispatch-time re-check are both stated.
     expect(document.querySelector('[data-el="preflight-age"]')?.textContent).toContain(
-      "Meta was not contacted",
+      "Status checked. It will be checked again before sending to Meta.",
     );
     await user.click(expectOperable(ctl("gated:META-WRITE-02 continue"), "continue"));
     // Missing operator input stops it here rather than at the provider.
@@ -370,8 +370,16 @@ describe("G7 — manual write ceremony", () => {
     // ceremony's own tests.
     ceremony({ ...COLLECT, kind: "confirm", action: "pause" });
     const submit = expectOperable(ctl("gated:META-WRITE-02 submit"), "submit");
-    // The confirmation restates scope before anything is sent.
-    expect(document.querySelector('[data-el="confirm-restate"]')?.textContent).toContain("act_1");
+    // The confirmation restates the buyer-facing target and current status,
+    // while keeping the provider account id out of visible copy.
+    const restatement = document.querySelector(
+      '[data-el="confirm-restate"]',
+    )?.textContent;
+    expect(restatement).toContain("Prospecting. Current status: Active.");
+    expect(restatement).toContain(
+      "checked again before anything is sent to Meta",
+    );
+    expect(restatement).not.toContain("act_1");
     expect(submit).toBeTruthy();
   });
 
@@ -702,10 +710,10 @@ describe("G7 — intelligence, history, automation", () => {
       </Host>,
     );
     const group = ctl("gated:AUTO-03 mode") as HTMLElement;
-    expect(group.getAttribute("data-mode-refused")).toBe("");
     for (const radio of within(group).getAllByRole("radio")) {
       expect(radio).toBeDisabled();
-      expect(radio.getAttribute("title")).toBe("Reviewer sessions are read-only.");
+      expect(radio.getAttribute("data-mode-refused")).toBe("");
+      expect(radio.getAttribute("title")).toBe("This workspace is read-only.");
     }
   });
 });

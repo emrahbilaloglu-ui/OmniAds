@@ -87,7 +87,8 @@ function countToken(content: string, token: LegacyToken): number {
  */
 const LEGACY_TOKEN_LEDGER: ReadonlyArray<{
   file: string;
-  category: "compat-boundary" | "parse-only-type" | "frozen-offline" | "parse-fixture";
+  category:
+    "compat-boundary" | "parse-only-type" | "frozen-offline" | "parse-fixture";
   why: string;
   tokens: Partial<Record<LegacyToken, number>>;
 }> = [
@@ -107,7 +108,11 @@ const LEGACY_TOKEN_LEDGER: ReadonlyArray<{
     file: "app/api/meta/lane-classify/route.ts",
     category: "compat-boundary",
     why: "legacy signal-key recognition returning canonical lane",
-    tokens: { label_status: 1, missing_campaign_label: 1, unlabeled_campaign_soft_only: 1 },
+    tokens: {
+      label_status: 1,
+      missing_campaign_label: 1,
+      unlabeled_campaign_soft_only: 1,
+    },
   },
   {
     file: "components/creatives/briefing/CreativesBriefingPage.tsx",
@@ -129,9 +134,14 @@ const LEGACY_TOKEN_LEDGER: ReadonlyArray<{
   },
   {
     file: "components/meta/decision-center/meta-decision-center-exact-adapter.ts",
-    category: "parse-only-type",
-    why: "legacy readiness-blocker display recognition",
-    tokens: { missing_campaign_label: 1 },
+    category: "compat-boundary",
+    why: "legacy readiness and creative blocker codes mapped to fail-closed buyer copy",
+    tokens: {
+      missing_campaign_label: 3,
+      campaign_label_missing: 1,
+      unlabeled_campaign_context: 1,
+      unlabeled_campaign_soft_only: 1,
+    },
   },
   {
     file: "lib/creative-decision-center/observability.ts",
@@ -173,7 +183,11 @@ const LEGACY_TOKEN_LEDGER: ReadonlyArray<{
     file: "lib/meta/automation-readiness.ts",
     category: "compat-boundary",
     why: "legacy signal recognition folded into canonical blockers",
-    tokens: { label_status: 1, missing_campaign_label: 3, unlabeled_campaign_soft_only: 1 },
+    tokens: {
+      label_status: 1,
+      missing_campaign_label: 3,
+      unlabeled_campaign_soft_only: 1,
+    },
   },
   {
     file: "lib/meta/campaign-label-guard.ts",
@@ -261,7 +275,9 @@ describe("D074b vocabulary closure", () => {
         const actual = countToken(content, token);
         const allowed = ledger?.tokens[token] ?? 0;
         if (actual !== allowed) {
-          mismatches.push(`${rel}: ${token} expected ${allowed}, found ${actual}`);
+          mismatches.push(
+            `${rel}: ${token} expected ${allowed}, found ${actual}`,
+          );
         }
       }
     }
@@ -292,7 +308,8 @@ describe("D074b vocabulary closure", () => {
     // documented carrier of a legacy guardrail-key literal.
     const emission =
       /campaignLabelStatus:\s*"(labeled|unlabeled|no_campaign)"|label_status:\s*"|blockers\.push\("missing_campaign_label"\)|blockers\.push\("campaign_label_missing"\)|reasonTags:\s*\["campaign_label_missing"\]|return "unlabeled";|return "waiting_on_labels"|watchingSubBucket:\s*"waiting_on_labels"|type:\s*"unlabeled_campaign_context"|requireCampaignLabel:\s*(true|false)/;
-    const emissionFixtureException = "scripts/zero-base/fixtures/automation-control-plane.ts";
+    const emissionFixtureException =
+      "scripts/zero-base/fixtures/automation-control-plane.ts";
     const offenders = ACTIVE_FILES.filter((file) => {
       const rel = relative(ROOT, file);
       if (rel === emissionFixtureException) return false;
@@ -404,12 +421,18 @@ describe("D074b vocabulary closure", () => {
   it("the legacy guardrail alias can only tighten requireResolvedCampaignRole, never relax it", () => {
     // Pre-correction a persisted legacy `false` disabled the resolved-role
     // requirement outright.
-    expect(resolveRequireResolvedCampaignRole({ requireCampaignLabel: false })).toBe(true);
-    expect(resolveRequireResolvedCampaignRole({ requireCampaignLabel: true })).toBe(true);
+    expect(
+      resolveRequireResolvedCampaignRole({ requireCampaignLabel: false }),
+    ).toBe(true);
+    expect(
+      resolveRequireResolvedCampaignRole({ requireCampaignLabel: true }),
+    ).toBe(true);
     expect(resolveRequireResolvedCampaignRole({})).toBe(true);
     // Only the canonical key may relax the guardrail.
     expect(
-      resolveRequireResolvedCampaignRole({ requireResolvedCampaignRole: false }),
+      resolveRequireResolvedCampaignRole({
+        requireResolvedCampaignRole: false,
+      }),
     ).toBe(false);
     expect(
       resolveRequireResolvedCampaignRole({
@@ -509,11 +532,14 @@ describe("D074b vocabulary closure", () => {
     const mismatches: string[] = [];
     for (const file of briefingFiles) {
       const rel = relative(ROOT, file);
-      const count = (readFileSync(file, "utf8").match(/\.executionAction/g) ?? [])
-        .length;
+      const count = (
+        readFileSync(file, "utf8").match(/\.executionAction/g) ?? []
+      ).length;
       const allowed = EXECUTION_ACTION_READ_BUDGET[rel] ?? 0;
       if (count !== allowed) {
-        mismatches.push(`${rel}: .executionAction expected ${allowed}, found ${count}`);
+        mismatches.push(
+          `${rel}: .executionAction expected ${allowed}, found ${count}`,
+        );
       }
     }
     expect(mismatches).toEqual([]);
@@ -525,7 +551,10 @@ describe("D074b vocabulary closure", () => {
     // counts include canonical-channel reads and comments; the point is
     // that ANY new occurrence fails here and forces a deliberate
     // classification (current-authority gate vs provenance block).
-    const RAW_ROW_FIELD_BUDGET: Record<string, Partial<Record<string, number>>> = {
+    const RAW_ROW_FIELD_BUDGET: Record<
+      string,
+      Partial<Record<string, number>>
+    > = {
       "components/creatives/briefing/ActionNowCard.tsx": { buyerLabel: 3 },
       "components/creatives/briefing/CreativeEvidenceDrawer.tsx": {
         buyerAction: 2,
@@ -534,13 +563,18 @@ describe("D074b vocabulary closure", () => {
         queueEligible: 1,
         applyEligible: 1,
       },
-      "components/creatives/briefing/CreativesBriefingPage.tsx": { buyerAction: 3 },
+      "components/creatives/briefing/CreativesBriefingPage.tsx": {
+        buyerAction: 3,
+      },
       "components/creatives/briefing/action-authority.ts": {
         buyerAction: 1,
         buyerLabel: 4,
       },
       "components/creatives/briefing/card-utils.tsx": { buyerAction: 1 },
-      "components/creatives/briefing/types.ts": { buyerAction: 4, buyerLabel: 1 },
+      "components/creatives/briefing/types.ts": {
+        buyerAction: 4,
+        buyerLabel: 1,
+      },
       "app/api/creatives/briefing/canonical-projection.ts": {
         buyerAction: 17,
         buyerLabel: 5,
@@ -575,7 +609,9 @@ describe("D074b vocabulary closure", () => {
           .length;
         const allowed = RAW_ROW_FIELD_BUDGET[rel]?.[field] ?? 0;
         if (count !== allowed) {
-          mismatches.push(`${rel}: ${field} expected ${allowed}, found ${count}`);
+          mismatches.push(
+            `${rel}: ${field} expected ${allowed}, found ${count}`,
+          );
         }
       }
     }

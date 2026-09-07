@@ -60,7 +60,11 @@ vi.mock("@/store/app-store", () => ({
 }));
 vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(""),
-  useRouter: () => ({ replace: mocks.replace, push: vi.fn(), refresh: mocks.refresh }),
+  useRouter: () => ({
+    replace: mocks.replace,
+    push: vi.fn(),
+    refresh: mocks.refresh,
+  }),
 }));
 vi.mock("@/lib/meta/history-client", () => ({
   fetchMetaHistoryAccounts: mocks.fetchAccounts,
@@ -171,35 +175,62 @@ function budgetWriteReadiness(): BudgetWriteReadinessModel {
   } as unknown as BudgetWriteReadinessModel;
 }
 
-function mount(viewer?: AutomationViewerEnvelope) {
+function activeBudgetWriteReadiness(): BudgetWriteReadinessModel {
+  const readiness = budgetWriteReadiness();
+  return {
+    ...readiness,
+    execution: {
+      ...readiness.execution,
+      executionEnabled: true,
+      activatedProviderAccountId: readiness.providerAccountId,
+    },
+  };
+}
+
+function mount(
+  viewer?: AutomationViewerEnvelope,
+  readiness: BudgetWriteReadinessModel = budgetWriteReadiness(),
+) {
   return render(
     <MetaAutomationPage
       businessId="biz_1"
       providerAccountId="act_1"
       initialPayload={controlPlane()}
-      budgetWriteReadiness={budgetWriteReadiness()}
+      budgetWriteReadiness={readiness}
       viewer={viewer}
     />,
   );
 }
 
 const ADMIN = buildAutomationViewerEnvelope({
-  role: "admin", reviewerReadOnly: false, writeAuthority: "live",
+  role: "admin",
+  reviewerReadOnly: false,
+  writeAuthority: "live",
 });
 const COLLABORATOR = buildAutomationViewerEnvelope({
-  role: "collaborator", reviewerReadOnly: false, writeAuthority: "live",
+  role: "collaborator",
+  reviewerReadOnly: false,
+  writeAuthority: "live",
 });
 const GUEST = buildAutomationViewerEnvelope({
-  role: "guest", reviewerReadOnly: false, writeAuthority: "live",
+  role: "guest",
+  reviewerReadOnly: false,
+  writeAuthority: "live",
 });
 const REVIEWER = buildAutomationViewerEnvelope({
-  role: "admin", reviewerReadOnly: true, writeAuthority: "live",
+  role: "admin",
+  reviewerReadOnly: true,
+  writeAuthority: "live",
 });
 const DEMO = buildAutomationViewerEnvelope({
-  role: "admin", reviewerReadOnly: false, writeAuthority: "demo",
+  role: "admin",
+  reviewerReadOnly: false,
+  writeAuthority: "demo",
 });
 const UNVERIFIED = buildAutomationViewerEnvelope({
-  role: "admin", reviewerReadOnly: false, writeAuthority: "unverified",
+  role: "admin",
+  reviewerReadOnly: false,
+  writeAuthority: "unverified",
 });
 
 beforeEach(() => {
@@ -219,32 +250,51 @@ afterEach(() => {
 const preparationForm = (container: HTMLElement) =>
   container.querySelector('[data-testid="budget-preparation-form"]');
 const enableButton = (container: HTMLElement) =>
-  container.querySelector('[data-testid="budget-activation-enable"]') as HTMLButtonElement | null;
+  container.querySelector(
+    '[data-testid="budget-activation-enable"]',
+  ) as HTMLButtonElement | null;
 const disableButton = (container: HTMLElement) =>
-  container.querySelector('[data-testid="budget-activation-disable"]') as HTMLButtonElement | null;
+  container.querySelector(
+    '[data-testid="budget-activation-disable"]',
+  ) as HTMLButtonElement | null;
 const phraseInput = (container: HTMLElement) =>
-  container.querySelector('[data-testid="budget-activation-phrase"]') as HTMLInputElement | null;
+  container.querySelector(
+    '[data-testid="budget-activation-phrase"]',
+  ) as HTMLInputElement | null;
 
 describe("buildBudgetMasterSwitchAuthorization — an allowlist, unit-level", () => {
   it("grants ONLY role===admin, canMutate===true, reason===null, desktop", () => {
-    const granted = buildBudgetMasterSwitchAuthorization({ viewer: ADMIN, surface: "desktop" });
+    const granted = buildBudgetMasterSwitchAuthorization({
+      viewer: ADMIN,
+      surface: "desktop",
+    });
     expect(granted).toEqual({
-      canConfigure: true, canDisable: true, reason: null, reasonCode: null, surface: "desktop",
+      canConfigure: true,
+      canDisable: true,
+      reason: null,
+      reasonCode: null,
+      surface: "desktop",
     });
   });
 
   it("refuses an UNESTABLISHED (null role) viewer — the exact defect fixed", () => {
     const result = buildBudgetMasterSwitchAuthorization({
-      viewer: AUTOMATION_VIEWER_NOT_ESTABLISHED, surface: "desktop",
+      viewer: AUTOMATION_VIEWER_NOT_ESTABLISHED,
+      surface: "desktop",
     });
     expect(result.canConfigure).toBe(false);
     expect(result.canDisable).toBe(false);
     expect(result.reasonCode).toBe("viewer_not_established");
-    expect(result.reason).toBe(BUDGET_MASTER_SWITCH_VIEWER_UNESTABLISHED_REFUSAL);
+    expect(result.reason).toBe(
+      BUDGET_MASTER_SWITCH_VIEWER_UNESTABLISHED_REFUSAL,
+    );
   });
 
   it("refuses a collaborator", () => {
-    const result = buildBudgetMasterSwitchAuthorization({ viewer: COLLABORATOR, surface: "desktop" });
+    const result = buildBudgetMasterSwitchAuthorization({
+      viewer: COLLABORATOR,
+      surface: "desktop",
+    });
     expect(result.canConfigure).toBe(false);
     expect(result.canDisable).toBe(false);
     expect(result.reasonCode).toBe("insufficient_role");
@@ -252,31 +302,46 @@ describe("buildBudgetMasterSwitchAuthorization — an allowlist, unit-level", ()
   });
 
   it("refuses a guest", () => {
-    const result = buildBudgetMasterSwitchAuthorization({ viewer: GUEST, surface: "desktop" });
+    const result = buildBudgetMasterSwitchAuthorization({
+      viewer: GUEST,
+      surface: "desktop",
+    });
     expect(result.canConfigure).toBe(false);
     expect(result.reasonCode).toBe("insufficient_role");
   });
 
   it("refuses a reviewer, even one with admin role", () => {
-    const result = buildBudgetMasterSwitchAuthorization({ viewer: REVIEWER, surface: "desktop" });
+    const result = buildBudgetMasterSwitchAuthorization({
+      viewer: REVIEWER,
+      surface: "desktop",
+    });
     expect(result.canConfigure).toBe(false);
     expect(result.reasonCode).toBe("reviewer_read_only");
   });
 
   it("refuses a demo workspace, even for its admin", () => {
-    const result = buildBudgetMasterSwitchAuthorization({ viewer: DEMO, surface: "desktop" });
+    const result = buildBudgetMasterSwitchAuthorization({
+      viewer: DEMO,
+      surface: "desktop",
+    });
     expect(result.canConfigure).toBe(false);
     expect(result.reasonCode).toBe("demo_business_read_only");
   });
 
   it("refuses an unverified workspace", () => {
-    const result = buildBudgetMasterSwitchAuthorization({ viewer: UNVERIFIED, surface: "desktop" });
+    const result = buildBudgetMasterSwitchAuthorization({
+      viewer: UNVERIFIED,
+      surface: "desktop",
+    });
     expect(result.canConfigure).toBe(false);
     expect(result.reasonCode).toBe("demo_status_unverified");
   });
 
   it("refuses the mobile pane unconditionally, even for an admin", () => {
-    const result = buildBudgetMasterSwitchAuthorization({ viewer: ADMIN, surface: "mobile_read_only" });
+    const result = buildBudgetMasterSwitchAuthorization({
+      viewer: ADMIN,
+      surface: "mobile_read_only",
+    });
     expect(result.canConfigure).toBe(false);
     expect(result.canDisable).toBe(false);
     expect(result.reasonCode).toBe("read_only_surface");
@@ -284,18 +349,19 @@ describe("buildBudgetMasterSwitchAuthorization — an allowlist, unit-level", ()
 
   it("refuses an unestablished viewer on mobile too (mobile refuses first)", () => {
     const result = buildBudgetMasterSwitchAuthorization({
-      viewer: AUTOMATION_VIEWER_NOT_ESTABLISHED, surface: "mobile_read_only",
+      viewer: AUTOMATION_VIEWER_NOT_ESTABLISHED,
+      surface: "mobile_read_only",
     });
     expect(result.reasonCode).toBe("read_only_surface");
   });
 });
 
 describe("the mounted page — admin sees the real controls", () => {
-  it("shows Enable, the phrase input, Disable, and the preparation form", () => {
+  it("shows Enable, the phrase input, and preparation while this account is off", () => {
     const { container } = mount(ADMIN);
     expect(enableButton(container)).not.toBeNull();
     expect(phraseInput(container)).not.toBeNull();
-    expect(disableButton(container)).not.toBeNull();
+    expect(disableButton(container)).toBeNull();
     expect(preparationForm(container)).not.toBeNull();
     expect(enableButton(container)!.getAttribute("data-enabled")).toBe("true");
   });
@@ -303,50 +369,81 @@ describe("the mounted page — admin sees the real controls", () => {
 
 describe("the mounted page — no mutation control for anyone else", () => {
   it.each([
-    ["collaborator", COLLABORATOR],
-    ["guest", GUEST],
-    ["reviewer", REVIEWER],
-    ["demo workspace admin", DEMO],
-    ["unverified workspace admin", UNVERIFIED],
-    ["unestablished (null role) — the production default", AUTOMATION_VIEWER_NOT_ESTABLISHED],
-    ["no viewer prop at all — the exact pre-fix legacy call shape", undefined],
-  ])("%s: no enable, no phrase, no disable, no preparation form", (_label, viewer) => {
-    const { container } = mount(viewer);
-    expect(enableButton(container)).toBeNull();
-    expect(phraseInput(container)).toBeNull();
-    expect(disableButton(container)).toBeNull();
-    expect(preparationForm(container)).toBeNull();
-    // And the refusal is STATED, not just an absent control that looks like
-    // a bug — a reviewer/demo/unverified viewer's own reason is restated
-    // verbatim; the unestablished viewer gets the new named refusal.
-    expect(container.textContent).toContain(
-      viewer === undefined || viewer === AUTOMATION_VIEWER_NOT_ESTABLISHED
-        ? BUDGET_MASTER_SWITCH_VIEWER_UNESTABLISHED_REFUSAL
-        : (viewer as AutomationViewerEnvelope).reason ?? BUDGET_MASTER_SWITCH_ADMIN_REFUSAL,
-    );
-  });
+    [
+      "collaborator",
+      COLLABORATOR,
+      "Admin access is required to change automatic actions.",
+    ],
+    ["guest", GUEST, "Admin access is required to change automatic actions."],
+    ["reviewer", REVIEWER, "This workspace is read-only."],
+    [
+      "demo workspace admin",
+      DEMO,
+      "Automatic actions are unavailable in demo workspaces.",
+    ],
+    [
+      "unverified workspace admin",
+      UNVERIFIED,
+      "Automatic actions are unavailable right now.",
+    ],
+    [
+      "unestablished (null role) — the production default",
+      AUTOMATION_VIEWER_NOT_ESTABLISHED,
+      "Automatic actions are unavailable right now.",
+    ],
+    [
+      "no viewer prop at all — the exact pre-fix legacy call shape",
+      undefined,
+      "Automatic actions are unavailable right now.",
+    ],
+  ])(
+    "%s: no enable, no phrase, no disable, no preparation form",
+    (_label, viewer, operatorMessage) => {
+      const { container } = mount(viewer);
+      expect(enableButton(container)).toBeNull();
+      expect(phraseInput(container)).toBeNull();
+      expect(disableButton(container)).toBeNull();
+      expect(preparationForm(container)).toBeNull();
+      expect(container.textContent).toContain(operatorMessage);
+      const rawReason =
+        viewer === undefined || viewer === AUTOMATION_VIEWER_NOT_ESTABLISHED
+          ? BUDGET_MASTER_SWITCH_VIEWER_UNESTABLISHED_REFUSAL
+          : ((viewer as AutomationViewerEnvelope).reason ??
+            BUDGET_MASTER_SWITCH_ADMIN_REFUSAL);
+      expect(container.textContent).not.toContain(rawReason);
+    },
+  );
 });
 
 describe("the mobile pane — never a mutation control, whatever the role", () => {
   it("admin on mobile still sees no live master-switch control", () => {
     const { container } = mount(ADMIN);
-    const mobile = container.querySelector('[data-testid="meta-mobile-automation"]')!;
-    expect(mobile.querySelector('[data-testid="budget-activation-enable"]')).toBeNull();
-    expect(mobile.querySelector('[data-testid="budget-preparation-form"]')).toBeNull();
+    const mobile = container.querySelector(
+      '[data-testid="meta-mobile-automation"]',
+    )!;
+    expect(
+      mobile.querySelector('[data-testid="budget-activation-enable"]'),
+    ).toBeNull();
+    expect(
+      mobile.querySelector('[data-testid="budget-preparation-form"]'),
+    ).toBeNull();
   });
 });
 
 describe("save -> onSaved -> router.refresh() — the real server round-trip", () => {
   it("calls router.refresh() after a successful preparation save", async () => {
     const { container } = mount(ADMIN);
-    const save = container.querySelector('[data-testid="preparation-save"]') as HTMLButtonElement;
+    const save = container.querySelector(
+      '[data-testid="preparation-save"]',
+    ) as HTMLButtonElement;
     expect(save.disabled).toBe(false);
     fireEvent.click(save);
     await waitFor(() => expect(mocks.refresh).toHaveBeenCalledTimes(1));
   });
 
   it("calls router.refresh() after a successful disable", async () => {
-    const { container } = mount(ADMIN);
+    const { container } = mount(ADMIN, activeBudgetWriteReadiness());
+    expect(disableButton(container)).not.toBeNull();
     fireEvent.click(disableButton(container)!);
     await waitFor(() => expect(mocks.refresh).toHaveBeenCalledTimes(1));
   });
@@ -372,16 +469,22 @@ describe("the API admin guard — unchanged by this pass", () => {
   it("still requires admin for set_budget_auto_execution and save_budget_automation_config", async () => {
     const { readFileSync } = await import("node:fs");
     const route = readFileSync("app/api/meta/automation/route.ts", "utf8");
-    expect(route).toContain('action === "release_kill_switch" || action === "set_guardrail_policy"');
+    expect(route).toContain(
+      'action === "release_kill_switch" || action === "set_guardrail_policy"',
+    );
     expect(route).toContain('|| action === "set_budget_auto_execution"');
-    expect(route).toContain('|| action === "save_budget_automation_config" || armsAutoExecution');
+    expect(route).toContain(
+      '|| action === "save_budget_automation_config" || armsAutoExecution',
+    );
     expect(route).toContain('? "admin"');
   });
 });
 
 describe("ZERO_BASE_UI_MODE default is off, and off mounts the file this pass fixed", () => {
   it("no env var resolves to uiMode: off", () => {
-    expect(readZeroBaseRolloutConfig({} as NodeJS.ProcessEnv).uiMode).toBe("off");
+    expect(readZeroBaseRolloutConfig({} as NodeJS.ProcessEnv).uiMode).toBe(
+      "off",
+    );
   });
 
   it("uiMode off decides legacy unconditionally, before any actor is resolved", () => {
@@ -403,9 +506,12 @@ describe("ZERO_BASE_UI_MODE default is off, and off mounts the file this pass fi
   it("the shim wires LegacyBody to legacy-page.tsx — the file this pass fixed", async () => {
     const { readFileSync } = await import("node:fs");
     const shim = readFileSync(
-      "app/(dashboard)/platforms/meta/automation/page.tsx", "utf8",
+      "app/(dashboard)/platforms/meta/automation/page.tsx",
+      "utf8",
     );
     expect(shim).toContain('import LegacyBody from "./legacy-page"');
-    expect(shim).toContain('compatibilityPage("/platforms/meta/automation", LegacyBody)');
+    expect(shim).toContain(
+      'compatibilityPage("/platforms/meta/automation", LegacyBody)',
+    );
   });
 });

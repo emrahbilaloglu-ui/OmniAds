@@ -1,7 +1,13 @@
 // @vitest-environment jsdom
 
 import { useQuery } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import CopiesPage from "@/app/(dashboard)/platforms/meta/copies/legacy-page";
@@ -192,7 +198,8 @@ beforeEach(() => {
   useQueryMock.mockImplementation(
     (options: { queryKey?: readonly unknown[] }) => {
       const accountQuery = options.queryKey?.[0] === "meta-provider-accounts";
-      const targetsQuery = options.queryKey?.[0] === "copies-commercial-targets";
+      const targetsQuery =
+        options.queryKey?.[0] === "copies-commercial-targets";
       const data = targetsQuery
         ? queryState.commercialTargets
         : accountQuery
@@ -269,9 +276,12 @@ describe("CopiesPage exact integration", () => {
     // Both come from the one resolved window this surface measured, so they
     // cannot name different days; `window=custom` is what forbids the
     // destination from re-expanding a preset against its own clock.
-    expect(screen.getByRole("link", { name: "Inbox" })).toHaveAttribute(
+    expect(
+      screen.queryByRole("link", { name: "Inbox" }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Audiences" })).toHaveAttribute(
       "href",
-      "/c/biz_authorized/creative/inbox?providerAccountId=act_authorized" +
+      "/c/biz_authorized/creative/audiences?providerAccountId=act_authorized" +
         "&window=custom&startDate=2026-07-01&endDate=2026-07-28" +
         "&start=2026-07-01&end=2026-07-28",
     );
@@ -307,7 +317,9 @@ describe("CopiesPage exact integration", () => {
       "CVR",
       "ROAS",
     ]);
-    expect(container.querySelectorAll("[data-copy-angle]")).toHaveLength(4);
+    // No angle summary card is rendered when the response carries no angle;
+    // the table keeps the honest dash in its Angle cell instead.
+    expect(container.querySelectorAll("[data-copy-angle]")).toHaveLength(0);
     const row = container.querySelector('[data-copy-row="copy_1"]');
     expect(row).not.toBeNull();
     const cells = Array.from(row!.querySelectorAll("td")).map((cell) =>
@@ -329,7 +341,7 @@ describe("CopiesPage exact integration", () => {
     expect(screen.queryByText("Ad account")).not.toBeInTheDocument();
   });
 
-  it("aggregates only a real server messaging angle and pads absent slots with em dashes", () => {
+  it("renders only messaging angles that are actually available", () => {
     queryState.copies = {
       rows: [
         buildCopyApiRow({ angle: "Social Proof" }),
@@ -342,9 +354,13 @@ describe("CopiesPage exact integration", () => {
       <CopiesPage businessId="biz_1" providerAccountId="act_1" />,
     );
 
-    expect(container.querySelector('[data-copy-angle="social-proof"]')).not.toBeNull();
+    expect(
+      container.querySelector('[data-copy-angle="social-proof"]'),
+    ).not.toBeNull();
     expect(screen.getAllByText("Social Proof").length).toBeGreaterThan(0);
-    expect(container.querySelectorAll('[data-copy-angle^="unavailable-"]')).toHaveLength(3);
+    expect(
+      container.querySelectorAll('[data-copy-angle^="unavailable-"]'),
+    ).toHaveLength(0);
     expect(screen.queryByText("Problem-aware")).not.toBeInTheDocument();
   });
 
@@ -374,18 +390,19 @@ describe("CopiesPage exact integration", () => {
      *
      * It must never become a link again. Preparing a draft is a POST the server
      * answers by re-reading the served copy for this creative and window, so
-     * the control is a BUTTON: an href could only carry claims. "Draft all"
-     * stays disabled outright because a handoff carries one line by
-     * construction and there is no honest implementation of "all".
+     * the control is a BUTTON: an href could only carry claims. There is no
+     * "Draft all" control because a handoff carries one line by construction.
      */
-    expect(screen.queryByRole("link", { name: "Draft →" })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("link", { name: "Draft →" }),
+    ).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Draft →" })).toBeEnabled();
     expect(
       screen.queryByRole("link", { name: "Draft all 1 in Launchpad" }),
     ).not.toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "Draft all 1 in Launchpad" }),
-    ).toBeDisabled();
+      screen.queryByRole("button", { name: "Draft all 1 in Launchpad" }),
+    ).not.toBeInTheDocument();
     expect(screen.queryByText(/evidence attached/)).not.toBeInTheDocument();
 
     fireEvent.keyDown(document, { key: "Escape" });
@@ -402,7 +419,9 @@ describe("CopiesPage exact integration", () => {
    */
   it("prepares a draft by naming the creative, the line and the window to the server", async () => {
     queryState.copies = {
-      rows: [buildCopyApiRow({ variants: ["Real copy", "Served alternative"] })],
+      rows: [
+        buildCopyApiRow({ variants: ["Real copy", "Served alternative"] }),
+      ],
       meta: {},
     };
     const fetchMock = vi.fn(async () => ({
@@ -447,11 +466,13 @@ describe("CopiesPage exact integration", () => {
     expect(destination).not.toContain("start=");
   });
 
-  // A refusal is restated verbatim and NOTHING is opened. Navigating to
-  // Launchpad anyway would read as success.
-  it("restates a refused draft and opens nothing", async () => {
+  // A refusal is mapped to stable buyer copy and NOTHING is opened. Navigating
+  // to Launchpad anyway would read as success.
+  it("shows buyer-facing refusal copy and opens nothing", async () => {
     queryState.copies = {
-      rows: [buildCopyApiRow({ variants: ["Real copy", "Served alternative"] })],
+      rows: [
+        buildCopyApiRow({ variants: ["Real copy", "Served alternative"] }),
+      ],
       meta: {},
     };
     vi.stubGlobal(
@@ -477,13 +498,20 @@ describe("CopiesPage exact integration", () => {
     fireEvent.click(container.querySelector('[data-copy-row="copy_1"]')!);
     fireEvent.click(screen.getByRole("button", { name: "Draft →" }));
 
-    await screen.findByText(/not in the current served universe/);
+    await screen.findByText(
+      /The Launchpad draft could not be prepared\. Try again\./,
+    );
+    expect(
+      screen.queryByText(/not in the current served universe/),
+    ).not.toBeInTheDocument();
     expect(assign).not.toHaveBeenCalled();
   });
 
   it("reads the operator's own target pack into the drawer's ROAS tile", () => {
     queryState.copies = { rows: [buildCopyApiRow()], meta: {} };
-    queryState.commercialTargets = { snapshot: { targetPack: { targetRoas: 2.5 } } };
+    queryState.commercialTargets = {
+      snapshot: { targetPack: { targetRoas: 2.5 } },
+    };
 
     const { container } = render(
       <CopiesPage businessId="biz_1" providerAccountId="act_1" />,
@@ -502,7 +530,9 @@ describe("CopiesPage exact integration", () => {
 
   it("keeps the ROAS tile's target an em dash when no target pack is configured", () => {
     queryState.copies = { rows: [buildCopyApiRow()], meta: {} };
-    queryState.commercialTargets = { snapshot: { targetPack: { targetRoas: null } } };
+    queryState.commercialTargets = {
+      snapshot: { targetPack: { targetRoas: null } },
+    };
 
     const { container } = render(
       <CopiesPage businessId="biz_1" providerAccountId="act_1" />,
@@ -532,7 +562,7 @@ describe("CopiesPage exact integration", () => {
       }),
     );
     expect(
-      screen.getByText("Select one assigned Meta account to load copy performance."),
+      screen.getByText("Select a Meta account to continue."),
     ).toBeInTheDocument();
     expect(document.body.textContent).not.toContain("act_url");
   });
@@ -563,7 +593,8 @@ describe("CopiesPage exact integration", () => {
         rowsObservedAt: null,
         rowsObservedAtSource: "live",
         isPartial: true,
-        notReadyReason: "Today is still being prepared in the account timezone.",
+        notReadyReason:
+          "Today is still being prepared in the account timezone.",
       },
     };
 
@@ -576,19 +607,14 @@ describe("CopiesPage exact integration", () => {
     // THE TWO CLOCKS STAY APART. `warehouseObservedAt` exists and is NOT quoted,
     // because these rows were read live and no warehouse write describes them.
     expect(call.asOf).toBeNull();
-    expect(call.partialReason).toContain(
-      "Today is still being prepared in the account timezone.",
-    );
-    expect(call.partialReason).toContain(
-      "These rows were read live from Meta, so the warehouse sync time does not describe them.",
+    expect(call.partialReason).toBe(
+      "Some copy performance data is unavailable. Try again.",
     );
 
-    // And the operator can read it, not just the store.
-    expect(
-      screen.getByText(
-        /Today is still being prepared in the account timezone\..*read live from Meta/,
-      ),
-    ).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain(
+      "Today is still being prepared in the account timezone.",
+    );
+    expect(document.body.textContent).not.toContain("read live from Meta");
   });
 
   it("quotes the warehouse clock, and names it, when the rows came from the warehouse", () => {
@@ -613,9 +639,7 @@ describe("CopiesPage exact integration", () => {
     };
     expect(call.asOf).toBe("2026-07-29T06:15:00.000Z");
     expect(call.partialReason).toBeNull();
-    expect(
-      screen.getByText("Warehouse rows · age is the warehouse sync clock"),
-    ).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("Warehouse rows");
   });
 
   it("states an unknown lineage rather than borrowing the warehouse clock", () => {
@@ -631,9 +655,7 @@ describe("CopiesPage exact integration", () => {
 
     const call = freshness.mock.calls.at(-1)?.[0] as { asOf: string | null };
     expect(call.asOf).toBeNull();
-    expect(
-      screen.getByText("Row age unavailable · the read did not name its source"),
-    ).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("Row age unavailable");
   });
 
   it("names the demo source rather than calling it unnamed", () => {
@@ -654,9 +676,7 @@ describe("CopiesPage exact integration", () => {
 
     const call = freshness.mock.calls.at(-1)?.[0] as { asOf: string | null };
     expect(call.asOf).toBeNull();
-    expect(
-      screen.getByText("Demo rows · fixtures carry no observation time"),
-    ).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("Demo rows");
   });
 
   it("shows the query error rather than an empty-success message", () => {
@@ -664,7 +684,10 @@ describe("CopiesPage exact integration", () => {
 
     render(<CopiesPage businessId="biz_1" providerAccountId="act_1" />);
 
-    expect(screen.getByText("copy read failed")).toBeInTheDocument();
+    expect(
+      screen.getByText("Creative data is temporarily unavailable."),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("copy read failed")).not.toBeInTheDocument();
     expect(
       screen.queryByText(
         "No copy performance is available for this account and date range.",

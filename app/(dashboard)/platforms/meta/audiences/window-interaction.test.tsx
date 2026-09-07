@@ -31,7 +31,14 @@
  * modified.
  */
 import React, { useEffect, useReducer } from "react";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { WorkspaceContextProvider } from "@/components/workspace/workspace-context-provider";
@@ -119,7 +126,9 @@ vi.mock("@/store/preferences-store", () => ({
  */
 vi.mock("@/components/date-range/DateRangePicker", async (importOriginal) => {
   const actual =
-    await importOriginal<typeof import("@/components/date-range/DateRangePicker")>();
+    await importOriginal<
+      typeof import("@/components/date-range/DateRangePicker")
+    >();
   return { ...actual, getTodayIsoForTimeZone: () => WORKSPACE_TODAY };
 });
 
@@ -133,10 +142,18 @@ vi.mock("@/components/layout/v2/use-shell-signals", () => ({
 }));
 
 vi.mock("@/components/ui/dropdown-menu", () => ({
-  DropdownMenu: ({ children }: { children: React.ReactNode }) => <>{children}</>,
-  DropdownMenuTrigger: ({ children }: { children: React.ReactNode }) => <>{children}</>,
-  DropdownMenuContent: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-  DropdownMenuLabel: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  DropdownMenu: ({ children }: { children: React.ReactNode }) => (
+    <>{children}</>
+  ),
+  DropdownMenuTrigger: ({ children }: { children: React.ReactNode }) => (
+    <>{children}</>
+  ),
+  DropdownMenuContent: ({ children }: { children: React.ReactNode }) => (
+    <div>{children}</div>
+  ),
+  DropdownMenuLabel: ({ children }: { children: React.ReactNode }) => (
+    <div>{children}</div>
+  ),
   DropdownMenuSeparator: () => <hr />,
   DropdownMenuItem: ({
     children,
@@ -163,7 +180,10 @@ vi.mock("@/components/states/useTierZeroFreshness", () => ({
  * fetches inspected. That URL is the assertion.
  */
 const query = vi.hoisted(() => ({
-  lastOptions: null as { queryKey?: unknown; queryFn?: () => Promise<unknown> } | null,
+  lastOptions: null as {
+    queryKey?: unknown;
+    queryFn?: () => Promise<unknown>;
+  } | null,
 }));
 vi.mock("@tanstack/react-query", () => ({
   /**
@@ -350,7 +370,9 @@ describe("the shell's date picker drives the Audiences breakdown read", () => {
     const secondRequest = await readRequestParams();
     expect(secondRequest.get("startDate")).toBe(second.get("startDate"));
     expect(secondRequest.get("endDate")).toBe(second.get("endDate"));
-    expect(secondRequest.get("startDate")).not.toBe(firstRequest.get("startDate"));
+    expect(secondRequest.get("startDate")).not.toBe(
+      firstRequest.get("startDate"),
+    );
   });
 
   /**
@@ -367,9 +389,11 @@ describe("the shell's date picker drives the Audiences breakdown read", () => {
     );
 
     const tabs = Array.from(
-      document.querySelectorAll<HTMLAnchorElement>("[data-creative-studio-tab]"),
+      document.querySelectorAll<HTMLAnchorElement>(
+        "[data-creative-studio-tab]",
+      ),
     );
-    expect(tabs.length).toBe(5);
+    expect(tabs.length).toBe(4);
     for (const tab of tabs) {
       const linked = new URLSearchParams(
         tab.getAttribute("href")?.split("?", 2)[1] ?? "",

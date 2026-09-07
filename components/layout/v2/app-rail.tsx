@@ -133,7 +133,13 @@ function RailIcon({ link, size }: { link: RailLink; size: number }) {
   const referencePath = REFERENCE_RAIL_ICON_PATHS[link.id];
   if (!referencePath) {
     const Icon = link.icon;
-    return <Icon style={{ width: size, height: size }} className="shrink-0" strokeWidth={2} />;
+    return (
+      <Icon
+        style={{ width: size, height: size }}
+        className="shrink-0"
+        strokeWidth={2}
+      />
+    );
   }
   return (
     <svg
@@ -409,7 +415,9 @@ export function AppRail({
         panel.querySelectorAll<HTMLElement>(
           'a[href], button:not([disabled]), input:not([disabled]), select, textarea, [tabindex]:not([tabindex="-1"])',
         ),
-      ).filter((node) => node.offsetParent !== null || node === document.activeElement);
+      ).filter(
+        (node) => node.offsetParent !== null || node === document.activeElement,
+      );
       if (stops.length === 0) return;
       const head = stops[0]!;
       const tail = stops[stops.length - 1]!;
@@ -434,7 +442,12 @@ export function AppRail({
       // the drawer: a navigation that closed it has already moved on.
       const opener = returnFocusTo?.current;
       const active = document.activeElement;
-      if (opener && (!active || active === document.body || railRef.current?.contains(active))) {
+      if (
+        opener &&
+        (!active ||
+          active === document.body ||
+          railRef.current?.contains(active))
+      ) {
         opener.focus();
       }
     };
@@ -476,7 +489,6 @@ export function AppRail({
           />
         </span>
         <span className="adv-rail-wordmark">Adsecute</span>
-        <span className="adv-rail-version">v2</span>
       </div>
 
       <nav className="adv-rail-nav" aria-label="Primary">
@@ -563,7 +575,7 @@ function RailAccount({ userName, plan }: { userName: string; plan: PlanId }) {
         <span className="block truncate text-[12.5px] font-semibold text-[var(--adv-rail-ink)]">
           {shortName(userName)}
         </span>
-        <span className="block text-[11px] text-[var(--adv-rail-ink-3)]">
+        <span className="block text-[12px] text-[var(--adv-rail-ink-3)]">
           {PLAN_LABELS[plan]} plan
         </span>
       </span>

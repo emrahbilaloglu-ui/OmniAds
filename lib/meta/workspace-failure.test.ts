@@ -57,8 +57,11 @@ describe("an operator is told why decisions are withheld", () => {
 });
 
 describe("the surface uses it", () => {
-  it("renders the described failure instead of a fixed string", () => {
-    expect(page).toContain("describeDecisionWorkspaceFailure(briefingError)");
+  it("renders stable buyer-facing copy instead of the raw server failure", () => {
+    expect(page).toContain("We could not load Meta decisions. Please try again.");
+    expect(page).not.toContain(
+      "describeDecisionWorkspaceFailure(briefingError)",
+    );
   });
 
   it("carries the server reason off the response so it can be shown", () => {

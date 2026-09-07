@@ -21,7 +21,9 @@ const navigation = vi.hoisted(() => ({
 }));
 
 const queryState = vi.hoisted(() => ({
-  accounts: [{ id: "act_1", name: "Main", timezone: "UTC", currency: "TRY" }] as unknown,
+  accounts: [
+    { id: "act_1", name: "Main", timezone: "UTC", currency: "TRY" },
+  ] as unknown,
   creatives: undefined as unknown,
   briefing: undefined as unknown,
   briefingError: null as Error | null,
@@ -70,7 +72,9 @@ vi.mock("@/hooks/use-persistent-date-range", () => ({
 }));
 
 vi.mock("@/components/pricing/PlanGate", () => ({
-  PlanGate: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  PlanGate: ({ children }: { children: React.ReactNode }) => (
+    <div>{children}</div>
+  ),
 }));
 
 const useQueryMock = vi.mocked(useQuery);
@@ -99,28 +103,33 @@ beforeEach(() => {
   queryState.sharedLinks = undefined;
   freshness.mockReset();
   useQueryMock.mockReset();
-  useQueryMock.mockImplementation((options: { queryKey?: readonly unknown[] }) => {
-    const key = options.queryKey?.[0];
-    const data =
-      key === "meta-provider-accounts"
-        ? queryState.accounts
-        : key === "meta-creative-studio"
-          ? queryState.creatives
-          : key === "creative-share-links"
-            ? queryState.sharedLinks
-            : queryState.briefing;
-    const error = key === "meta-creative-studio-briefing" ? queryState.briefingError : null;
-    return {
-      data,
-      error,
-      fetchStatus: "idle",
-      isError: Boolean(error),
-      isFetching: false,
-      isLoading: false,
-      refetch: vi.fn(),
-      status: error ? "error" : data ? "success" : "pending",
-    } as unknown as ReturnType<typeof useQuery>;
-  });
+  useQueryMock.mockImplementation(
+    (options: { queryKey?: readonly unknown[] }) => {
+      const key = options.queryKey?.[0];
+      const data =
+        key === "meta-provider-accounts"
+          ? queryState.accounts
+          : key === "meta-creative-studio"
+            ? queryState.creatives
+            : key === "creative-share-links"
+              ? queryState.sharedLinks
+              : queryState.briefing;
+      const error =
+        key === "meta-creative-studio-briefing"
+          ? queryState.briefingError
+          : null;
+      return {
+        data,
+        error,
+        fetchStatus: "idle",
+        isError: Boolean(error),
+        isFetching: false,
+        isLoading: false,
+        refetch: vi.fn(),
+        status: error ? "error" : data ? "success" : "pending",
+      } as unknown as ReturnType<typeof useQuery>;
+    },
+  );
 });
 
 afterEach(() => cleanup());
@@ -193,14 +202,15 @@ describe("Creative Studio Assets: the age comes from the rows' own source", () =
       status: "ok",
       rows: [],
       isPartial: true,
-      notReadyReason: "Current-day live Meta creative data is still being prepared.",
+      notReadyReason:
+        "Current-day live Meta creative data is still being prepared.",
       warehouse_observed_at: null,
     };
 
     render(<CreativeStudioPage businessId="biz_1" providerAccountId="act_1" />);
 
-    expect(lastFreshnessCall().partialReason).toContain(
-      "Current-day live Meta creative data is still being prepared.",
+    expect(lastFreshnessCall().partialReason).toBe(
+      "Some creative data is unavailable. Try again.",
     );
   });
 

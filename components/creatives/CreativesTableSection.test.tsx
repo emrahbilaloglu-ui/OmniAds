@@ -246,6 +246,45 @@ describe("CreativesTableSection", () => {
     expect(html).not.toContain(">DECISION<");
   });
 
+  it("keeps provider IDs out of buyer-visible creative and placement labels", () => {
+    const creativeId = "120219876543210011";
+    const campaignId = "120219876543210012";
+    const adSetId = "120219876543210013";
+    const mappedRow = mapApiRowToUiRow(
+      buildApiRow({
+        id: "table-row-1",
+        creative_id: creativeId,
+        campaign_id: campaignId,
+        campaign_name: null,
+        adset_id: adSetId,
+        adset_name: null,
+      }),
+    );
+    const row = { ...mappedRow, name: `Creative ${creativeId}` };
+    const html = renderToStaticMarkup(
+      <CreativesTableSection
+        rows={[row]}
+        creativeHistoryById={new Map()}
+        defaultCurrency="USD"
+        selectedMetricIds={["spend", "roas"]}
+        onSelectedMetricIdsChange={() => {}}
+        selectedRowIds={[]}
+        onToggleRow={() => {}}
+        onToggleAll={() => {}}
+        onOpenRow={() => {}}
+      />,
+    );
+
+    expect(html).toContain("Unnamed creative");
+    expect(html).toContain("Unnamed campaign");
+    expect(html).toContain("Unnamed ad set");
+    expect(html).not.toContain("Campaign id:");
+    expect(html).not.toContain("Ad set id:");
+    expect(html).not.toContain(creativeId);
+    expect(html).not.toContain(campaignId);
+    expect(html).not.toContain(adSetId);
+  });
+
   it("reveals the server DECISION column only when buyer decision language is on", () => {
     const row = mapApiRowToUiRow(buildApiRow());
     const html = renderToStaticMarkup(
@@ -295,7 +334,7 @@ describe("CreativesTableSection", () => {
     expect(html).not.toContain("Scale");
   });
 
-  it("labels the client-computed hook score with an honest provenance pill", () => {
+  it("labels the calculated hook score in buyer language", () => {
     const row = mapApiRowToUiRow(buildApiRow());
     const html = renderToStaticMarkup(
       <CreativesTableSection
@@ -312,10 +351,11 @@ describe("CreativesTableSection", () => {
       />,
     );
 
-    // The Hook score is client-computed (calculateCreativeHookScore), not provider-reported,
-    // so its cell carries an honest "proxy" provenance pill with an explanatory tooltip.
-    expect(html).toContain("proxy");
-    expect(html).toContain("Client-computed proxy");
+    expect(html).toContain("Estimated");
+    expect(html).toContain("Estimated from early attention and thumbstop signals.");
+    expect(html).not.toContain("proxy");
+    expect(html).not.toContain("Client-computed");
+    expect(html).not.toContain("provider-reported");
   });
 
   it("renders the updated heatmap legend copy for the creatives table", () => {

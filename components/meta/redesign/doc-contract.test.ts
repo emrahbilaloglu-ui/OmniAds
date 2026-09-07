@@ -107,15 +107,14 @@ describe("meta page UI contract doc stays consistent with code", () => {
     expect(doc).not.toMatch(/not window- or status-filter-scoped/i);
   });
 
-  it("unified as-of contract: exact source identity and queue snapshot remain payload-bound", () => {
+  it("unified as-of contract: exact source identity remains payload-bound", () => {
     expect(exact).toContain("data-meta-exact-source-identity");
-    expect(exact).toContain("data-meta-exact-queue-snapshot");
+    expect(exact).not.toContain("data-meta-exact-queue-snapshot");
     expect(adapter).toContain("workspace.pulse.lastSyncAt");
     expect(adapter).toContain("workspace.decisionReadModel.source.snapshotAsOf");
     expect(adapter).toContain("workspace.lanes.snapshotDate");
     expect(doc).toContain("unified as-of contract");
     expect(doc).toContain("data-meta-exact-source-identity");
-    expect(doc).toContain("data-meta-exact-queue-snapshot");
     expect(doc).not.toContain("meta-anomaly-asof");
     // Pre-fix wording (snapshotDate as the requested range end) is banned.
     expect(doc).not.toMatch(/snapshotDate[^.\n]*requested range end(?![^.\n]*used to echo)/i);

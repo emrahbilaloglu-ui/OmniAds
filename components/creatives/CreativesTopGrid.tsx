@@ -96,12 +96,37 @@ export function buildPlacementTooltip(row: {
   adSetId?: string | null;
 }): string | undefined {
   const parts: string[] = [];
-  if (row.campaignName) parts.push(`Campaign: ${row.campaignName}`);
-  else if (row.campaignId) parts.push(`Campaign id: ${row.campaignId}`);
-  if (row.adSetName) parts.push(`Ad set: ${row.adSetName}`);
-  else if (row.adSetId) parts.push(`Ad set id: ${row.adSetId}`);
+  const campaignName = buyerFacingEntityName(
+    row.campaignName,
+    row.campaignId,
+    "Campaign",
+  );
+  const adSetName = buyerFacingEntityName(row.adSetName, row.adSetId, "Ad set");
+  if (campaignName) parts.push(`Campaign: ${campaignName}`);
+  if (adSetName) parts.push(`Ad set: ${adSetName}`);
   if (parts.length === 0) return undefined;
   return parts.join("\n");
+}
+
+function buyerFacingEntityName(
+  value: string | null | undefined,
+  providerId: string | null | undefined,
+  entityLabel: "Creative" | "Campaign" | "Ad set",
+): string | null {
+  const name = value?.trim() ?? "";
+  const id = providerId?.trim() ?? "";
+  if (!name) return id ? `Unnamed ${entityLabel.toLowerCase()}` : null;
+  if (!id) return name;
+  const normalizedName = name.toLowerCase();
+  const normalizedId = id.toLowerCase();
+  if (
+    normalizedName === normalizedId ||
+    normalizedName === `${entityLabel.toLowerCase()} ${normalizedId}` ||
+    normalizedName === `${entityLabel.toLowerCase()} id: ${normalizedId}`
+  ) {
+    return `Unnamed ${entityLabel.toLowerCase()}`;
+  }
+  return name;
 }
 
 function CreativeCard({
@@ -121,6 +146,14 @@ function CreativeCard({
 }) {
   const isCatalog = Boolean(row.isCatalog || row.is_catalog || row.preview?.is_catalog);
   const placementTooltip = buildPlacementTooltip(row);
+  const rowName =
+    buyerFacingEntityName(row.name, row.creativeId ?? row.id, "Creative") ??
+    "Unnamed creative";
+  const campaignName = buyerFacingEntityName(
+    row.campaignName,
+    row.campaignId,
+    "Campaign",
+  );
 
   const sourcePriority = useMemo(
     () => getCreativeStaticPreviewSources(row, "grid"),
@@ -143,7 +176,7 @@ function CreativeCard({
         <div className="relative">
           <CreativePreview
             id={row.id}
-            name={row.name}
+            name={rowName}
             cachedUrl={row.cachedThumbnailUrl ?? row.cached_thumbnail_url ?? null}
             imageUrl={
               row.cardPreviewUrl ??
@@ -172,10 +205,10 @@ function CreativeCard({
         </div>
 
         <div className="px-3 pb-3 pt-2" title={placementTooltip}>
-          <p className="line-clamp-2 text-[12px] font-semibold leading-tight">{row.name}</p>
-          {row.campaignName ? (
+          <p className="line-clamp-2 text-[12px] font-semibold leading-tight">{rowName}</p>
+          {campaignName ? (
             <p className="mt-0.5 line-clamp-1 text-[10px] text-muted-foreground">
-              {row.campaignName}
+              {campaignName}
             </p>
           ) : null}
           <div className="mt-2 flex items-center gap-4 text-[11px]">
@@ -193,7 +226,7 @@ function CreativeCard({
         <input
           type="checkbox"
           checked={selected}
-          aria-label={`Select ${row.name}`}
+          aria-label={`Select ${rowName}`}
           onChange={() => onToggleSelect(row.id)}
           onClick={(event) => event.stopPropagation()}
         />

@@ -44,7 +44,7 @@ export interface ServedCreativeClassification {
   tone: CreativeStudioTone;
   /** Server-owned queue state, display-cased without changing its meaning. */
   segment: string | null;
-  /** Exact engine/action audit text. It is explanatory copy, never an input. */
+  /** Buyer-facing context for the served recommendation. */
   detail: string | null;
   /** Number of distinct server decisions represented by this creative row. */
   decisionCount: number;
@@ -71,10 +71,9 @@ export interface CreativeDecisionStatusFallback {
  * The engine's `DecisionLabel` union, cased for reading.
  *
  * `lib/creative-decision-engine/types.ts:23` defines exactly these seven
- * members. Nothing is added, merged or renamed: `test_more` becomes
- * "Test more" and stays the same classification. A label the engine adds later
- * and this map does not know is rendered verbatim rather than dropped, because
- * an unknown server answer is still the server's answer.
+ * members. The keys stay internal; only reviewed buyer labels reach the
+ * Creative Studio. A future label that is absent from this map remains
+ * available to the decision pipeline without exposing its raw enum in the UI.
  */
 const DECISION_LABEL_DISPLAY: Readonly<
   Record<string, { label: string; tone: CreativeStudioTone }>
@@ -130,6 +129,23 @@ function canonicalTone(
 function nonEmpty(value: string | null | undefined): string | null {
   const normalized = value?.trim();
   return normalized ? normalized : null;
+}
+
+function buyerActionLabel(value: string | null | undefined): string | null {
+  const action = nonEmpty(value)?.toLowerCase();
+  if (!action) return null;
+  const labels: Readonly<Record<string, string>> = {
+    scale: "Scale",
+    protect: "Protect performance",
+    keep: "Keep running",
+    refresh: "Refresh creative",
+    cut: "Stop",
+    test_more: "Test more",
+    diagnose: "Review data",
+    fix_delivery: "Fix delivery",
+    fix_policy: "Resolve policy issue",
+  };
+  return labels[action] ?? null;
 }
 
 function isRollup(
@@ -203,15 +219,21 @@ function canonicalClassificationForCard(
   const decisionState = nonEmpty(decision.classification.decisionState);
   const buyerLabel = nonEmpty(decision.classification.buyerLabel);
   const sourceLabel = nonEmpty(decision.sourceDecision.label);
-  const label = buyerLabel ?? sourceLabel ?? "Decision unavailable";
+  const sourceDisplayLabel = sourceLabel
+    ? (DECISION_LABEL_DISPLAY[sourceLabel]?.label ?? null)
+    : null;
+  const label = buyerLabel ?? sourceDisplayLabel ?? "Decision unavailable";
   const details: string[] = [];
-  if (sourceLabel && sourceLabel.toLowerCase() !== label.toLowerCase()) {
-    details.push(`Engine: ${sourceLabel}`);
-  }
   if (decision.classification.heldAction) {
-    details.push(`Held: ${decision.classification.heldAction}`);
+    const heldLabel = buyerActionLabel(decision.classification.heldAction);
+    details.push(
+      heldLabel
+        ? `${heldLabel} is waiting for review`
+        : "An action is waiting for review",
+    );
   } else if (decision.classification.buyerAction) {
-    details.push(`Action: ${decision.classification.buyerAction}`);
+    const actionLabel = buyerActionLabel(decision.classification.buyerAction);
+    if (actionLabel) details.push(`Recommended action: ${actionLabel}`);
   }
 
   return {
@@ -223,9 +245,7 @@ function canonicalClassificationForCard(
         decision.classification.decisionState,
         decision.classification.buyerAction,
       ),
-      segment:
-        (decisionState && DECISION_STATE_DISPLAY[decisionState]) ??
-        decisionState,
+      segment: (decisionState && DECISION_STATE_DISPLAY[decisionState]) ?? null,
       detail: details.length > 0 ? details.join(" · ") : null,
       source: "canonical_decision",
     },
@@ -257,7 +277,7 @@ function legacyClassificationForCard(
         label: assessment.label.trim(),
         tone: ASSESSMENT_TONE[assessment.tone] ?? "neutral",
         segment: legacySegment,
-        detail: "Legacy served assessment",
+        detail: "Previous assessment",
         source: "assessment",
       },
     };
@@ -270,10 +290,10 @@ function legacyClassificationForCard(
     creativeId,
     decisionKey: `${nonEmpty(card.id) ?? "legacy"}:label:${label}`,
     value: {
-      label: display?.label ?? label,
+      label: display?.label ?? "Recommendation available",
       tone: display?.tone ?? "neutral",
       segment: legacySegment,
-      detail: "Legacy served decision",
+      detail: "Previous decision",
       source: "decision_label",
     },
   };
@@ -381,7 +401,7 @@ export function creativeDecisionStatusFallback(
       label: "Loading decision",
       tone: "neutral",
       segment: null,
-      detail: "Decision context is loading",
+      detail: "Recommendation is loading.",
       decisionCount: 0,
       source: "read_state",
     };
@@ -391,7 +411,7 @@ export function creativeDecisionStatusFallback(
       label: "Decision data unavailable",
       tone: "warning",
       segment: null,
-      detail: "The decision endpoint did not serve this row",
+      detail: "Recommendation is temporarily unavailable.",
       decisionCount: 0,
       source: "read_state",
     };
@@ -400,7 +420,7 @@ export function creativeDecisionStatusFallback(
     label: "Not evaluated",
     tone: "neutral",
     segment: null,
-    detail: "No served decision matched this creative",
+    detail: "No recommendation is available for this creative.",
     decisionCount: 0,
     source: "read_state",
   };

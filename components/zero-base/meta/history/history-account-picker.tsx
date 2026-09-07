@@ -25,6 +25,7 @@ import { useCopy } from "@/components/zero-base/i18n/copy-provider";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import type { MetaHistoryAccount } from "@/lib/meta/history-contract";
+import { historyAccountLabel } from "@/lib/zero-base/meta/history-adapter";
 
 export function HistoryAccountPicker({
   accounts,
@@ -48,7 +49,13 @@ export function HistoryAccountPicker({
   return (
     <label
       data-control="account-picker"
-      style={{ fontSize: 12, display: "grid", gap: 4, marginTop: 12, maxWidth: 280 }}
+      style={{
+        fontSize: 12,
+        display: "grid",
+        gap: 4,
+        marginTop: 12,
+        maxWidth: 280,
+      }}
     >
       {copy.metaAdAccount}
       <select
@@ -64,7 +71,7 @@ export function HistoryAccountPicker({
         <option value="">{copy.selectAccount}</option>
         {accounts.map((account) => (
           <option key={account.id} value={account.id}>
-            {account.name ?? account.id}
+            {historyAccountLabel(account)}
             {account.currency ? ` · ${account.currency}` : ""}
           </option>
         ))}

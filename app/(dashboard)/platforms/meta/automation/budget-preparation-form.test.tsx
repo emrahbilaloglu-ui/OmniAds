@@ -31,22 +31,31 @@ import type { BudgetMasterSwitchAuthorization } from "./viewer-envelope";
 import { BudgetWriteReadinessSection } from "./automation-view";
 
 const ADMIN_DESKTOP: BudgetMasterSwitchAuthorization = {
-  canConfigure: true, canDisable: true,
-  reason: null, reasonCode: null, surface: "desktop" as const,
+  canConfigure: true,
+  canDisable: true,
+  reason: null,
+  reasonCode: null,
+  surface: "desktop" as const,
 };
 const COLLABORATOR: BudgetMasterSwitchAuthorization = {
-  canConfigure: false, canDisable: false,
+  canConfigure: false,
+  canDisable: false,
   reason: "Only an admin may change automatic execution.",
   // The real code the envelope emits for a non-admin viewer.
-  reasonCode: "insufficient_role" as const, surface: "desktop" as const,
+  reasonCode: "insufficient_role" as const,
+  surface: "desktop" as const,
 };
 const MOBILE_READ_ONLY: BudgetMasterSwitchAuthorization = {
-  canConfigure: false, canDisable: false,
+  canConfigure: false,
+  canDisable: false,
   reason: "This pane is read-only.",
-  reasonCode: "read_only_surface" as const, surface: "mobile_read_only" as const,
+  reasonCode: "read_only_surface" as const,
+  surface: "mobile_read_only" as const,
 };
 
-const prepared = (over: Partial<BudgetPreparationView> = {}): BudgetPreparationView => ({
+const prepared = (
+  over: Partial<BudgetPreparationView> = {},
+): BudgetPreparationView => ({
   contract: BUDGET_PREPARATION_READ_CONTRACT,
   rowRead: true,
   rowExists: true,
@@ -60,7 +69,9 @@ const prepared = (over: Partial<BudgetPreparationView> = {}): BudgetPreparationV
   ...over,
 });
 
-const model = (preparation: BudgetPreparationView | null): BudgetWriteReadinessModel => ({
+const model = (
+  preparation: BudgetPreparationView | null,
+): BudgetWriteReadinessModel => ({
   contract: "meta.budget-write-readiness.v1",
   businessId: "b1",
   providerAccountId: "act_1",
@@ -86,10 +97,19 @@ const model = (preparation: BudgetPreparationView | null): BudgetWriteReadinessM
 const render = (
   preparation: BudgetPreparationView | null,
   authorization: BudgetMasterSwitchAuthorization = ADMIN_DESKTOP,
-) =>
-  renderToStaticMarkup(
-    <BudgetWriteReadinessSection readiness={model(preparation)} authorization={authorization} />,
+  execution: Partial<BudgetWriteReadinessModel["execution"]> = {},
+) => {
+  const readiness = model(preparation);
+  return renderToStaticMarkup(
+    <BudgetWriteReadinessSection
+      readiness={{
+        ...readiness,
+        execution: { ...readiness.execution, ...execution },
+      }}
+      authorization={authorization}
+    />,
   );
+};
 
 const SOURCE = readFileSync(
   "app/(dashboard)/platforms/meta/automation/automation-view.tsx",
@@ -103,12 +123,16 @@ describe("preparation form — it is mounted at all", () => {
       asserts the form is inside the section the mounted automation body
       renders, not merely that a component exists somewhere.
     */
-    expect(render(prepared())).toContain('data-testid="budget-preparation-form"');
+    expect(render(prepared())).toContain(
+      'data-testid="budget-preparation-form"',
+    );
     expect(SOURCE).toContain('action: "save_budget_automation_config"');
   });
 
   it("posts to the existing route and contract, inventing no endpoint", () => {
-    expect(SOURCE).toMatch(/fetch\(`\/api\/meta\/automation\?\$\{query\.toString\(\)\}`/);
+    expect(SOURCE).toMatch(
+      /fetch\(`\/api\/meta\/automation\?\$\{query\.toString\(\)\}`/,
+    );
     // It sends the PARSED config, so the body is the contract's shape.
     expect(SOURCE).toContain("...parsed.config");
   });
@@ -134,34 +158,69 @@ describe("preparation form — role and surface gating", () => {
       policy, so it follows the admin key instead. A viewer who may only stop
       must not be able to rewrite the guardrails.
     */
-    const disableOnly = { ...ADMIN_DESKTOP, canConfigure: false, canDisable: true };
-    const html = render(prepared(), disableOnly);
+    const disableOnly = {
+      ...ADMIN_DESKTOP,
+      canConfigure: false,
+      canDisable: true,
+    };
+    const html = render(prepared(), disableOnly, {
+      executionEnabled: true,
+      activatedProviderAccountId: "act_1",
+    });
     expect(html).toContain('data-testid="budget-activation-disable"');
     expect(html).not.toContain('data-testid="budget-preparation-form"');
   });
 });
 
 describe("preparation form — persisted values, or an explicit unknown", () => {
-  it("shows each persisted value beside its own field", () => {
+  it("seeds the operator-facing limit fields from persisted values", () => {
     const html = render(prepared());
-    expect(html).toContain('data-key="budgetMinHoursBetweenChanges" data-state="persisted"');
-    expect(html).toContain("saved: 12");
-    expect(html).toContain("saved: TRY");
+    expect(html).toMatch(/data-testid="preparation-min-hours"[^>]*value="12"/);
+    expect(html).toMatch(/data-testid="preparation-max-changes"[^>]*value="3"/);
+    expect(html).toMatch(
+      /data-testid="preparation-ceiling-minor"[^>]*value="5000\.00"/,
+    );
+    expect(html).toMatch(
+      /data-testid="preparation-ceiling-currency"[^>]*value="TRY"/,
+    );
+    expect(html).not.toContain("minor units");
+    expect(html).not.toContain("saved:");
     expect(html).toContain('data-row-exists="true"');
   });
 
-  it("says NOT SET for a key the row does not carry, and fills nothing in", () => {
-    const html = render(prepared({
-      budgetMaxChangesPer7d: { state: "unset", value: null },
-    }));
-    expect(html).toContain('data-key="budgetMaxChangesPer7d" data-state="unset"');
-    expect(html).toContain("not set");
+  it("uses the selected currency scale instead of assuming two decimals", () => {
+    const html = render(
+      prepared({
+        perActionSpendCeilingMinor: {
+          state: "persisted",
+          value: 500000,
+        },
+        perActionSpendCeilingCurrency: {
+          state: "persisted",
+          value: "JPY",
+        },
+      }),
+    );
+
+    expect(html).toMatch(
+      /data-testid="preparation-ceiling-minor"[^>]*value="500000"/,
+    );
+    expect(html).toContain('aria-label="Per-action spend limit (JPY)"');
+  });
+
+  it("leaves a missing limit empty without exposing field provenance", () => {
+    const html = render(
+      prepared({
+        budgetMaxChangesPer7d: { state: "unset", value: null },
+      }),
+    );
+    expect(html).not.toContain('data-state="unset"');
     // The input stays EMPTY. A pre-filled plausible number is the failure this
     // form exists to avoid: it lets an admin persist a default as a decision.
     expect(html).toMatch(/data-testid="preparation-max-changes"[^>]*value=""/);
   });
 
-  it("says COULD NOT BE READ when the row was unreadable, and warns before saving", () => {
+  it("locks the form with a short recovery message when limits are unreadable", () => {
     const unreadable: BudgetPreparationView = {
       contract: BUDGET_PREPARATION_READ_CONTRACT,
       rowRead: false,
@@ -169,12 +228,11 @@ describe("preparation form — persisted values, or an explicit unknown", () => 
       ...everyFieldAt("unknown"),
     };
     const html = render(unreadable);
-    expect(html).toContain('data-state="unknown"');
-    expect(html).toContain("could not be read");
+    expect(html).not.toContain('data-state="unknown"');
+    expect(html).toContain("Saved limits are unavailable");
     expect(html).toContain('data-field="preparation-unreadable"');
     expect(html).toContain('data-row-read="false"');
-    // Unknown is not "unset": the copy says overwriting it hides values.
-    expect(html).toContain("unknown is not");
+    expect(html).toContain('data-fields-locked="true"');
   });
 
   it("renders an absent preparation block as unknown, never as unset", () => {
@@ -182,18 +240,20 @@ describe("preparation form — persisted values, or an explicit unknown", () => 
     // configured" — that would invite a save over a row nobody looked at.
     const html = render(null);
     expect(html).toContain('data-testid="budget-preparation-form"');
-    expect(html).toContain("could not be read");
+    expect(html).toContain("Saved limits are unavailable");
     expect(html).not.toContain('data-state="unset"');
   });
 
   it("names the prerequisites that are not yet prepared", () => {
-    const html = render(prepared({
-      maxBudgetIncreasePct: { state: "unset", value: null },
-      dryRunOnly: { state: "unset", value: null },
-    }));
+    const html = render(
+      prepared({
+        maxBudgetIncreasePct: { state: "unset", value: null },
+        dryRunOnly: { state: "unset", value: null },
+      }),
+    );
     expect(html).toContain('data-field="preparation-missing"');
-    expect(html).toContain("dryRunOnly");
-    expect(html).toContain("maxBudgetIncreasePct");
+    expect(html).toContain("preview setting");
+    expect(html).toContain("maximum increase per change");
   });
 
   it("does not treat a clearable spend ceiling as a missing prerequisite", () => {
@@ -206,21 +266,21 @@ describe("preparation form — persisted values, or an explicit unknown", () => 
   });
 });
 
-describe("preparation form — it warns that saving forces automation OFF", () => {
-  it("states both consequences before the fields, not beside the button", () => {
+describe("preparation form — saving keeps automatic actions off", () => {
+  it("states the consequence before the fields", () => {
     const html = render(prepared());
     expect(html).toContain('data-field="preparation-warning"');
-    expect(html).toContain("forces automatic execution OFF");
-    expect(html).toContain("clears any activated account binding");
+    expect(html).toContain("turns automatic actions off");
     // Ordering: the warning precedes the first input in the document.
-    expect(html.indexOf('data-field="preparation-warning"'))
-      .toBeLessThan(html.indexOf('data-testid="preparation-dry-run-only"'));
+    expect(html.indexOf('data-field="preparation-warning"')).toBeLessThan(
+      html.indexOf('data-testid="preparation-dry-run-only"'),
+    );
   });
 
-  it("labels the button as a preparation, not an enable", () => {
+  it("labels the form and button in operator language", () => {
     const html = render(prepared());
-    expect(html).toContain("Save preparation (keeps automation OFF)");
-    expect(html).toContain("Prepare budget automation (does not enable it)");
+    expect(html).toContain("Save limits");
+    expect(html).toContain("Automation limits");
   });
 });
 
@@ -231,7 +291,9 @@ describe("preparation form — validation is the SERVER's, not a second opinion"
     );
     expect(SOURCE).toContain("parseBudgetAutomationConfig(candidate)");
     // A client component must never reach the database module.
-    expect(SOURCE).not.toContain('from "@/lib/meta/budget-automation-configuration"');
+    expect(SOURCE).not.toContain(
+      'from "@/lib/meta/budget-automation-configuration"',
+    );
     expect(SOURCE).not.toContain('from "@/lib/meta/budget-preparation-read"');
   });
 
@@ -247,12 +309,16 @@ describe("preparation form — validation is the SERVER's, not a second opinion"
     const html = render(blank);
     expect(html).toContain('data-field="preparation-rejection"');
     expect(html).toContain("min_hours_between_changes_invalid");
-    expect(html).toContain('data-testid="preparation-save" data-enabled="false"');
-    expect(html).toContain("disabled=\"\"");
+    expect(html).toContain(
+      'data-testid="preparation-save" data-enabled="false"',
+    );
+    expect(html).toContain('disabled=""');
   });
 
   it("enables the button only when the parse succeeds", () => {
-    expect(render(prepared())).toContain('data-testid="preparation-save" data-enabled="true"');
+    expect(render(prepared())).toContain(
+      'data-testid="preparation-save" data-enabled="true"',
+    );
   });
 });
 
@@ -275,9 +341,11 @@ describe("preparation form — it computes no decision authority", () => {
     const html = render(prepared());
     // The phrase input and the enable button still carry their own gating.
     expect(html).toContain('data-testid="budget-activation-phrase"');
-    expect(html).toContain('data-testid="budget-activation-enable" data-enabled="false"');
-    // And the STOP is still ungated.
-    expect(html).toContain('data-testid="budget-activation-disable"');
+    expect(html).toContain(
+      'data-testid="budget-activation-enable" data-enabled="false"',
+    );
+    // A stop is offered only when automatic actions are actually on here.
+    expect(html).not.toContain('data-testid="budget-activation-disable"');
   });
 });
 
@@ -287,31 +355,43 @@ describe("preparation form — mobile", () => {
     // `auto-fit`/`minmax` is one column on a narrow pane and two when there is
     // room; `width:100%` + `min-width:0` is what stops an input from forcing a
     // horizontal scroll inside it.
-    expect(html).toContain("grid-template-columns:repeat(auto-fit, minmax(220px, 1fr))");
+    expect(html).toContain(
+      "grid-template-columns:repeat(auto-fit, minmax(220px, 1fr))",
+    );
     expect(html).toMatch(/min-width:0/);
-    expect(html).toMatch(/data-testid="preparation-save"[^>]*style="[^"]*width:100%/);
+    expect(html).toMatch(
+      /data-testid="preparation-save"[^>]*style="[^"]*width:100%/,
+    );
   });
 
   it("gives every input an accessible name and a numeric keypad where numeric", () => {
     const html = render(prepared());
-    expect(html).toContain('aria-label="Min hours between changes"');
-    expect(html).toContain('aria-label="Ceiling currency"');
+    expect(html).toContain('aria-label="Minimum hours between changes"');
+    expect(html).toContain('aria-label="Per-action spend limit (TRY)"');
+    expect(html).toContain('aria-label="Spend-limit currency"');
     // React preserves the camelCase spelling in server markup, so the match is
     // case-insensitive rather than pinned to one renderer's normalisation.
-    expect(html.match(/inputmode="numeric"/gi) ?? []).toHaveLength(5);
+    expect(html.match(/inputmode="numeric"/gi) ?? []).toHaveLength(4);
+    expect(html.match(/inputmode="decimal"/gi) ?? []).toHaveLength(1);
   });
 });
 
 describe("preparation projection — the pure part", () => {
   it("reports a stored document field by field", () => {
     const view = projectStoredGuardrails({
-      dryRunOnly: false, budgetMinHoursBetweenChanges: 12,
-      budgetMaxChangesPer7d: 3, budgetMaxAccountConcentrationPct: 40,
-      maxBudgetIncreasePct: 25, perActionSpendCeilingMinor: 500000,
+      dryRunOnly: false,
+      budgetMinHoursBetweenChanges: 12,
+      budgetMaxChangesPer7d: 3,
+      budgetMaxAccountConcentrationPct: 40,
+      maxBudgetIncreasePct: 25,
+      perActionSpendCeilingMinor: 500000,
       perActionSpendCeilingCurrency: "TRY",
     });
     expect(view.dryRunOnly).toEqual({ state: "persisted", value: false });
-    expect(view.perActionSpendCeilingCurrency).toEqual({ state: "persisted", value: "TRY" });
+    expect(view.perActionSpendCeilingCurrency).toEqual({
+      state: "persisted",
+      value: "TRY",
+    });
   });
 
   it("reports a WRONG-TYPED stored value as unset rather than showing it", () => {

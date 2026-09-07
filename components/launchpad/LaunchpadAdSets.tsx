@@ -529,10 +529,6 @@ function AttributionField({
           })}
         </div>
       ) : null}
-      <div className="mt-3 rounded-[6px] bg-[var(--surface-2)] p-2 text-[11.5px] text-[var(--ink-2)]">
-        <span className="font-medium">attribution_spec preview: </span>
-        <code className="mono text-[var(--muted)]">{JSON.stringify(adSet.attributionSpec)}</code>
-      </div>
       {!hasClick ? (
         <span className="chip chip--action mt-2">
           <span className="dot" />
@@ -548,8 +544,9 @@ function AttributionField({
 }
 
 function formatPixelLabel(pixel: LaunchpadPixelOption, currency: string | null) {
-  const name = pixel.name ? `${pixel.name} / ` : "";
-  return `${name}${pixel.id} / 28d spend ${formatMoney(pixel.lastSpend28d, currency)}`;
+  const name = pixel.name?.trim() || "Connected pixel";
+  const maskedId = pixel.id.length > 6 ? ` / ending ${pixel.id.slice(-4)}` : "";
+  return `${name}${maskedId} / ${formatMoney(pixel.lastSpend28d, currency)} in the last 28 days`;
 }
 
 function PixelField({
@@ -592,7 +589,7 @@ function PixelField({
       <div className="space-y-1.5">
         <span className="text-[12px] font-medium text-[var(--ink-2)]">Pixel</span>
         <div className="flex h-10 items-center rounded-[6px] border border-[var(--border)] bg-[var(--surface-2)] px-3 text-[13px] text-[var(--ink)]">
-          {pixel ? formatPixelLabel(pixel, currency) : value}
+          {pixel ? formatPixelLabel(pixel, currency) : "Selected pixel unavailable"}
         </div>
       </div>
     );

@@ -56,13 +56,12 @@ describe("surface registry ↔ every other route/nav table", () => {
     expect(new Set(routes).size).toBe(routes.length);
 
     const orders = metaRailSurfaces().map((s) => s.railOrder);
-    expect(orders).toEqual([1, 2, 3, 4, 5, 6]);
+    expect(orders).toEqual([1, 2, 3, 4, 5]);
   });
 
-  it("carries D3's six rail entries in D3's order", () => {
+  it("carries only usable Meta rail entries in their fixed order", () => {
     expect(metaRailSurfaces().map((s) => s.label)).toEqual([
       "Decisions",
-      "Account Intelligence",
       "Creative Studio",
       "Launchpad",
       "Automation",
@@ -145,8 +144,13 @@ describe("surface registry ↔ every other route/nav table", () => {
 
     for (const surface of subs) {
       const path = scoped(surface.canonicalRoute);
-      const active = meta.children.filter((link) => isRailLinkActive(link, path));
-      expect(active.map((l) => l.label), path).toEqual(["Creative Studio"]);
+      const active = meta.children.filter((link) =>
+        isRailLinkActive(link, path),
+      );
+      expect(
+        active.map((l) => l.label),
+        path,
+      ).toEqual(["Creative Studio"]);
       expect(isPlatformFamilyActive(meta, path), path).toBe(true);
     }
   });
@@ -202,20 +206,34 @@ describe("surface registry ↔ every other route/nav table", () => {
     const target = COMPATIBILITY_TABLE.find(
       (row) => row.route === "/platforms/meta/audiences",
     );
-    expect(target?.canonicalUrls).toEqual(["/c/[businessId]/creative/audiences"]);
+    expect(target?.canonicalUrls).toEqual([
+      "/c/[businessId]/creative/audiences",
+    ]);
     expect(target?.canonicalUrls).toEqual([audiences.canonicalRoute]);
   });
 
   it("applies the reporting-range picker only where a range means something", () => {
     // §8.2. A control-state surface showed an active range it never applied, so
     // the operator read current state through a window that did nothing.
-    expect(surfaceUsesReportingWindow(metaSurfaceById("meta-automation")!)).toBe(false);
-    expect(surfaceUsesReportingWindow(metaSurfaceById("manage-integrations")!)).toBe(false);
-    expect(surfaceUsesReportingWindow(metaSurfaceById("creative-shares")!)).toBe(false);
+    expect(
+      surfaceUsesReportingWindow(metaSurfaceById("meta-automation")!),
+    ).toBe(false);
+    expect(
+      surfaceUsesReportingWindow(metaSurfaceById("manage-integrations")!),
+    ).toBe(false);
+    expect(
+      surfaceUsesReportingWindow(metaSurfaceById("creative-shares")!),
+    ).toBe(false);
 
-    expect(surfaceUsesReportingWindow(metaSurfaceById("creative-studio")!)).toBe(true);
-    expect(surfaceUsesReportingWindow(metaSurfaceById("meta-history")!)).toBe(true);
-    expect(surfaceUsesReportingWindow(metaSurfaceById("creative-inbox")!)).toBe(true);
+    expect(
+      surfaceUsesReportingWindow(metaSurfaceById("creative-studio")!),
+    ).toBe(true);
+    expect(surfaceUsesReportingWindow(metaSurfaceById("meta-history")!)).toBe(
+      true,
+    );
+    expect(surfaceUsesReportingWindow(metaSurfaceById("creative-inbox")!)).toBe(
+      true,
+    );
   });
 
   it("requires one physical Meta account wherever account-scoped data is served", () => {
@@ -228,10 +246,9 @@ describe("surface registry ↔ every other route/nav table", () => {
       ["manage-integrations", "assignment"],
     ]);
     for (const surface of META_SURFACES) {
-      expect(
-        surface.providerAccountCapability,
-        surface.surfaceId,
-      ).toBe(exceptions.get(surface.surfaceId) ?? "single_physical");
+      expect(surface.providerAccountCapability, surface.surfaceId).toBe(
+        exceptions.get(surface.surfaceId) ?? "single_physical",
+      );
     }
   });
 
@@ -321,9 +338,9 @@ describe("navigation.ts is an oracle, not a renderer (D4)", () => {
     expect(leaves).toContain("L-C-META-HIST");
 
     const byUrl = new Map(meta.items.map((item) => [item.url, item.leaf]));
-    expect(byUrl.get(metaSurfaceById("meta-intelligence")!.canonicalRoute)).toBe(
-      "L-C-META-INTEL",
-    );
+    expect(
+      byUrl.get(metaSurfaceById("meta-intelligence")!.canonicalRoute),
+    ).toBe("L-C-META-INTEL");
     expect(byUrl.get(metaSurfaceById("meta-history")!.canonicalRoute)).toBe(
       "L-C-META-HIST",
     );

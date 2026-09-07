@@ -251,6 +251,30 @@ describe("Meta History read model", () => {
     );
   });
 
+  it("uses grain-specific unnamed labels instead of provider ids in titles", () => {
+    for (const label of [
+      "Unnamed campaign",
+      "Unnamed ad set",
+      "Unnamed ad",
+      "Unnamed creative",
+    ]) {
+      expect(META_HISTORY_READ_SQL).toContain(`'${label}'`);
+    }
+
+    expect(META_HISTORY_READ_SQL).not.toContain(
+      "COALESCE(resolved.entity_name, resolved.entity_id)",
+    );
+    expect(META_HISTORY_READ_SQL).not.toMatch(
+      /COALESCE\(campaign\.campaign_name_current, campaign\.campaign_name_historical, campaign\.campaign_id\)/,
+    );
+    expect(META_HISTORY_READ_SQL).not.toMatch(
+      /COALESCE\(adset\.adset_name_current, adset\.adset_name_historical, adset\.adset_id\)/,
+    );
+    expect(META_HISTORY_READ_SQL).not.toContain(
+      "COALESCE(entity_state.entity_name, entity_state.entity_id)",
+    );
+  });
+
   it("omits only unavailable optional workflow sources without dropping the core journal", () => {
     const sql = buildMetaHistoryReadSql({
       includeCreativeBriefs: false,

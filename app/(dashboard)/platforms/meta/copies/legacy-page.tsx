@@ -6,7 +6,6 @@ import { useQuery } from "@tanstack/react-query";
 
 import { buildCreativeStudioTabHrefs } from "@/app/(dashboard)/platforms/meta/creatives/legacy-page";
 import {
-  describeCopiesRowsClock,
   mapApiRowToCopyRow,
   resolveCopiesFreshness,
   type CopyMotionRow,
@@ -100,7 +99,9 @@ async function fetchCommercialTargetRoas(
     { headers: { Accept: "application/json" } },
   );
   if (!response.ok) {
-    throw new Error(`Commercial targets could not be read (${response.status}).`);
+    throw new Error(
+      `Commercial targets could not be read (${response.status}).`,
+    );
   }
   return (await response.json()) as CommercialTargetsResponse;
 }
@@ -110,7 +111,10 @@ function toCsvCell(value: string | number | null | undefined): string {
   return /[",\n]/.test(raw) ? `"${raw.replace(/"/g, '""')}"` : raw;
 }
 
-function exportCopiesCsv(rows: CopyMotionRow[], defaultCurrency: string | null) {
+function exportCopiesCsv(
+  rows: CopyMotionRow[],
+  defaultCurrency: string | null,
+) {
   if (typeof document === "undefined" || rows.length === 0) return;
   const header = [
     "Copy",
@@ -146,10 +150,6 @@ function exportCopiesCsv(rows: CopyMotionRow[], defaultCurrency: string | null) 
   anchor.click();
   document.body.removeChild(anchor);
   URL.revokeObjectURL(url);
-}
-
-function errorMessage(error: unknown, fallback: string) {
-  return error instanceof Error && error.message.trim() ? error.message : fallback;
 }
 
 /**
@@ -239,11 +239,11 @@ export default function CopiesPage({
   const hasAuthorizedBusinessScope = authorizedBusinessId !== undefined;
   const hasAuthorizedProviderScope = authorizedProviderAccountId !== undefined;
   const businessId = hasAuthorizedBusinessScope
-    ? authorizedBusinessId?.trim() ?? ""
-    : storeBusinessId ?? "";
+    ? (authorizedBusinessId?.trim() ?? "")
+    : (storeBusinessId ?? "");
   const requestedProviderAccountId = hasAuthorizedProviderScope
-    ? authorizedProviderAccountId?.trim() ?? ""
-    : searchParams?.get("providerAccountId")?.trim() ?? "";
+    ? (authorizedProviderAccountId?.trim() ?? "")
+    : (searchParams?.get("providerAccountId")?.trim() ?? "");
   const [selectedProviderAccountId, setSelectedProviderAccountId] = useState(
     requestedProviderAccountId,
   );
@@ -267,7 +267,9 @@ export default function CopiesPage({
   // date, i.e. against the browser clock, so before this the same "28d" link
   // could open on two different windows for two operators. A stated window
   // removes the clock from the answer entirely.
-  const linkWindow = hasDateWindowParams(searchParams) ? null : serverDateWindow;
+  const linkWindow = hasDateWindowParams(searchParams)
+    ? null
+    : serverDateWindow;
   const start = linkWindow?.start ?? shellWindow.start;
   const end = linkWindow?.end ?? shellWindow.end;
   const [detailRowId, setDetailRowId] = useState<string | null>(null);
@@ -284,21 +286,25 @@ export default function CopiesPage({
     (selectedProviderAccountId &&
     providerAccounts.some((account) => account.id === selectedProviderAccountId)
       ? selectedProviderAccountId
-      : "") ||
-    (providerAccounts.length === 1 ? providerAccounts[0]!.id : "");
+      : "") || (providerAccounts.length === 1 ? providerAccounts[0]!.id : "");
   const providerAccountId = hasAuthorizedProviderScope
-    ? authorizedProviderAccountId?.trim() ?? ""
+    ? (authorizedProviderAccountId?.trim() ?? "")
     : discoveredProviderAccountId;
 
   useEffect(() => {
     if (hasAuthorizedProviderScope) return;
     setSelectedProviderAccountId((current) => {
-      if (current && providerAccounts.some((account) => account.id === current)) {
+      if (
+        current &&
+        providerAccounts.some((account) => account.id === current)
+      ) {
         return current;
       }
       if (
         requestedProviderAccountId &&
-        providerAccounts.some((account) => account.id === requestedProviderAccountId)
+        providerAccounts.some(
+          (account) => account.id === requestedProviderAccountId,
+        )
       ) {
         return requestedProviderAccountId;
       }
@@ -346,9 +352,12 @@ export default function CopiesPage({
     staleTime: 5 * 60 * 1000,
     refetchOnWindowFocus: false,
   });
-  const rawTargetRoas = commercialTargetsQuery.data?.snapshot?.targetPack?.targetRoas;
+  const rawTargetRoas =
+    commercialTargetsQuery.data?.snapshot?.targetPack?.targetRoas;
   const targetRoas =
-    typeof rawTargetRoas === "number" && Number.isFinite(rawTargetRoas) && rawTargetRoas > 0
+    typeof rawTargetRoas === "number" &&
+    Number.isFinite(rawTargetRoas) &&
+    rawTargetRoas > 0
       ? rawTargetRoas
       : null;
 
@@ -387,7 +396,9 @@ export default function CopiesPage({
     // `lib/tier-zero-as-of.test.ts` reads back. `measuredAsOf` is idempotent on
     // an ISO instant, so this narrows and never widens.
     asOf: measuredAsOf(copiesFreshness.asOf),
-    partialReason: copiesFreshness.partialReason,
+    partialReason: copiesFreshness.partialReason
+      ? "Some copy performance data is unavailable. Try again."
+      : null,
     businessId: businessId || null,
     onRetry: () => {
       if (!hasAuthorizedProviderScope && providerAccountsQuery.isError) {
@@ -408,7 +419,8 @@ export default function CopiesPage({
     [copiesQuery.data?.rows, providerAccountId],
   );
   const accountCurrency =
-    providerAccounts.find((account) => account.id === providerAccountId)?.currency ??
+    providerAccounts.find((account) => account.id === providerAccountId)
+      ?.currency ??
     rows.find((row) => row.currency)?.currency ??
     null;
   const scopeLoading =
@@ -429,18 +441,15 @@ export default function CopiesPage({
               ? "ready"
               : "empty";
   const message = scopeLoading
-    ? "Loading assigned Meta account scope."
+    ? "Loading Meta accounts."
     : scopeError
-      ? errorMessage(
-          providerAccountsQuery.error,
-          "Assigned Meta accounts could not load.",
-        )
+      ? "Meta accounts could not be loaded. Try again."
       : !providerAccountId
-        ? "Select one assigned Meta account to load copy performance."
+        ? "Select a Meta ad account to view copy performance."
         : copiesQuery.isLoading
           ? "Loading copy performance."
           : copiesQuery.isError
-            ? errorMessage(copiesQuery.error, "Copy performance is unavailable.")
+            ? "Copy performance could not be loaded. Try again."
             : rows.length === 0
               ? "No copy performance is available for this account and date range."
               : null;
@@ -450,8 +459,7 @@ export default function CopiesPage({
   // incomplete window, and the clock note names the source when the window is
   // complete. Nothing here invents a reason — both strings come from the
   // endpoint's published metadata.
-  const copiesLineageNote =
-    copiesFreshness.partialReason ?? describeCopiesRowsClock(copiesQuery.data);
+  const copiesLineageNote = null;
 
   const model = useMemo(() => {
     const base = buildCreativeStudioCopiesModel({
@@ -460,24 +468,8 @@ export default function CopiesPage({
       message,
       onOpenRow: setDetailRowId,
     });
-    const angles = [...base.angles];
-    while (angles.length < 4) {
-      const slot = angles.length + 1;
-      angles.push({
-        id: `unavailable-${slot}`,
-        name: "—",
-        tone: "neutral",
-        lines: null,
-        spendShare: null,
-        roas: null,
-        ctr: null,
-        bestLine: null,
-        usage: null,
-      });
-    }
     return {
       ...base,
-      angles: angles.slice(0, 4),
       insight: copiesLineageNote,
       // The subtitle names the window these rows were measured over, which is
       // the window the request carried. It used to be the literal "28d".
@@ -502,7 +494,9 @@ export default function CopiesPage({
   const [draftStatusMessage, setDraftStatusMessage] = useState<string | null>(
     null,
   );
-  const draftingAvailable = Boolean(businessId && providerAccountId && start && end);
+  const draftingAvailable = Boolean(
+    businessId && providerAccountId && start && end,
+  );
   const handleDraftAlternate = useCallback(
     (alternate: { text?: string | number | null }) => {
       const creativeId = activeDetailRow?.creativeId?.trim() ?? "";
@@ -567,14 +561,20 @@ export default function CopiesPage({
           activeTab="copies"
           copies={model}
           counts={buildCreativeStudioTabCounts({})}
-          onExport={rows.length > 0 ? () => exportCopiesCsv(rows, accountCurrency) : undefined}
+          onExport={
+            rows.length > 0
+              ? () => exportCopiesCsv(rows, accountCurrency)
+              : undefined
+          }
           tabHrefs={tabHrefs}
         />
         {activeDetailRow ? (
           <CopyDetailDrawerExact
             draftPending={draftPending}
             onClose={closeDetailDrawer}
-            onDraftAlternate={draftingAvailable ? handleDraftAlternate : undefined}
+            onDraftAlternate={
+              draftingAvailable ? handleDraftAlternate : undefined
+            }
             viewModel={buildCopyDetailDrawerExactViewModel({
               row: toCopyDrawerRow(activeDetailRow),
               peers: drawerPeers,

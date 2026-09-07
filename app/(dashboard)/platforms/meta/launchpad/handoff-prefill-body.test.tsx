@@ -174,9 +174,9 @@ async function mount(handoffPrefill?: LaunchpadHandoffPrefillEnvelope) {
 
 function desktopHref(container: HTMLElement) {
   return (
-    container.querySelector<HTMLAnchorElement>(
-      'a[href*="/platforms/meta/launchpad?"]',
-    )?.getAttribute("href") ?? ""
+    container
+      .querySelector<HTMLAnchorElement>('a[href*="/platforms/meta/launchpad?"]')
+      ?.getAttribute("href") ?? ""
   );
 }
 
@@ -206,28 +206,32 @@ describe("Launchpad body · verified handoff prefill", () => {
     ).toContain("1");
   });
 
-  it("states what was carried, including the frozen evidence window", async () => {
+  it("shows a concise verified-decision label without raw handoff details", async () => {
     await mount(decisionPrefill());
     await screen.findByTestId("launchpad-wizard");
 
-    expect(screen.getByText(/server-authorized refresh/)).toBeTruthy();
-    expect(screen.getByText(/snapshot 2026-08-17/)).toBeTruthy();
-    // The lineage line names the snapshot the launch is answerable to.
-    expect(screen.getAllByText(/snap_1/).length).toBeGreaterThan(0);
+    expect(screen.getByText("Decision details applied")).toBeTruthy();
+    expect(screen.getAllByText(/Decision · Main · USD/).length).toBeGreaterThan(
+      0,
+    );
+    expect(screen.queryByText(/server-authorized refresh/)).toBeNull();
+    expect(screen.queryByText(/snapshot 2026-08-17/)).toBeNull();
+    expect(screen.queryByText(/snap_1/)).toBeNull();
+    expect(screen.queryByText(/engine-v3/)).toBeNull();
   });
 
   it("routes a Scale handoff into add-to-existing, from the prop and not the URL", async () => {
     const { container } = await mount(
       decisionPrefill({
-          mode: "duplicate",
-          launchpadMode: "add_to_existing",
-          authorizedAction: "scale",
-          selection: {
-            campaignIds: ["camp_1"],
-            adsetIds: ["adset_1"],
-            adIds: ["ad_1"],
-            creativeIds: ["creative_from_decision"],
-          },
+        mode: "duplicate",
+        launchpadMode: "add_to_existing",
+        authorizedAction: "scale",
+        selection: {
+          campaignIds: ["camp_1"],
+          adsetIds: ["adset_1"],
+          adIds: ["ad_1"],
+          creativeIds: ["creative_from_decision"],
+        },
         summary: "Decision handoff · duplicate · server-authorized scale",
       }),
     );
@@ -237,46 +241,53 @@ describe("Launchpad body · verified handoff prefill", () => {
     expect(screen.getAllByText("Add to existing").length).toBeGreaterThan(0);
   });
 
-  // The honest half of item 19. The record carries the line; the wizard cannot
-  // apply it, and the operator is told so in the same breath.
-  it("carries a copy handoff and says the line will not become ad copy", async () => {
+  it("marks unsupported copy as manual and shows the exact line to paste", async () => {
     await mount(
       decisionPrefill({
-          origin: "copy",
-          mode: "copy_draft",
-          launchpadMode: "new_campaign",
-          authorizedAction: null,
-          actionEligible: false,
-          exactAdExecutionEligible: false,
-          sourceAuthorityStatus: "warehouse_discovery",
-          lineage: null,
-          evidenceWindow: {
-            basis: "requested_metrics_window",
-            startDate: "2026-07-19",
-            endDate: "2026-08-17",
-            snapshotAsOf: null,
-            computedAt: null,
-          },
-          copy: {
-            copyId: "copy:cre_1",
-            alternateId: "alt-2",
-            alternateText: "The other line Meta served",
-            sourceText: "The line that is running",
-            assetType: "primary_text",
-          },
-          summary:
-            "Copy handoff · discovery evidence · no execution authority · window 2026-07-19 → 2026-08-17 · 1 creative preselected",
+        origin: "copy",
+        mode: "copy_draft",
+        launchpadMode: "new_campaign",
+        authorizedAction: null,
+        actionEligible: false,
+        exactAdExecutionEligible: false,
+        sourceAuthorityStatus: "warehouse_discovery",
+        lineage: null,
+        evidenceWindow: {
+          basis: "requested_metrics_window",
+          startDate: "2026-07-19",
+          endDate: "2026-08-17",
+          snapshotAsOf: null,
+          computedAt: null,
+        },
+        copy: {
+          copyId: "copy:cre_1",
+          alternateId: "alt-2",
+          alternateText: "The other line Meta served",
+          sourceText: "The line that is running",
+          assetType: "primary_text",
+        },
+        summary:
+          "Copy handoff · discovery evidence · no execution authority · window 2026-07-19 → 2026-08-17 · 1 creative preselected",
         unsupported:
           "Launchpad has no copy field, so the selected alternate line is carried in the draft record only and will not be written to an ad.",
       }),
     );
 
     await screen.findByTestId("launchpad-wizard");
-    expect(screen.getByText(/no execution authority/)).toBeTruthy();
-    expect(screen.getByText(/Launchpad has no copy field/)).toBeTruthy();
-    expect(screen.getAllByText(/Copy line · copy:cre_1/).length).toBeGreaterThan(
-      0,
-    );
+    expect(screen.getByText("Copy needs manual entry")).toBeTruthy();
+    expect(screen.queryByText("Decision details applied")).toBeNull();
+    expect(
+      screen.getByTestId("launchpad-manual-copy-remedy").textContent,
+    ).toContain("Add this copy manually in Meta Ads");
+    expect(
+      screen.getByTestId("launchpad-manual-copy-remedy").textContent,
+    ).toContain("The other line Meta served");
+    expect(screen.queryByText(/no execution authority/)).toBeNull();
+    expect(screen.queryByText(/Launchpad has no copy field/)).toBeNull();
+    expect(
+      screen.getAllByText(/Copy selection · Main · USD/).length,
+    ).toBeGreaterThan(0);
+    expect(screen.queryByText(/copy:cre_1/)).toBeNull();
   });
 
   // A named handoff that could not be honoured must not render as an ordinary

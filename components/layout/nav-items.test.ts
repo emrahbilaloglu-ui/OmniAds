@@ -31,29 +31,17 @@ describe("shell navigation items", () => {
     });
   });
 
-  it("carries the six Meta rail destinations in their fixed order", () => {
+  it("carries only usable Meta destinations in their fixed order", () => {
     const metaItems = getPlatformLayer2Items("meta", "en");
 
-    /**
-     * Four became six under D3 of the Meta market-ready plan. The design file
-     * draws four (`metaFam` is `['meta','creative','launchpad','automation']`)
-     * while the vendored leaf ledger already carries `L-C-META-INTEL` and
-     * `L-C-META-HIST` — the two authorities disagree, and D3 sides with the
-     * behavioural one. §18 fixes Intelligence immediately after Decisions and
-     * History last. Both routes already worked; only the way in was missing.
-     *
-     * Intelligence is addressed by its `/app` spelling because it has no
-     * pre-v2 route, so a `/platforms` name for it would be a 404.
-     */
     expect(metaItems.map((item) => item.href)).toEqual([
       "/platforms/meta",
-      "/app/meta/intelligence",
       "/platforms/meta/creatives",
       "/platforms/meta/launchpad",
       "/platforms/meta/automation",
       "/platforms/meta/history",
     ]);
-    expect(metaItems[2]).toMatchObject({
+    expect(metaItems[1]).toMatchObject({
       id: "creative-studio",
       label: "Creative Studio",
       activeHrefs: [
@@ -135,6 +123,9 @@ describe("shell navigation items", () => {
       "Plan & Activity",
     ]);
     // The root entry stays exact so the child routes do not light it up too.
-    expect(googleItems[0]).toMatchObject({ id: "google-overview", exact: true });
+    expect(googleItems[0]).toMatchObject({
+      id: "google-overview",
+      exact: true,
+    });
   });
 });

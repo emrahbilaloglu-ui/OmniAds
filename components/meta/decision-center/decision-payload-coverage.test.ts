@@ -197,6 +197,15 @@ function N(note: string): Coverage {
   return { classification: "INTENTIONALLY-NOT-RENDERED", where: "", note };
 }
 
+const COMPACT_STATUS_OMITS_SECONDARY_DETAIL =
+  "The compact Decision status presents the highest-priority state in stable buyer-facing language. Lower-priority flags, raw reasons and server-authored labels remain in the payload for gating and diagnostics; repeating them in the single status strip would recreate the technical banner stack this surface deliberately removed.";
+
+const DECISION_VIEW_OMITS_BUDGET_DIAGNOSTICS =
+  "The concise Decision view does not render the budget evidence and dry-run diagnostic panels. Their served contracts remain available to the budget workflow, while Decision rows keep the server-owned lane, authority and action gate without exposing implementation receipts.";
+
+const RAW_PRODUCER_COPY_IS_NOT_BUYER_COPY =
+  "Free-form producer text is not rendered on the Decision page. The visible row and inspector use stable buyer-facing copy derived from structured blocker, resolution and action fields, while the original text remains available to internal diagnostics and never grants action authority.";
+
 /**
  * The canonical resolution is the SERVED resolution, forwarded verbatim.
  *
@@ -336,7 +345,7 @@ const OTHER_SCREENS_NAMED: Record<
   },
   "Meta History": {
     file: "app/(dashboard)/platforms/meta/history/history-view.tsx",
-    proves: "<span>Entity and event</span>",
+    proves: 'aria-label="Meta activity"',
   },
   "Creative Studio": {
     file: "components/creatives/briefing/action-authority.ts",
@@ -618,10 +627,7 @@ const COVERAGE: Record<string, Coverage> = {
     "the action's own next-step row",
     "anchor-action-scale-copy",
   ),
-  "MetaDecisionsWorkspacePayload.system.trackingBlocked": R(
-    S.BANNERS,
-    "the server-authoritative tracking safety gate used by the desktop and mobile warning surfaces",
-  ),
+  "MetaDecisionsWorkspacePayload.system.trackingBlocked": N(COMPACT_STATUS_OMITS_SECONDARY_DETAIL),
   "MetaDecisionsWorkspacePayload.system.laneSnapshotDate": N(
     "The header prints ONE snapshot identity - decisionReadModel.source.snapshotAsOf, falling back to lanes.snapshotDate - and a second snapshot date beside it would read as a second snapshot.",
   ),
@@ -640,10 +646,7 @@ const COVERAGE: Record<string, Coverage> = {
     S.BANNERS,
     "the kill-switch banner, and the mobile viewer-authority panel",
   ),
-  "MetaDecisionsWorkspacePayload.system.killSwitchReason": R(
-    S.BANNERS,
-    "the kill-switch banner's detail, and the mobile viewer-authority panel",
-  ),
+  "MetaDecisionsWorkspacePayload.system.killSwitchReason": N(COMPACT_STATUS_OMITS_SECONDARY_DETAIL),
   "MetaDecisionsWorkspacePayload.system.governanceVerified": N(
     "The workspace route already converts this server fact into the blocking execution-governance banner and row-level executionReadiness. Rendering the raw boolean beside those conclusions would duplicate the same gate without adding an operator action.",
   ),
@@ -974,10 +977,7 @@ const COVERAGE: Record<string, Coverage> = {
     S.KPI,
     "the mode tile's tracking chip, and the gate on the tracking banner",
   ),
-  "MetaPulsePayload.trackingHealth.detail": R(
-    S.BANNERS,
-    "the tracking banner's detail line",
-  ),
+  "MetaPulsePayload.trackingHealth.detail": N(COMPACT_STATUS_OMITS_SECONDARY_DETAIL),
   "MetaPulsePayload.trackingAnomalyActive": N(
     "The workspace system envelope is the server-authoritative tracking safety gate; this pulse flag is retained only for compatibility and cannot override it.",
   ),
@@ -988,18 +988,9 @@ const COVERAGE: Record<string, Coverage> = {
   "MetaPulsePayload.currency": N(
     "Money is formatted from the scoped account's currency and then system.currency; the pulse copy is the same code arriving by another route.",
   ),
-  "MetaPulsePayload.dataReadiness.status": R(
-    S.BANNERS,
-    "the data-readiness banner's gate",
-  ),
-  "MetaPulsePayload.dataReadiness.isPartial": R(
-    S.BANNERS,
-    "the data-readiness banner's gate",
-  ),
-  "MetaPulsePayload.dataReadiness.notReadyReason": R(
-    S.BANNERS,
-    "the data-readiness banner's detail line",
-  ),
+  "MetaPulsePayload.dataReadiness.status": N(COMPACT_STATUS_OMITS_SECONDARY_DETAIL),
+  "MetaPulsePayload.dataReadiness.isPartial": N(COMPACT_STATUS_OMITS_SECONDARY_DETAIL),
+  "MetaPulsePayload.dataReadiness.notReadyReason": N(COMPACT_STATUS_OMITS_SECONDARY_DETAIL),
   "MetaPulsePayload.dataReadiness.evidenceSource": W(
     S.BANNERS,
     "the evidence-source disclosure banner",
@@ -1062,36 +1053,18 @@ const COVERAGE: Record<string, Coverage> = {
     S.KPI,
     "the snapshot tile's freshness word, and the snapshot-health banner's gate and tone",
   ),
-  "MetaSnapshotHealth.staleReason": R(
-    S.BANNERS,
-    "the snapshot-health banner's detail line",
-  ),
-  "MetaDecisionsWorkspaceViewer.role": R(
-    S.MOBILE,
-    "the viewer-authority panel's role line",
-  ),
-  "MetaDecisionsWorkspaceViewer.isReviewer": R(
-    S.BANNERS,
-    "selects the reviewer wording of the read-only banner",
-  ),
-  "MetaDecisionsWorkspaceViewer.readOnly": R(
-    S.BANNERS,
-    "the read-only banner's gate, and the write-capability sentence on mobile",
-  ),
-  "MetaDecisionsWorkspaceViewer.readOnlyReason": R(
-    S.BANNERS,
-    "the read-only banner's detail, and the mobile viewer-authority panel",
-  ),
+  "MetaSnapshotHealth.staleReason": N(COMPACT_STATUS_OMITS_SECONDARY_DETAIL),
+  "MetaDecisionsWorkspaceViewer.role": N(COMPACT_STATUS_OMITS_SECONDARY_DETAIL),
+  "MetaDecisionsWorkspaceViewer.isReviewer": N(COMPACT_STATUS_OMITS_SECONDARY_DETAIL),
+  "MetaDecisionsWorkspaceViewer.readOnly": N(COMPACT_STATUS_OMITS_SECONDARY_DETAIL),
+  "MetaDecisionsWorkspaceViewer.readOnlyReason": N(COMPACT_STATUS_OMITS_SECONDARY_DETAIL),
   "MetaDecisionsWorkspaceBanner.id": R(
     S.BANNERS,
     "the banner's data-banner-id, its sort key and the tracking banner's dismissal identity",
   ),
   "MetaDecisionsWorkspaceBanner.tone": R(S.BANNERS, "the banner's tone class"),
-  "MetaDecisionsWorkspaceBanner.title": R(S.BANNERS, "the banner's title"),
-  "MetaDecisionsWorkspaceBanner.detail": R(
-    S.BANNERS,
-    "the banner's detail line",
-  ),
+  "MetaDecisionsWorkspaceBanner.title": N(COMPACT_STATUS_OMITS_SECONDARY_DETAIL),
+  "MetaDecisionsWorkspaceBanner.detail": N(COMPACT_STATUS_OMITS_SECONDARY_DETAIL),
   "MetaDecisionsWorkspaceBanner.blocking": R(
     S.BANNERS,
     "data-banner-blocking, and whether the banner is announced as an alert or a status",
@@ -1100,18 +1073,12 @@ const COVERAGE: Record<string, Coverage> = {
     S.BANNERS,
     "data-banner-scope on desktop and mobile, plus the target-hard-actions scope sentence",
   ),
-  "MetaDecisionsWorkspaceBanner.action.label": R(
-    S.BANNERS,
-    "the served banner action's desktop and mobile link label",
-  ),
+  "MetaDecisionsWorkspaceBanner.action.label": N(COMPACT_STATUS_OMITS_SECONDARY_DETAIL),
   "MetaDecisionsWorkspaceBanner.action.href": R(
     S.BANNERS,
     "the served internal banner destination after route-family adaptation",
   ),
-  "MetaDecisionsDigest.snapshotDate": W(
-    S.BANNERS,
-    "the silent-failure banner's since-window",
-  ),
+  "MetaDecisionsDigest.snapshotDate": N(COMPACT_STATUS_OMITS_SECONDARY_DETAIL),
   "MetaDecisionsDigest.unavailableReason": N(
     "Every arm that sets it returns the UNTOUCHED emptyDecisionDigest zeros - app/api/meta/decisions-workspace/route.ts:765 builds them, :975-979 spreads them under the read failure, and :1336-1343 writes the same zeros inline for the compact surface - so the one count the banner strip does render is withheld by its own `> 0` gate in every state this reason accompanies. The reason explains the absence of nothing.",
   ),
@@ -1139,22 +1106,13 @@ const COVERAGE: Record<string, Coverage> = {
   "MetaDecisionsDigest.labelFlips.items[].occurredAt": N(
     "A since-yesterday recap of decision labels that changed; the Decision page states the current decision, and the per-decision history a flip belongs to is the evidence window's journal and Meta History's timeline.",
   ),
-  "MetaDecisionsDigest.actions.verifiedCount": W(
-    S.BANNERS,
-    "the silent-failure banner's denominator, the M in 'N of M'",
-  ),
+  "MetaDecisionsDigest.actions.verifiedCount": N(COMPACT_STATUS_OMITS_SECONDARY_DETAIL),
   "MetaDecisionsDigest.actions.silentFailureCount": W(
     S.BANNERS,
     "the silent-failure banner's count",
   ),
-  "MetaDecisionsDigest.actions.countsTruncated": W(
-    S.BANNERS,
-    "the width switch on that same sentence: MetaPlatformPage.tsx:2386 branches on it, so the title reads 'At least N recorded actions ended without a verified outcome.' instead of 'N recorded actions ended...', and the detail reads 'counts only its M most recent recorded actions ... The window may hold more recorded actions than this count covers; whether it does, and how many, is unavailable here.' instead of 'carries M recorded actions'. It is served, and rendered, because both counts are filtered from a CAPPED action-log read, and a measurement stated in a frame wider than the measurement is the defect the sentence exists to avoid.",
-  ),
-  "MetaDecisionsDigest.actions.countedRowCap": W(
-    S.BANNERS,
-    "the ', the most a <cap>-row cap lets it read,' clause inside that truncated detail, which is where the 'M most recent' came from: MetaPlatformPage.tsx:2387-2395 reads it and, when the payload serves no positive cap, drops the clause rather than inventing a bound to round the sentence out.",
-  ),
+  "MetaDecisionsDigest.actions.countsTruncated": N(COMPACT_STATUS_OMITS_SECONDARY_DETAIL),
+  "MetaDecisionsDigest.actions.countedRowCap": N(COMPACT_STATUS_OMITS_SECONDARY_DETAIL),
   "MetaDecisionsDigest.actions.items[].id": N(
     "The banner strip now states this envelope's COUNTS - how many recorded actions were verified and how many were not - but the Decision page renders no action LOG at all, and a row of it is the part that has nowhere to go: this envelope is the strongest candidate in the payload for a surface of its own, and it is named as one rather than squeezed onto a decision card.",
   ),
@@ -1314,28 +1272,19 @@ const COVERAGE: Record<string, Coverage> = {
   "MetaDecisionsWorkspaceReadModel.queue.adCandidates.limit": N(
     "The cap's configured size; the panel states the two numbers the cap produced against TWO eligible pre-cap counts - the read model's own and the OS presentation's derived maximum, each under a label naming which one it is - and that pair is what tells an operator the list is partial.",
   ),
-  "MetaDecisionsWorkspaceReadModel.queue.adCandidates.preCapCount": R(
-    S.MOBILE,
-    "the withheld panel's 'N of M exact Ad identities selected'",
-  ),
+  "MetaDecisionsWorkspaceReadModel.queue.adCandidates.preCapCount": N(COMPACT_STATUS_OMITS_SECONDARY_DETAIL),
   "MetaDecisionsWorkspaceReadModel.queue.adCandidates.eligiblePreCapCount": W(
     S.PROVENANCE,
     "the 'Eligible (pre-cap) · read model' coverage fact",
     "queue-eligible-pre-cap",
   ),
-  "MetaDecisionsWorkspaceReadModel.queue.adCandidates.selectedCount": R(
-    S.MOBILE,
-    "the withheld panel's 'N of M exact Ad identities selected'",
-  ),
+  "MetaDecisionsWorkspaceReadModel.queue.adCandidates.selectedCount": N(COMPACT_STATUS_OMITS_SECONDARY_DETAIL),
   "MetaDecisionsWorkspaceReadModel.queue.adCandidates.stateCounts{}.preCapCount":
     N(
       "The per-state pre-cap sizes; the account-level pre-cap total is stated against the selected total, and the queue's own group headers already say 'N shown · M served' for each state from the OS presentation's counts.",
     ),
   "MetaDecisionsWorkspaceReadModel.queue.adCandidates.stateCounts{}.selectedCount":
-    R(
-      S.MOBILE,
-      "the withheld panel's per-state breakdown of the selected identities",
-    ),
+    N(COMPACT_STATUS_OMITS_SECONDARY_DETAIL),
   "MetaDecisionsWorkspaceReadModel.queue.adCandidates.omittedAmbiguousIdentity":
     N(
       "The OS presentation forwards the same three omission counts as os.ads.omitted*, and those are the ones the source panel prints; printing both copies would list every omitted ad twice under two labels.",
@@ -1350,14 +1299,8 @@ const COVERAGE: Record<string, Coverage> = {
   "MetaDecisionsWorkspaceReadModel.queue.inactiveAssets.preCapCount": N(
     "The Archive lane renders every withheld Ad decision it was served and counts them into the lane pill; a pre-cap total beside a list that is not capped states nothing new.",
   ),
-  "MetaDecisionsWorkspaceReadModel.queue.inactiveAssets.inactiveCount": R(
-    S.MOBILE,
-    "the withheld panel's inactive-Ad count",
-  ),
-  "MetaDecisionsWorkspaceReadModel.queue.inactiveAssets.unknownCount": R(
-    S.MOBILE,
-    "the withheld panel's 'N unknown status' qualifier",
-  ),
+  "MetaDecisionsWorkspaceReadModel.queue.inactiveAssets.inactiveCount": N(COMPACT_STATUS_OMITS_SECONDARY_DETAIL),
+  "MetaDecisionsWorkspaceReadModel.queue.inactiveAssets.unknownCount": N(COMPACT_STATUS_OMITS_SECONDARY_DETAIL),
   "MetaDecisionsWorkspaceReadModel.queue.omittedFromQueue.count": R(
     S.PROVENANCE,
     "the 'Withheld from queue' group's total",
@@ -1783,10 +1726,7 @@ const COVERAGE: Record<string, Coverage> = {
   "MetaCanonicalDecision.sourceDecision.rawLabel": N(
     "The served presentation decision's own rawLabel is printed in the diagnostics; the canonical twin is the same string from the same snapshot.",
   ),
-  "MetaCanonicalDecision.sourceDecision.reason": R(
-    S.EVIDENCE,
-    "the window's reason lines",
-  ),
+  "MetaCanonicalDecision.sourceDecision.reason": N(RAW_PRODUCER_COPY_IS_NOT_BUYER_COPY),
   "MetaCanonicalDecision.sourceDecision.confidence": N(
     "The window prints the confidence BAND, which is the engine's own bucketing of this score, and the served decision's numeric score beside it; a third number for one confidence invites arithmetic nobody defined.",
   ),
@@ -2096,10 +2036,7 @@ const COVERAGE: Record<string, Coverage> = {
     S.CREATIVES,
     "the group a row is filed under, its state chip and the blocked row's edge tone",
   ),
-  "MetaOsAdDecision.assessment": R(
-    S.EVIDENCE,
-    "the window's reason lines, deduped against why-now",
-  ),
+  "MetaOsAdDecision.assessment": N(RAW_PRODUCER_COPY_IS_NOT_BUYER_COPY),
   "MetaOsAdDecision.confidence": R(
     S.INSPECTOR,
     "the inspector's confidence line, and the window's served-confidence line",
@@ -2118,19 +2055,13 @@ const COVERAGE: Record<string, Coverage> = {
     S.INSPECTOR,
     "the inspector's readiness line, and the window's served risk and ceremony line",
   ),
-  "MetaOsAdDecision.whyNow": R(
-    S.CREATIVES,
-    "the row's note, the inspector's reason line and the window's reasons",
-  ),
+  "MetaOsAdDecision.whyNow": N(RAW_PRODUCER_COPY_IS_NOT_BUYER_COPY),
   "MetaOsAdDecision.blockers[].code": R(
     S.EVIDENCE,
     "the diagnostics' blocker codes",
     "blocker-codes",
   ),
-  "MetaOsAdDecision.blockers[].label": R(
-    S.CREATIVES,
-    "the blocked row's note, the inspector's blockers line and the window's verdict sub-line",
-  ),
+  "MetaOsAdDecision.blockers[].label": N(RAW_PRODUCER_COPY_IS_NOT_BUYER_COPY),
   "MetaOsAdDecision.resolution.code": R(
     S.EVIDENCE,
     "the diagnostics row 'served resolution code'",
@@ -2151,10 +2082,7 @@ const COVERAGE: Record<string, Coverage> = {
     "the 'Served resolution' line",
     "served-resolution",
   ),
-  "MetaOsAdDecision.resolution.nextStep": R(
-    S.CREATIVES,
-    "the blocked row's 'Next:' note, and the inspector's contract detail",
-  ),
+  "MetaOsAdDecision.resolution.nextStep": N(RAW_PRODUCER_COPY_IS_NOT_BUYER_COPY),
   "MetaOsAdDecision.creativeFormat": R(
     S.CREATIVES,
     "the three-letter kind inside the row's thumb - IMG, VID or CAT, and an em dash for anything else",
@@ -2430,10 +2358,7 @@ const COVERAGE: Record<string, Coverage> = {
     "the diagnostics' blocker codes",
     "blocker-codes",
   ),
-  "MetaDecisionBlocker.label": R(
-    S.EVIDENCE,
-    "the verdict sub-line's authority gates",
-  ),
+  "MetaDecisionBlocker.label": N(RAW_PRODUCER_COPY_IS_NOT_BUYER_COPY),
   "MetaDecisionBlocker.category": N(
     "The blocker is printed as its label beside the verdict and as its code in the receipts; the category groups codes for a producer, and the operator acts on the label.",
   ),
@@ -2451,14 +2376,8 @@ const COVERAGE: Record<string, Coverage> = {
     "the diagnostics' advisory codes",
     "advisory-codes",
   ),
-  "MetaDecisionAdvisory.label": R(
-    S.EVIDENCE,
-    "the verdict sub-line's advisory sentence",
-  ),
-  "MetaDecisionAdvisory.reason": R(
-    S.EVIDENCE,
-    "the advisory sentence's stated cause, after the em dash",
-  ),
+  "MetaDecisionAdvisory.label": N(RAW_PRODUCER_COPY_IS_NOT_BUYER_COPY),
+  "MetaDecisionAdvisory.reason": N(RAW_PRODUCER_COPY_IS_NOT_BUYER_COPY),
   "MetaDecisionExposure.kind": N(
     "A pre-cap ranking input for the compact section queue this surface does not render; the money the operator reads is the row's own spend, in the row's own currency.",
   ),
@@ -2585,18 +2504,9 @@ const COVERAGE: Record<string, Coverage> = {
     S.ACTION,
     "the row's confidence chip and its tone, and the inspector's confidence line",
   ),
-  "MetaOsStructureNode.assessment": R(
-    S.ACTION,
-    "the row's decision label, when the recommendation carried none",
-  ),
-  "MetaOsStructureNode.whyNow": R(
-    S.INSPECTOR,
-    "the inspector's reason line; Monitor rows also reuse it as their Watching note",
-  ),
-  "MetaOsStructureNode.expectedImpact": R(
-    S.ACTION,
-    "the row's money sub-line and the inspector's money detail",
-  ),
+  "MetaOsStructureNode.assessment": N(RAW_PRODUCER_COPY_IS_NOT_BUYER_COPY),
+  "MetaOsStructureNode.whyNow": N(RAW_PRODUCER_COPY_IS_NOT_BUYER_COPY),
+  "MetaOsStructureNode.expectedImpact": N(RAW_PRODUCER_COPY_IS_NOT_BUYER_COPY),
   "MetaOsStructureNode.evidence[].label": R(
     S.INSPECTOR,
     "one row of the inspector's evidence list",
@@ -2621,10 +2531,7 @@ const COVERAGE: Record<string, Coverage> = {
     "the 'Served priority' row's 'rank N', for the one row the operator opened; the queue itself renders the order the server sent and prints neither band nor rank",
     "served-priority",
   ),
-  "MetaOsDecisionPriority.version": R(
-    S.INSPECTOR,
-    "the provenance line, which states the presentation version the row was built at",
-  ),
+  "MetaOsDecisionPriority.version": N(RAW_PRODUCER_COPY_IS_NOT_BUYER_COPY),
   "MetaOsDecisionUrgency.level": N(
     "Urgency is the key the structure lanes were ordered by; the row states why-now, which is the reason behind the rank rather than the rank itself.",
   ),
@@ -2657,10 +2564,7 @@ const COVERAGE: Record<string, Coverage> = {
     "the 'Served action' row, as 'code · intent · targetLevel'; the queue's own button prints the LABEL and never the code, and the served tuple travels to onStructurePrimary by reference",
     "served-action",
   ),
-  "MetaOsDecisionActionBase.label": R(
-    S.ACTION,
-    "the row's action button, the creative row's decision label, and the inspector's server verdict",
-  ),
+  "MetaOsDecisionActionBase.label": N(RAW_PRODUCER_COPY_IS_NOT_BUYER_COPY),
   "MetaOsDecisionActionBase.intent": R(
     S.EVIDENCE,
     "the second part of the 'Served action' row, beside the code and the target level; the queue's button carries the action's TONE, which the provider mutation decides",
@@ -2675,10 +2579,7 @@ const COVERAGE: Record<string, Coverage> = {
     S.ACTION,
     "the action button's tone: a pause reads negative and a resume positive",
   ),
-  "MetaOsDecisionActionBase.scopeNote": R(
-    S.CREATIVES,
-    "the creative row's money sub-line, and the inspector's contract detail",
-  ),
+  "MetaOsDecisionActionBase.scopeNote": N(RAW_PRODUCER_COPY_IS_NOT_BUYER_COPY),
   "MetaOsDecisionMetrics.spend": R(
     S.ACTION,
     "every row's money line, the posture band's weighting, and the inspector's spend evidence",
@@ -2869,14 +2770,8 @@ const COVERAGE: Record<string, Coverage> = {
   "MetaBudgetDecisionEvidenceByDirection.contractVersion": N(
     "A contract discriminator the panel branches on; the operator reads the evidence, not the schema version that carried it.",
   ),
-  "MetaBudgetDecisionEvidenceByDirection.directionSelected": W(
-    S.MOBILE,
-    "the wrapper's selected-direction attribute, always `none` on an account panel",
-  ),
-  "MetaBudgetDecisionEvidenceByDirection.directionSelectedWhy": W(
-    S.MOBILE,
-    "the sentence explaining why no direction is selected on an account-scoped panel",
-  ),
+  "MetaBudgetDecisionEvidenceByDirection.directionSelected": N(DECISION_VIEW_OMITS_BUDGET_DIAGNOSTICS),
+  "MetaBudgetDecisionEvidenceByDirection.directionSelectedWhy": N(DECISION_VIEW_OMITS_BUDGET_DIAGNOSTICS),
   /*
     PRE-DEPLOY AUDIT — reclassified W -> N against the running code. The first
     draft claimed this sentence was printed beside `directionSelectedWhy`; a
@@ -2889,83 +2784,32 @@ const COVERAGE: Record<string, Coverage> = {
   "MetaBudgetDecisionEvidenceByDirection.directionToActionWhy": N(
     "A single prose gloss on the direction-to-action mapping. Each direction panel already prints the action it consulted, which states the same mapping where the reader is looking.",
   ),
-  "MetaBudgetDecisionEvidenceByDirection.directionToAction.increase": W(
-    S.MOBILE,
-    "the increase panel's action attribute — the server's own direction-to-action mapping",
-  ),
-  "MetaBudgetDecisionEvidenceByDirection.directionToAction.decrease": W(
-    S.MOBILE,
-    "the decrease panel's action attribute — the server's own direction-to-action mapping",
-  ),
+  "MetaBudgetDecisionEvidenceByDirection.directionToAction.increase": N(DECISION_VIEW_OMITS_BUDGET_DIAGNOSTICS),
+  "MetaBudgetDecisionEvidenceByDirection.directionToAction.decrease": N(DECISION_VIEW_OMITS_BUDGET_DIAGNOSTICS),
 
   // ── one direction's panel ────────────────────────────────────────────────
   "MetaBudgetDecisionEvidencePanel.contractVersion": N(
     "The panel's own schema version. The surface prints the PROFILE contract it consulted, which is the one an operator can reconcile.",
   ),
-  "MetaBudgetDecisionEvidencePanel.status": W(
-    S.MOBILE,
-    "the direction group's status attribute, which selects the resolved or unavailable body",
-  ),
-  "MetaBudgetDecisionEvidencePanel.unavailableReason": W(
-    S.MOBILE,
-    "the reason line shown when the direction's evidence could not be resolved",
-  ),
-  "MetaBudgetDecisionEvidencePanel.authority": W(
-    S.MOBILE,
-    "the authority line — validated for review only, or blocked",
-  ),
-  "MetaBudgetDecisionEvidencePanel.primaryBlocker.code": W(
-    S.MOBILE,
-    "the first blocker's canonical code",
-  ),
-  "MetaBudgetDecisionEvidencePanel.primaryBlocker.reason": W(
-    S.MOBILE,
-    "the first blocker's operator sentence, beside its code",
-  ),
+  "MetaBudgetDecisionEvidencePanel.status": N(DECISION_VIEW_OMITS_BUDGET_DIAGNOSTICS),
+  "MetaBudgetDecisionEvidencePanel.unavailableReason": N(DECISION_VIEW_OMITS_BUDGET_DIAGNOSTICS),
+  "MetaBudgetDecisionEvidencePanel.authority": N(DECISION_VIEW_OMITS_BUDGET_DIAGNOSTICS),
+  "MetaBudgetDecisionEvidencePanel.primaryBlocker.code": N(DECISION_VIEW_OMITS_BUDGET_DIAGNOSTICS),
+  "MetaBudgetDecisionEvidencePanel.primaryBlocker.reason": N(DECISION_VIEW_OMITS_BUDGET_DIAGNOSTICS),
 
   // ── the commercial lineage this direction consulted ──────────────────────
-  "MetaBudgetDecisionEvidencePanel.commercialLineage.selectedAction": W(
-    S.MOBILE,
-    "the availability line's action attribute — which profile action this direction read",
-  ),
-  "MetaBudgetDecisionEvidencePanel.commercialLineage.eligible": W(
-    S.MOBILE,
-    "the canonical eligibility line, which prints `unknown` rather than false when the profile did not say",
-  ),
-  "MetaBudgetDecisionEvidencePanel.commercialLineage.code": W(
-    S.MOBILE,
-    "the canonical code line, which prints `none` when the profile published no code",
-  ),
-  "MetaBudgetDecisionEvidencePanel.commercialLineage.reason": W(
-    S.MOBILE,
-    "the unresolved-availability sentence, printed when the gates could not be resolved",
-  ),
-  "MetaBudgetDecisionEvidencePanel.commercialLineage.contractVersion": W(
-    S.MOBILE,
-    "the profile-contract line, printed beside the expected and observed contracts",
-  ),
-  "MetaBudgetDecisionEvidencePanel.commercialLineage.availability.status": W(
-    S.MOBILE,
-    "the source status printed on the contract line and carried as the availability attribute",
-  ),
-  "MetaBudgetDecisionEvidencePanel.commercialLineage.anchorExplanation": W(
-    S.MOBILE,
-    "the canonical anchor explanation block, rendered verbatim and never re-derived",
-  ),
+  "MetaBudgetDecisionEvidencePanel.commercialLineage.selectedAction": N(DECISION_VIEW_OMITS_BUDGET_DIAGNOSTICS),
+  "MetaBudgetDecisionEvidencePanel.commercialLineage.eligible": N(DECISION_VIEW_OMITS_BUDGET_DIAGNOSTICS),
+  "MetaBudgetDecisionEvidencePanel.commercialLineage.code": N(DECISION_VIEW_OMITS_BUDGET_DIAGNOSTICS),
+  "MetaBudgetDecisionEvidencePanel.commercialLineage.reason": N(DECISION_VIEW_OMITS_BUDGET_DIAGNOSTICS),
+  "MetaBudgetDecisionEvidencePanel.commercialLineage.contractVersion": N(DECISION_VIEW_OMITS_BUDGET_DIAGNOSTICS),
+  "MetaBudgetDecisionEvidencePanel.commercialLineage.availability.status": N(DECISION_VIEW_OMITS_BUDGET_DIAGNOSTICS),
+  "MetaBudgetDecisionEvidencePanel.commercialLineage.anchorExplanation": N(DECISION_VIEW_OMITS_BUDGET_DIAGNOSTICS),
 
   // ── execution readiness, and the control it does not enable ──────────────
-  "MetaBudgetDecisionEvidencePanel.executionReadiness.state": W(
-    S.MOBILE,
-    "the readiness attribute on the execution line — `not_executable` in this slice",
-  ),
-  "MetaBudgetDecisionEvidencePanel.executionReadiness.ctaEnabled": W(
-    S.MOBILE,
-    "the CTA-enabled attribute on the execution line, which the disabled button restates",
-  ),
-  "MetaBudgetDecisionEvidencePanel.executionReadiness.why": W(
-    S.MOBILE,
-    "the sentence saying why this direction is not executable",
-  ),
+  "MetaBudgetDecisionEvidencePanel.executionReadiness.state": N(DECISION_VIEW_OMITS_BUDGET_DIAGNOSTICS),
+  "MetaBudgetDecisionEvidencePanel.executionReadiness.ctaEnabled": N(DECISION_VIEW_OMITS_BUDGET_DIAGNOSTICS),
+  "MetaBudgetDecisionEvidencePanel.executionReadiness.why": N(DECISION_VIEW_OMITS_BUDGET_DIAGNOSTICS),
 
   // ── the counterfactual, which is never authority ─────────────────────────
   "MetaBudgetDecisionEvidencePanel.counterfactual.label": N(
@@ -2976,32 +2820,14 @@ const COVERAGE: Record<string, Coverage> = {
   ),
 
   // ── one gate section within a direction ──────────────────────────────────
-  "EvidencePanelSection.section": W(
-    S.MOBILE,
-    "the section list item's key attribute, and the title it selects",
-  ),
-  "EvidencePanelSection.clear": W(
-    S.MOBILE,
-    "the section's clear attribute, and the ` · clear` marker it selects",
-  ),
-  "EvidencePanelSection.blockerCodes": W(
-    S.MOBILE,
-    "one list item per blocker code, each carrying the code as an attribute",
-  ),
-  "EvidencePanelSection.reasons": W(
-    S.MOBILE,
-    "the operator sentence printed inside each blocker list item, positionally paired with its code",
-  ),
+  "EvidencePanelSection.section": N(DECISION_VIEW_OMITS_BUDGET_DIAGNOSTICS),
+  "EvidencePanelSection.clear": N(DECISION_VIEW_OMITS_BUDGET_DIAGNOSTICS),
+  "EvidencePanelSection.blockerCodes": N(DECISION_VIEW_OMITS_BUDGET_DIAGNOSTICS),
+  "EvidencePanelSection.reasons": N(DECISION_VIEW_OMITS_BUDGET_DIAGNOSTICS),
 
   // ── the D085 dry-run panel ───────────────────────────────────────────────
-  "DryRunPanelFact.label": W(
-    S.MOBILE,
-    "the label half of every observed, proposed and simulated fact row",
-  ),
-  "DryRunPanelFact.value": W(
-    S.MOBILE,
-    "the value half of every observed, proposed and simulated fact row",
-  ),
+  "DryRunPanelFact.label": N(DECISION_VIEW_OMITS_BUDGET_DIAGNOSTICS),
+  "DryRunPanelFact.value": N(DECISION_VIEW_OMITS_BUDGET_DIAGNOSTICS),
 
   // ── the D085 dry-run panel's own fields ──────────────────────────────────
   /*
@@ -3012,118 +2838,37 @@ const COVERAGE: Record<string, Coverage> = {
     A withholding the probe can see through is a false claim, so it is
     recorded as what it is.
   */
-  "MetaBudgetDryRunPanel.contractVersion": W(
-    S.MOBILE,
-    "the panel wrapper's data-contract attribute, which pins the schema the preview was built against",
-  ),
-  "MetaBudgetDryRunPanel.status": W(
-    S.MOBILE,
-    "selects the unavailable body or the full preview",
-  ),
-  "MetaBudgetDryRunPanel.unavailableReason": W(
-    S.MOBILE,
-    "the reason line shown when no dry run could be built",
-  ),
-  "MetaBudgetDryRunPanel.headline": W(S.MOBILE, "the panel heading"),
-  "MetaBudgetDryRunPanel.observed.title": W(
-    S.MOBILE,
-    "the observed-state section heading",
-  ),
-  "MetaBudgetDryRunPanel.observed.note": W(
-    S.MOBILE,
-    "the observed-state note beneath its heading",
-  ),
-  "MetaBudgetDryRunPanel.proposed.title": W(
-    S.MOBILE,
-    "the proposed-change section heading",
-  ),
-  "MetaBudgetDryRunPanel.proposed.note": W(
-    S.MOBILE,
-    "the proposed-change note beneath its heading",
-  ),
-  "MetaBudgetDryRunPanel.proposed.available": W(
-    S.MOBILE,
-    "the availability attribute on the proposed-change note, which distinguishes an absent proposal from a refused one",
-  ),
-  "MetaBudgetDryRunPanel.simulated.title": W(
-    S.MOBILE,
-    "the simulated-result section heading",
-  ),
-  "MetaBudgetDryRunPanel.simulated.note": W(
-    S.MOBILE,
-    "the simulated-result note beneath its heading",
-  ),
-  "MetaBudgetDryRunPanel.simulated.available": W(
-    S.MOBILE,
-    "the availability attribute on the simulated-result note",
-  ),
-  "MetaBudgetDryRunPanel.required.title": W(
-    S.MOBILE,
-    "the requirements section heading",
-  ),
-  "MetaBudgetDryRunPanel.required.note": W(
-    S.MOBILE,
-    "the requirements note, printed as the blocker line",
-  ),
-  "MetaBudgetDryRunPanel.required.writeSafetyMissing": W(
-    S.MOBILE,
-    "the §10 write-safety steps this preview reports as unmet, listed by name",
-  ),
-  "MetaBudgetDryRunPanel.required.blockers[].code": W(
-    S.MOBILE,
-    "each blocker's canonical code, carried as the attribute on its own line",
-  ),
-  "MetaBudgetDryRunPanel.required.blockers[].why": W(
-    S.MOBILE,
-    "each blocker's operator sentence, printed on that line",
-  ),
-  "MetaBudgetDryRunPanel.required.readbackRequirement": W(
-    S.MOBILE,
-    "the independent read-back a real write would still owe",
-  ),
-  "MetaBudgetDryRunPanel.execution.executionState": W(
-    S.MOBILE,
-    "the execution line's state attribute and its printed value",
-  ),
-  "MetaBudgetDryRunPanel.execution.providerWriteAttempted": W(
-    S.MOBILE,
-    "the execution line's 'provider write attempted' half — false, and printed rather than implied",
-  ),
-  "MetaBudgetDryRunPanel.execution.providerOutcome": W(
-    S.MOBILE,
-    "the execution line's provider-outcome attribute and printed value",
-  ),
-  "MetaBudgetDryRunPanel.execution.readbackClassification": W(
-    S.MOBILE,
-    "the execution line's read-back classification",
-  ),
-  "MetaBudgetDryRunPanel.execution.nextRequirement": W(
-    S.MOBILE,
-    "the 'next requirement' line — what would have to become true next",
-  ),
-  "MetaBudgetDryRunPanel.execution.ctaLabel": W(
-    S.MOBILE,
-    "the label on the permanently disabled CTA",
-  ),
-  "MetaBudgetDryRunPanel.execution.ctaEnabled": W(
-    S.MOBILE,
-    "the CTA's enabled attribute, which is false and drives its disabled state",
-  ),
+  "MetaBudgetDryRunPanel.contractVersion": N(DECISION_VIEW_OMITS_BUDGET_DIAGNOSTICS),
+  "MetaBudgetDryRunPanel.status": N(DECISION_VIEW_OMITS_BUDGET_DIAGNOSTICS),
+  "MetaBudgetDryRunPanel.unavailableReason": N(DECISION_VIEW_OMITS_BUDGET_DIAGNOSTICS),
+  "MetaBudgetDryRunPanel.headline": N(DECISION_VIEW_OMITS_BUDGET_DIAGNOSTICS),
+  "MetaBudgetDryRunPanel.observed.title": N(DECISION_VIEW_OMITS_BUDGET_DIAGNOSTICS),
+  "MetaBudgetDryRunPanel.observed.note": N(DECISION_VIEW_OMITS_BUDGET_DIAGNOSTICS),
+  "MetaBudgetDryRunPanel.proposed.title": N(DECISION_VIEW_OMITS_BUDGET_DIAGNOSTICS),
+  "MetaBudgetDryRunPanel.proposed.note": N(DECISION_VIEW_OMITS_BUDGET_DIAGNOSTICS),
+  "MetaBudgetDryRunPanel.proposed.available": N(DECISION_VIEW_OMITS_BUDGET_DIAGNOSTICS),
+  "MetaBudgetDryRunPanel.simulated.title": N(DECISION_VIEW_OMITS_BUDGET_DIAGNOSTICS),
+  "MetaBudgetDryRunPanel.simulated.note": N(DECISION_VIEW_OMITS_BUDGET_DIAGNOSTICS),
+  "MetaBudgetDryRunPanel.simulated.available": N(DECISION_VIEW_OMITS_BUDGET_DIAGNOSTICS),
+  "MetaBudgetDryRunPanel.required.title": N(DECISION_VIEW_OMITS_BUDGET_DIAGNOSTICS),
+  "MetaBudgetDryRunPanel.required.note": N(DECISION_VIEW_OMITS_BUDGET_DIAGNOSTICS),
+  "MetaBudgetDryRunPanel.required.writeSafetyMissing": N(DECISION_VIEW_OMITS_BUDGET_DIAGNOSTICS),
+  "MetaBudgetDryRunPanel.required.blockers[].code": N(DECISION_VIEW_OMITS_BUDGET_DIAGNOSTICS),
+  "MetaBudgetDryRunPanel.required.blockers[].why": N(DECISION_VIEW_OMITS_BUDGET_DIAGNOSTICS),
+  "MetaBudgetDryRunPanel.required.readbackRequirement": N(DECISION_VIEW_OMITS_BUDGET_DIAGNOSTICS),
+  "MetaBudgetDryRunPanel.execution.executionState": N(DECISION_VIEW_OMITS_BUDGET_DIAGNOSTICS),
+  "MetaBudgetDryRunPanel.execution.providerWriteAttempted": N(DECISION_VIEW_OMITS_BUDGET_DIAGNOSTICS),
+  "MetaBudgetDryRunPanel.execution.providerOutcome": N(DECISION_VIEW_OMITS_BUDGET_DIAGNOSTICS),
+  "MetaBudgetDryRunPanel.execution.readbackClassification": N(DECISION_VIEW_OMITS_BUDGET_DIAGNOSTICS),
+  "MetaBudgetDryRunPanel.execution.nextRequirement": N(DECISION_VIEW_OMITS_BUDGET_DIAGNOSTICS),
+  "MetaBudgetDryRunPanel.execution.ctaLabel": N(DECISION_VIEW_OMITS_BUDGET_DIAGNOSTICS),
+  "MetaBudgetDryRunPanel.execution.ctaEnabled": N(DECISION_VIEW_OMITS_BUDGET_DIAGNOSTICS),
   "MetaBudgetDryRunPanel.execution.executable": N(
     "The server's own executable flag. The surface prints `executionState`, `providerOutcome` and the disabled CTA instead: three facts an operator can check, rather than one boolean that would have to be trusted.",
   ),
-  "MetaBudgetDryRunPanel.fingerprints.input": W(
-    S.MOBILE,
-    "the input fingerprint on the fingerprints line",
-  ),
-  "MetaBudgetDryRunPanel.fingerprints.policy": W(
-    S.MOBILE,
-    "the policy fingerprint on the fingerprints line",
-  ),
-  "MetaBudgetDryRunPanel.fingerprints.preflight": W(
-    S.MOBILE,
-    "the preflight fingerprint on the fingerprints line",
-  ),
+  "MetaBudgetDryRunPanel.fingerprints.input": N(DECISION_VIEW_OMITS_BUDGET_DIAGNOSTICS),
+  "MetaBudgetDryRunPanel.fingerprints.policy": N(DECISION_VIEW_OMITS_BUDGET_DIAGNOSTICS),
+  "MetaBudgetDryRunPanel.fingerprints.preflight": N(DECISION_VIEW_OMITS_BUDGET_DIAGNOSTICS),
 
   /*
     ── the canonical decision ACTION ────────────────────────────────────────
@@ -3887,6 +3632,15 @@ const SCENARIOS: readonly ProbeScenario[] = [
  */
 const PAGE_SCENARIOS = new Set(SCENARIOS.map((scenario) => scenario.name));
 
+/**
+ * Bare string fields whose generic probe values stay in the same semantic
+ * branch. Their buyer-facing branch boundary is pinned by a named scenario
+ * test instead of pretending that two unrecognised sentinel tokens prove it.
+ */
+const SCENARIO_PROVEN_CLAIMS: ReadonlySet<string> = new Set([
+  "MetaPulsePayload.dataReadiness.evidenceSource",
+]);
+
 const PROBE_NOW = "2026-03-30T12:00:00.000Z";
 
 /**
@@ -3906,22 +3660,18 @@ const ELEMENT_PROOF_BY_SURFACE: Record<string, [number, number]> = {
   // PRE-DEPLOY AUDIT — 10 -> 9. `MetaOsDecisionActionBase.intent` was recorded
   // as the action button's TONE; the probe shows the tone follows
   // `providerMutation`, and `intent` moves the 'Served action' row instead.
-  ACTION: [0, 9],
+  ACTION: [0, 6],
   ARCHIVE: [0, 10],
-  BANNERS: [0, 25],
-  CREATIVES: [0, 14],
-  EVIDENCE: [94, 22],
+  BANNERS: [0, 8],
+  CREATIVES: [0, 10],
+  EVIDENCE: [94, 17],
   HEADER: [0, 10],
   HEALTHY: [0, 10],
   // Five more claims on this panel, none of them keyed to a stable row id:
   // the provenance band is one band, not a table of rows.
-  INSPECTOR: [2, 14],
+  INSPECTOR: [2, 12],
   INVENTORY: [0, 14],
   KPI: [0, 22],
-  // PRE-DEPLOY AUDIT — 6 -> 59: the budget evidence, gate and dry-run panels
-  // render here. Element-level stays 0 by construction (see
-  // SURFACES_WITHOUT_ELEMENT_IDS), not by omission.
-  MOBILE: [0, 59],
   NONSALES: [0, 1],
   PILLS: [0, 8],
   POSTURE: [2, 0],
@@ -3945,19 +3695,19 @@ const DOM_PROOF_BY_SURFACE: Record<string, [number, number]> = {
   // therefore proven in rendered HTML rather than in a view model.
   // PRE-DEPLOY AUDIT — 10 -> 9: `MetaOsDecisionActionBase.intent` moves the
   // evidence window's 'Served action' row, not the queue button's tone.
-  ACTION: [9, 0],
-  HEADER: [10, 0],
-  KPI: [22, 0],
-  PILLS: [8, 0],
+  ACTION: [6, 0],
+  HEADER: [3, 7],
+  KPI: [12, 10],
+  PILLS: [6, 2],
   // Partly: the inspector's own facts render, the ones it only shows for a
   // selected creative do not; the Creatives queue and the source panel sit
   // behind the scope tabs and show only what the resting scope draws.
-  CREATIVES: [2, 12],
+  CREATIVES: [1, 9],
   // The provenance band put five payload leaves in this panel's DOM that had
   // never reached a screen: the evidence window's two dates, the engine write
   // time, and the two metrics whose ABSENCE the gap line now names.
-  INSPECTOR: [9, 6],
-  PROVENANCE: [50, 50],
+  INSPECTOR: [4, 10],
+  PROVENANCE: [0, 100],
   WATCHING: [1, 2],
   // Behind a lane tab the default render never presses. This is the whole
   // demonstration: ARCHIVE's claims are real and none of them is in the DOM
@@ -3965,36 +3715,32 @@ const DOM_PROOF_BY_SURFACE: Record<string, [number, number]> = {
   ARCHIVE: [0, 10],
   HEALTHY: [0, 10],
   NONSALES: [0, 1],
-  POSTURE: [1, 1],
+  POSTURE: [0, 2],
   // Drawn by a DIFFERENT component than this channel renders: the inventory
   // table and the creative evidence window are their own surfaces, and the
   // banner strip and the mobile panels are already observed as HTML in their
   // own right, so a zero here says "not this component" and not "not on
   // screen".
-  BANNERS: [0, 25],
-  EVIDENCE: [1, 111],
+  BANNERS: [0, 8],
+  EVIDENCE: [0, 107],
   INVENTORY: [0, 14],
-  // PRE-DEPLOY AUDIT — 0 -> 40 in the DOM: the budget evidence, gate and
-  // dry-run panels are drawn by the default render, so their claims are
-  // proven in rendered HTML rather than in a view model.
-  MOBILE: [40, 6],
   // D078 R4 (correction 2): the coverage PANEL renders every one of its
   // eleven leaves as visible text in the resting desktop DOM — including
   // the policy sentence and timezone that correction 1 hid or dropped.
-  COVERAGE: [11, 0],
+  COVERAGE: [0, 11],
 };
 
 /** `[in the DOM, view model only]`, over every claim whose field can vary. */
 // PRE-DEPLOY AUDIT — [120, 248] -> [159, 249]. The budget panels render in
 // the default markup, so 39 of their claims are proven in the DOM rather than
 // in a view model; one more sits behind a control.
-const DOM_PROOF_TOTALS: [number, number] = [164, 248];
+const DOM_PROOF_TOTALS: [number, number] = [33, 303];
 
 /** Claims on leaves the contract pins to one value, which cannot be varied. */
 // PRE-DEPLOY AUDIT — 7 -> 20. Thirteen more claims sit on leaves the budget
 // contracts pin in the TYPE (`ctaEnabled: false`, `intent: "review"`,
 // `executionState: "validated_only"`, …), which the probe cannot vary.
-const DOM_PROOF_PINNED_LEAVES = 20;
+const DOM_PROOF_PINNED_LEAVES = 6;
 
 /**
  * Leaves the probe varies that move NO surface, in any scenario.
@@ -4008,7 +3754,7 @@ const DOM_PROOF_PINNED_LEAVES = 20;
 // read-back plumbing, the gate verdict's internal codes, and the dry-run's
 // server-side executable flag. Each is classified with its own reason above;
 // this is their total.
-const NOWHERE_LEAVES = 295;
+const NOWHERE_LEAVES = 371;
 
 /**
  * Of those, the ones that DO reach the callback boundary — the served tuple
@@ -4017,7 +3763,7 @@ const NOWHERE_LEAVES = 295;
  * kept so "it travels to the boundary" is written down rather than confused
  * with a pixel.
  */
-const NOWHERE_BUT_AT_THE_BOUNDARY = 54;
+const NOWHERE_BUT_AT_THE_BOUNDARY = 64;
 
 /** The one character every surface in this app prints for "unserved". */
 const EM_DASH = "\u2014";
@@ -4463,7 +4209,7 @@ function observeSurfaces(
  * display proof because the served tuple reached a callback. Every one of the
  * three was then MEASURED on a display surface —
  * `MetaOsAdDecision.decisionId` and `.sourceSnapshotId` on the evidence
- * window's diagnostics and the creative inspector's provenance line, and
+ * window's diagnostics, and
  * `MetaOsDecisionAction.code` on the window's "Served action" row. The
  * allow-list had reproduced in miniature the exact failure this whole file
  * exists to eliminate: an exemption that hid a render. Worse, its own test
@@ -4489,12 +4235,12 @@ function observeSurfaces(
 const NEGATIVE_CLAIM_PINS: Record<string, { observed: string[]; why: string }> =
   {
     "MetaOsAdDecision.decisionId": {
-      observed: ["INSPECTOR", "EVIDENCE", "callback"],
-      why: "the note says the queue prints no decision id; the queue is CREATIVES and it must stay out of this set",
+      observed: ["EVIDENCE", "callback"],
+      why: "the note says the queue and buyer-facing inspector print no decision id; CREATIVES and INSPECTOR must stay out of this set",
     },
     "MetaOsAdDecision.sourceSnapshotId": {
-      observed: ["INSPECTOR", "EVIDENCE", "callback"],
-      why: "the note says the queue prints no snapshot id; the queue is CREATIVES and it must stay out of this set",
+      observed: ["EVIDENCE", "callback"],
+      why: "the note says the queue and buyer-facing inspector print no snapshot id; CREATIVES and INSPECTOR must stay out of this set",
     },
     "MetaOsDecisionActionBase.code": {
       observed: ["EVIDENCE", "callback"],
@@ -4647,12 +4393,24 @@ const PINNED_BEYOND_TEXT_PROOF: Record<string, string> = {
     "the field is typed `never`: there is no value, and so no literal, to search for",
   "MetaBudgetDecisionEvidenceByDirection.directionSelected":
     "the type pins the value to `null`, which has no text to search for",
+  "MetaBudgetDecisionEvidenceByDirection.directionToAction.increase":
+    "the literal is 'scale', a short action word used elsewhere in buyer-facing copy",
+  "MetaBudgetDecisionEvidenceByDirection.directionToAction.decrease":
+    "the literal is 'cut', a short action word used elsewhere in buyer-facing copy",
+  "MetaBudgetDecisionEvidencePanel.commercialLineage.availability.status":
+    "the literal is 'resolved', a short status word that cannot identify this hidden diagnostic leaf",
   "MetaBudgetDecisionEvidencePanel.executionReadiness.ctaEnabled":
     "the type pins the value to `false`, which has no text to search for",
   "MetaBudgetDryRunPanel.execution.ctaEnabled":
     "the type pins the value to `false`, which has no text to search for",
   "MetaBudgetDryRunPanel.execution.providerWriteAttempted":
     "the type pins the value to `false`, which has no text to search for",
+  "MetaBudgetDryRunPanel.execution.executionState":
+    "the literal is 'validated_only', shared with the hidden budget intent execution state",
+  "MetaBudgetDryRunPanel.execution.providerOutcome":
+    "the literal is 'not_attempted', shared with the hidden readback classification",
+  "MetaBudgetDryRunPanel.execution.readbackClassification":
+    "the literal is 'not_attempted', shared with the hidden provider outcome",
   "MetaDecisionsDigest.labelFlips.items[].status":
     "the literal is 'published', a word the surfaces use in their own prose",
   "MetaDecisionsWorkspaceReadModel.scope.decisionMode":
@@ -4660,7 +4418,9 @@ const PINNED_BEYOND_TEXT_PROOF: Record<string, string> = {
   "MetaDecisionsWorkspaceReadModel.scope.metricsRangeAffectsDecisionSnapshot":
     "the pinned value is `false`, which has no text to search for",
   "MetaOsDecisionsPresentation.contractVersion":
-    "the same version string is carried by MetaOsDecisionPriority.version, which IS rendered",
+    "the same internal version string is carried by the hidden priority version",
+  "MetaOsDecisionPriority.version":
+    "the same internal version string is carried by the hidden presentation contract version",
   "MetaCanonicalDecision.riskTierProvenance.status":
     "the literal is 'proposed', shared with promotionBasis.status, which IS rendered",
   "MetaCanonicalDecision.promotionBasis.value":
@@ -4818,6 +4578,7 @@ describe("Meta Decision payload · every claim, proven against the running code"
       if (!outcome) continue; // pinned; proven by its literal below
       const surface = PROBE_SURFACE[coverage.where]!;
       if (outcome.display.includes(surface)) continue;
+      if (SCENARIO_PROVEN_CLAIMS.has(key)) continue;
       if (UNPROVEN_CLAIMS[key]) continue;
       unproven.push(
         `${key} claims ${surface} · probe saw [${outcome.display.join(", ")}]${
@@ -5039,9 +4800,9 @@ describe("Meta Decision payload · every claim, proven against the running code"
      * strongest proof available there, so the honest thing is to let the
      * ratio move and say why.
      */
-    expect(rendered.length).toBe(432);
+    expect(rendered.length).toBe(342);
     expect(withElement.length).toBe(195);
-    expect(withoutElement.length).toBe(237);
+    expect(withoutElement.length).toBe(147);
 
     /*
      * AND WHICH ENTRIES, not merely how many.
@@ -5180,7 +4941,8 @@ describe("Meta Decision payload · every claim, proven against the running code"
     const claimedButNowhere = nowhere
       .filter(
         ([key]) =>
-          COVERAGE[key]!.classification !== "INTENTIONALLY-NOT-RENDERED",
+          COVERAGE[key]!.classification !== "INTENTIONALLY-NOT-RENDERED" &&
+          !SCENARIO_PROVEN_CLAIMS.has(key),
       )
       .map(([key]) => key)
       .sort();
@@ -5277,18 +5039,7 @@ describe("Meta Decision payload · every claim, proven against the running code"
     expect(outcomes.get("MetaPulsePayload.pacing.spendToday")!.dom).toBe(true);
   });
 
-  it("observes the demo arm the evidence banner exists for, and the arm where it is silent", () => {
-    /*
-     * The claim `MetaPulsePayload.dataReadiness.evidenceSource` -> BANNERS is
-     * proven by the probe like every other claim: change the token, watch the
-     * strip. That proof alone would be satisfied by the notice's LAST branch,
-     * the one for a token this page cannot read, because the field is typed as
-     * a bare `string` and the probe's sentinel is exactly such a token. The
-     * branch the notice was WRITTEN for — a demo business, where no other
-     * banner fires and the figures are fabricated — needs a state, and the two
-     * scenarios below are it. @see SCENARIOS.demoEvidence, SCENARIOS.measured-
-     * Evidence
-     */
+  it("keeps unverified evidence visible inside the single compact status", () => {
     const at = (name: string) => {
       const index = SCENARIOS.findIndex((scenario) => scenario.name === name);
       expect(index, name).toBeGreaterThanOrEqual(0);
@@ -5296,155 +5047,98 @@ describe("Meta Decision payload · every claim, proven against the running code"
     };
 
     const demo = at("demoEvidence");
-    expect(demo.BANNERS).toContain("demonstration numbers, not measurements");
-    expect(demo.BANNERS).toContain("evidence source");
-    // The same disclosure on the phone, or the mobile operator is the one left
-    // reading fabricated figures as measurements.
-    expect(demo.MOBILE).toContain("demonstration numbers, not measurements");
-    // And it is the ONLY banner: the readiness pair is healthy on a demo
-    // account, which is precisely why this notice had to exist.
-    expect(demo.BANNERS).not.toContain("cannot read");
+    for (const surface of [demo.BANNERS, demo.MOBILE]) {
+      expect(surface).toContain('data-critical-evidence="true"');
+      expect(surface).toContain("sample or unverified data");
+      expect(surface).toContain("not confirmed measurements for this Meta account");
+      // The higher-priority operating gate remains the one compact card's
+      // heading; the evidence warning is added to it rather than becoming a
+      // second banner.
+      expect(surface).toContain("Actions are temporarily unavailable");
+    }
 
     const measured = at("measuredEvidence");
-    expect(measured.BANNERS).not.toContain("demonstration numbers");
-    expect(measured.BANNERS).not.toContain("evidence source");
-    expect(measured.MOBILE).not.toContain("demonstration numbers");
+    expect(measured.BANNERS).not.toContain('data-critical-evidence="true"');
+    expect(measured.MOBILE).not.toContain('data-critical-evidence="true"');
+    expect(measured.BANNERS).not.toContain("sample or unverified data");
+    expect(measured.MOBILE).not.toContain("sample or unverified data");
 
-    // The unrecognised-token branch, which every other scenario takes.
-    expect(at("full").BANNERS).toContain("one this page cannot read");
+    // An unrecognised source gets the same safe conclusion without exposing
+    // the source token or backend wording.
+    const unknown = at("full");
+    expect(unknown.BANNERS).toContain("sample or unverified data");
+    expect(unknown.BANNERS).not.toContain("one this page cannot read");
   });
 
-  it("observes both halves of the silent-failure banner's count, denominator and since-window", () => {
-    /*
-     * Three claims land on one sentence, and each is proven by a state in
-     * which the sentence is different:
-     *
-     *   count       - the `> 0` gate. The probe's number base is positive and
-     *                 its alt is a MEASURED ZERO, so the banner's presence and
-     *                 its absence are both observed by the mutation itself.
-     *   denominator - "N of M". Dropping `verifiedCount` from the sentence
-     *                 would leave a bare count with nothing to be a share of.
-     *   since-window- the " since <date>" phrase, which the notice omits when
-     *                 the digest carries no snapshot date. That omission is
-     *                 observable in exactly one scenario, and this is why the
-     *                 degraded scenario erases the field. @see SCENARIOS
-     */
+  it("keeps an uncertain Meta action outcome visible under a stronger gate", () => {
     const at = (name: string) => {
       const index = SCENARIOS.findIndex((scenario) => scenario.name === name);
       expect(index, name).toBeGreaterThanOrEqual(0);
       return everyBaseline[index]!;
     };
 
-    const full = at("full");
-    expect(full.BANNERS).toContain("ended without a verified outcome");
-    expect(full.BANNERS).toContain("verified");
-    expect(full.BANNERS).toContain(" since 2026-");
-    expect(full.MOBILE).toContain("ended without a verified outcome");
+    for (const scenario of [at("full"), at("degraded")]) {
+      for (const surface of [scenario.BANNERS, scenario.MOBILE]) {
+        expect(surface).toContain('data-critical-unverified-action="true"');
+        expect(surface).toContain("One or more recent Meta changes");
+        expect(surface).toContain("have an unverified result");
+        expect(surface).toContain("Open History");
+      }
+    }
 
-    // The digest that cannot name its window still states the counts, and
-    // silently drops the phrase rather than printing an empty one.
-    const noWindow = at("degraded");
-    expect(noWindow.BANNERS).toContain("ended without a verified outcome");
-    expect(noWindow.BANNERS).not.toContain(" since ");
-    expect(noWindow.BANNERS).not.toContain("since undefined");
-    expect(noWindow.BANNERS).not.toContain("since null");
+    expect(COVERAGE["MetaDecisionsDigest.actions.silentFailureCount"]).toMatchObject({
+      classification: "WIRED-NOW",
+      where: S.BANNERS,
+    });
+    expect(
+      outcomes.get("MetaDecisionsDigest.actions.silentFailureCount")!.display,
+    ).toEqual(expect.arrayContaining(["BANNERS", "MOBILE"]));
 
-    // And the fields are the ones the matrix credits to this sentence: the
-    // three above plus the two that decide HOW WIDE the sentence is allowed to
-    // be. @see the test below, which reads both widths.
+    // The compact alert states the uncertainty and its destination. Exact
+    // counts, digest windows and row-cap diagnostics stay out of this page.
     for (const key of [
-      "MetaDecisionsDigest.actions.silentFailureCount",
       "MetaDecisionsDigest.actions.verifiedCount",
       "MetaDecisionsDigest.snapshotDate",
       "MetaDecisionsDigest.actions.countsTruncated",
       "MetaDecisionsDigest.actions.countedRowCap",
     ]) {
       expect(COVERAGE[key], key).toMatchObject({
-        classification: "WIRED-NOW",
-        where: S.BANNERS,
+        classification: "INTENTIONALLY-NOT-RENDERED",
       });
-      expect(outcomes.get(key)!.display, key).toContain("BANNERS");
+      expect(outcomes.get(key)!.display, key).toEqual([]);
     }
   });
 
-  it("observes both widths of the silent-failure banner's sentence", () => {
-    /*
-     * THE FRAME AROUND A MEASUREMENT, READ OUT OF THE RENDERED STRIP.
-     *
-     * Both counts on this banner are filtered from a CAPPED action-log read
-     * (app/api/meta/decisions-workspace/route.ts), so on an account with more
-     * qualifying rows than the cap admits they describe the newest page of the
-     * window and not the window. The payload says which of the two it is
-     * (`actions.countsTruncated`) and what bounded it (`actions.countedRowCap`),
-     * and MetaPlatformPage.tsx:2386-2404 prints a different sentence for each.
-     *
-     * A mutation proof can only say the sentence CHANGED. This test says what
-     * each of the two sentences is, in a state where it is the one the strip
-     * carries:
-     *
-     *   truncated   - a FLOOR ("At least N"), a count that covers only the
-     *                 newest page, the cap that produced that page, and a
-     *                 refusal to guess the remainder. Every baseline except
-     *                 the one below is in this arm, because the probe's
-     *                 boolean base is `true`.
-     *   untruncated - the plain count the banner has always printed, with NO
-     *                 floor, NO cap clause and NO talk of a remainder, because
-     *                 there is none. Reached only through the scenario that
-     *                 forces the flag false. @see SCENARIOS.untruncatedAction-
-     *                 Digest
-     */
+  it("keeps the compact uncertain-outcome copy independent of digest width", () => {
     const at = (name: string) => {
       const index = SCENARIOS.findIndex((scenario) => scenario.name === name);
       expect(index, name).toBeGreaterThanOrEqual(0);
       return everyBaseline[index]!;
     };
 
-    // The wide read, stated narrowly.
     const truncated = at("full");
-    expect(truncated.BANNERS).toContain("At least ");
-    expect(truncated.BANNERS).toContain("most recent recorded action");
-    expect(truncated.BANNERS).toContain("-row cap lets it read");
-    expect(truncated.BANNERS).toContain(
-      "The window may hold more recorded actions than this count covers; whether it does, and how many, is unavailable here.",
-    );
-    // It states a floor instead of a total, so it must not also claim to carry
-    // the window: "carries M recorded actions" is the sentence for the arm
-    // where that is true.
-    expect(truncated.BANNERS).not.toContain("carries ");
-    expect(truncated.MOBILE).toContain("At least ");
-
-    // The read that fits, stated as the count it is.
     const whole = at("untruncatedActionDigest");
-    expect(whole.BANNERS).toContain("ended without a verified outcome");
-    expect(whole.BANNERS).toContain("carries ");
-    expect(whole.BANNERS).not.toContain("At least ");
-    expect(whole.BANNERS).not.toContain("-row cap lets it read");
-    expect(whole.BANNERS).not.toContain(
-      "The window may hold more recorded actions",
-    );
-    expect(whole.MOBILE).not.toContain("At least ");
+    for (const surface of [
+      truncated.BANNERS,
+      truncated.MOBILE,
+      whole.BANNERS,
+      whole.MOBILE,
+    ]) {
+      expect(surface).toContain("One or more recent Meta changes");
+      expect(surface).not.toContain("-row cap");
+      expect(surface).not.toContain("most recent recorded action");
+      expect(surface).not.toContain("carries ");
+      expect(surface).not.toMatch(/ since 2026-/);
+    }
+    expect(truncated.BANNERS).toBe(whole.BANNERS);
+    expect(truncated.MOBILE).toBe(whole.MOBILE);
 
-    /*
-     * AND THE CAP IS NAMED ONLY WHERE A POSITIVE ONE WAS SERVED.
-     *
-     * Read off the strip in the state itself rather than asserted about the
-     * matrix's own prose: this is the payload with `countedRowCap` taking the
-     * probe's alternate, a MEASURED ZERO, while the truncation flag stays set.
-     * A digest that reports truncation with no bound behind it still gets its
-     * floor and its warning; what it does not get is a fabricated bound to
-     * round the sentence out.
-     */
     const noCap = observeSurfaces(
       buildProbePayload("MetaDecisionsDigest.actions.countedRowCap"),
       true,
     ).surfaces;
-    expect(noCap.BANNERS).toContain("At least ");
-    expect(noCap.BANNERS).toContain("most recent recorded action");
-    expect(noCap.BANNERS).toContain(
-      "The window may hold more recorded actions than this count covers",
-    );
+    expect(noCap.BANNERS).toContain("One or more recent Meta changes");
     expect(noCap.BANNERS).not.toContain("-row cap");
-    expect(noCap.BANNERS).not.toContain("0-row");
   });
 
   it("refuses an element id the probe's own fixture invented", () => {
@@ -6084,76 +5778,9 @@ describe("Meta Decision payload · the named starting points", () => {
       .map(([key]) => key)
       .sort();
     expect(wired).toEqual([
-      /*
-        PRE-DEPLOY AUDIT — the budget wiring lane of THIS round: the
-        directional evidence panel, the gate verdict it publishes and the
-        dry-run preview, all three mounted by `MetaPlatformPage`. Every entry
-        below is measured on the MOBILE surface by the probe, and the five
-        that only render on an unavailable panel or a not-clear section are
-        measured in the two scenarios added for exactly that.
-      */
-      "DryRunPanelFact.label",
-      "DryRunPanelFact.value",
-      "EvidencePanelSection.blockerCodes",
-      "EvidencePanelSection.clear",
-      "EvidencePanelSection.reasons",
-      "EvidencePanelSection.section",
-      "MetaBudgetDecisionEvidenceByDirection.directionSelected",
-      "MetaBudgetDecisionEvidenceByDirection.directionSelectedWhy",
-      "MetaBudgetDecisionEvidenceByDirection.directionToAction.decrease",
-      "MetaBudgetDecisionEvidenceByDirection.directionToAction.increase",
-      "MetaBudgetDecisionEvidencePanel.authority",
-      "MetaBudgetDecisionEvidencePanel.commercialLineage.anchorExplanation",
-      "MetaBudgetDecisionEvidencePanel.commercialLineage.availability.status",
-      "MetaBudgetDecisionEvidencePanel.commercialLineage.code",
-      "MetaBudgetDecisionEvidencePanel.commercialLineage.contractVersion",
-      "MetaBudgetDecisionEvidencePanel.commercialLineage.eligible",
-      "MetaBudgetDecisionEvidencePanel.commercialLineage.reason",
-      "MetaBudgetDecisionEvidencePanel.commercialLineage.selectedAction",
-      "MetaBudgetDecisionEvidencePanel.executionReadiness.ctaEnabled",
-      "MetaBudgetDecisionEvidencePanel.executionReadiness.state",
-      "MetaBudgetDecisionEvidencePanel.executionReadiness.why",
-      "MetaBudgetDecisionEvidencePanel.primaryBlocker.code",
-      "MetaBudgetDecisionEvidencePanel.primaryBlocker.reason",
-      "MetaBudgetDecisionEvidencePanel.status",
-      "MetaBudgetDecisionEvidencePanel.unavailableReason",
-      "MetaBudgetDryRunPanel.contractVersion",
-      "MetaBudgetDryRunPanel.execution.ctaEnabled",
-      "MetaBudgetDryRunPanel.execution.ctaLabel",
-      "MetaBudgetDryRunPanel.execution.executionState",
-      "MetaBudgetDryRunPanel.execution.nextRequirement",
-      "MetaBudgetDryRunPanel.execution.providerOutcome",
-      "MetaBudgetDryRunPanel.execution.providerWriteAttempted",
-      "MetaBudgetDryRunPanel.execution.readbackClassification",
-      "MetaBudgetDryRunPanel.fingerprints.input",
-      "MetaBudgetDryRunPanel.fingerprints.policy",
-      "MetaBudgetDryRunPanel.fingerprints.preflight",
-      "MetaBudgetDryRunPanel.headline",
-      "MetaBudgetDryRunPanel.observed.note",
-      "MetaBudgetDryRunPanel.observed.title",
-      "MetaBudgetDryRunPanel.proposed.available",
-      "MetaBudgetDryRunPanel.proposed.note",
-      "MetaBudgetDryRunPanel.proposed.title",
-      "MetaBudgetDryRunPanel.required.blockers[].code",
-      "MetaBudgetDryRunPanel.required.blockers[].why",
-      "MetaBudgetDryRunPanel.required.note",
-      "MetaBudgetDryRunPanel.required.readbackRequirement",
-      "MetaBudgetDryRunPanel.required.title",
-      "MetaBudgetDryRunPanel.required.writeSafetyMissing",
-      "MetaBudgetDryRunPanel.simulated.available",
-      "MetaBudgetDryRunPanel.simulated.note",
-      "MetaBudgetDryRunPanel.simulated.title",
-      "MetaBudgetDryRunPanel.status",
-      "MetaBudgetDryRunPanel.unavailableReason",
       "MetaCampaignRoleCoverage.actionAuthoritativeCampaigns",
       "MetaCampaignRoleCoverage.unresolvedCampaigns",
       "MetaCanonicalDecision.sourceDecision.computedAt",
-      // D073's pipeline-health envelope: the exact decision-generation clock,
-      // the generation manifest, and the four operational facts (successful
-      // sync activity, finalized warehouse cutoff, growth-fence admission with
-      // its exact offender, and the overall/executionReady verdict). All 38
-      // leaves landed on the source-provenance panel and blocking banner in
-      // this round.
       "MetaDecisionPipelineHealth.decisionGeneration.ageHours",
       "MetaDecisionPipelineHealth.decisionGeneration.computedAt",
       "MetaDecisionPipelineHealth.decisionGeneration.engineVersion",
@@ -6196,29 +5823,14 @@ describe("Meta Decision payload · the named starting points", () => {
       "MetaDecisionSourceAuthority.decisionFreshness.maxAgeHours",
       "MetaDecisionSourceAuthority.decisionFreshness.status",
       "MetaDecisionSourceAuthority.executionReadiness",
-      // The five fields of one sentence on the silent-failure banner: the
-      // count, the denominator it is a share of, the window it covers, whether
-      // that count is capped, and the cap that capped it. The last two are the
-      // sentence's WIDTH — both counts are filtered from a bounded action-log
-      // read, so without them a page of the window reads as the window.
-      "MetaDecisionsDigest.actions.countedRowCap",
-      "MetaDecisionsDigest.actions.countsTruncated",
       "MetaDecisionsDigest.actions.silentFailureCount",
-      "MetaDecisionsDigest.actions.verifiedCount",
-      "MetaDecisionsDigest.snapshotDate",
       "MetaDecisionsWorkspacePayload.endDate",
       "MetaDecisionsWorkspaceReadModel.queue.adCandidates.eligiblePreCapCount",
       "MetaDecisionsWorkspaceReadModel.status",
       "MetaHealthyEntity.isBidStrategyMixed",
-      // The evidence inspector's provenance band: the window every figure on
-      // the panel covers, the moment the engine wrote the snapshot, and the
-      // metrics the payload did not serve at this row's grain. All three were
-      // in the payload and on no screen.
       "MetaLanePayload.endDate",
       "MetaLanePayload.snapshotCreatedAt",
       "MetaLanePayload.startDate",
-      // D074b/D076: the automatic campaign-role explanation the workspace
-      // serves per campaign — rendered verbatim on the evidence window.
       "MetaOsCampaignRoleExplanation.confidenceClass",
       "MetaOsCampaignRoleExplanation.confidenceScore",
       "MetaOsCampaignRoleExplanation.conflictReasons",
@@ -6230,12 +5842,7 @@ describe("Meta Decision payload · the named starting points", () => {
       "MetaOsDecisionMetrics.cpa",
       "MetaOsDecisionMetrics.ctr",
       "MetaOsStructureNode.lane",
-      // The token that says whether the figures on this page measure this
-      // account at all, which until this round reached nothing on a demo
-      // business — the one state where it is the only thing that would.
       "MetaPulsePayload.dataReadiness.evidenceSource",
-      // The account median, which this round moved off the WITHHELD_BY_DEFECT
-      // list and onto the ROAS tile under its own noun.
       "MetaPulsePayload.roas.median",
       "MetaSnapshotHealth.engineVersion",
       "MetaStructureInventoryEntity.metrics.cpa",

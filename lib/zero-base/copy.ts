@@ -25,11 +25,14 @@ export const ZERO_BASE_COPY = {
   en: {
     /* ----------------------------------------------------------- rollback */
     rolledBackTitle: "This screen is not available in the previous console",
-    rolledBackModeOff: "This workspace is currently rolled back to the previous console.",
-    rolledBackNotEnabled: "The new console is not switched on for this workspace yet.",
+    rolledBackModeOff:
+      "This workspace is currently rolled back to the previous console.",
+    rolledBackNotEnabled:
+      "The new console is not switched on for this workspace yet.",
     rolledBackExplainer:
       "This particular screen was introduced with the new console, so there is no earlier version of it to show you — rather than send you to a different screen that would answer a different question.",
-    rolledBackEverythingElse: "Everything that existed before is still where it was.",
+    rolledBackEverythingElse:
+      "Everything that existed before is still where it was.",
     rolledBackGoToOverview: "Go to Overview",
     /* ------------------------------------------------------------- states */
     loading: "Loading…",
@@ -49,7 +52,8 @@ export const ZERO_BASE_COPY = {
     businessSettings: "Business settings",
     businessSettingsDetail:
       "Workspace name, currency, economics, operating mode and deletion.",
-    clientsAlphabeticalWithheld: "Clients are listed alphabetically, and totals across them are withheld.",
+    clientsAlphabeticalWithheld:
+      "Clients are listed alphabetically, and totals across them are withheld.",
     whatsWithheldAndWhy: "What's withheld and why",
     action: "Action",
     details: "Details",
@@ -71,16 +75,20 @@ export const ZERO_BASE_COPY = {
     scopeLabel: "Scope",
     englishCaptions: "English",
     confirmBatch: "Check this batch",
-    batchIsReferenceOnly: "This checks the selection against the batch rules. Nothing is sent to Google.",
+    batchIsReferenceOnly:
+      "This checks the selection against the batch rules. Nothing is sent to Google.",
     served: "Served",
     all: "All",
-    batchPartiallyApplied: "Some steps in this batch were applied and some were not. Neither word describes the batch as a whole.",
+    batchPartiallyApplied:
+      "Some steps in this batch were applied and some were not. Neither word describes the batch as a whole.",
     planTrustNote:
       "Every step above is carried out by hand in Google Ads; nothing here changes an account. What was read to produce them is named on each step, and what could not be verified is stated rather than omitted.",
     fixThis: "Fix this",
     breakdown: "Breakdown",
-    sourceContractsNote: "Each source states what it can break down by. A source that cannot answer a breakdown says so here, before it is added.",
-    portfolioMode: "Portfolio mode — totals are withheld when accounts disagree on currency",
+    sourceContractsNote:
+      "Each source states what it can break down by. A source that cannot answer a breakdown says so here, before it is added.",
+    portfolioMode:
+      "Portfolio mode — totals are withheld when accounts disagree on currency",
     evidenceWindow: "Evidence window",
     asOf: "As of",
     gaps: "Gaps",
@@ -88,7 +96,8 @@ export const ZERO_BASE_COPY = {
     shareThisView: "Share this view",
     demotedLowConfidence: "Demoted: served with low confidence.",
     themeAcceptance: "Theme acceptance",
-    themeAcceptanceNote: "Every semantic colour and surface, each stating its meaning in words as well as colour.",
+    themeAcceptanceNote:
+      "Every semantic colour and surface, each stating its meaning in words as well as colour.",
     semanticColours: "Semantic colours",
     surfaces: "Surfaces",
     startTriage: "Start triage",
@@ -103,7 +112,8 @@ export const ZERO_BASE_COPY = {
     backToCreatives: "Back to creatives",
     runSnapshot: "Run a snapshot",
     queued: "Queued…",
-    snapshotQueuedNote: "Queued. Its progress appears as a fact below when the run reports.",
+    snapshotQueuedNote:
+      "Queued. Its progress appears as a fact below when the run reports.",
     recordResponse: "Record a response",
     respondToWhich: "Which recommendation",
     preset: "Preset",
@@ -113,12 +123,15 @@ export const ZERO_BASE_COPY = {
     // Not "Search history": capitalised Search is the Google Ads campaign type
     // in the glossary, and this is the verb.
     searchHistory: "Find in history",
-    historySearchIsServerSide: "Searches the whole history, not only the rows loaded here.",
+    historySearchIsServerSide:
+      "Searches the whole history, not only the rows loaded here.",
     outcome: "Outcome",
     replay: "Replay",
     notAvailable: "Not available",
-    emailChangeReverifies: "Changing this sends a verification email to the new address.",
-    passwordStrengthHint: "At least 12 characters. Length matters more than symbols.",
+    emailChangeReverifies:
+      "Changing this sends a verification email to the new address.",
+    passwordStrengthHint:
+      "At least 12 characters. Length matters more than symbols.",
     public: "Public",
     product: "Product",
     pricing: "Pricing",
@@ -139,7 +152,8 @@ export const ZERO_BASE_COPY = {
     playing: "Playing",
     paused: "Paused",
     cardPosition: "Card {index} of {total}",
-    scopeServedNote: "Every value above is served — nothing is recomputed on the client.",
+    scopeServedNote:
+      "Every value above is served — nothing is recomputed on the client.",
     undo: "Undo",
 
     /* -------------------------------------------------------- collections */
@@ -149,7 +163,8 @@ export const ZERO_BASE_COPY = {
     /* --------------------------------------------------------- provenance */
     connected: "Connected",
     notConnected: "Not connected",
-    connectionUnknown: "The integration status could not be read, so this connection is unknown.",
+    connectionUnknown:
+      "The integration status could not be read, so this connection is unknown.",
 
     /* -------------------------------------------------------------- verbs */
     connect: "Connect",
@@ -192,7 +207,8 @@ export const ZERO_BASE_COPY = {
     approve: "Approve",
     reject: "Reject",
     workspaceSettings: "Workspace settings",
-    settingsUnreadable: "The current name and currency could not be read, so they are not shown.",
+    settingsUnreadable:
+      "The current name and currency could not be read, so they are not shown.",
     saveSettings: "Save settings",
     economics: "Economics",
     economicsAgree: "The economics sources in scope agree.",
@@ -210,9 +226,11 @@ export const ZERO_BASE_COPY = {
     pendingInvitations: "Pending invitations",
     business: "Business",
     workspaceName: "Workspace name",
-    workspaceNameHint: "At least two characters — the route refuses anything shorter.",
+    workspaceNameHint:
+      "At least two characters — the route refuses anything shorter.",
     currency: "Currency",
-    currencyHint: "Required on every save; the route takes name and currency together.",
+    currencyHint:
+      "Required on every save; the route takes name and currency together.",
     economicsSources: "Economics sources",
     operatingMode: "Operating mode",
     plan: "Plan",
@@ -234,8 +252,10 @@ export const ZERO_BASE_COPY = {
     /* ---------------------------------------------------------- analytics */
     newVsReturning: "New vs returning",
     latestAiInsight: "Latest AI insight",
-    readsLatestInsight: "This surface reads the latest insight. It does not generate one.",
-    servedBriefReadOnly: "Served brief, read only. This surface generates nothing.",
+    readsLatestInsight:
+      "This surface reads the latest insight. It does not generate one.",
+    servedBriefReadOnly:
+      "Served brief, read only. This surface generates nothing.",
     aiVisitedPages: "AI-visited pages",
     valueAtCap: "This value is at the cap.",
     topPriorities: "Top priorities",
@@ -296,9 +316,11 @@ export const ZERO_BASE_COPY = {
     assigneeUserId: "Assignee (user id)",
     mustBeActiveMember: "Must be an active member of this business.",
     wakeUpAt: "Wake up at",
-    snoozeReturns: "A snooze that has elapsed returns the decision to the queue.",
-    reasonCode: "Reason code",
-    rejectionCarriesReason: "Rejecting the engine's call always carries a reason.",
+    snoozeReturns:
+      "A snooze that has elapsed returns the decision to the queue.",
+    reasonCode: "Reason",
+    rejectionCarriesReason:
+      "Rejecting the engine's call always carries a reason.",
     dueOptional: "Due (optional)",
     creative: "Creative",
     creativeIntelligence: "Creative Intelligence",
@@ -327,7 +349,8 @@ export const ZERO_BASE_COPY = {
     revokeOtherSessionsQ: "Revoke other sessions?",
     revokeThisSessionQ: "Revoke this session?",
     yourPlan: "Your plan",
-    carryOutInGoogle: "Carry these out in Google Ads yourself. Nothing on this page changes anything in Google.",
+    carryOutInGoogle:
+      "Carry these out in Google Ads yourself. Nothing on this page changes anything in Google.",
     downloadCsv: "Download CSV",
     open: "Open",
     activity: "Activity",
@@ -336,7 +359,8 @@ export const ZERO_BASE_COPY = {
     googlePlan: "Google plan",
     manualPlan: "Manual plan",
     googleManualPlan: "Google manual plan",
-    googleReadOnlyPlanNote: "Google rows are read-only here. Every change remains recommendation-bound in the manual plan.",
+    googleReadOnlyPlanNote:
+      "Google rows are read-only here. Every change remains recommendation-bound in the manual plan.",
     viewAsTable: "View as table",
     viewAsChart: "View as chart",
     referenceWriteStates: "Reference write states",
@@ -345,12 +369,14 @@ export const ZERO_BASE_COPY = {
     verdict: "Verdict",
     scope: "Scope",
     openMetaAdsManager: "Open Meta Ads Manager",
-    opensMetaNewTab: "Opens Meta in a new tab. Nothing is changed by following it.",
+    opensMetaNewTab:
+      "Opens Meta in a new tab. Nothing is changed by following it.",
     findADecision: "Find a decision",
     campaignAdsetOrTitle: "Campaign, ad set or title",
     filtersLaneDecisions: "Filters the decisions served in this lane.",
     decisionLanes: "Decision lanes",
-    decisionNoLongerServed: "The decision this link names is no longer served in this lane. It may have aged out of the window or moved lane.",
+    decisionNoLongerServed:
+      "The decision this link names is no longer served in this lane. It may have aged out of the window or moved lane.",
     run: "Run",
     runIt: "Run it",
     reRunHealthCheck: "Re-run the health check",
@@ -427,7 +453,8 @@ export const ZERO_BASE_COPY = {
     nothingServed: "Nothing served",
     intelligenceSources: "Intelligence sources",
     manualWrite: "Manual write",
-    checkOlderThan15: "That check is older than 15 minutes. Run it again before acting.",
+    checkOlderThan15:
+      "That check is older than 15 minutes. Run it again before acting.",
     reCheck: "Re-check",
     metaHistory: "Meta History",
     metaActionHistory: "Meta action history",
@@ -438,12 +465,14 @@ export const ZERO_BASE_COPY = {
     adsecuteHome: "Adsecute home",
     profile: "Profile",
     revokeAllSessions: "Revoke all sessions",
-    signInEmailReadOnly: "Your sign-in email is verified and cannot be changed from this screen.",
+    signInEmailReadOnly:
+      "Your sign-in email is verified and cannot be changed from this screen.",
     revokeAllSessionsQ: "Revoke all sessions?",
     aiInsights: "AI Insights",
     trafficSources: "Traffic sources",
     readLatestOnly: "READ LATEST ONLY",
-    aiGenerationUnavailable: "Generate is not available here. This surface reads the latest served insight and never invents one in the browser.",
+    aiGenerationUnavailable:
+      "Generate is not available here. This surface reads the latest served insight and never invents one in the browser.",
     aiCitedPages: "AI-cited pages",
     sourcesServing: "Sources serving",
     prioritiesServed: "Priorities served",
@@ -460,17 +489,21 @@ export const ZERO_BASE_COPY = {
     googleAdsOverviewTitle: "Google Ads — Overview",
     googleKeyMetrics: "Google key metrics",
     campaigns: "Campaigns",
-    homeDecisionOrientation: "A decision-oriented view of the business, its efficiency and data readiness.",
+    homeDecisionOrientation:
+      "A decision-oriented view of the business, its efficiency and data readiness.",
     noDailyTrendServed: "No daily trend is served for this window.",
     featureAccessNotBillingGated: "Feature access is not billing-gated.",
     billingAdministeredInShopify:
       "Billing is administered in Shopify, not here. Adsecute reads the plan it reports and never changes it.",
     /** Narrow-width note under the compact scope row (H55, 320px). */
-    scopeShortenedAtThisWidth: "Shortened at this width — open for the full scope.",
+    scopeShortenedAtThisWidth:
+      "Shortened at this width — open for the full scope.",
     /** Completeness line under the provider cards (H41). */
-    allProvidersShown: "Every provider this business can connect is shown · complete",
+    allProvidersShown:
+      "Every provider this business can connect is shown · complete",
     planAndBilling: "Plan & Billing",
-    automationReadOnlyNote: "Automation settings are shown read-only. The Meta stop is business-scoped and never affects Google.",
+    automationReadOnlyNote:
+      "Automation settings are shown read-only. The Meta stop is business-scoped and never affects Google.",
     inactiveAssets: "Inactive assets",
     inactiveAssetsOutsideLanes: "Kept outside decision lanes.",
     accountPulse: "Account pulse",
@@ -486,7 +519,8 @@ export const ZERO_BASE_COPY = {
     acknowledgementRequired: "Acknowledgement required",
     briefLifecycle: "Brief lifecycle",
     metaStopEngagedBusiness: "Meta write stop is ENGAGED for this business",
-    metaWriteBlockedGoogleUnaffected: "Meta write paths are blocked. Google Ads is unaffected.",
+    metaWriteBlockedGoogleUnaffected:
+      "Meta write paths are blocked. Google Ads is unaffected.",
     observed: "Observed",
     actor: "Actor",
     evidenceBasis: "Evidence basis",
@@ -502,14 +536,18 @@ export const ZERO_BASE_COPY = {
     connectOrConfigureDataSources: "Connect or configure data sources",
     canonicalAdDecisions: "Canonical Ad decisions",
     openThisAdInDecisions: "Open this Ad in Decisions",
-    compareCreativePerformanceDetail: "Compare creative performance, evidence and served decision context.",
-    sharedSnapshotNoLongerAvailable: "This shared snapshot is no longer available.",
+    compareCreativePerformanceDetail:
+      "Compare creative performance, evidence and served decision context.",
+    sharedSnapshotNoLongerAvailable:
+      "This shared snapshot is no longer available.",
     snapshot: "Snapshot",
     frozenSnapshot: "Frozen snapshot",
     csvExport: "CSV export",
-    csvContainsExactlyThisPage: "Contains exactly the creatives and metrics on this page — nothing more.",
+    csvContainsExactlyThisPage:
+      "Contains exactly the creatives and metrics on this page — nothing more.",
     whereViewersStopWatching: "Where viewers stop watching",
-    noMetricsInFrozenSnapshot: "No metrics were included in this frozen snapshot.",
+    noMetricsInFrozenSnapshot:
+      "No metrics were included in this frozen snapshot.",
     sideBySideComparison: "Side-by-side comparison",
     noNotesYetStartThread: "No notes yet — start the thread below.",
     sender: "SENDER",
@@ -521,37 +559,52 @@ export const ZERO_BASE_COPY = {
     notesAndQuestions: "Notes and questions",
     writeANote: "Write a note",
     askAQuestionOrLeaveANote: "Ask a question or leave a note…",
-    businessScopedCreativeWorkflow: "Business-scoped creative workflow and source-backed records.",
+    businessScopedCreativeWorkflow:
+      "Business-scoped creative workflow and source-backed records.",
     dateRange: "Date range",
     metaWorkspace: "Meta workspace",
-    prepareValidateReviewDrafts: "Prepare, validate and review launch-ready drafts.",
-    connectPlatformsThenChooseAccount: "Connect ad platforms, analytics tools and storefronts, then choose which account Adsecute should use.",
-    manageMembersInvitationsRoles: "Manage members, invitations, roles and workspace access.",
-    inviteTeammatesByEmail: "Invite teammates by email and choose their initial role.",
-    peopleWithAccessToWorkspace: "People with access to the selected workspace.",
-    generatedInvitationsAndStatus: "Generated invitations and their current delivery status.",
+    prepareValidateReviewDrafts:
+      "Prepare, validate and review launch-ready drafts.",
+    connectPlatformsThenChooseAccount:
+      "Connect ad platforms, analytics tools and storefronts, then choose which account Adsecute should use.",
+    manageMembersInvitationsRoles:
+      "Manage members, invitations, roles and workspace access.",
+    inviteTeammatesByEmail:
+      "Invite teammates by email and choose their initial role.",
+    peopleWithAccessToWorkspace:
+      "People with access to the selected workspace.",
+    generatedInvitationsAndStatus:
+      "Generated invitations and their current delivery status.",
     overviewCostModel: "Overview cost model",
-    costModelDetail: "Used by overview profit estimates and reports. Percentages are stored as ratios and confirmed by a fresh read.",
+    costModelDetail:
+      "Used by overview profit estimates and reports. Percentages are stored as ratios and confirmed by a fresh read.",
     costModelUnreadable: "The current cost model could not be read.",
     saveCostModel: "Save cost model",
     manageBillingInShopify: "Manage billing in Shopify",
-    billingNotAttachedToShopify: "Billing is not attached to a Shopify store for this business.",
+    billingNotAttachedToShopify:
+      "Billing is not attached to a Shopify store for this business.",
     teamViews: "Team views",
-    reviewPrioritizedActions: "Review prioritized actions, supporting evidence and workflow state.",
+    reviewPrioritizedActions:
+      "Review prioritized actions, supporting evidence and workflow state.",
     metaAdAccount: "Meta ad account",
     selectAccount: "Select account",
     metaAdAccountForHistory: "Meta ad account for History",
-    decisionWorkflowProviderJournal: "Decision, workflow and provider-action journal.",
+    decisionWorkflowProviderJournal:
+      "Decision, workflow and provider-action journal.",
     eventFamily: "Event family",
     entity: "Entity",
     engineVersion: "Engine version",
     summary: "Summary",
-    accountLevelSignalsSourceHealth: "Account-level signals, source health and recommendations.",
-    saveReportFormatsExportCsv: "Save report formats, export tables as CSV, or start from a reusable template.",
-    everySavedReportBelongsToBusiness: "Every saved report belongs to the active business.",
+    accountLevelSignalsSourceHealth:
+      "Account-level signals, source health and recommendations.",
+    saveReportFormatsExportCsv:
+      "Save report formats, export tables as CSV, or start from a reusable template.",
+    everySavedReportBelongsToBusiness:
+      "Every saved report belongs to the active business.",
     noReportsMatchSearch: "No reports match this search.",
     templateGallery: "Template Gallery",
-    startWithOneClickStructure: "Start with a one-click structure, then customize every widget and slot.",
+    startWithOneClickStructure:
+      "Start with a one-click structure, then customize every widget and slot.",
     // "Find", not "Search": capitalised, Search is a Google Ads campaign
     // type in this product's glossary and must survive translation verbatim.
     // `searchHistory` above resolved the same collision the same way.
@@ -585,13 +638,16 @@ export const ZERO_BASE_COPY = {
     sortPriority: "Sort: Priority",
     sortAge: "Sort: Age",
     copyLinkToThisView: "Copy link to this view",
-    linkCopiedReproducesView: "Link copied. It reproduces this account, lane, level and window.",
+    linkCopiedReproducesView:
+      "Link copied. It reproduces this account, lane, level and window.",
     copyThisLink: "Copy this link",
-    outsideDecisionLanesAdvisory: "outside the decision lanes, and advisory only.",
+    outsideDecisionLanesAdvisory:
+      "outside the decision lanes, and advisory only.",
     openInactiveAssetsDetail: "Open the inactive-assets detail",
-    opensMetaNothingExecuted: "Opens Meta in a new tab. Nothing here is executed.",
+    opensMetaNothingExecuted:
+      "Opens Meta in a new tab. Nothing here is executed.",
     showMore: "Show more",
-    laneServedNoRows: "No rows were served in this lane for this account and snapshot.",
+    laneServedNoRows: "No decisions are available here.",
     evidenceInspector: "Evidence inspector",
     closeEvidenceInspector: "Close the evidence inspector",
     decisionContract: "Decision contract",
@@ -604,14 +660,16 @@ export const ZERO_BASE_COPY = {
     advisories: "Advisories",
     notServedAtThisGrain: "Not served at this grain",
     recordingEllipsis: "Recording…",
-    assignToMemberId: "Assign to (member id)",
+    assignToMemberId: "Assign to team member",
     letCookUntilLabel: "Let cook until",
-    serverNow: "Server now",
-    youTried: "You tried",
-    takeTheServersState: "Take the server's state",
-    keepMineReapplyAgainstVersion: "Keep mine — re-apply against version",
-    decisionChangedWhileReading: "This decision changed while you were reading it",
-    confidenceCappedStillServed: "Confidence was capped for this row; the verdict is still served.",
+    serverNow: "Current status",
+    youTried: "Requested change",
+    takeTheServersState: "Keep current status",
+    keepMineReapplyAgainstVersion: "Apply my change",
+    decisionChangedWhileReading:
+      "This decision changed while you were reading it",
+    confidenceCappedStillServed:
+      "Confidence was capped for this row; the verdict is still served.",
     spendToday: "Spend · today",
     decisionSource: "Decision source",
     coverage: "Coverage",
@@ -625,10 +683,10 @@ export const ZERO_BASE_COPY = {
     note: "Note",
     inspecting: "Inspecting",
     ctrWindowed: "CTR · 28d",
-    showingOfServedRows: "Showing {shown} of {served} served rows",
-    allServedRowsShown: "All {served} served rows are shown",
+    showingOfServedRows: "Showing {shown} of {served} decisions",
+    allServedRowsShown: "{served} decisions",
     newCampaign: "+ New campaign",
-    noRowMatchesFilters: "No served row in this lane matches {filters}.",
+    noRowMatchesFilters: "No decisions match {filters}.",
     theSearchTerm: "the search “{term}”",
     theLevels: "the levels {levels}",
     theLevel: "the level {levels}",
@@ -640,7 +698,8 @@ export const ZERO_BASE_COPY = {
   tr: {
     /* ----------------------------------------------------------- rollback */
     rolledBackTitle: "Bu ekran önceki konsolda yok",
-    rolledBackModeOff: "Bu çalışma alanı şu anda önceki konsola geri alınmış durumda.",
+    rolledBackModeOff:
+      "Bu çalışma alanı şu anda önceki konsola geri alınmış durumda.",
     rolledBackNotEnabled: "Yeni konsol bu çalışma alanı için henüz açılmadı.",
     rolledBackExplainer:
       "Bu ekran yeni konsolla birlikte geldi; dolayısıyla gösterilebilecek daha eski bir sürümü yok — sizi başka bir soruyu yanıtlayan farklı bir ekrana göndermek yerine bunu söylüyoruz.",
@@ -663,7 +722,8 @@ export const ZERO_BASE_COPY = {
     businessSettings: "İşletme ayarları",
     businessSettingsDetail:
       "Çalışma alanı adı, para birimi, ekonomi, çalışma modu ve silme.",
-    clientsAlphabeticalWithheld: "Müşteriler alfabetik sıralanır; aralarındaki toplamlar paylaşılmaz.",
+    clientsAlphabeticalWithheld:
+      "Müşteriler alfabetik sıralanır; aralarındaki toplamlar paylaşılmaz.",
     whatsWithheldAndWhy: "Neyin paylaşılmadığı ve nedeni",
     action: "Eylem",
     details: "Ayrıntılar",
@@ -685,16 +745,20 @@ export const ZERO_BASE_COPY = {
     switchScope: "Kapsam değiştir",
 
     confirmBatch: "Bu grubu denetle",
-    batchIsReferenceOnly: "Bu, seçimi grup kurallarına göre denetler. Google’a hiçbir şey gönderilmez.",
+    batchIsReferenceOnly:
+      "Bu, seçimi grup kurallarına göre denetler. Google’a hiçbir şey gönderilmez.",
     served: "Sunulan",
     all: "Tümü",
-    batchPartiallyApplied: "Bu gruptaki bazı adımlar uygulandı, bazıları uygulanmadı. Hiçbir sözcük grubun tamamını tanımlamıyor.",
+    batchPartiallyApplied:
+      "Bu gruptaki bazı adımlar uygulandı, bazıları uygulanmadı. Hiçbir sözcük grubun tamamını tanımlamıyor.",
     planTrustNote:
       "Yukarıdaki adımlar Google Ads içinde elle uygulanır; burada hiçbir şey hesabı değiştirmez. Her adımın neye dayandığı adımın üzerinde yazar, doğrulanamayan şeyler atlanmaz, açıkça belirtilir.",
     fixThis: "Bunu düzelt",
     breakdown: "Kırılım",
-    sourceContractsNote: "Her kaynak hangi kırılımları yanıtlayabildiğini belirtir. Yanıtlayamayan bir kaynak, eklenmeden önce bunu burada söyler.",
-    portfolioMode: "Portföy modu — hesaplar para biriminde ayrışıyorsa toplamlar gösterilmez",
+    sourceContractsNote:
+      "Her kaynak hangi kırılımları yanıtlayabildiğini belirtir. Yanıtlayamayan bir kaynak, eklenmeden önce bunu burada söyler.",
+    portfolioMode:
+      "Portföy modu — hesaplar para biriminde ayrışıyorsa toplamlar gösterilmez",
     evidenceWindow: "Kanıt aralığı",
     asOf: "Şu ana göre",
     gaps: "Boşluklar",
@@ -702,7 +766,8 @@ export const ZERO_BASE_COPY = {
     shareThisView: "Bu görünümü paylaş",
     demotedLowConfidence: "Düşürüldü: düşük güvenle sunuldu.",
     themeAcceptance: "Tema kabulü",
-    themeAcceptanceNote: "Her anlamsal renk ve yüzey; anlamını renkle birlikte sözcükle de belirtir.",
+    themeAcceptanceNote:
+      "Her anlamsal renk ve yüzey; anlamını renkle birlikte sözcükle de belirtir.",
     semanticColours: "Anlamsal renkler",
     surfaces: "Yüzeyler",
     startTriage: "Önceliklendirmeye başla",
@@ -717,7 +782,8 @@ export const ZERO_BASE_COPY = {
     backToCreatives: "Kreatiflere dön",
     runSnapshot: "Anlık görüntü al",
     queued: "Sıraya alındı…",
-    snapshotQueuedNote: "Sıraya alındı. İlerlemesi, çalışma rapor verdiğinde aşağıda bir olgu olarak görünür.",
+    snapshotQueuedNote:
+      "Sıraya alındı. İlerlemesi, çalışma rapor verdiğinde aşağıda bir olgu olarak görünür.",
     recordResponse: "Yanıt kaydet",
     respondToWhich: "Hangi öneri",
     preset: "Hazır görünüm",
@@ -725,12 +791,15 @@ export const ZERO_BASE_COPY = {
     actionState: "Eylem durumu",
     horizon: "Ufuk",
     searchHistory: "Geçmişte ara",
-    historySearchIsServerSide: "Yalnızca yüklenen satırlarda değil, tüm geçmişte arar.",
+    historySearchIsServerSide:
+      "Yalnızca yüklenen satırlarda değil, tüm geçmişte arar.",
     outcome: "Sonuç",
     replay: "Yeniden oynat",
     notAvailable: "Kullanılamıyor",
-    emailChangeReverifies: "Bunu değiştirmek yeni adrese bir doğrulama e-postası gönderir.",
-    passwordStrengthHint: "En az 12 karakter. Uzunluk, sembollerden daha önemlidir.",
+    emailChangeReverifies:
+      "Bunu değiştirmek yeni adrese bir doğrulama e-postası gönderir.",
+    passwordStrengthHint:
+      "En az 12 karakter. Uzunluk, sembollerden daha önemlidir.",
     public: "Genel",
     product: "Ürün",
     pricing: "Fiyatlandırma",
@@ -751,7 +820,8 @@ export const ZERO_BASE_COPY = {
     playing: "Oynatılıyor",
     paused: "Duraklatıldı",
     cardPosition: "Kart {index} / {total}",
-    scopeServedNote: "Yukarıdaki her değer sunucudan gelir — istemcide hiçbir şey yeniden hesaplanmaz.",
+    scopeServedNote:
+      "Yukarıdaki her değer sunucudan gelir — istemcide hiçbir şey yeniden hesaplanmaz.",
     undo: "Geri al",
 
     noRows: "Bu dönem için satır sunulmadı.",
@@ -797,7 +867,8 @@ export const ZERO_BASE_COPY = {
     approve: "Onayla",
     reject: "Reddet",
     workspaceSettings: "Çalışma alanı ayarları",
-    settingsUnreadable: "Mevcut ad ve para birimi okunamadı, bu nedenle gösterilmiyor.",
+    settingsUnreadable:
+      "Mevcut ad ve para birimi okunamadı, bu nedenle gösterilmiyor.",
     saveSettings: "Ayarları kaydet",
     economics: "Ekonomi",
     economicsAgree: "Kapsamdaki ekonomi kaynakları uyuşuyor.",
@@ -817,7 +888,8 @@ export const ZERO_BASE_COPY = {
     workspaceName: "Çalışma alanı adı",
     workspaceNameHint: "En az iki karakter — rota daha kısasını reddeder.",
     currency: "Para birimi",
-    currencyHint: "Her kayıtta zorunlu; rota adı ve para birimini birlikte alır.",
+    currencyHint:
+      "Her kayıtta zorunlu; rota adı ve para birimini birlikte alır.",
     economicsSources: "Ekonomi kaynakları",
     operatingMode: "Çalışma modu",
     plan: "Plan (abonelik)",
@@ -827,7 +899,8 @@ export const ZERO_BASE_COPY = {
     reportBuilder: "Rapor oluşturucu",
     sources: "Kaynaklar",
     canvas: "Tuval",
-    retryNotMarked: "Oluşturucu bu hatayı yeniden denenebilir olarak işaretlemedi.",
+    retryNotMarked:
+      "Oluşturucu bu hatayı yeniden denenebilir olarak işaretlemedi.",
     sharing: "Paylaşım",
     sharingUnavailable:
       "Rapor paylaşımı bu üründe kullanılamıyor. Burada bağlantı üretecek bir kontrol yok.",
@@ -837,8 +910,10 @@ export const ZERO_BASE_COPY = {
 
     newVsReturning: "Yeni ve geri dönen",
     latestAiInsight: "En son AI içgörüsü",
-    readsLatestInsight: "Bu yüzey en son içgörüyü okur. Yeni bir içgörü üretmez.",
-    servedBriefReadOnly: "Sunulan brief, salt okunur. Bu yüzey hiçbir şey üretmez.",
+    readsLatestInsight:
+      "Bu yüzey en son içgörüyü okur. Yeni bir içgörü üretmez.",
+    servedBriefReadOnly:
+      "Sunulan brief, salt okunur. Bu yüzey hiçbir şey üretmez.",
     aiVisitedPages: "AI tarafından ziyaret edilen sayfalar",
     valueAtCap: "Bu değer üst sınırda.",
     topPriorities: "Öncelikli başlıklar",
@@ -890,8 +965,9 @@ export const ZERO_BASE_COPY = {
     mustBeActiveMember: "Bu işletmenin aktif bir üyesi olmalıdır.",
     wakeUpAt: "Uyanma zamanı",
     snoozeReturns: "Süresi dolan bir erteleme kararı kuyruğa geri döndürür.",
-    reasonCode: "Gerekçe kodu",
-    rejectionCarriesReason: "Motorun kararını reddetmek her zaman bir gerekçe taşır.",
+    reasonCode: "Gerekçe",
+    rejectionCarriesReason:
+      "Motorun kararını reddetmek her zaman bir gerekçe taşır.",
     dueOptional: "Termin (isteğe bağlı)",
     creative: "Kreatif",
     creativeIntelligence: "Kreatif Zekâsı",
@@ -920,7 +996,8 @@ export const ZERO_BASE_COPY = {
     revokeOtherSessionsQ: "Diğer oturumlar sonlandırılsın mı?",
     revokeThisSessionQ: "Bu oturum sonlandırılsın mı?",
     yourPlan: "Planınız",
-    carryOutInGoogle: "Bunları Google Ads içinde kendiniz uygulayın. Bu sayfadaki hiçbir şey Google'da bir değişiklik yapmaz.",
+    carryOutInGoogle:
+      "Bunları Google Ads içinde kendiniz uygulayın. Bu sayfadaki hiçbir şey Google'da bir değişiklik yapmaz.",
     downloadCsv: "CSV indir",
     open: "Aç",
     activity: "Etkinlik",
@@ -929,7 +1006,8 @@ export const ZERO_BASE_COPY = {
     googlePlan: "Google planı",
     manualPlan: "Manuel plan",
     googleManualPlan: "Google manuel planı",
-    googleReadOnlyPlanNote: "Google satırları burada salt okunurdur. Her değişiklik manuel plandaki bir öneriye bağlı kalır.",
+    googleReadOnlyPlanNote:
+      "Google satırları burada salt okunurdur. Her değişiklik manuel plandaki bir öneriye bağlı kalır.",
     viewAsTable: "Tablo olarak göster",
     viewAsChart: "Grafik olarak göster",
     referenceWriteStates: "Referans yazma durumları",
@@ -938,12 +1016,14 @@ export const ZERO_BASE_COPY = {
     verdict: "Karar sonucu",
     scope: "Kapsam",
     openMetaAdsManager: "Meta Ads Manager'ı aç",
-    opensMetaNewTab: "Meta'yı yeni bir sekmede açar. Bunu izlemek hiçbir şeyi değiştirmez.",
+    opensMetaNewTab:
+      "Meta'yı yeni bir sekmede açar. Bunu izlemek hiçbir şeyi değiştirmez.",
     findADecision: "Karar ara",
     campaignAdsetOrTitle: "Kampanya, reklam seti veya başlık",
     filtersLaneDecisions: "Bu şeritte sunulan kararları filtreler.",
     decisionLanes: "Karar şeritleri",
-    decisionNoLongerServed: "Bu bağlantının adlandırdığı karar artık bu şeritte sunulmuyor. Pencereden düşmüş veya şerit değiştirmiş olabilir.",
+    decisionNoLongerServed:
+      "Bu bağlantının adlandırdığı karar artık bu şeritte sunulmuyor. Pencereden düşmüş veya şerit değiştirmiş olabilir.",
     run: "Çalıştır",
     runIt: "Şimdi çalıştır",
     reRunHealthCheck: "Sağlık kontrolünü yeniden çalıştır",
@@ -1020,7 +1100,8 @@ export const ZERO_BASE_COPY = {
     nothingServed: "Hiçbir şey sunulmadı",
     intelligenceSources: "Zekâ kaynakları",
     manualWrite: "Manuel yazma",
-    checkOlderThan15: "Bu kontrol 15 dakikadan eski. Harekete geçmeden önce yeniden çalıştırın.",
+    checkOlderThan15:
+      "Bu kontrol 15 dakikadan eski. Harekete geçmeden önce yeniden çalıştırın.",
     reCheck: "Yeniden denetle",
     metaHistory: "Meta Geçmişi",
     metaActionHistory: "Meta işlem geçmişi",
@@ -1031,16 +1112,19 @@ export const ZERO_BASE_COPY = {
     adsecuteHome: "Adsecute ana sayfası",
     profile: "Profil",
     revokeAllSessions: "Tüm oturumları sonlandır",
-    signInEmailReadOnly: "Oturum açma e-postanız doğrulandı ve bu ekrandan değiştirilemez.",
+    signInEmailReadOnly:
+      "Oturum açma e-postanız doğrulandı ve bu ekrandan değiştirilemez.",
     revokeAllSessionsQ: "Tüm oturumlar sonlandırılsın mı?",
     aiInsights: "AI İçgörüleri",
     trafficSources: "Trafik kaynakları",
     readLatestOnly: "YALNIZCA EN SONU OKUR",
-    aiGenerationUnavailable: "Burada üretim kullanılamaz. Bu yüzey sunulan en son içgörüyü okur ve tarayıcıda yeni bir içgörü uydurmaz.",
+    aiGenerationUnavailable:
+      "Burada üretim kullanılamaz. Bu yüzey sunulan en son içgörüyü okur ve tarayıcıda yeni bir içgörü uydurmaz.",
     aiCitedPages: "AI tarafından kaynak gösterilen sayfalar",
     sourcesServing: "Veri sunan kaynaklar",
     prioritiesServed: "Sunulan öncelikler",
-    audienceSessionComparison: "Yeni ve geri dönen kitle oturumlarının karşılaştırması",
+    audienceSessionComparison:
+      "Yeni ve geri dönen kitle oturumlarının karşılaştırması",
     audienceCohorts: "Kitle grupları",
     geoSummary: "GEO özeti",
     sharedVia: "Şununla paylaşıldı",
@@ -1053,15 +1137,20 @@ export const ZERO_BASE_COPY = {
     googleAdsOverviewTitle: "Google Ads — Genel Bakış",
     googleKeyMetrics: "Google temel metrikleri",
     campaigns: "Kampanyalar",
-    homeDecisionOrientation: "İşletmeyi, verimliliğini ve veri hazırlığını karar odaklı gösterir.",
+    homeDecisionOrientation:
+      "İşletmeyi, verimliliğini ve veri hazırlığını karar odaklı gösterir.",
     noDailyTrendServed: "Bu aralık için günlük eğilim sunulmadı.",
-    featureAccessNotBillingGated: "Özellik erişimi faturalandırma katmanıyla kısıtlanmaz.",
+    featureAccessNotBillingGated:
+      "Özellik erişimi faturalandırma katmanıyla kısıtlanmaz.",
     billingAdministeredInShopify:
       "Faturalandırma burada değil, Shopify üzerinde yönetilir. Adsecute yalnızca bildirilen planı okur, hiçbir zaman değiştirmez.",
-    scopeShortenedAtThisWidth: "Bu genişlikte kısaltıldı — tam kapsam için açın.",
-    allProvidersShown: "Bu işletmenin bağlayabileceği tüm sağlayıcılar gösteriliyor · eksiksiz",
+    scopeShortenedAtThisWidth:
+      "Bu genişlikte kısaltıldı — tam kapsam için açın.",
+    allProvidersShown:
+      "Bu işletmenin bağlayabileceği tüm sağlayıcılar gösteriliyor · eksiksiz",
     planAndBilling: "Plan ve Faturalandırma",
-    automationReadOnlyNote: "Otomasyon ayarları salt okunur gösterilir. Meta durdurma işletme kapsamındadır ve Google'ı hiçbir zaman etkilemez.",
+    automationReadOnlyNote:
+      "Otomasyon ayarları salt okunur gösterilir. Meta durdurma işletme kapsamındadır ve Google'ı hiçbir zaman etkilemez.",
     inactiveAssets: "Etkin olmayan varlıklar",
     inactiveAssetsOutsideLanes: "Karar şeritlerinin dışında tutulur.",
     accountPulse: "Hesap nabzı",
@@ -1077,7 +1166,8 @@ export const ZERO_BASE_COPY = {
     acknowledgementRequired: "Onay gerekli",
     briefLifecycle: "Brief yaşam döngüsü",
     metaStopEngagedBusiness: "Meta yazma durdurması bu işletme için DEVREDE",
-    metaWriteBlockedGoogleUnaffected: "Meta yazma yolları engellendi. Google Ads etkilenmez.",
+    metaWriteBlockedGoogleUnaffected:
+      "Meta yazma yolları engellendi. Google Ads etkilenmez.",
     observed: "Gözlemlendi",
     actor: "İşlemi yapan",
     evidenceBasis: "Kanıt dayanağı",
@@ -1090,59 +1180,79 @@ export const ZERO_BASE_COPY = {
      * Provider and metric identifiers inside them — Meta, Shopify, CSV, ROAS —
      * survive translation verbatim, which the glossary test enforces.
      */
-    connectOrConfigureDataSources: "Veri kaynaklarını bağlayın veya yapılandırın",
+    connectOrConfigureDataSources:
+      "Veri kaynaklarını bağlayın veya yapılandırın",
     canonicalAdDecisions: "Kanonik reklam kararları",
     openThisAdInDecisions: "Bu reklamı Kararlar'da aç",
-    compareCreativePerformanceDetail: "Kreatif performansını, kanıtı ve sunulan karar bağlamını karşılaştırın.",
-    sharedSnapshotNoLongerAvailable: "Bu paylaşılan anlık görüntü artık kullanılamıyor.",
+    compareCreativePerformanceDetail:
+      "Kreatif performansını, kanıtı ve sunulan karar bağlamını karşılaştırın.",
+    sharedSnapshotNoLongerAvailable:
+      "Bu paylaşılan anlık görüntü artık kullanılamıyor.",
     snapshot: "Anlık görüntü",
     frozenSnapshot: "Dondurulmuş anlık görüntü",
     csvExport: "CSV dışa aktarma",
-    csvContainsExactlyThisPage: "Yalnızca bu sayfadaki kreatifleri ve metrikleri içerir — fazlasını değil.",
+    csvContainsExactlyThisPage:
+      "Yalnızca bu sayfadaki kreatifleri ve metrikleri içerir — fazlasını değil.",
     whereViewersStopWatching: "İzleyicilerin izlemeyi bıraktığı yer",
-    noMetricsInFrozenSnapshot: "Bu dondurulmuş anlık görüntüye hiçbir metrik dâhil edilmedi.",
+    noMetricsInFrozenSnapshot:
+      "Bu dondurulmuş anlık görüntüye hiçbir metrik dâhil edilmedi.",
     sideBySideComparison: "Yan yana karşılaştırma",
     noNotesYetStartThread: "Henüz not yok — aşağıdan konuşmayı başlatın.",
     sender: "GÖNDEREN",
     readOnly: "Salt okunur",
     noteFromTheSender: "Gönderenin notu",
-    csvExportNotEnabledForLink: "Bu bağlantı için CSV dışa aktarma etkinleştirilmedi.",
+    csvExportNotEnabledForLink:
+      "Bu bağlantı için CSV dışa aktarma etkinleştirilmedi.",
     whatChangedAndWhy: "Ne değişti ve neden",
     typicalCreativeInThisAccount: "bu hesaptaki tipik kreatif",
     notesAndQuestions: "Notlar ve sorular",
     writeANote: "Not yazın",
     askAQuestionOrLeaveANote: "Bir soru sorun veya not bırakın…",
-    businessScopedCreativeWorkflow: "İşletme kapsamlı kreatif akışı ve kaynağa dayalı kayıtlar.",
+    businessScopedCreativeWorkflow:
+      "İşletme kapsamlı kreatif akışı ve kaynağa dayalı kayıtlar.",
     dateRange: "Tarih aralığı",
     metaWorkspace: "Meta çalışma alanı",
-    prepareValidateReviewDrafts: "Yayına hazır taslakları hazırlayın, doğrulayın ve gözden geçirin.",
-    connectPlatformsThenChooseAccount: "Reklam platformlarını, analiz araçlarını ve mağazaları bağlayın, ardından Adsecute'un hangi hesabı kullanacağını seçin.",
-    manageMembersInvitationsRoles: "Üyeleri, davetleri, rolleri ve çalışma alanı erişimini yönetin.",
-    inviteTeammatesByEmail: "Takım arkadaşlarınızı e-posta ile davet edin ve başlangıç rollerini seçin.",
+    prepareValidateReviewDrafts:
+      "Yayına hazır taslakları hazırlayın, doğrulayın ve gözden geçirin.",
+    connectPlatformsThenChooseAccount:
+      "Reklam platformlarını, analiz araçlarını ve mağazaları bağlayın, ardından Adsecute'un hangi hesabı kullanacağını seçin.",
+    manageMembersInvitationsRoles:
+      "Üyeleri, davetleri, rolleri ve çalışma alanı erişimini yönetin.",
+    inviteTeammatesByEmail:
+      "Takım arkadaşlarınızı e-posta ile davet edin ve başlangıç rollerini seçin.",
     peopleWithAccessToWorkspace: "Seçili çalışma alanına erişimi olan kişiler.",
-    generatedInvitationsAndStatus: "Oluşturulan davetler ve güncel iletim durumları.",
+    generatedInvitationsAndStatus:
+      "Oluşturulan davetler ve güncel iletim durumları.",
     overviewCostModel: "Genel bakış maliyet modeli",
-    costModelDetail: "Genel bakış kâr tahminlerinde ve raporlarda kullanılır. Yüzdeler oran olarak saklanır ve yeni bir okumayla doğrulanır.",
+    costModelDetail:
+      "Genel bakış kâr tahminlerinde ve raporlarda kullanılır. Yüzdeler oran olarak saklanır ve yeni bir okumayla doğrulanır.",
     costModelUnreadable: "Mevcut maliyet modeli okunamadı.",
     saveCostModel: "Maliyet modelini kaydet",
     manageBillingInShopify: "Faturalandırmayı Shopify'da yönetin",
-    billingNotAttachedToShopify: "Bu işletme için faturalandırma bir Shopify mağazasına bağlı değil.",
+    billingNotAttachedToShopify:
+      "Bu işletme için faturalandırma bir Shopify mağazasına bağlı değil.",
     teamViews: "Takım görünümleri",
-    reviewPrioritizedActions: "Önceliklendirilmiş eylemleri, destekleyici kanıtı ve iş akışı durumunu gözden geçirin.",
+    reviewPrioritizedActions:
+      "Önceliklendirilmiş eylemleri, destekleyici kanıtı ve iş akışı durumunu gözden geçirin.",
     metaAdAccount: "Meta reklam hesabı",
     selectAccount: "Hesap seçin",
     metaAdAccountForHistory: "Geçmiş için Meta reklam hesabı",
-    decisionWorkflowProviderJournal: "Karar, iş akışı ve sağlayıcı eylem günlüğü.",
+    decisionWorkflowProviderJournal:
+      "Karar, iş akışı ve sağlayıcı eylem günlüğü.",
     eventFamily: "Olay ailesi",
     entity: "Varlık",
     engineVersion: "Motor sürümü",
     summary: "Özet",
-    accountLevelSignalsSourceHealth: "Hesap düzeyi sinyaller, kaynak sağlığı ve öneriler.",
-    saveReportFormatsExportCsv: "Rapor biçimlerini kaydedin, tabloları CSV olarak dışa aktarın veya yeniden kullanılabilir bir şablonla başlayın.",
-    everySavedReportBelongsToBusiness: "Kaydedilen her rapor etkin işletmeye aittir.",
+    accountLevelSignalsSourceHealth:
+      "Hesap düzeyi sinyaller, kaynak sağlığı ve öneriler.",
+    saveReportFormatsExportCsv:
+      "Rapor biçimlerini kaydedin, tabloları CSV olarak dışa aktarın veya yeniden kullanılabilir bir şablonla başlayın.",
+    everySavedReportBelongsToBusiness:
+      "Kaydedilen her rapor etkin işletmeye aittir.",
     noReportsMatchSearch: "Bu aramayla eşleşen rapor yok.",
     templateGallery: "Şablon galerisi",
-    startWithOneClickStructure: "Tek tıklık bir yapıyla başlayın, ardından her bileşeni ve alanı özelleştirin.",
+    startWithOneClickStructure:
+      "Tek tıklık bir yapıyla başlayın, ardından her bileşeni ve alanı özelleştirin.",
     searchReports: "Raporlarda ara",
     searchReportsPlaceholder: "Raporlarda ara...",
     sortReports: "Raporları sırala",
@@ -1164,7 +1274,8 @@ export const ZERO_BASE_COPY = {
     levelAdSet: "Reklam seti",
     levelAd: "Reklam",
     adsAreInCreativesScope: "reklamlar Kreatifler kapsamındadır",
-    structuresAreInOtherScope: "kampanyalar ve reklam setleri diğer kapsamdadır",
+    structuresAreInOtherScope:
+      "kampanyalar ve reklam setleri diğer kapsamdadır",
     levelsFromTheLink: "seviye — bu görünümü açan bağlantıdan",
     searchEntities: "Varlıklarda bul",
     searchCreatives: "Kreatiflerde bul",
@@ -1173,13 +1284,16 @@ export const ZERO_BASE_COPY = {
     sortPriority: "Sırala: Öncelik",
     sortAge: "Sırala: Yaş",
     copyLinkToThisView: "Bu görünümün bağlantısını kopyala",
-    linkCopiedReproducesView: "Bağlantı kopyalandı. Bu hesabı, şeridi, seviyeyi ve dönemi birebir açar.",
+    linkCopiedReproducesView:
+      "Bağlantı kopyalandı. Bu hesabı, şeridi, seviyeyi ve dönemi birebir açar.",
     copyThisLink: "Bu bağlantıyı kopyala",
-    outsideDecisionLanesAdvisory: "karar şeritlerinin dışında ve yalnızca bilgilendirmedir.",
+    outsideDecisionLanesAdvisory:
+      "karar şeritlerinin dışında ve yalnızca bilgilendirmedir.",
     openInactiveAssetsDetail: "Pasif varlık ayrıntısını aç",
-    opensMetaNothingExecuted: "Meta yeni sekmede açılır. Burada hiçbir şey yürütülmez.",
+    opensMetaNothingExecuted:
+      "Meta yeni sekmede açılır. Burada hiçbir şey yürütülmez.",
     showMore: "Daha fazla göster",
-    laneServedNoRows: "Bu hesap ve anlık görüntü için bu şeritte satır sunulmadı.",
+    laneServedNoRows: "Burada kullanılabilir karar yok.",
     evidenceInspector: "Kanıt denetleyicisi",
     closeEvidenceInspector: "Kanıt denetleyicisini kapat",
     decisionContract: "Karar sözleşmesi",
@@ -1192,14 +1306,15 @@ export const ZERO_BASE_COPY = {
     advisories: "Bilgilendirmeler",
     notServedAtThisGrain: "Bu kırılımda sunulmuyor",
     recordingEllipsis: "Kaydediliyor…",
-    assignToMemberId: "Şuna ata (üye kimliği)",
+    assignToMemberId: "Ekip üyesine ata",
     letCookUntilLabel: "Şu ana kadar beklet",
-    serverNow: "Sunucuda şu an",
-    youTried: "Sizin denediğiniz",
-    takeTheServersState: "Sunucunun durumunu al",
-    keepMineReapplyAgainstVersion: "Benimkini koru — şu sürüme yeniden uygula",
+    serverNow: "Mevcut durum",
+    youTried: "İstenen değişiklik",
+    takeTheServersState: "Mevcut durumu koru",
+    keepMineReapplyAgainstVersion: "Değişikliğimi uygula",
     decisionChangedWhileReading: "Bu karar siz okurken değişti",
-    confidenceCappedStillServed: "Bu satırda güven sınırlandı; karar yine de sunuluyor.",
+    confidenceCappedStillServed:
+      "Bu satırda güven sınırlandı; karar yine de sunuluyor.",
     spendToday: "Harcama · bugün",
     decisionSource: "Karar kaynağı",
     coverage: "Kapsam",
@@ -1213,10 +1328,10 @@ export const ZERO_BASE_COPY = {
     note: "Not",
     inspecting: "İnceleniyor",
     ctrWindowed: "CTR · 28g",
-    showingOfServedRows: "Sunulan {served} satırın {shown} tanesi gösteriliyor",
-    allServedRowsShown: "Sunulan {served} satırın tamamı gösteriliyor",
+    showingOfServedRows: "{served} kararın {shown} tanesi gösteriliyor",
+    allServedRowsShown: "{served} karar",
     newCampaign: "+ Yeni kampanya",
-    noRowMatchesFilters: "Bu şeritte {filters} ile eşleşen sunulmuş satır yok.",
+    noRowMatchesFilters: "{filters} ile eşleşen karar yok.",
     theSearchTerm: "“{term}” aramasıyla",
     theLevels: "{levels} seviyeleriyle",
     theLevel: "{levels} seviyesiyle",
@@ -1236,8 +1351,12 @@ export type ZeroBaseCopy = (typeof ZERO_BASE_COPY)["en"];
  * render English rather than blank keys, and the parity test makes sure that
  * path is never reached for a language the UI actually offers.
  */
-export function zeroBaseCopy(language: AppLanguage | null | undefined): ZeroBaseCopy {
-  return language === "tr" ? (ZERO_BASE_COPY.tr as unknown as ZeroBaseCopy) : ZERO_BASE_COPY.en;
+export function zeroBaseCopy(
+  language: AppLanguage | null | undefined,
+): ZeroBaseCopy {
+  return language === "tr"
+    ? (ZERO_BASE_COPY.tr as unknown as ZeroBaseCopy)
+    : ZERO_BASE_COPY.en;
 }
 
 /** The terms that must survive translation byte-for-byte. */
@@ -1260,7 +1379,10 @@ export { NON_TRANSLATABLE_TERMS };
  */
 const CASE_SENSITIVE_TERMS = new Set(["Search", "Shopping", "Display"]);
 
-export function preservesGlossary(english: string, translated: string): string[] {
+export function preservesGlossary(
+  english: string,
+  translated: string,
+): string[] {
   const missing: string[] = [];
   for (const term of NON_TRANSLATABLE_TERMS) {
     const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");

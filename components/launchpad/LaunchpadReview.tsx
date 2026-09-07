@@ -11,10 +11,7 @@ import type {
 } from "@/lib/launchpad/meta";
 import { hasBelowBreakeven } from "@/components/launchpad/LaunchpadCreativeSelection";
 import { formatMoney } from "@/components/meta/redesign/meta-card-utils";
-import {
-  META_LAUNCHPAD_EXECUTION_LIMITS,
-  evaluateMetaLaunchpadExecutionBounds,
-} from "@/lib/launchpad/meta-execution-bounds";
+import { evaluateMetaLaunchpadExecutionBounds } from "@/lib/launchpad/meta-execution-bounds";
 import {
   META_LAUNCHPAD_MANUAL_AUTHORITY,
   type MetaLaunchpadManualAuthority,
@@ -31,6 +28,109 @@ export interface LaunchpadTargetBudgetLine {
   amountMinor: number | null;
   schedule: "daily" | "lifetime" | null;
   source: "campaign" | "ad set" | null;
+}
+
+/**
+ * Turn server validation codes into the shortest useful buyer remedy. The
+ * server message can contain provider ids, implementation detail, or request
+ * wording, so it is deliberately never used as display copy.
+ */
+export function launchpadIssueRemedy(issue: Pick<LaunchpadIssue, "code">) {
+  const code = issue.code.trim().toLowerCase();
+
+  if (
+    code === "provider_account_id_required" ||
+    code === "provider_account_not_assigned" ||
+    code === "target_account_unresolved" ||
+    code === "target_account_mismatch"
+  ) {
+    return "Select an assigned Meta ad account.";
+  }
+  if (
+    code === "provider_account_scope_unavailable" ||
+    code === "meta_connection_unreadable" ||
+    code === "meta_connection_generation_unknown" ||
+    code === "account_preflight_failed"
+  ) {
+    return "Reconnect Meta, then run the check again.";
+  }
+  if (code === "meta_not_connected") {
+    return "Connect Meta before continuing.";
+  }
+  if (code.includes("currency")) {
+    return "Confirm the Meta account currency.";
+  }
+  if (code === "billing_not_ok" || code === "billing_check_failed") {
+    return "Resolve the Meta account billing issue.";
+  }
+  if (code === "campaign_name_required") return "Add a campaign name.";
+  if (code === "adset_required") return "Add at least one ad set.";
+  if (code === "adset_name_required") return "Add a name for every ad set.";
+  if (
+    code === "budget_required" ||
+    code === "adset_budget_required" ||
+    code === "bid_amount_required" ||
+    code === "cbo_abo_mixed" ||
+    code.includes("budget")
+  ) {
+    return "Enter a valid campaign budget.";
+  }
+  if (
+    code === "pixel_required" ||
+    code === "pixel_not_active" ||
+    code === "pixel_check_failed"
+  ) {
+    return "Select an active Meta pixel.";
+  }
+  if (code === "country_required") return "Choose a target country.";
+  if (code === "age_range_invalid") return "Correct the target age range.";
+  if (code === "attribution_click_required") {
+    return "Choose a click attribution window.";
+  }
+  if (code === "manual_placements_empty") {
+    return "Turn on Advantage+ placements or choose placements.";
+  }
+  if (code === "creative_required") return "Select at least one creative.";
+  if (code === "creative_rejected") {
+    return "Replace the rejected creative.";
+  }
+  if (
+    code.includes("creative_") ||
+    code.startsWith("source_ad_") ||
+    code.startsWith("source_creative_")
+  ) {
+    return "Choose a creative with a verified Meta ad.";
+  }
+  if (
+    code === "target_campaign_required" ||
+    code.startsWith("target_campaign_") ||
+    code.startsWith("parent_campaign_")
+  ) {
+    return "Choose an active Meta campaign.";
+  }
+  if (
+    code === "target_adset_required" ||
+    code.startsWith("target_adset_") ||
+    code.startsWith("parent_adset_")
+  ) {
+    return "Choose an active Meta ad set.";
+  }
+  if (code === "cross_account_duplicate_not_supported") {
+    return "Use Recreate exact ad for a different Meta account.";
+  }
+  if (code === "objective_locked") {
+    return "Keep the Sales campaign objective.";
+  }
+  if (code.startsWith("ad_live_")) {
+    return "Refresh Meta status, then run the check again.";
+  }
+  return "Review the highlighted campaign setting.";
+}
+
+export function launchpadIssueRemedies(
+  issues: Array<Pick<LaunchpadIssue, "code">>,
+) {
+  return Array.from(new Set(issues.map(launchpadIssueRemedy)));
 }
 
 export function buildLaunchpadValidationRequest(input: {
@@ -64,7 +164,7 @@ export function buildLaunchpadBudgetReview(
         amountMinor == null
           ? "Unavailable"
           : `${formatMoney(amountMinor / 100, currencyCode)}/${payload.budget.schedule === "lifetime" ? "lifetime" : "day"}`,
-      detail: `CBO · ${payload.budget.bidStrategy ?? "bid strategy unavailable"}`,
+      detail: "Campaign budget",
       complete: amountMinor != null && Boolean(currencyCode),
     };
   }
@@ -84,7 +184,7 @@ export function buildLaunchpadBudgetReview(
       totalMinor == null
         ? "Unavailable"
         : `${formatMoney(totalMinor / 100, currencyCode)}/day`,
-    detail: `ABO total across ${payload.adSets.length} ad set${payload.adSets.length === 1 ? "" : "s"}`,
+    detail: `Total across ${payload.adSets.length} ad set${payload.adSets.length === 1 ? "" : "s"}`,
     complete,
   };
 }
@@ -193,7 +293,6 @@ export function LaunchpadReview({
     null,
   );
   const [validating, setValidating] = useState(false);
-  const [jsonOpen, setJsonOpen] = useState(false);
   const [ack, setAck] = useState(false);
   const aggregate = useMemo(
     () => buildEngineAggregate({ selectedCreatives, decisionByCreativeId }),
@@ -308,6 +407,8 @@ export function LaunchpadReview({
     (currencyBlocker ? 1 : 0) +
     (executionBlockedReason ? 1 : 0) +
     executionBounds.blockers.length;
+  const blockerRemedies = launchpadIssueRemedies(validation?.blockers ?? []);
+  const warningRemedies = launchpadIssueRemedies(validation?.warnings ?? []);
   const reviewBlocked =
     launchBlocked ||
     currencyBlocker ||
@@ -334,8 +435,8 @@ export function LaunchpadReview({
         </h2>
         <p className="text-[13px] text-[var(--muted)]">
           {mode === "add_to_existing"
-            ? "Ads will be added to the existing ad set and start paused"
-            : "Campaign, ad sets, and ads will be created PAUSED"}
+            ? "New ads will be added to the selected ad sets and start paused."
+            : "The campaign and ads will be created as paused."}
         </p>
       </div>
 
@@ -346,19 +447,15 @@ export function LaunchpadReview({
         >
           <p className="text-[13px] font-semibold text-[var(--ink)]">
             {targetCount > 1
-              ? `${selectedCreatives.length} creatives -> ${targetCount} existing ad sets across ${campaignCount} campaigns`
-              : `${selectedCreatives.length} creatives -> existing ad set ${
+              ? `${selectedCreatives.length} creatives → ${targetCount} existing ad sets across ${campaignCount} campaigns`
+              : `${selectedCreatives.length} creatives → existing ad set ${
                   targetSummary?.adsetName ?? "selected ad set"
                 } under campaign ${targetSummary?.campaignName ?? "selected campaign"}`}
           </p>
           <p className="mt-1 text-[13px] text-[var(--muted)]">
-            {targetCount > 1 ? "Selected ad sets" : "The ad set"} will inherit
-            pixel, attribution, targeting, and budget settings.
+            Existing targeting and budget settings will stay unchanged.
             {targetSummary?.currentAdCount != null && afterLaunchCount != null
               ? ` Current ads: ${targetSummary.currentAdCount}; after launch: ${afterLaunchCount}.`
-              : ""}
-            {addToExistingCopyMode
-              ? ` Creative copy: ${addToExistingCopyMode === "reuse_creative" ? "duplicate" : "recreate exact ad"}.`
               : ""}
           </p>
         </div>
@@ -369,7 +466,7 @@ export function LaunchpadReview({
         data-testid="launchpad-review-checklist"
       >
         <p className="text-[13px] font-semibold text-[var(--ink)]">
-          Human-readable checklist — first, always
+          Launch summary
         </p>
         {mode === "new_campaign" ? (
           <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-4">
@@ -411,12 +508,14 @@ export function LaunchpadReview({
                 : `${selectedCreatives.length} ad${selectedCreatives.length === 1 ? "" : "s"} across ${targetCount} existing ad set${targetCount === 1 ? "" : "s"}`}
             </span>
           </div>
-          <div>
-            <span className="text-[var(--muted)]">Will not change:</span>{" "}
-            <span className="text-[var(--ink-2)]">
-              any existing campaign, budget, or bid
-            </span>
-          </div>
+          {mode === "add_to_existing" ? (
+            <div>
+              <span className="text-[var(--muted)]">Will stay unchanged:</span>{" "}
+              <span className="text-[var(--ink-2)]">
+                existing campaign, budget, and bid settings
+              </span>
+            </div>
+          ) : null}
           <div>
             <span
               className={
@@ -425,17 +524,16 @@ export function LaunchpadReview({
                   : "text-[var(--muted)]"
               }
             >
-              Blocked:
+              Issues:
             </span>{" "}
             <span className="text-[var(--ink-2)]">
-              {blockerCount > 0 ? `${blockerCount}` : "none"}
+              {blockerCount > 0 ? `${blockerCount}` : "None"}
             </span>
           </div>
           <div>
-            <span className="text-[var(--warn)]">Warnings:</span>{" "}
+            <span className="text-[var(--warn)]">Creative review:</span>{" "}
             <span className="text-[var(--ink-2)]">
-              {aggregate.flagged} of {aggregate.total} selected creatives are
-              engine-flagged · selected spend{" "}
+              {aggregate.flagged} of {aggregate.total} need attention · spend{" "}
               {formatMoney(selectedSpend, currencyCode)} · weighted ROAS{" "}
               {aggregate.averageRoas == null
                 ? "unavailable"
@@ -450,9 +548,8 @@ export function LaunchpadReview({
             onChange={(event) => setAck(event.target.checked)}
             className="h-3.5 w-3.5 shrink-0"
           />
-          <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-          Create PAUSED changes Meta provider state and cannot begin delivery.
-          Publishing is a separate step you take afterwards, from the receipt.
+          <AlertTriangle className="h-3.5 w-3.5 shrink-0" />I understand these
+          items will be created as paused.
         </label>
       </div>
 
@@ -463,7 +560,7 @@ export function LaunchpadReview({
         >
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-[12px] font-semibold text-[var(--ink)]">
-              Existing budget · read-only
+              Existing budget
             </p>
             <span className="chip chip--ghost">Will not change</span>
           </div>
@@ -479,58 +576,25 @@ export function LaunchpadReview({
                   </span>
                   <strong className="shrink-0 text-right font-semibold text-[var(--ink)]">
                     {line.amountMinor == null
-                      ? "Amount unavailable"
+                      ? "Unavailable"
                       : `${formatMoney(line.amountMinor / 100, currencyCode)}/${
                           line.schedule === "daily"
                             ? "day"
                             : line.schedule === "lifetime"
                               ? "lifetime"
-                              : "schedule unavailable"
+                              : "period"
                         }`}
-                    <span className="ml-1 font-normal text-[var(--muted)]">
-                      · {line.source ?? "source unavailable"}
-                    </span>
                   </strong>
                 </div>
               ))}
             </div>
           ) : (
             <p className="mt-2 text-[11.5px] text-[var(--muted)]">
-              Budget amount unavailable in the selected-target read contract.
+              Budget details are temporarily unavailable.
             </p>
           )}
         </div>
       ) : null}
-
-      <div
-        className={`rounded-[10px] border p-4 ${
-          aggregate.severe
-            ? "border-[var(--danger-bd)] bg-[var(--danger-bg)]"
-            : "border-[var(--border)] bg-[var(--surface)]"
-        }`}
-        data-testid="launchpad-engine-aggregate"
-      >
-        <div className="flex flex-wrap items-center gap-2">
-          {aggregate.severe ? (
-            <AlertTriangle className="h-4 w-4 text-[var(--danger)]" />
-          ) : null}
-          <p className="text-[13px] font-semibold text-[var(--ink)]">
-            {aggregate.flagged} of {aggregate.total} selected creatives are
-            engine-flagged
-          </p>
-          <span className="chip">{aggregate.scale} scale</span>
-          <span className="chip">{aggregate.cut} cut</span>
-          <span className="chip">
-            {aggregate.belowBreakeven} below breakeven
-          </span>
-        </div>
-        <p className="mt-2 text-[13px] text-[var(--muted)]">
-          Weighted ROAS{" "}
-          {aggregate.averageRoas == null
-            ? "n/a"
-            : aggregate.averageRoas.toFixed(2)}
-        </p>
-      </div>
 
       <div className="rounded-[10px] border border-[var(--border)] bg-[var(--surface)] p-4">
         <div className="mb-3 flex items-center gap-2">
@@ -553,128 +617,39 @@ export function LaunchpadReview({
           ) : null}
         </div>
         {currencyBlocker ? (
-          <p className="mono mb-2 text-[12px] text-[var(--danger)]">
-            currency_unavailable — Account currency is unavailable, so real
-            budget math cannot be confirmed.
+          <p className="mb-2 text-[12px] text-[var(--danger)]">
+            Confirm the Meta account currency before continuing.
           </p>
         ) : null}
-        {validation?.blockers.length ? (
-          <div className="space-y-2">
-            {validation.blockers.map((blocker) => (
-              <p
-                key={`${blocker.code}-${blocker.message}`}
-                className="mono text-[12px] text-[var(--danger)]"
-              >
-                {blocker.code} — {blocker.message}
-              </p>
+        {blockerRemedies.length ? (
+          <ul className="space-y-1 text-[12px] text-[var(--danger)]">
+            {blockerRemedies.map((remedy) => (
+              <li key={remedy}>{remedy}</li>
             ))}
-          </div>
+          </ul>
         ) : null}
-        {validation?.warnings.length ? (
-          <div className="mt-3 space-y-2">
-            {validation.warnings.map((warning) => (
-              <p
-                key={`${warning.code}-${warning.message}`}
-                className="text-[12px] text-[var(--warn)]"
-              >
-                {warning.message}
-              </p>
+        {warningRemedies.length ? (
+          <ul className="mt-3 space-y-1 text-[12px] text-[var(--warn)]">
+            {warningRemedies.map((remedy) => (
+              <li key={remedy}>{remedy}</li>
             ))}
-          </div>
+          </ul>
         ) : null}
         {!validation && !validating ? (
           <p className="text-[13px] text-[var(--muted)]">
-            Validation unavailable until the server returns a result.
+            Campaign checks are temporarily unavailable.
           </p>
         ) : null}
       </div>
 
-      <div className="space-y-2">
-        <button
-          type="button"
-          className="btn btn--sm mono"
-          onClick={() => setJsonOpen((open) => !open)}
-          aria-expanded={jsonOpen}
+      {!executionBounds.ok ? (
+        <div
+          className="rounded-[8px] border border-[var(--danger-bd)] bg-[var(--danger-bg)] px-3 py-2 text-[12px] text-[var(--danger)]"
+          data-testid="launchpad-execution-bounds"
         >
-          {jsonOpen ? "▾" : "▸"} raw launch JSON
-        </button>
-        {jsonOpen ? (
-          <pre className="mono max-h-[420px] overflow-auto rounded-[8px] border border-[var(--border)] bg-[var(--bg)] p-3 text-[11px] leading-relaxed text-[var(--ink-2)]">
-            {JSON.stringify(payload, null, 2)}
-          </pre>
-        ) : null}
-      </div>
-
-      {/*
-        Activation, described as the separate step it is.
-
-        This panel used to say no activation executor was wired and list the
-        contract one "would" need — create paused, verify every child, run a
-        fresh preflight, order the writes. That executor exists now, and it
-        does those things, so the honest sentence is where the step happens
-        rather than that it cannot.
-
-        It is deliberately NOT a button here. This panel is shown before the
-        launch, and nothing exists to activate yet: activating belongs to the
-        receipt, once there are real identities to read back.
-      */}
-      <div className="border-y border-[var(--border)] bg-[var(--surface)] px-3 py-3">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-[12px] font-semibold text-[var(--ink)]">
-            Everything is created paused
-          </span>
+          This launch is too large. Reduce the number of creatives or ad sets.
         </div>
-        <p className="mt-1 text-[11.5px] leading-relaxed text-[var(--muted)]">
-          Publishing is a separate, deliberate step you take from the receipt
-          once this launch has real identities to check. It activates the
-          campaign, then the ad set, then the ad, reading each one back before
-          the next — and stops at the first step that does not come back
-          active rather than reporting an ad as live under a paused parent.
-        </p>
-      </div>
-
-      {/*
-        The fan-out one confirmed click would produce, and the ceiling it is
-        measured against, stated before the click rather than discovered as a
-        413 after it. `evaluateMetaLaunchpadExecutionBounds` is the same
-        function both write routes run, so this is the server's arithmetic
-        restated — not a second copy of the rule that could drift from it.
-      */}
-      <div
-        className="rounded-[8px] border border-[var(--border)] bg-[var(--surface)] px-3 py-2"
-        data-testid="launchpad-execution-bounds"
-      >
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <span className="text-[12px] font-semibold text-[var(--ink)]">
-            Execution size
-          </span>
-          <span
-            className="text-[11.5px] text-[var(--muted)]"
-            data-field="planned-provider-creates"
-          >
-            {executionBounds.counts.plannedProviderCreates} of{" "}
-            {META_LAUNCHPAD_EXECUTION_LIMITS.maxPlannedProviderCreates} planned
-            provider creates
-          </span>
-        </div>
-        <p className="mt-1 text-[11.5px] leading-relaxed text-[var(--muted)]">
-          {executionBounds.counts.creatives} of{" "}
-          {META_LAUNCHPAD_EXECUTION_LIMITS.maxCreatives} creatives ·{" "}
-          {executionBounds.counts.adSetsOrTargets} of{" "}
-          {mode === "add_to_existing"
-            ? `${META_LAUNCHPAD_EXECUTION_LIMITS.maxTargets} targets`
-            : `${META_LAUNCHPAD_EXECUTION_LIMITS.maxAdSets} ad sets`}
-        </p>
-        {executionBounds.blockers.map((blocker) => (
-          <p
-            key={blocker.code}
-            className="mt-1 text-[11.5px] font-medium text-[var(--danger)]"
-            data-field={`bound-${blocker.code}`}
-          >
-            {blocker.message}
-          </p>
-        ))}
-      </div>
+      ) : null}
 
       {executionBlockedReason ? (
         <div
@@ -687,10 +662,8 @@ export function LaunchpadReview({
       ) : null}
 
       <div className="flex flex-wrap items-center justify-end gap-2">
-        <span className="mr-auto text-[11.5px] text-[var(--muted)]">
-          No undo, rollback, or retry control is available.
-        </span>
-        {mode === "new_campaign" && (onSaveTemplate || viewerWriteRefusalReason) ? (
+        {mode === "new_campaign" &&
+        (onSaveTemplate || viewerWriteRefusalReason) ? (
           <button
             type="button"
             className="btn"
@@ -741,7 +714,7 @@ export function LaunchpadReview({
           }}
         >
           <Send className="h-4 w-4" />
-          Create PAUSED
+          Create as paused
         </button>
       </div>
     </section>

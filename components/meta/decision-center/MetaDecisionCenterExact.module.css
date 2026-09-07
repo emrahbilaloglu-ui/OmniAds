@@ -72,12 +72,16 @@
 
 .snapshotButton,
 .newCampaignButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   height: 36px;
   padding: 0 13px;
   border-radius: 9px;
   cursor: pointer;
   font-size: 13px;
   font-weight: 600;
+  text-decoration: none;
 }
 
 .snapshotButton {
@@ -1938,7 +1942,7 @@
   align-items: center;
   min-width: 0;
   min-height: 24px;
-  max-width: 150px;
+  max-width: 280px;
   padding: 3px 10px;
   border: 1px solid var(--tone-border, #e4e8f0);
   border-radius: 9999px;
@@ -1947,9 +1951,7 @@
   font-size: 12px;
   font-weight: 600;
   line-height: 18px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
 }
 
 @media (max-width: 720px) {

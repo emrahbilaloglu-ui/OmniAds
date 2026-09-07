@@ -129,9 +129,9 @@ describe("every Tier-0 surface reports its data age", () => {
   }
 
   it("mounts the shared freshness contract in the reference topbar", () => {
-    // Dashboard v2 has one static status pill in the canonical topbar. The
-    // active surface registry feeds that exact slot; a second refresh bar or a
-    // click handler would invent control chrome the reference does not define.
+    // Dashboard v2 keeps one canonical topbar status pill. It may expose only
+    // the retry handler registered by the active surface; it must not invent a
+    // second refresh bar or refetch unrelated provider-status queries.
     const frame = readFileSync("components/layout/dashboard-frame.tsx", "utf8");
     const signals = readFileSync(
       "components/layout/v2/use-shell-signals.ts",
@@ -142,11 +142,14 @@ describe("every Tier-0 surface reports its data age", () => {
     expect(frame).not.toContain("<TierZeroFreshnessBar />");
     expect(topbar.match(/className="adv-pill"/g)).toHaveLength(1);
     expect(topbar).toContain("data-freshness-state={sync.freshnessState}");
-    expect(topbar).not.toContain("onClick={sync.onRefresh}");
+    expect(topbar).toContain("sync.onRetry ?");
+    expect(topbar).toContain('aria-label="Retry data refresh"');
+    expect(topbar).toContain("onClick={sync.onRetry}");
     expect(signals).toContain("useTierZeroFreshnessStore");
     expect(signals).toContain("activeSurfaceForBusiness.asOf");
+    expect(signals).toContain("activeSurfaceForBusiness.retryKey");
+    expect(signals).toContain("runFreshnessRetry(");
     expect(signals).not.toContain("retryHandlers");
-    expect(signals).not.toContain("runRetry");
     expect(signals).not.toContain("refetchMetaStatus");
     expect(signals).not.toContain("refetchGoogleStatus");
   });

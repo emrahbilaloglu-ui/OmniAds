@@ -271,12 +271,12 @@ describe("MetaDecisionCenterExact canonical desktop anatomy", () => {
 
     // Header, KPI band, scope row and lane toolbar lead directly into the
     // decision workspace, matching the accepted V2 panel hierarchy.
-    expect(root().children).toHaveLength(6);
+    expect(root().children).toHaveLength(5);
     expect(root().children[0]?.textContent).toContain("Decision Center");
     expect(root().children[1]?.getAttribute("data-meta-exact-section")).toBe(
       "kpis",
     );
-    expect(root().children[1]?.children).toHaveLength(5);
+    expect(root().children[1]?.children).toHaveLength(2);
     expect(root().children[2]?.textContent).toContain("Campaigns & Ad sets");
     expect(
       root().children[3]?.hasAttribute("data-meta-exact-lane-toolbar"),
@@ -285,8 +285,8 @@ describe("MetaDecisionCenterExact canonical desktop anatomy", () => {
       true,
     );
     expect(
-      root().children[5]?.hasAttribute("data-meta-exact-inactive-strip"),
-    ).toBe(true);
+      document.querySelector("[data-meta-exact-inactive-strip]"),
+    ).toBeNull();
     expect(
       document.querySelector("[data-meta-exact-operator-summary]"),
     ).toBeNull();
@@ -300,16 +300,7 @@ describe("MetaDecisionCenterExact canonical desktop anatomy", () => {
       Array.from(document.querySelectorAll("[data-meta-exact-lane]")).map(
         (node) => node.getAttribute("data-meta-exact-lane"),
       ),
-    ).toEqual([
-      "action",
-      // The server's own `blocked` state, between the lane that promises an
-      // action and the one that promises none.
-      "needsres",
-      "watching",
-      "healthy",
-      "nonsales",
-      "archive",
-    ]);
+    ).toEqual(["action", "needsres", "watching", "healthy"]);
     expect(
       Array.from(document.querySelectorAll("[data-meta-exact-action-row]")).map(
         (node) => node.textContent,
@@ -336,19 +327,16 @@ describe("MetaDecisionCenterExact canonical desktop anatomy", () => {
     expect(document.querySelectorAll("[data-meta-exact-window]")).toHaveLength(
       0,
     );
-    expect(screen.getByRole("button", { name: "Run a snapshot" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "+ New campaign" })).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: "Refresh decisions" }),
+    ).toBeNull();
     expect(screen.getByText("Spend · today")).toBeTruthy();
     expect(screen.getByText("ROAS · 28d")).toBeTruthy();
-    expect(screen.getByText("Recommendation snapshot")).toBeTruthy();
-    expect(screen.getByText("Campaign roles")).toBeTruthy();
-    expect(screen.getByText("Automatic inference")).toBeTruthy();
-    expect(screen.getByText("Mode")).toBeTruthy();
-    expect(
-      screen.getByText(
-        /queue reflects .*date range scopes metrics, not decisions/,
-      ),
-    ).toBeTruthy();
+    expect(screen.queryByText("Recommendation snapshot")).toBeNull();
+    expect(screen.queryByText("Campaign roles")).toBeNull();
+    expect(screen.queryByText("Automatic inference")).toBeNull();
+    expect(screen.queryByText("Mode")).toBeNull();
+    expect(screen.queryByRole("button", { name: "+ New campaign" })).toBeNull();
     expect(
       screen.getByRole("option", { name: "Sort: Money at stake" }),
     ).toBeTruthy();
@@ -356,7 +344,7 @@ describe("MetaDecisionCenterExact canonical desktop anatomy", () => {
     expect(screen.getByRole("option", { name: "Sort: Age" })).toBeTruthy();
   });
 
-  it("localizes the exact spend date and automatic campaign-role state", () => {
+  it("localizes the spend date without exposing campaign-role diagnostics", () => {
     const viewModel = exactViewModel();
     viewModel.kpis = {
       ...viewModel.kpis,
@@ -381,15 +369,11 @@ describe("MetaDecisionCenterExact canonical desktop anatomy", () => {
     );
 
     expect(screen.getByText("Harcama · 2026-09-03")).toBeTruthy();
-    expect(
-      screen.getByText(
-        "Otomatik çıkarım · tümü sınıflandırıldı · yetki 0/5",
-      ),
-    ).toBeTruthy();
+    expect(screen.queryByText(/Otomatik çıkarım/)).toBeNull();
     expect(screen.queryByText("Spend · 2026-09-03")).toBeNull();
   });
 
-  it("localizes the collapsed account-coverage summary", () => {
+  it("keeps account-coverage diagnostics out of the buyer surface", () => {
     const viewModel = exactViewModel({
       assignedAccountStates: [
         {
@@ -414,11 +398,9 @@ describe("MetaDecisionCenterExact canonical desktop anatomy", () => {
       </ZeroBaseCopyProvider>,
     );
 
-    expect(screen.getByText("1 atanmış Meta hesabı")).toBeTruthy();
-    expect(
-      screen.getByText("Seçili hesap verileri 2026-09-03 tarihine kadar"),
-    ).toBeTruthy();
-    expect(screen.queryByText(/Selected account data through/)).toBeNull();
+    expect(screen.queryByText("1 atanmış Meta hesabı")).toBeNull();
+    expect(screen.queryByText(/Seçili hesap verileri/)).toBeNull();
+    expect(screen.getByText("Entity Alpha")).toBeTruthy();
   });
 
   it("keeps a creative-only action directly reachable from the V2 scope control", () => {
@@ -493,22 +475,16 @@ describe("MetaDecisionCenterExact canonical desktop anatomy", () => {
     expect(inspector).toBeTruthy();
     const text = inspector?.textContent ?? "";
     const ordered = [
-      "Evidence inspector",
+      "Decision details",
+      "Inspector server label",
       "Inspector Entity",
-      "Decision contract",
-      "Engine reasoning",
-      "Money impact · ROAS vs target",
+      "What to do",
+      "Why",
+      "Reason A",
+      "Key metrics",
+      "Inspector money",
       "Confidence",
-      "Readiness",
-      "Blockers",
-      // Advisories are a second, separately named block. They sit beside the
-      // gates and never inside them: nothing here withholds an action, and a
-      // statement filed under "Blockers" is read as one that does.
-      "Advisories",
-      "Server advisories",
-      "Evidence A",
-      "Inspector server command",
-      "server provenance",
+      "Server confidence band",
     ];
     let cursor = -1;
     for (const caption of ordered) {
@@ -516,6 +492,10 @@ describe("MetaDecisionCenterExact canonical desktop anatomy", () => {
       expect(next).toBeGreaterThan(cursor);
       cursor = next;
     }
+    expect(text).not.toContain("Engine reasoning");
+    expect(text).not.toContain("Server blockers");
+    expect(text).not.toContain("Server advisories");
+    expect(text).not.toContain("server provenance");
   });
 
   it("omits unavailable inspector sections instead of rendering operator-facing dash rows", () => {
@@ -586,7 +566,7 @@ describe("MetaDecisionCenterExact branches and callbacks", () => {
     expect(onScopeChange).not.toHaveBeenCalled();
   });
 
-  it("keeps blocked rows compact and moves the full next step into the inspector path", () => {
+  it("shows the usable next step directly on blocked rows", () => {
     const viewModel = exactViewModel({
       needsResolutionRows: [
         {
@@ -617,20 +597,18 @@ describe("MetaDecisionCenterExact branches and callbacks", () => {
     expect(row).toBeTruthy();
     expect(row?.textContent).toContain("Auto · Main");
     expect(row?.textContent).toContain("Low confidence · capped");
-    expect(row?.textContent).toContain("3 checks");
-    expect(row?.textContent).not.toContain(
+    expect(row?.textContent).not.toContain("3 checks");
+    expect(row?.textContent).toContain(
       "Validate the automatic resolver before execution.",
     );
     expect(
       row?.querySelector("[data-el='blocker-chip']")?.parentElement?.title,
     ).toContain("Validate the automatic resolver before execution.");
-    expect(
-      row?.querySelector("[data-meta-exact-needsres-step]"),
-    ).toBeNull();
+    expect(row?.querySelector("[data-meta-exact-needsres-step]")).toBeNull();
     expect(document.querySelector("[data-meta-exact-inspector]")).toBeTruthy();
   });
 
-  it("renders watching, healthy, non-sales and archive branches in lane order", () => {
+  it("renders the useful watching and healthy branches without extra lanes", () => {
     renderExact();
 
     fireEvent.click(
@@ -645,26 +623,12 @@ describe("MetaDecisionCenterExact branches and callbacks", () => {
     expect(screen.getByText("Healthy Alpha")).toBeTruthy();
     expect(screen.getByText("Healthy child Alpha")).toBeTruthy();
 
-    fireEvent.click(
-      document.querySelector('[data-meta-exact-lane="nonsales"]')!,
-    );
-    expect(screen.getByText("Non-sales Alpha")).toBeTruthy();
     expect(
-      document.querySelector("[data-meta-exact-nonsales]")?.children[1]
-        ?.children,
-    ).toHaveLength(4);
-
-    fireEvent.click(
-      document.querySelector('[data-meta-exact-lane="archive"]')!,
-    );
+      document.querySelector('[data-meta-exact-lane="nonsales"]'),
+    ).toBeNull();
     expect(
-      Array.from(document.querySelectorAll("[data-meta-exact-archive] th")).map(
-        (node) => node.textContent,
-      ),
-    ).toEqual(["Entity", "Status", "Spend · 28d", "Note", ""]);
-    const resume = screen.getByRole("button", { name: "Resume" });
-    expect(resume).toBeDisabled();
-    expect(screen.getAllByRole("button", { name: "Resume" })).toHaveLength(1);
+      document.querySelector('[data-meta-exact-lane="archive"]'),
+    ).toBeNull();
   });
 
   it("renders the creative posture before creative decisions and emits callback-only actions", () => {
@@ -717,8 +681,8 @@ describe("MetaDecisionCenterExact branches and callbacks", () => {
     expect(onPrimary).toHaveBeenCalledOnce();
     expect(onOpen).not.toHaveBeenCalled();
 
-    fireEvent.click(screen.getByText("Evidence →"));
-    expect(onOpen).toHaveBeenCalledOnce();
+    expect(screen.queryByText("Evidence →")).toBeNull();
+    expect(onOpen).not.toHaveBeenCalled();
     fireEvent.click(screen.getByText("Open Creative Studio →"));
     expect(onOpenCreativeStudio).toHaveBeenCalledOnce();
   });
@@ -734,7 +698,7 @@ describe("MetaDecisionCenterExact branches and callbacks", () => {
    * between the posture band and the first row rather than under the queue
    * where nobody scrolls.
    */
-  it("states the served source beside a non-empty creative queue", () => {
+  it("keeps a non-empty creative queue useful without raw source diagnostics", () => {
     const viewModel = exactViewModel();
     viewModel.creativesNotice =
       "Legacy creative-grain decisions cannot authorize Ad writes. Source: native_account_manifest_incomplete.";
@@ -810,39 +774,16 @@ describe("MetaDecisionCenterExact branches and callbacks", () => {
     expect(
       queue?.children[1]?.getAttribute("data-meta-exact-creative-row"),
     ).toBe("creative-a");
-    // Source diagnostics remain available after the primary decision rows.
     expect(
-      queue?.children[2]?.hasAttribute("data-meta-exact-source-provenance"),
-    ).toBe(true);
-
-    // Every one of these is the server's own string. None is gated on the queue.
-    expect(
-      document.querySelector("[data-meta-exact-source-authority]")?.textContent,
-    ).toBe("legacy_creative · degraded");
-    expect(
-      document.querySelector("[data-meta-exact-source-coverage]")?.textContent,
-    ).toBe("60 shown · 80 eligible pre-cap (derived)");
-    expect(
-      document.querySelector("[data-meta-exact-source-capability-summary]")
-        ?.textContent,
-    ).toBe("2 of 8 not available");
-    expect(screen.getByText("native_account_manifest_incomplete")).toBeTruthy();
-    expect(screen.getByText("native_response_source_unavailable")).toBeTruthy();
-    expect(
-      screen.getByText(
-        "Legacy creative-grain decisions remain visible for continuity.",
-      ),
-    ).toBeTruthy();
-    // The notice moved INTO the panel; it must no longer wait for an empty list.
-    expect(
-      document.querySelector("[data-meta-exact-creative-notice]")?.textContent,
-    ).toContain("cannot authorize Ad writes");
-    // Read-only by construction: the panel carries no control of any kind.
-    expect(
-      document
-        .querySelector("[data-meta-exact-source-provenance]")
-        ?.querySelectorAll("button, input, select, [role='button']").length,
-    ).toBe(0);
+      document.querySelector("[data-meta-exact-source-provenance]"),
+    ).toBeNull();
+    expect(root().textContent).not.toContain("legacy_creative · degraded");
+    expect(root().textContent).not.toContain(
+      "native_account_manifest_incomplete",
+    );
+    expect(root().textContent).not.toContain(
+      "native_response_source_unavailable",
+    );
   });
 
   /**
@@ -852,7 +793,7 @@ describe("MetaDecisionCenterExact branches and callbacks", () => {
    * opposite facts: "the server withheld nothing" is knowledge, "we could not
    * read the envelope" is not.
    */
-  it("keeps an unserved source field apart from a served zero", () => {
+  it("does not expose unserved source fields or backend census values", () => {
     const viewModel = exactViewModel();
     viewModel.sourceProvenance = {
       headline: "— · —",
@@ -871,17 +812,10 @@ describe("MetaDecisionCenterExact branches and callbacks", () => {
     );
 
     expect(
-      document.querySelector('[data-meta-exact-source-fact="fallback-reason"]')
-        ?.textContent,
-    ).toBe("Fallback reason—");
-    expect(
-      document.querySelector('[data-meta-exact-source-fact="suppressed-count"]')
-        ?.textContent,
-    ).toBe("Withheld0");
-    // No capability envelope was served, so no gap list is invented from it.
-    expect(
-      document.querySelector('[data-meta-exact-source-group="capabilities"]'),
+      document.querySelector("[data-meta-exact-source-provenance]"),
     ).toBeNull();
+    expect(root().textContent).not.toContain("Fallback reason");
+    expect(root().textContent).not.toContain("Withheld0");
   });
 
   /**
@@ -936,7 +870,7 @@ describe("MetaDecisionCenterExact branches and callbacks", () => {
               id: "blocked",
               label: "Blocked",
               tone: "warning",
-              count: "2 shown · 80 served",
+              count: "2 of 80 decisions",
               note: "Evidence pending",
               rows: [
                 {
@@ -954,7 +888,7 @@ describe("MetaDecisionCenterExact branches and callbacks", () => {
               id: "monitor",
               label: "Monitor",
               tone: "neutral",
-              count: "1 shown",
+              count: "1 decision",
               note: "Watch",
               rows: [
                 {
@@ -975,7 +909,7 @@ describe("MetaDecisionCenterExact branches and callbacks", () => {
         document.querySelectorAll("[data-meta-exact-creative-group]"),
       ).map((node) => node.getAttribute("data-meta-exact-creative-group")),
     ).toEqual(["blocked"]);
-    expect(screen.getByText("2 shown · 80 served")).toBeTruthy();
+    expect(screen.getByText("2 of 80 decisions")).toBeTruthy();
     expect(
       document
         .querySelector('[data-meta-exact-creative-row="row-blocked"]')
@@ -1216,10 +1150,8 @@ describe("MetaDecisionCenterExact fail-closed presentation boundary", () => {
 
     expect(
       root().querySelector('[data-meta-exact-section="kpis"]')?.children,
-    ).toHaveLength(5);
-    expect(
-      (root().textContent?.match(/—/g) ?? []).length,
-    ).toBeGreaterThanOrEqual(20);
+    ).toHaveLength(2);
+    expect((root().textContent?.match(/—/g) ?? []).length).toBeGreaterThan(0);
     expect(root().textContent).not.toContain("undefined");
     expect(root().textContent).not.toContain("null");
     expect(root().textContent).not.toContain("NaN");
@@ -1274,18 +1206,16 @@ describe("MetaDecisionCenterExact fail-closed presentation boundary", () => {
     expect(rowAction.textContent).toBe("—");
   });
 
-  it("names the inspector's inert action button when a row IS selected", () => {
+  it("omits an inspector action when the server did not authorize one", () => {
     render(
       <MetaDecisionCenterExact
         viewModel={{ inspector: { entityName: "Selected but unserved" } }}
       />,
     );
 
-    const inspectorAction = screen.getByRole("button", {
-      name: "No action available: the inspector has no selection to act on",
-    });
-    expect(inspectorAction).toBeDisabled();
-    expect(inspectorAction.textContent).toBe("—");
+    const inspector = document.querySelector("[data-meta-exact-inspector]");
+    expect(inspector).toBeTruthy();
+    expect(inspector?.querySelector("button")).toBeNull();
   });
 
   it("names the creative lane's inert action button too", () => {
@@ -1483,173 +1413,21 @@ describe("a restored deep-link search is visible in the control that filtered", 
   });
 });
 
-/**
- * THE STRUCTURES SCOPE, which stated no source authority at all.
- *
- * The panel rendered in Creatives only — while Structures is the scope that
- * draws the action buttons `providerWriteLinkage` and `responseAttribution`
- * govern. These pin that the SAME panel now renders there, that it survives a
- * lane change, that it stays a statement beside the rows rather than a wall
- * above them, and that it never carries the ads notice.
- */
-describe("the Structures scope states the envelope its actions answer to", () => {
-  function structureProvenanceModel(): NonNullable<
-    MetaDecisionCenterExactViewModel["structureProvenance"]
-  > {
-    return {
+describe("the Structures scope keeps technical diagnostics out of the queue", () => {
+  it("keeps decision rows visible without rendering raw source provenance", () => {
+    const viewModel = exactViewModel();
+    viewModel.structureProvenance = {
       headline: "meta_recommendations · available",
-      tone: "warning",
       coverageSummary: "22 carry a decision · 1,230 in census",
-      capabilitySummary: "4 of 8 not available",
-      source: [
-        {
-          id: "structure-source",
-          label: "Structure source",
-          value: "meta_recommendations",
-          tone: "warning",
-        },
-        // The read model's OWN status and its source's status are two fields
-        // and carry two labels. @see readModelStatusFacts.
-        {
-          id: "read-model-status",
-          label: "Read model status",
-          value: "available",
-        },
-        { id: "status", label: "Source status", value: "available" },
-      ],
-      coverage: [
-        {
-          id: "structure-census",
-          label: "Campaigns & ad sets served",
-          value: "1,230",
-        },
-        { id: "structure-monitor", label: "Lane · monitor", value: "0" },
-      ],
-      limitations: [
-        {
-          id: "limitation-count",
-          label: "Limitations applying here",
-          value: "0",
-        },
-      ],
       capabilityGaps: [
         {
           id: "providerWriteLinkage",
           label: "Provider write linkage",
           status: "Unavailable",
           reason: "native_action_receipt_not_observed",
-          tone: "negative",
         },
       ],
     };
-  }
-
-  it("keeps the same folded panel after the structure decisions", () => {
-    const viewModel = exactViewModel();
-    viewModel.structureProvenance = structureProvenanceModel();
-
-    render(
-      <MetaDecisionCenterExact
-        defaultScope="structure"
-        viewModel={viewModel}
-      />,
-    );
-
-    const queue = document.querySelector(
-      "[data-meta-exact-workspace]",
-    )?.firstElementChild;
-    const laneBody = queue?.children[0];
-    const panel = queue?.children[1];
-    expect(panel?.getAttribute("data-meta-exact-source-scope")).toBe(
-      "structure",
-    );
-    // The rows are the primary content and render before the supporting source
-    // envelope, inside the lane body that carries the named collection.
-    expect(laneBody?.getAttribute("data-collection")).toBe("decisions");
-    expect(
-      laneBody?.firstElementChild?.getAttribute("data-meta-exact-action-row"),
-    ).toBe("action-a");
-
-    /*
-     * Folded, not hidden. Every load-bearing fact is in the summary line, which
-     * is always on screen: the source token, the read model status, the
-     * coverage pairing and how many of the eight capabilities are missing. A
-     * folded panel therefore still cannot read as "fine".
-     */
-    expect((panel as HTMLDetailsElement).open).toBe(false);
-    expect(
-      document.querySelector("[data-meta-exact-source-authority]")?.textContent,
-    ).toBe("meta_recommendations · available");
-    expect(
-      document.querySelector("[data-meta-exact-source-coverage]")?.textContent,
-    ).toBe("22 carry a decision · 1,230 in census");
-    expect(
-      document.querySelector("[data-meta-exact-source-capability-summary]")
-        ?.textContent,
-    ).toBe("4 of 8 not available");
-
-    // The detail is one disclosure away, not a second page.
-    expect(
-      document.querySelector('[data-meta-exact-source-fact="structure-census"]')
-        ?.textContent,
-    ).toBe("Campaigns & ad sets served1,230");
-    expect(screen.getByText("native_action_receipt_not_observed")).toBeTruthy();
-
-    // LAW: read-only by construction, in this scope too.
-    expect(
-      panel?.querySelectorAll("button, input, select, [role='button']").length,
-    ).toBe(0);
-    // The ads notice belongs to the ad grain and is never handed to this panel.
-    expect(
-      panel?.querySelector("[data-meta-exact-creative-notice]"),
-    ).toBeNull();
-  });
-
-  /**
-   * The source is a property of the account and the snapshot, never of which
-   * lane happens to be selected. A panel that vanished on Archive would be a
-   * disclosure the operator could lose by clicking.
-   */
-  it("keeps stating the source after a lane change", () => {
-    const viewModel = exactViewModel();
-    viewModel.structureProvenance = structureProvenanceModel();
-
-    render(
-      <MetaDecisionCenterExact
-        defaultLane="archive"
-        defaultScope="structure"
-        viewModel={viewModel}
-      />,
-    );
-
-    expect(
-      document.querySelector('[data-meta-exact-source-scope="structure"]'),
-    ).not.toBeNull();
-    expect(
-      document.querySelector("[data-meta-exact-source-authority]")?.textContent,
-    ).toBe("meta_recommendations · available");
-  });
-
-  /**
-   * LAW: a measured zero stays 0 and an unserved field is an em dash — the same
-   * law in this scope, because the two are opposite facts about the account.
-   */
-  it("keeps an unserved structure field apart from a served zero", () => {
-    const viewModel = exactViewModel();
-    viewModel.structureProvenance = {
-      headline: "— · —",
-      tone: "neutral",
-      coverageSummary: "— carry a decision · — in census",
-      capabilitySummary: "capabilities —",
-      coverage: [
-        {
-          id: "structure-census",
-          label: "Campaigns & ad sets served",
-          value: "—",
-        },
-        { id: "structure-monitor", label: "Lane · monitor", value: "0" },
-      ],
-    };
 
     render(
       <MetaDecisionCenterExact
@@ -1659,54 +1437,15 @@ describe("the Structures scope states the envelope its actions answer to", () =>
     );
 
     expect(
-      document.querySelector('[data-meta-exact-source-fact="structure-census"]')
-        ?.textContent,
-    ).toBe("Campaigns & ad sets served—");
-    expect(
-      document.querySelector(
-        '[data-meta-exact-source-fact="structure-monitor"]',
-      )?.textContent,
-    ).toBe("Lane · monitor0");
-    expect(
-      document.querySelector('[data-meta-exact-source-group="capabilities"]'),
-    ).toBeNull();
-  });
-
-  /**
-   * LOADING IS NOT ABSENCE.
-   *
-   * The page builds no provenance at all until the workspace query resolves —
-   * `MetaPlatformPage`'s pre-load view model carries only the window and the
-   * identity — while a RESOLVED payload always yields a panel, em dashes and
-   * all. So the panel's presence is itself the load signal, and a page still
-   * fetching cannot be mistaken for an account whose source is blank. Drawing
-   * a skeleton of em dashes here would collapse exactly that distinction.
-   */
-  it("draws no panel while the workspace has not resolved", () => {
-    const viewModel = exactViewModel();
-    viewModel.structureProvenance = null;
-
-    render(
-      <MetaDecisionCenterExact
-        defaultScope="structure"
-        viewModel={viewModel}
-      />,
-    );
-
+      document.querySelector('[data-meta-exact-action-row="action-a"]'),
+    ).toBeTruthy();
     expect(
       document.querySelector('[data-meta-exact-source-scope="structure"]'),
     ).toBeNull();
-    const queue = document.querySelector(
-      "[data-meta-exact-workspace]",
-    )?.firstElementChild;
-    expect(queue?.children[0]?.getAttribute("data-collection")).toBe(
-      "decisions",
+    expect(root().textContent).not.toContain("meta_recommendations");
+    expect(root().textContent).not.toContain(
+      "native_action_receipt_not_observed",
     );
-    expect(
-      queue?.children[0]?.firstElementChild?.getAttribute(
-        "data-meta-exact-action-row",
-      ),
-    ).toBe("action-a");
   });
 });
 
@@ -1798,212 +1537,25 @@ describe("the Decision Center mounts the budget-decision evidence", () => {
 
   const mounted = () =>
     root().querySelector('[data-el="budget-decision-evidence"]');
-  const direction = (d: "increase" | "decrease") =>
-    root().querySelector(
-      `[data-el="budget-decision-direction"][data-direction="${d}"]`,
-    );
-
-  it("renders both served directions in the real surface", () => {
-    render(
-      <MetaDecisionCenterExact
-        viewModel={exactViewModel({ budgetEvidence: evidence() })}
-      />,
-    );
-    expect(mounted(), "the panel component is not mounted").toBeTruthy();
-    expect(direction("increase")).toBeTruthy();
-    expect(direction("decrease")).toBeTruthy();
-    expect(mounted()?.getAttribute("data-direction-selected")).toBe("none");
-  });
-
-  it("shows each direction's own verdict and its own primary pair", () => {
-    render(
-      <MetaDecisionCenterExact
-        viewModel={exactViewModel({ budgetEvidence: evidence() })}
-      />,
-    );
-    const primary = direction("increase")?.querySelector(
-      '[data-el="primary-blocker"]',
-    );
-    expect(primary?.getAttribute("data-code")).toBe("budget_fact_absent");
-    expect(primary?.textContent).toContain("no retained budget fact exists");
-    expect(
-      direction("decrease")
-        ?.querySelector('[data-el="authority"]')
-        ?.getAttribute("data-authority"),
-    ).toBe("validated_only");
-    expect(
-      direction("decrease")?.querySelector('[data-el="primary-blocker"]'),
-    ).toBeNull();
-  });
-
-  it("keeps the primary budget blocker visible while details are closed", () => {
+  it("keeps technical budget evidence out of the buyer queue and adds no write", () => {
     render(
       <MetaDecisionCenterExact
         viewModel={exactViewModel({ budgetEvidence: evidence() })}
       />,
     );
 
-    const summary = root().querySelector(
-      "[data-meta-exact-budget-readiness-summary]",
-    );
-    const disclosure = summary?.closest("details") as HTMLDetailsElement | null;
-    expect(disclosure?.open).toBe(false);
-    expect(summary?.parentElement?.getAttribute("data-readiness-state")).toBe(
-      "blocked",
-    );
-    expect(summary?.textContent).toContain("Increase blocked");
-    expect(summary?.textContent).toContain(
+    expect(mounted()).toBeNull();
+    expect(root().textContent).not.toContain("budget_fact_absent");
+    expect(root().textContent).not.toContain(
       "no retained budget fact exists for this entity",
     );
-  });
-
-  it("shows the unavailable-history blocker where a buyer can read it", () => {
-    render(
-      <MetaDecisionCenterExact
-        viewModel={exactViewModel({ budgetEvidence: evidence() })}
-      />,
+    expect(root().textContent).not.toContain(
+      "change_safety_history_unavailable",
     );
-    const section = direction("increase")?.querySelector(
-      '[data-section="change_safety"]',
-    );
-    expect(section?.getAttribute("data-clear")).toBe("false");
-    expect(section?.textContent).toContain("was not read");
-  });
-
-  it("renders an unsupported compatibility state without claiming it is clear", () => {
-    render(
-      <MetaDecisionCenterExact
-        viewModel={exactViewModel({
-          budgetEvidence: evidence({
-            increase: panel({
-              sections: [
-                {
-                  section: "input_integrity",
-                  blockerCodes: [],
-                  reasons: [],
-                  clear: true,
-                },
-                {
-                  section: "commercial_target",
-                  blockerCodes: [],
-                  reasons: [],
-                  clear: true,
-                },
-                {
-                  section: "evidence_floor",
-                  blockerCodes: [],
-                  reasons: [],
-                  clear: true,
-                },
-                {
-                  section: "change_safety",
-                  blockerCodes: [],
-                  reasons: [],
-                  clear: true,
-                },
-                {
-                  section: "execution_capability",
-                  blockerCodes: ["provider_compatibility_unknown"],
-                  reasons: [
-                    "no provider write-capability fact has been observed",
-                  ],
-                  clear: false,
-                },
-              ],
-              primaryBlocker: {
-                code: "provider_compatibility_unknown",
-                reason: "no provider write-capability fact has been observed",
-              },
-            }),
-          }),
-        })}
-      />,
-    );
-    const section = direction("increase")?.querySelector(
-      '[data-section="execution_capability"]',
-    );
-    expect(section?.getAttribute("data-clear")).toBe("false");
-    expect(section?.textContent).toContain("write-capability");
-  });
-
-  it("renders nothing at all when the server sent no evidence", () => {
-    render(<MetaDecisionCenterExact viewModel={exactViewModel({})} />);
-    expect(mounted()).toBeNull();
-  });
-
-  it("renders an unavailable direction as unavailable, never as clear", () => {
-    render(
-      <MetaDecisionCenterExact
-        viewModel={exactViewModel({
-          budgetEvidence: evidence({
-            increase: panel({
-              status: "unavailable",
-              unavailableReason: "gate_verdict_absent",
-              authority: null,
-              primaryBlocker: null,
-            }),
-          }),
-        })}
-      />,
-    );
-    expect(direction("increase")?.getAttribute("data-status")).toBe(
-      "unavailable",
-    );
-    expect(direction("increase")?.textContent).toContain(
-      "could not be resolved",
-    );
-  });
-
-  it("never renders an enabled call to action", () => {
-    render(
-      <MetaDecisionCenterExact
-        viewModel={exactViewModel({ budgetEvidence: evidence() })}
-      />,
-    );
-    const buttons = mounted()?.querySelectorAll("button") ?? [];
-    expect(buttons.length).toBeGreaterThan(0);
-    for (const button of Array.from(buttons)) {
-      expect(button.hasAttribute("disabled"), button.textContent ?? "").toBe(
-        true,
-      );
-    }
-  });
-
-  it("is present and laid out at BOTH desktop and mobile widths", () => {
-    // jsdom applies no CSS, so presence is asserted in the DOM and the layout
-    // rule is asserted against the stylesheet that governs it — never inferred
-    // from a source string alone.
-    for (const width of [1440, 390]) {
-      cleanup();
-      Object.defineProperty(window, "innerWidth", {
-        value: width,
-        configurable: true,
-      });
-      window.dispatchEvent(new Event("resize"));
-      render(
-        <MetaDecisionCenterExact
-          viewModel={exactViewModel({ budgetEvidence: evidence() })}
-        />,
-      );
-      expect(mounted(), `not mounted at ${width}px`).toBeTruthy();
-      expect(
-        direction("increase"),
-        `increase missing at ${width}px`,
-      ).toBeTruthy();
-      expect(
-        direction("decrease"),
-        `decrease missing at ${width}px`,
-      ).toBeTruthy();
-      // Both directions stay readable: neither is hidden at either width.
-      for (const d of ["increase", "decrease"] as const) {
-        expect(
-          direction(d)?.getAttribute("hidden"),
-          `${d}@${width}`,
-        ).toBeNull();
-        expect((direction(d) as HTMLElement | null)?.style.display).not.toBe(
-          "none",
-        );
-      }
+    for (const action of screen.getAllByRole("button", {
+      name: /Server command/,
+    })) {
+      expect(action).toBeDisabled();
     }
   });
 

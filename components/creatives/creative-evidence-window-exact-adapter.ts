@@ -9,6 +9,15 @@ import type {
   CreativeEvidenceWindowExactTone,
   CreativeEvidenceWindowExactViewModel,
 } from "@/components/creatives/CreativeEvidenceWindowExact";
+import {
+  buyerFacingCreativeActionLabel,
+  buyerFacingCreativeBlocker,
+  buyerFacingCreativeBlockers,
+  buyerFacingCreativeDecisionLabel,
+  buyerFacingCreativeReason,
+  buyerFacingCreativeResolution,
+  buyerFacingCreativeScope,
+} from "@/components/meta/decision-center/meta-decision-center-exact-adapter";
 import type {
   MetaCanonicalDecision,
   MetaDecisionsWorkspaceReadModel,
@@ -275,8 +284,11 @@ export function formatEvidenceMoney(
   const amount = finite(value);
   const code = currencyCode(currency);
   if (amount === null || code === null) return EM_DASH;
-  const symbol = code === "USD" ? "$" : code === "EUR" ? "€" : code === "TRY" ? "₺" : null;
-  return symbol ? `${symbol}${formatNumber(amount)}` : `${code} ${formatNumber(amount)}`;
+  const symbol =
+    code === "USD" ? "$" : code === "EUR" ? "€" : code === "TRY" ? "₺" : null;
+  return symbol
+    ? `${symbol}${formatNumber(amount)}`
+    : `${code} ${formatNumber(amount)}`;
 }
 
 function formatRoas(value: number | null | undefined): string {
@@ -293,11 +305,14 @@ function ratioPercent(
   numerator: number | null,
   denominator: number | null,
 ): number | null {
-  if (numerator === null || denominator === null || denominator <= 0) return null;
+  if (numerator === null || denominator === null || denominator <= 0)
+    return null;
   return (numerator / denominator) * 100;
 }
 
-function decisionTone(label: string | null | undefined): CreativeEvidenceWindowExactTone {
+function decisionTone(
+  label: string | null | undefined,
+): CreativeEvidenceWindowExactTone {
   switch (label?.trim().toLowerCase()) {
     case "scale":
     case "protect":
@@ -316,7 +331,10 @@ function decisionTone(label: string | null | undefined): CreativeEvidenceWindowE
 }
 
 function bandTone(
-  band: MetaCanonicalDecision["sourceDecision"]["confidenceBand"] | null | undefined,
+  band:
+    | MetaCanonicalDecision["sourceDecision"]["confidenceBand"]
+    | null
+    | undefined,
 ): CreativeEvidenceWindowExactTone {
   if (band === "high") return "positive";
   if (band === "medium") return "warning";
@@ -325,7 +343,10 @@ function bandTone(
 }
 
 function bandLabel(
-  band: MetaCanonicalDecision["sourceDecision"]["confidenceBand"] | null | undefined,
+  band:
+    | MetaCanonicalDecision["sourceDecision"]["confidenceBand"]
+    | null
+    | undefined,
 ): string {
   if (band === "high") return "High confidence";
   if (band === "medium") return "Medium confidence";
@@ -362,9 +383,7 @@ function isoDate(value: string | null | undefined): string | null {
 
 function formatDecisionFreshness(
   freshness:
-    | NonNullable<
-        MetaCanonicalDecision["sourceAuthority"]
-      >["decisionFreshness"]
+    | NonNullable<MetaCanonicalDecision["sourceAuthority"]>["decisionFreshness"]
     | undefined,
 ): string | null {
   if (!freshness) return null;
@@ -441,7 +460,9 @@ function mean(values: readonly number[]): number | null {
  * the design's "vs 14d baseline" on a 28-day series, computed from the series
  * itself rather than from a second, unserved baseline.
  */
-function halfWindowDelta(values: readonly number[]): { delta: number; days: number } | null {
+function halfWindowDelta(
+  values: readonly number[],
+): { delta: number; days: number } | null {
   if (values.length < 4) return null;
   const half = Math.floor(values.length / 2);
   const prior = mean(values.slice(0, half));
@@ -538,7 +559,8 @@ function impressionWeightedRate(
   for (const row of rows) {
     const rate = finite(pick(row));
     const rowImpressions = finite(row.impressions);
-    if (rate === null || rowImpressions === null || rowImpressions <= 0) continue;
+    if (rate === null || rowImpressions === null || rowImpressions <= 0)
+      continue;
     seen = true;
     weighted += rate * rowImpressions;
     impressions += rowImpressions;
@@ -569,11 +591,14 @@ function buildAdSets(input: {
     const spend = finite(row.spend);
     const revenue =
       finite(row.purchaseValue) ??
-      (spend !== null && finite(row.roas) !== null ? spend * (finite(row.roas) as number) : null);
+      (spend !== null && finite(row.roas) !== null
+        ? spend * (finite(row.roas) as number)
+        : null);
     grouped.set(key, {
       label: current.label ?? nonBlank(row.adsetName),
       spend: spend === null ? current.spend : (current.spend ?? 0) + spend,
-      revenue: revenue === null ? current.revenue : (current.revenue ?? 0) + revenue,
+      revenue:
+        revenue === null ? current.revenue : (current.revenue ?? 0) + revenue,
     });
   }
 
@@ -583,7 +608,10 @@ function buildAdSets(input: {
     const label =
       nonBlank(input.decision?.adsetName) ??
       nonBlank(input.canonical?.parentChain.adset?.name) ??
-      nonBlank(input.canonical?.parentChain.adset?.id);
+      (nonBlank(input.decision?.adsetId) ||
+      nonBlank(input.canonical?.parentChain.adset?.id)
+        ? "Unnamed ad set"
+        : null);
     if (!label) {
       // An in-flight or failed ad-grain read is not "this creative runs
       // nowhere"; the empty list would have said the second.
@@ -598,8 +626,12 @@ function buildAdSets(input: {
         },
       ];
     }
-    const spend = finite(input.decision?.metrics.spend ?? input.canonical?.metrics.spend);
-    const roas = finite(input.decision?.metrics.roas ?? input.canonical?.metrics.roas);
+    const spend = finite(
+      input.decision?.metrics.spend ?? input.canonical?.metrics.spend,
+    );
+    const roas = finite(
+      input.decision?.metrics.roas ?? input.canonical?.metrics.roas,
+    );
     return [
       {
         id: nonBlank(input.canonical?.parentChain.adset?.id) ?? "adset-1",
@@ -642,7 +674,9 @@ function buildFunnel(input: {
   const addToCart = sumRows(rows, (row) => row.addToCart);
   const purchases =
     sumRows(rows, (row) => row.purchases) ??
-    finite(input.decision?.metrics.purchases ?? input.canonical?.metrics.purchases);
+    finite(
+      input.decision?.metrics.purchases ?? input.canonical?.metrics.purchases,
+    );
   const values = [impressions, linkClicks, addToCart, purchases];
   const subs = [
     "",
@@ -740,7 +774,10 @@ function buildFacts(input: {
     .filter((value): value is string => Boolean(value))
     .sort()[0];
 
-  const values: Record<(typeof FACT_SLOTS)[number], { label: string; value: string }> = {
+  const values: Record<
+    (typeof FACT_SLOTS)[number],
+    { label: string; value: string }
+  > = {
     frequency: {
       label: "Frequency",
       value: frequency === null ? EM_DASH : frequency.toFixed(1),
@@ -784,60 +821,34 @@ function buildKind(input: {
   decision: MetaOsAdDecision | null;
   adSetCount: number;
 }): string {
-  const adId =
-    nonBlank(input.canonical?.parentChain.ad?.id) ?? nonBlank(input.decision?.adId);
-  const parts: string[] = [];
-  const id = shortId(adId);
-  if (id) parts.push(`id ${id}`);
-  if (input.adSetCount > 0) {
-    parts.push(`in ${input.adSetCount} ad set${input.adSetCount === 1 ? "" : "s"}`);
-  }
-  return parts.length > 0 ? parts.join(" · ") : EM_DASH;
+  return input.adSetCount > 0
+    ? `In ${input.adSetCount} ad set${input.adSetCount === 1 ? "" : "s"}`
+    : EM_DASH;
 }
 
 function buildVerdictSub(input: {
   decision: MetaOsAdDecision | null;
   canonical: MetaCanonicalDecision | null;
 }): string {
-  const parts: string[] = [];
-  const scopeNote = nonBlank(input.decision?.action.scopeNote);
-  if (scopeNote) parts.push(`${scopeNote}.`);
-  // Authority gates stay visible: the design has no Blockers section, so their
-  // text rides the verdict sub-line rather than disappearing.
-  //
-  // The canonical list is preferred and the SERVED list is the fallback, not an
-  // addition — they describe the same gates and concatenating them printed each
-  // one twice. A row with no envelope has only the served list, and dropping it
-  // was how the single most important sentence on a blocked row ("exact
-  // Ad-grain decision evidence is unavailable") vanished from the window that
-  // exists to explain it.
+  const decision = input.decision;
+  if (!decision) {
+    return input.canonical
+      ? "Review the available evidence before making a change."
+      : EM_DASH;
+  }
   const canonicalBlockers = input.canonical?.classification.blockers ?? [];
   const blockers =
     canonicalBlockers.length > 0
-      ? canonicalBlockers
-      : (input.decision?.blockers ?? []);
-  for (const blocker of blockers) {
-    const label = nonBlank(blocker.label);
-    if (label) parts.push(label.endsWith(".") ? label : `${label}.`);
-  }
-  // Advisories stay on this line because it is where the operator already
-  // reads them — `risk_tier_unclassified` rode it as a "blocker" on every row.
-  // They are prefixed and carry their reason so the sentence says what it is:
-  // a gap in this pipeline, not a gate this ad failed.
-  for (const advisory of input.canonical?.classification?.advisories ?? []) {
-    const label = nonBlank(advisory.label);
-    if (!label) continue;
-    const reason = nonBlank(advisory.reason);
-    const sentence = reason
-      ? `${label} — ${humanizeCode(reason)}`
-      : label;
-    parts.push(`Advisory: ${sentence.endsWith(".") ? sentence : `${sentence}.`}`);
-  }
-  // Who owes the next move, in the server's own words. Served on every decision
-  // that has one and rendered nowhere before this.
-  const nextStep = nonBlank(input.decision?.resolution?.nextStep);
-  if (nextStep) parts.push(`Next: ${nextStep.endsWith(".") ? nextStep : `${nextStep}.`}`);
-  return parts.length > 0 ? parts.join(" ") : EM_DASH;
+      ? canonicalBlockers.map((blocker) =>
+          buyerFacingCreativeBlocker(blocker.code),
+        )
+      : buyerFacingCreativeBlockers(decision);
+  const parts = [
+    buyerFacingCreativeScope(decision),
+    ...blockers,
+    buyerFacingCreativeResolution(decision),
+  ].filter((part): part is string => Boolean(part));
+  return [...new Set(parts)].join(" ") || EM_DASH;
 }
 
 function buildProvenance(input: {
@@ -851,7 +862,8 @@ function buildProvenance(input: {
     input.canonical?.decisionId ?? input.decision?.decisionId ?? null,
   );
   const engine = nonBlank(
-    input.canonical?.sourceDecision.engineVersion ?? input.decision?.engineVersion,
+    input.canonical?.sourceDecision.engineVersion ??
+      input.decision?.engineVersion,
   );
   const parts = [
     `snapshot ${snapshot ?? EM_DASH}`,
@@ -930,7 +942,10 @@ function authorityRows(input: {
    * Empty-in-a-served-envelope stays an em-dash. No-envelope-at-all says so and
    * is toned as the gap it is, so it cannot be scanned past as "nothing here".
    */
-  const canonicalOnly = (): { value: string; tone: CreativeEvidenceWindowExactTone } =>
+  const canonicalOnly = (): {
+    value: string;
+    tone: CreativeEvidenceWindowExactTone;
+  } =>
     absent
       ? { value: absent, tone: "warning" }
       : { value: EM_DASH, tone: "neutral" };
@@ -988,8 +1003,12 @@ function authorityRows(input: {
    * a display projection here, a write gate there.
    */
   if (decision) {
-    push("served-lane", "Served lane", humanizeCode(decision.lane) || EM_DASH,
-      decision.lane === "act" ? "positive" : "warning");
+    push(
+      "served-lane",
+      "Served lane",
+      humanizeCode(decision.lane) || EM_DASH,
+      decision.lane === "act" ? "positive" : "warning",
+    );
     push(
       "served-availability",
       "Decision availability",
@@ -1532,11 +1551,7 @@ function diagnosticRows(input: {
     // The served parent chain. Its canonical twin rides `parentChain`; without
     // an envelope these ids are the only way to say WHICH ad this window is
     // about, and they were printed nowhere.
-    [
-      "served-row-id",
-      "served row id",
-      input.decision?.id ?? null,
-    ],
+    ["served-row-id", "served row id", input.decision?.id ?? null],
     [
       "served-ad",
       "served ad",
@@ -1587,7 +1602,11 @@ function diagnosticRows(input: {
           } · ${nonBlank(input.decision.metrics.attribution) ?? EM_DASH}`
         : null,
     ],
-    ["provider-account-ref", "provider account ref", authority?.providerAccountRefId ?? null],
+    [
+      "provider-account-ref",
+      "provider account ref",
+      authority?.providerAccountRefId ?? null,
+    ],
     ["real-ad-id", "real ad id", authority?.realAdId ?? null],
     ["identity-grain", "identity grain", canonical?.identityGrain ?? null],
     [
@@ -1678,7 +1697,9 @@ function diagnosticRows(input: {
     [
       "served-resolution-code",
       "served resolution code",
-      input.decision?.resolution ? nonBlank(input.decision.resolution.code) : null,
+      input.decision?.resolution
+        ? nonBlank(input.decision.resolution.code)
+        : null,
     ],
     /*
      * Generation lineage: which table the queue was read from, which job wrote
@@ -1687,7 +1708,11 @@ function diagnosticRows(input: {
      */
     ["source-table", "source table", source?.table ?? null],
     ["source-computed-at", "source computed at", source?.computedAt ?? null],
-    ["source-snapshot-as-of", "source snapshot as of", source?.snapshotAsOf ?? null],
+    [
+      "source-snapshot-as-of",
+      "source snapshot as of",
+      source?.snapshotAsOf ?? null,
+    ],
     [
       "generation-job-run-id",
       "generation job run id",
@@ -1815,39 +1840,22 @@ function readNotice(input: {
   adRowsErrorMessage: string | null | undefined;
   adSeriesErrorMessage: string | null | undefined;
 }): CreativeEvidenceWindowExactReadNotice | null {
-  const failed: string[] = [];
-  if (input.adRowsState === "error") {
-    failed.push(
-      `ad rows (${nonBlank(input.adRowsErrorMessage) ?? "no message served"})`,
-    );
-  }
-  if (input.adSeriesState === "error") {
-    failed.push(
-      `daily trail (${nonBlank(input.adSeriesErrorMessage) ?? "no message served"})`,
-    );
-  }
-  if (failed.length > 0) {
+  if (input.adRowsState === "error" || input.adSeriesState === "error") {
     return {
       tone: "negative",
-      text: `Ad-grain evidence could not be read: ${failed.join("; ")}. Cells marked "${UNREADABLE_TOKEN}" are unread, not empty.`,
+      text: "Some creative performance data could not be loaded. Missing figures are unavailable.",
     };
   }
   if (input.adRowsState === "loading" || input.adSeriesState === "loading") {
     return {
       tone: "info",
-      text: `Ad-grain evidence is still loading. Cells marked "${PENDING_TOKEN}" have not been read yet.`,
+      text: "Creative performance data is loading.",
     };
   }
-  // A read that never ran is not a read that found nothing. Named separately
-  // from the failure above, because "could not be read" and "was not read"
-  // send an operator to different places.
-  const unread: string[] = [];
-  if (input.adRowsState === "unread") unread.push("ad rows");
-  if (input.adSeriesState === "unread") unread.push("daily trail");
-  if (unread.length > 0) {
+  if (input.adRowsState === "unread" || input.adSeriesState === "unread") {
     return {
       tone: "negative",
-      text: `Ad-grain evidence was not read (${unread.join("; ")}) — the request is paused or was never issued. Cells marked "${UNREADABLE_TOKEN}" are unread, not empty.`,
+      text: "Creative performance data is unavailable for this row.",
     };
   }
   return null;
@@ -1943,7 +1951,8 @@ export function buildMetaAdsManagerHref(input: {
   providerAccountId: string | null | undefined;
   adId: string | null | undefined;
 }): string | null {
-  const accountId = input.providerAccountId?.replace(/^act_/, "").trim() || null;
+  const accountId =
+    input.providerAccountId?.replace(/^act_/, "").trim() || null;
   const adId = input.adId?.trim() || null;
   if (!accountId || !adId) return null;
   const params = new URLSearchParams({ act: accountId, selected_ad_ids: adId });
@@ -1960,7 +1969,8 @@ export function buildCreativeEvidenceWindowExactViewModel(
     currencyCode(canonical?.metrics.currency) ??
     currencyCode(input.fallbackCurrency);
   const target = finite(
-    decision?.metrics.effectiveTargetRoas ?? canonical?.metrics.effectiveTargetRoas,
+    decision?.metrics.effectiveTargetRoas ??
+      canonical?.metrics.effectiveTargetRoas,
   );
   const tone = decisionTone(
     canonical?.classification.buyerLabel ?? decision?.publishedLabel,
@@ -1982,29 +1992,16 @@ export function buildCreativeEvidenceWindowExactViewModel(
   });
   const spendDisplay = formatEvidenceMoney(spend, currency);
   const roasDisplay = formatRoas(roas);
-  const verdictLabel =
-    nonBlank(canonical?.classification.buyerLabel) ?? nonBlank(decision?.publishedLabel);
-  const reason =
-    nonBlank(canonical?.sourceDecision.reason) ?? nonBlank(decision?.whyNow);
-  /*
-   * The Engine reasoning card, from every reasoning field the payload served.
-   *
-   * `assessment` is the engine's standing read of the ad and `whyNow` is why it
-   * is on the screen today; they are different sentences and the card used to
-   * print only one of them. On a row with no envelope the difference is the
-   * whole content: `reason` falls back to `whyNow`, so without this the
-   * assessment the engine actually computed never appeared anywhere. Deduped
-   * rather than concatenated blindly, so an account whose two fields agree does
-   * not read the same line twice.
-   */
-  const assessment = nonBlank(decision?.assessment);
-  const reasons = [
-    ...new Set(
-      [reason, assessment && assessment !== reason ? assessment : null].filter(
-        (line): line is string => Boolean(line),
-      ),
-    ),
-  ];
+  const verdictLabel = decision
+    ? buyerFacingCreativeDecisionLabel(decision)
+    : canonical
+      ? "Needs review"
+      : null;
+  const reasons = decision
+    ? [buyerFacingCreativeReason(decision)]
+    : canonical
+      ? ["Review the available performance evidence before making a change."]
+      : [];
   /*
    * The served action tuple, or nothing.
    *
@@ -2016,7 +2013,9 @@ export function buildCreativeEvidenceWindowExactViewModel(
    * is no action: the label is a dash and the control is inert.
    */
   const servedAction = decision?.action ?? null;
-  const actionLabel = servedAction ? nonBlank(servedAction.label) : null;
+  const actionLabel = decision
+    ? buyerFacingCreativeActionLabel(decision)
+    : null;
   /*
    * FAIL-CLOSED, at this layer as well as at the caller's.
    *
@@ -2031,15 +2030,16 @@ export function buildCreativeEvidenceWindowExactViewModel(
   const primaryAuthority = input.primaryActionAuthority;
   const primaryOffered =
     primaryAuthority?.offered ?? input.launchpadRoute?.offered ?? null;
-  const onPrimary =
-    primaryOffered === false ? undefined : input.callbacks?.onPrimary;
+  const primaryAllowed = primaryOffered !== false;
+  const onPrimary = primaryAllowed ? input.callbacks?.onPrimary : undefined;
 
   return {
     name:
       nonBlank(canonical?.parentChain.ad?.name) ??
       nonBlank(decision?.adName) ??
-      nonBlank(canonical?.parentChain.ad?.id) ??
-      EM_DASH,
+      (nonBlank(canonical?.parentChain.ad?.id) || nonBlank(decision?.adId)
+        ? "Unnamed Meta ad"
+        : EM_DASH),
     decisionLabel: verdictLabel ?? EM_DASH,
     decisionTone: tone,
     previewUrl:
@@ -2051,7 +2051,7 @@ export function buildCreativeEvidenceWindowExactViewModel(
     kind: buildKind({ canonical, decision, adSetCount: adSets.length }),
     band: bandLabel(canonical?.sourceDecision.confidenceBand),
     bandTone: bandTone(canonical?.sourceDecision.confidenceBand),
-    verdict: verdictLabel ? `Server verdict: ${verdictLabel}.` : EM_DASH,
+    verdict: verdictLabel ?? EM_DASH,
     verdictSub: buildVerdictSub({ decision, canonical }),
     money:
       spendDisplay === EM_DASH && roasDisplay === EM_DASH
@@ -2081,6 +2081,13 @@ export function buildCreativeEvidenceWindowExactViewModel(
       adRowsErrorMessage: input.adRowsErrorMessage,
       adSeriesErrorMessage: input.adSeriesErrorMessage,
     }),
+    actionNotice:
+      primaryOffered === false
+        ? {
+            tone: "warning",
+            text: "This action is unavailable. Review the decision in Meta Ads before making changes.",
+          }
+        : null,
     coverage: buildCoverage({ decision, canonical }),
     authority: authorityRows({
       decision,
@@ -2099,13 +2106,13 @@ export function buildCreativeEvidenceWindowExactViewModel(
     provenance: buildProvenance({ canonical, decision }),
     primaryAction: {
       label: actionLabel ?? EM_DASH,
-      href: input.hrefs?.primary ?? null,
+      href: primaryAllowed ? (input.hrefs?.primary ?? null) : null,
       // The tuple travels by reference: no spread, no rebuilt object, no
       // normalised code. Whatever the server put on `decision.action` is what
       // the callback boundary receives.
       onClick:
         servedAction && onPrimary ? () => onPrimary(servedAction) : undefined,
-      disabled: !actionLabel,
+      disabled: !actionLabel || !primaryAllowed,
     },
     compareAction: {
       label: "Compare in Studio",

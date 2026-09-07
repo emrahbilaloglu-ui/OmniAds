@@ -49,12 +49,12 @@ describe("LaunchpadManageExistingReview", () => {
     expect(html).not.toContain("Activation is unavailable");
   });
 
-  it("says what the server verifies rather than what someone would have to build", () => {
+  it("explains activation safeguards in operator language", () => {
     const { html } = render([makeAd("ad_paused", "PAUSED")]);
-    expect(html).toContain("creative identity");
-    expect(html).toContain("effective status");
-    // The specific failure an operator would otherwise misread as published.
-    expect(html).toContain("refused by name rather than left");
+    expect(html).toContain("Meta checks each ad and its campaign before activation");
+    expect(html).toContain("will remain off");
+    expect(html).not.toContain("creative identity");
+    expect(html).not.toContain("effective status");
   });
 
   it("offers neither direction for a row with no provider identity", () => {
@@ -68,8 +68,18 @@ describe("LaunchpadManageExistingReview", () => {
       ...makeAd("ad_paused", "PAUSED"), realAdId: null, id: "",
     } as MetaCreativeRow;
     const { html } = render([makeAd("ad_active", "ACTIVE"), orphan]);
-    expect(html).toContain("cannot be mapped to a Meta ad id");
+    expect(html).toContain("Meta connection is unavailable");
     expect(html.match(/disabled=""/g) ?? []).toHaveLength(2);
+  });
+
+  it("does not expose provider ad ids in the selected list", () => {
+    const row = {
+      ...makeAd("120000000000001", "ACTIVE"), name: "Selected ad",
+    } as MetaCreativeRow;
+    const { html } = render([row]);
+    expect(html).toContain("Campaign");
+    expect(html).toContain("Active");
+    expect(html).not.toContain("120000000000001");
   });
 
   it("offers nothing at all for an empty selection", () => {

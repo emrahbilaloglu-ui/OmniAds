@@ -74,8 +74,22 @@ const WINDOW = {
 } as const;
 
 const UNFILTERED = page([
-  { id: "h1", occurredAt: "2026-08-11T09:00:00.000Z", action: "Pause ad", outcome: "verified", actor: "Ada", replayed: false },
-  { id: "h2", occurredAt: "2026-08-11T08:00:00.000Z", action: "Raise budget", outcome: "verified", actor: "Ada", replayed: false },
+  {
+    id: "h1",
+    occurredAt: "2026-08-11T09:00:00.000Z",
+    action: "Pause ad",
+    outcome: "verified",
+    actor: "Ada",
+    replayed: false,
+  },
+  {
+    id: "h2",
+    occurredAt: "2026-08-11T08:00:00.000Z",
+    action: "Raise budget",
+    outcome: "verified",
+    actor: "Ada",
+    replayed: false,
+  },
 ]);
 
 function servedPayload() {
@@ -128,7 +142,9 @@ describe("clearing a filter issues an unfiltered read", () => {
       timeout: 3000,
     });
     expect(fetchMetaHistoryPage.mock.calls[0][0].filters.q).toBe("budget");
-    expect(fetchMetaHistoryPage.mock.calls[0][0].filters.from).toBe(WINDOW.start);
+    expect(fetchMetaHistoryPage.mock.calls[0][0].filters.from).toBe(
+      WINDOW.start,
+    );
     expect(fetchMetaHistoryPage.mock.calls[0][0].filters.to).toBe(WINDOW.end);
 
     await user.clear(search);
@@ -139,7 +155,9 @@ describe("clearing a filter issues an unfiltered read", () => {
     expect(fetchMetaHistoryPage.mock.calls[1][0].filters.q).toBeNull();
     // ...but "unfiltered" is not "unbounded". Clearing a search clears the
     // search; it does not widen the window the shell states.
-    expect(fetchMetaHistoryPage.mock.calls[1][0].filters.from).toBe(WINDOW.start);
+    expect(fetchMetaHistoryPage.mock.calls[1][0].filters.from).toBe(
+      WINDOW.start,
+    );
     expect(fetchMetaHistoryPage.mock.calls[1][0].filters.to).toBe(WINDOW.end);
   });
 
@@ -162,15 +180,75 @@ describe("clearing a filter issues an unfiltered read", () => {
     await waitFor(() => expect(fetchMetaHistoryPage).toHaveBeenCalledTimes(1), {
       timeout: 3000,
     });
-    expect(fetchMetaHistoryPage.mock.calls[0][0].filters.outcome).toBe("failed");
+    expect(fetchMetaHistoryPage.mock.calls[0][0].filters.outcome).toBe(
+      "failed",
+    );
 
     await user.selectOptions(outcome, "all");
     await waitFor(() => expect(fetchMetaHistoryPage).toHaveBeenCalledTimes(2), {
       timeout: 3000,
     });
     expect(fetchMetaHistoryPage.mock.calls[1][0].filters.outcome).toBeNull();
-    expect(fetchMetaHistoryPage.mock.calls[1][0].filters.from).toBe(WINDOW.start);
+    expect(fetchMetaHistoryPage.mock.calls[1][0].filters.from).toBe(
+      WINDOW.start,
+    );
     expect(fetchMetaHistoryPage.mock.calls[1][0].filters.to).toBe(WINDOW.end);
+  });
+});
+
+describe("history limitations stay visible without exposing internals", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("summarizes served limitations with stable operator copy", () => {
+    render(
+      <HistoryView
+        rows={UNFILTERED.rows}
+        limitations={[
+          "source_read_failed: relation history_projection missing",
+        ]}
+      />,
+    );
+
+    const notice = document.querySelector("[data-history-limitations]");
+    expect(notice?.textContent).toContain(
+      "Some history details are unavailable. The entries shown may be incomplete.",
+    );
+    expect(document.body.textContent).not.toContain("source_read_failed");
+    expect(document.body.textContent).not.toContain("history_projection");
+  });
+
+  it("keeps existing rows and marks them incomplete when a later page fails", async () => {
+    fetchMetaHistoryPage.mockRejectedValue(
+      new Error("cursor_read_failed: database connection refused"),
+    );
+    const user = userEvent.setup();
+    render(
+      <HistoryClient
+        businessId="biz_1"
+        providerAccountId="act_1"
+        dateWindow={WINDOW}
+        initialPage={{ ...UNFILTERED, nextCursor: "cursor_page_2" }}
+        pageLimit={40}
+      />,
+    );
+
+    await user.click(
+      document.querySelector<HTMLButtonElement>(
+        '[data-ctl="live:META-HIST-05 cursor"]',
+      )!,
+    );
+
+    await waitFor(() =>
+      expect(
+        document.querySelector("[data-history-limitations]"),
+      ).not.toBeNull(),
+    );
+    expect(document.body.textContent).toContain("Pause ad");
+    expect(document.body.textContent).toContain("may be incomplete");
+    expect(document.body.textContent).not.toContain("cursor_read_failed");
+    expect(document.body.textContent).not.toContain("database connection");
   });
 });
 
@@ -260,13 +338,13 @@ describe("the stated window is the window History reads", () => {
     );
 
     const line = document.querySelector("[data-history-window]")!;
-    expect(line.textContent).toContain("Window 2026-08-11 to 2026-08-17");
+    expect(line.textContent).toContain("2026-08-11 – 2026-08-17");
     expect(line.getAttribute("data-history-window-source")).toBe("url");
     // A window the link stated needs no apology beside it.
     expect(line.textContent).not.toMatch(/entries outside it are not shown/);
   });
 
-  it("reads a DEFAULTED window and says on screen that it defaulted", async () => {
+  it("reads the defaulted window while keeping the visible date line concise", async () => {
     // RESTATED LAW. This test used to assert `from: null, to: null` for a URL
     // that stated no window, with the reasoning that an invented default "would
     // hide entries nobody asked to exclude — and would do it silently".
@@ -299,8 +377,8 @@ describe("the stated window is the window History reads", () => {
 
     const line = document.querySelector("[data-history-window]")!;
     expect(line.getAttribute("data-history-window-source")).toBe("default");
-    expect(line.textContent).toContain("Window 2026-07-21 to 2026-08-17");
-    expect(line.textContent).toMatch(/entries outside it are not shown/);
+    expect(line.textContent).toContain("2026-07-21 – 2026-08-17");
+    expect(line.textContent).not.toMatch(/default window|entries outside it/i);
 
     // And every later read is bounded by the same two days — a search that fell
     // back to unbounded would answer a wider question than the one on screen.
@@ -313,8 +391,12 @@ describe("the stated window is the window History reads", () => {
     await waitFor(() => expect(fetchMetaHistoryPage).toHaveBeenCalledTimes(1), {
       timeout: 3000,
     });
-    expect(fetchMetaHistoryPage.mock.calls[0][0].filters.from).toBe(defaulted.start);
-    expect(fetchMetaHistoryPage.mock.calls[0][0].filters.to).toBe(defaulted.end);
+    expect(fetchMetaHistoryPage.mock.calls[0][0].filters.from).toBe(
+      defaulted.start,
+    );
+    expect(fetchMetaHistoryPage.mock.calls[0][0].filters.to).toBe(
+      defaulted.end,
+    );
   });
 });
 
@@ -336,8 +418,18 @@ describe("choosing an account keeps the window that was stated", () => {
     render(
       <HistoryAccountPicker
         accounts={[
-          { id: "act_A", name: "First account", currency: "USD", timezone: "UTC" },
-          { id: "act_B", name: "Second account", currency: "EUR", timezone: "UTC" },
+          {
+            id: "act_A",
+            name: "First account",
+            currency: "USD",
+            timezone: "UTC",
+          },
+          {
+            id: "act_B",
+            name: "Second account",
+            currency: "EUR",
+            timezone: "UTC",
+          },
         ]}
       />,
     );
@@ -360,9 +452,29 @@ describe("choosing an account keeps the window that was stated", () => {
     // deep link into a different page.
     expect(next.get("replay")).toBe("h1");
   });
+
+  it("masks an unnamed account instead of showing its full provider id", () => {
+    render(
+      <HistoryAccountPicker
+        accounts={[
+          {
+            id: "act_12345678",
+            name: null,
+            currency: "USD",
+            timezone: "UTC",
+          },
+        ]}
+      />,
+    );
+
+    expect(
+      screen.getByRole("option", { name: /Meta account/ }),
+    ).toHaveTextContent("Meta account ••••5678 · USD");
+    expect(document.body.textContent).not.toContain("act_12345678");
+  });
 });
 
-describe("the replay drawer names the engine that produced the snapshot", () => {
+describe("the replay drawer keeps historical context without engine internals", () => {
   const replayed = {
     id: "h9",
     occurredAt: "2026-08-11T09:00:00.000Z",
@@ -372,7 +484,7 @@ describe("the replay drawer names the engine that produced the snapshot", () => 
     replayed: true,
   };
 
-  it("prints the served engine version", async () => {
+  it("does not expose the served engine version", async () => {
     const user = userEvent.setup();
     render(
       <HistoryView
@@ -382,11 +494,15 @@ describe("the replay drawer names the engine that produced the snapshot", () => 
     );
     await user.click(screen.getAllByRole("button", { name: /replay/i })[0]);
     expect(
-      document.querySelector('[data-replay-engine-version="h9"]')!.textContent,
-    ).toBe("v3");
+      document.querySelector('[data-replay-engine-version="h9"]'),
+    ).toBeNull();
+    expect(document.body.textContent).not.toContain("v3");
+    expect(document.body.textContent).toContain(
+      "Historical view. It may differ from the account today.",
+    );
   });
 
-  it("prints an em-dash when the snapshot recorded no engine version", async () => {
+  it("does not add an engine placeholder when no version was recorded", async () => {
     const user = userEvent.setup();
     render(
       <HistoryView
@@ -395,9 +511,12 @@ describe("the replay drawer names the engine that produced the snapshot", () => 
       />,
     );
     await user.click(screen.getAllByRole("button", { name: /replay/i })[0]);
-    const badge = document.querySelector('[data-replay-engine-version="h9"]')!;
-    // An unsupplied fact is an em-dash. Any version word here would be invented.
-    expect(badge.textContent).toBe("—");
+    expect(
+      document.querySelector('[data-replay-engine-version="h9"]'),
+    ).toBeNull();
+    expect(document.body.textContent).toContain(
+      "Historical view. It may differ from the account today.",
+    );
   });
 
   it("shows served money facts, and an em-dash for one with no resolvable currency", async () => {
@@ -438,21 +557,30 @@ describe("the replay drawer names the engine that produced the snapshot", () => 
     expect(
       document.querySelector('[data-replay-money="After spend"]')!.textContent,
     ).toBe("—");
-    expect(document.querySelector('[data-replay-summary="h9"]')!.textContent).toBe(
-      "Spend outran the account ROAS floor.",
-    );
+    expect(
+      document.querySelector('[data-replay-summary="h9"]')!.textContent,
+    ).toBe("Spend outran the account ROAS floor.");
   });
 
   it("does not offer an engine version for a row recorded at the time", async () => {
     const user = userEvent.setup();
     render(
       <HistoryView
-        rows={[{ ...replayed, id: "h10", replayed: false, replayEngineVersion: null }]}
+        rows={[
+          {
+            ...replayed,
+            id: "h10",
+            replayed: false,
+            replayEngineVersion: null,
+          },
+        ]}
         onReplay={vi.fn()}
       />,
     );
     await user.click(screen.getAllByRole("button", { name: /replay/i })[0]);
     // Nothing replayed it, so there is no replaying engine to name.
-    expect(document.querySelector('[data-replay-engine-version="h10"]')).toBeNull();
+    expect(
+      document.querySelector('[data-replay-engine-version="h10"]'),
+    ).toBeNull();
   });
 });

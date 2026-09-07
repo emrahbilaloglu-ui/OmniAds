@@ -134,17 +134,6 @@ export interface MetaCreativeInboxPageProps {
 }
 
 /**
- * The one sentence the board owes an operator when it has nothing to draw.
- *
- * The old answer reported the workflow as read-and-empty — a MEASUREMENT of a
- * thing nobody measured. The replacements each name exactly what happened: a
- * read that has not finished, a read that failed, a read with no account to run
- * against, or a read that genuinely returned nothing. Only the last is a zero.
- */
-const WORKFLOW_UNBUILT =
-  "Creative requests, versions, approvals and Launchpad handoff are not built: no request, owner, due date, version or approval is recorded anywhere in this product.";
-
-/**
  * Splits the flattened briefing cards back into the sections they came from.
  *
  * `flattenCreativeStudioBriefingCards` walks `[...actionNow, ...watching,
@@ -192,7 +181,8 @@ function formatMoney(
   currency: string | null | undefined,
 ): string | null {
   if (typeof value !== "number" || !Number.isFinite(value)) return null;
-  const code = typeof currency === "string" ? currency.trim().toUpperCase() : "";
+  const code =
+    typeof currency === "string" ? currency.trim().toUpperCase() : "";
   if (/^[A-Z]{3}$/.test(code)) {
     try {
       return new Intl.NumberFormat(undefined, {
@@ -268,8 +258,7 @@ async function fetchCreativeInbox(
     cache: "no-store",
   });
   const payload = (await response.json().catch(() => null)) as
-    | (CreativesBriefingResponse & { message?: string })
-    | null;
+    (CreativesBriefingResponse & { message?: string }) | null;
   if (!response.ok) {
     throw new Error(payload?.message ?? "Creative inbox could not load.");
   }
@@ -300,10 +289,6 @@ function resolveCardAccountId(card: BriefingCreativeCard): string {
   );
 }
 
-function errorMessage(error: unknown, fallback: string) {
-  return error instanceof Error && error.message.trim() ? error.message : fallback;
-}
-
 export default function MetaCreativeInboxPage({
   businessId: authorizedBusinessId,
   providerAccountId: authorizedProviderAccountId,
@@ -316,12 +301,12 @@ export default function MetaCreativeInboxPage({
   const hasAuthorizedBusinessScope = authorizedBusinessId !== undefined;
   const hasAuthorizedProviderScope = authorizedProviderAccountId !== undefined;
   const businessId = hasAuthorizedBusinessScope
-    ? authorizedBusinessId?.trim() ?? ""
-    : storeBusinessId ?? "";
+    ? (authorizedBusinessId?.trim() ?? "")
+    : (storeBusinessId ?? "");
   const scopeResolved = hasAuthorizedBusinessScope || workspaceResolved;
   const requestedProviderAccountId = hasAuthorizedProviderScope
-    ? authorizedProviderAccountId?.trim() ?? ""
-    : searchParams?.get("providerAccountId")?.trim() ?? "";
+    ? (authorizedProviderAccountId?.trim() ?? "")
+    : (searchParams?.get("providerAccountId")?.trim() ?? "");
   const [selectedProviderAccountId, setSelectedProviderAccountId] = useState(
     requestedProviderAccountId,
   );
@@ -339,21 +324,25 @@ export default function MetaCreativeInboxPage({
     (selectedProviderAccountId &&
     providerAccounts.some((account) => account.id === selectedProviderAccountId)
       ? selectedProviderAccountId
-      : "") ||
-    (providerAccounts.length === 1 ? providerAccounts[0]!.id : "");
+      : "") || (providerAccounts.length === 1 ? providerAccounts[0]!.id : "");
   const providerAccountId = hasAuthorizedProviderScope
-    ? authorizedProviderAccountId?.trim() ?? ""
+    ? (authorizedProviderAccountId?.trim() ?? "")
     : discoveredProviderAccountId;
 
   useEffect(() => {
     if (hasAuthorizedProviderScope) return;
     setSelectedProviderAccountId((current) => {
-      if (current && providerAccounts.some((account) => account.id === current)) {
+      if (
+        current &&
+        providerAccounts.some((account) => account.id === current)
+      ) {
         return current;
       }
       if (
         requestedProviderAccountId &&
-        providerAccounts.some((account) => account.id === requestedProviderAccountId)
+        providerAccounts.some(
+          (account) => account.id === requestedProviderAccountId,
+        )
       ) {
         return requestedProviderAccountId;
       }
@@ -432,8 +421,6 @@ export default function MetaCreativeInboxPage({
   const inventoryUnavailable =
     typeof inventory?.status === "string" &&
     inventory.status.trim().toLowerCase() === "unavailable";
-  const inventoryUnavailableReason =
-    inventory?.unavailableReason?.trim() || null;
   const readFailed = scopeError || inboxQuery.isError || inventoryUnavailable;
   const state = scopeLoading
     ? "loading"
@@ -474,34 +461,24 @@ export default function MetaCreativeInboxPage({
 
   const servedCount = scoped.cards.length;
   const message = scopeLoading
-    ? "Loading assigned Meta account scope."
+    ? "Loading Meta accounts."
     : scopeError
-      ? errorMessage(
-          providerAccountsQuery.error,
-          "Assigned Meta accounts could not load.",
-        )
+      ? "Meta accounts are temporarily unavailable."
       : !providerAccountId
-        ? `Select one assigned Meta account to read the creative decision items served for it. ${WORKFLOW_UNBUILT}`
+        ? "Select a Meta account to view creative decisions."
         : inboxLoading
-          ? "Reading the creative briefing authority."
+          ? "Loading creative decisions."
           : inboxQuery.isError
-            ? // A failed read is not an empty board.
-              `${errorMessage(inboxQuery.error, "The creative briefing authority is unavailable.")} These segments are unavailable, not empty.`
+            ? "Creative decisions are temporarily unavailable."
             : inventoryUnavailable
-              ? // The request succeeded and the ANSWER says it could not read
-                // the inventory. Reporting the served zero here would turn the
-                // authority's own "unknown" into this surface's "none".
-                `The creative briefing authority could not read this account's decision inventory${
-                  inventoryUnavailableReason ? ` (${inventoryUnavailableReason})` : ""
-                }. These segments are unavailable, not empty. ${WORKFLOW_UNBUILT}`
-              : // A genuine zero from the authority stays a zero.
-                `The creative briefing authority served no decision items for this account. ${WORKFLOW_UNBUILT}`;
+              ? "Creative decisions are temporarily unavailable."
+              : "No creative decisions need attention.";
 
   const model: CreativeStudioInboxModel = {
     state,
     message:
       scoped.missingAccountCount > 0
-        ? `${message} ${scoped.missingAccountCount} ${scoped.missingAccountCount === 1 ? "item was" : "items were"} withheld because provider account identity is missing.`
+        ? `${message} Some items could not be matched to the selected account.`
         : message,
     columns,
   };

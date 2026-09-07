@@ -25,6 +25,7 @@ import type {
 } from "@/components/meta/redesign/types";
 import type { MetaHistoryAccount } from "@/lib/meta/history-contract";
 import type { MetaRecommendation } from "@/lib/meta/recommendations";
+import type { MetaAutomationReadinessBlocker } from "@/lib/meta/automation-readiness";
 import type {
   MetaCanonicalDecision,
   MetaDecisionsWorkspaceReadModel,
@@ -500,13 +501,7 @@ function automaticRoleChip(recommendation: MetaRecommendation): string | null {
 }
 
 function structureChips(recommendation: MetaRecommendation): string[] {
-  const candidates = [
-    automaticRoleChip(recommendation),
-    nonBlank(recommendation.entityConfiguration?.status),
-    nonBlank(recommendation.entityConfiguration?.optimizationGoal),
-    nonBlank(recommendation.rowPresentation?.blockerLabel),
-    nonBlank(recommendation.rowPresentation?.shieldLabel),
-  ];
+  const candidates = [automaticRoleChip(recommendation)];
   return candidates
     .filter((value): value is string => Boolean(value))
     .slice(0, 3);
@@ -697,17 +692,11 @@ function recommendationMoney(
 }
 
 function recommendationMoneySub(
-  recommendation: MetaRecommendation,
+  _recommendation: MetaRecommendation,
   node: MetaOsStructureNode | null,
 ): string {
   const target = finite(node?.metrics.effectiveTargetRoas);
-  const impact =
-    nonBlank(node?.expectedImpact) ?? nonBlank(recommendation.expectedImpact);
-  const parts = [
-    target === null ? null : `vs ${target.toFixed(2)} target`,
-    impact,
-  ].filter((value): value is string => Boolean(value));
-  return parts.length > 0 ? parts.join(" · ") : EM_DASH;
+  return target === null ? EM_DASH : `vs ${target.toFixed(2)} target`;
 }
 
 function actionRows(input: {
@@ -733,12 +722,9 @@ function actionRows(input: {
       ...(relation
         ? { lineage: relation.label, lineageRole: relation.role }
         : {}),
-      decisionLabel:
-        recommendation.decisionLabel != null
-          ? titleToken(recommendation.decisionLabel)
-          : (nonBlank(node?.assessment) ??
-            nonBlank(recommendation.decision) ??
-            EM_DASH),
+      decisionLabel: buyerFacingStructureDecisionLabel(
+        recommendation.decisionLabel,
+      ),
       decisionTone: tone,
       edgeTone: tone,
       money: recommendationMoney(recommendation, node, input.fallbackCurrency),
@@ -747,7 +733,7 @@ function actionRows(input: {
       confidenceTone: confidenceTone(
         node?.confidence ?? recommendation.confidence,
       ),
-      actionLabel: nonBlank(action?.label) ?? EM_DASH,
+      actionLabel: buyerFacingStructureAction(action),
       actionTone: actionTone(action),
       /*
        * The server's confidence cap, stated on the row.
@@ -889,26 +875,242 @@ function needsResolutionNotice(
 ): string | null {
   const groups = workspace.os?.structure?.groups;
   if (groups && groups.length > 0) return null;
-  const readModelStatus = workspace.decisionReadModel?.status;
-  const reason =
-    readModelStatus && readModelStatus !== "available"
-      ? nonBlank(workspace.decisionReadModel?.source?.fallbackReason)
-      : null;
-  return (
-    "No decision projection was served for this account and snapshot, so this " +
-    "lane cannot say whether any decision is blocked." +
-    (reason ? ` ${reason}` : "")
-  );
+  return "Decision status is unavailable. Refresh decisions and try again.";
+}
+
+const BUYER_READINESS_BLOCKER_COPY = {
+  no_empirical_outcome_model:
+    "More verified results are needed before this can run automatically.",
+  unsupported_action_class: "This change needs a manual review.",
+  not_action_state: "This item is not ready for a change.",
+  diagnostic_or_watch_state: "This item is for review or monitoring.",
+  low_confidence: "Confidence is too low to act.",
+  missing_campaign_label: "Campaign context needs review.",
+  campaign_context_unresolved: "Campaign context needs review.",
+  campaign_context_resolver_unvalidated:
+    "Campaign context is still being verified.",
+  missing_commercial_anchor: "A valid performance target is required.",
+  missing_controlled_causal_evidence:
+    "More verified outcome evidence is required.",
+  missing_valid_treatment_receipt:
+    "More verified outcome evidence is required.",
+  missing_valid_random_assignment:
+    "More verified outcome evidence is required.",
+  missing_valid_control_estimate: "More verified outcome evidence is required.",
+  insufficient_empirical_sample:
+    "More performance results are needed before acting.",
+  empirical_precision_below_floor:
+    "Decision confidence is below the automation threshold.",
+  missing_executor: "This change can only be completed manually.",
+  missing_live_preflight: "A fresh Meta safety check is required.",
+  missing_rollback_plan: "A recovery plan is required.",
+  missing_post_action_monitor: "A follow-up check is required.",
+  missing_holdout_plan: "A comparison plan is required.",
+  missing_operator_enablement: "Automatic changes are not enabled.",
+} as const satisfies Record<MetaAutomationReadinessBlocker, string>;
+
+const BUYER_READINESS_RESOLUTION_COPY = {
+  no_empirical_outcome_model:
+    "Keep this in review until enough verified results are available.",
+  unsupported_action_class: "Review and apply this change manually.",
+  not_action_state: "Review the evidence; no change is currently authorized.",
+  diagnostic_or_watch_state:
+    "Review the evidence; no change is currently authorized.",
+  low_confidence: "Wait for more performance data, then review again.",
+  missing_campaign_label:
+    "Wait for campaign context verification, then review again.",
+  campaign_context_unresolved:
+    "Wait for campaign context verification, then review again.",
+  campaign_context_resolver_unvalidated:
+    "Wait for campaign context verification, then review again.",
+  missing_commercial_anchor:
+    "Confirm the ROAS or break-even target before acting.",
+  missing_controlled_causal_evidence:
+    "Keep this in manual review until outcome evidence is verified.",
+  missing_valid_treatment_receipt:
+    "Keep this in manual review until outcome evidence is verified.",
+  missing_valid_random_assignment:
+    "Keep this in manual review until outcome evidence is verified.",
+  missing_valid_control_estimate:
+    "Keep this in manual review until outcome evidence is verified.",
+  insufficient_empirical_sample:
+    "Wait for more performance data, then review again.",
+  empirical_precision_below_floor:
+    "Wait for more performance data, then review again.",
+  missing_executor: "Review and apply this change manually.",
+  missing_live_preflight: "Refresh Meta data and run the safety check again.",
+  missing_rollback_plan:
+    "Complete the safety setup before enabling automatic changes.",
+  missing_post_action_monitor:
+    "Complete the safety setup before enabling automatic changes.",
+  missing_holdout_plan:
+    "Complete the safety setup before enabling automatic changes.",
+  missing_operator_enablement:
+    "An admin must enable automatic changes before they can run.",
+} as const satisfies Record<MetaAutomationReadinessBlocker, string>;
+
+function firstReadinessBlocker(
+  readiness: MetaRecommendation["automationReadiness"],
+): MetaAutomationReadinessBlocker | null {
+  return readiness?.blockers[0] ?? null;
+}
+
+function buyerFacingReadinessBlocker(
+  readiness: MetaRecommendation["automationReadiness"],
+): string {
+  const blocker = firstReadinessBlocker(readiness);
+  if (blocker) return BUYER_READINESS_BLOCKER_COPY[blocker];
+  if ((readiness?.missingEvidence.length ?? 0) > 0) {
+    return "More verified evidence is required before acting.";
+  }
+  return "This decision requires review before any change.";
+}
+
+function buyerFacingReadinessResolution(
+  readiness: MetaRecommendation["automationReadiness"],
+): string {
+  const blocker = firstReadinessBlocker(readiness);
+  if (blocker) return BUYER_READINESS_RESOLUTION_COPY[blocker];
+  if ((readiness?.missingEvidence.length ?? 0) > 0) {
+    return "Review the missing evidence, then check this decision again.";
+  }
+  return "Review the evidence before making a change.";
+}
+
+const BUYER_STRUCTURE_DECISION_COPY: Readonly<Record<string, string>> = {
+  scale: "Scale",
+  cut: "Reduce spend",
+  refresh: "Refresh creative",
+  keep: "Keep running",
+  test_more: "Continue testing",
+  diagnose: "Needs review",
+  below_breakeven: "Below break-even",
+  fatigue: "Creative fatigue",
+  rebuild: "Rebuild",
+  switch: "Switch strategy",
+  tune: "Tune settings",
+  swap: "Swap creative",
+  review_placements: "Review placements",
+  review_adsets: "Review ad sets",
+  out_of_scope: "Outside this workflow",
+};
+
+const BUYER_STRUCTURE_ACTION_COPY: Readonly<Record<string, string>> = {
+  review_commercial_truth: "Confirm commercial target",
+  resolve_decision_inputs: "Complete missing evidence",
+  child_decisions: "Review ad set decisions",
+  review_budget: "Review budget",
+  execute_bid: "Review bid adjustment",
+  execute_pause: "Review pause",
+  execute_resume: "Review resume",
+  route_launchpad_rebuild: "Open rebuild draft",
+  route_launchpad_duplicate: "Open duplicate draft",
+  review_drill: "Review recommendation",
+  scale: "Review budget increase",
+  cut: "Review spend reduction",
+  refresh: "Review creative refresh",
+  keep: "Keep monitoring",
+  test_more: "Continue testing",
+  diagnose: "Review missing evidence",
+  no_current_intervention: "Keep monitoring",
+  inactive_inventory: "Review in Meta Ads",
+};
+
+function buyerFacingStructureDecisionLabel(
+  label: MetaRecommendation["decisionLabel"],
+): string {
+  const key = nonBlank(label);
+  return key
+    ? (BUYER_STRUCTURE_DECISION_COPY[key] ?? "Needs review")
+    : "Needs review";
+}
+
+function buyerFacingStructureAction(
+  action: MetaOsDecisionAction | null | undefined,
+): string {
+  if (!action) return "Review recommendation";
+  const known = BUYER_STRUCTURE_ACTION_COPY[action.code];
+  if (known) return known;
+  if (action.providerMutation === "pause") return "Review pause";
+  if (action.providerMutation === "resume") return "Review resume";
+  if (action.providerMutation === "apply_bid") return "Review bid adjustment";
+  if (action.intent === "launchpad") return "Open draft";
+  return "Review recommendation";
+}
+
+function buyerFacingStructureScope(
+  action: MetaOsDecisionAction | null | undefined,
+): string {
+  if (!action) return "Review the evidence before making a change.";
+  if (action.code === "review_commercial_truth") {
+    return "Confirm the account's ROAS target before changing spend.";
+  }
+  if (action.code === "resolve_decision_inputs") {
+    return "Complete the missing evidence before making a change.";
+  }
+  if (action.code === "child_decisions") {
+    return "Open the relevant ad set decision.";
+  }
+  if (action.providerMutation === "pause") {
+    return "Review the pause before applying it in Meta.";
+  }
+  if (action.providerMutation === "resume") {
+    return "Review the restart before applying it in Meta.";
+  }
+  if (action.providerMutation === "apply_bid") {
+    return "Review the bid change before applying it in Meta.";
+  }
+  if (action.intent === "launchpad") {
+    return "Open a draft for review before anything is created.";
+  }
+  if (action.intent === "none") return "No Meta change is planned.";
+  return `Review this ${action.targetLevel === "adset" ? "ad set" : "campaign"} before making a change.`;
+}
+
+function buyerFacingStructureReason(
+  recommendation: MetaRecommendation,
+  node: MetaOsStructureNode | null,
+): string {
+  if ((recommendation.automationReadiness?.blockers.length ?? 0) > 0) {
+    return buyerFacingReadinessBlocker(recommendation.automationReadiness);
+  }
+  if (node?.lane === "monitor") {
+    return "Keep monitoring until more evidence is available.";
+  }
+  switch (recommendation.decisionLabel) {
+    case "scale":
+      return "Performance supports reviewing a controlled budget increase.";
+    case "cut":
+    case "below_breakeven":
+      return "Performance supports reviewing a spend reduction.";
+    case "refresh":
+    case "fatigue":
+      return "Creative performance supports a refresh review.";
+    case "keep":
+      return "Performance is stable enough to keep running.";
+    case "test_more":
+      return "More performance evidence is needed before changing course.";
+    default:
+      return "Review this recommendation and its key metrics.";
+  }
+}
+
+function buyerFacingWatchingNote(recommendation: MetaRecommendation): string {
+  if ((recommendation.automationReadiness?.blockers.length ?? 0) > 0) {
+    return buyerFacingReadinessBlocker(recommendation.automationReadiness);
+  }
+  return "Keep monitoring while more performance evidence is collected.";
 }
 
 /**
  * The blocked lane's rows.
  *
- * Every string is the server's: the blocker is the readiness vocabulary the
- * inspector already prints, the resolution is the node's own scope note, and
- * the verdict is copied through unchanged. There is deliberately no action
- * callback — `authority_blocker IS NOT NULL` implies `authorized_action IS
- * NULL`, so a control here would be offering something that does not exist.
+ * Readiness codes keep the server's gate intact while the row maps them to a
+ * compact operator vocabulary. Free-form producer details remain available to
+ * diagnostics, but never become buyer-facing row copy. There is deliberately
+ * no action callback — `authority_blocker IS NOT NULL` implies
+ * `authorized_action IS NULL`, so a control here would offer authority that
+ * does not exist.
  */
 function needsResolutionRows(input: {
   recommendations: readonly MetaRecommendation[];
@@ -945,19 +1147,10 @@ function needsResolutionRows(input: {
             nonBlank(recommendation.decision) ??
             EM_DASH),
       decisionTone: decisionTone(recommendation.decisionLabel),
-      blocker:
-        nonBlank(readiness?.reason) ??
-        // The node's own assessment is the server's short form of the same
-        // fact ("Decision Blocked"); `whyNow` carries the long one.
-        nonBlank(node?.assessment) ??
-        "Authority withheld",
+      blocker: buyerFacingReadinessBlocker(readiness),
       blockerCount: blockerParts.length,
       blockerTone: "warning",
-      resolution:
-        nonBlank(node?.action?.scopeNote) ??
-        nonBlank(node?.whyNow) ??
-        nonBlank(recommendation.why) ??
-        null,
+      resolution: buyerFacingReadinessResolution(readiness),
       money: recommendationMoney(recommendation, node, input.fallbackCurrency),
       confidence: titleToken(confidence),
       confidenceTone: confidenceTone(confidence),
@@ -1007,11 +1200,7 @@ function watchingRows(input: {
       ...(relation
         ? { lineage: relation.label, lineageRole: relation.role }
         : {}),
-      note:
-        nonBlank(node?.whyNow) ??
-        nonBlank(recommendation.why) ??
-        nonBlank(recommendation.summary) ??
-        EM_DASH,
+      note: buyerFacingWatchingNote(recommendation),
       money: recommendationMoney(recommendation, node, input.fallbackCurrency),
       ...(input.callbacks.onWatchingReview
         ? {
@@ -1643,7 +1832,7 @@ function creativeChips(decision: MetaOsAdDecision): string[] {
     titleToken(decision.lifecycleRole),
     roas === null ? null : `ROAS ${roas.toFixed(2)}`,
     decision.decisionAvailability === "pending_native_evidence"
-      ? "Pending native evidence"
+      ? "Decision pending"
       : null,
   ];
   return chips.filter((value): value is string => Boolean(value));
@@ -1653,7 +1842,7 @@ function creativeMoneySub(decision: MetaOsAdDecision): string {
   const target = finite(decision.metrics.effectiveTargetRoas);
   const parts = [
     target === null ? null : `vs ${target.toFixed(2)} target`,
-    nonBlank(decision.action.scopeNote),
+    buyerFacingCreativeScope(decision),
   ].filter((value): value is string => Boolean(value));
   return parts.length > 0 ? parts.join(" · ") : EM_DASH;
 }
@@ -1682,15 +1871,6 @@ function creativeStateSlot(lane: MetaOsDecisionLane | null | undefined) {
 }
 
 /**
- * Why this row cannot move, in the server's own words.
- *
- * `blockers` and `resolution` are already written by the server for exactly
- * this question and were being dropped on the floor -- every Ad the engine had
- * not decided yet rendered with a bare "Evidence pending" button and no
- * statement of what was missing or who resolves it. Nothing is composed here
- * beyond the join.
- */
-/**
  * What the server states but does not gate on, in the server's own words.
  *
  * These are deliberately NOT folded into the blocked note or the Blockers line.
@@ -1715,11 +1895,232 @@ function canonicalAdvisoryNotes(
   });
 }
 
+const BUYER_CREATIVE_BLOCKER_COPY: Readonly<Record<string, string>> = {
+  native_ad_decision_unavailable: "Decision evidence is still being prepared.",
+  policy_blocked: "A Meta policy issue needs review.",
+  delivery_no_spend_24h: "Delivery needs attention.",
+  delivery_proof: "Delivery evidence is incomplete.",
+  tracking_anomaly: "Tracking needs review.",
+  tracking: "Tracking needs review.",
+  checkout_breakdown: "Checkout performance needs review.",
+  landing_page_issue: "Landing-page performance needs review.",
+  upper_funnel_strong_site_weak: "Landing-page performance needs review.",
+  campaign_context_conflict: "Campaign context sources do not agree.",
+  campaign_context_unresolved: "Campaign context is still being verified.",
+  campaign_context_low_confidence: "Campaign context needs more evidence.",
+  campaign_context_resolver_unvalidated:
+    "Campaign context is still being verified.",
+  campaign_label_missing: "Campaign context is still being verified.",
+  campaign_role_unresolved: "Campaign context is still being verified.",
+  unlabeled_campaign_context: "Campaign context is still being verified.",
+  campaign_context: "Campaign context is still being verified.",
+  commercial_truth_stale: "The commercial target needs confirmation.",
+  truth_commercial_stale: "The commercial target needs confirmation.",
+  stale_evidence: "Decision evidence is out of date.",
+  unknown_freshness: "Decision-data freshness could not be verified.",
+  missing_recent_data: "Recent performance data is incomplete.",
+  freshness: "Recent performance data is incomplete.",
+  data_health: "Decision data needs attention.",
+  source_freshness: "Decision evidence is out of date.",
+  native_metrics_unavailable: "Ad-level performance data is unavailable.",
+  pending_transition: "A recent change still needs confirmation.",
+  recent_recovery_unverifiable: "Recent recovery evidence is inconclusive.",
+  profile_hard_action_ineligible:
+    "More verified evidence is required for this change.",
+  native_profile_unavailable: "The ad-level decision profile is unavailable.",
+  fatigue_proof_not_persisted: "Creative fatigue evidence is incomplete.",
+  scale_calibration: "Scale evidence is incomplete.",
+  winner_evidence_insufficient: "Winner evidence is incomplete.",
+  account_baseline_not_economic:
+    "The account baseline does not prove profitability.",
+};
+
+const BUYER_CREATIVE_RESOLUTION_COPY: Readonly<Record<string, string>> = {
+  produce_native_ad_decision: "Wait for the next completed ad-level decision.",
+  fix_policy: "Resolve the Meta policy issue, then review the ad again.",
+  fix_delivery: "Restore delivery, then review the ad again.",
+  repair_tracking: "Verify purchase tracking before acting.",
+  fix_checkout: "Review checkout performance before changing the ad.",
+  fix_landing_page: "Review landing-page performance before changing the ad.",
+  resolve_campaign_role:
+    "Wait for campaign context verification before acting.",
+  confirm_commercial_target: "Confirm the commercial target before acting.",
+  refresh_decision_data: "Refresh decision data before acting.",
+  await_decision_confirmation:
+    "Wait for the required confirmation before acting.",
+  await_recent_evidence: "Wait for more recent performance evidence.",
+  complete_hard_action_evidence:
+    "Complete the missing evidence before applying this change.",
+  restore_native_profile:
+    "Restore the ad-level decision profile before acting.",
+  resolve_evidence_gap: "Complete the missing evidence before acting.",
+};
+
+const BUYER_CREATIVE_ACTION_CONTEXT_COPY: Readonly<Record<string, string>> = {
+  plan_promotion: "This winning test is ready for a promotion review.",
+  review_structure: "Review the campaign structure before scaling.",
+  keep_running: "Keep this ad running and continue monitoring.",
+  cut: "Performance supports reviewing a cut.",
+  refresh_creative: "This ad is ready for a creative refresh review.",
+  continue_test: "Keep testing until more evidence is available.",
+  watch: "Keep monitoring this recent launch.",
+  fix_delivery: "Resolve delivery before judging performance.",
+  fix_policy: "Resolve the Meta policy issue before judging performance.",
+  await_ad_grain_evidence:
+    "This active ad is waiting for an ad-level decision.",
+  resolve_contract_state: "This decision is incomplete and needs review.",
+  refresh_decision_data: "Refresh the decision data before reviewing this ad.",
+  review_kill_switch: "Automatic changes are paused for review.",
+  review_engine_version:
+    "Automatic changes are paused while decision checks are updated.",
+  review_execution_governance:
+    "Automatic changes are paused pending a safety review.",
+};
+
+const BUYER_CREATIVE_SCOPE_COPY: Readonly<Record<string, string>> = {
+  plan_promotion: "Creates a paused Main copy after review.",
+  review_structure: "No ad-level budget change is available.",
+  keep_running: "No Meta change is planned.",
+  refresh_creative: "Creates a replacement brief and keeps this ad running.",
+  continue_test: "Keeps this ad running for the next review.",
+  watch: "Keeps this ad running for the next review.",
+  fix_delivery: "Review only; no Meta change is authorized.",
+  fix_policy: "Review only; no Meta change is authorized.",
+  await_ad_grain_evidence: "No Meta change is authorized yet.",
+  resolve_contract_state: "No Meta change is authorized yet.",
+  refresh_decision_data: "No Meta change is authorized yet.",
+  review_kill_switch: "No Meta change is authorized yet.",
+  review_engine_version: "No Meta change is authorized yet.",
+  review_execution_governance: "No Meta change is authorized yet.",
+};
+
+const BUYER_CREATIVE_ACTION_COPY: Readonly<Record<string, string>> = {
+  plan_promotion: "Review promotion",
+  review_structure: "Review campaign structure",
+  keep_running: "Keep running",
+  cut: "Review spend reduction",
+  refresh_creative: "Create replacement brief",
+  continue_test: "Continue testing",
+  watch: "Keep monitoring",
+  fix_delivery: "Fix delivery",
+  fix_policy: "Fix Meta policy issue",
+  await_ad_grain_evidence: "Wait for ad-level decision",
+  resolve_contract_state: "Review decision",
+  refresh_decision_data: "Refresh data",
+  review_kill_switch: "Review automation status",
+  review_engine_version: "Review decision",
+  review_execution_governance: "Review automation safeguards",
+};
+
+function knownBuyerCopy(
+  catalog: Readonly<Record<string, string>>,
+  value: string | null | undefined,
+): string | null {
+  const key = nonBlank(value);
+  if (!key || !Object.prototype.hasOwnProperty.call(catalog, key)) return null;
+  return catalog[key] ?? null;
+}
+
+export function buyerFacingCreativeBlockers(
+  decision: MetaOsAdDecision,
+): string[] {
+  const mapped = decision.blockers.map((blocker) =>
+    buyerFacingCreativeBlocker(blocker.code),
+  );
+  return [...new Set(mapped)];
+}
+
+export function buyerFacingCreativeBlocker(
+  code: string | null | undefined,
+): string {
+  return (
+    knownBuyerCopy(BUYER_CREATIVE_BLOCKER_COPY, code) ??
+    "More verified evidence is required."
+  );
+}
+
+export function buyerFacingCreativeResolution(
+  decision: MetaOsAdDecision,
+): string | null {
+  const resolution = decision.resolution;
+  if (!resolution) return null;
+  const known = knownBuyerCopy(BUYER_CREATIVE_RESOLUTION_COPY, resolution.code);
+  if (known) return known;
+  if (resolution.owner === "integration") {
+    return "Refresh the connected data, then review this ad again.";
+  }
+  if (resolution.owner === "operator") {
+    return "Review the missing evidence before taking action.";
+  }
+  return "Wait for the missing decision evidence, then review again.";
+}
+
+export function buyerFacingCreativeReason(decision: MetaOsAdDecision): string {
+  if (decision.decisionAvailability === "pending_native_evidence") {
+    return "This active ad is waiting for an ad-level decision.";
+  }
+  return (
+    knownBuyerCopy(BUYER_CREATIVE_ACTION_CONTEXT_COPY, decision.action.code) ??
+    (decision.lane === "act"
+      ? "Review this recommendation and its evidence."
+      : decision.lane === "monitor"
+        ? "Keep monitoring this ad while more evidence builds."
+        : "This decision needs review before any action.")
+  );
+}
+
+export function buyerFacingCreativeScope(
+  decision: MetaOsAdDecision,
+): string | null {
+  if (decision.action.code === "cut") {
+    return decision.action.intent === "execute" &&
+      decision.action.providerMutation === "pause"
+      ? "Runs a fresh safety check before pausing this ad."
+      : "Review only; no Meta change is authorized.";
+  }
+  return knownBuyerCopy(BUYER_CREATIVE_SCOPE_COPY, decision.action.code);
+}
+
+export function buyerFacingCreativeActionLabel(
+  decision: MetaOsAdDecision,
+): string {
+  return (
+    knownBuyerCopy(BUYER_CREATIVE_ACTION_COPY, decision.action.code) ??
+    (decision.action.providerMutation === "pause"
+      ? "Review pause"
+      : decision.action.providerMutation === "resume"
+        ? "Review restart"
+        : decision.action.providerMutation === "apply_bid"
+          ? "Review bid adjustment"
+          : "Review decision")
+  );
+}
+
+export function buyerFacingCreativeDecisionLabel(
+  decision: MetaOsAdDecision,
+): string {
+  const value = nonBlank(decision.publishedLabel)?.toLowerCase() ?? "";
+  if (/\b(scale|increase budget|promot)/.test(value)) return "Scale";
+  if (/\b(cut|below break-even)/.test(value)) {
+    return decision.lane === "blocked"
+      ? "Reduce spend · needs review"
+      : "Reduce spend";
+  }
+  if (/\brefresh/.test(value)) return "Refresh creative";
+  if (/\b(fix delivery)/.test(value)) return "Fix delivery";
+  if (/\b(fix policy)/.test(value)) return "Fix Meta policy issue";
+  if (/\b(test)/.test(value)) return "Continue testing";
+  if (/\b(keep|protect|watch)/.test(value)) return "Keep monitoring";
+  return decision.lane === "act"
+    ? "Action"
+    : decision.lane === "monitor"
+      ? "Watching"
+      : "Needs review";
+}
+
 function creativeBlockedNote(decision: MetaOsAdDecision): string | null {
-  const blockers = decision.blockers
-    .map((blocker) => nonBlank(blocker.label))
-    .filter((label): label is string => Boolean(label));
-  const nextStep = nonBlank(decision.resolution?.nextStep);
+  const blockers = buyerFacingCreativeBlockers(decision);
+  const nextStep = buyerFacingCreativeResolution(decision);
   const parts = [
     blockers.length > 0 ? blockers.join(" · ") : null,
     nextStep ? `Next: ${nextStep}` : null,
@@ -1808,11 +2209,11 @@ function creativeRows(input: {
       stripeA: null,
       stripeB: null,
       edgeTone: state?.id === "blocked" ? "warning" : tone,
-      decisionLabel: nonBlank(decision.action.label) ?? EM_DASH,
+      decisionLabel: buyerFacingCreativeDecisionLabel(decision),
       decisionTone: tone,
       ...(state ? { stateLabel: state.label, stateTone: state.tone } : {}),
       chips: creativeChips(decision),
-      note: nonBlank(decision.whyNow) ?? EM_DASH,
+      note: buyerFacingCreativeReason(decision),
       ...(creativeBlockedNote(decision)
         ? { blockedNote: creativeBlockedNote(decision)! }
         : {}),
@@ -1823,7 +2224,7 @@ function creativeRows(input: {
         currency: rowCurrency,
       }),
       moneySub: creativeMoneySub(decision),
-      actionLabel: nonBlank(decision.action.label) ?? EM_DASH,
+      actionLabel: buyerFacingCreativeActionLabel(decision),
       actionTone: actionTone(decision.action),
       ...(review ? { onPrimary: review, onOpen: review } : {}),
     };
@@ -1863,7 +2264,7 @@ function creativeGroups(input: {
     const vocabulary = [
       ...new Set(
         decisions
-          .map((decision) => nonBlank(decision.action.label))
+          .map((decision) => buyerFacingCreativeActionLabel(decision))
           .filter((label): label is string => Boolean(label)),
       ),
     ];
@@ -1874,10 +2275,10 @@ function creativeGroups(input: {
         tone: slot.tone,
         count:
           eligiblePreCap === null || eligiblePreCap === rows.length
-            ? `${formatNumber(rows.length)} shown`
-            : `${formatNumber(rows.length)} shown · ${formatNumber(
+            ? `${formatNumber(rows.length)} ${rows.length === 1 ? "decision" : "decisions"}`
+            : `${formatNumber(rows.length)} of ${formatNumber(
                 eligiblePreCap,
-              )} eligible pre-cap`,
+              )} decisions`,
         note: vocabulary.length > 0 ? vocabulary.join(" · ") : EM_DASH,
         rows,
       },
@@ -1900,21 +2301,10 @@ function creativeGroups(input: {
  * does not change what the engine can say.
  */
 function creativeFootnote(decisions: readonly MetaOsAdDecision[]): string {
-  const closing =
-    "Click a row for the evidence window; metric deep-dives and side-by-side comparison live in Creative Studio.";
-  const vocabulary = [
-    ...new Set(
-      decisions
-        .map((decision) => nonBlank(decision.action.label))
-        .filter((label): label is string => Boolean(label)),
-    ),
-  ];
-  if (vocabulary.length === 0) {
-    return `No ad-level call was served for this account. ${closing}`;
+  if (decisions.length === 0) {
+    return "No ad-level decision is available for this account.";
   }
-  return `Ad-level calls served for this account: ${vocabulary.join(
-    " · ",
-  )}. ${closing}`;
+  return "Open a decision for details, or use Creative Studio to compare performance.";
 }
 
 function metricEvidence(input: {
@@ -2077,6 +2467,13 @@ const READINESS_FACT_LABELS: Readonly<Record<string, string>> = {
   */
   automation_evidence_incomplete:
     "Automatic execution is still gathering evidence — you can apply this yourself",
+  automatic_campaign_context_review_only:
+    "Confidence is limited by campaign context",
+  confidence_score_missing: "Confidence score is unavailable",
+  thin_data_watching: "More performance data is needed",
+  unlabeled_campaign_soft_only: "Campaign context needs review",
+  "Source freshness capped confidence.":
+    "Confidence is limited by data freshness",
 };
 
 function operatorFactLabel(value: string): string {
@@ -2084,32 +2481,16 @@ function operatorFactLabel(value: string): string {
   if (!normalized) return EM_DASH;
   const known = READINESS_FACT_LABELS[normalized];
   if (known) return known;
-  return normalized
-    .replaceAll("_", " ")
-    .replace(/\s+/g, " ")
-    .replace(/^\w/, (character) => character.toUpperCase());
+  return "Confidence is limited by the available evidence";
 }
 
 function operatorReadinessLabel(
   tier: string | null | undefined,
-  reason: string | null | undefined,
+  _reason: string | null | undefined,
 ): string {
   const normalizedTier = nonBlank(tier);
-  const tierLabel = normalizedTier
-    ? (READINESS_TIER_LABELS[normalizedTier] ??
-      operatorFactLabel(normalizedTier))
-    : null;
-  const normalizedReason = nonBlank(reason);
-  const reasonLabel = normalizedReason
-    ? /^[a-z0-9_]+$/i.test(normalizedReason)
-      ? operatorFactLabel(normalizedReason)
-      : normalizedReason
-    : null;
-  return (
-    [tierLabel, reasonLabel]
-      .filter((value): value is string => Boolean(value))
-      .join(" · ") || EM_DASH
-  );
+  if (!normalizedTier) return EM_DASH;
+  return READINESS_TIER_LABELS[normalizedTier] ?? "Review required";
 }
 
 function servedEvidenceRows(
@@ -2201,23 +2582,19 @@ function structureInspector(input: {
     readiness?.blockers,
     readiness?.missingEvidence,
   );
+  const actionLabel = buyerFacingStructureAction(action);
   return {
     entityName: entityName(recommendation),
     entityMeta: `${structureLevel(recommendation.level).toLowerCase()} · ${
       nonBlank(recommendation.campaignName) ?? EM_DASH
     }`,
-    decisionLabel:
-      nonBlank(action?.label) ??
-      (recommendation.decisionLabel
-        ? titleToken(recommendation.decisionLabel)
-        : EM_DASH),
+    decisionLabel: buyerFacingStructureDecisionLabel(
+      recommendation.decisionLabel,
+    ),
     tone: decisionTone(recommendation.decisionLabel),
-    serverVerdict:
-      nonBlank(action?.label) ?? nonBlank(recommendation.decision) ?? EM_DASH,
-    contractDetail: nonBlank(action?.scopeNote) ?? EM_DASH,
-    reasons: [
-      nonBlank(node?.whyNow) ?? nonBlank(recommendation.why) ?? EM_DASH,
-    ],
+    serverVerdict: actionLabel,
+    contractDetail: buyerFacingStructureScope(action),
+    reasons: [buyerFacingStructureReason(recommendation, node)],
     moneyValue: recommendationMoney(
       recommendation,
       node,
@@ -2231,10 +2608,7 @@ function structureInspector(input: {
     // account's `pulse.roasHistory`: that is a different entity's line and would
     // read as this one's.
     moneySparkPath: sparkPath(recommendation.evidenceTrail?.roas_history),
-    moneyDetail:
-      nonBlank(node?.expectedImpact) ??
-      nonBlank(recommendation.expectedImpact) ??
-      EM_DASH,
+    moneyDetail: recommendationMoneySub(recommendation, node),
     confidence: titleToken(node?.confidence ?? recommendation.confidence),
     readiness: operatorReadinessLabel(readiness?.tier, readiness?.reason),
     blockers:
@@ -2243,11 +2617,9 @@ function structureInspector(input: {
         : EM_DASH,
     blockerTone: blockerParts.length > 0 ? "warning" : "neutral",
     evidence: servedEvidenceRows(node?.evidence),
-    actionLabel: nonBlank(action?.label) ?? EM_DASH,
+    actionLabel,
     actionTone: actionTone(action),
-    provenance: node?.sourceRecommendationId
-      ? `recommendation ${node.sourceRecommendationId} · ${node.priority.version}`
-      : EM_DASH,
+    provenance: EM_DASH,
     ...(node && input.callback
       ? { onPrimary: () => input.callback?.(recommendation, node.action) }
       : {}),
@@ -2265,10 +2637,9 @@ function creativeInspector(input: {
     currencyCode(decision.metrics.currency) ??
     currencyCode(canonicalDecision?.metrics.currency) ??
     input.fallbackCurrency;
-  const blockers = decision.blockers
-    .map((blocker) => blocker.label)
-    .filter(Boolean);
-  const advisories = canonicalAdvisoryNotes(canonicalDecision);
+  const blockers = buyerFacingCreativeBlockers(decision);
+  const actionLabel = buyerFacingCreativeActionLabel(decision);
+  const decisionLabel = buyerFacingCreativeDecisionLabel(decision);
   const targetRoas = finite(decision.metrics.effectiveTargetRoas);
   return {
     entityName: nonBlank(decision.adName) ?? EM_DASH,
@@ -2277,14 +2648,14 @@ function creativeInspector(input: {
         .map(nonBlank)
         .filter((value): value is string => Boolean(value))
         .join(" · ") || EM_DASH,
-    decisionLabel: nonBlank(decision.action.label) ?? EM_DASH,
+    decisionLabel,
     tone: decisionTone(decision.publishedLabel),
-    serverVerdict: nonBlank(decision.action.label) ?? EM_DASH,
+    serverVerdict: actionLabel,
     contractDetail:
-      nonBlank(decision.resolution?.nextStep) ??
-      nonBlank(decision.action.scopeNote) ??
+      buyerFacingCreativeResolution(decision) ??
+      buyerFacingCreativeScope(decision) ??
       EM_DASH,
-    reasons: [nonBlank(decision.whyNow) ?? EM_DASH],
+    reasons: [buyerFacingCreativeReason(decision)],
     moneyValue: moneyAndRoas({
       spend: decision.metrics.spend,
       roas: decision.metrics.roas,
@@ -2293,12 +2664,12 @@ function creativeInspector(input: {
     targetComparison:
       targetRoas === null ? EM_DASH : `vs ${targetRoas.toFixed(2)} target`,
     moneySparkPath: null,
-    moneyDetail: nonBlank(decision.action.scopeNote) ?? EM_DASH,
+    moneyDetail: buyerFacingCreativeScope(decision) ?? EM_DASH,
     confidence: titleToken(decision.confidence),
     readiness: titleToken(decision.confirmationCeremony),
     blockers: blockers.length > 0 ? blockers.join(" · ") : EM_DASH,
     blockerTone: blockers.length > 0 ? "warning" : "neutral",
-    advisories: advisories.length > 0 ? advisories.join(" · ") : EM_DASH,
+    advisories: EM_DASH,
     evidence: metricEvidence({
       spend: decision.metrics.spend,
       purchases: decision.metrics.purchases,
@@ -2306,9 +2677,9 @@ function creativeInspector(input: {
       lifecycle: decision.lifecycleRole,
       currency: rowCurrency,
     }),
-    actionLabel: nonBlank(decision.action.label) ?? EM_DASH,
+    actionLabel,
     actionTone: actionTone(decision.action),
-    provenance: `decision ${decision.decisionId} · snapshot ${decision.sourceSnapshotId}`,
+    provenance: EM_DASH,
     ...(input.callback
       ? {
           onPrimary: () => input.callback?.(decision, canonicalDecision),
@@ -3821,10 +4192,7 @@ export function buildMetaDecisionCenterExactViewModel(
     assignedAccountStates: workspace.assignedAccountStates,
     identity: {
       accountLabel:
-        nonBlank(scopedAccount?.name) ??
-        nonBlank(scopedAccount?.id) ??
-        nonBlank(providerAccountId) ??
-        EM_DASH,
+        nonBlank(scopedAccount?.name) ?? "Meta ad account",
       currency: fallbackCurrency ?? EM_DASH,
       syncedLabel: syncAge ? `synced ${syncAge}` : `synced ${EM_DASH}`,
       snapshotLabel: snapshotAsOf

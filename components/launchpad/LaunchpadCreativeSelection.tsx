@@ -9,12 +9,10 @@ import {
   LayoutGrid,
   List,
   Search,
-  UploadCloud,
   XSquare,
 } from "lucide-react";
 import { CreativeRenderSurface } from "@/components/creatives/CreativeRenderSurface";
 import { CreativeDecisionLabelBadge } from "@/components/creatives/CreativeDecisionLabelBadge";
-import { buildPlacementTooltip } from "@/components/creatives/CreativesTopGrid";
 import type { MetaCreativeRow } from "@/components/creatives/metricConfig";
 import { LAUNCHPAD_CANDIDATE_WINDOW_LABEL } from "@/lib/launchpad/candidate-window";
 import type {
@@ -30,14 +28,14 @@ type SortKey = "spend_desc" | "roas_desc" | "recency_desc" | "name_asc";
 type BadgeFilter = "below_breakeven" | "fatigue";
 type CampaignFilter = "all" | string;
 
-const LABEL_OPTIONS: DecisionLabel[] = [
-  "scale",
-  "keep",
-  "refresh",
-  "cut",
-  "test_more",
-  "diagnose",
-  "out_of_scope",
+const LABEL_OPTIONS: Array<{ id: DecisionLabel; label: string }> = [
+  { id: "scale", label: "Scale" },
+  { id: "keep", label: "Keep running" },
+  { id: "refresh", label: "Refresh" },
+  { id: "cut", label: "Stop" },
+  { id: "test_more", label: "Test more" },
+  { id: "diagnose", label: "Review data" },
+  { id: "out_of_scope", label: "No recommendation" },
 ];
 
 const BADGE_OPTIONS: Array<{ id: BadgeFilter; label: string }> = [
@@ -98,6 +96,26 @@ function campaignFilterValue(row: MetaCreativeRow) {
   return campaignName ? `name:${campaignName}` : "__unknown";
 }
 
+function buyerFacingEntityName(
+  name: string | null | undefined,
+  id: string | null | undefined,
+  fallback: string,
+) {
+  const normalizedName = name?.trim() ?? "";
+  const normalizedId = id?.trim() ?? "";
+  if (
+    !normalizedName ||
+    (normalizedId &&
+      (normalizedName === normalizedId ||
+        normalizedName === `Creative ${normalizedId}` ||
+        normalizedName === `Campaign ${normalizedId}` ||
+        normalizedName === `Ad set ${normalizedId}`))
+  ) {
+    return fallback;
+  }
+  return normalizedName;
+}
+
 function hasRecentlyDuplicatedMarker(row: MetaCreativeRow) {
   return Boolean(row.launchpadRecentAction) || /\badded\b/i.test(row.name);
 }
@@ -149,7 +167,9 @@ export function filterLaunchpadCreativeRows(input: {
   const rows = input.rows.filter((row) => {
     // A row with no creative identity has no decision to look up. Keyed on
     // the id itself so a missing one cannot collide into one shared bucket.
-    const decision = row.creativeId ? input.decisionByCreativeId.get(row.creativeId) ?? null : null;
+    const decision = row.creativeId
+      ? (input.decisionByCreativeId.get(row.creativeId) ?? null)
+      : null;
     if (statusFilter === "active") {
       const status = row.effectiveStatus?.toUpperCase() ?? "ACTIVE";
       if (status && status !== "ACTIVE") return false;
@@ -184,12 +204,18 @@ export function filterLaunchpadCreativeRows(input: {
       return compareNullableMetricDescending(
         launchpadMetric(
           a,
-          a.creativeId ? input.decisionByCreativeId.get(a.creativeId) ?? null : null,
+          a.creativeId
+            ? (input.decisionByCreativeId.get(a.creativeId) ?? null)
+            : null,
           "roas",
         ),
         launchpadMetric(
           b,
-          b.creativeId ? (b.creativeId ? input.decisionByCreativeId.get(b.creativeId) : undefined) ?? null : null,
+          b.creativeId
+            ? ((b.creativeId
+                ? input.decisionByCreativeId.get(b.creativeId)
+                : undefined) ?? null)
+            : null,
           "roas",
         ),
       );
@@ -201,12 +227,20 @@ export function filterLaunchpadCreativeRows(input: {
     return compareNullableMetricDescending(
       launchpadMetric(
         a,
-        a.creativeId ? (a.creativeId ? input.decisionByCreativeId.get(a.creativeId) : undefined) ?? null : null,
+        a.creativeId
+          ? ((a.creativeId
+              ? input.decisionByCreativeId.get(a.creativeId)
+              : undefined) ?? null)
+          : null,
         "spend",
       ),
       launchpadMetric(
         b,
-        b.creativeId ? (b.creativeId ? input.decisionByCreativeId.get(b.creativeId) : undefined) ?? null : null,
+        b.creativeId
+          ? ((b.creativeId
+              ? input.decisionByCreativeId.get(b.creativeId)
+              : undefined) ?? null)
+          : null,
         "spend",
       ),
     );
@@ -224,8 +258,11 @@ export function buildLaunchpadSelectionSummary(input: {
   let belowBreakeven = 0;
   const labelCounts = new Map<DecisionLabel, number>();
   input.selectedCreatives.forEach((creative) => {
-    const decision =
-      creative.creativeId ? (creative.creativeId ? input.decisionByCreativeId.get(creative.creativeId) : undefined) ?? null : null;
+    const decision = creative.creativeId
+      ? ((creative.creativeId
+          ? input.decisionByCreativeId.get(creative.creativeId)
+          : undefined) ?? null)
+      : null;
     const creativeSpend = launchpadMetric(creative, decision, "spend");
     const creativeRoas = launchpadMetric(creative, decision, "roas");
     if (creativeSpend === null || creativeRoas === null) {
@@ -270,28 +307,28 @@ export function getCreativeAdvisoryNotes(
   if (decision.label === "scale") {
     notes.push({
       tone: "success",
-      text: "Engine: scale candidate (consider higher budget tier)",
+      text: "Scale candidate - consider a higher budget tier",
     });
   }
   if (decision.label === "cut") {
     notes.push({
       tone: "danger",
-      text: "Engine: cut candidate - confirm intent",
+      text: "Stop candidate - confirm before launch",
     });
   }
   if (decision.label === "out_of_scope") {
-    notes.push({ tone: "muted", text: "Engine: out of scope (no decision)" });
+    notes.push({ tone: "muted", text: "No recommendation for this creative" });
   }
   if (decision.label === "refresh") {
     notes.push({
       tone: "warning",
-      text: "Engine: refresh recommended - concept tired",
+      text: "Refresh recommended - the concept may be tired",
     });
   }
   if (decision.label === "diagnose") {
     notes.push({
       tone: "danger",
-      text: "Engine: data anomaly - verify before launch",
+      text: "Review the data before launch",
     });
   }
   if (hasBelowBreakeven(decision)) {
@@ -430,10 +467,11 @@ export function LaunchpadCreativeSelection({
       }
       byValue.set(value, {
         value,
-        label:
-          row.campaignName?.trim() ||
-          row.campaignId?.trim() ||
-          "Unknown campaign",
+        label: buyerFacingEntityName(
+          row.campaignName,
+          row.campaignId,
+          "Unnamed campaign",
+        ),
         count: 1,
       });
     });
@@ -444,10 +482,11 @@ export function LaunchpadCreativeSelection({
       if (selectedRow) {
         byValue.set(campaignFilter, {
           value: campaignFilter,
-          label:
-            selectedRow.campaignName?.trim() ||
-            selectedRow.campaignId?.trim() ||
-            "Unknown campaign",
+          label: buyerFacingEntityName(
+            selectedRow.campaignName,
+            selectedRow.campaignId,
+            "Unnamed campaign",
+          ),
           count: 0,
         });
       }
@@ -511,8 +550,8 @@ export function LaunchpadCreativeSelection({
             Select creatives
           </h2>
           <p className="mt-0.5 text-[12px] text-[var(--muted)]">
-            From active or recently closed ads. Engine v3 advisory is shown per
-            row.
+            Choose from active or recently closed ads. Recommendations appear on
+            each row.
           </p>
         </div>
         <div className="inline-flex w-fit rounded-[6px] border border-[var(--border-2)] bg-[var(--surface-3)] p-1">
@@ -551,7 +590,7 @@ export function LaunchpadCreativeSelection({
           <input
             value={search}
             onChange={(event) => setSearch(event.target.value)}
-            placeholder="Search creative name or ID..."
+            placeholder="Search creatives..."
             className="h-10 w-full rounded-[6px] border border-[var(--border-2)] bg-[var(--surface)] pl-9 pr-3 text-[13px] text-[var(--ink)] outline-none transition focus:border-[var(--brand)]"
           />
         </div>
@@ -637,7 +676,7 @@ export function LaunchpadCreativeSelection({
             </FilterChip>
           ))}
         </FilterGroup>
-        <FilterGroup label="Engine">
+        <FilterGroup label="Recommendation">
           <FilterChip
             active={labels.length === 0}
             onClick={() => setLabels([])}
@@ -645,15 +684,14 @@ export function LaunchpadCreativeSelection({
           >
             All
           </FilterChip>
-          {LABEL_OPTIONS.map((label) => (
+          {LABEL_OPTIONS.map((option) => (
             <FilterChip
-              key={label}
-              active={labels.includes(label)}
-              onClick={() => toggleLabel(label)}
-              mono
-              className={labelToneClass(label, labels.includes(label))}
+              key={option.id}
+              active={labels.includes(option.id)}
+              onClick={() => toggleLabel(option.id)}
+              className={labelToneClass(option.id, labels.includes(option.id))}
             >
-              {label.replaceAll("_", " ")}
+              {option.label}
             </FilterChip>
           ))}
           <span
@@ -670,14 +708,7 @@ export function LaunchpadCreativeSelection({
             </FilterChip>
           ))}
         </FilterGroup>
-        <p className="pl-16 text-[10.5px] leading-relaxed text-[var(--muted)]">
-          Engine-label filter vocabulary (scale / keep / refresh / cut /
-          test_more / diagnose / out_of_scope) is the launch engine&apos;s —
-          deliberately distinct from buyerAction.
-        </p>
       </div>
-
-      <LaunchpadUploadContractNotice />
 
       {loading ? (
         <div className="rounded-[10px] border border-[var(--border)] bg-[var(--surface)] p-4 text-[13px] text-[var(--muted)]">
@@ -696,16 +727,19 @@ export function LaunchpadCreativeSelection({
               "28d metrics" over a thirty-day read, so every figure in the
               column covered two more days than the header claimed.
             */}
-            <span className="text-right">{LAUNCHPAD_CANDIDATE_WINDOW_LABEL}</span>
+            <span className="text-right">
+              {LAUNCHPAD_CANDIDATE_WINDOW_LABEL}
+            </span>
           </div>
           <div className="max-h-[520px] overflow-y-auto">
             {visibleRows.map((row) => {
               const decision = row.creativeId
-                ? (row.creativeId ? decisionByCreativeId.get(row.creativeId) : undefined) ?? null
+                ? ((row.creativeId
+                    ? decisionByCreativeId.get(row.creativeId)
+                    : undefined) ?? null)
                 : null;
               const selected = selectedSet.has(getSelectionId(row));
               const notes = selected ? getCreativeAdvisoryNotes(decision) : [];
-              const placementTooltip = buildPlacementTooltip(row);
               const recentlyDuplicated = hasRecentlyDuplicatedMarker(row);
               const spend = launchpadMetric(row, decision, "spend");
               const roas = launchpadMetric(row, decision, "roas");
@@ -739,7 +773,11 @@ export function LaunchpadCreativeSelection({
                     <input
                       type="checkbox"
                       checked={selected}
-                      aria-label={`Select ${row.name}`}
+                      aria-label={`Select ${buyerFacingEntityName(
+                        row.name,
+                        row.creativeId,
+                        "unnamed creative",
+                      )}`}
                       onChange={() => onToggleCreative(row)}
                       onClick={(event) => event.stopPropagation()}
                       className="sr-only"
@@ -747,7 +785,11 @@ export function LaunchpadCreativeSelection({
                   </div>
                   <CreativeRenderSurface
                     id={row.id}
-                    name={row.name}
+                    name={buyerFacingEntityName(
+                      row.name,
+                      row.creativeId,
+                      "Unnamed creative",
+                    )}
                     preview={row.preview}
                     size="thumb"
                     mode="asset"
@@ -762,7 +804,11 @@ export function LaunchpadCreativeSelection({
                   <div className="min-w-0 space-y-2">
                     <div className="flex flex-wrap items-center gap-2">
                       <p className="truncate text-[13px] font-medium text-[var(--ink)]">
-                        {row.name}
+                        {buyerFacingEntityName(
+                          row.name,
+                          row.creativeId,
+                          "Unnamed creative",
+                        )}
                       </p>
                       {decision ? (
                         <CreativeDecisionLabelBadge label={decision.label} />
@@ -776,12 +822,18 @@ export function LaunchpadCreativeSelection({
                         </span>
                       ) : null}
                     </div>
-                    <p
-                      className="truncate text-[11px] text-[var(--muted)]"
-                      title={placementTooltip}
-                    >
-                      {row.campaignName ?? row.campaignId ?? "No campaign"} ·{" "}
-                      {row.adSetName ?? row.adSetId ?? "No ad set"}
+                    <p className="truncate text-[11px] text-[var(--muted)]">
+                      {buyerFacingEntityName(
+                        row.campaignName,
+                        row.campaignId,
+                        "Unnamed campaign",
+                      )}{" "}
+                      ·{" "}
+                      {buyerFacingEntityName(
+                        row.adSetName,
+                        row.adSetId,
+                        "Unnamed ad set",
+                      )}
                     </p>
                     {notes.length > 0 ? (
                       <div className="flex flex-wrap gap-1.5">
@@ -840,7 +892,10 @@ export function LaunchpadCreativeSelection({
       ) : (
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
           {visibleRows.map((row) => {
-            const decision = (row.creativeId ? decisionByCreativeId.get(row.creativeId) : undefined) ?? null;
+            const decision =
+              (row.creativeId
+                ? decisionByCreativeId.get(row.creativeId)
+                : undefined) ?? null;
             const selected = selectedSet.has(getSelectionId(row));
             const recentlyDuplicated = hasRecentlyDuplicatedMarker(row);
             const spend = launchpadMetric(row, decision, "spend");
@@ -861,7 +916,11 @@ export function LaunchpadCreativeSelection({
                 <div className="flex items-start gap-3">
                   <CreativeRenderSurface
                     id={row.id}
-                    name={row.name}
+                    name={buyerFacingEntityName(
+                      row.name,
+                      row.creativeId,
+                      "Unnamed creative",
+                    )}
                     preview={row.preview}
                     size="thumb"
                     mode="asset"
@@ -876,7 +935,11 @@ export function LaunchpadCreativeSelection({
                   <div className="min-w-0 flex-1">
                     <div className="flex items-start justify-between gap-2">
                       <p className="line-clamp-2 pr-8 text-[13px] font-medium text-[var(--ink)]">
-                        {row.name}
+                        {buyerFacingEntityName(
+                          row.name,
+                          row.creativeId,
+                          "Unnamed creative",
+                        )}
                       </p>
                       <span
                         className={cn(
@@ -890,7 +953,11 @@ export function LaunchpadCreativeSelection({
                       </span>
                     </div>
                     <p className="mt-1 truncate text-[11px] text-[var(--muted)]">
-                      {row.campaignName ?? row.campaignId ?? "No campaign"}
+                      {buyerFacingEntityName(
+                        row.campaignName,
+                        row.campaignId,
+                        "Unnamed campaign",
+                      )}
                     </p>
                     <div className="mt-2 flex flex-wrap gap-1">
                       {decision ? (
@@ -1003,50 +1070,6 @@ function FilterChip({
     >
       {children}
     </button>
-  );
-}
-
-function LaunchpadUploadContractNotice() {
-  return (
-    <div
-      className="rounded-[10px] border border-dashed border-[var(--border-3)] bg-[var(--surface)] p-3"
-      data-testid="launchpad-upload-contract"
-    >
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-        <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-[8px] border border-dashed border-[var(--border-3)] text-[var(--muted)]">
-          <UploadCloud className="h-4 w-4" />
-        </span>
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <p className="text-[12.5px] font-medium text-[var(--ink)]">
-              Upload new creative
-            </p>
-            <span className="chip chip--auto rounded-[4px]">
-              NEEDS-SERVER-CONTRACT · media pipeline
-            </span>
-          </div>
-          <p className="mt-0.5 text-[11px] text-[var(--muted)]">
-            video 9:16 / 4:5 / 1:1, ≤4GB · image ≤30MB. Upload is not enabled
-            until staged media metadata and provider upload writes exist.
-          </p>
-        </div>
-        <button
-          type="button"
-          className="btn btn--sm"
-          disabled
-          title="Media upload backend is not implemented yet."
-        >
-          Choose files
-        </button>
-      </div>
-      <div className="mt-2 flex items-center gap-2 rounded-[8px] border border-[var(--warn-bd)] bg-[var(--warn-bg)] px-3 py-2 text-[11.5px] text-[var(--warn)]">
-        <span className="mono text-[10.5px] text-[var(--muted)]">upload</span>
-        <span className="flex-1">
-          No file is staged or transmitted from this surface. This is a visible
-          backend contract gap, not a silent dead uploader.
-        </span>
-      </div>
-    </div>
   );
 }
 

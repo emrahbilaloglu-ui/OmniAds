@@ -39,11 +39,13 @@ describe("an unread evidence query is distinguishable from an absence", () => {
   });
 
   it("keeps the two reasons apart in the banner", () => {
-    // "could not be read" and "was not read" send an operator to different
-    // places, so they are different sentences.
-    expect(ADAPTER).toContain("Ad-grain evidence could not be read");
-    expect(ADAPTER).toContain("Ad-grain evidence was not read");
-    expect(ADAPTER).toContain("the request is paused or was never issued");
+    expect(ADAPTER).toContain(
+      "Some creative performance data could not be loaded",
+    );
+    expect(ADAPTER).toContain(
+      "Creative performance data is unavailable for this row",
+    );
+    expect(ADAPTER).not.toContain("the request is paused or was never issued");
   });
 
   it("still says nothing when the read genuinely completed", () => {

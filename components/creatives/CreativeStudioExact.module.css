@@ -221,7 +221,7 @@
   padding: 1px 7px;
   border-radius: 9999px;
   font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .tabCount {
@@ -243,8 +243,8 @@
 
 .toneNegative {
   --tone-bg: #fde8ee;
-  --tone-fg: #e11d48;
-  --tone-solid: #e11d48;
+  --tone-fg: #be123c;
+  --tone-solid: #be123c;
   color: var(--tone-fg);
 }
 
@@ -303,7 +303,7 @@
 }
 
 .mutedMono {
-  font-size: 10.5px;
+  font-size: 12px;
 }
 
 .flexSpacer {
@@ -604,7 +604,7 @@
 .columnsLabel {
   color: #555d6d;
   font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
-  font-size: 9.5px;
+  font-size: 12px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
@@ -820,7 +820,7 @@
   border-bottom: 1px solid #e1e6ef;
   color: #555d6d;
   font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 500;
   letter-spacing: 0.1em;
   text-align: left;
@@ -999,7 +999,7 @@
   margin-top: 1px;
   color: #68707f;
   font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .tableStatus,
@@ -1015,7 +1015,7 @@
 
 .tableStatus {
   padding: 2px 8px;
-  font-size: 10.5px;
+  font-size: 12px;
 }
 
 /*

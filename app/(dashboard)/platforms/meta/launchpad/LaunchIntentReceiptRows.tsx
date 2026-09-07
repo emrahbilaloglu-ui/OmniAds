@@ -10,12 +10,12 @@ function record(value: unknown): Record<string, unknown> | null {
 /** Only persisted provider payload names are eligible for display. */
 export function launchIntentDisplayName(intent: MetaLaunchIntent) {
   const payload = record(intent.requestPayload);
-  if (!payload) return "—";
+  if (!payload) return "Untitled launch";
 
   if (intent.operation === "new_campaign") {
     const campaign = record(payload.campaign);
     const name = typeof campaign?.name === "string" ? campaign.name.trim() : "";
-    return name || "—";
+    return name || "Untitled launch";
   }
 
   const targets = Array.isArray(payload.targets) ? payload.targets : [];
@@ -24,7 +24,7 @@ export function launchIntentDisplayName(intent: MetaLaunchIntent) {
     typeof firstTarget?.targetCampaignName === "string"
       ? firstTarget.targetCampaignName.trim()
       : "";
-  return targetName || "—";
+  return targetName || "Untitled launch";
 }
 
 /**
@@ -87,16 +87,22 @@ function isLandedReceipt(intent: MetaLaunchIntent) {
  * unverified state is an unsupplied fact, so it renders as an em-dash.
  */
 export function receiptStatusLabel(intent: MetaLaunchIntent) {
-  return intent.status === "succeeded" || intent.status === "partially_succeeded"
-    ? intent.requestedStatus
-    : "—";
+  if (intent.status === "succeeded") return "Paused";
+  if (intent.status === "partially_succeeded") return "Partially created";
+  return "Needs review";
 }
 
-function formatTimestamp(value: string | null, actor: string | null) {
-  if (!value) return "—";
+function receiptStatusTone(intent: MetaLaunchIntent) {
+  if (intent.status === "succeeded") return "verified";
+  if (intent.status === "partially_succeeded") return "partial";
+  return "review";
+}
+
+function formatTimestamp(value: string | null) {
+  if (!value) return null;
   const time = Date.parse(value);
-  if (!Number.isFinite(time)) return "—";
-  const date = new Intl.DateTimeFormat("en-US", {
+  if (!Number.isFinite(time)) return null;
+  return new Intl.DateTimeFormat("en-US", {
     month: "short",
     day: "numeric",
     hour: "2-digit",
@@ -104,7 +110,6 @@ function formatTimestamp(value: string | null, actor: string | null) {
     hour12: false,
     timeZone: "UTC",
   }).format(new Date(time));
-  return `${date} · by ${actor?.trim() || "—"}`;
 }
 
 function terminalTimestamp(intent: MetaLaunchIntent) {
@@ -122,8 +127,12 @@ function terminalTimestamp(intent: MetaLaunchIntent) {
  */
 export function LaunchIntentReceiptRows({
   intents,
+  loading = false,
+  unavailableReason = null,
 }: {
   intents: MetaLaunchIntent[];
+  loading?: boolean;
+  unavailableReason?: string | null;
 }) {
   const landedIntents = intents.filter(isLandedReceipt);
   return (
@@ -137,7 +146,6 @@ export function LaunchIntentReceiptRows({
               className={styles.exactReceiptRow}
               data-testid="launchpad-receipt-row"
             >
-              <span className={styles.exactReceiptId}>{intent.id || "—"}</span>
               <span className={styles.exactReceiptName}>
                 {launchIntentDisplayName(intent)}
               </span>
@@ -146,15 +154,15 @@ export function LaunchIntentReceiptRows({
                   than a new style, so the layout is untouched. */}
               <span
                 className={styles.exactReceiptStatus}
-                data-empty={
-                  receiptStatusLabel(intent) === "—" ? "true" : undefined
-                }
+                data-status={receiptStatusTone(intent)}
               >
                 {receiptStatusLabel(intent)}
               </span>
-              <span className={styles.exactReceiptTime}>
-                {formatTimestamp(terminalTimestamp(intent), null)}
-              </span>
+              {formatTimestamp(terminalTimestamp(intent)) ? (
+                <span className={styles.exactReceiptTime}>
+                  {formatTimestamp(terminalTimestamp(intent))}
+                </span>
+              ) : null}
               {adsManagerHref ? (
                 <a
                   href={adsManagerHref}
@@ -164,9 +172,7 @@ export function LaunchIntentReceiptRows({
                 >
                   Open in Ads Manager ↗
                 </a>
-              ) : (
-                <span className={styles.exactReceiptUnavailable}>—</span>
-              )}
+              ) : null}
             </div>
           );
         })
@@ -175,13 +181,13 @@ export function LaunchIntentReceiptRows({
           className={styles.exactReceiptRow}
           data-testid="launchpad-receipt-empty"
         >
-          <span className={styles.exactReceiptId}>—</span>
-          <span className={styles.exactReceiptName}>—</span>
-          <span className={styles.exactReceiptStatus} data-empty="true">
-            —
+          <span className={styles.exactReceiptName}>
+            {loading
+              ? "Loading recent launches…"
+              : unavailableReason
+                ? unavailableReason
+                : "No launches yet."}
           </span>
-          <span className={styles.exactReceiptTime}>—</span>
-          <span className={styles.exactReceiptUnavailable}>—</span>
         </div>
       )}
     </div>

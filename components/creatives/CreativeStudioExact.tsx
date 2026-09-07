@@ -61,7 +61,6 @@ const TABS: ReadonlyArray<{ id: CreativeStudioTabId; label: string }> = [
   { id: "assets", label: "Assets" },
   { id: "copies", label: "Copies" },
   { id: "landing-pages", label: "Landing Pages" },
-  { id: "inbox", label: "Inbox" },
   { id: "audiences", label: "Audiences" },
 ];
 
@@ -335,19 +334,6 @@ const INBOX_COLUMNS: ReadonlyArray<{
   { id: "healthy", name: "Healthy", tone: "positive" },
 ];
 
-const AUDIENCE_BREAKDOWN_SLOTS: ReadonlyArray<{
-  title: string;
-  subtitle: string;
-}> = [
-  { title: "Frequency", subtitle: "exposures / user" },
-  { title: "Age", subtitle: "spend share · ROAS" },
-  { title: "Gender", subtitle: "spend share · ROAS" },
-  { title: "Placement", subtitle: "spend share · ROAS" },
-  { title: "Platform", subtitle: "spend share · ROAS" },
-];
-
-const AUDIENCE_MATRIX_COLUMN_SLOTS = 4;
-
 function isFiniteNumber(value: number | null | undefined): value is number {
   return typeof value === "number" && Number.isFinite(value);
 }
@@ -464,7 +450,19 @@ function formatMetric(
 function modelMessage(
   model: { state: CreativeStudioDataState; message: string | null } | undefined,
 ) {
-  return displayText(model?.message);
+  switch (model?.state) {
+    case "loading":
+      return "Loading creative data…";
+    case "account_required":
+      return "Select a Meta account to continue.";
+    case "error":
+    case "unavailable":
+      return "Creative data is temporarily unavailable.";
+    case "empty":
+    case "ready":
+    default:
+      return "No data for this view.";
+  }
 }
 
 function metricDirectionLabel(direction: MetricDirection): string {
@@ -769,16 +767,10 @@ function TabCount({
   active: boolean;
   count: number | null | undefined;
 }) {
-  if (count === 0 || count === undefined) return null;
+  if (count === 0 || count === null || count === undefined) return null;
   return (
-    <span
-      // A number is part of what the tab says and is announced with it. The em
-      // dash is not: it means "this screen was not served the count", and
-      // "Inbox, dash" is noise rather than information.
-      aria-hidden={count === null ? "true" : undefined}
-      className={active ? styles.tabCountActive : styles.tabCount}
-    >
-      {count === null ? EM_DASH : count}
+    <span className={active ? styles.tabCountActive : styles.tabCount}>
+      {count}
     </span>
   );
 }
@@ -912,15 +904,20 @@ function AssetsView({
    * boxes in.
    */
   const visibleMetrics = useMemo(() => {
-    if (metricSet === "custom") {
-      const chosen = new Set<CreativeAssetMetricId>(customMetrics);
-      return METRICS.filter((metric) => chosen.has(metric.id));
-    }
-    return METRIC_PRESETS[metricSet].flatMap((id) => {
-      const metric = METRICS.find((candidate) => candidate.id === id);
-      return metric ? [metric] : [];
-    });
-  }, [customMetrics, metricSet]);
+    const selected = (() => {
+      if (metricSet === "custom") {
+        const chosen = new Set<CreativeAssetMetricId>(customMetrics);
+        return METRICS.filter((metric) => chosen.has(metric.id));
+      }
+      return METRIC_PRESETS[metricSet].flatMap((id) => {
+        const metric = METRICS.find((candidate) => candidate.id === id);
+        return metric ? [metric] : [];
+      });
+    })();
+    return selected.filter((metric) =>
+      rows.some((row) => isFiniteNumber(row.metrics[metric.id])),
+    );
+  }, [customMetrics, metricSet, rows]);
 
   const tableRows = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
@@ -993,9 +990,6 @@ function AssetsView({
         className={styles.assetsToolbar}
         data-creative-studio-exact-section="assets"
       >
-        <span className={styles.mutedMono}>
-          visual assets · heat table + comparison board
-        </span>
         <span className={styles.flexSpacer} />
         <select
           aria-label="Sort creatives"
@@ -1041,14 +1035,12 @@ function AssetsView({
         />
       </div>
 
-      <section className={styles.comparisonBoard}>
-        <div className={styles.sectionHeadingRow}>
-          <h2>Comparison board</h2>
-          <span className={styles.mutedMono}>
-            {pinnedRows.length} pinned · your working set, never auto-fills
-          </span>
-          <span className={styles.flexSpacer} />
-          {pinnedRows.length > 0 ? (
+      {pinnedRows.length > 0 ? (
+        <section className={styles.comparisonBoard}>
+          <div className={styles.sectionHeadingRow}>
+            <h2>Comparison board</h2>
+            <span className={styles.mutedMono}>{pinnedRows.length} pinned</span>
+            <span className={styles.flexSpacer} />
             <button
               className={styles.clearButton}
               onClick={() => setPinnedIds([])}
@@ -1056,20 +1048,7 @@ function AssetsView({
             >
               Clear board
             </button>
-          ) : null}
-        </div>
-
-        {pinnedRows.length === 0 ? (
-          <div className={styles.boardEmpty}>
-            <div>
-              <p className={styles.boardEmptyTitle}>Board is empty</p>
-              <p className={styles.boardEmptyCopy}>
-                Tick creatives in the table below to pin them here as cards for
-                side-by-side review.
-              </p>
-            </div>
           </div>
-        ) : (
           <div className={styles.boardGrid}>
             {pinnedRows.map((row) => (
               <article
@@ -1132,18 +1111,17 @@ function AssetsView({
               </article>
             ))}
           </div>
-        )}
-      </section>
+        </section>
+      ) : null}
 
       <article className={styles.creativesTableArticle}>
         <div className={styles.tableControlRow}>
           <h2>All creatives</h2>
-          <span className={styles.mutedMono}>
-            {model?.syncedCount === null || model?.syncedCount === undefined
-              ? EM_DASH
-              : model.syncedCount}{" "}
-            synced · Meta
-          </span>
+          {model?.syncedCount !== null && model?.syncedCount !== undefined ? (
+            <span className={styles.mutedMono}>
+              {model.syncedCount} creatives
+            </span>
+          ) : null}
           <span className={styles.flexSpacer} />
           <span className={styles.columnsLabel}>Columns</span>
           {(
@@ -1242,12 +1220,6 @@ function AssetsView({
         </div>
 
         <div className={styles.heatLegend}>
-          <span>cell color = rank across these creatives on that metric</span>
-          <span aria-hidden="true" className={styles.heatRamp} />
-          <span>
-            lags → leads · ↓ = lower is better · volume columns stay neutral
-          </span>
-          <span className={styles.flexSpacer} />
           {/*
             The active sort, said out loud. `role="status"` so a screen-reader
             operator hears the column and direction change when they activate a
@@ -1255,22 +1227,22 @@ function AssetsView({
           */}
           <span className={styles.sortState} role="status">
             {sortedMetric
-              ? `sorted by ${sortedMetric.label} · ${sortDirectionLabel(sort.direction)} · ${EM_DASH} last`
-              : `sorted by ${EM_DASH}`}
+              ? `Sorted by ${sortedMetric.label} · ${sortDirectionLabel(sort.direction)}`
+              : "Not sorted"}
           </span>
         </div>
 
         <div
-            className={styles.tableScroller}
-            /* A region that scrolls but cannot be focused is unreachable by
+          className={styles.tableScroller}
+          /* A region that scrolls but cannot be focused is unreachable by
                keyboard whenever its content has no focusable element of its own —
                and every one of these tables is read-only. Zero is the documented
                remedy for axe's scrollable-region-focusable; the name is what
                tells a screen-reader user what they just landed in. */
-            tabIndex={0}
-            role="region"
-            aria-label="Assets table, scrolls sideways"
-          >
+          tabIndex={0}
+          role="region"
+          aria-label="Assets table, scrolls sideways"
+        >
           <table
             className={styles.assetTable}
             data-assets-sort={sort.key}
@@ -1433,12 +1405,6 @@ function AssetsView({
           </table>
         </div>
       </article>
-
-      <p className={styles.closingNote}>
-        Thumbnails render from synced ad assets — drop real creative exports to
-        replace placeholders. Board picks and the Custom column set persist per
-        operator.
-      </p>
     </>
   );
 }
@@ -1452,6 +1418,7 @@ function BoardMetric({
   tone?: CreativeStudioTone;
   value: string;
 }) {
+  if (value === EM_DASH) return null;
   return (
     <span className={styles.boardMetric}>
       <span>{label}</span>
@@ -1467,18 +1434,17 @@ function CopiesView({
 }) {
   const angles = model?.angles ?? [];
   const rows = model?.rows ?? [];
-  const angleSlots = Array.from(
-    { length: 4 },
-    (_, index) => angles[index] ?? null,
-  );
+  const angleGaps = model?.angleGaps ?? [];
+  const hasAngleCoverage =
+    Boolean(model?.angleCoverage?.trim()) || angleGaps.length > 0;
   return (
     <>
-      <div
-        className={styles.angleGrid}
-        data-creative-studio-exact-section="copies"
-      >
-        {angleSlots.map((angle, index) =>
-          angle ? (
+      {angles.length > 0 ? (
+        <div
+          className={styles.angleGrid}
+          data-creative-studio-exact-section="copies"
+        >
+          {angles.map((angle) => (
             <article
               className={`${styles.angleCard} ${TONE_CLASSES[angle.tone]}`}
               data-copy-angle={angle.id}
@@ -1486,9 +1452,9 @@ function CopiesView({
             >
               <div className={styles.angleCardHeader}>
                 <p>{displayText(angle.name)}</p>
-                <span>
-                  {isFiniteNumber(angle.lines) ? angle.lines : EM_DASH} lines
-                </span>
+                {isFiniteNumber(angle.lines) ? (
+                  <span>{angle.lines} lines</span>
+                ) : null}
               </div>
               <div className={styles.angleMetrics}>
                 <SummaryMetric
@@ -1505,44 +1471,30 @@ function CopiesView({
                   value={formatPercent(angle.ctr, 2)}
                 />
               </div>
-              <p className={styles.angleBestLine}>
-                Best line: <strong>“{displayText(angle.bestLine)}”</strong>
-              </p>
-              <p className={styles.angleUsage}>{displayText(angle.usage)}</p>
+              {angle.bestLine?.trim() ? (
+                <p className={styles.angleBestLine}>
+                  Best line: <strong>“{angle.bestLine}”</strong>
+                </p>
+              ) : null}
+              {angle.usage?.trim() ? (
+                <p className={styles.angleUsage}>{angle.usage}</p>
+              ) : null}
             </article>
-          ) : (
-            <article
-              className={`${styles.angleCard} ${TONE_CLASSES.neutral}`}
-              data-copy-angle={`empty-${index + 1}`}
-              key={`empty-${index + 1}`}
-            >
-              <div className={styles.angleCardHeader}>
-                <p>{EM_DASH}</p>
-                <span>{EM_DASH} lines</span>
-              </div>
-              <div className={styles.angleMetrics}>
-                <SummaryMetric label="Spend share" value={EM_DASH} />
-                <SummaryMetric label="ROAS" value={EM_DASH} />
-                <SummaryMetric label="CTR" value={EM_DASH} />
-              </div>
-              <p className={styles.angleBestLine}>
-                Best line: <strong>“{EM_DASH}”</strong>
-              </p>
-              <p className={styles.angleUsage}>{EM_DASH}</p>
-            </article>
-          ),
-        )}
-      </div>
+          ))}
+        </div>
+      ) : null}
 
-      <div className={styles.angleCoverage}>
-        <span>Angle coverage</span>
-        <p>{displayText(model?.angleCoverage)}</p>
-        {(model?.angleGaps ?? []).map((gap) => (
-          <span className={styles.angleGap} key={gap}>
-            {gap}
-          </span>
-        ))}
-      </div>
+      {hasAngleCoverage ? (
+        <div className={styles.angleCoverage}>
+          <span>Angle coverage</span>
+          {model?.angleCoverage?.trim() ? <p>{model.angleCoverage}</p> : null}
+          {angleGaps.map((gap) => (
+            <span className={styles.angleGap} key={gap}>
+              {gap}
+            </span>
+          ))}
+        </div>
+      ) : null}
 
       <article className={styles.borderedTableArticle}>
         <div className={styles.articleHeader}>
@@ -1550,24 +1502,22 @@ function CopiesView({
           {/* The window is named from what was measured, never from a
               literal: a hardcoded "28d" labelled a 14-day or custom selection
               as 28 days. Unknown withholds instead of guessing. */}
-          <span>
-            {`aggregated per exact string · ${model?.windowLabel ?? EM_DASH} · click a line for alternates`}
-          </span>
-          <span className={styles.insightPill}>
-            {displayText(model?.insight)}
-          </span>
+          {model?.windowLabel ? <span>{model.windowLabel}</span> : null}
+          {model?.insight?.trim() ? (
+            <span className={styles.insightPill}>{model.insight}</span>
+          ) : null}
         </div>
         <div
-            className={styles.tableScroller}
-            /* A region that scrolls but cannot be focused is unreachable by
+          className={styles.tableScroller}
+          /* A region that scrolls but cannot be focused is unreachable by
                keyboard whenever its content has no focusable element of its own —
                and every one of these tables is read-only. Zero is the documented
                remedy for axe's scrollable-region-focusable; the name is what
                tells a screen-reader user what they just landed in. */
-            tabIndex={0}
-            role="region"
-            aria-label="Copy table, scrolls sideways"
-          >
+          tabIndex={0}
+          role="region"
+          aria-label="Copy table, scrolls sideways"
+        >
           <table className={styles.copyTable}>
             <thead>
               <tr>
@@ -1650,12 +1600,6 @@ function CopiesView({
           </table>
         </div>
       </article>
-
-      <p className={styles.closingNote}>
-        See more = expansions of truncated primaries · Engage = reactions +
-        comments + shares per impression. Angles are auto-tagged and editable
-        per line; click any line for angle-shifted alternates.
-      </p>
     </>
   );
 }
@@ -1669,6 +1613,7 @@ function SummaryMetric({
   tone?: CreativeStudioTone;
   value: string;
 }) {
+  if (value === EM_DASH) return null;
   return (
     <span className={styles.summaryMetric}>
       <span>{label}</span>
@@ -1725,9 +1670,7 @@ function LandingPagesView({
         <article className={styles.borderedTableArticle}>
           <div className={styles.articleHeader}>
             <h2>Destinations behind ads</h2>
-            <span>
-              {`Meta-reported only — link clicks + pixel LP views · no analytics join · ${model?.windowLabel ?? EM_DASH}`}
-            </span>
+            {model?.windowLabel ? <span>{model.windowLabel}</span> : null}
           </div>
           <div
             className={styles.tableScroller}
@@ -1803,45 +1746,41 @@ function LandingPagesView({
           </div>
         </article>
 
-        <div className={styles.landingReads}>
-          <article className={styles.readCard}>
-            <h2>What’s missing</h2>
-            <p className={styles.readSubtitle}>
-              Gaps the engine sees in the current link map.
-            </p>
-            <ReadItems items={model?.gaps ?? []} message={message} />
-          </article>
-          <article className={styles.readCard}>
-            <h2>What to try</h2>
-            {/* The items below carry no href and no callback, and no server
-                intent is minted for them — nothing here starts a draft. The
-                sentence claimed a flow that has no producer, so it states what
-                the reads are instead of what they would do. */}
-            <p className={styles.readSubtitle}>
-              Test ideas from the reads below. Drafting them in Launchpad is not
-              built.
-            </p>
-            <ReadItems
-              items={model?.tests ?? []}
-              message={message}
-              showEstimate
-            />
-          </article>
-        </div>
+        {(model?.gaps.length ?? 0) > 0 || (model?.tests.length ?? 0) > 0 ? (
+          <div className={styles.landingReads}>
+            {(model?.gaps.length ?? 0) > 0 ? (
+              <article className={styles.readCard}>
+                <h2>Potential gaps</h2>
+                <p className={styles.readSubtitle}>
+                  Destinations that may need attention.
+                </p>
+                <ReadItems items={model?.gaps ?? []} message={message} />
+              </article>
+            ) : null}
+            {(model?.tests.length ?? 0) > 0 ? (
+              <article className={styles.readCard}>
+                <h2>Test ideas</h2>
+                <p className={styles.readSubtitle}>
+                  Ideas based on current performance.
+                </p>
+                <ReadItems
+                  items={model?.tests ?? []}
+                  message={message}
+                  showEstimate
+                />
+              </article>
+            ) : null}
+          </div>
+        ) : null}
       </div>
 
-      <article className={styles.historyCard}>
-        <div className={styles.historyHeader}>
-          <h2>Destination history</h2>
-          <span>
-            what changed, what it did — these reads feed the test ideas
-          </span>
-        </div>
-        <div className={styles.historyRows}>
-          {(model?.history ?? []).length === 0 ? (
-            <div className={styles.historyEmpty}>{message}</div>
-          ) : (
-            model?.history.map((item) => (
+      {(model?.history.length ?? 0) > 0 ? (
+        <article className={styles.historyCard}>
+          <div className={styles.historyHeader}>
+            <h2>Destination history</h2>
+          </div>
+          <div className={styles.historyRows}>
+            {model?.history.map((item) => (
               <div className={styles.historyRow} key={item.id}>
                 <span>{displayText(item.date)}</span>
                 <span>{displayText(item.text)}</span>
@@ -1849,10 +1788,10 @@ function LandingPagesView({
                   {displayText(item.result)}
                 </span>
               </div>
-            ))
-          )}
-        </div>
-      </article>
+            ))}
+          </div>
+        </article>
+      ) : null}
     </>
   );
 }
@@ -1908,63 +1847,41 @@ function InboxView({ model }: { model: CreativeStudioExactProps["inbox"] }) {
 
   return (
     <>
-      <div
-        className={styles.routingStrip}
-        data-creative-studio-exact-section="inbox"
-      >
-        <svg aria-hidden="true" viewBox="0 0 24 24">
-          <path d="M22 12h-6l-2 3h-4l-2-3H2 M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" />
-        </svg>
-        {/* What this board is, and what it is not. The three segments below
-            are the creative-briefing authority's own served sections; the
-            request -> version -> approval -> handoff workflow the design
-            imagined here has no producer anywhere in this product, so it is
-            named as unbuilt rather than drawn as four empty columns that read
-            like a workflow with no traffic. */}
-        <p>
-          These are the creative decision items the briefing authority serves
-          for this account, in the segments it serves them. Requesting a
-          creative, versioning a delivered file, approving it and handing it to{" "}
-          <b>Launchpad</b> are not built: no request, owner, due date, version
-          or approval is recorded anywhere in this product.
-        </p>
-      </div>
-
-      <div
-        className={styles.inboxBoard}
-        tabIndex={0}
-        role="region"
-        aria-label="Creative inbox columns, scroll sideways"
-      >
-        {columns.map((column, index) => (
-          <div
-            className={styles.inboxColumn}
-            data-inbox-column={column.id}
-            key={column.id}
-          >
-            <div className={styles.inboxColumnHeader}>
-              <span
-                className={`${styles.columnDot} ${TONE_CLASSES[column.tone]}`}
-              />
-              <span>{column.name}</span>
-              <span>{column.cards.length}</span>
+      {allEmpty ? (
+        <div
+          className={styles.readEmpty}
+          data-creative-studio-exact-section="inbox"
+        >
+          {modelMessage(model)}
+        </div>
+      ) : (
+        <div
+          className={styles.inboxBoard}
+          data-creative-studio-exact-section="inbox"
+          tabIndex={0}
+          role="region"
+          aria-label="Creative inbox columns, scroll sideways"
+        >
+          {columns.map((column) => (
+            <div
+              className={styles.inboxColumn}
+              data-inbox-column={column.id}
+              key={column.id}
+            >
+              <div className={styles.inboxColumnHeader}>
+                <span
+                  className={`${styles.columnDot} ${TONE_CLASSES[column.tone]}`}
+                />
+                <span>{column.name}</span>
+                <span>{column.cards.length}</span>
+              </div>
+              {column.cards.map((card) => (
+                <InboxCard card={card} key={card.id} />
+              ))}
             </div>
-            {column.cards.map((card) => (
-              <InboxCard card={card} key={card.id} />
-            ))}
-            {allEmpty && index === 0 ? (
-              <p className={styles.inboxEmpty}>{modelMessage(model)}</p>
-            ) : null}
-          </div>
-        ))}
-      </div>
-
-      {/* The drop zone that used to sit here is gone. It offered "Drop new
-          exports here" over a permanently disabled Browse files button: there
-          is no multipart handler and no storage dependency in this tree, so
-          nothing could ever be dropped. A dead affordance for an unbuilt
-          workflow is the same claim the four pipeline columns were making, and
-          it is removed for the same reason. */}
+          ))}
+        </div>
+      )}
     </>
   );
 }
@@ -2050,35 +1967,36 @@ function AudiencesView({
   const breakdowns = model?.breakdowns ?? [];
   const matrixRows = model?.matrixRows ?? [];
   const matrixScale = buildMatrixRankScale(matrixRows);
-  const servedMatrixColumns = model?.matrixColumns ?? [];
-  const matrixColumns =
-    servedMatrixColumns.length > 0
-      ? servedMatrixColumns
-      : Array.from({ length: AUDIENCE_MATRIX_COLUMN_SLOTS }, () => EM_DASH);
+  const matrixColumns = model?.matrixColumns ?? [];
   const message = modelMessage(model);
-  const summarySlots = Array.from(
-    { length: 4 },
-    (_, index) => summaries[index] ?? null,
+  const summarySlots = summaries;
+  const breakdownSlots = breakdowns.filter(
+    (breakdown) => breakdown.rows.length > 0,
   );
-  const breakdownSlots = AUDIENCE_BREAKDOWN_SLOTS.map((slot, index) => {
-    const served = breakdowns[index];
-    return {
-      id: served?.id ?? `empty-${slot.title.toLowerCase()}`,
-      title: slot.title,
-      subtitle: served?.subtitle || slot.subtitle,
-      note: served?.note ?? null,
-      rows: served?.rows ?? [],
-    } satisfies CreativeStudioBreakdown;
-  });
+
+  if (
+    summarySlots.length === 0 &&
+    breakdownSlots.length === 0 &&
+    matrixRows.length === 0
+  ) {
+    return (
+      <div
+        className={styles.readEmpty}
+        data-creative-studio-exact-section="audiences"
+      >
+        {message}
+      </div>
+    );
+  }
 
   return (
     <>
-      <div
-        className={styles.audienceSummaryGrid}
-        data-creative-studio-exact-section="audiences"
-      >
-        {summarySlots.map((summary, index) =>
-          summary ? (
+      {summarySlots.length > 0 ? (
+        <div
+          className={styles.audienceSummaryGrid}
+          data-creative-studio-exact-section="audiences"
+        >
+          {summarySlots.map((summary) => (
             <article
               className={styles.audienceSummary}
               data-audience-summary={summary.id}
@@ -2094,10 +2012,11 @@ function AudiencesView({
               </div>
               <div className={styles.audienceMetrics}>
                 <SummaryMetric
-                  // The window is selectable, so a fixed "28d" here is a claim
-                  // about a measurement. Named from what was measured; an
-                  // unknown window says so rather than asserting a default.
-                  label={`Spend · ${model?.windowLabel ?? EM_DASH}`}
+                  label={
+                    model?.windowLabel
+                      ? `Spend · ${model.windowLabel}`
+                      : "Spend"
+                  }
                   value={formatMoney(summary.spend, summary.currency, true)}
                 />
                 <SummaryMetric
@@ -2110,62 +2029,46 @@ function AudiencesView({
                   value={formatRatio(summary.frequency)}
                 />
               </div>
-              <p className={styles.audienceNote}>{displayText(summary.note)}</p>
+              {summary.note?.trim() ? (
+                <p className={styles.audienceNote}>{summary.note}</p>
+              ) : null}
             </article>
-          ) : (
-            <article
-              className={styles.audienceSummary}
-              data-audience-summary={`empty-${index + 1}`}
-              key={`empty-${index + 1}`}
-            >
-              <div className={styles.audienceSummaryHeader}>
-                <p>{EM_DASH}</p>
-                <span
-                  className={`${styles.tableStatus} ${TONE_CLASSES.neutral}`}
-                >
-                  {EM_DASH}
-                </span>
-              </div>
-              <div className={styles.audienceMetrics}>
-                <SummaryMetric
-                  label={`Spend · ${model?.windowLabel ?? EM_DASH}`}
-                  value={EM_DASH}
-                />
-                <SummaryMetric label="ROAS" value={EM_DASH} />
-                <SummaryMetric label="Freq" value={EM_DASH} />
-              </div>
-              <p className={styles.audienceNote}>{EM_DASH}</p>
-            </article>
-          ),
-        )}
-      </div>
+          ))}
+        </div>
+      ) : null}
 
-      <div className={styles.audienceSectionHeading}>
-        <h2>Breakdowns &amp; frequency</h2>
-        {/* The window is named from what was measured, never from a literal.
+      {breakdownSlots.length > 0 ? (
+        <>
+          <div className={styles.audienceSectionHeading}>
+            <h2>Breakdowns &amp; frequency</h2>
+            {/* The window is named from what was measured, never from a literal.
             A hardcoded "28d" here labelled a 7-day or custom selection as a
             28-day one, which is a caption asserting a measurement nobody
             performed. Unknown withholds instead of guessing. */}
-        <span>
-          {`account-wide · ${model?.windowLabel ?? EM_DASH} · bar = spend share · right value = ROAS`}
-        </span>
-      </div>
-      <div className={styles.breakdownGrid}>
-        {breakdownSlots.map((breakdown) => (
-          <BreakdownCard breakdown={breakdown} key={breakdown.id} />
-        ))}
-      </div>
+            {model?.windowLabel ? <span>{model.windowLabel}</span> : null}
+          </div>
+          <div className={styles.breakdownGrid}>
+            {breakdownSlots.map((breakdown) => (
+              <BreakdownCard breakdown={breakdown} key={breakdown.id} />
+            ))}
+          </div>
+        </>
+      ) : null}
 
-      <article className={styles.borderedTableArticle}>
-        <div className={styles.articleHeader}>
-          <h2>Creative × audience matrix</h2>
-          <span>cell = ROAS in that pairing · 28d · blank = not running</span>
-          <span
-            aria-hidden="true"
-            className={`${styles.heatRamp} ${styles.matrixRamp}`}
-          />
-        </div>
-        <div
+      {matrixRows.length > 0 && matrixColumns.length > 0 ? (
+        <article className={styles.borderedTableArticle}>
+          <div className={styles.articleHeader}>
+            <h2>Creative × audience matrix</h2>
+            <span>
+              ROAS by pairing
+              {model?.windowLabel ? ` · ${model.windowLabel}` : ""}
+            </span>
+            <span
+              aria-hidden="true"
+              className={`${styles.heatRamp} ${styles.matrixRamp}`}
+            />
+          </div>
+          <div
             className={styles.tableScroller}
             /* A region that scrolls but cannot be focused is unreachable by
                keyboard whenever its content has no focusable element of its own —
@@ -2176,60 +2079,62 @@ function AudiencesView({
             role="region"
             aria-label="Creative by audience matrix, scrolls sideways"
           >
-          <table className={styles.matrixTable}>
-            <thead>
-              <tr>
-                <th>Creative</th>
-                {matrixColumns.map((column) => (
-                  <th className={styles.numericHeader} key={column}>
-                    {displayText(column)}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {matrixRows.length === 0 ? (
-                <EmptyRow
-                  colSpan={Math.max(1, matrixColumns.length + 1)}
-                  message={message}
-                />
-              ) : (
-                matrixRows.map((row) => (
-                  <tr data-audience-matrix-row={row.id} key={row.id}>
-                    <td>
-                      <div className={styles.matrixIdentity}>
-                        {row.imageUrl ? (
-                          <img alt="" draggable={false} src={row.imageUrl} />
-                        ) : (
-                          <span
-                            aria-hidden="true"
-                            className={styles.matrixPlaceholder}
-                          />
-                        )}
-                        <span>{displayText(row.name)}</span>
-                      </div>
-                    </td>
-                    {matrixColumns.map((column, index) => {
-                      const value = row.values[index] ?? null;
-                      return (
-                        <td
-                          className={styles.metricCell}
-                          key={`${row.id}:${column}`}
-                        >
-                          <span className={matrixHeatClass(value, matrixScale)}>
-                            {formatRatio(value)}
-                          </span>
-                        </td>
-                      );
-                    })}
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      </article>
-      <p className={styles.closingNote}>{message}</p>
+            <table className={styles.matrixTable}>
+              <thead>
+                <tr>
+                  <th>Creative</th>
+                  {matrixColumns.map((column) => (
+                    <th className={styles.numericHeader} key={column}>
+                      {displayText(column)}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {matrixRows.length === 0 ? (
+                  <EmptyRow
+                    colSpan={Math.max(1, matrixColumns.length + 1)}
+                    message={message}
+                  />
+                ) : (
+                  matrixRows.map((row) => (
+                    <tr data-audience-matrix-row={row.id} key={row.id}>
+                      <td>
+                        <div className={styles.matrixIdentity}>
+                          {row.imageUrl ? (
+                            <img alt="" draggable={false} src={row.imageUrl} />
+                          ) : (
+                            <span
+                              aria-hidden="true"
+                              className={styles.matrixPlaceholder}
+                            />
+                          )}
+                          <span>{displayText(row.name)}</span>
+                        </div>
+                      </td>
+                      {matrixColumns.map((column, index) => {
+                        const value = row.values[index] ?? null;
+                        return (
+                          <td
+                            className={styles.metricCell}
+                            key={`${row.id}:${column}`}
+                          >
+                            <span
+                              className={matrixHeatClass(value, matrixScale)}
+                            >
+                              {formatRatio(value)}
+                            </span>
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </article>
+      ) : null}
     </>
   );
 }
@@ -2271,7 +2176,10 @@ export function CreativeStudioExact({
     if (selectedCount === 0) {
       if (nudgeTimeoutRef.current) clearTimeout(nudgeTimeoutRef.current);
       setShareNudgeVisible(true);
-      nudgeTimeoutRef.current = setTimeout(() => setShareNudgeVisible(false), 5200);
+      nudgeTimeoutRef.current = setTimeout(
+        () => setShareNudgeVisible(false),
+        5200,
+      );
       return;
     }
     setShareNudgeVisible(false);
@@ -2279,7 +2187,9 @@ export function CreativeStudioExact({
   };
 
   const shareLabel =
-    selectedCount > 0 ? `Share with client · ${selectedCount}` : "Share with client";
+    selectedCount > 0
+      ? `Share with client · ${selectedCount}`
+      : "Share with client";
 
   return (
     <section
@@ -2289,86 +2199,93 @@ export function CreativeStudioExact({
     >
       <header className={styles.pageHeader}>
         <div>
-          <p className={styles.pageEyebrow}>
-            Meta · Analysis-first — writes stay in Launchpad
-          </p>
           <h1>Creative Studio</h1>
         </div>
         <div className={styles.headerActions}>
-          <button disabled={!onExport} onClick={onExport} type="button">
-            Export CSV
-          </button>
-          <button
-            className={styles.sharedLinksButton}
-            data-creative-studio-shared-links-button="true"
-            disabled={!onOpenSharedLinks}
-            onClick={onOpenSharedLinks}
-            type="button"
-          >
-            Shared links
-            <span className={styles.sharedLinksCount}>
-              {sharedLinksCount == null ? "—" : sharedLinksCount}
-            </span>
-          </button>
-          <span className={styles.shareEntryWrap}>
+          {onExport ? (
+            <button onClick={onExport} type="button">
+              Export CSV
+            </button>
+          ) : null}
+          {onOpenSharedLinks ? (
             <button
-              aria-label="Share selected creatives with client"
-              className={
-                selectedCount > 0
-                  ? styles.shareButtonActive
-                  : styles.shareButtonIdle
-              }
-              data-creative-studio-share-button="true"
-              data-share-refused={shareRefusalReason ? "" : undefined}
-              disabled={!onShare || Boolean(shareRefusalReason)}
-              onClick={handleShareClick}
-              title={shareRefusalReason ?? undefined}
+              className={styles.sharedLinksButton}
+              data-creative-studio-shared-links-button="true"
+              onClick={onOpenSharedLinks}
               type="button"
             >
-              {shareLabel}
+              Shared links
+              {sharedLinksCount != null && sharedLinksCount > 0 ? (
+                <span className={styles.sharedLinksCount}>
+                  {sharedLinksCount}
+                </span>
+              ) : null}
             </button>
-            {/*
+          ) : null}
+          {onShare ? (
+            <span className={styles.shareEntryWrap}>
+              <button
+                aria-label="Share selected creatives with client"
+                className={
+                  selectedCount > 0
+                    ? styles.shareButtonActive
+                    : styles.shareButtonIdle
+                }
+                data-creative-studio-share-button="true"
+                data-share-refused={shareRefusalReason ? "" : undefined}
+                disabled={Boolean(shareRefusalReason)}
+                onClick={handleShareClick}
+                title={
+                  shareRefusalReason
+                    ? "Sharing is unavailable for this account."
+                    : undefined
+                }
+                type="button"
+              >
+                {shareLabel}
+              </button>
+              {/*
               Stated, not implied by a greyed control. An operator who cannot
               mint needs the reason where the refusal is, and a `title` alone
               reaches neither a keyboard user nor a screen reader on a disabled
               button.
             */}
-            {shareRefusalReason ? (
-              <span
-                className={styles.shareNudge}
-                data-share-refusal-reason=""
-                role="note"
-              >
-                <span className={styles.shareNudgeTitle}>{shareRefusalReason}</span>
-              </span>
-            ) : null}
-            {shareNudgeVisible ? (
-              <span
-                className={styles.shareNudge}
-                data-screen-label="Share entry — no selection"
-                role="status"
-              >
-                <span className={styles.shareNudgeTitle}>
-                  Select at least one creative to create a frozen snapshot.
-                </span>
-                <span className={styles.shareNudgeBody}>
-                  Tick rows in the All creatives table below — nothing is
-                  auto-selected for you.
-                </span>
-                <button
-                  aria-label="Dismiss"
-                  className={styles.shareNudgeDismiss}
-                  onClick={() => {
-                    if (nudgeTimeoutRef.current) clearTimeout(nudgeTimeoutRef.current);
-                    setShareNudgeVisible(false);
-                  }}
-                  type="button"
+              {shareRefusalReason ? (
+                <span
+                  className={styles.shareNudge}
+                  data-share-refusal-reason=""
+                  role="note"
                 >
-                  ✕
-                </button>
-              </span>
-            ) : null}
-          </span>
+                  <span className={styles.shareNudgeTitle}>
+                    Sharing is unavailable for this account.
+                  </span>
+                </span>
+              ) : null}
+              {shareNudgeVisible ? (
+                <span
+                  className={styles.shareNudge}
+                  data-screen-label="Share entry — no selection"
+                  role="status"
+                >
+                  <span className={styles.shareNudgeTitle}>
+                    Select at least one creative to share.
+                  </span>
+                  <button
+                    aria-label="Dismiss"
+                    className={styles.shareNudgeDismiss}
+                    onClick={() => {
+                      if (nudgeTimeoutRef.current)
+                        clearTimeout(nudgeTimeoutRef.current);
+                      setShareNudgeVisible(false);
+                    }}
+                    type="button"
+                  >
+                    ✕
+                  </button>
+                </span>
+              ) : null}
+            </span>
+          ) : null}
         </div>
       </header>
 

@@ -5,7 +5,10 @@ import { Search } from "lucide-react";
 import type { MetaCreativeRow } from "@/components/creatives/metricConfig";
 import { CreativeRenderSurface } from "@/components/creatives/CreativeRenderSurface";
 import { formatMoney as formatAccountMoney } from "@/components/meta/redesign/meta-card-utils";
-import { summarizeAttributionSpec, type MetaAttributionSpecItem } from "@/lib/launchpad/attribution-presets";
+import {
+  summarizeAttributionSpec,
+  type MetaAttributionSpecItem,
+} from "@/lib/launchpad/attribution-presets";
 import type { MetaAddToExistingCopyMode } from "@/lib/launchpad/meta";
 
 export interface LaunchpadExistingCampaign {
@@ -82,7 +85,9 @@ async function readAdsetPayload(response: Response) {
   if (!response.ok) {
     throw new Error(`Ad set request failed with ${response.status}`);
   }
-  const payload = (await response.json().catch(() => null)) as { adsets?: unknown } | null;
+  const payload = (await response.json().catch(() => null)) as {
+    adsets?: unknown;
+  } | null;
   if (!Array.isArray(payload?.adsets)) {
     throw new Error("Ad set response was invalid.");
   }
@@ -123,16 +128,74 @@ export async function fetchLaunchpadCampaignAdsets({
     if (retryDelay != null) await delay(retryDelay);
   }
 
-  return { ok: false, adsets: [], attempts: retryDelaysMs.length + 1, error: lastError };
+  return {
+    ok: false,
+    adsets: [],
+    attempts: retryDelaysMs.length + 1,
+    error: lastError,
+  };
 }
 
-function formatMoneyMinor(value: number | null | undefined, currency: string | null) {
+function formatMoneyMinor(
+  value: number | null | undefined,
+  currency: string | null,
+) {
   if (value == null || !Number.isFinite(value)) return "Budget unavailable";
   return formatAccountMoney(value / 100, currency);
 }
 
-function formatMoney(value: number | null | undefined, currency: string | null) {
+function formatMoney(
+  value: number | null | undefined,
+  currency: string | null,
+) {
   return formatAccountMoney(value, currency);
+}
+
+function campaignObjectiveLabel(value: string | null) {
+  const labels: Record<string, string> = {
+    OUTCOME_SALES: "Sales",
+    OUTCOME_LEADS: "Leads",
+    OUTCOME_ENGAGEMENT: "Engagement",
+    OUTCOME_TRAFFIC: "Traffic",
+    OUTCOME_AWARENESS: "Awareness",
+    OUTCOME_APP_PROMOTION: "App promotion",
+  };
+  return value
+    ? (labels[value.trim().toUpperCase()] ?? "Other objective")
+    : "Objective unavailable";
+}
+
+function adSetStatusLabel(value: string | null) {
+  const labels: Record<string, string> = {
+    ACTIVE: "Active",
+    PAUSED: "Paused",
+    ARCHIVED: "Archived",
+    DELETED: "Deleted",
+    CAMPAIGN_PAUSED: "Campaign paused",
+    ADSET_PAUSED: "Paused",
+  };
+  return value
+    ? (labels[value.trim().toUpperCase()] ?? "Status unavailable")
+    : "Status unavailable";
+}
+
+function optimizationGoalLabel(value: string | null) {
+  const labels: Record<string, string> = {
+    OFFSITE_CONVERSIONS: "Conversions",
+    VALUE: "Purchase value",
+    LANDING_PAGE_VIEWS: "Landing page views",
+    LINK_CLICKS: "Link clicks",
+    IMPRESSIONS: "Impressions",
+    REACH: "Reach",
+    THRUPLAY: "Video views",
+  };
+  return value
+    ? (labels[value.trim().toUpperCase()] ?? "Optimization unavailable")
+    : "Optimization unavailable";
+}
+
+function pixelConnectionLabel(pixelId: string | null) {
+  return pixelId?.trim() ? "Pixel connected" : "Pixel unavailable";
 }
 
 export function makeDefaultAddToExistingTargetState(): LaunchpadAddToExistingState {
@@ -144,7 +207,9 @@ export interface LaunchpadExistingTargetSelection {
   adset: LaunchpadExistingAdSet;
 }
 
-export function getSelectedExistingCampaigns(value: LaunchpadAddToExistingState) {
+export function getSelectedExistingCampaigns(
+  value: LaunchpadAddToExistingState,
+) {
   return value.targetCampaigns?.length
     ? value.targetCampaigns
     : value.targetCampaign
@@ -171,7 +236,9 @@ function buildTargetState(input: {
   const firstCampaign = input.campaigns[0] ?? null;
   return {
     targetCampaign: firstCampaign,
-    targetAdset: firstCampaign ? input.adsetsByCampaignId[firstCampaign.id] ?? null : null,
+    targetAdset: firstCampaign
+      ? (input.adsetsByCampaignId[firstCampaign.id] ?? null)
+      : null,
     targetCampaigns: input.campaigns,
     targetAdsetsByCampaignId: input.adsetsByCampaignId,
     copyMode: input.copyMode ?? "reuse_creative",
@@ -224,17 +291,26 @@ export function LaunchpadAddToExistingTarget({
   preselectedCampaignIds?: readonly string[];
   preselectedAdsetIds?: readonly string[];
 }) {
-  const [campaigns, setCampaigns] = useState<LaunchpadExistingCampaign[]>(campaignOptions ?? []);
-  const [adsetsByCampaignId, setAdsetsByCampaignId] = useState<Record<string, LaunchpadExistingAdSet[]>>({});
-  const [adsetLoadStatusByCampaignId, setAdsetLoadStatusByCampaignId] = useState<
-    Record<string, CampaignAdsetLoadStatus>
+  const [campaigns, setCampaigns] = useState<LaunchpadExistingCampaign[]>(
+    campaignOptions ?? [],
+  );
+  const [adsetsByCampaignId, setAdsetsByCampaignId] = useState<
+    Record<string, LaunchpadExistingAdSet[]>
   >({});
+  const [adsetLoadStatusByCampaignId, setAdsetLoadStatusByCampaignId] =
+    useState<Record<string, CampaignAdsetLoadStatus>>({});
   const [adsetReloadNonce, setAdsetReloadNonce] = useState(0);
   const [campaignLoading, setCampaignLoading] = useState(false);
   const [showAllObjectives, setShowAllObjectives] = useState(false);
   const [search, setSearch] = useState("");
-  const selectedCampaigns = useMemo(() => getSelectedExistingCampaigns(value), [value]);
-  const selectedTargets = useMemo(() => getSelectedExistingTargets(value), [value]);
+  const selectedCampaigns = useMemo(
+    () => getSelectedExistingCampaigns(value),
+    [value],
+  );
+  const selectedTargets = useMemo(
+    () => getSelectedExistingTargets(value),
+    [value],
+  );
   const selectedCampaignIds = useMemo(
     () => selectedCampaigns.map((campaign) => campaign.id),
     [selectedCampaigns],
@@ -347,7 +423,10 @@ export function LaunchpadAddToExistingTarget({
     )
       .then((response) => response.json())
       .then((payload) => {
-        if (!cancelled) setCampaigns(Array.isArray(payload?.campaigns) ? payload.campaigns : []);
+        if (!cancelled)
+          setCampaigns(
+            Array.isArray(payload?.campaigns) ? payload.campaigns : [],
+          );
       })
       .catch(() => {
         if (!cancelled) setCampaigns([]);
@@ -361,7 +440,12 @@ export function LaunchpadAddToExistingTarget({
   }, [businessId, campaignOptions, providerAccountId, showAllObjectives]);
 
   useEffect(() => {
-    if (!businessId || !providerAccountId || selectedCampaignIds.length === 0 || adsetOptions) {
+    if (
+      !businessId ||
+      !providerAccountId ||
+      selectedCampaignIds.length === 0 ||
+      adsetOptions
+    ) {
       if (selectedCampaignIds.length === 0 && !adsetOptions) {
         setAdsetsByCampaignId({});
         setAdsetLoadStatusByCampaignId({});
@@ -371,11 +455,17 @@ export function LaunchpadAddToExistingTarget({
     let cancelled = false;
     const selectedIdSet = new Set(selectedCampaignIds);
     setAdsetsByCampaignId((current) =>
-      Object.fromEntries(Object.entries(current).filter(([campaignId]) => selectedIdSet.has(campaignId))),
+      Object.fromEntries(
+        Object.entries(current).filter(([campaignId]) =>
+          selectedIdSet.has(campaignId),
+        ),
+      ),
     );
     setAdsetLoadStatusByCampaignId((current) => {
       const next = Object.fromEntries(
-        Object.entries(current).filter(([campaignId]) => selectedIdSet.has(campaignId)),
+        Object.entries(current).filter(([campaignId]) =>
+          selectedIdSet.has(campaignId),
+        ),
       ) as Record<string, CampaignAdsetLoadStatus>;
       selectedCampaigns.forEach((campaign) => {
         next[campaign.id] = "loading";
@@ -419,22 +509,34 @@ export function LaunchpadAddToExistingTarget({
   const filteredCampaigns = useMemo(() => {
     const query = search.trim().toLowerCase();
     return campaigns.filter((campaign) =>
-      query ? campaign.name.toLowerCase().includes(query) || campaign.id.includes(query) : true,
+      query
+        ? campaign.name.toLowerCase().includes(query) ||
+          campaign.id.includes(query)
+        : true,
     );
   }, [campaigns, search]);
 
   const selectedCount = selectedCreatives.length;
-  const currentAdCount = selectedTargets.reduce((sum, target) => sum + target.adset.currentAdCount, 0);
+  const currentAdCount = selectedTargets.reduce(
+    (sum, target) => sum + target.adset.currentAdCount,
+    0,
+  );
   const afterCount = currentAdCount + selectedTargets.length * selectedCount;
   const hasSelectedCampaigns = selectedCampaigns.length > 0;
 
-  function setCampaignSelected(campaign: LaunchpadExistingCampaign, selected: boolean) {
+  function setCampaignSelected(
+    campaign: LaunchpadExistingCampaign,
+    selected: boolean,
+  ) {
     const nextCampaigns = selected
       ? [...selectedCampaigns, campaign].filter(
-          (item, index, list) => list.findIndex((candidate) => candidate.id === item.id) === index,
+          (item, index, list) =>
+            list.findIndex((candidate) => candidate.id === item.id) === index,
         )
       : selectedCampaigns.filter((item) => item.id !== campaign.id);
-    const nextAdsetsByCampaignId = { ...(value.targetAdsetsByCampaignId ?? {}) };
+    const nextAdsetsByCampaignId = {
+      ...(value.targetAdsetsByCampaignId ?? {}),
+    };
     if (!selected) delete nextAdsetsByCampaignId[campaign.id];
     onChange(
       buildTargetState({
@@ -463,23 +565,18 @@ export function LaunchpadAddToExistingTarget({
     );
   }
 
-  function setCopyMode(copyMode: MetaAddToExistingCopyMode) {
-    onChange(
-      buildTargetState({
-        campaigns: selectedCampaigns,
-        adsetsByCampaignId: value.targetAdsetsByCampaignId ?? {},
-        copyMode,
-        nameOverrides: value.nameOverrides,
-      }),
-    );
-  }
-
   return (
-    <section className="space-y-5" data-testid="launchpad-add-to-existing-target">
+    <section
+      className="space-y-5"
+      data-testid="launchpad-add-to-existing-target"
+    >
       <div>
-        <h2 className="text-[15px] font-semibold tracking-[-0.01em] text-[var(--ink)]">Existing target</h2>
+        <h2 className="text-[15px] font-semibold tracking-[-0.01em] text-[var(--ink)]">
+          Existing target
+        </h2>
         <p className="text-[13px] text-[var(--muted)]">
-          Pick one or more ACTIVE campaigns and choose the ad set under each campaign — exactly one ad set per campaign.
+          Pick one or more active campaigns and choose one ad set under each
+          campaign.
         </p>
       </div>
 
@@ -495,7 +592,9 @@ export function LaunchpadAddToExistingTarget({
         </div>
         <button
           type="button"
-          className={showAllObjectives ? "btn btn--primary btn--sm" : "btn btn--sm"}
+          className={
+            showAllObjectives ? "btn btn--primary btn--sm" : "btn btn--sm"
+          }
           onClick={() => {
             setShowAllObjectives((current) => !current);
             onChange(
@@ -515,7 +614,9 @@ export function LaunchpadAddToExistingTarget({
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
         <div className="rounded-[10px] border border-[var(--border)] bg-[var(--surface)]">
           <div className="flex items-center justify-between border-b border-[var(--border)] px-4 py-3">
-            <p className="text-[13px] font-semibold text-[var(--ink)]">Campaigns</p>
+            <p className="text-[13px] font-semibold text-[var(--ink)]">
+              Campaigns
+            </p>
             <span className="chip">{selectedCampaigns.length} selected</span>
           </div>
           <div className="max-h-[360px] divide-y divide-[var(--border)] overflow-auto">
@@ -530,15 +631,23 @@ export function LaunchpadAddToExistingTarget({
                     type="checkbox"
                     checked={checked}
                     disabled={campaignLoading}
-                    onChange={(event) => setCampaignSelected(campaign, event.target.checked)}
+                    onChange={(event) =>
+                      setCampaignSelected(campaign, event.target.checked)
+                    }
                     className="mt-1 h-4 w-4 accent-[var(--ink)]"
                   />
                   <span className="min-w-0">
-                    <span className="block truncate text-[13px] font-medium text-[var(--ink)]">{campaign.name}</span>
-                    <span className="mono mt-1 block text-[11px] text-[var(--muted)]">
-                      {campaign.objective ?? "unknown"} ·{" "}
-                      {campaign.isAdsetBudgetSharingEnabled ? "CBO" : "ABO"} ·{" "}
-                      {campaign.adsetCount} ad sets · {formatMoney(campaign.lastSpend28d, currency)} 28d
+                    <span className="block truncate text-[13px] font-medium text-[var(--ink)]">
+                      {campaign.name}
+                    </span>
+                    <span className="mt-1 block text-[11px] text-[var(--muted)]">
+                      {campaignObjectiveLabel(campaign.objective)} ·{" "}
+                      {campaign.isAdsetBudgetSharingEnabled
+                        ? "Campaign budget"
+                        : "Ad set budgets"}{" "}
+                      · {campaign.adsetCount} ad sets ·{" "}
+                      {formatMoney(campaign.lastSpend28d, currency)} in the last
+                      28 days
                     </span>
                   </span>
                 </label>
@@ -546,7 +655,9 @@ export function LaunchpadAddToExistingTarget({
             })}
             {filteredCampaigns.length === 0 ? (
               <p className="px-4 py-3 text-[13px] text-[var(--muted)]">
-                {campaignLoading ? "Loading campaigns..." : "No campaigns found."}
+                {campaignLoading
+                  ? "Loading campaigns..."
+                  : "No campaigns found."}
               </p>
             ) : null}
           </div>
@@ -554,38 +665,53 @@ export function LaunchpadAddToExistingTarget({
 
         <div className="rounded-[10px] border border-[var(--border)] bg-[var(--surface)]">
           <div className="flex items-center justify-between border-b border-[var(--border)] px-4 py-3">
-            <p className="text-[13px] font-semibold text-[var(--ink)]">Ad sets</p>
+            <p className="text-[13px] font-semibold text-[var(--ink)]">
+              Ad sets
+            </p>
             <span className="chip">{selectedTargets.length} ready</span>
           </div>
           <div className="divide-y divide-[var(--border)]">
             {!hasSelectedCampaigns ? (
-              <p className="px-4 py-3 text-[13px] text-[var(--muted)]">Select campaigns first.</p>
+              <p className="px-4 py-3 text-[13px] text-[var(--muted)]">
+                Select campaigns first.
+              </p>
             ) : null}
             {selectedCampaigns.map((campaign) => {
               const campaignAdsets = adsetsByCampaignId[campaign.id] ?? [];
-              const selectedAdset = (value.targetAdsetsByCampaignId ?? {})[campaign.id] ?? null;
+              const selectedAdset =
+                (value.targetAdsetsByCampaignId ?? {})[campaign.id] ?? null;
               const loadStatus = adsetLoadStatusByCampaignId[campaign.id];
-              const isPendingInitialLoad = campaign.adsetCount > 0 && !loadStatus;
-              const campaignAdsetsLoading = loadStatus === "loading" || isPendingInitialLoad;
-              const campaignAdsetsFailed = loadStatus === "error" && campaignAdsets.length === 0;
+              const isPendingInitialLoad =
+                campaign.adsetCount > 0 && !loadStatus;
+              const campaignAdsetsLoading =
+                loadStatus === "loading" || isPendingInitialLoad;
+              const campaignAdsetsFailed =
+                loadStatus === "error" && campaignAdsets.length === 0;
               return (
                 <div key={campaign.id} className="space-y-2 px-4 py-3">
                   <div className="min-w-0">
-                    <p className="truncate text-[13px] font-medium text-[var(--ink)]">{campaign.name}</p>
+                    <p className="truncate text-[13px] font-medium text-[var(--ink)]">
+                      {campaign.name}
+                    </p>
                     <p className="text-[11px] text-[var(--muted)]">
                       {campaignAdsetsLoading
                         ? "Loading ad sets..."
                         : campaignAdsetsFailed
                           ? `${campaign.adsetCount} expected ad set${campaign.adsetCount === 1 ? "" : "s"} did not load`
-                          : `${campaignAdsets.length} ACTIVE ad sets`}
+                          : `${campaignAdsets.length} active ad sets`}
                     </p>
                   </div>
                   {campaignAdsetsFailed ? (
                     <div className="flex items-center justify-between gap-3 rounded-[8px] border border-[var(--warn-bd)] bg-[var(--warn-bg)] px-3 py-2 text-[11.5px] text-[var(--warn)]">
-                      <span>Ad sets could not be loaded. Retry without changing the campaign selection.</span>
+                      <span>
+                        Ad sets could not be loaded. Retry without changing the
+                        campaign selection.
+                      </span>
                       <button
                         type="button"
-                        onClick={() => setAdsetReloadNonce((current) => current + 1)}
+                        onClick={() =>
+                          setAdsetReloadNonce((current) => current + 1)
+                        }
                         className="shrink-0 rounded-[5px] border border-[var(--warn-bd)] bg-[var(--surface)] px-2 py-1 font-medium text-[var(--warn)] hover:bg-[var(--warn-bg)]"
                       >
                         Retry
@@ -597,7 +723,9 @@ export function LaunchpadAddToExistingTarget({
                     disabled={campaignAdsetsLoading || campaignAdsetsFailed}
                     onChange={(event) => {
                       const targetAdset =
-                        campaignAdsets.find((item) => item.id === event.target.value) ?? null;
+                        campaignAdsets.find(
+                          (item) => item.id === event.target.value,
+                        ) ?? null;
                       setCampaignAdset(campaign, targetAdset);
                     }}
                     className="h-10 w-full rounded-[6px] border border-[var(--border-2)] bg-[var(--surface)] px-3 text-[13px] text-[var(--ink)] outline-none focus:border-[var(--brand)] disabled:opacity-60"
@@ -611,11 +739,16 @@ export function LaunchpadAddToExistingTarget({
                     </option>
                     {campaignAdsets.map((adset) => (
                       <option key={adset.id} value={adset.id}>
-                        {adset.name} / {adset.status ?? "unknown"} /{" "}
-                        {adset.optimizationGoal ?? "unknown"} /{" "}
-                        {formatMoneyMinor(adset.dailyBudgetMinor ?? adset.lifetimeBudgetMinor, currency)} / pixel{" "}
-                        {adset.pixelId ?? "n/a"} / ROAS{" "}
-                        {adset.last7dRoas == null ? "n/a" : adset.last7dRoas.toFixed(2)}
+                        {adset.name} / {adSetStatusLabel(adset.status)} /{" "}
+                        {optimizationGoalLabel(adset.optimizationGoal)} /{" "}
+                        {formatMoneyMinor(
+                          adset.dailyBudgetMinor ?? adset.lifetimeBudgetMinor,
+                          currency,
+                        )}{" "}
+                        / {pixelConnectionLabel(adset.pixelId)} / ROAS{" "}
+                        {adset.last7dRoas == null
+                          ? "n/a"
+                          : adset.last7dRoas.toFixed(2)}
                       </option>
                     ))}
                   </select>
@@ -627,10 +760,14 @@ export function LaunchpadAddToExistingTarget({
       </div>
 
       {selectedTargets.length > 0 ? (
-        <div className="rounded-[10px] border border-[var(--border)] bg-[var(--surface)] p-4" data-testid="launchpad-existing-adset-preview">
+        <div
+          className="rounded-[10px] border border-[var(--border)] bg-[var(--surface)] p-4"
+          data-testid="launchpad-existing-adset-preview"
+        >
           <div className="mb-3 flex flex-wrap items-center gap-2">
             <p className="text-[13px] font-semibold text-[var(--ink)]">
-              {selectedTargets.length} target ad set{selectedTargets.length === 1 ? "" : "s"}
+              {selectedTargets.length} target ad set
+              {selectedTargets.length === 1 ? "" : "s"}
             </p>
             <span className="chip">{selectedCampaigns.length} campaigns</span>
           </div>
@@ -639,20 +776,31 @@ export function LaunchpadAddToExistingTarget({
             <Summary label="Pixel + event" value="Inherited per ad set" />
             <Summary label="Attribution" value="Inherited per ad set" />
             <Summary label="Current ads" value={`${currentAdCount}`} numeric />
-            <Summary label="After launch" value={`${selectedCount} creatives -> ${afterCount} ads`} />
-            <Summary label="Targets" value={`${selectedTargets.length} ad sets`} />
+            <Summary
+              label="After launch"
+              value={`${selectedCount} creatives -> ${afterCount} ads`}
+            />
+            <Summary
+              label="Targets"
+              value={`${selectedTargets.length} ad sets`}
+            />
           </div>
           <div className="mt-4 divide-y divide-[var(--border)] overflow-hidden rounded-[8px] border border-[var(--border)]">
             {selectedTargets.map(({ campaign, adset }) => (
               <div key={`${campaign.id}:${adset.id}`} className="px-3 py-2">
                 <div className="flex flex-wrap items-center gap-2">
-                  <p className="min-w-0 truncate text-[13px] font-medium text-[var(--ink)]">{adset.name}</p>
-                  <span className="chip">{adset.status ?? "unknown"}</span>
-                  <span className="chip">{adset.optimizationGoal ?? "unknown"}</span>
+                  <p className="min-w-0 truncate text-[13px] font-medium text-[var(--ink)]">
+                    {adset.name}
+                  </p>
+                  <span className="chip">{adSetStatusLabel(adset.status)}</span>
+                  <span className="chip">
+                    {optimizationGoalLabel(adset.optimizationGoal)}
+                  </span>
                 </div>
-                <p className="mono mt-1 truncate text-[11px] text-[var(--muted)]">
-                  {campaign.name} · {adset.pixelId ?? "n/a"} ·{" "}
-                  {adset.attributionSummary ?? summarizeAttributionSpec(adset.attributionSpec)}
+                <p className="mt-1 truncate text-[11px] text-[var(--muted)]">
+                  {campaign.name} · {pixelConnectionLabel(adset.pixelId)} ·{" "}
+                  {adset.attributionSummary ??
+                    summarizeAttributionSpec(adset.attributionSpec)}
                 </p>
               </div>
             ))}
@@ -660,54 +808,22 @@ export function LaunchpadAddToExistingTarget({
         </div>
       ) : null}
 
-      <div className="rounded-[10px] border border-[var(--border)] bg-[var(--surface)] p-4" data-testid="launchpad-copy-mode">
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-          <p className="text-[13px] font-semibold text-[var(--ink)]">Creative copy mode</p>
-          <span className="chip">
-            {activeCopyMode === "reuse_creative" ? "Duplicate" : "Recreate"}
-          </span>
-        </div>
-        <div className="grid gap-2 md:grid-cols-2">
-          <button
-            type="button"
-            onClick={() => setCopyMode("reuse_creative")}
-            className={`rounded-[8px] border px-3 py-3 text-left text-[13px] transition ${
-              activeCopyMode === "reuse_creative"
-                ? "border-[var(--ink)] bg-[var(--surface-3)] text-[var(--ink)]"
-                : "border-[var(--border-2)] bg-[var(--surface)] text-[var(--ink-3)] hover:bg-[var(--hover)]"
-            }`}
-          >
-            <span className="block font-medium">Duplicate</span>
-            <span className="mt-1 block text-[11.5px] text-[var(--muted)]">
-              Use the existing Meta creative object.
-            </span>
-          </button>
-          <button
-            type="button"
-            disabled
-            aria-describedby="launchpad-rebuild-creative-review-only"
-            className={`rounded-[8px] border px-3 py-3 text-left text-[13px] transition ${
-              activeCopyMode === "rebuild_creative"
-                ? "border-[var(--ink)] bg-[var(--surface-3)] text-[var(--ink)]"
-                : "border-[var(--border-2)] bg-[var(--surface)] text-[var(--ink-3)]"
-            }`}
-          >
-            <span className="block font-medium">
-              Recreate exact ad · review-only
-            </span>
-            <span
-              id="launchpad-rebuild-creative-review-only"
-              className="mt-1 block text-[11.5px] text-[var(--muted)]"
-            >
-              Unavailable until image, creative, and ad writes each have a
-              durable step receipt.
-            </span>
-          </button>
-        </div>
+      <div
+        className="rounded-[10px] border border-[var(--border)] bg-[var(--surface)] p-4"
+        data-testid="launchpad-copy-mode"
+      >
+        <p className="text-[13px] font-semibold text-[var(--ink)]">
+          Duplicate creatives
+        </p>
+        <p className="mt-1 text-[11.5px] text-[var(--muted)]">
+          Each new ad will use the selected Meta creative.
+        </p>
       </div>
 
       <div className="overflow-hidden rounded-[10px] border border-[var(--border)] bg-[var(--surface)]">
-        <div className="border-b border-[var(--border)] px-4 py-3 text-[13px] font-semibold text-[var(--ink)]">Ad names</div>
+        <div className="border-b border-[var(--border)] px-4 py-3 text-[13px] font-semibold text-[var(--ink)]">
+          Ad names
+        </div>
         <div className="divide-y divide-[var(--border)]">
           {selectedCreatives.map((creative) => {
             // The selection list is filtered to rows carrying a creative
@@ -715,9 +831,14 @@ export function LaunchpadAddToExistingTarget({
             // missing id can never become the literal "null" bucket that
             // every unnamed row would then share.
             const overrideKey = creative.creativeId ?? "";
-            const name = value.nameOverrides[overrideKey] ?? defaultCreativeAddName(creative);
+            const name =
+              value.nameOverrides[overrideKey] ??
+              defaultCreativeAddName(creative);
             return (
-              <div key={creative.creativeId} className="grid gap-3 px-4 py-3 md:grid-cols-[56px_1fr_1.4fr] md:items-center">
+              <div
+                key={creative.creativeId}
+                className="grid gap-3 px-4 py-3 md:grid-cols-[56px_1fr_1.4fr] md:items-center"
+              >
                 <CreativeRenderSurface
                   id={creative.id}
                   name={creative.name}
@@ -733,8 +854,9 @@ export function LaunchpadAddToExistingTarget({
                   ]}
                 />
                 <div className="min-w-0">
-                  <p className="truncate text-[13px] font-medium text-[var(--ink)]">{creative.name}</p>
-                  <p className="mono text-[11px] text-[var(--muted)]">{creative.creativeId}</p>
+                  <p className="truncate text-[13px] font-medium text-[var(--ink)]">
+                    {creative.name}
+                  </p>
                 </div>
                 <input
                   value={name}
@@ -754,7 +876,9 @@ export function LaunchpadAddToExistingTarget({
             );
           })}
           {selectedCreatives.length === 0 ? (
-            <p className="px-4 py-3 text-[13px] text-[var(--muted)]">Select creatives first.</p>
+            <p className="px-4 py-3 text-[13px] text-[var(--muted)]">
+              Select creatives first.
+            </p>
           ) : null}
         </div>
       </div>
@@ -762,7 +886,15 @@ export function LaunchpadAddToExistingTarget({
   );
 }
 
-function Summary({ label, value, numeric = false }: { label: string; value: string; numeric?: boolean }) {
+function Summary({
+  label,
+  value,
+  numeric = false,
+}: {
+  label: string;
+  value: string;
+  numeric?: boolean;
+}) {
   return (
     <div className="min-w-0 rounded-[8px] border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2">
       <p className="text-[11px] text-[var(--muted)]">{label}</p>

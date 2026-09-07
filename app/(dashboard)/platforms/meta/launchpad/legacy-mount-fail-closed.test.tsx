@@ -18,7 +18,13 @@
  * case is the sharp one: it is exactly the state in which the canonical route's
  * `readLaunchpadWriteAuthority` would answer `unverified` and hold the write.
  */
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mounts = vi.hoisted(() => ({
@@ -193,8 +199,8 @@ describe("the legacy mount holds writes it cannot authorize", () => {
     const saveTemplate = await openManualWizard();
 
     expect(saveTemplate).toHaveProperty("disabled", true);
-    expect(saveTemplate.getAttribute("title")).toContain(
-      "did not establish who is looking",
+    expect(saveTemplate.getAttribute("title")).toBe(
+      "Changes are unavailable for this workspace.",
     );
   });
 
@@ -255,7 +261,8 @@ describe("a library that was not read is not a library that is empty", () => {
     await waitFor(() => {
       expect(empty.getAttribute("data-unread")).toBe("true");
     });
-    expect(empty.textContent).toContain(LAUNCHPAD_LIBRARY_REFUSED_MESSAGE);
+    expect(empty.textContent).toContain("Drafts are temporarily unavailable.");
+    expect(empty.textContent).not.toContain(LAUNCHPAD_LIBRARY_REFUSED_MESSAGE);
   });
 
   // A 5xx is not a refusal and must not be reported as one — the operator is
@@ -268,7 +275,10 @@ describe("a library that was not read is not a library that is empty", () => {
     await waitFor(() => {
       expect(empty.getAttribute("data-unread")).toBe("true");
     });
-    expect(empty.textContent).toContain(LAUNCHPAD_LIBRARY_UNAVAILABLE_MESSAGE);
+    expect(empty.textContent).toContain("Drafts are temporarily unavailable.");
+    expect(empty.textContent).not.toContain(
+      LAUNCHPAD_LIBRARY_UNAVAILABLE_MESSAGE,
+    );
   });
 
   // The other half of the law: a read that ANSWERED with nothing still means

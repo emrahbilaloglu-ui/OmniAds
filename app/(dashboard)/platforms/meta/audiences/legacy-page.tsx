@@ -50,13 +50,13 @@ const BREAKDOWN_TITLES = [
  * already renders.
  */
 const WITHHELD_BREAKDOWN_NOTES: Record<string, string> = {
-  gender:
-    "Not measured for this range — the gender split is captured from this sync onward, and days written before it hold only the blended age bucket.",
-  frequency:
-    "Not measured for this range — reach is requested from this sync onward, and days written before it stored a zero that was never a measurement.",
+  gender: "Gender breakdown is unavailable for this date range.",
+  frequency: "Frequency is unavailable for this date range.",
 };
 
-function unavailableBreakdowns(reason: string | null = null): CreativeStudioBreakdown[] {
+function unavailableBreakdowns(
+  reason: string | null = null,
+): CreativeStudioBreakdown[] {
   return BREAKDOWN_TITLES.map(([id, title, subtitle]) => ({
     id,
     title,
@@ -116,7 +116,9 @@ function breakdownPanel(
   rows: BreakdownApiRow[],
 ): CreativeStudioBreakdown {
   const total = rows.reduce((sum, row) => sum + (row.spend || 0), 0);
-  const ranked = [...rows].sort((left, right) => right.spend - left.spend).slice(0, 8);
+  const ranked = [...rows]
+    .sort((left, right) => right.spend - left.spend)
+    .slice(0, 8);
   return {
     id,
     title,
@@ -176,14 +178,16 @@ export function buildAudienceBreakdowns(
 ): CreativeStudioBreakdown[] {
   if (!payload || payload.status !== "ok") {
     return unavailableBreakdowns(
-      readFailureReason?.trim() || payload?.notReadyReason?.trim() || null,
+      readFailureReason?.trim() || payload?.notReadyReason
+        ? "Audience data is unavailable. Try again."
+        : null,
     );
   }
   // A range the warehouse is still backfilling is not a complete one. The panel
   // keeps its rows — they are real — but says the range is incomplete, so a
   // half-filled bar is not read as a finished measurement.
   const partialNote = payload.isPartial
-    ? payload.notReadyReason?.trim() || null
+    ? "Some audience data is unavailable. Try again."
     : null;
   const age = payload.age ?? [];
   const gender = payload.gender ?? [];
@@ -199,14 +203,23 @@ export function buildAudienceBreakdowns(
       // still falls through to the withheld note rather than drawing an
       // empty panel that reads as "this account has no gender split".
       if (gender.length > 0) {
-        return { ...breakdownPanel(id, title, subtitle, gender), note: partialNote };
+        return {
+          ...breakdownPanel(id, title, subtitle, gender),
+          note: partialNote,
+        };
       }
     }
     if (id === "placement") {
-      return { ...breakdownPanel(id, title, subtitle, placement), note: partialNote };
+      return {
+        ...breakdownPanel(id, title, subtitle, placement),
+        note: partialNote,
+      };
     }
     if (id === "platform") {
-      return { ...breakdownPanel(id, title, subtitle, platform), note: partialNote };
+      return {
+        ...breakdownPanel(id, title, subtitle, platform),
+        note: partialNote,
+      };
     }
     // Gender and frequency stay empty: the breakdown read returns neither, and
     // neither can be derived from what it does return. The note names which of
@@ -222,11 +235,6 @@ export function buildAudienceBreakdowns(
   });
 }
 
-function readFailureMessage(error: unknown, fallback: string): string {
-  if (error instanceof Error && error.message.trim()) return error.message.trim();
-  return fallback;
-}
-
 export default function MetaAudiencesPage({
   businessId: authorizedBusinessId,
   providerAccountId: authorizedProviderAccountId,
@@ -237,7 +245,9 @@ export default function MetaAudiencesPage({
   const workspaceResolved = useAppStore((state) => state.workspaceResolved);
   const businesses = useAppStore((state) => state.businesses);
   const hasAuthorizedScope = authorizedBusinessId !== undefined;
-  const businessId = hasAuthorizedScope ? authorizedBusinessId : storeBusinessId ?? "";
+  const businessId = hasAuthorizedScope
+    ? authorizedBusinessId
+    : (storeBusinessId ?? "");
   const providerAccountId = hasAuthorizedScope
     ? authorizedProviderAccountId?.trim() || null
     : searchParams?.get("providerAccountId")?.trim() || null;
@@ -294,8 +304,8 @@ export default function MetaAudiencesPage({
    */
   const [dashboardRange] = usePersistentDateRange();
   const workspaceTimeZone =
-    (businesses ?? []).find((business) => business.id === businessId)?.timezone ||
-    "UTC";
+    (businesses ?? []).find((business) => business.id === businessId)
+      ?.timezone || "UTC";
   const { start: startDate, end: endDate } = useMemo(() => {
     if (linkWindow) return linkWindow;
     return getPresetDatesForReferenceDate(
@@ -331,9 +341,12 @@ export default function MetaAudiencesPage({
         startDate,
         endDate,
       });
-      const response = await fetch(`/api/meta/breakdowns?${params.toString()}`, {
-        cache: "no-store",
-      });
+      const response = await fetch(
+        `/api/meta/breakdowns?${params.toString()}`,
+        {
+          cache: "no-store",
+        },
+      );
       const payload = (await response
         .json()
         .catch(() => null)) as BreakdownApiResponse | null;
@@ -345,7 +358,8 @@ export default function MetaAudiencesPage({
             `Meta breakdowns could not be read (${response.status}).`,
         );
       }
-      if (!payload) throw new Error("Meta breakdowns returned an unreadable response.");
+      if (!payload)
+        throw new Error("Meta breakdowns returned an unreadable response.");
       return payload;
     },
     staleTime: 5 * 60 * 1000,
@@ -360,10 +374,7 @@ export default function MetaAudiencesPage({
   const payload = breakdownsQuery.data ?? null;
   const servedReason = payload?.notReadyReason?.trim() || null;
   const errorText = readError
-    ? readFailureMessage(
-        breakdownsQuery.error,
-        "Audience breakdowns could not be read for this account.",
-      )
+    ? "Audience data could not be loaded. Try again."
     : null;
   const breakdowns = useMemo(
     () => buildAudienceBreakdowns(payload, errorText),
@@ -384,20 +395,21 @@ export default function MetaAudiencesPage({
   const message =
     state === "loading"
       ? scopeLoading
-        ? "Loading the assigned Meta account scope."
+        ? "Loading Meta accounts."
         : "Loading audience breakdowns."
       : state === "account_required"
-        ? "Select one assigned Meta ad account."
+        ? "Select a Meta ad account to view audiences."
         : state === "error"
           ? errorText
           : state === "ready"
             ? // Rows exist, but say so when the range is still being prepared.
-              (payload?.isPartial ? servedReason : null)
+              payload?.isPartial
+              ? "Some audience data is unavailable. Try again."
+              : null
             : // Empty. The route names the reason for every non-"ok" status and
               // for a range still backfilling; only a genuinely empty account
               // falls through to the generic sentence.
-              (servedReason ??
-              "Audience-level creative evidence is unavailable for this assigned Meta account.");
+              "No audience breakdowns found for this date range.";
   const model: CreativeStudioAudiencesModel = {
     state,
     message,
@@ -406,17 +418,10 @@ export default function MetaAudiencesPage({
     // literal "28d", so a 7-day or custom selection was labelled 28 days on
     // screen. Withheld when either bound is unknown rather than defaulted.
     windowLabel: startDate && endDate ? `${startDate} → ${endDate}` : null,
-    summaries: Array.from({ length: 4 }, (_, index) => ({
-      id: `unavailable-${index + 1}`,
-      name: "—",
-      status: null,
-      tone: "neutral" as const,
-      currency: null,
-      spend: null,
-      roas: null,
-      frequency: null,
-      note: null,
-    })),
+    // This reader has no audience-summary source. Empty placeholder cards add
+    // four blank panels without helping the operator, so only measured
+    // breakdown rows are rendered.
+    summaries: [],
     breakdowns,
     matrixColumns: [],
     matrixRows: [],
@@ -454,7 +459,9 @@ export default function MetaAudiencesPage({
     isLoading: scopeLoading || breakdownsQuery.isLoading,
     isFetching: breakdownsQuery.isFetching,
     error: breakdownsQuery.error ?? null,
-    partialReason: servedReason,
+    partialReason: servedReason
+      ? "Some audience data is unavailable. Try again."
+      : null,
     asOf: measuredAsOf(payload?.freshness?.lastSyncedAt ?? null),
     businessId: businessId || null,
     onRetry: () => {
@@ -462,7 +469,8 @@ export default function MetaAudiencesPage({
     },
   });
 
-  if (!hasAuthorizedScope && workspaceResolved && !businessId) return <BusinessEmptyState />;
+  if (!hasAuthorizedScope && workspaceResolved && !businessId)
+    return <BusinessEmptyState />;
 
   return (
     /*
@@ -471,7 +479,10 @@ export default function MetaAudiencesPage({
      * content" targets with no way to tell which is the page. Found by a strict
      * locator resolving `main` to two elements on the mounted route.
      */
-    <section data-testid="audiences-studio-page" data-audiences-state={model.state}>
+    <section
+      data-testid="audiences-studio-page"
+      data-audiences-state={model.state}
+    >
       <CreativeStudioExact
         activeTab="audiences"
         audiences={model}

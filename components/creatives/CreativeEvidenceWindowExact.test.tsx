@@ -13,7 +13,10 @@ import {
 afterEach(cleanup);
 
 const CSS = readFileSync(
-  join(process.cwd(), "components/creatives/CreativeEvidenceWindowExact.module.css"),
+  join(
+    process.cwd(),
+    "components/creatives/CreativeEvidenceWindowExact.module.css",
+  ),
   "utf8",
 );
 
@@ -25,21 +28,45 @@ function viewModel(
     decisionLabel: "Refresh",
     decisionTone: "warning",
     previewUrl: null,
-    kind: "id 8412…33 · in 2 ad sets",
+    kind: "In 2 ad sets",
     band: "High confidence",
     bandTone: "positive",
-    verdict: "Server verdict: Refresh.",
-    verdictSub: "fixture scope note.",
+    verdict: "Refresh creative",
+    verdictSub: "Creates a replacement brief and keeps this ad running.",
     money: "$fixture · ROAS 2.70",
     moneySub: "vs 3.80 target",
-    reasons: ["fixture server reason"],
+    reasons: ["This ad is ready for a creative refresh review."],
     ctr: { path: null, note: "—" },
     frequency: { path: null, note: "—" },
     funnel: [
-      { id: "impressions", label: "Impressions", value: "1,000", sub: "", share: 1 },
-      { id: "link-clicks", label: "Link clicks", value: "100", sub: "CTR 10.00%", share: 0.6 },
-      { id: "add-to-cart", label: "Add to cart", value: "10", sub: "ATC 10.0%", share: 0.3 },
-      { id: "purchases", label: "Purchases", value: "4", sub: "CVR 4.0%", share: 0.2 },
+      {
+        id: "impressions",
+        label: "Impressions",
+        value: "1,000",
+        sub: "",
+        share: 1,
+      },
+      {
+        id: "link-clicks",
+        label: "Link clicks",
+        value: "100",
+        sub: "CTR 10.00%",
+        share: 0.6,
+      },
+      {
+        id: "add-to-cart",
+        label: "Add to cart",
+        value: "10",
+        sub: "ATC 10.0%",
+        share: 0.3,
+      },
+      {
+        id: "purchases",
+        label: "Purchases",
+        value: "4",
+        sub: "CVR 4.0%",
+        share: 0.2,
+      },
     ],
     placements: [
       { id: "placement-1", label: "—", share: "—", roas: "—", width: null },
@@ -47,7 +74,13 @@ function viewModel(
       { id: "placement-3", label: "—", share: "—", roas: "—", width: null },
     ],
     adSets: [
-      { id: "a1", label: "fixture ad set", spend: "$1", roas: "2.10", roasTone: "warning" },
+      {
+        id: "a1",
+        label: "fixture ad set",
+        spend: "$1",
+        roas: "2.10",
+        roasTone: "warning",
+      },
     ],
     facts: [
       { id: "frequency", label: "Frequency", value: "4.1" },
@@ -57,10 +90,20 @@ function viewModel(
       { id: "decision-specific", label: "—", value: "—" },
       { id: "first-seen", label: "First seen", value: "2026-06-02" },
     ],
-    provenance: "provenance: snapshot 2026-08-14 · decision 4c1b…9e · engine v3",
-    primaryAction: { label: "Refresh Creative", href: "/platforms/meta/launchpad?mode=rebuild" },
-    compareAction: { label: "Compare in Studio", href: "/platforms/meta/creatives" },
-    adsManagerAction: { label: "Ads Manager ↗", href: "https://example.invalid", external: true },
+    provenance: "internal provenance that must stay hidden",
+    primaryAction: {
+      label: "Refresh Creative",
+      href: "/platforms/meta/launchpad?mode=rebuild",
+    },
+    compareAction: {
+      label: "Compare in Studio",
+      href: "/platforms/meta/creatives",
+    },
+    adsManagerAction: {
+      label: "Ads Manager ↗",
+      href: "https://example.invalid",
+      external: true,
+    },
     ...over,
   };
 }
@@ -101,8 +144,10 @@ describe("CreativeEvidenceWindowExact geometry", () => {
 
 describe("CreativeEvidenceWindowExact composition", () => {
   it("renders the design's header band with the decision chip beside the title", () => {
-    render(<CreativeEvidenceWindowExact onClose={vi.fn()} viewModel={viewModel()} />);
-    expect(screen.getByText("Creative evidence · Meta")).toBeInTheDocument();
+    render(
+      <CreativeEvidenceWindowExact onClose={vi.fn()} viewModel={viewModel()} />,
+    );
+    expect(screen.getByText("Creative decision")).toBeInTheDocument();
     expect(screen.getByText("fixture ad name")).toBeInTheDocument();
     expect(screen.getByText("Refresh")).toBeInTheDocument();
   });
@@ -112,25 +157,26 @@ describe("CreativeEvidenceWindowExact composition", () => {
       <CreativeEvidenceWindowExact onClose={vi.fn()} viewModel={viewModel()} />,
     );
     for (const eyebrow of [
-      "Decision contract",
-      "Engine reasoning",
-      "CTR · 28d",
-      "Frequency · 28d",
+      "Decision",
+      "Why",
       "Click-to-purchase funnel · 28d",
-      "Placement mix",
       "Where it runs",
     ]) {
       expect(screen.getByText(eyebrow)).toBeInTheDocument();
     }
-    expect(screen.getByText("ROAS per ad set · same 28d window")).toBeInTheDocument();
     expect(
-      screen.getByText("provenance: snapshot 2026-08-14 · decision 4c1b…9e · engine v3"),
+      screen.getByText("ROAS per ad set · same 28d window"),
     ).toBeInTheDocument();
-    expect(container.querySelectorAll("svg")).toHaveLength(2);
+    expect(
+      screen.queryByText("internal provenance that must stay hidden"),
+    ).toBeNull();
+    expect(container.querySelectorAll("svg")).toHaveLength(0);
   });
 
   it("carries none of the sections the design does not define", () => {
-    render(<CreativeEvidenceWindowExact onClose={vi.fn()} viewModel={viewModel()} />);
+    render(
+      <CreativeEvidenceWindowExact onClose={vi.fn()} viewModel={viewModel()} />,
+    );
     for (const absent of [
       "Evidence context",
       "Signals",
@@ -153,17 +199,22 @@ describe("CreativeEvidenceWindowExact composition", () => {
       />,
     );
     expect(screen.getByRole("button", { name: "Cut" })).toBeDisabled();
-    expect(screen.getByRole("link", { name: "Compare in Studio" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Ads Manager ↗" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: "Compare in Studio" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: "Ads Manager ↗" }),
+    ).toBeInTheDocument();
   });
 
-  it("keeps the preview card's geometry and em-dashes an unserved asset", () => {
+  it("does not render an empty preview card when no asset is available", () => {
     const { container } = render(
       <CreativeEvidenceWindowExact onClose={vi.fn()} viewModel={viewModel()} />,
     );
     expect(
       container.querySelector('[data-creative-evidence-preview="unavailable"]'),
-    ).not.toBeNull();
+    ).toBeNull();
+    expect(container.querySelector('[class*="previewCard"]')).toBeNull();
     expect(screen.getByText("High confidence")).toBeInTheDocument();
   });
 
@@ -171,7 +222,9 @@ describe("CreativeEvidenceWindowExact composition", () => {
     const { container } = render(
       <CreativeEvidenceWindowExact
         onClose={vi.fn()}
-        viewModel={viewModel({ previewUrl: "https://example.invalid/asset.jpg" })}
+        viewModel={viewModel({
+          previewUrl: "https://example.invalid/asset.jpg",
+        })}
       />,
     );
     expect(
@@ -184,29 +237,37 @@ describe("CreativeEvidenceWindowExact composition", () => {
     const { container } = render(
       <CreativeEvidenceWindowExact onClose={onClose} viewModel={viewModel()} />,
     );
-    fireEvent.click(container.querySelector('[data-testid="creative-evidence-window"]')!);
-    fireEvent.click(screen.getByRole("button", { name: "Close creative evidence" }));
+    fireEvent.click(
+      container.querySelector('[data-testid="creative-evidence-window"]')!,
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Close creative decision" }),
+    );
     fireEvent.keyDown(document, { key: "Escape" });
     expect(onClose).toHaveBeenCalledTimes(3);
   });
 
   it("does not close when the aside itself is clicked", () => {
     const onClose = vi.fn();
-    render(<CreativeEvidenceWindowExact onClose={onClose} viewModel={viewModel()} />);
+    render(
+      <CreativeEvidenceWindowExact onClose={onClose} viewModel={viewModel()} />,
+    );
     fireEvent.click(screen.getByRole("dialog"));
     expect(onClose).not.toHaveBeenCalled();
   });
 
-  it("pads absent placement, ad set and fact rows to the design's slot counts", () => {
+  it("does not render empty placement, ad set or fact rows", () => {
     const { container } = render(
       <CreativeEvidenceWindowExact
         onClose={vi.fn()}
         viewModel={viewModel({ placements: [], adSets: [], facts: [] })}
       />,
     );
-    expect(container.querySelectorAll('[class*="placementRow"]')).toHaveLength(3);
-    expect(container.querySelectorAll('[class*="adSetRow"]')).toHaveLength(2);
-    expect(container.querySelectorAll('[class*="factRow"]')).toHaveLength(6);
+    expect(container.querySelectorAll('[class*="placementRow"]')).toHaveLength(
+      0,
+    );
+    expect(container.querySelectorAll('[class*="adSetRow"]')).toHaveLength(0);
+    expect(container.querySelectorAll('[class*="factRow"]')).toHaveLength(0);
   });
 });
 
@@ -219,48 +280,55 @@ describe("CreativeEvidenceWindowExact composition", () => {
  * A loading or failed helper read announces itself in words rather than dashing
  * out like a real absence.
  */
-describe("CreativeEvidenceWindowExact audit sections", () => {
-  it("renders authority rows beside the evidence, tone-marked without tinted body text", () => {
+describe("CreativeEvidenceWindowExact operator surface", () => {
+  it("keeps internal authority rows out of the buyer-facing drawer", () => {
     render(
       <CreativeEvidenceWindowExact
         onClose={vi.fn()}
         viewModel={viewModel({
           authority: [
-            { id: "source-authority", label: "Source authority", value: "Legacy review only", tone: "warning" },
-            { id: "action-eligibility", label: "Action eligible", value: "no", tone: "warning" },
+            {
+              id: "source-authority",
+              label: "Source authority",
+              value: "Legacy review only",
+              tone: "warning",
+            },
+            {
+              id: "action-eligibility",
+              label: "Action eligible",
+              value: "no",
+              tone: "warning",
+            },
           ],
         })}
       />,
     );
-    const block = document.querySelector("[data-creative-evidence-authority]");
-    expect(block).not.toBeNull();
-    expect(block?.textContent).toContain("Legacy review only");
-    expect(block?.textContent).toContain("Action eligible");
     expect(
-      block?.querySelector('[data-tone="warning"]'),
-    ).not.toBeNull();
+      document.querySelector("[data-creative-evidence-authority]"),
+    ).toBeNull();
+    expect(screen.queryByText("Legacy review only")).toBeNull();
+    expect(screen.queryByText("Action eligible")).toBeNull();
   });
 
-  it("keeps diagnostics closed by default and out of the summary", () => {
+  it("keeps internal diagnostics out of the buyer-facing drawer", () => {
     render(
       <CreativeEvidenceWindowExact
         onClose={vi.fn()}
         viewModel={viewModel({
           diagnostics: [
-            { id: "decision-hash", label: "decision hash", value: "dec_hash_9" },
+            {
+              id: "decision-hash",
+              label: "decision hash",
+              value: "dec_hash_9",
+            },
           ],
         })}
       />,
     );
-    const details = document.querySelector<HTMLDetailsElement>(
-      "[data-creative-evidence-diagnostics]",
-    );
-    expect(details).not.toBeNull();
-    expect(details?.open).toBe(false);
-    expect(details?.textContent).toContain("dec_hash_9");
-    expect(screen.getByText("Server verdict: Refresh.").textContent).not.toContain(
-      "dec_hash_9",
-    );
+    expect(
+      document.querySelector("[data-creative-evidence-diagnostics]"),
+    ).toBeNull();
+    expect(screen.queryByText("dec_hash_9")).toBeNull();
   });
 
   it("says a helper read is loading or unreadable instead of dashing silently", () => {
@@ -268,34 +336,87 @@ describe("CreativeEvidenceWindowExact audit sections", () => {
       <CreativeEvidenceWindowExact
         onClose={vi.fn()}
         viewModel={viewModel({
-          readNotice: { tone: "info", text: "Ad-grain evidence is still loading." },
+          readNotice: {
+            tone: "info",
+            text: "Creative performance data is loading.",
+          },
         })}
       />,
     );
     expect(
       document.querySelector('[data-creative-evidence-read-state="loading"]')
         ?.textContent,
-    ).toContain("still loading");
+    ).toContain("is loading");
 
     rerender(
       <CreativeEvidenceWindowExact
         onClose={vi.fn()}
         viewModel={viewModel({
-          readNotice: { tone: "negative", text: "Ad-grain evidence could not be read: boom." },
+          readNotice: {
+            tone: "negative",
+            text: "Some creative performance data could not be loaded.",
+          },
         })}
       />,
     );
     expect(
       document.querySelector('[data-creative-evidence-read-state="error"]')
         ?.textContent,
-    ).toContain("could not be read");
+    ).toContain("could not be loaded");
   });
 
   it("renders no read banner and no empty audit blocks when nothing is served", () => {
-    render(<CreativeEvidenceWindowExact onClose={vi.fn()} viewModel={viewModel()} />);
-    expect(document.querySelector("[data-creative-evidence-read-state]")).toBeNull();
-    expect(document.querySelector("[data-creative-evidence-authority]")).toBeNull();
-    expect(document.querySelector("[data-creative-evidence-diagnostics]")).toBeNull();
+    render(
+      <CreativeEvidenceWindowExact onClose={vi.fn()} viewModel={viewModel()} />,
+    );
+    expect(
+      document.querySelector("[data-creative-evidence-read-state]"),
+    ).toBeNull();
+    expect(
+      document.querySelector("[data-creative-evidence-authority]"),
+    ).toBeNull();
+    expect(
+      document.querySelector("[data-creative-evidence-diagnostics]"),
+    ).toBeNull();
+  });
+
+  it("shows a concise action refusal without rendering internal authority fields", () => {
+    render(
+      <CreativeEvidenceWindowExact
+        onClose={vi.fn()}
+        viewModel={viewModel({
+          actionNotice: {
+            tone: "warning",
+            text: "This ad can be reviewed, but it cannot be changed here.",
+          },
+          authority: [
+            {
+              id: "internal",
+              label: "sourceAuthority",
+              value: "canonical_envelope_missing",
+            },
+          ],
+        })}
+      />,
+    );
+    expect(
+      screen.getByText(
+        "This ad can be reviewed, but it cannot be changed here.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("sourceAuthority")).toBeNull();
+    expect(screen.queryByText("canonical_envelope_missing")).toBeNull();
+  });
+
+  it("replaces an entirely empty model with one explicit empty state", () => {
+    const { container } = render(
+      <CreativeEvidenceWindowExact onClose={vi.fn()} viewModel={{}} />,
+    );
+    expect(
+      screen.getByText("Decision details are unavailable."),
+    ).toBeInTheDocument();
+    expect(container.querySelector('[class*="previewCard"]')).toBeNull();
+    expect(container.querySelector('[class*="contractCard"]')).toBeNull();
   });
 
   it("keeps a provider-write control fail-closed even when it has a destination", () => {
@@ -318,7 +439,9 @@ describe("CreativeEvidenceWindowExact audit sections", () => {
     expect(
       screen.queryByRole("link", { name: "Promote to Main" }),
     ).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Promote to Main" })).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "Promote to Main" }),
+    ).toBeDisabled();
   });
 
   it("keeps a labelled primary inert until a callback is actually supplied", () => {
@@ -333,7 +456,9 @@ describe("CreativeEvidenceWindowExact audit sections", () => {
         })}
       />,
     );
-    expect(screen.getByRole("button", { name: "Promote to Main" })).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "Promote to Main" }),
+    ).toBeDisabled();
   });
 
   it("keeps every new audit style at or above the 12px typography floor", () => {
@@ -361,7 +486,8 @@ describe("CreativeEvidenceWindowExact evidence coverage", () => {
   const servedOnly = {
     state: "served-only" as const,
     tone: "warning" as const,
-    headline: "Served evidence only. This row was served without a canonical decision envelope.",
+    headline:
+      "Served evidence only. This row was served without a canonical decision envelope.",
     servedLabel: "Served for this row",
     served: ["engine reasoning", "ad metrics"],
     unavailableLabel: "Canonical-only, unavailable",
@@ -369,37 +495,44 @@ describe("CreativeEvidenceWindowExact evidence coverage", () => {
     note: "No canonical envelope means no action authority.",
   };
 
-  it("states both halves and marks the served-only state on the node", () => {
+  it("keeps internal evidence-envelope details out of the drawer", () => {
     render(
       <CreativeEvidenceWindowExact
         onClose={vi.fn()}
         viewModel={viewModel({ coverage: servedOnly })}
       />,
     );
-    const node = document.querySelector("[data-creative-evidence-coverage]");
-    expect(node?.getAttribute("data-creative-evidence-coverage")).toBe("served-only");
-    expect(node?.textContent).toContain("Served evidence only");
-    expect(node?.textContent).toContain("engine reasoning · ad metrics");
-    expect(node?.textContent).toContain("action eligibility · provider lineage");
-    expect(node?.textContent).toContain("no action authority");
+    expect(
+      document.querySelector("[data-creative-evidence-coverage]"),
+    ).toBeNull();
+    expect(screen.queryByText(/Served evidence only/)).toBeNull();
   });
 
-  it("says nothing is withheld rather than printing an empty list", () => {
+  it("does not render an empty internal coverage list", () => {
     render(
       <CreativeEvidenceWindowExact
         onClose={vi.fn()}
         viewModel={viewModel({
-          coverage: { ...servedOnly, state: "served-and-canonical", unavailable: [], note: "" },
+          coverage: {
+            ...servedOnly,
+            state: "served-and-canonical",
+            unavailable: [],
+            note: "",
+          },
         })}
       />,
     );
     expect(
-      document.querySelector("[data-creative-evidence-coverage-withheld]")?.textContent,
-    ).toContain("none — every audit field below came from this row's own envelope");
+      document.querySelector("[data-creative-evidence-coverage-withheld]"),
+    ).toBeNull();
   });
 
   it("renders no coverage block at all when the caller states none", () => {
-    render(<CreativeEvidenceWindowExact onClose={vi.fn()} viewModel={viewModel()} />);
-    expect(document.querySelector("[data-creative-evidence-coverage]")).toBeNull();
+    render(
+      <CreativeEvidenceWindowExact onClose={vi.fn()} viewModel={viewModel()} />,
+    );
+    expect(
+      document.querySelector("[data-creative-evidence-coverage]"),
+    ).toBeNull();
   });
 });

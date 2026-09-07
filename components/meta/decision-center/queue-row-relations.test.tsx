@@ -1,6 +1,12 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { metaRec } from "@/components/meta/redesign/test-fixtures";
@@ -201,7 +207,10 @@ function renderQueue(input: {
     },
   });
   render(
-    <MetaDecisionCenterExact lane={input.lane ?? "action"} viewModel={viewModel} />,
+    <MetaDecisionCenterExact
+      lane={input.lane ?? "action"}
+      viewModel={viewModel}
+    />,
   );
   return viewModel;
 }
@@ -224,7 +233,9 @@ function watchingRow(id: string): HTMLElement {
 
 /** The stretched-link overlay, which shares its name with the row's ⋯ glyph. */
 function cardOpen(row: HTMLElement): HTMLButtonElement {
-  const button = row.querySelector<HTMLButtonElement>("[data-meta-exact-card-open]");
+  const button = row.querySelector<HTMLButtonElement>(
+    "[data-meta-exact-card-open]",
+  );
   if (!button) throw new Error("row has no card-open control");
   return button;
 }
@@ -237,7 +248,9 @@ function lineageOf(row: HTMLElement): string | null {
   const line = row.querySelector("[data-meta-exact-lineage]");
   if (!line) return null;
   const spoken = line.cloneNode(true) as HTMLElement;
-  for (const hidden of Array.from(spoken.querySelectorAll('[aria-hidden="true"]'))) {
+  for (const hidden of Array.from(
+    spoken.querySelectorAll('[aria-hidden="true"]'),
+  )) {
     hidden.remove();
   }
   return spoken.textContent?.trim() ?? null;
@@ -251,16 +264,20 @@ describe("the queue states the campaign an ad-set row belongs to", () => {
     expect(lineageOf(actionRow("rec_adset"))).toContain("In Parent Campaign");
     // ...and that the campaign it belongs to is one of the rows on screen, so
     // the operator can go find it rather than wondering if it is missing.
-    expect(lineageOf(actionRow("rec_adset"))).toContain("campaign also in this lane");
+    expect(lineageOf(actionRow("rec_adset"))).toContain(
+      "campaign also in this lane",
+    );
     expect(
-      actionRow("rec_adset").querySelector("[data-meta-exact-lineage]")
+      actionRow("rec_adset")
+        .querySelector("[data-meta-exact-lineage]")
         ?.getAttribute("data-meta-exact-lineage"),
     ).toBe("child");
 
     // The campaign says how much of the lane hangs off it.
     expect(lineageOf(actionRow("rec_campaign"))).toBe("1 ad set in this lane");
     expect(
-      actionRow("rec_campaign").querySelector("[data-meta-exact-lineage]")
+      actionRow("rec_campaign")
+        .querySelector("[data-meta-exact-lineage]")
         ?.getAttribute("data-meta-exact-lineage"),
     ).toBe("parent");
   });
@@ -290,7 +307,9 @@ describe("the queue states the campaign an ad-set row belongs to", () => {
     renderQueue({ actionNow: [orphanAdsetRec()] });
 
     expect(lineageOf(actionRow("rec_orphan"))).toBe("In Campaign Elsewhere");
-    expect(lineageOf(actionRow("rec_orphan"))).not.toContain("also in this lane");
+    expect(lineageOf(actionRow("rec_orphan"))).not.toContain(
+      "also in this lane",
+    );
   });
 
   it("says nothing at all about a campaign with no ad-set row beside it", () => {
@@ -341,14 +360,19 @@ describe("the queue states the campaign an ad-set row belongs to", () => {
     });
 
     expect(lineageOf(watchingRow("rec_adset"))).toContain("In Parent Campaign");
-    expect(lineageOf(watchingRow("rec_campaign"))).toBe("1 ad set in this lane");
+    expect(lineageOf(watchingRow("rec_campaign"))).toBe(
+      "1 ad set in this lane",
+    );
   });
 });
 
 describe("the whole queue card is the target, not only the ⋯ glyph", () => {
   it("opens the row's evidence from the card body", () => {
     const onStructureMenu = vi.fn();
-    renderQueue({ actionNow: [campaignRec(), adsetRec()], callbacks: { onStructureMenu } });
+    renderQueue({
+      actionNow: [campaignRec(), adsetRec()],
+      callbacks: { onStructureMenu },
+    });
 
     fireEvent.click(cardOpen(actionRow("rec_adset")));
 
@@ -367,7 +391,9 @@ describe("the whole queue card is the target, not only the ⋯ glyph", () => {
 
     expect(open.tagName).toBe("BUTTON");
     expect(open.getAttribute("type")).toBe("button");
-    expect(open.getAttribute("aria-label")).toBe("Open evidence for Child Ad Set");
+    expect(open.getAttribute("aria-label")).toBe(
+      "Open evidence for Child Ad Set",
+    );
   });
 
   it("does not nest the row's controls inside the card control", () => {
@@ -383,7 +409,7 @@ describe("the whole queue card is the target, not only the ⋯ glyph", () => {
     expect(open.querySelector("button")).toBeNull();
     expect(open.querySelector('[role="button"]')).toBeNull();
 
-    const primary = within(row).getByRole("button", { name: "Rebuild in Launchpad" });
+    const primary = within(row).getByRole("button", { name: "Open draft" });
     expect(primary.closest('[role="button"]')).toBeNull();
     expect(open.contains(primary)).toBe(false);
   });
@@ -398,7 +424,7 @@ describe("the whole queue card is the target, not only the ⋯ glyph", () => {
     });
     const row = actionRow("rec_campaign");
 
-    fireEvent.click(within(row).getByRole("button", { name: "Rebuild in Launchpad" }));
+    fireEvent.click(within(row).getByRole("button", { name: "Open draft" }));
     expect(onStructurePrimary).toHaveBeenCalledTimes(1);
     expect(onStructureMenu).not.toHaveBeenCalled();
 
@@ -479,7 +505,9 @@ describe("the row the inspector is describing looks like it", () => {
   it("marks nothing when the inspector is suppressed", () => {
     renderQueue({ actionNow: [campaignRec(), adsetRec()], selection: null });
 
-    expect(document.querySelectorAll("[data-meta-exact-selected]")).toHaveLength(0);
+    expect(
+      document.querySelectorAll("[data-meta-exact-selected]"),
+    ).toHaveLength(0);
     expect(screen.queryByLabelText("Inspecting")).toBeNull();
   });
 
@@ -500,6 +528,8 @@ describe("the row the inspector is describing looks like it", () => {
       selection: { kind: "creative", decisionId: "dec_1" },
     });
 
-    expect(document.querySelectorAll("[data-meta-exact-selected]")).toHaveLength(0);
+    expect(
+      document.querySelectorAll("[data-meta-exact-selected]"),
+    ).toHaveLength(0);
   });
 });

@@ -808,6 +808,22 @@ function safeString(value: unknown, fallback = "") {
   return fallback;
 }
 
+function buyerFacingCreativeName(
+  value: string,
+  creativeId: string,
+  rowId: string,
+): string {
+  const name = value.trim();
+  const providerIds = [creativeId, rowId]
+    .map((id) => id.trim().toLowerCase())
+    .filter(Boolean);
+  const normalizedName = name.toLowerCase();
+  const exposesProviderId = providerIds.some(
+    (id) => normalizedName === id || normalizedName === `creative ${id}`,
+  );
+  return name && !exposesProviderId ? name : "Unnamed creative";
+}
+
 function nullableString(value: unknown) {
   const text = safeString(value);
   return text || null;
@@ -989,7 +1005,11 @@ export function mapApiRowToUiRow(row: MetaCreativeApiRow): MetaCreativeRow {
   const preview = safePreview(row.preview, isCatalog);
   const id = safeString(row.id, safeString(row.creative_id, "creative"));
   const creativeId = safeString(row.creative_id, id);
-  const name = safeString(row.name, safeString(row.copy_text, `Creative ${creativeId}`));
+  const name = buyerFacingCreativeName(
+    safeString(row.name, safeString(row.copy_text, "Unnamed creative")),
+    creativeId,
+    id,
+  );
   const purchases = safeNumber(row.purchases);
   const impressions = safeNumber(row.impressions);
   const clicks = safeNumber(row.clicks);

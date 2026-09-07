@@ -133,7 +133,10 @@ const COLLABORATOR = buildAutomationViewerEnvelope({
 });
 
 /** A server that answers every read and records every POST. */
-function wire(input?: { post?: () => Response; after?: () => MetaAutomationControlPlane }) {
+function wire(input?: {
+  post?: () => Response;
+  after?: () => MetaAutomationControlPlane;
+}) {
   const posts: Array<{ url: string; body: unknown }> = [];
   let reads = 0;
   vi.spyOn(globalThis, "fetch").mockImplementation((async (
@@ -216,7 +219,7 @@ afterEach(() => {
 });
 
 describe("the reading the confirmation is made against", () => {
-  it("states the reading's status, its instant, and the window that refuses it", () => {
+  it("keeps the preflight evidence in attributes without exposing backend copy", () => {
     wire();
     const { container } = mount(controlPlane({}));
 
@@ -225,19 +228,23 @@ describe("the reading the confirmation is made against", () => {
     expect(preflight.getAttribute("data-stop-preflight-at")).toBe(
       new Date(NOW - 30_000).toISOString(),
     );
-    expect(preflight.textContent).toContain(
-      `older than ${Math.round(STOP_PREFLIGHT_MAX_AGE_MS / 60000)} minutes is refused`,
-    );
+    expect(preflight.textContent).not.toContain("control-plane");
+    expect(preflight.textContent).not.toContain("older than");
   });
 
-  it("refuses a reading older than the window, and names the instant", () => {
+  it("refuses a stale reading with a short recovery message", () => {
     wire();
-    const stale = new Date(NOW - STOP_PREFLIGHT_MAX_AGE_MS - 1_000).toISOString();
+    const stale = new Date(
+      NOW - STOP_PREFLIGHT_MAX_AGE_MS - 1_000,
+    ).toISOString();
     const { container } = mount(controlPlane({ observedAt: stale }));
 
     const blocked = container.querySelector("[data-stop-blocked]")!;
     expect(blocked.getAttribute("data-stop-blocked")).toBe("preflight_stale");
-    expect(blocked.textContent).toContain(stale);
+    expect(blocked.textContent).toContain(
+      "Refresh before changing the emergency stop.",
+    );
+    expect(blocked.textContent).not.toContain(stale);
     // Present and refusing: the control never vanishes — and it stays in the
     // tab order, because `disabled` would put the reason out of keyboard
     // reach and the reason is why it is still on screen.
@@ -250,15 +257,18 @@ describe("the reading the confirmation is made against", () => {
     expect(staleTrigger.hasAttribute("data-stop-refused")).toBe(true);
   });
 
-  it("refuses a reading that did not complete, and names the server's error code", () => {
+  it("refuses an incomplete reading without exposing the server error code", () => {
     wire();
-    const { container } = mount(
-      controlPlane({ sectionStatus: "unavailable" }),
-    );
+    const { container } = mount(controlPlane({ sectionStatus: "unavailable" }));
 
     const blocked = container.querySelector("[data-stop-blocked]")!;
-    expect(blocked.getAttribute("data-stop-blocked")).toBe("preflight_unavailable");
-    expect(blocked.textContent).toContain("control_plane_read_failed");
+    expect(blocked.getAttribute("data-stop-blocked")).toBe(
+      "preflight_unavailable",
+    );
+    expect(blocked.textContent).toContain(
+      "Refresh before changing the emergency stop.",
+    );
+    expect(blocked.textContent).not.toContain("control_plane_read_failed");
   });
 });
 
@@ -274,7 +284,9 @@ describe("the role split matches the route", () => {
     const { container } = mount(controlPlane({}), COLLABORATOR);
 
     expect(container.querySelector("[data-stop-blocked]")).toBeNull();
-    const trigger = container.querySelector("[data-stop-trigger]") as HTMLButtonElement;
+    const trigger = container.querySelector(
+      "[data-stop-trigger]",
+    ) as HTMLButtonElement;
     expect(trigger.getAttribute("data-ctl")).toBe("gated:AUTO-01A engage");
     expect(trigger.disabled).toBe(false);
     expect(trigger.getAttribute("aria-disabled")).toBeNull();
@@ -285,9 +297,13 @@ describe("the role split matches the route", () => {
     const { container } = mount(controlPlane({ engaged: true }), COLLABORATOR);
 
     expect(
-      container.querySelector("[data-stop-blocked]")?.getAttribute("data-stop-blocked"),
+      container
+        .querySelector("[data-stop-blocked]")
+        ?.getAttribute("data-stop-blocked"),
     ).toBe("insufficient_role");
-    const trigger = container.querySelector("[data-stop-trigger]") as HTMLButtonElement;
+    const trigger = container.querySelector(
+      "[data-stop-trigger]",
+    ) as HTMLButtonElement;
     expect(trigger.getAttribute("data-ctl")).toBe("gated:AUTO-02 release");
     // Refused, and still reachable: `aria-disabled` holds the action while the
     // control keeps its place in the tab order so the reason can be read.
@@ -297,14 +313,17 @@ describe("the role split matches the route", () => {
 });
 
 describe("the gate holds engage and never holds release", () => {
-  it("refuses engage with the server's own sentence", () => {
+  it("refuses engage without exposing rollout details", () => {
     wire();
     const reason = "The Meta Stop is not enabled on this workspace yet.";
     const { container } = mount(controlPlane({}), ADMIN, reason);
 
     const blocked = container.querySelector("[data-stop-blocked]")!;
     expect(blocked.getAttribute("data-stop-blocked")).toBe("gate_closed");
-    expect(blocked.textContent).toContain(reason);
+    expect(blocked.textContent).toContain(
+      "The emergency stop is unavailable right now.",
+    );
+    expect(blocked.textContent).not.toContain(reason);
   });
 
   it("leaves release open at the same gate setting", () => {
@@ -330,9 +349,11 @@ describe("the typed confirmation is what sends the request", () => {
     const { container } = mount(controlPlane({}));
 
     fireEvent.click(container.querySelector("[data-stop-trigger]")!);
-    expect(container.querySelector("[data-stop-confirm]")?.getAttribute(
-      "data-stop-confirm",
-    )).toBe("engage");
+    expect(
+      container
+        .querySelector("[data-stop-confirm]")
+        ?.getAttribute("data-stop-confirm"),
+    ).toBe("engage");
     // Opening the ceremony is not taking the action.
     expect(server.posts).toEqual([]);
 
@@ -345,8 +366,11 @@ describe("the typed confirmation is what sends the request", () => {
       target: { value: "STOP" },
     });
     expect(
-      (container.querySelector("[data-stop-confirm-submit]") as HTMLButtonElement)
-        .disabled,
+      (
+        container.querySelector(
+          "[data-stop-confirm-submit]",
+        ) as HTMLButtonElement
+      ).disabled,
     ).toBe(true);
     expect(server.posts).toEqual([]);
 
@@ -355,13 +379,18 @@ describe("the typed confirmation is what sends the request", () => {
     });
     // Case-insensitive, because the phrase is a confirmation and not a password.
     expect(
-      (container.querySelector("[data-stop-confirm-submit]") as HTMLButtonElement)
-        .disabled,
+      (
+        container.querySelector(
+          "[data-stop-confirm-submit]",
+        ) as HTMLButtonElement
+      ).disabled,
     ).toBe(false);
 
     fireEvent.submit(container.querySelector("[data-stop-confirm]")!);
     await waitFor(() => expect(server.posts.length).toBe(1));
-    expect(server.posts[0]!.body).toMatchObject({ action: "engage_kill_switch" });
+    expect(server.posts[0]!.body).toMatchObject({
+      action: "engage_kill_switch",
+    });
   });
 
   it("cancels without sending", () => {
@@ -372,6 +401,37 @@ describe("the typed confirmation is what sends the request", () => {
     fireEvent.click(container.querySelector("[data-stop-confirm-cancel]")!);
     expect(container.querySelector("[data-stop-confirm]")).toBeNull();
     expect(server.posts).toEqual([]);
+  });
+
+  it("does not expose the server error message when a stop request fails", async () => {
+    const rawMessage = "write_fence_rejected: control_plane_revision_conflict";
+    wire({
+      post: () =>
+        new Response(
+          JSON.stringify({
+            ok: false,
+            error: { code: "write_fence_rejected", message: rawMessage },
+          }),
+          { status: 409, headers: { "Content-Type": "application/json" } },
+        ),
+    });
+    const { container } = mount(controlPlane({}));
+
+    fireEvent.click(container.querySelector("[data-stop-trigger]")!);
+    fireEvent.change(container.querySelector("[data-stop-confirm-input]")!, {
+      target: { value: "STOP META" },
+    });
+    fireEvent.submit(container.querySelector("[data-stop-confirm]")!);
+
+    await waitFor(() =>
+      expect(
+        container.querySelector("[data-field='stop-error']"),
+      ).not.toBeNull(),
+    );
+    expect(
+      container.querySelector("[data-field='stop-error']")!.textContent,
+    ).toBe("The emergency stop could not be changed. Refresh and try again.");
+    expect(container.textContent).not.toContain(rawMessage);
   });
 });
 
@@ -389,10 +449,9 @@ describe("only a read-back may announce an outcome", () => {
     await waitFor(() =>
       expect(container.querySelector("[data-stop-status]")).not.toBeNull(),
     );
-    // The claim carries its own evidence.
-    expect(container.querySelector("[data-stop-status]")!.textContent).toContain(
-      "Confirmed by read-back at",
-    );
+    expect(
+      container.querySelector("[data-stop-status]")!.textContent,
+    ).toContain("Meta automation stopped.");
     expect(server.posts.length).toBe(1);
   });
 
@@ -411,15 +470,19 @@ describe("only a read-back may announce an outcome", () => {
     await waitFor(() =>
       expect(container.querySelector("[data-stop-unconfirmed]")).not.toBeNull(),
     );
-    const message = container.querySelector("[data-stop-unconfirmed]")!.textContent!;
-    expect(message).toContain("does not confirm");
-    expect(message).not.toContain("Confirmed by read-back");
+    const message = container.querySelector(
+      "[data-stop-unconfirmed]",
+    )!.textContent!;
+    expect(message).toContain("The change could not be confirmed");
+    expect(message).not.toContain("read-back");
     expect(container.querySelector("[data-stop-status]")).toBeNull();
     expect(server.posts.length).toBe(1);
   });
 
   it("reports unknown when the confirming read itself fails", async () => {
-    const server = wire({ post: () => new Response(JSON.stringify({ ok: true }), { status: 200 }) });
+    const server = wire({
+      post: () => new Response(JSON.stringify({ ok: true }), { status: 200 }),
+    });
     // The re-read throws: `readAutomation` is caught and yields null.
     vi.spyOn(globalThis, "fetch").mockImplementation((async (
       request: RequestInfo | URL,
@@ -428,14 +491,22 @@ describe("only a read-back may announce an outcome", () => {
       const url = String(request);
       const method = (init?.method ?? "GET").toUpperCase();
       if (method === "POST" && url.startsWith("/api/meta/automation?")) {
-        server.posts.push({ url, body: JSON.parse(String(init?.body ?? "{}")) });
+        server.posts.push({
+          url,
+          body: JSON.parse(String(init?.body ?? "{}")),
+        });
         return new Response(JSON.stringify({ ok: true }), { status: 200 });
       }
       if (url.startsWith("/api/meta/automation")) {
         throw new Error("the control plane could not be re-read");
       }
       return new Response(
-        JSON.stringify({ ok: true, readCompleteness: {}, holds: {}, proposals: [] }),
+        JSON.stringify({
+          ok: true,
+          readCompleteness: {},
+          holds: {},
+          proposals: [],
+        }),
         { status: 200 },
       );
     }) as typeof fetch);
@@ -450,15 +521,15 @@ describe("only a read-back may announce an outcome", () => {
     await waitFor(() =>
       expect(container.querySelector("[data-stop-unconfirmed]")).not.toBeNull(),
     );
-    expect(container.querySelector("[data-stop-unconfirmed]")!.textContent).toContain(
-      "could not be read back",
-    );
+    expect(
+      container.querySelector("[data-stop-unconfirmed]")!.textContent,
+    ).toContain("The change could not be confirmed");
     expect(container.querySelector("[data-stop-status]")).toBeNull();
   });
 });
 
 describe("nothing here reaches a provider", () => {
-  it("posts only to the automation control plane, and states dry-run only", async () => {
+  it("posts only to the automation route and uses operator-facing preview copy", async () => {
     const server = wire({ after: () => controlPlane({ engaged: true }) });
     const { container } = mount(controlPlane({}));
 
@@ -473,7 +544,8 @@ describe("nothing here reaches a provider", () => {
       expect(post.url.startsWith("/api/meta/automation?")).toBe(true);
       expect(post.url).not.toMatch(/facebook|graph\./);
     }
-    expect(container.textContent).toContain("dry run only");
+    expect(container.textContent).toContain("Preview only");
+    expect(container.textContent).not.toContain("dry run only");
   });
 });
 
@@ -518,15 +590,20 @@ describe("a confirmation that was overtaken sends nothing", () => {
     expect(form.getAttribute("data-stop-confirm")).toBe("engage");
     // Every word still describes the direction being confirmed.
     expect(
-      container.querySelector("[data-stop-confirm-input]")!.getAttribute("aria-label"),
+      container
+        .querySelector("[data-stop-confirm-input]")!
+        .getAttribute("aria-label"),
     ).toBe("Type STOP META to confirm");
     expect(form.textContent).toContain("STOP META");
     expect(form.textContent).not.toContain("RESUME META");
     // And the typed phrase still enables the submit, because it is still the
     // phrase for this direction.
     expect(
-      (container.querySelector("[data-stop-confirm-submit]") as HTMLButtonElement)
-        .disabled,
+      (
+        container.querySelector(
+          "[data-stop-confirm-submit]",
+        ) as HTMLButtonElement
+      ).disabled,
     ).toBe(false);
   });
 
@@ -546,7 +623,10 @@ describe("a confirmation that was overtaken sends nothing", () => {
     );
     fireEvent.submit(container.querySelector("[data-stop-confirm]")!);
 
-    expect(server.posts, "a request was made for a state that had moved").toEqual([]);
+    expect(
+      server.posts,
+      "a request was made for a state that had moved",
+    ).toEqual([]);
     // Closed, and said why. A form that closes silently reads as a lost click.
     expect(container.querySelector("[data-stop-confirm]")).toBeNull();
     const aborted = container.querySelector("[data-stop-aborted]");
@@ -574,8 +654,11 @@ describe("a confirmation that was overtaken sends nothing", () => {
     expect(container.querySelector("[data-stop-blocked]")).toBeNull();
     openAndType(container, "STOP META");
     expect(
-      (container.querySelector("[data-stop-confirm-submit]") as HTMLButtonElement)
-        .disabled,
+      (
+        container.querySelector(
+          "[data-stop-confirm-submit]",
+        ) as HTMLButtonElement
+      ).disabled,
     ).toBe(false);
 
     clock = NOW + STOP_PREFLIGHT_MAX_AGE_MS + 60_000;
@@ -585,9 +668,10 @@ describe("a confirmation that was overtaken sends nothing", () => {
     expect(container.querySelector("[data-stop-confirm]")).toBeNull();
     const aborted = container.querySelector("[data-stop-aborted]");
     expect(aborted).not.toBeNull();
-    // The resolver's own sentence, naming the instant and the window.
-    expect(aborted!.textContent).toContain("older than");
-    expect(aborted!.textContent).toContain("Re-read the control plane");
+    expect(aborted!.textContent).toContain(
+      "Refresh before changing the emergency stop.",
+    );
+    expect(aborted!.textContent).not.toContain("control plane");
   });
 
   it("still sends when nothing moved", () => {
@@ -597,7 +681,9 @@ describe("a confirmation that was overtaken sends nothing", () => {
     fireEvent.submit(container.querySelector("[data-stop-confirm]")!);
 
     expect(server.posts).toHaveLength(1);
-    expect(server.posts[0]!.body).toMatchObject({ action: "engage_kill_switch" });
+    expect(server.posts[0]!.body).toMatchObject({
+      action: "engage_kill_switch",
+    });
     expect(container.querySelector("[data-stop-aborted]")).toBeNull();
   });
 
@@ -622,7 +708,9 @@ describe("a confirmation that was overtaken sends nothing", () => {
 
     expect(container.querySelector("[data-stop-aborted]")).toBeNull();
     expect(
-      container.querySelector("[data-stop-confirm]")!.getAttribute("data-stop-confirm"),
+      container
+        .querySelector("[data-stop-confirm]")!
+        .getAttribute("data-stop-confirm"),
     ).toBe("release");
   });
 });

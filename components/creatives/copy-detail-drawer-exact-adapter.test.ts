@@ -7,7 +7,9 @@ import {
   type CopyDetailDrawerExactRow,
 } from "./copy-detail-drawer-exact-adapter";
 
-function row(overrides: Partial<CopyDetailDrawerExactRow> = {}): CopyDetailDrawerExactRow {
+function row(
+  overrides: Partial<CopyDetailDrawerExactRow> = {},
+): CopyDetailDrawerExactRow {
   return {
     id: "t1",
     creativeId: "cre_1",
@@ -57,12 +59,21 @@ describe("buildCopyDetailDrawerExactViewModel", () => {
       "Engage",
       "ROAS",
     ]);
-    expect(model.stats?.[1]).toMatchObject({ value: "1.72%", sub: "median 1.34%" });
-    expect(model.stats?.[3]).toMatchObject({ value: "5.2", sub: "target 3.80" });
+    expect(model.stats?.[1]).toMatchObject({
+      value: "1.72%",
+      sub: "median 1.34%",
+    });
+    expect(model.stats?.[3]).toMatchObject({
+      value: "5.2",
+      sub: "target 3.80",
+    });
   });
 
   it("em-dashes See more and Engage because the copies response has no such field", () => {
-    const model = buildCopyDetailDrawerExactViewModel({ row: row(), peers: [row()] });
+    const model = buildCopyDetailDrawerExactViewModel({
+      row: row(),
+      peers: [row()],
+    });
     expect(model.stats?.[0]).toMatchObject({ value: "—", sub: "—" });
     expect(model.stats?.[2]).toMatchObject({ value: "—", sub: "—" });
   });
@@ -76,30 +87,40 @@ describe("buildCopyDetailDrawerExactViewModel", () => {
 
   it("tones the ROAS tile with the copies table's own band", () => {
     expect(
-      buildCopyDetailDrawerExactViewModel({ row: row({ roas: 5.2 }) }).stats?.[3]?.tone,
+      buildCopyDetailDrawerExactViewModel({ row: row({ roas: 5.2 }) })
+        .stats?.[3]?.tone,
     ).toBe("positive");
     expect(
-      buildCopyDetailDrawerExactViewModel({ row: row({ roas: 2.3 }) }).stats?.[3]?.tone,
+      buildCopyDetailDrawerExactViewModel({ row: row({ roas: 2.3 }) })
+        .stats?.[3]?.tone,
     ).toBe("negative");
-    expect(buildCopyDetailDrawerExactViewModel({ row: row({ roas: 2.7 }) }).edgeTone).toBe(
-      "warning",
-    );
   });
 
   it("shows the target as an em dash when no target is served", () => {
-    const model = buildCopyDetailDrawerExactViewModel({ row: row(), targetRoas: null });
+    const model = buildCopyDetailDrawerExactViewModel({
+      row: row(),
+      targetRoas: null,
+    });
     expect(model.stats?.[3]?.sub).toBe("target —");
   });
 
-  it("leaves the Read card unserved rather than guessing a diagnosis", () => {
-    expect(buildCopyDetailDrawerExactViewModel({ row: row() }).read).toBe("—");
+  it("does not create an empty Read card or a dead Draft-all action", () => {
+    const model = buildCopyDetailDrawerExactViewModel({ row: row() });
+    expect(model).not.toHaveProperty("read");
+    expect(model).not.toHaveProperty("draftAllLabel");
+    expect(model).not.toHaveProperty("draftAllHref");
   });
 
   it("lists the served variants as alternates, dropping the line itself and duplicates", () => {
     const model = buildCopyDetailDrawerExactViewModel({
       row: row({
         text: "Real copy",
-        variants: ["Real copy", "Served alternative", "Served alternative", "  "],
+        variants: [
+          "Real copy",
+          "Served alternative",
+          "Served alternative",
+          "  ",
+        ],
       }),
     });
     expect(model.alternates).toHaveLength(1);
@@ -108,7 +129,6 @@ describe("buildCopyDetailDrawerExactViewModel", () => {
       angle: "—",
       why: "—",
     });
-    expect(model.draftAllLabel).toBe("Draft all 1 in Launchpad");
   });
 
   /**
@@ -128,28 +148,29 @@ describe("buildCopyDetailDrawerExactViewModel", () => {
    */
   it("never gives an alternate an href, because drafting is a verified POST", () => {
     const model = buildCopyDetailDrawerExactViewModel({
-      row: row({ text: "Real copy", variants: ["Real copy", "Served alternative"] }),
+      row: row({
+        text: "Real copy",
+        variants: ["Real copy", "Served alternative"],
+      }),
       draftingAvailable: true,
     });
     expect(model.alternates).toHaveLength(1);
     expect(model.alternates?.[0]?.draftHref).toBeNull();
-    // And the footer stays destination-less even when single drafting works: a
-    // handoff carries ONE line by construction, so "draft all" has no honest
-    // implementation.
-    expect(model.draftAllHref).toBeNull();
   });
 
-  it("withholds the footer destination when nothing can be drafted", () => {
+  it("returns no alternate actions when nothing can be drafted", () => {
     const model = buildCopyDetailDrawerExactViewModel({ row: row() });
     expect(model.alternates).toHaveLength(0);
-    expect(model.draftAllHref).toBeNull();
-    expect(model.draftAllLabel).toBe("Draft all in Launchpad");
   });
 
-  it("describes the alternates as what they are, not as angle-shifted rewrites", () => {
+  it("describes alternate lines without backend or provider jargon", () => {
     const model = buildCopyDetailDrawerExactViewModel({ row: row() });
-    expect(model.alternatesNote).toBe("served with this creative · Meta-reported");
-    expect(model.footnote).toContain("Nothing publishes from here.");
+    expect(model.alternatesNote).toBe("Used with this creative");
+    expect(model.footnote).toBe(
+      "These are other lines used with this creative.",
+    );
+    expect(model.footnote).not.toContain("served");
+    expect(model.footnote).not.toContain("server");
   });
 
   // The original sentence — "Drafting one opens a Launchpad draft with this
@@ -159,18 +180,26 @@ describe("buildCopyDetailDrawerExactViewModel", () => {
   it("never re-states the old evidence-attached claim", () => {
     for (const draftingAvailable of [false, true]) {
       const model = buildCopyDetailDrawerExactViewModel({
-        row: row({ text: "Real copy", variants: ["Real copy", "Served alternative"] }),
+        row: row({
+          text: "Real copy",
+          variants: ["Real copy", "Served alternative"],
+        }),
         draftingAvailable,
       });
       expect(model.footnote).not.toContain("evidence attached");
     }
   });
 
-  it("says drafting is unavailable when the host cannot prepare one", () => {
+  it("does not explain unavailable drafting with internal setup details", () => {
     const model = buildCopyDetailDrawerExactViewModel({
-      row: row({ text: "Real copy", variants: ["Real copy", "Served alternative"] }),
+      row: row({
+        text: "Real copy",
+        variants: ["Real copy", "Served alternative"],
+      }),
     });
-    expect(model.footnote).toContain("Drafting is unavailable");
+    expect(model.footnote).toBe(
+      "These are other lines used with this creative.",
+    );
   });
 
   // A creative id is what binds the line to a provider object. Without it the
@@ -185,36 +214,43 @@ describe("buildCopyDetailDrawerExactViewModel", () => {
       }),
       draftingAvailable: true,
     });
-    expect(model.footnote).toContain("Drafting is unavailable");
+    expect(model.footnote).toBe(
+      "These are other lines used with this creative.",
+    );
   });
 
   // What the enabled footnote is allowed to say: the line travels with the
   // draft, and it does NOT become ad copy. The second half is the honest part —
   // no Launchpad payload field can hold it.
-  it("states both what a draft carries and what Launchpad still cannot do with it", () => {
+  it("explains the working draft action in buyer-facing language", () => {
     const model = buildCopyDetailDrawerExactViewModel({
-      row: row({ text: "Real copy", variants: ["Real copy", "Served alternative"] }),
+      row: row({
+        text: "Real copy",
+        variants: ["Real copy", "Served alternative"],
+      }),
       draftingAvailable: true,
     });
-    expect(model.footnote).toContain("the server re-checks the line was served");
-    expect(model.footnote).toContain("Launchpad has no copy field");
-    expect(model.footnote).toContain("does not become ad copy");
-    expect(model.footnote).toContain("Nothing publishes from here.");
+    expect(model.footnote).toContain(
+      "Draft opens Launchpad with the selected line for reference",
+    );
+    expect(model.footnote).toContain("does not publish or change ad copy");
+    expect(model.footnote).not.toContain("server");
   });
 
-  // A refusal comes back from the server with its own sentence. The drawer
-  // restates it rather than inventing one, so an operator whose draft was
-  // refused is told what the server said.
-  it("restates the server's own refusal sentence verbatim", () => {
+  it("maps a draft refusal to stable buyer-facing copy", () => {
     const model = buildCopyDetailDrawerExactViewModel({
-      row: row({ text: "Real copy", variants: ["Real copy", "Served alternative"] }),
+      row: row({
+        text: "Real copy",
+        variants: ["Real copy", "Served alternative"],
+      }),
       draftingAvailable: true,
       draftStatusMessage:
         "That copy line is not in the current served universe for this account and window.",
     });
     expect(model.footnote).toContain(
-      "That copy line is not in the current served universe for this account and window.",
+      "The Launchpad draft could not be prepared. Try again.",
     );
+    expect(model.footnote).not.toContain("served universe");
   });
 });
 

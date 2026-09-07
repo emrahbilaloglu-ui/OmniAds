@@ -63,6 +63,72 @@ export interface HistoryPage {
   nextCursor: string | null;
 }
 
+/** Keep unnamed accounts distinguishable without printing a full provider id. */
+export function historyAccountLabel(account: {
+  id: string;
+  name: string | null;
+}): string {
+  const id = account.id.trim();
+  const name = (account.name ?? "").trim();
+  const providerId = id.replace(/^act_/i, "");
+  if (name && name !== id && name !== providerId) return name;
+  const suffix = providerId.slice(-4);
+  return suffix ? `Meta account ••••${suffix}` : "Meta account";
+}
+
+function outcomeSummary(status: MetaHistoryEntry["status"]): string | null {
+  if (status === "improved")
+    return "Performance improved over the next 7 days.";
+  if (status === "regressed")
+    return "Performance declined over the next 7 days.";
+  if (status === "flat")
+    return "Performance was broadly unchanged over the next 7 days.";
+  if (status === "inconclusive") {
+    return "There is not enough evidence to judge the 7-day result.";
+  }
+  return null;
+}
+
+/**
+ * Stored summaries predate the buyer UI and can contain rule names or JSON.
+ * Preserve normal explanatory prose. Known KPI rows retain their measured
+ * movement and action receipt; unknown machine-shaped detail stays hidden.
+ */
+export function historySummaryFor(entry: MetaHistoryEntry): string | null {
+  const summary = entry.summary?.trim() ?? "";
+  if (!summary) return null;
+
+  const automaticKpi = summary.match(
+    /^auto_kpi_7d:\s*(improved|regressed|flat|inconclusive)\s*\(ROAS\s+(n\/a|-?\d+(?:\.\d+)?)\s*->\s*(n\/a|-?\d+(?:\.\d+)?),\s*operator\s+(acted|did not act)\)$/i,
+  );
+  if (automaticKpi) {
+    const [, rawStatus, before, after, actionState] = automaticKpi;
+    const status = rawStatus.toLowerCase() as MetaHistoryEntry["status"];
+    const measured =
+      before.toLowerCase() !== "n/a" && after.toLowerCase() !== "n/a";
+    const result = measured
+      ? status === "improved"
+        ? `ROAS improved from ${before} to ${after} over the next 7 days.`
+        : status === "regressed"
+          ? `ROAS declined from ${before} to ${after} over the next 7 days.`
+          : status === "flat"
+            ? `ROAS moved from ${before} to ${after} with no clear 7-day change.`
+            : `The 7-day ROAS result from ${before} to ${after} is inconclusive.`
+      : outcomeSummary(status);
+    const actionCopy =
+      actionState.toLowerCase() === "acted"
+        ? "A recorded action was applied."
+        : "No action was recorded.";
+    return result ? `${result} ${actionCopy}` : actionCopy;
+  }
+
+  const machinePrefix = /^[a-z0-9]+(?:[_-][a-z0-9]+)+(?:\.[a-z0-9]+)?:/i;
+  if (machinePrefix.test(summary) || /^[\[{]/.test(summary)) {
+    return outcomeSummary(entry.status);
+  }
+  return summary;
+}
+
 /**
  * Actor text for one entry.
  *
@@ -71,7 +137,8 @@ export interface HistoryPage {
  * would be a claim about who acted.
  */
 export function actorFor(entry: MetaHistoryEntry): string | null {
-  if (entry.actor.availability === "not_applicable") return "No human actor (engine)";
+  if (entry.actor.availability === "not_applicable")
+    return "No human actor (engine)";
   if (entry.actor.availability === "unavailable") return null;
   const name = (entry.actor.name ?? "").trim();
   return name.length > 0 ? name : null;
@@ -87,12 +154,35 @@ export function actorFor(entry: MetaHistoryEntry): string | null {
  * entity is appended only when the served title does not already carry it, in
  * the same ` | ` form the SQL uses, so no row gains a duplicate.
  *
- * The name is preferred and the id is the fallback — never a made-up label, and
- * never nothing when an id was served.
+ * The name is preferred. When it is unavailable, the UI uses a neutral entity
+ * label instead of exposing a provider identifier.
  */
 export function actionFor(entry: MetaHistoryEntry): string {
-  const title = entry.title;
-  const entityLabel = (entry.entity.name ?? "").trim() || entry.entity.id.trim();
+  const entityId = entry.entity.id.trim();
+  const servedEntityName = (entry.entity.name ?? "").trim();
+  const entityName =
+    servedEntityName && servedEntityName !== entityId ? servedEntityName : "";
+  const entityLabel =
+    entityName ||
+    {
+      account: "Unnamed account",
+      campaign: "Unnamed campaign",
+      adset: "Unnamed ad set",
+      ad: "Unnamed ad",
+      creative: "Unnamed creative",
+      creative_brief: "Unnamed creative brief",
+      launch_intent: "Unnamed launch",
+      recommendation: "Unnamed recommendation",
+    }[entry.entity.type];
+  let title = entry.title;
+  if (entityId && entityLabel) {
+    const rawIdSuffix = ` | ${entityId}`;
+    if (title === entityId) title = entityLabel;
+    else if (title.endsWith(rawIdSuffix)) {
+      title = `${title.slice(0, -rawIdSuffix.length)} | ${entityLabel}`;
+    }
+  }
+  if (!entityId && !entityName) return title;
   if (!entityLabel || title.includes(entityLabel)) return title;
   return `${title} | ${entityLabel}`;
 }
@@ -106,7 +196,11 @@ export function actionFor(entry: MetaHistoryEntry): string {
  * a reader would silently take as their own.
  */
 export function moneyFactText(fact: MetaHistoryMoneyFact): string {
-  if (fact.availability !== "available" || fact.amount === null || !fact.currency) {
+  if (
+    fact.availability !== "available" ||
+    fact.amount === null ||
+    !fact.currency
+  ) {
     return "—";
   }
   return `${fact.amount} ${fact.currency}`;
@@ -122,7 +216,7 @@ export function toHistoryRow(entry: MetaHistoryEntry): HistoryRow {
     actor: actorFor(entry),
     replayed: entry.replay !== null,
     replayEngineVersion: entry.replay?.engineVersion ?? null,
-    summary: entry.summary,
+    summary: historySummaryFor(entry),
     money: entry.money,
   };
 }
@@ -142,7 +236,10 @@ export function toHistoryPage(payload: MetaHistoryResponse): HistoryPage {
     rows,
     disclosure,
     limitations: payload.limitations.map((item) => item.message),
-    accountLabel: payload.scope.providerAccountName ?? payload.scope.providerAccountId,
+    accountLabel: historyAccountLabel({
+      id: payload.scope.providerAccountId,
+      name: payload.scope.providerAccountName,
+    }),
     nextCursor: payload.page.nextCursor,
   };
 }

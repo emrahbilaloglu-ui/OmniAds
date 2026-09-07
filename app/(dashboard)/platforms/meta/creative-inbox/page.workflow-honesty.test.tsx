@@ -88,33 +88,25 @@ describe("the Inbox never implies a workflow backend", () => {
     expect(TYPES).not.toContain("onBrowseFiles");
   });
 
-  it("states plainly that the request/version/approval flow is unbuilt", () => {
-    const banner = PAGE.slice(
-      PAGE.indexOf("const WORKFLOW_UNBUILT"),
-      PAGE.indexOf("const WORKFLOW_UNBUILT") + 400,
-    );
-    expect(banner).toContain("are not built");
-    expect(banner).toContain(
+  it("does not expose the absent request/version/approval workflow as UI copy", () => {
+    expect(PAGE).not.toContain("const WORKFLOW_UNBUILT");
+    expect(PAGE).not.toContain("are not built");
+    expect(PAGE).not.toContain(
       "no request, owner, due date, version or approval is recorded anywhere",
     );
-    // The routing strip says the same thing, in the present tense of a thing
-    // that does not exist rather than of one that does.
-    expect(STUDIO).toContain("are not built");
-    expect(STUDIO).not.toContain(
-      "Requests are intended to route here from",
-    );
+    expect(STUDIO).not.toContain("are not built");
+    expect(STUDIO).not.toContain("Requests are intended to route here from");
   });
 
   it("keeps a failed read distinct from a genuine zero", () => {
     // Both sentences must exist, and they must not be the same sentence.
-    expect(PAGE).toContain("These segments are unavailable, not empty.");
-    expect(PAGE).toContain(
-      "The creative briefing authority served no decision items for this account.",
-    );
+    expect(PAGE).toContain("Creative decisions are temporarily unavailable.");
+    expect(PAGE).toContain("No creative decisions need attention.");
   });
 
-  it("keeps the briefing items it CAN serve honestly described", () => {
-    expect(PAGE).toContain("creative briefing authority");
+  it("keeps the served decision items without exposing backend authority wording", () => {
+    expect(PAGE).not.toMatch(/creative briefing authority/i);
+    expect(PAGE).toContain("Creative decisions");
   });
 });
 
@@ -146,17 +138,17 @@ describe("an unreadable inventory is not a measured zero", () => {
     );
   });
 
-  it("says the segments are unavailable and carries the served reason", () => {
-    expect(PAGE).toContain("could not read this account's decision inventory");
-    expect(PAGE).toContain("These segments are unavailable, not empty.");
-    expect(PAGE).toContain("inventoryUnavailableReason");
+  it("shows a concise unavailable state without exposing inventory internals", () => {
+    expect(PAGE).toContain("Creative decisions are temporarily unavailable.");
+    expect(PAGE).not.toContain(
+      "could not read this account's decision inventory",
+    );
+    expect(PAGE).not.toContain("inventoryUnavailableReason");
   });
 
   it("still reports a genuine zero as a zero", () => {
     // The opposite error is equally wrong: an authority that really served
     // nothing must not be reported as unreadable.
-    expect(PAGE).toContain(
-      "served no decision items for this account",
-    );
+    expect(PAGE).toContain("No creative decisions need attention.");
   });
 });

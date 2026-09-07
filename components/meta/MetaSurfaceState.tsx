@@ -48,7 +48,10 @@
  * the time — and the design package draws no such gap, so the fidelity gates
  * would refuse it for the same reason an operator would.
  */
-import type { MetaReadState, MetaResponseEnvelope } from "@/lib/meta/read-state-contract";
+import type {
+  MetaReadState,
+  MetaResponseEnvelope,
+} from "@/lib/meta/read-state-contract";
 
 /** States that speak. The other two are the quiet, correct ones. */
 const ANNOUNCED: readonly MetaReadState[] = [
@@ -68,7 +71,10 @@ const ANNOUNCED: readonly MetaReadState[] = [
  * would then have a permanent condition reported by something that reads as a
  * momentary one.
  */
-const TRANSIENT: readonly MetaReadState[] = ["loading", "refreshing-with-stale"];
+const TRANSIENT: readonly MetaReadState[] = [
+  "loading",
+  "refreshing-with-stale",
+];
 
 /**
  * What the two stateless states say.
@@ -77,10 +83,12 @@ const TRANSIENT: readonly MetaReadState[] = ["loading", "refreshing-with-stale"]
  * they still need words: a skeleton with no explanation and a stale table with
  * no label are both surfaces that look like something they are not.
  */
-const STATELESS_MESSAGE: Partial<Record<MetaReadState, string>> = {
-  loading: "Reading this surface. Nothing below is final yet.",
-  "refreshing-with-stale":
-    "These are the previous figures, still on screen while a newer read runs.",
+const STATE_MESSAGE: Partial<Record<MetaReadState, string>> = {
+  loading: "Loading the latest Meta data.",
+  "refreshing-with-stale": "Updating the latest Meta data.",
+  partial: "Some recent Meta data is still loading.",
+  degraded: "This information is temporarily unavailable.",
+  refused: "This information is unavailable for the selected account.",
 };
 
 /** The card, identical in both placements. Only its position differs. */
@@ -126,10 +134,14 @@ export interface MetaSurfaceStateProps {
   className?: string;
 }
 
-export function MetaSurfaceState({ envelope, surfaceId, className }: MetaSurfaceStateProps) {
+export function MetaSurfaceState({
+  envelope,
+  surfaceId,
+  className,
+}: MetaSurfaceStateProps) {
   if (!envelope) return null;
   const { state, failure } = envelope;
-  const message = failure?.message ?? STATELESS_MESSAGE[state] ?? null;
+  const message = STATE_MESSAGE[state] ?? null;
   const announced = ANNOUNCED.includes(state);
   const transient = TRANSIENT.includes(state);
 
@@ -145,7 +157,9 @@ export function MetaSurfaceState({ envelope, surfaceId, className }: MetaSurface
          one without parsing a sentence. */
       data-updating={state === "refreshing-with-stale" ? "" : undefined}
       /* Which placement this state got, so the CLS gate can name it. */
-      data-notice-placement={announced ? (transient ? "pinned" : "in-flow") : undefined}
+      data-notice-placement={
+        announced ? (transient ? "pinned" : "in-flow") : undefined
+      }
       className={className}
     >
       {announced ? (
@@ -173,21 +187,11 @@ export function MetaSurfaceState({ envelope, surfaceId, className }: MetaSurface
             region would talk over an operator mid-task on every refresh.
           */}
           <p role="status" style={{ margin: 0 }}>
-            <strong style={{ fontWeight: 600 }}>{READ_STATE_LABEL[state]}</strong>
+            <strong style={{ fontWeight: 600 }}>
+              {READ_STATE_LABEL[state]}
+            </strong>
             {message ? ` — ${message}` : null}
           </p>
-          {/*
-            The code, for an operator who is reporting this to someone. Never a
-            variable name and never a stack: a §9.1 code and nothing else.
-          */}
-          {failure ? (
-            <p
-              data-failure-code-label=""
-              style={{ margin: 0, fontSize: 12, color: "var(--adv-ink-3, #555d6d)" }}
-            >
-              Reference: {failure.code}
-            </p>
-          ) : null}
         </div>
       ) : null}
     </div>
@@ -198,9 +202,9 @@ export function MetaSurfaceState({ envelope, surfaceId, className }: MetaSurface
 export const READ_STATE_LABEL: Record<MetaReadState, string> = {
   loading: "Loading",
   "refreshing-with-stale": "Updating",
-  success: "Serving",
+  success: "Ready",
   "empty-proven": "Nothing to show",
-  partial: "Partly served",
+  partial: "Some data unavailable",
   degraded: "Unavailable",
-  refused: "Withheld",
+  refused: "Unavailable",
 };

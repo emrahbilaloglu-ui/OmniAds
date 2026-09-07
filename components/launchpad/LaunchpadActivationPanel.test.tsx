@@ -83,7 +83,9 @@ function storedRevocation(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function panel(props: Partial<React.ComponentProps<typeof LaunchpadActivationPanel>> = {}) {
+function panel(
+  props: Partial<React.ComponentProps<typeof LaunchpadActivationPanel>> = {},
+) {
   return (
     <LaunchpadActivationPanel
       businessId={BUSINESS}
@@ -114,23 +116,27 @@ afterEach(() => {
 });
 
 describe("LaunchpadActivationPanel", () => {
-  it("says operator-only when no approval is stored, and still offers Activate now", () => {
+  it("shows scheduled activation as off when no approval is stored, and still offers Activate now", () => {
     stub({ ok: true });
     render(panel());
 
     expect(
-      document.querySelector('[data-activation-approval="absent"]')?.textContent,
-    ).toContain("operator only");
+      document.querySelector('[data-activation-approval="absent"]')
+        ?.textContent,
+    ).toContain("Scheduled activation is off.");
     // Activating does not depend on a stored approval — the operator's own
     // confirmation is the authority — so the control is present and enabled
     // once the phrase is typed.
-    const run = document.querySelector("[data-activation-run]") as HTMLButtonElement;
+    const run = document.querySelector(
+      "[data-activation-run]",
+    ) as HTMLButtonElement;
     expect(run).not.toBeNull();
     expect(run.disabled).toBe(true);
     type("[data-activation-phrase]", "ACTIVATE");
-    expect((document.querySelector("[data-activation-run]") as HTMLButtonElement).disabled).toBe(
-      false,
-    );
+    expect(
+      (document.querySelector("[data-activation-run]") as HTMLButtonElement)
+        .disabled,
+    ).toBe(false);
   });
 
   it("offers hierarchy only for a new-campaign intent, and the ad alone otherwise", () => {
@@ -139,22 +145,29 @@ describe("LaunchpadActivationPanel", () => {
 
     stub({ ok: true });
     const { unmount } = render(panel({ operation: "add_to_existing" }));
-    expect(document.body.textContent).toContain("the ad alone");
-    expect(document.body.textContent).not.toContain("Scope for this launch is campaign");
+    expect(document.body.textContent).toContain(
+      "Turns on the ad this launch created.",
+    );
+    expect(document.body.textContent).not.toContain(
+      "Scope for this launch is campaign",
+    );
     unmount();
 
     render(panel({ operation: "new_campaign" }));
-    expect(document.body.textContent).toContain("campaign, ad set and ad");
+    expect(document.body.textContent).toContain(
+      "Turns on the campaign, the ad set and the ad this launch created",
+    );
   });
 
   it("posts the operator authority for an approval and no client-computed copy hash", async () => {
     stub({ ok: true, revoked: false });
     render(panel());
 
-    type("[data-activation-asset-version]", "v7");
     type("[data-activation-ttl]", "12");
     type("[data-activation-approve-phrase]", "APPROVE");
-    (document.querySelector("[data-activation-approve]") as HTMLButtonElement).click();
+    (
+      document.querySelector("[data-activation-approve]") as HTMLButtonElement
+    ).click();
 
     await waitFor(() => expect(calls).toHaveLength(1));
     expect(calls[0]!.url).toBe(
@@ -165,7 +178,7 @@ describe("LaunchpadActivationPanel", () => {
       actionOrigin: "manual_operator_v1",
       manualConfirmation: "explicit_operator_confirmation",
       approvedScope: "hierarchy",
-      approvedAssetVersion: "v7",
+      approvedAssetVersion: "v1",
       ttlHours: 12,
     });
     /*
@@ -180,7 +193,19 @@ describe("LaunchpadActivationPanel", () => {
     stub({ ok: true, revoked: true });
     const { rerender } = render(panel({ approval: storedApproval() }));
 
-    (document.querySelector("[data-activation-revoke]") as HTMLButtonElement).click();
+    const approval = document.querySelector(
+      '[data-activation-approval="present"]',
+    )!;
+    expect(approval.textContent).toContain("Approved Sep 5, 2026");
+    expect(approval.textContent).not.toContain("Asset version");
+    expect(
+      document.querySelector("[data-activation-asset-version]"),
+    ).toBeNull();
+    expect(approval.textContent).not.toContain(APPROVER);
+
+    (
+      document.querySelector("[data-activation-revoke]") as HTMLButtonElement
+    ).click();
     await waitFor(() => expect(calls).toHaveLength(1));
     expect(calls[0]!.body).toEqual({
       businessId: BUSINESS,
@@ -190,21 +215,23 @@ describe("LaunchpadActivationPanel", () => {
     });
     expect(
       document.querySelector("[data-activation-approval-outcome]")?.textContent,
-    ).toContain("operator-only again");
+    ).toContain("Scheduled activation is off.");
 
     // The write sets `revokedAt` rather than clearing the column, so the reader
-    // still shows the approver and when the approval was withdrawn.
+    // still distinguishes the withdrawn state without exposing internal ids.
     rerender(
       panel({
         approval: storedApproval({ revokedAt: "2026-09-05T11:30:00.000Z" }),
       }),
     );
-    const shown = document.querySelector('[data-activation-approval="present"]')!;
-    expect(shown.textContent).toContain(APPROVER);
-    expect(shown.textContent).toContain("withdrawn 2026-09-05T11:30:00.000Z");
+    const shown = document.querySelector(
+      '[data-activation-approval="present"]',
+    )!;
+    expect(shown.textContent).not.toContain(APPROVER);
+    expect(shown.textContent).toContain("Scheduled activation withdrawn");
     expect(
-      document.querySelector('[data-activation-approval-revoked]')?.textContent,
-    ).toContain("operator-only again");
+      document.querySelector("[data-activation-approval-revoked]")?.textContent,
+    ).toContain("Scheduled activation is off.");
   });
 
   it("reports a blocked hierarchy as a blocked step and never calls the ad live", async () => {
@@ -262,25 +289,56 @@ describe("LaunchpadActivationPanel", () => {
     });
     render(panel());
     type("[data-activation-phrase]", "ACTIVATE");
-    (document.querySelector("[data-activation-run]") as HTMLButtonElement).click();
+    (
+      document.querySelector("[data-activation-run]") as HTMLButtonElement
+    ).click();
 
     await waitFor(() =>
-      expect(document.querySelector("[data-activation-receipt]")).not.toBeNull(),
+      expect(
+        document.querySelector("[data-activation-receipt]"),
+      ).not.toBeNull(),
     );
     const receipt = document.querySelector("[data-activation-receipt]")!;
     expect(receipt.getAttribute("data-activation-delivering")).toBe("false");
     expect(receipt.textContent).toContain("campaign is on, ad set is not");
-    expect(receipt.textContent).toContain("effective_status_not_active");
+    expect(receipt.textContent).not.toContain("effective_status_not_active");
+    expect(receipt.textContent).toContain("ad set · Meta as_1 · Not active");
     // The ad's own row is present and says it was never attempted. Nothing
     // anywhere in this receipt says delivering.
     expect(
-      document.querySelector('[data-activation-step="ad"]')?.getAttribute(
-        "data-activation-step-outcome",
-      ),
+      document
+        .querySelector('[data-activation-step="ad"]')
+        ?.getAttribute("data-activation-step-outcome"),
     ).toBe("not_attempted");
     expect(receipt.textContent).not.toContain("Delivering");
-    // Each step names the durable action-log row it was journalled in.
-    expect(receipt.textContent).toContain("log log-adset");
+    expect(receipt.textContent).not.toContain("log log-adset");
+  });
+
+  it("hides transport errors and directs the operator to reconcile before retrying", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new Error("socket ECONNRESET with internal route details");
+      }),
+    );
+    render(panel());
+    type("[data-activation-phrase]", "ACTIVATE");
+    (
+      document.querySelector("[data-activation-run]") as HTMLButtonElement
+    ).click();
+
+    await waitFor(() =>
+      expect(
+        document.querySelector("[data-activation-receipt]"),
+      ).not.toBeNull(),
+    );
+    const receipt = document.querySelector("[data-activation-receipt]")!;
+    expect(receipt.textContent).toContain(
+      "Check History and Ads Manager before trying again",
+    );
+    expect(receipt.textContent).not.toContain("Audit Trail");
+    expect(receipt.textContent).not.toContain("ECONNRESET");
+    expect(receipt.textContent).not.toContain("internal route details");
   });
 
   it("counts the entities rather than naming a grain once, when a launch made several", async () => {
@@ -294,8 +352,13 @@ describe("LaunchpadActivationPanel", () => {
       entityId: string,
       outcome: string,
     ) => ({
-      grain, entityId, outcome, reason: null, verified: null,
-      actionLogId: null, claimOutcome: null,
+      grain,
+      entityId,
+      outcome,
+      reason: null,
+      verified: null,
+      actionLogId: null,
+      claimOutcome: null,
     });
     expect(
       describeBlockedHierarchy(
@@ -316,32 +379,39 @@ describe("LaunchpadActivationPanel", () => {
       blockedAt: "adset",
       blockedReason: "adset_in_review",
       steps: [
-        step("campaign", "cmp_1", "activated"),
-        step("adset", "as_1", "activated"),
-        step("adset", "as_2", "blocked"),
-        step("ad", "ad_1", "activated"),
-        step("ad", "ad_2", "not_attempted"),
+        step("campaign", "120000000000", "activated"),
+        step("adset", "120000000001", "activated"),
+        step("adset", "120000000002", "blocked"),
+        step("ad", "120000000003", "activated"),
+        step("ad", "120000000004", "not_attempted"),
       ],
     });
     render(panel());
     type("[data-activation-phrase]", "ACTIVATE");
-    (document.querySelector("[data-activation-run]") as HTMLButtonElement).click();
+    (
+      document.querySelector("[data-activation-run]") as HTMLButtonElement
+    ).click();
 
     await waitFor(() =>
-      expect(document.querySelector("[data-activation-receipt]")).not.toBeNull(),
+      expect(
+        document.querySelector("[data-activation-receipt]"),
+      ).not.toBeNull(),
     );
     const receipt = document.querySelector("[data-activation-receipt]")!;
     expect(receipt.getAttribute("data-activation-delivering")).toBe("false");
     // Three of five, said out loud — "not delivering" alone would cover both
     // this and a launch where nothing came on at all.
     expect(
-      document.querySelector("[data-activation-coverage]")?.getAttribute(
-        "data-activation-coverage",
-      ),
+      document
+        .querySelector("[data-activation-coverage]")
+        ?.getAttribute("data-activation-coverage"),
     ).toBe("3/5");
-    expect(receipt.textContent).toContain("3 of 5 entities this launch created are on");
+    expect(receipt.textContent).toContain("3 of 5 items are active");
     // Every identity has its own row, including the one nothing was sent to.
     expect(document.querySelectorAll("[data-activation-step]")).toHaveLength(5);
+    expect(receipt.textContent).toContain("Meta …000001");
+    expect(receipt.textContent).toContain("Meta …000002");
+    expect(receipt.textContent).not.toContain("120000000001");
   });
 
   it("disables every control with the server's own sentence rather than hiding it", () => {
@@ -354,9 +424,9 @@ describe("LaunchpadActivationPanel", () => {
       }),
     );
 
-    expect(document.querySelector("[data-activation-refusal]")?.textContent).toContain(
-      "Reviewer access is read-only for Launchpad writes.",
-    );
+    expect(
+      document.querySelector("[data-activation-refusal]")?.textContent,
+    ).toContain("Reviewer access is read-only for Launchpad writes.");
     for (const selector of [
       "[data-activation-run]",
       "[data-activation-approve]",
@@ -377,17 +447,22 @@ describe("LaunchpadActivationPanel", () => {
       }),
     );
 
-    expect(document.querySelector('[data-activation-approval="absent"]')).toBeNull();
     expect(
-      document.querySelector('[data-activation-approval="unknown"]')?.textContent,
-    ).toContain("could not be re-read");
+      document.querySelector('[data-activation-approval="absent"]'),
+    ).toBeNull();
+    expect(
+      document.querySelector('[data-activation-approval="unknown"]')
+        ?.textContent,
+    ).toContain("Scheduled activation status is temporarily unavailable.");
     // Approving needs the standing state; activating never did.
     expect(
-      (document.querySelector("[data-activation-approve]") as HTMLButtonElement).disabled,
+      (document.querySelector("[data-activation-approve]") as HTMLButtonElement)
+        .disabled,
     ).toBe(true);
     type("[data-activation-phrase]", "ACTIVATE");
     expect(
-      (document.querySelector("[data-activation-run]") as HTMLButtonElement).disabled,
+      (document.querySelector("[data-activation-run]") as HTMLButtonElement)
+        .disabled,
     ).toBe(false);
   });
 
@@ -403,13 +478,18 @@ describe("LaunchpadActivationPanel", () => {
     stub({ ok: true });
     render(panel({ approval: storedRevocation() }));
 
-    expect(document.querySelector('[data-activation-approval="absent"]')).toBeNull();
-    const shown = document.querySelector('[data-activation-approval="revoked"]')!;
-    expect(shown.textContent).toContain("withdrawn 2026-09-05T11:30:00.000Z");
-    expect(shown.textContent).toContain(APPROVER);
+    expect(
+      document.querySelector('[data-activation-approval="absent"]'),
+    ).toBeNull();
+    const shown = document.querySelector(
+      '[data-activation-approval="revoked"]',
+    )!;
+    expect(shown.textContent).toContain("Scheduled activation is off.");
+    expect(shown.textContent).not.toContain("2026-09-05T11:30:00.000Z");
+    expect(shown.textContent).not.toContain(APPROVER);
     expect(
       document.querySelector("[data-activation-approval-revoked]")?.textContent,
-    ).toContain("operator-only again");
+    ).toContain("Scheduled activation is off.");
     /*
       And nothing in it can be read as a standing approval: the reader that
       builds one demands an approver, an approved-at and an expiry, and the
@@ -418,7 +498,8 @@ describe("LaunchpadActivationPanel", () => {
     expect(readStandingApproval(storedRevocation())).toBeNull();
     // Nothing left to withdraw, so the control that would do it says so.
     expect(
-      (document.querySelector("[data-activation-revoke]") as HTMLButtonElement).disabled,
+      (document.querySelector("[data-activation-revoke]") as HTMLButtonElement)
+        .disabled,
     ).toBe(true);
   });
 
@@ -433,7 +514,8 @@ describe("LaunchpadActivationPanel", () => {
     stub({ ok: true });
     const { rerender } = render(panel({ approval: null }));
     expect(
-      (document.querySelector("[data-activation-revoke]") as HTMLButtonElement).disabled,
+      (document.querySelector("[data-activation-revoke]") as HTMLButtonElement)
+        .disabled,
     ).toBe(false);
 
     rerender(
@@ -443,13 +525,19 @@ describe("LaunchpadActivationPanel", () => {
       }),
     );
     expect(
-      (document.querySelector("[data-activation-revoke]") as HTMLButtonElement).disabled,
+      (document.querySelector("[data-activation-revoke]") as HTMLButtonElement)
+        .disabled,
     ).toBe(false);
 
     // And withheld only where the column already says it was withdrawn.
-    rerender(panel({ approval: storedApproval({ revokedAt: "2026-09-05T11:30:00.000Z" }) }));
+    rerender(
+      panel({
+        approval: storedApproval({ revokedAt: "2026-09-05T11:30:00.000Z" }),
+      }),
+    );
     expect(
-      (document.querySelector("[data-activation-revoke]") as HTMLButtonElement).disabled,
+      (document.querySelector("[data-activation-revoke]") as HTMLButtonElement)
+        .disabled,
     ).toBe(true);
   });
 
@@ -483,8 +571,11 @@ describe("LaunchpadActivationPanel", () => {
       />,
     );
     expect(activatable).toContain('data-testid="activation-slot"');
-    expect(activatable).not.toContain("No activation, undo, rollback, or retry control");
-    expect(activatable).toContain('data-testid="launchpad-intent-receipt"');
+    expect(activatable).not.toContain(
+      "No activation, undo, rollback, or retry control",
+    );
+    expect(activatable).toContain("Launch result");
+    expect(activatable).not.toContain(INTENT);
 
     const notActivatable = renderToStaticMarkup(
       <LaunchpadProgress
@@ -495,12 +586,18 @@ describe("LaunchpadActivationPanel", () => {
           ok: false,
           launchIntentId: INTENT,
           launchIntentStatus: "silent_failure",
-          error: { code: "silent_failure", message: "Verification could not find the ad." },
+          error: {
+            code: "silent_failure",
+            message: "Verification could not find the ad.",
+          },
         }}
       />,
     );
     expect(notActivatable).not.toContain('data-testid="activation-slot"');
-    expect(notActivatable).toContain("No activation, undo, rollback, or retry control");
+    expect(notActivatable).toContain("Meta did not confirm the final state.");
+    expect(notActivatable).not.toContain(
+      "No activation, undo, rollback, or retry control",
+    );
   });
 
   /*
@@ -510,16 +607,27 @@ describe("LaunchpadActivationPanel", () => {
   */
   for (const width of [1280, 390]) {
     it(`mounts every control at ${width}`, () => {
-      Object.defineProperty(window, "innerWidth", { value: width, configurable: true });
+      Object.defineProperty(window, "innerWidth", {
+        value: width,
+        configurable: true,
+      });
       stub({ ok: true });
       render(panel({ approval: storedApproval() }));
 
-      expect(document.querySelector("[data-testid='launchpad-activation-panel']")).not.toBeNull();
+      expect(
+        document.querySelector("[data-testid='launchpad-activation-panel']"),
+      ).not.toBeNull();
       expect(document.querySelector("[data-activation-run]")).not.toBeNull();
-      expect(document.querySelector("[data-activation-approve]")).not.toBeNull();
+      expect(
+        document.querySelector("[data-activation-approve]"),
+      ).not.toBeNull();
       expect(document.querySelector("[data-activation-revoke]")).not.toBeNull();
       expect(document.querySelector("[data-activation-phrase]")).not.toBeNull();
       expect(document.querySelector("[data-activation-ttl]")).not.toBeNull();
+      expect(
+        document.querySelector("[data-activation-asset-version]"),
+      ).toBeNull();
+      expect(document.body.textContent).not.toContain("Asset version");
     });
   }
 });

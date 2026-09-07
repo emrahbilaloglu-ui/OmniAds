@@ -1,22 +1,8 @@
 // @vitest-environment jsdom
 /**
- * The evidence inspector's provenance band, close control and brief route.
- *
- * Three separate defects, all of them in one panel:
- *
- * 1. **No provenance.** The panel printed a verdict, a money figure and a
- *    confidence with no statement of what any of it was measured over. A
- *    verdict without its window is unfalsifiable, and the snapshot's write time
- *    is a second fact — a snapshot written this morning can describe a window
- *    that ended three days ago, so printing one as the other makes a stale read
- *    look current.
- * 2. **No close control.** `inspectorOpen` is computed by the page and is
- *    unconditionally true on the Action lane, so an operator who opened a row
- *    could not put the panel away.
- * 3. **No route to a brief.** `canCreateBrief` and the Briefs surface's URL
- *    lineage have existed all along, and nothing in the product minted a link
- *    carrying it — the brief-from-decision flow was reachable only by
- *    hand-writing a URL.
+ * The compact decision inspector keeps the evidence dates, one buyer-facing
+ * reason, and its close/action controls. Diagnostic gaps, raw blocker lists and
+ * brief-contract internals stay out of the primary workflow.
  */
 import React from "react";
 import { fireEvent, render, screen } from "@testing-library/react";
@@ -62,7 +48,7 @@ describe("the panel states what the verdict was measured over", () => {
     expect(asOf).not.toBe(window);
   });
 
-  it("names the metrics the payload did not serve at this grain", () => {
+  it("does not expose diagnostic metric-gap prose", () => {
     render(
       <MetaDecisionCenterExact
         viewModel={viewModel({
@@ -77,15 +63,8 @@ describe("the panel states what the verdict was measured over", () => {
       />,
     );
 
-    const gap = document.querySelector('[data-el="provenance-gap"]');
-    expect(gap?.textContent).toContain("CPA");
-    expect(gap?.textContent).toContain("CTR");
-    /*
-     * A missing metric is named, not zeroed. The invariant is explicit:
-     * "Optional Meta event metrics remain null when no source payload key was
-     * observed. Source absence must not be converted to a measured zero."
-     */
-    expect(gap?.textContent).not.toContain("0");
+    expect(document.querySelector('[data-el="provenance-gap"]')).toBeNull();
+    expect(document.body.textContent).not.toContain("not served at");
   });
 
   it("draws no provenance band when the payload stated neither fact", () => {
@@ -97,8 +76,8 @@ describe("the panel states what the verdict was measured over", () => {
   });
 });
 
-describe("the panel keeps long safety evidence readable", () => {
-  it("keeps every blocker visible without a disclosure interaction", () => {
+describe("the panel keeps one useful reason instead of internal blocker prose", () => {
+  it("shows the buyer reason and omits the raw blocker list", () => {
     render(
       <MetaDecisionCenterExact
         viewModel={viewModel({
@@ -106,19 +85,16 @@ describe("the panel keeps long safety evidence readable", () => {
           blockers:
             "Snapshot is stale · Commercial target is missing · Executor is disabled",
           blockerTone: "warning",
+          reasons: ["Review the campaign target before making this change."],
         })}
       />,
     );
 
-    const blockerGroup = screen.getByText("Blockers").parentElement;
-    const blockers = blockerGroup?.querySelectorAll(
-      "[data-meta-exact-blockers] li",
-    );
-    expect(blockerGroup?.querySelector("details")).toBeNull();
-    expect(blockers).toHaveLength(3);
-    expect(blockers?.[0]?.textContent).toBe("Snapshot is stale");
-    expect(blockers?.[1]?.textContent).toBe("Commercial target is missing");
-    expect(blockers?.[2]?.textContent).toBe("Executor is disabled");
+    expect(
+      screen.getByText("Review the campaign target before making this change."),
+    ).toBeTruthy();
+    expect(screen.queryByText("Blockers")).toBeNull();
+    expect(document.body.textContent).not.toContain("Executor is disabled");
   });
 });
 
@@ -155,8 +131,8 @@ describe("the panel can be put away", () => {
   });
 });
 
-describe("the brief control is a route or a reason, never a broken link", () => {
-  it("links when the row carries a creative decision snapshot", () => {
+describe("the inspector omits brief-contract controls", () => {
+  it("does not add a second route when a brief link is supplied", () => {
     render(
       <MetaDecisionCenterExact
         viewModel={viewModel({
@@ -166,17 +142,13 @@ describe("the brief control is a route or a reason, never a broken link", () => 
       />,
     );
 
-    const control = document.querySelector(
-      '[data-ctl="live:CREATIVE-07 brief"]',
-    );
-    expect(control?.tagName).toBe("A");
-    expect(control?.getAttribute("href")).toBe(
-      "/c/biz/creative/briefs?creativeId=c1",
-    );
-    expect(document.querySelector('[data-el="row-action"]')).toBeTruthy();
+    expect(
+      document.querySelector('[data-ctl="live:CREATIVE-07 brief"]'),
+    ).toBeNull();
+    expect(document.body.innerHTML).not.toContain("creativeId=c1");
   });
 
-  it("refuses in the brief contract's own words when the row cannot mint one", () => {
+  it("does not expose a raw refusal reason", () => {
     render(
       <MetaDecisionCenterExact
         viewModel={viewModel({
@@ -189,22 +161,12 @@ describe("the brief control is a route or a reason, never a broken link", () => 
       />,
     );
 
-    const control = document.querySelector(
-      '[data-ctl="live:CREATIVE-07 brief"]',
+    expect(
+      document.querySelector('[data-ctl="live:CREATIVE-07 brief"]'),
+    ).toBeNull();
+    expect(document.body.textContent).not.toContain(
+      "creative snapshot to derive one from",
     );
-    /*
-     * Present and refusing, with the reason attached — not absent, and not a
-     * link that would be refused after the navigation.
-     *
-     * A BUTTON rather than a `role="link"` span: the fidelity gate grades a
-     * marked control's tag and reports `not-a-control` for a span, and it is
-     * right to — a refused control that is not a control cannot be reached by
-     * keyboard to read its own reason.
-     */
-    expect(control?.tagName).toBe("BUTTON");
-    expect(control?.getAttribute("aria-disabled")).toBe("true");
-    expect(control?.textContent).toContain("creative decision");
-    expect(control?.getAttribute("href")).toBeNull();
   });
 
   it("draws no control at all when the caller offers no brief route", () => {

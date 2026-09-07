@@ -52,11 +52,11 @@ describe("LaunchIntentReceiptRows", () => {
       <LaunchIntentReceiptRows intents={[intent()]} />,
     );
 
-    expect(html).toContain("intent_1");
+    expect(html).not.toContain("intent_1");
     expect(html).toContain("Real Campaign");
-    expect(html).toContain("PAUSED");
+    expect(html).toContain("Paused");
     expect(html).toContain("Jul 10, 10:00");
-    expect(html).toContain("by —");
+    expect(html).not.toContain("by —");
     expect(html).not.toContain("Jul 12");
     expect(html).toContain("Open in Ads Manager");
     expect(html).toContain("selected_campaign_ids=campaign_1");
@@ -147,7 +147,7 @@ describe("LaunchIntentReceiptRows", () => {
     );
 
     expect(html).toContain("Real Campaign");
-    expect(html).not.toContain("PAUSED");
+    expect(html).not.toContain("Paused");
     expect(html).toContain("Jul 10, 10:05");
     expect(html).not.toContain("Jul 12");
     expect(html).toContain("selected_campaign_ids=campaign_partial");
@@ -162,7 +162,20 @@ describe("LaunchIntentReceiptRows", () => {
       <LaunchIntentReceiptRows intents={[intent({ status: "succeeded" })]} />,
     );
 
-    expect(html).toContain("PAUSED");
+    expect(html).toContain("Paused");
+    expect(html).toContain('data-status="verified"');
+  });
+
+  it("shows a partially succeeded receipt as a distinct warning", () => {
+    const html = renderToStaticMarkup(
+      <LaunchIntentReceiptRows
+        intents={[intent({ status: "partially_succeeded" })]}
+      />,
+    );
+
+    expect(html).toContain("Partially created");
+    expect(html).toContain('data-status="partial"');
+    expect(html).not.toContain(">Paused<");
   });
 
   it("does not claim a provider state for a failed partial receipt", () => {
@@ -173,7 +186,7 @@ describe("LaunchIntentReceiptRows", () => {
     // Listed and linkable — the campaign exists — but the state is unknown.
     expect(html).toContain("Real Campaign");
     expect(html).toContain("Open in Ads Manager");
-    expect(html).not.toContain("PAUSED");
+    expect(html).not.toContain("Paused");
   });
 
   it("does not render a terminal status without a real campaign receipt", () => {
@@ -192,6 +205,25 @@ describe("LaunchIntentReceiptRows", () => {
 
     expect(html).toContain('data-testid="launchpad-receipt-empty"');
     expect(html).not.toContain("Real Campaign");
+  });
+
+  it("distinguishes loading and unreadable receipts from a measured empty list", () => {
+    const loading = renderToStaticMarkup(
+      <LaunchIntentReceiptRows intents={[]} loading />,
+    );
+    const unavailable = renderToStaticMarkup(
+      <LaunchIntentReceiptRows
+        intents={[]}
+        unavailableReason="Recent launches are temporarily unavailable."
+      />,
+    );
+
+    expect(loading).toContain("Loading recent launches…");
+    expect(loading).not.toContain("No launches yet.");
+    expect(unavailable).toContain(
+      "Recent launches are temporarily unavailable.",
+    );
+    expect(unavailable).not.toContain("No launches yet.");
   });
 
   function addToExisting(overrides: Partial<MetaLaunchIntent> = {}) {
@@ -223,9 +255,9 @@ describe("LaunchIntentReceiptRows", () => {
     );
 
     expect(html).not.toContain('data-testid="launchpad-receipt-empty"');
-    expect(html).toContain("intent_add_1");
+    expect(html).not.toContain("intent_add_1");
     expect(html).toContain("Prospecting — Broad US");
-    expect(html).toContain("PAUSED");
+    expect(html).toContain("Paused");
     expect(html).toContain("Open in Ads Manager");
     expect(html).toContain("selected_campaign_ids=campaign_target");
   });

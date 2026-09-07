@@ -417,9 +417,7 @@ describe("the mobile decision card's manual apply", () => {
     expect(document.querySelector("#meta-manual-ceremony-mobile")).toBeNull();
     expect(
       document.querySelector("[data-mobile-apply-refusal]")?.textContent,
-    ).toBe(
-      "Meta writes are stopped for this workspace, so no manual action can be prepared.",
-    );
+    ).toBe("Meta changes are paused. You can still review this recommendation.");
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -441,12 +439,7 @@ describe("the mobile decision card's manual apply", () => {
     expect(document.querySelector("#meta-manual-ceremony-mobile")).toBeNull();
     expect(
       document.querySelector("[data-mobile-apply-refusal]")?.textContent,
-    ).toBe(
-      "Your workspace role is Guest: all evidence is visible, write controls are downgraded to review.",
-    );
-    expect(
-      document.querySelector('[data-mobile-posture="viewer"]')?.textContent,
-    ).toContain("executes none of them");
+    ).toBe("You can review recommendations, but you cannot apply changes.");
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -455,7 +448,7 @@ describe("the mobile decision card's manual apply", () => {
     expect(mobileApply()?.getAttribute("aria-disabled")).toBe("true");
     expect(
       document.querySelector("[data-mobile-apply-refusal]")?.textContent,
-    ).toContain("not enabled on this workspace yet");
+    ).toContain("Applying changes is unavailable here");
     expect(document.querySelector("#meta-manual-ceremony-mobile")).toBeNull();
   });
 
@@ -466,9 +459,8 @@ describe("the mobile decision card's manual apply", () => {
     expect(stage.textContent).not.toContain(
       "This device is read-only by design",
     );
-    expect(stage.textContent).toContain(
-      "the same manual action sheet the desktop carries",
-    );
+    expect(mobileApply()).not.toBeNull();
+    expect(mobileApply()?.getAttribute("aria-disabled")).toBeNull();
   });
 });
 

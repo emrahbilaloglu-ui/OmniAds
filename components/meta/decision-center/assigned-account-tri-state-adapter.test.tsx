@@ -16,12 +16,10 @@ vi.mock("@/lib/zero-base/language", () => ({
   useZeroBaseLanguage: () => "en",
 }));
 
-const { buildMetaDecisionCenterExactViewModel } = await import(
-  "@/components/meta/decision-center/meta-decision-center-exact-adapter"
-);
-const { MetaDecisionCenterExact } = await import(
-  "@/components/meta/decision-center/MetaDecisionCenterExact"
-);
+const { buildMetaDecisionCenterExactViewModel } =
+  await import("@/components/meta/decision-center/meta-decision-center-exact-adapter");
+const { MetaDecisionCenterExact } =
+  await import("@/components/meta/decision-center/MetaDecisionCenterExact");
 
 const POPULATED_STATE = {
   providerAccountId: "act_main",
@@ -202,35 +200,37 @@ describe("assigned-account four-state through the REAL adapter (D078 C3.1)", () 
     expect(html).not.toContain("Assigned-account coverage unavailable");
   });
 
-  it("`null` (read FAILED) survives the adapter and renders the visible unavailable warning", () => {
+  it("`null` (read FAILED) survives the adapter without adding a diagnostics panel", () => {
     const { viewModel, html } = renderThroughAdapter(
       workspacePayload({ assignedAccountStates: null }),
     );
     expect(viewModel.assignedAccountStates).toBeNull();
-    expect(html).toContain('data-testid="assigned-account-coverage-unavailable"');
-    expect(html).toContain("Assigned-account coverage unavailable");
+    expect(html).not.toContain(
+      'data-testid="assigned-account-coverage-unavailable"',
+    );
+    expect(html).not.toContain("Assigned-account coverage unavailable");
     expect(html).not.toContain('data-testid="assigned-account-coverage"');
     expect(html).not.toContain('data-testid="assigned-account-coverage-empty"');
   });
 
-  it("`[]` (proven zero) survives the adapter and renders the distinct anomalous state", () => {
+  it("`[]` (proven zero) survives the adapter without adding a diagnostics panel", () => {
     const { viewModel, html } = renderThroughAdapter(
       workspacePayload({ assignedAccountStates: [] }),
     );
     expect(viewModel.assignedAccountStates).toEqual([]);
-    expect(html).toContain('data-testid="assigned-account-coverage-empty"');
-    expect(html).toContain("ZERO assigned Meta identities");
+    expect(html).not.toContain('data-testid="assigned-account-coverage-empty"');
+    expect(html).not.toContain("ZERO assigned Meta identities");
     expect(html).not.toContain("coverage unavailable");
   });
 
-  it("populated states survive the adapter verbatim and render the visible panel", () => {
+  it("populated states survive the adapter without exposing account diagnostics", () => {
     const { viewModel, html } = renderThroughAdapter(
       workspacePayload({ assignedAccountStates: [POPULATED_STATE] }),
     );
     expect(viewModel.assignedAccountStates).toEqual([POPULATED_STATE]);
-    expect(html).toContain('data-testid="assigned-account-coverage"');
-    expect(html).toContain("TheSwaf-Main | act_main");
-    expect(html).toContain("timezone America/Chicago");
+    expect(html).not.toContain('data-testid="assigned-account-coverage"');
+    expect(html).not.toContain("act_main");
+    expect(html).not.toContain("timezone America/Chicago");
     expect(html).not.toContain("coverage unavailable");
   });
 });

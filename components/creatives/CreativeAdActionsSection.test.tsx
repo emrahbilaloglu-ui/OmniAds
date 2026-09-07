@@ -29,6 +29,7 @@ vi.mock("@tanstack/react-query", () => ({
 const {
   CreativeAdActionsSection,
   buildDuplicateActionBody,
+  formatActionError,
   isDuplicateConfirmDisabled,
   postManualAdAction,
   resolveManualAdActionCandidateIds,
@@ -113,7 +114,10 @@ function makeRow(overrides: Partial<MetaCreativeRow> = {}): MetaCreativeRow {
   };
 }
 
-function renderSection(row: MetaCreativeRow, options?: { initialDuplicateOpen?: boolean }) {
+function renderSection(
+  row: MetaCreativeRow,
+  options?: { initialDuplicateOpen?: boolean },
+) {
   return renderToStaticMarkup(
     <CreativeAdActionsSection
       businessId="172d0ab8-495b-4679-a4c6-ffa404c389d3"
@@ -143,7 +147,12 @@ describe("CreativeAdActionsSection", () => {
         { id: "cmp_1", name: "Campaign 1", status: "ACTIVE" },
       ],
       "meta-action-adsets": [
-        { id: "adset_1", name: "Ad Set 1", campaignId: "cmp_1", status: "ACTIVE" },
+        {
+          id: "adset_1",
+          name: "Ad Set 1",
+          campaignId: "cmp_1",
+          status: "ACTIVE",
+        },
       ],
       "meta-ad-actions": [],
     };
@@ -152,18 +161,26 @@ describe("CreativeAdActionsSection", () => {
   it("renders action buttons with pause enabled for ACTIVE ads", () => {
     const html = renderSection(makeRow({ effectiveStatus: "ACTIVE" }));
 
+    expect(html).toContain("Active");
+    expect(html).not.toContain(">ACTIVE<");
     expect(html).toContain("Pause ad");
     expect(html).toContain("Resume ad");
     expect(html).toContain("Duplicate to campaign...");
-    expect(hasDisabledAttribute(buttonOpeningTag(html, "Pause ad"))).toBe(false);
-    expect(hasDisabledAttribute(buttonOpeningTag(html, "Resume ad"))).toBe(true);
+    expect(hasDisabledAttribute(buttonOpeningTag(html, "Pause ad"))).toBe(
+      false,
+    );
+    expect(hasDisabledAttribute(buttonOpeningTag(html, "Resume ad"))).toBe(
+      true,
+    );
   });
 
   it("renders action buttons with resume enabled for PAUSED ads", () => {
     const html = renderSection(makeRow({ effectiveStatus: "PAUSED" }));
 
     expect(hasDisabledAttribute(buttonOpeningTag(html, "Pause ad"))).toBe(true);
-    expect(hasDisabledAttribute(buttonOpeningTag(html, "Resume ad"))).toBe(false);
+    expect(hasDisabledAttribute(buttonOpeningTag(html, "Resume ad"))).toBe(
+      false,
+    );
   });
 
   it("renders recent action history rows", () => {
@@ -184,6 +201,45 @@ describe("CreativeAdActionsSection", () => {
     expect(html).toContain("Recent actions on this ad");
     expect(html).toContain("pause");
     expect(html).toContain("success");
+  });
+
+  it("never renders stored provider errors in action history", () => {
+    queryPayloads["meta-ad-actions"] = [
+      {
+        id: "log_failed",
+        action: "pause",
+        status: "failure",
+        requestedAt: "2026-05-05T12:00:00.000Z",
+        errorCode: "provider_write_rejected",
+        errorMessage: "Graph API token and internal request details",
+        resultingAdId: null,
+      },
+    ];
+
+    const html = renderSection(makeRow());
+
+    expect(html).toContain(
+      "This action could not be completed. Check the ad in Ads Manager.",
+    );
+    expect(html).not.toContain("provider_write_rejected");
+    expect(html).not.toContain("Graph API token");
+  });
+
+  it("uses stable action copy instead of response codes and messages", () => {
+    const message = formatActionError(
+      {
+        ok: false,
+        error: {
+          code: "configured_status_precondition_failed",
+          message: "Raw provider response body",
+        },
+      },
+      "Could not pause ad.",
+    );
+
+    expect(message).toBe("Could not pause ad.");
+    expect(message).not.toContain("configured_status_precondition_failed");
+    expect(message).not.toContain("Raw provider response");
   });
 
   it("keeps duplicate confirmation disabled until campaign and ad set are selected", () => {
@@ -255,19 +311,34 @@ describe("CreativeAdActionsSection", () => {
   });
 
   it("uses the real Meta ad id for manual actions when grouped rows have a synthetic id", () => {
-    const row = makeRow({ id: "creative_synthetic", realAdId: " 120000000001 " });
+    const row = makeRow({
+      id: "creative_synthetic",
+      realAdId: " 120000000001 ",
+    });
 
     expect(resolveManualAdActionId(row)).toBe("120000000001");
-    expect(resolveManualAdActionCandidateIds(row)).toEqual([
-      "120000000001",
-    ]);
+    expect(resolveManualAdActionCandidateIds(row)).toEqual(["120000000001"]);
   });
 
   it("keeps discovery-only rows review-only when no exact Meta ad id is present", () => {
-    const row = makeRow({ id: "ad_1", realAdId: null, creativeId: "creative_1" });
+    const row = makeRow({
+      id: "ad_1",
+      realAdId: null,
+      creativeId: "creative_1",
+    });
 
     expect(resolveManualAdActionId(row)).toBe("");
     expect(resolveManualAdActionCandidateIds(row)).toEqual([]);
+  });
+
+  it("explains unavailable actions without exposing internal identity terms", () => {
+    const html = renderSection(
+      makeRow({ id: "ad_1", realAdId: null, creativeId: "creative_1" }),
+    );
+
+    expect(html).toContain("could not be matched to one confirmed Meta ad");
+    expect(html).not.toContain("creative, and account identity");
+    expect(html).not.toContain("Provider actions");
   });
 
   it("refuses synthetic fallback candidates before issuing a write request", async () => {

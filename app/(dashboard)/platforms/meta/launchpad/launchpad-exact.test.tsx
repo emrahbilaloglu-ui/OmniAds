@@ -87,7 +87,7 @@ describe("LaunchpadExactLanding", () => {
       />,
     );
 
-    expect(screen.getByText("Meta · Guarded write surface")).toBeTruthy();
+    expect(screen.queryByText("Meta · Guarded write surface")).toBeNull();
     expect(
       screen.getByRole("heading", { level: 1, name: "Launchpad" }),
     ).toBeTruthy();
@@ -99,9 +99,10 @@ describe("LaunchpadExactLanding", () => {
     }
     expect(screen.queryByText("Rebuild “—”")).toBeNull();
     expect(screen.getByText("Start from scratch")).toBeTruthy();
+    expect(screen.getByText("New campaigns start paused.")).toBeTruthy();
     expect(
-      screen.getByText("validation runs before any provider call"),
-    ).toBeTruthy();
+      screen.queryByText("validation runs before any provider call"),
+    ).toBeNull();
     expect(screen.getByText("Real account draft")).toBeTruthy();
     expect(screen.getByText("Real Campaign")).toBeTruthy();
 
@@ -174,7 +175,7 @@ describe("LaunchpadExactLanding", () => {
 
     const row = screen.getByTestId("launchpad-draft-row");
     expect(within(row).getAllByRole("button")).toHaveLength(1);
-    expect(within(row).getByText("—")).toBeTruthy();
+    expect(within(row).getByText("Not checked")).toBeTruthy();
     expect(within(row).queryByText("Ready")).toBeNull();
     fireEvent.click(
       within(row).getByRole("button", { name: "Resume editing" }),
@@ -220,10 +221,10 @@ describe("LaunchpadExactLanding", () => {
       ),
     ).toBeTruthy();
     expect(
-      within(screen.getByText("Unknown source").closest("tr")!).getAllByText(
-        "—",
-      ).length,
-    ).toBeGreaterThan(0);
+      within(screen.getByText("Unknown source").closest("tr")!).getByText(
+        "New campaign",
+      ),
+    ).toBeTruthy();
     expect(
       within(screen.getByText("Unknown source").closest("tr")!).queryByText(
         "Manual",
@@ -287,7 +288,7 @@ describe("Launchpad drafts validation column", () => {
     const row = renderWithValidation({
       draft_1: { status: "checked", ok: false, blockerCount: 2 },
     });
-    const chip = within(row).getByText("2 blockers");
+    const chip = within(row).getByText("2 issues");
     expect(chip.getAttribute("data-status")).toBe("failed");
   });
 
@@ -295,15 +296,19 @@ describe("Launchpad drafts validation column", () => {
     const row = renderWithValidation({
       draft_1: { status: "checked", ok: false, blockerCount: 1 },
     });
-    expect(within(row).getByText("1 blocker")).toBeTruthy();
+    expect(within(row).getByText("1 issue")).toBeTruthy();
   });
 
   it.each(["pending", "unavailable"] as const)(
-    "shows a dash rather than a verdict while the answer is %s",
+    "shows a concise state while the answer is %s",
     (status) => {
       const row = renderWithValidation({ draft_1: { status } });
       expect(within(row).queryByText("Ready")).toBeNull();
-      expect(within(row).getAllByText("—").length).toBeGreaterThan(0);
+      expect(
+        within(row).getByText(
+          status === "pending" ? "Checking…" : "Unavailable",
+        ),
+      ).toBeTruthy();
     },
   );
 });
@@ -317,7 +322,10 @@ describe("readLaunchpadDraftValidation", () => {
 
   it("sends the draft's own payload and reports the server's blockers", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
-      json: async () => ({ ok: false, blockers: [{ code: "a" }, { code: "b" }] }),
+      json: async () => ({
+        ok: false,
+        blockers: [{ code: "a" }, { code: "b" }],
+      }),
     });
     vi.stubGlobal("fetch", fetchMock);
 
@@ -466,9 +474,9 @@ describe("loadLaunchpadWorkspace", () => {
 
     expect(read.unavailableMessage).toBeNull();
     expect(read.accountsRead).toBe(true);
-    expect(read.readOutcomes.every((source) => source.outcome === "empty")).toBe(
-      true,
-    );
+    expect(
+      read.readOutcomes.every((source) => source.outcome === "empty"),
+    ).toBe(true);
   });
 
   /*
@@ -519,9 +527,9 @@ describe("loadLaunchpadWorkspace", () => {
       ["drafts", "empty", undefined],
       ["receipts", "empty", undefined],
     ]);
-    // And the sentence is the migration's, not "could not be read" — an
-    // operator told that would go looking for an outage.
-    expect(read.unavailableMessage).toContain("pending database migration");
+    expect(read.unavailableMessage).toBe(
+      "Saved work is temporarily unavailable.",
+    );
   });
 
   it("calls a guest's refusal a refusal, and names the role", async () => {

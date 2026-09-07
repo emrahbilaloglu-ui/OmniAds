@@ -98,10 +98,10 @@ export interface MetaSurface {
 }
 
 /**
- * D3's six rail entries, their tabs, and the sub-surfaces that hang off them.
+ * Meta surfaces, their tabs, and the sub-surfaces that hang off them.
  *
- * Order within the Meta group is the order of `railOrder`, and §18 fixes
- * Intelligence immediately after Decisions.
+ * Account Intelligence remains addressable while its route is completed, but
+ * is not advertised in the primary rail as an unavailable destination.
  */
 export const META_SURFACES: readonly MetaSurface[] = [
   {
@@ -146,7 +146,7 @@ export const META_SURFACES: readonly MetaSurface[] = [
     windowCapability: "mixed",
     actionCapability: "internal_write",
     activeHrefs: [],
-    railOrder: 2,
+    railOrder: null,
   },
   {
     surfaceId: "creative-studio",
@@ -167,7 +167,7 @@ export const META_SURFACES: readonly MetaSurface[] = [
       "/c/[businessId]/creative/briefs",
       "/c/[businessId]/creative/shares",
     ],
-    railOrder: 3,
+    railOrder: 2,
   },
   {
     surfaceId: "meta-launchpad",
@@ -184,7 +184,7 @@ export const META_SURFACES: readonly MetaSurface[] = [
     actionCapability: "gated_provider_write",
     gate: "META_LAUNCHPAD_EXECUTION",
     activeHrefs: [],
-    railOrder: 4,
+    railOrder: 3,
   },
   {
     surfaceId: "meta-automation",
@@ -193,7 +193,8 @@ export const META_SURFACES: readonly MetaSurface[] = [
     canonicalRoute: "/c/[businessId]/meta/automation",
     aliases: ["/app/meta/automation"],
     legacyRedirect: ["/platforms/meta/automation"],
-    mountedBody: "app/(dashboard)/platforms/meta/automation/automation-view.tsx",
+    mountedBody:
+      "app/(dashboard)/platforms/meta/automation/automation-view.tsx",
     providerAccountCapability: "single_physical",
     // Control state, not a reporting range. The picker is annotated inactive
     // here rather than left looking live over data it cannot re-scope (§8.2).
@@ -201,7 +202,7 @@ export const META_SURFACES: readonly MetaSurface[] = [
     actionCapability: "gated_provider_write",
     gate: "META_AUTOMATION_STOP_UI",
     activeHrefs: [],
-    railOrder: 5,
+    railOrder: 4,
   },
   {
     surfaceId: "meta-history",
@@ -215,7 +216,7 @@ export const META_SURFACES: readonly MetaSurface[] = [
     windowCapability: "event_window",
     actionCapability: "read_only",
     activeHrefs: [],
-    railOrder: 6,
+    railOrder: 5,
   },
 
   // ---- Creative Studio tabs -------------------------------------------------
@@ -364,13 +365,15 @@ export const META_SURFACES: readonly MetaSurface[] = [
   },
 ];
 
-const BY_ID = new Map(META_SURFACES.map((surface) => [surface.surfaceId, surface]));
+const BY_ID = new Map(
+  META_SURFACES.map((surface) => [surface.surfaceId, surface]),
+);
 
 export function metaSurfaceById(surfaceId: string): MetaSurface | null {
   return BY_ID.get(surfaceId) ?? null;
 }
 
-/** The six D3 rail rows, in their fixed order. */
+/** The usable Meta rail rows, in their fixed order. */
 export function metaRailSurfaces(): readonly MetaSurface[] {
   return META_SURFACES.filter(
     (surface): surface is MetaSurface & { railOrder: number } =>
@@ -401,7 +404,11 @@ export function allSurfaceSpellings(): ReadonlyArray<{
   readonly kind: "canonical" | "alias" | "legacy";
 }> {
   return META_SURFACES.flatMap((surface) => [
-    { surfaceId: surface.surfaceId, path: surface.canonicalRoute, kind: "canonical" as const },
+    {
+      surfaceId: surface.surfaceId,
+      path: surface.canonicalRoute,
+      kind: "canonical" as const,
+    },
     ...surface.aliases.map((path) => ({
       surfaceId: surface.surfaceId,
       path,
@@ -453,7 +460,9 @@ function segmentMatches(pattern: string, actual: string): boolean {
 }
 
 export function metaSurfaceForPathname(pathname: string): MetaSurface | null {
-  const actual = (pathname.split(/[?#]/, 1)[0] ?? "").split("/").filter(Boolean);
+  const actual = (pathname.split(/[?#]/, 1)[0] ?? "")
+    .split("/")
+    .filter(Boolean);
   for (const candidate of SPELLING_PATTERNS) {
     if (candidate.segments.length !== actual.length) continue;
     if (

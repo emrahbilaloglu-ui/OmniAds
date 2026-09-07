@@ -486,7 +486,7 @@ function ConfigPhase(props: ShareSnapshotModalProps) {
       </div>
 
       <div className={styles.rulesCard}>
-        <p>Snapshot contract</p>
+        <p>What the shared view includes</p>
         <div className={styles.rulesGrid}>
           {SNAPSHOT_RULES.map((rule) => (
             <span className={styles.rule} key={rule}>

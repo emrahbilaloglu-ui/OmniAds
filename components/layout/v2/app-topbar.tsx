@@ -191,8 +191,7 @@ function BusinessControl() {
   const [pendingId, setPendingId] = useState<string | null>(null);
   const t = getTranslations(language).layout;
 
-  const effectiveSelectedBusinessId =
-    scopedBusiness?.id ?? selectedBusinessId;
+  const effectiveSelectedBusinessId = scopedBusiness?.id ?? selectedBusinessId;
   const selected =
     scopedBusiness ??
     businesses.find((item) => item.id === effectiveSelectedBusinessId) ??
@@ -206,7 +205,8 @@ function BusinessControl() {
    * to open, and `mounted: false` is how the sheet is told so.
    */
   const triggerRef = useRef<HTMLButtonElement>(null);
-  const hydrated = Boolean(scopedBusiness) || (hasHydrated && authBootstrapStatus === "ready");
+  const hydrated =
+    Boolean(scopedBusiness) || (hasHydrated && authBootstrapStatus === "ready");
   useRegisterScopeControl("business", {
     trigger: triggerRef,
     mounted: hydrated && (businesses.length > 0 || Boolean(scopedBusiness)),
@@ -237,7 +237,9 @@ function BusinessControl() {
       setPendingId(null);
       return;
     }
-    logClientAuthEvent("business_switch_succeeded", { activeBusinessId: businessId });
+    logClientAuthEvent("business_switch_succeeded", {
+      activeBusinessId: businessId,
+    });
     setPendingId(null);
     if (scopedDestination) {
       // The path states B; the query keeps only what ITEM 9 permits. A scoped
@@ -274,11 +276,10 @@ function BusinessControl() {
     router.refresh();
   }
 
-  if (
-    !scopedBusiness &&
-    (!hasHydrated || authBootstrapStatus !== "ready")
-  ) {
-    return <span className="h-9 w-[190px] shrink-0 rounded-[9px] bg-[var(--adv-fill)]" />;
+  if (!scopedBusiness && (!hasHydrated || authBootstrapStatus !== "ready")) {
+    return (
+      <span className="h-9 w-[190px] shrink-0 rounded-[9px] bg-[var(--adv-fill)]" />
+    );
   }
 
   if (businesses.length === 0 && !scopedBusiness) {
@@ -299,10 +300,19 @@ function BusinessControl() {
       <DropdownMenuTrigger asChild>
         {/* The design's business switcher runs a half-point larger than the
             other topbar controls. */}
-        <button ref={triggerRef} type="button" className="adv-btn text-[13.5px]">
+        <button
+          ref={triggerRef}
+          type="button"
+          className="adv-btn text-[13.5px]"
+        >
           <BuildingIcon />
-          <span className="text-[13.5px]">{selected?.name ?? t.selectBusiness}</span>
-          <ChevronsUpDown className="h-[13px] w-[13px] shrink-0 text-[var(--adv-ink-3)]" aria-hidden="true" />
+          <span className="text-[13.5px]">
+            {selected?.name ?? t.selectBusiness}
+          </span>
+          <ChevronsUpDown
+            className="h-[13px] w-[13px] shrink-0 text-[var(--adv-ink-3)]"
+            aria-hidden="true"
+          />
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-64">
@@ -318,7 +328,9 @@ function BusinessControl() {
             className="cursor-pointer gap-2"
           >
             <span className="min-w-0 flex-1">
-              <span className="block truncate text-sm font-medium">{business.name}</span>
+              <span className="block truncate text-sm font-medium">
+                {business.name}
+              </span>
               <span className="block truncate text-xs text-muted-foreground">
                 {business.timezone ?? "Timezone pending"} · {business.currency}
               </span>
@@ -518,9 +530,25 @@ export function AppTopbar({
           className="adv-pill"
           data-tone={SYNC_TONE[sync.tone]}
           data-freshness-state={sync.freshnessState}
+          data-freshness-error={
+            sync.freshnessState === "error"
+              ? (sync.errorCode ?? "unknown")
+              : undefined
+          }
+          data-testid="tier-zero-freshness"
         >
           <span className="adv-pill-dot" />
           <span data-topbar-secondary>{sync.label}</span>
+          {sync.onRetry ? (
+            <button
+              aria-label="Retry data refresh"
+              className="inline-flex h-6 items-center rounded border border-current px-2 text-[12px] font-semibold"
+              onClick={sync.onRetry}
+              type="button"
+            >
+              Retry
+            </button>
+          ) : null}
         </span>
 
         {notifications}

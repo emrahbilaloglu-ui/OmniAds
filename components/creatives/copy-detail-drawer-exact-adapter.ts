@@ -121,7 +121,9 @@ function median(values: readonly (number | null)[]): number | null {
 
 /** Mirrors the ROAS band the copies table itself paints, so the drawer agrees
  * with the row the operator just clicked. */
-export function copyRoasTone(value: number | null | undefined): CopyDetailDrawerExactTone {
+export function copyRoasTone(
+  value: number | null | undefined,
+): CopyDetailDrawerExactTone {
   const roas = finite(value);
   if (roas === null) return "neutral";
   if (roas >= 3.8) return "positive";
@@ -130,13 +132,18 @@ export function copyRoasTone(value: number | null | undefined): CopyDetailDrawer
   return "neutral";
 }
 
-export function copyAngleTone(value: string | null | undefined): CopyDetailDrawerExactTone {
+export function copyAngleTone(
+  value: string | null | undefined,
+): CopyDetailDrawerExactTone {
   const normalized = nonBlank(value)?.toLowerCase();
   if (!normalized) return "neutral";
   if (normalized.includes("ugc")) return "positive";
-  if (normalized.includes("proof") || normalized.includes("social")) return "info";
-  if (normalized.includes("problem") || normalized.includes("solution")) return "automation";
-  if (normalized.includes("discount") || normalized.includes("urgency")) return "negative";
+  if (normalized.includes("proof") || normalized.includes("social"))
+    return "info";
+  if (normalized.includes("problem") || normalized.includes("solution"))
+    return "automation";
+  if (normalized.includes("discount") || normalized.includes("urgency"))
+    return "negative";
   return "neutral";
 }
 
@@ -153,7 +160,9 @@ function isHeadlineAsset(value: string | null | undefined): boolean {
   return normalized === "headline" || normalized === "description";
 }
 
-function buildStats(input: CopyDetailDrawerExactAdapterInput): CopyDetailDrawerExactStat[] {
+function buildStats(
+  input: CopyDetailDrawerExactAdapterInput,
+): CopyDetailDrawerExactStat[] {
   const { row } = input;
   const peers = input.peers ?? [];
   const seeMoreMedian = median(peers.map((peer) => peer.seeMore));
@@ -185,14 +194,18 @@ function buildStats(input: CopyDetailDrawerExactAdapterInput): CopyDetailDrawerE
       id: "engage",
       label: "Engage",
       value: formatPercent(finite(row.engagement), 1),
-      sub: engagementMedian === null ? EM_DASH : `median ${engagementMedian.toFixed(1)}%`,
+      sub:
+        engagementMedian === null
+          ? EM_DASH
+          : `median ${engagementMedian.toFixed(1)}%`,
       tone: "neutral",
     },
     {
       id: "roas",
       label: "ROAS",
       value: formatRatio(roas),
-      sub: target === null ? `target ${EM_DASH}` : `target ${target.toFixed(2)}`,
+      sub:
+        target === null ? `target ${EM_DASH}` : `target ${target.toFixed(2)}`,
       tone: copyRoasTone(roas),
     },
   ];
@@ -239,55 +252,25 @@ export function buildCopyDetailDrawerExactViewModel(
   const draftStatus = nonBlank(input.draftStatusMessage ?? null);
 
   return {
-    kind: assetType ? `${assetType} · ${chars} chars` : `${EM_DASH} · ${chars} chars`,
+    kind: assetType
+      ? `${assetType} · ${chars} chars`
+      : `${EM_DASH} · ${chars} chars`,
     text: text ?? EM_DASH,
     angle: nonBlank(row.angle) ?? EM_DASH,
     angleTone: copyAngleTone(row.angle),
-    edgeTone: copyRoasTone(row.roas),
-    // No engine surface produces a per-line read today.
-    read: EM_DASH,
     stats: buildStats(input),
-    // The design's seed note claims angle-shifted rewrites ranked by angle
-    // ROAS. These are the other lines Meta served with the same creative.
-    alternatesNote: "served with this creative · Meta-reported",
+    alternatesNote: "Used with this creative",
     alternates,
-    // The second sentence used to read "Drafting one opens a Launchpad draft
-    // with this line's evidence attached." Nothing was attached then. Something
-    // is attached now — the copy identity, this exact line, the line it would
-    // replace, the frozen window and the creative/ad/campaign selection, all
-    // persisted server-side and re-verified on landing — so the sentence says
-    // exactly that, and it also says the part that is still not true: Launchpad
-    // has no copy field, so the line does not become ad copy.
     footnote: draftable
       ? [
-          "Alternates are the other lines Meta served with this creative.",
-          "Drafting one prepares a Launchpad draft carrying this line, its window and its creative; the server re-checks the line was served before it prepares anything.",
-          "Launchpad has no copy field, so the line travels with the draft and does not become ad copy. Nothing publishes from here.",
-          draftStatus,
+          "These are other lines used with this creative.",
+          "Draft opens Launchpad with the selected line for reference; it does not publish or change ad copy.",
+          draftStatus
+            ? "The Launchpad draft could not be prepared. Try again."
+            : null,
         ]
           .filter(Boolean)
           .join(" ")
-      : [
-          "Alternates are the other lines Meta served with this creative.",
-          "Drafting is unavailable here: preparing one needs a business, a Meta account and a window this view has not established.",
-          "Nothing publishes from here.",
-          draftStatus,
-        ]
-          .filter(Boolean)
-          .join(" "),
-    draftAllLabel:
-      alternates.length > 0
-        ? `Draft all ${alternates.length} in Launchpad`
-        : "Draft all in Launchpad",
-    /**
-     * Still null, and still disabled — including when single drafting works.
-     *
-     * A handoff carries ONE alternate by construction: the record names one
-     * line, one source line and one asset type. "Draft all" would therefore
-     * have to mint N single-use records and could open only the last one, so
-     * there is no honest implementation of this control to enable. A link here
-     * would be the generic Launchpad URL this drawer already removed once.
-     */
-    draftAllHref: null,
+      : "These are other lines used with this creative.",
   };
 }

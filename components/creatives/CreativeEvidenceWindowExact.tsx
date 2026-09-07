@@ -6,15 +6,11 @@ import styles from "./CreativeEvidenceWindowExact.module.css";
 
 const EM_DASH = "—";
 
-export type CreativeEvidenceWindowExactDisplayValue = string | number | null | undefined;
+export type CreativeEvidenceWindowExactDisplayValue =
+  string | number | null | undefined;
 
 export type CreativeEvidenceWindowExactTone =
-  | "positive"
-  | "negative"
-  | "warning"
-  | "info"
-  | "automation"
-  | "neutral";
+  "positive" | "negative" | "warning" | "info" | "automation" | "neutral";
 
 export interface CreativeEvidenceWindowExactFunnelStep {
   id: string;
@@ -138,6 +134,8 @@ export interface CreativeEvidenceWindowExactViewModel {
   facts?: readonly CreativeEvidenceWindowExactFact[];
   /** Loading / failed state of the ad-grain helper reads. Null when resolved. */
   readNotice?: CreativeEvidenceWindowExactReadNotice | null;
+  /** Concise buyer-facing reason an otherwise visible action is unavailable. */
+  actionNotice?: CreativeEvidenceWindowExactReadNotice | null;
   /** Which half of the evidence is served and which is canonical-only. */
   coverage?: CreativeEvidenceWindowExactCoverage | null;
   /** Source authority, eligibility, identity, risk, responses, write outcome. */
@@ -173,21 +171,26 @@ const FUNNEL_STEP_CLASS = [
 ];
 
 function display(value: CreativeEvidenceWindowExactDisplayValue): string {
-  if (typeof value === "number") return Number.isFinite(value) ? String(value) : EM_DASH;
+  if (typeof value === "number")
+    return Number.isFinite(value) ? String(value) : EM_DASH;
   if (typeof value !== "string") return EM_DASH;
   return value.trim() || EM_DASH;
 }
 
-function toneClass(tone: CreativeEvidenceWindowExactTone | null | undefined): string {
+function toneClass(
+  tone: CreativeEvidenceWindowExactTone | null | undefined,
+): string {
   return TONE_CLASS[tone ?? "neutral"];
 }
 
-function slots<T>(values: readonly T[] | null | undefined, count: number): Array<T | undefined> {
-  return Array.from({ length: count }, (_, index) => values?.[index]);
+function meaningful(value: CreativeEvidenceWindowExactDisplayValue): boolean {
+  const rendered = display(value);
+  return rendered !== EM_DASH && rendered !== "…" && rendered !== "unreadable";
 }
 
 function widthStyle(share: number | null | undefined): string {
-  if (typeof share !== "number" || !Number.isFinite(share) || share <= 0) return "0%";
+  if (typeof share !== "number" || !Number.isFinite(share) || share <= 0)
+    return "0%";
   return `${Math.min(100, share * 100).toFixed(1)}%`;
 }
 
@@ -227,8 +230,18 @@ function FooterAction({
   );
 }
 
-function BodyCard({ children, className }: { children: ReactNode; className?: string }) {
-  return <div className={className ? `${styles.card} ${className}` : styles.card}>{children}</div>;
+function BodyCard({
+  children,
+  className,
+}: {
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <div className={className ? `${styles.card} ${className}` : styles.card}>
+      {children}
+    </div>
+  );
 }
 
 export function CreativeEvidenceWindowExact({
@@ -243,16 +256,52 @@ export function CreativeEvidenceWindowExact({
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [onClose]);
 
-  const reasons = viewModel.reasons ?? [];
-  const funnel = slots(viewModel.funnel, 4);
-  const placements = slots(viewModel.placements, 3);
-  const adSets = slots(viewModel.adSets, 2);
-  const facts = slots(viewModel.facts, 6);
-  const authority = viewModel.authority ?? [];
-  const diagnostics = viewModel.diagnostics ?? [];
+  const reasons = (viewModel.reasons ?? []).filter(meaningful);
+  const funnel = (viewModel.funnel ?? []).filter(
+    (step) =>
+      meaningful(step.label) &&
+      (meaningful(step.value) ||
+        (typeof step.share === "number" && Number.isFinite(step.share))),
+  );
+  const placements = (viewModel.placements ?? []).filter(
+    (placement) =>
+      meaningful(placement.label) &&
+      (meaningful(placement.share) || meaningful(placement.roas)),
+  );
+  const adSets = (viewModel.adSets ?? []).filter(
+    (adSet) =>
+      meaningful(adSet.label) &&
+      (meaningful(adSet.spend) || meaningful(adSet.roas)),
+  );
+  const facts = (viewModel.facts ?? []).filter(
+    (fact) => meaningful(fact.label) && meaningful(fact.value),
+  );
+  const showCtr =
+    Boolean(viewModel.ctr?.path) || meaningful(viewModel.ctr?.note);
+  const showFrequency =
+    Boolean(viewModel.frequency?.path) || meaningful(viewModel.frequency?.note);
+  const primaryAction = meaningful(viewModel.primaryAction?.label)
+    ? viewModel.primaryAction
+    : undefined;
+  const compareAction =
+    viewModel.compareAction?.href || viewModel.compareAction?.onClick
+      ? viewModel.compareAction
+      : undefined;
+  const adsManagerAction =
+    viewModel.adsManagerAction?.href || viewModel.adsManagerAction?.onClick
+      ? viewModel.adsManagerAction
+      : undefined;
+  const showFooter = Boolean(
+    primaryAction || compareAction || adsManagerAction,
+  );
   const stripeA = viewModel.stripeA?.trim() || "#EAF0FF";
   const stripeB = viewModel.stripeB?.trim() || "#F7F9FC";
   const previewUrl = viewModel.previewUrl?.trim() || null;
+  const showDecisionCard =
+    meaningful(viewModel.verdict) ||
+    meaningful(viewModel.verdictSub) ||
+    meaningful(viewModel.money) ||
+    meaningful(viewModel.moneySub);
 
   return (
     <div
@@ -262,7 +311,7 @@ export function CreativeEvidenceWindowExact({
       role="presentation"
     >
       <aside
-        aria-label="Creative evidence"
+        aria-label="Creative decision"
         aria-modal="true"
         className={styles.drawer}
         onClick={stopPropagation}
@@ -270,14 +319,25 @@ export function CreativeEvidenceWindowExact({
       >
         <div className={styles.header}>
           <div className={styles.headerIdentity}>
-            <p className={styles.headerEyebrow}>Creative evidence · Meta</p>
+            <p className={styles.headerEyebrow}>Creative decision</p>
             <p className={styles.headerTitle}>{display(viewModel.name)}</p>
           </div>
-          <span className={`${styles.headerChip} ${toneClass(viewModel.decisionTone)}`}>
-            {display(viewModel.decisionLabel)}
-          </span>
+          {meaningful(viewModel.decisionLabel) ? (
+            <span
+              className={`${styles.headerChip} ${toneClass(viewModel.decisionTone)}`}
+            >
+              {display(viewModel.decisionLabel)}
+            </span>
+          ) : null}
+          {meaningful(viewModel.band) ? (
+            <span
+              className={`${styles.bandPill} ${toneClass(viewModel.bandTone)}`}
+            >
+              {display(viewModel.band)}
+            </span>
+          ) : null}
           <span
-            aria-label="Close creative evidence"
+            aria-label="Close creative decision"
             className={styles.headerClose}
             onClick={onClose}
             onKeyDown={(event) => {
@@ -305,254 +365,264 @@ export function CreativeEvidenceWindowExact({
               {viewModel.readNotice.text}
             </p>
           ) : null}
-          {viewModel.coverage ? (
-            <section
-              aria-label="Evidence coverage"
-              className={`${styles.coverage} ${toneClass(viewModel.coverage.tone)}`}
-              data-creative-evidence-coverage={viewModel.coverage.state}
+          {viewModel.actionNotice ? (
+            <p
+              className={`${styles.readNotice} ${toneClass(viewModel.actionNotice.tone)}`}
+              data-creative-evidence-action-state="unavailable"
+              role="status"
             >
-              <p className={styles.coverageHeadline}>{viewModel.coverage.headline}</p>
-              <p className={styles.coverageLine}>
-                <span className={styles.coverageLabel}>
-                  {viewModel.coverage.servedLabel}
-                </span>
-                <span className={styles.coverageItems}>
-                  {viewModel.coverage.served.length > 0
-                    ? viewModel.coverage.served.join(" · ")
-                    : EM_DASH}
-                </span>
-              </p>
-              <p className={styles.coverageLine} data-creative-evidence-coverage-withheld>
-                <span className={styles.coverageLabel}>
-                  {viewModel.coverage.unavailableLabel}
-                </span>
-                <span className={styles.coverageItems}>
-                  {viewModel.coverage.unavailable.length > 0
-                    ? viewModel.coverage.unavailable.join(" · ")
-                    : "none — every audit field below came from this row's own envelope"}
-                </span>
-              </p>
-              {viewModel.coverage.note ? (
-                <p className={styles.coverageNote}>{viewModel.coverage.note}</p>
-              ) : null}
-            </section>
+              {viewModel.actionNotice.text}
+            </p>
           ) : null}
-          <div className={styles.previewCard}>
-            <div
-              className={styles.previewStage}
-              style={{
-                backgroundImage: `repeating-linear-gradient(135deg,${stripeA},${stripeA} 12px,${stripeB} 12px,${stripeB} 24px)`,
-              }}
-            >
-              {previewUrl ? (
+          {previewUrl ? (
+            <div className={styles.previewCard}>
+              <div
+                className={styles.previewStage}
+                style={{
+                  backgroundImage: `repeating-linear-gradient(135deg,${stripeA},${stripeA} 12px,${stripeB} 12px,${stripeB} 24px)`,
+                }}
+              >
                 <img
                   alt=""
                   className={styles.previewImage}
                   data-creative-evidence-preview="served"
                   src={previewUrl}
                 />
-              ) : (
-                <span
-                  className={styles.previewPlaceholder}
-                  data-creative-evidence-preview="unavailable"
-                >
-                  {EM_DASH}
+              </div>
+              <div className={styles.previewFooter}>
+                <span className={styles.previewKind}>
+                  {display(viewModel.kind)}
                 </span>
-              )}
+                <span
+                  className={`${styles.bandPill} ${toneClass(viewModel.bandTone)}`}
+                >
+                  {display(viewModel.band)}
+                </span>
+              </div>
             </div>
-            <div className={styles.previewFooter}>
-              <span className={styles.previewKind}>{display(viewModel.kind)}</span>
-              <span className={`${styles.bandPill} ${toneClass(viewModel.bandTone)}`}>
-                {display(viewModel.band)}
-              </span>
-            </div>
-          </div>
+          ) : null}
 
-          <BodyCard className={`${styles.contractCard} ${toneClass(viewModel.decisionTone)}`}>
-            <p className={styles.cardEyebrow}>Decision contract</p>
-            <p className={styles.verdictLine}>
-              <b>{display(viewModel.verdict)}</b> {display(viewModel.verdictSub)}
-            </p>
-            <p className={styles.moneyLine}>
-              {display(viewModel.money)}{" "}
-              <span className={styles.moneySub}>{display(viewModel.moneySub)}</span>
-            </p>
-          </BodyCard>
-
-          <BodyCard className={toneClass(viewModel.decisionTone)}>
-            <p className={styles.cardEyebrowReasons}>Engine reasoning</p>
-            {slots(reasons, Math.max(1, reasons.length)).map((reason, index) => (
-              <p className={styles.reasonLine} key={`reason-${index}`}>
-                <span aria-hidden="true" className={styles.reasonDot} />
-                <span>{display(reason)}</span>
+          {showDecisionCard ? (
+            <BodyCard
+              className={`${styles.contractCard} ${toneClass(viewModel.decisionTone)}`}
+            >
+              <p className={styles.cardEyebrow}>Decision</p>
+              <p className={styles.verdictLine}>
+                <b>{display(viewModel.verdict)}</b>{" "}
+                {display(viewModel.verdictSub)}
               </p>
-            ))}
-          </BodyCard>
+              <p className={styles.moneyLine}>
+                {display(viewModel.money)}{" "}
+                <span className={styles.moneySub}>
+                  {display(viewModel.moneySub)}
+                </span>
+              </p>
+            </BodyCard>
+          ) : null}
 
-          <div className={styles.pairGrid}>
+          {!showDecisionCard &&
+          !viewModel.readNotice &&
+          !viewModel.actionNotice &&
+          !previewUrl &&
+          reasons.length === 0 &&
+          funnel.length === 0 &&
+          placements.length === 0 &&
+          adSets.length === 0 &&
+          facts.length === 0 ? (
+            <p className={styles.readNotice} role="status">
+              Decision details are unavailable.
+            </p>
+          ) : null}
+
+          {reasons.length > 0 ? (
             <BodyCard className={toneClass(viewModel.decisionTone)}>
-              <p className={styles.cardEyebrow}>CTR · 28d</p>
-              <svg
-                aria-hidden="true"
-                className={styles.sparkline}
-                preserveAspectRatio="none"
-                viewBox="0 0 100 22"
-              >
-                <path
-                  d={viewModel.ctr?.path ?? ""}
-                  fill="none"
-                  stroke="var(--tone-solid)"
-                  strokeWidth="1.6"
-                  vectorEffect="non-scaling-stroke"
-                />
-              </svg>
-              <p className={styles.seriesNote}>{display(viewModel.ctr?.note)}</p>
-            </BodyCard>
-            <BodyCard>
-              <p className={styles.cardEyebrow}>Frequency · 28d</p>
-              <svg
-                aria-hidden="true"
-                className={styles.sparkline}
-                preserveAspectRatio="none"
-                viewBox="0 0 100 22"
-              >
-                <path
-                  d={viewModel.frequency?.path ?? ""}
-                  fill="none"
-                  stroke="#e11d48"
-                  strokeWidth="1.6"
-                  vectorEffect="non-scaling-stroke"
-                />
-              </svg>
-              <p className={styles.seriesNote}>{display(viewModel.frequency?.note)}</p>
-            </BodyCard>
-          </div>
-
-          <BodyCard>
-            <p className={styles.cardEyebrowSpaced}>Click-to-purchase funnel · 28d</p>
-            <div className={styles.funnelRows}>
-              {funnel.map((step, index) => (
-                <div className={styles.funnelRow} key={step?.id ?? `funnel-${index}`}>
-                  <span className={styles.funnelLabel}>{display(step?.label)}</span>
-                  <span className={styles.funnelTrack}>
-                    <span
-                      className={`${styles.funnelFill} ${FUNNEL_STEP_CLASS[index] ?? ""}`}
-                      style={{ width: widthStyle(step?.share) }}
-                    />
-                  </span>
-                  <span className={styles.funnelValue}>{display(step?.value)}</span>
-                  <span className={styles.funnelSub}>
-                    {typeof step?.sub === "string" && !step.sub.trim() ? "" : display(step?.sub)}
-                  </span>
-                </div>
+              <p className={styles.cardEyebrowReasons}>Why</p>
+              {reasons.map((reason, index) => (
+                <p className={styles.reasonLine} key={`reason-${index}`}>
+                  <span aria-hidden="true" className={styles.reasonDot} />
+                  <span>{display(reason)}</span>
+                </p>
               ))}
-            </div>
-          </BodyCard>
+            </BodyCard>
+          ) : null}
 
-          <div className={styles.pairGrid}>
+          {showCtr || showFrequency ? (
+            <div className={styles.pairGrid}>
+              {showCtr ? (
+                <BodyCard className={toneClass(viewModel.decisionTone)}>
+                  <p className={styles.cardEyebrow}>CTR · 28d</p>
+                  <svg
+                    aria-hidden="true"
+                    className={styles.sparkline}
+                    preserveAspectRatio="none"
+                    viewBox="0 0 100 22"
+                  >
+                    <path
+                      d={viewModel.ctr?.path ?? ""}
+                      fill="none"
+                      stroke="var(--tone-solid)"
+                      strokeWidth="1.6"
+                      vectorEffect="non-scaling-stroke"
+                    />
+                  </svg>
+                  <p className={styles.seriesNote}>
+                    {display(viewModel.ctr?.note)}
+                  </p>
+                </BodyCard>
+              ) : null}
+              {showFrequency ? (
+                <BodyCard>
+                  <p className={styles.cardEyebrow}>Frequency · 28d</p>
+                  <svg
+                    aria-hidden="true"
+                    className={styles.sparkline}
+                    preserveAspectRatio="none"
+                    viewBox="0 0 100 22"
+                  >
+                    <path
+                      d={viewModel.frequency?.path ?? ""}
+                      fill="none"
+                      stroke="#e11d48"
+                      strokeWidth="1.6"
+                      vectorEffect="non-scaling-stroke"
+                    />
+                  </svg>
+                  <p className={styles.seriesNote}>
+                    {display(viewModel.frequency?.note)}
+                  </p>
+                </BodyCard>
+              ) : null}
+            </div>
+          ) : null}
+
+          {funnel.length > 0 ? (
             <BodyCard>
-              <p className={styles.cardEyebrowSpaced}>Placement mix</p>
-              {placements.map((placement, index) => (
-                <div className={styles.placementRow} key={placement?.id ?? `placement-${index}`}>
-                  <div className={styles.placementHead}>
-                    <span className={styles.placementLabel}>{display(placement?.label)}</span>
-                    <span className={styles.placementStats}>
-                      {display(placement?.share)} · ROAS {display(placement?.roas)}
+              <p className={styles.cardEyebrowSpaced}>
+                Click-to-purchase funnel · 28d
+              </p>
+              <div className={styles.funnelRows}>
+                {funnel.map((step, index) => (
+                  <div className={styles.funnelRow} key={step.id}>
+                    <span className={styles.funnelLabel}>
+                      {display(step.label)}
+                    </span>
+                    <span className={styles.funnelTrack}>
+                      <span
+                        className={`${styles.funnelFill} ${FUNNEL_STEP_CLASS[index] ?? ""}`}
+                        style={{ width: widthStyle(step.share) }}
+                      />
+                    </span>
+                    <span className={styles.funnelValue}>
+                      {display(step.value)}
+                    </span>
+                    <span className={styles.funnelSub}>
+                      {typeof step.sub === "string" && !step.sub.trim()
+                        ? ""
+                        : display(step.sub)}
                     </span>
                   </div>
-                  <div className={styles.placementTrack}>
-                    <div
-                      className={styles.placementFill}
-                      style={{ width: widthStyle(placement?.width) }}
-                    />
-                  </div>
-                </div>
-              ))}
-            </BodyCard>
-            <BodyCard>
-              <p className={styles.cardEyebrowTight}>Where it runs</p>
-              {adSets.map((adSet, index) => (
-                <div className={styles.adSetRow} key={adSet?.id ?? `adset-${index}`}>
-                  <span className={styles.adSetName}>{display(adSet?.label)}</span>
-                  <span className={styles.adSetSpend}>{display(adSet?.spend)}</span>
-                  <span className={`${styles.adSetRoas} ${toneClass(adSet?.roasTone)}`}>
-                    {display(adSet?.roas)}
-                  </span>
-                </div>
-              ))}
-              <p className={styles.adSetNote}>ROAS per ad set · same 28d window</p>
-            </BodyCard>
-          </div>
-
-          <div className={styles.factGrid}>
-            {facts.map((fact, index) => {
-              const value = display(fact?.value);
-              return (
-                <div className={styles.factRow} key={fact?.id ?? `fact-${index}`}>
-                  <span className={styles.factLabel}>{display(fact?.label)}</span>
-                  <span
-                    className={`${styles.factValue} ${toneClass(fact?.tone)} ${
-                      value === EM_DASH ? styles.factValueUnavailable : ""
-                    }`}
-                  >
-                    {value}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-
-          {authority.length > 0 ? (
-            <BodyCard>
-              <p className={styles.cardEyebrowSpaced}>Authority &amp; eligibility</p>
-              <div data-creative-evidence-authority>
-                {authority.map((row) => (
-                  <div
-                    className={styles.auditRow}
-                    data-tone={row.tone ?? "neutral"}
-                    key={row.id}
-                  >
-                    <span className={styles.auditLabel}>{display(row.label)}</span>
-                    <span className={styles.auditValue}>{display(row.value)}</span>
-                  </div>
                 ))}
               </div>
             </BodyCard>
           ) : null}
 
-          {diagnostics.length > 0 ? (
-            <details className={styles.diagnostics} data-creative-evidence-diagnostics>
-              <summary className={styles.diagnosticsSummary}>
-                Diagnostics · hashes &amp; lineage
-              </summary>
-              <div className={styles.diagnosticsBody}>
-                {diagnostics.map((row) => (
-                  <div className={styles.auditRow} key={row.id}>
-                    <span className={styles.auditLabel}>{display(row.label)}</span>
-                    <span className={styles.diagnosticsValue}>{display(row.value)}</span>
-                  </div>
-                ))}
-              </div>
-            </details>
+          {placements.length > 0 || adSets.length > 0 ? (
+            <div className={styles.pairGrid}>
+              {placements.length > 0 ? (
+                <BodyCard>
+                  <p className={styles.cardEyebrowSpaced}>Placement mix</p>
+                  {placements.map((placement) => (
+                    <div className={styles.placementRow} key={placement.id}>
+                      <div className={styles.placementHead}>
+                        <span className={styles.placementLabel}>
+                          {display(placement.label)}
+                        </span>
+                        <span className={styles.placementStats}>
+                          {display(placement.share)} · ROAS{" "}
+                          {display(placement.roas)}
+                        </span>
+                      </div>
+                      <div className={styles.placementTrack}>
+                        <div
+                          className={styles.placementFill}
+                          style={{ width: widthStyle(placement.width) }}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </BodyCard>
+              ) : null}
+              {adSets.length > 0 ? (
+                <BodyCard>
+                  <p className={styles.cardEyebrowTight}>Where it runs</p>
+                  {adSets.map((adSet) => (
+                    <div className={styles.adSetRow} key={adSet.id}>
+                      <span className={styles.adSetName}>
+                        {display(adSet.label)}
+                      </span>
+                      <span className={styles.adSetSpend}>
+                        {display(adSet.spend)}
+                      </span>
+                      <span
+                        className={`${styles.adSetRoas} ${toneClass(adSet.roasTone)}`}
+                      >
+                        {display(adSet.roas)}
+                      </span>
+                    </div>
+                  ))}
+                  <p className={styles.adSetNote}>
+                    ROAS per ad set · same 28d window
+                  </p>
+                </BodyCard>
+              ) : null}
+            </div>
           ) : null}
 
-          <p className={styles.provenance}>{display(viewModel.provenance)}</p>
+          {facts.length > 0 ? (
+            <div className={styles.factGrid}>
+              {facts.map((fact) => {
+                const value = display(fact.value);
+                return (
+                  <div className={styles.factRow} key={fact.id}>
+                    <span className={styles.factLabel}>
+                      {display(fact.label)}
+                    </span>
+                    <span
+                      className={`${styles.factValue} ${toneClass(fact.tone)} ${
+                        value === EM_DASH ? styles.factValueUnavailable : ""
+                      }`}
+                    >
+                      {value}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          ) : null}
         </div>
 
-        <div className={styles.footer}>
-          <FooterAction
-            action={viewModel.primaryAction}
-            className={`${styles.primaryButton} ${toneClass(viewModel.decisionTone)}`}
-          />
-          <FooterAction
-            action={viewModel.compareAction ?? { label: "Compare in Studio" }}
-            className={styles.secondaryButton}
-          />
-          <FooterAction
-            action={viewModel.adsManagerAction ?? { label: "Ads Manager ↗" }}
-            className={styles.tertiaryButton}
-          />
-        </div>
+        {showFooter ? (
+          <div className={styles.footer}>
+            {primaryAction ? (
+              <FooterAction
+                action={primaryAction}
+                className={`${styles.primaryButton} ${toneClass(viewModel.decisionTone)}`}
+              />
+            ) : null}
+            {compareAction ? (
+              <FooterAction
+                action={compareAction}
+                className={styles.secondaryButton}
+              />
+            ) : null}
+            {adsManagerAction ? (
+              <FooterAction
+                action={adsManagerAction}
+                className={styles.tertiaryButton}
+              />
+            ) : null}
+          </div>
+        ) : null}
       </aside>
     </div>
   );

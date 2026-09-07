@@ -105,7 +105,7 @@ function makeDecision(overrides: Partial<DecisionOutput> = {}): DecisionOutput {
 }
 
 describe("LaunchpadCreativeSelection", () => {
-  it("renders engine v3 label and below breakeven badges", () => {
+  it("renders buyer-facing recommendations and below breakeven badges", () => {
     const decision = makeDecision({
       badges: [
         {
@@ -127,11 +127,49 @@ describe("LaunchpadCreativeSelection", () => {
 
     expect(html).toContain("Scale");
     expect(html).toContain("Below breakeven");
-    expect(html).toContain("Engine: scale candidate");
-    expect(html).toContain("Upload new creative");
-    expect(html).toContain("NEEDS-SERVER-CONTRACT");
-    expect(html).toContain("out_of_scope");
-    expect(html).toContain("deliberately distinct from buyerAction");
+    expect(html).toContain("Scale candidate");
+    expect(html).not.toContain("Upload new creative");
+    expect(html).not.toContain("Choose files");
+    expect(html).not.toContain("NEEDS-SERVER-CONTRACT");
+    expect(html).not.toContain("media pipeline");
+    expect(html).not.toContain("provider upload writes");
+    expect(html).not.toContain("backend contract gap");
+    expect(html).not.toContain("Media upload backend");
+    expect(html).toContain("No recommendation");
+    expect(html).not.toContain("out_of_scope");
+    expect(html).not.toContain("buyerAction");
+    expect(html).not.toContain("Engine v3");
+  });
+
+  it("keeps provider IDs out of visible labels", () => {
+    const html = renderToStaticMarkup(
+      <LaunchpadCreativeSelection
+        rows={[
+          makeRow({
+            creativeId: "238500000000001",
+            name: "Creative 238500000000001",
+            campaignId: "238500000000002",
+            campaignName: null,
+            adSetId: "238500000000003",
+            adSetName: null,
+          }),
+        ]}
+        selectedCreativeIds={[]}
+        decisionByCreativeId={new Map()}
+        onToggleCreative={vi.fn()}
+      />,
+    );
+
+    expect(html).toContain("Search creatives...");
+    expect(html).toContain("Unnamed creative");
+    expect(html).toContain("Unnamed campaign");
+    expect(html).toContain("Unnamed ad set");
+    expect(html).not.toContain("Select Creative 238500000000001");
+    expect(html).not.toContain("Campaign id: 238500000000002");
+    expect(html).not.toContain("Ad set id: 238500000000003");
+    expect(html).not.toContain(">238500000000001<");
+    expect(html).not.toContain(">238500000000002<");
+    expect(html).not.toContain(">238500000000003<");
   });
 
   it("renders creative spend and selection totals in the account currency", () => {
@@ -215,12 +253,12 @@ describe("LaunchpadCreativeSelection", () => {
       getCreativeAdvisoryNotes(makeDecision({ label: "cut" })).map(
         (note) => note.text,
       ),
-    ).toContain("Engine: cut candidate - confirm intent");
+    ).toContain("Stop candidate - confirm before launch");
     expect(
       getCreativeAdvisoryNotes(makeDecision({ label: "diagnose" })).map(
         (note) => note.text,
       ),
-    ).toContain("Engine: data anomaly - verify before launch");
+    ).toContain("Review the data before launch");
   });
 
   it("filters by status, format, label, badge, and search", () => {

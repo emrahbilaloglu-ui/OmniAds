@@ -268,12 +268,37 @@ const AI_TAG_HEADER_ICONS: Record<TagKey, ComponentType<{ className?: string }>>
   headlineTactic: MessageSquareQuote,
 };
 
+function buyerFacingEntityName(
+  value: string | null | undefined,
+  providerId: string | null | undefined,
+  entityLabel: "Creative" | "Campaign" | "Ad set",
+): string | null {
+  const name = value?.trim() ?? "";
+  const id = providerId?.trim() ?? "";
+  if (!name) return id ? `Unnamed ${entityLabel.toLowerCase()}` : null;
+  if (!id) return name;
+  const normalizedName = name.toLowerCase();
+  const normalizedId = id.toLowerCase();
+  if (
+    normalizedName === normalizedId ||
+    normalizedName === `${entityLabel.toLowerCase()} ${normalizedId}` ||
+    normalizedName === `${entityLabel.toLowerCase()} id: ${normalizedId}`
+  ) {
+    return `Unnamed ${entityLabel.toLowerCase()}`;
+  }
+  return name;
+}
+
 function buildPlacementTooltip(row: MetaCreativeRow): string | undefined {
   const parts: string[] = [];
-  if (row.campaignName) parts.push(`Campaign: ${row.campaignName}`);
-  else if (row.campaignId) parts.push(`Campaign id: ${row.campaignId}`);
-  if (row.adSetName) parts.push(`Ad set: ${row.adSetName}`);
-  else if (row.adSetId) parts.push(`Ad set id: ${row.adSetId}`);
+  const campaignName = buyerFacingEntityName(
+    row.campaignName,
+    row.campaignId,
+    "Campaign",
+  );
+  const adSetName = buyerFacingEntityName(row.adSetName, row.adSetId, "Ad set");
+  if (campaignName) parts.push(`Campaign: ${campaignName}`);
+  if (adSetName) parts.push(`Ad set: ${adSetName}`);
   if (parts.length === 0) return undefined;
   return parts.join("\n");
 }
@@ -552,16 +577,16 @@ const TABLE_COLUMNS: TableColumnDefinition[] = [
   { key: "clickToAtcRatio", label: "Click to add-to-cart ratio", description: "Link clicks that reached add to cart.", direction: "high", minWidth: 150, preferredWidth: 170, align: "right", format: fmtPercent, getValue: (r) => calculateCreativeClickToAddToCartRate(r) },
   { key: "atcToPurchaseRatio", label: "Add-to-cart to purchase ratio", description: "ATC to purchase conversion.", direction: "high", minWidth: 155, preferredWidth: 180, align: "right", format: fmtPercent, getValue: (r) => r.atcToPurchaseRatio },
   { key: "purchases", label: "Purchases", description: "Purchase count.", direction: "high", minWidth: 76, preferredWidth: 84, align: "right", format: fmtInteger, getValue: (r) => r.purchases },
-  { key: "firstFrameRetention", label: "First-impression proxy (thumbstop)", description: "Compatibility proxy that reuses thumbstop ratio.", direction: "high", minWidth: 195, preferredWidth: 215, align: "right", format: fmtPercent, getValue: (r) => r.thumbstop },
+  { key: "firstFrameRetention", label: "Early attention rate", description: "Uses the creative's thumbstop rate.", direction: "high", minWidth: 195, preferredWidth: 215, align: "right", format: fmtPercent, getValue: (r) => r.thumbstop },
   { key: "thumbstopRatio", label: "Thumbstop ratio", description: "Thumbstop performance ratio.", direction: "high", minWidth: 120, preferredWidth: 140, align: "right", format: fmtPercent, getValue: (r) => r.thumbstop },
-  { key: "ctrOutbound", label: "Link CTR (compat)", description: "Compatibility column that uses link clicks / impressions.", direction: "high", minWidth: 140, preferredWidth: 160, align: "right", format: fmtPercent, getValue: (r) => calculateCreativeLinkCtr(r) },
+  { key: "ctrOutbound", label: "Link CTR", description: "Link clicks divided by impressions.", direction: "high", minWidth: 140, preferredWidth: 160, align: "right", format: fmtPercent, getValue: (r) => calculateCreativeLinkCtr(r) },
   { key: "clickToPurchaseRatio", label: "Click to purchase ratio", description: "Link clicks that became purchases.", direction: "high", minWidth: 145, preferredWidth: 165, align: "right", format: fmtPercent, getValue: (r) => calculateCreativeClickToPurchaseRate(r) },
   { key: "ctrAll", label: "Click through rate (all)", description: "All-click CTR.", direction: "high", minWidth: 135, preferredWidth: 150, align: "right", format: fmtPercent, getValue: (r) => r.ctrAll },
   { key: "video25Rate", label: "25% video plays (rate)", description: "25% play rate.", direction: "high", minWidth: 145, preferredWidth: 165, align: "right", format: fmtPercent, getValue: (r) => r.video25 },
   { key: "video50Rate", label: "50% video plays (rate)", description: "50% play rate.", direction: "high", minWidth: 145, preferredWidth: 165, align: "right", format: fmtPercent, getValue: (r) => r.video50 },
   { key: "video75Rate", label: "75% video plays (rate)", description: "75% play rate.", direction: "high", minWidth: 145, preferredWidth: 165, align: "right", format: fmtPercent, getValue: (r) => r.video75 },
   { key: "video100Rate", label: "100% video plays (rate)", description: "100% play rate.", direction: "high", minWidth: 150, preferredWidth: 170, align: "right", format: fmtPercent, getValue: (r) => r.video100 },
-  { key: "holdRate", label: "Completion proxy (100% plays)", description: "Compatibility proxy that reuses 100% video plays.", direction: "high", minWidth: 190, preferredWidth: 210, align: "right", format: fmtPercent, getValue: (r) => r.video100 },
+  { key: "holdRate", label: "Completed video plays", description: "Share of video plays that reached 100%.", direction: "high", minWidth: 190, preferredWidth: 210, align: "right", format: fmtPercent, getValue: (r) => r.video100 },
   { key: "hookScore", label: "Hook score", description: "0-100 read on first-stop strength using early attention and hook signals.", direction: "high", minWidth: 118, preferredWidth: 132, align: "right", format: (n) => n.toFixed(0), getValue: (r) => calculateCreativeHookScore(r) },
   { key: "ctaScore", label: "CTA score", description: "0-100 read on how clearly the ad pulls qualified clicks toward action.", direction: "high", minWidth: 110, preferredWidth: 124, align: "right", format: (n) => n.toFixed(0), getValue: (r) => calculateCreativeCtaScore(r) },
   { key: "offerScore", label: "Offer score", description: "0-100 read on commercial pull using offer presence plus cart and purchase behavior.", direction: "high", minWidth: 118, preferredWidth: 132, align: "right", format: (n) => n.toFixed(0), getValue: (r) => calculateCreativeOfferScore(r) },
@@ -1989,7 +2014,17 @@ const CreativeTableRow = memo(function CreativeTableRow({
   const assetState = getCreativeStaticPreviewState(row, "table");
   const resolvedRowCurrency = resolveCreativeCurrency(row.currency, defaultCurrency);
   const rowId = safeTableText(row.id) || safeTableText(row.creativeId) || "creative";
-  const rowName = safeTableText(row.name) || "Untitled creative";
+  const rowName =
+    buyerFacingEntityName(
+      safeTableText(row.name),
+      safeTableText(row.creativeId) || rowId,
+      "Creative",
+    ) ?? "Unnamed creative";
+  const campaignName = buyerFacingEntityName(
+    row.campaignName,
+    row.campaignId,
+    "Campaign",
+  );
   const rowPreview = safeTablePreview(row.preview, row.isCatalog);
 
   return (
@@ -2022,9 +2057,9 @@ const CreativeTableRow = memo(function CreativeTableRow({
 
           <div className="min-w-0 flex-1" title={buildPlacementTooltip(row)}>
             <p className="truncate text-[10px] font-medium leading-tight">{rowName}</p>
-            {row.campaignName ? (
+            {campaignName ? (
               <p className="mt-0.5 truncate text-[9px] text-muted-foreground/80">
-                {row.campaignName}
+                {campaignName}
               </p>
             ) : null}
             <p className="mt-1 truncate text-[9px] text-muted-foreground">
@@ -2102,9 +2137,9 @@ const CreativeTableRow = memo(function CreativeTableRow({
             {column.key === "hookScore" && evaluation.applicable !== false ? (
               <span
                 className="ml-1 inline-block rounded-[3px] border border-[var(--adc-auto-bd,#d9ccf1)] bg-[var(--adc-auto-bg,#f2edfb)] px-1 align-middle text-[8px] font-medium text-[var(--adc-auto-fg,#6c41be)]"
-                title="Client-computed proxy from early-attention and thumbstop signals — not a provider-reported metric."
+                title="Estimated from early attention and thumbstop signals."
               >
-                proxy
+                Estimated
               </span>
             ) : null}
           </td>

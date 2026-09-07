@@ -94,7 +94,10 @@ function canonicalFixture(
       creative: { id: "creative_1", name: "Server Creative" },
       campaign: { id: "cmp_1", name: "Server Campaign" },
     },
-    media: { state: "available", thumbnail: { state: "available", url: "https://x/y.jpg" } },
+    media: {
+      state: "available",
+      thumbnail: { state: "available", url: "https://x/y.jpg" },
+    },
     classification: { buyerLabel: "Refresh", blockers: [] },
     metrics: {
       spend: 9700,
@@ -135,11 +138,41 @@ describe("buildCreativeEvidenceWindowExactViewModel identity and contract", () =
       canonical: canonicalFixture(),
     });
     expect(model.name).toBe("Server Ad");
-    expect(model.decisionLabel).toBe("Refresh");
+    expect(model.decisionLabel).toBe("Refresh creative");
     expect(model.decisionTone).toBe("warning");
     expect(model.previewUrl).toBe("https://x/y.jpg");
     expect(model.band).toBe("High confidence");
     expect(model.bandTone).toBe("positive");
+  });
+
+  it("uses generic buyer labels instead of full provider IDs when names are missing", () => {
+    const decision = decisionFixture({ adName: undefined, adsetName: undefined });
+    const canonical = canonicalFixture({
+      parentChain: {
+        ad: { id: "120210000000012345", name: null },
+        adset: { id: "120210000000067890", name: null },
+        creative: { id: "creative_1", name: null },
+        campaign: { id: "cmp_1", name: null },
+      },
+    });
+    const model = buildCreativeEvidenceWindowExactViewModel({
+      decision,
+      canonical,
+      adRows: [],
+    });
+    expect(model.name).toBe("Unnamed Meta ad");
+    expect(model.adSets?.[0]?.label).toBe("Unnamed ad set");
+    expect(
+      JSON.stringify({
+      name: model.name,
+      kind: model.kind,
+      adSets: model.adSets?.map(({ label, spend, roas }) => ({
+        label,
+        spend,
+        roas,
+      })),
+      }),
+    ).not.toContain("120210000000");
   });
 
   /*
@@ -154,17 +187,16 @@ describe("buildCreativeEvidenceWindowExactViewModel identity and contract", () =
    * engine computed appeared nowhere at all. What must not come back is
    * duplication: an account whose two fields agree still reads one line.
    */
-  it("states the verdict, the money line and every served reasoning line once", () => {
+  it("states the buyer-facing verdict, money line and reason without raw engine copy", () => {
     const model = buildCreativeEvidenceWindowExactViewModel({
       decision: decisionFixture(),
       canonical: canonicalFixture(),
     });
-    expect(model.verdict).toBe("Server verdict: Refresh.");
+    expect(model.verdict).toBe("Refresh creative");
     expect(model.money).toBe("$9,700 · ROAS 2.70");
     expect(model.moneySub).toBe("vs 3.80 target");
     expect(model.reasons).toEqual([
-      "CTR fell against its own baseline while spend held flat.",
-      "Server assessment",
+      "This ad is ready for a creative refresh review.",
     ]);
 
     const agreeing = buildCreativeEvidenceWindowExactViewModel({
@@ -181,21 +213,26 @@ describe("buildCreativeEvidenceWindowExactViewModel identity and contract", () =
         },
       }),
     });
-    expect(agreeing.reasons).toEqual(["Same sentence"]);
+    expect(agreeing.reasons).toEqual([
+      "This ad is ready for a creative refresh review.",
+    ]);
   });
 
-  it("folds authority blockers into the verdict sub-line rather than a section", () => {
+  it("maps authority blockers into concise buyer copy", () => {
     const model = buildCreativeEvidenceWindowExactViewModel({
       decision: decisionFixture(),
       canonical: canonicalFixture({
         classification: {
           buyerLabel: "Cut",
-          blockers: [{ code: "scope", label: "Native ad authority unavailable" }],
+          blockers: [
+            { code: "scope", label: "Native ad authority unavailable" },
+          ],
         },
       }),
     });
-    expect(model.verdictSub).toContain("Native ad authority unavailable.");
+    expect(model.verdictSub).toContain("More verified evidence is required.");
     expect(model.verdictSub).toContain("Creates a replacement brief");
+    expect(model.verdictSub).not.toContain("Native ad authority unavailable");
   });
 
   it("em-dashes the whole contract when nothing is served", () => {
@@ -236,9 +273,21 @@ describe("buildCreativeEvidenceWindowExactViewModel evidence body", () => {
   it("draws the funnel bars on the design's own decade scale", () => {
     // The design's three authored funnels (design file 3610, 3624, 3638).
     const designFunnels = [
-      { top: 1_420_000, values: [15_200, 942, 318], widths: [0.46, 0.27, 0.15] },
-      { top: 1_180_000, values: [11_800, 684, 246], widths: [0.42, 0.24, 0.13] },
-      { top: 1_940_000, values: [31_600, 2_970, 1_034], widths: [0.58, 0.34, 0.2] },
+      {
+        top: 1_420_000,
+        values: [15_200, 942, 318],
+        widths: [0.46, 0.27, 0.15],
+      },
+      {
+        top: 1_180_000,
+        values: [11_800, 684, 246],
+        widths: [0.42, 0.24, 0.13],
+      },
+      {
+        top: 1_940_000,
+        values: [31_600, 2_970, 1_034],
+        widths: [0.58, 0.34, 0.2],
+      },
     ];
     const residuals: number[] = [];
     for (const funnel of designFunnels) {
@@ -254,7 +303,9 @@ describe("buildCreativeEvidenceWindowExactViewModel evidence body", () => {
       });
       expect(model.funnel?.[0]?.share).toBe(1);
       for (const [index, width] of funnel.widths.entries()) {
-        residuals.push(Math.abs((model.funnel?.[index + 1]?.share ?? 0) - width));
+        residuals.push(
+          Math.abs((model.funnel?.[index + 1]?.share ?? 0) - width),
+        );
       }
     }
     // Seven of the nine sub-bars land within 3 points of the design's own
@@ -298,7 +349,10 @@ describe("buildCreativeEvidenceWindowExactViewModel evidence body", () => {
       spend: "$200",
       roas: "3.00",
     });
-    expect(model.adSets?.[1]).toMatchObject({ label: "Retargeting 14d", roas: "4.00" });
+    expect(model.adSets?.[1]).toMatchObject({
+      label: "Retargeting 14d",
+      roas: "4.00",
+    });
   });
 
   it("falls back to the decision's own ad set when no ad-grain read resolved", () => {
@@ -356,7 +410,10 @@ describe("buildCreativeEvidenceWindowExactViewModel evidence body", () => {
       decision: decisionFixture({ fatigueStatus: "fatigued" }),
       canonical: canonicalFixture(),
     });
-    expect(model.facts?.[4]).toMatchObject({ label: "Fatigue", value: "Fatigued" });
+    expect(model.facts?.[4]).toMatchObject({
+      label: "Fatigue",
+      value: "Fatigued",
+    });
   });
 
   it("reads the fatigue class off the canonical decision when the OS one omits it", () => {
@@ -364,7 +421,10 @@ describe("buildCreativeEvidenceWindowExactViewModel evidence body", () => {
       decision: decisionFixture(),
       canonical: canonicalFixture({ fatigueStatus: "watch" }),
     });
-    expect(model.facts?.[4]).toMatchObject({ label: "Fatigue", value: "Watch" });
+    expect(model.facts?.[4]).toMatchObject({
+      label: "Fatigue",
+      value: "Watch",
+    });
   });
 
   it("keeps a served 'unknown' fatigue class distinct from no fatigue field at all", () => {
@@ -376,7 +436,10 @@ describe("buildCreativeEvidenceWindowExactViewModel evidence body", () => {
       decision: decisionFixture(),
       canonical: canonicalFixture(),
     });
-    expect(assessed.facts?.[4]).toMatchObject({ label: "Fatigue", value: "Unknown" });
+    expect(assessed.facts?.[4]).toMatchObject({
+      label: "Fatigue",
+      value: "Unknown",
+    });
     expect(absent.facts?.[4]).toMatchObject({ label: "—", value: "—" });
   });
 
@@ -389,7 +452,9 @@ describe("buildCreativeEvidenceWindowExactViewModel evidence body", () => {
         adRow({ id: "r2", impressions: 100, thumbstop: 30 }),
       ],
     });
-    expect(model.facts?.find((fact) => fact.id === "thumbstop")?.value).toBe("15.0%");
+    expect(model.facts?.find((fact) => fact.id === "thumbstop")?.value).toBe(
+      "15.0%",
+    );
   });
 
   it("leaves both sparkline series unserved rather than interpolating point values", () => {
@@ -419,7 +484,9 @@ describe("buildCreativeEvidenceWindowExactViewModel evidence body", () => {
     // Four points across the design's 0 0 100 22 viewBox, 2px inset each side.
     expect(model.ctr?.path).toBe("M0.0 2.0 L33.3 2.0 L66.7 20.0 L100.0 20.0");
     expect(model.ctr?.note).toBe("−50.0% vs prior 2d");
-    expect(model.frequency?.path).toBe("M0.0 20.0 L33.3 20.0 L66.7 2.0 L100.0 2.0");
+    expect(model.frequency?.path).toBe(
+      "M0.0 20.0 L33.3 20.0 L66.7 2.0 L100.0 2.0",
+    );
     expect(model.frequency?.note).toBe("3.0 · +200.0% vs prior 2d");
   });
 
@@ -503,8 +570,10 @@ describe("buildCreativeEvidenceWindowExactViewModel footer", () => {
       canonical: canonicalFixture(),
       hrefs: { primary: "/platforms/meta/launchpad?mode=rebuild" },
     });
-    expect(model.primaryAction?.label).toBe("Refresh Creative");
-    expect(model.primaryAction?.href).toBe("/platforms/meta/launchpad?mode=rebuild");
+    expect(model.primaryAction?.label).toBe("Create replacement brief");
+    expect(model.primaryAction?.href).toBe(
+      "/platforms/meta/launchpad?mode=rebuild",
+    );
   });
 
   it("always emits Compare in Studio and Ads Manager", () => {
@@ -513,18 +582,45 @@ describe("buildCreativeEvidenceWindowExactViewModel footer", () => {
     expect(model.adsManagerAction?.label).toBe("Ads Manager ↗");
     expect(model.adsManagerAction?.external).toBe(true);
   });
+
+  it("removes both callback and href when action authority is refused", () => {
+    const onPrimary = vi.fn();
+    const model = buildCreativeEvidenceWindowExactViewModel({
+      decision: decisionFixture(),
+      canonical: canonicalFixture(),
+      hrefs: { primary: "/platforms/meta/launchpad?handoff=unsafe" },
+      primaryActionAuthority: {
+        kind: "launchpad_handoff",
+        offered: false,
+        refusalReason: "internal_refusal_code",
+      },
+      callbacks: { onPrimary },
+    });
+    expect(model.primaryAction?.href).toBeNull();
+    expect(model.primaryAction?.onClick).toBeUndefined();
+    expect(model.primaryAction?.disabled).toBe(true);
+    expect(model.actionNotice?.text).not.toContain("internal_refusal_code");
+    model.primaryAction?.onClick?.();
+    expect(onPrimary).not.toHaveBeenCalled();
+  });
 });
 
 describe("buildMetaAdsManagerHref", () => {
   it("builds the provider deep link from the account and ad", () => {
-    expect(buildMetaAdsManagerHref({ providerAccountId: "act_1", adId: "ad_9" })).toBe(
+    expect(
+      buildMetaAdsManagerHref({ providerAccountId: "act_1", adId: "ad_9" }),
+    ).toBe(
       "https://adsmanager.facebook.com/adsmanager/manage/ads/edit?act=1&selected_ad_ids=ad_9",
     );
   });
 
   it("returns null when either identity is missing", () => {
-    expect(buildMetaAdsManagerHref({ providerAccountId: null, adId: "ad_9" })).toBeNull();
-    expect(buildMetaAdsManagerHref({ providerAccountId: "act_1", adId: null })).toBeNull();
+    expect(
+      buildMetaAdsManagerHref({ providerAccountId: null, adId: "ad_9" }),
+    ).toBeNull();
+    expect(
+      buildMetaAdsManagerHref({ providerAccountId: "act_1", adId: null }),
+    ).toBeNull();
   });
 });
 
@@ -562,12 +658,16 @@ describe("buildCreativeEvidenceWindowExactViewModel helper read state", () => {
     });
     expect(model.funnel?.[0]?.value).toBe("…");
     expect(model.ctr?.note).toBe("…");
-    expect(model.facts?.find((fact) => fact.id === "first-seen")?.value).toBe("…");
+    expect(model.facts?.find((fact) => fact.id === "first-seen")?.value).toBe(
+      "…",
+    );
     expect(model.readNotice?.tone).toBe("info");
-    expect(model.readNotice?.text).toContain("still loading");
+    expect(model.readNotice?.text).toBe(
+      "Creative performance data is loading.",
+    );
   });
 
-  it("marks a failed read as unreadable and quotes the read's own message", () => {
+  it("marks a failed read as unavailable without exposing the backend error", () => {
     const model = buildCreativeEvidenceWindowExactViewModel({
       decision: decisionFixture(),
       canonical: canonicalFixture(),
@@ -581,7 +681,10 @@ describe("buildCreativeEvidenceWindowExactViewModel helper read state", () => {
       "unreadable",
     );
     expect(model.readNotice?.tone).toBe("negative");
-    expect(model.readNotice?.text).toContain("meta creatives read failed: 502");
+    expect(model.readNotice?.text).toBe(
+      "Some creative performance data could not be loaded. Missing figures are unavailable.",
+    );
+    expect(model.readNotice?.text).not.toContain("502");
   });
 
   it("never overwrites a served value with a read-state token", () => {
@@ -672,7 +775,9 @@ describe("buildCreativeEvidenceWindowExactViewModel audit surface", () => {
       decision: decisionFixture(),
       canonical,
     });
-    expect(value(model.authority, "source-authority")).toBe("Legacy review only");
+    expect(value(model.authority, "source-authority")).toBe(
+      "Legacy review only",
+    );
     expect(value(model.authority, "action-eligibility")).toBe("no");
     expect(
       model.authority?.find((row) => row.id === "action-eligibility")?.label,
@@ -842,7 +947,9 @@ describe("buildCreativeEvidenceWindowExactViewModel audit surface", () => {
       decision: decisionFixture(),
       canonical,
     });
-    expect(value(model.authority, "operator-responses")).toContain("unavailable");
+    expect(value(model.authority, "operator-responses")).toContain(
+      "unavailable",
+    );
     expect(value(model.authority, "provider-write-outcome")).toContain(
       "Journal not keyed",
     );
@@ -955,14 +1062,14 @@ describe("buildCreativeEvidenceWindowExactViewModel audit surface", () => {
         },
       },
     });
-    expect(model.authority?.find((r) => r.id === "queue-source-authority")?.tone).toBe(
-      "positive",
-    );
+    expect(
+      model.authority?.find((r) => r.id === "queue-source-authority")?.tone,
+    ).toBe("positive");
     // No fallback row at all when the server states no fallback: an absent
     // reason must not be printed as an empty one.
-    expect(
-      model.authority?.some((r) => r.id === "queue-source-fallback"),
-    ).toBe(false);
+    expect(model.authority?.some((r) => r.id === "queue-source-fallback")).toBe(
+      false,
+    );
   });
 
   it("keeps generation lineage in diagnostics, including a measured count", () => {
@@ -1026,18 +1133,25 @@ describe("buildCreativeEvidenceWindowExactViewModel audit surface", () => {
       decision: decisionFixture(),
       canonical: canonicalFixture({
         history: {
-          events: { status: "available", reason: null, preCapCount: 0, items: [] },
+          events: {
+            status: "available",
+            reason: null,
+            preCapCount: 0,
+            items: [],
+          },
           outcomes: { status: "available", reason: null, items: [] },
           responses: { status: "unavailable", reason: null },
           providerWrites: { status: "unavailable", reason: null },
         },
       }),
     });
-    expect(value(model.authority, "decision-events")).toBe("0 recorded of 0 served");
+    expect(value(model.authority, "decision-events")).toBe(
+      "0 recorded of 0 served",
+    );
     expect(value(model.authority, "decision-outcomes")).toBe("0 recorded");
   });
 
-  it("prints blocker codes as receipts while their labels stay on the verdict", () => {
+  it("keeps blocker codes in receipts while the verdict uses buyer copy", () => {
     const model = buildCreativeEvidenceWindowExactViewModel({
       decision: decisionFixture(),
       canonical: canonicalFixture({
@@ -1049,12 +1163,15 @@ describe("buildCreativeEvidenceWindowExactViewModel audit surface", () => {
         },
       }),
     });
-    expect(value(model.diagnostics, "blocker-codes")).toBe("risk_tier_unclassified");
-    expect(model.verdictSub).toContain("Risk is unclassified");
+    expect(value(model.diagnostics, "blocker-codes")).toBe(
+      "risk_tier_unclassified",
+    );
+    expect(model.verdictSub).toContain("More verified evidence is required.");
+    expect(model.verdictSub).not.toContain("Risk is unclassified");
     expect(model.verdictSub).not.toContain("risk_tier_unclassified");
   });
 
-  it("keeps the risk-tier statement visible as an advisory, with its reason and apart from the gates", () => {
+  it("keeps risk-tier advisory receipts out of the buyer-facing verdict", () => {
     // The server no longer files `risk_tier_unclassified` under blockers, so
     // the window must not lose the statement with it. It states the same fact
     // in the same two places — the verdict sub-line and the receipts — under a
@@ -1081,9 +1198,8 @@ describe("buildCreativeEvidenceWindowExactViewModel audit surface", () => {
       "risk_tier_unclassified",
     );
     expect(value(model.diagnostics, "blocker-codes")).toBe("—");
-    expect(model.verdictSub).toContain(
-      "Advisory: Risk is unclassified — Risk tier producer not persisted.",
-    );
+    expect(model.verdictSub).not.toContain("Risk is unclassified");
+    expect(model.verdictSub).not.toContain("Risk tier producer not persisted");
     expect(model.verdictSub).not.toContain("risk_tier_unclassified");
   });
 
@@ -1105,7 +1221,8 @@ describe("buildCreativeEvidenceWindowExactViewModel audit surface", () => {
       canonical,
       launchpadRoute: {
         offered: false,
-        refusalReason: "That decision is held, so no launch handoff was created.",
+        refusalReason:
+          "That decision is held, so no launch handoff was created.",
       },
     });
     expect(value(refused.authority, "served-action")).toBe(
@@ -1262,7 +1379,7 @@ describe("buildCreativeEvidenceWindowExactViewModel primary action tuple", () =>
       decision: decisionFixture(),
       canonical: canonicalFixture(),
     });
-    expect(model.primaryAction?.label).toBe("Refresh Creative");
+    expect(model.primaryAction?.label).toBe("Create replacement brief");
     expect(model.primaryAction?.onClick).toBeUndefined();
   });
 });
@@ -1289,7 +1406,10 @@ function servedOnlyDecision(): MetaOsAdDecision {
     riskTier: null,
     confidence: "low",
     confidenceScore: 0.12,
-    priority: { band: "low", rank: 41 } as unknown as MetaOsAdDecision["priority"],
+    priority: {
+      band: "low",
+      rank: 41,
+    } as unknown as MetaOsAdDecision["priority"],
     assessment: "Live Ad with no exact Ad-grain decision",
     whyNow:
       "Meta confirms this Ad is ACTIVE, but the exact Ad-grain decision snapshot is not available.",
@@ -1313,7 +1433,8 @@ function servedOnlyDecision(): MetaOsAdDecision {
       category: "system",
       owner: "system",
       label: "Produce exact Ad decision",
-      nextStep: "Complete the native Ad decision schema and producer lineage gate.",
+      nextStep:
+        "Complete the native Ad decision schema and producer lineage gate.",
     },
   });
 }
@@ -1326,7 +1447,8 @@ describe("a row served with no canonical decision envelope", () => {
     return rows?.find((row) => row.id === id)?.value;
   }
 
-  const ABSENT = "unavailable · no canonical decision envelope was served for this row";
+  const ABSENT =
+    "unavailable · no canonical decision envelope was served for this row";
 
   it("states plainly which half of the evidence it is holding", () => {
     const model = buildCreativeEvidenceWindowExactViewModel({
@@ -1504,7 +1626,9 @@ describe("a row served with no canonical decision envelope", () => {
       adSeriesState: "loading",
     });
     expect(model.readNotice?.tone).toBe("negative");
-    expect(model.readNotice?.text).toContain("meta creatives read failed");
+    expect(model.readNotice?.text).toBe(
+      "Some creative performance data could not be loaded. Missing figures are unavailable.",
+    );
     // The unread funnel cells say "unreadable" — not the em-dash a measured
     // absence prints, and not the envelope sentence either.
     expect(model.funnel?.[0]?.value).toBe("unreadable");
@@ -1525,24 +1649,29 @@ describe("a row served with no canonical decision envelope", () => {
     expect(auditValue(model.authority, "served-availability")).toBe(
       "Pending native evidence",
     );
-    expect(auditValue(model.authority, "served-confidence")).toBe("low · score 0.12");
-    expect(auditValue(model.authority, "served-priority")).toBe("low · rank 41");
+    expect(auditValue(model.authority, "served-confidence")).toBe(
+      "low · score 0.12",
+    );
+    expect(auditValue(model.authority, "served-priority")).toBe(
+      "low · rank 41",
+    );
     expect(auditValue(model.authority, "served-resolution")).toContain(
       "Produce exact Ad decision",
     );
-    expect(auditValue(model.authority, "served-resolution")).toContain("owner system");
+    expect(auditValue(model.authority, "served-resolution")).toContain(
+      "owner system",
+    );
     // The blocker label and the next step ride the verdict sub-line, which is
     // where this drawer keeps gate text.
     expect(model.verdictSub).toContain(
-      "Exact Ad-grain decision evidence is unavailable.",
+      "Decision evidence is still being prepared.",
     );
     expect(model.verdictSub).toContain(
-      "Next: Complete the native Ad decision schema and producer lineage gate.",
+      "Wait for the next completed ad-level decision.",
     );
-    // Both reasoning sentences, and the blocker CODE as a receipt.
+    expect(model.verdictSub).not.toContain("producer lineage");
     expect(model.reasons).toEqual([
-      "Meta confirms this Ad is ACTIVE, but the exact Ad-grain decision snapshot is not available.",
-      "Live Ad with no exact Ad-grain decision",
+      "This active ad is waiting for an ad-level decision.",
     ]);
     expect(auditValue(model.diagnostics, "blocker-codes")).toBe(
       "native_ad_decision_unavailable",
@@ -1565,12 +1694,19 @@ describe("a row served with no canonical decision envelope", () => {
     const model = buildCreativeEvidenceWindowExactViewModel({
       decision: decisionFixture({
         confidenceScore: 0,
-        priority: { band: "unrankable", rank: 0 } as unknown as MetaOsAdDecision["priority"],
+        priority: {
+          band: "unrankable",
+          rank: 0,
+        } as unknown as MetaOsAdDecision["priority"],
       }),
       canonical: null,
     });
-    expect(auditValue(model.authority, "served-confidence")).toBe("high · score 0.00");
-    expect(auditValue(model.authority, "served-priority")).toBe("unrankable · rank 0");
+    expect(auditValue(model.authority, "served-confidence")).toBe(
+      "high · score 0.00",
+    );
+    expect(auditValue(model.authority, "served-priority")).toBe(
+      "unrankable · rank 0",
+    );
   });
 });
 
@@ -1592,7 +1728,8 @@ describe("served fields that reached no surface", () => {
     return rows?.find((row) => row.id === id)?.value;
   }
 
-  const ABSENT = "unavailable · no canonical decision envelope was served for this row";
+  const ABSENT =
+    "unavailable · no canonical decision envelope was served for this row";
 
   /**
    * LAW: the machine-readable half of a served object is a receipt, not a
@@ -1641,18 +1778,19 @@ describe("served fields that reached no surface", () => {
    */
   it("falls back to the served first blocker's code when no envelope was served", () => {
     const withProvenance = servedOnlyDecision();
-    (withProvenance as unknown as Record<string, unknown>).authorityProvenance = {
-      availability: "available",
-      preAuthorityLabel: "cut",
-      postAuthorityRawLabel: "refresh",
-      publishedLabel: "refresh",
-      firstBlocker: {
-        code: "recent_recovery_unverifiable",
-        label: "Recent economic recovery cannot be ruled out",
-        explanation:
-          "The Cut verdict is held until a sufficiently sampled recent window confirms ROAS remains below break-even.",
-      },
-    };
+    (withProvenance as unknown as Record<string, unknown>).authorityProvenance =
+      {
+        availability: "available",
+        preAuthorityLabel: "cut",
+        postAuthorityRawLabel: "refresh",
+        publishedLabel: "refresh",
+        firstBlocker: {
+          code: "recent_recovery_unverifiable",
+          label: "Recent economic recovery cannot be ruled out",
+          explanation:
+            "The Cut verdict is held until a sufficiently sampled recent window confirms ROAS remains below break-even.",
+        },
+      };
 
     const servedOnly = buildCreativeEvidenceWindowExactViewModel({
       decision: withProvenance,
@@ -1721,11 +1859,13 @@ describe("served fields that reached no surface", () => {
     });
 
     // The joined provenance line keeps the label and the three label states.
-    expect(auditValue(model.authority, "served-authority-provenance")).toContain(
-      "first blocker Recent economic recovery cannot be ruled out",
-    );
+    expect(
+      auditValue(model.authority, "served-authority-provenance"),
+    ).toContain("first blocker Recent economic recovery cannot be ruled out");
     // The sentence is its own row, so a token list does not become a paragraph.
-    expect(auditValue(model.authority, "served-first-blocker-explanation")).toBe(
+    expect(
+      auditValue(model.authority, "served-first-blocker-explanation"),
+    ).toBe(
       "The Cut verdict is held until a sufficiently sampled recent window confirms ROAS remains below break-even.",
     );
 
@@ -1744,7 +1884,9 @@ describe("served fields that reached no surface", () => {
       canonical: canonicalFixture(),
     });
     expect(
-      passed.authority?.some((row) => row.id === "served-first-blocker-explanation"),
+      passed.authority?.some(
+        (row) => row.id === "served-first-blocker-explanation",
+      ),
     ).toBe(false);
   });
 
@@ -1813,7 +1955,10 @@ describe("served fields that reached no surface", () => {
       canonical: null,
     });
 
-    for (const row of [...(model.authority ?? []), ...(model.diagnostics ?? [])]) {
+    for (const row of [
+      ...(model.authority ?? []),
+      ...(model.diagnostics ?? []),
+    ]) {
       for (const value of Object.values(row)) {
         expect(typeof value).not.toBe("function");
       }
@@ -1838,7 +1983,8 @@ describe("a measured absence never renders as an unknown", () => {
     return rows?.find((row) => row.id === id)?.value;
   }
 
-  const ABSENT = "unavailable · no canonical decision envelope was served for this row";
+  const ABSENT =
+    "unavailable · no canonical decision envelope was served for this row";
 
   function withProvenance(
     decision: MetaOsAdDecision,
@@ -1914,7 +2060,9 @@ describe("a measured absence never renders as an unknown", () => {
       decision: servedOnlyDecision(),
       canonical: null,
     });
-    expect(auditValue(noProvenance.diagnostics, "authority-blocker")).toBe(ABSENT);
+    expect(auditValue(noProvenance.diagnostics, "authority-blocker")).toBe(
+      ABSENT,
+    );
 
     const historical = buildCreativeEvidenceWindowExactViewModel({
       decision: withProvenance(servedOnlyDecision(), {
@@ -1926,7 +2074,9 @@ describe("a measured absence never renders as an unknown", () => {
       }),
       canonical: null,
     });
-    expect(auditValue(historical.diagnostics, "authority-blocker")).toBe(ABSENT);
+    expect(auditValue(historical.diagnostics, "authority-blocker")).toBe(
+      ABSENT,
+    );
   });
 
   /**
@@ -1957,7 +2107,9 @@ describe("a measured absence never renders as an unknown", () => {
       canonical: null,
     });
     expect(auditValue(model.authority, "served-confidence")).toBe("low");
-    expect(auditValue(model.authority, "served-confidence")).not.toContain("score");
+    expect(auditValue(model.authority, "served-confidence")).not.toContain(
+      "score",
+    );
   });
 
   /**
@@ -1969,7 +2121,9 @@ describe("a measured absence never renders as an unknown", () => {
       decision: decisionFixture({ confidence: "low", confidenceScore: 0 }),
       canonical: null,
     });
-    expect(auditValue(model.authority, "served-confidence")).toBe("low · score 0.00");
+    expect(auditValue(model.authority, "served-confidence")).toBe(
+      "low · score 0.00",
+    );
   });
 
   /**
@@ -2048,7 +2202,10 @@ describe("a measured absence never renders as an unknown", () => {
       }),
       canonical: null,
     });
-    for (const row of [...(model.authority ?? []), ...(model.diagnostics ?? [])]) {
+    for (const row of [
+      ...(model.authority ?? []),
+      ...(model.diagnostics ?? []),
+    ]) {
       for (const value of Object.values(row)) {
         expect(typeof value).not.toBe("function");
       }

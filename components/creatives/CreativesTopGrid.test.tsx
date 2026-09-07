@@ -210,4 +210,32 @@ describe("CreativesTopGrid", () => {
     expect(badgeCount(html)).toBe(1);
     expect(html).toContain(">Refresh<");
   });
+
+  it("keeps provider IDs out of buyer-visible creative and placement labels", () => {
+    const creativeId = "120219876543210001";
+    const campaignId = "120219876543210002";
+    const adSetId = "120219876543210003";
+    const html = renderGrid({
+      rows: [
+        makeRow({
+          id: "grid-row-1",
+          creativeId,
+          name: `Creative ${creativeId}`,
+          campaignId,
+          campaignName: null,
+          adSetId,
+          adSetName: null,
+        }),
+      ],
+    });
+
+    expect(html).toContain("Unnamed creative");
+    expect(html).toContain("Unnamed campaign");
+    expect(html).toContain("Unnamed ad set");
+    expect(html).not.toContain("Campaign id:");
+    expect(html).not.toContain("Ad set id:");
+    expect(html).not.toContain(creativeId);
+    expect(html).not.toContain(campaignId);
+    expect(html).not.toContain(adSetId);
+  });
 });

@@ -199,7 +199,9 @@ describe("the flag is the outermost gate", () => {
 describe("posture refuses before anything is offered", () => {
   it("refuses a reviewer", () => {
     mount({ viewer: { isReviewer: true, demo: false, role: "admin" } });
-    expect(document.querySelector("[data-mutation-denied]")!.textContent).toMatch(/Reviewer/);
+    expect(document.querySelector("[data-mutation-denied]")!.textContent).toBe(
+      "Your access is read-only.",
+    );
     expect(document.querySelectorAll("[data-mutation-action]").length).toBe(0);
   });
 
@@ -215,8 +217,8 @@ describe("posture refuses before anything is offered", () => {
 
   it("refuses a held decision, whatever its label says", () => {
     mount({}, { held: true, heldReason: "No authorized action for this decision." });
-    expect(document.querySelector("[data-mutation-denied]")!.textContent).toMatch(
-      /No authorized action/,
+    expect(document.querySelector("[data-mutation-denied]")!.textContent).toBe(
+      "This decision has no action to apply.",
     );
     expect(document.querySelectorAll("[data-mutation-action]").length).toBe(0);
   });
@@ -226,8 +228,8 @@ describe("posture refuses before anything is offered", () => {
     // decision-bound key. Drawing a control here would be drawing one whose
     // only possible answer is `decision_not_actionable`.
     const { preflight } = mount({}, { decisionKey: null });
-    expect(document.querySelector("[data-mutation-denied]")!.textContent).toMatch(
-      /does not name a single campaign or ad set/,
+    expect(document.querySelector("[data-mutation-denied]")!.textContent).toBe(
+      "This decision does not point to one editable campaign or ad set.",
     );
     expect(document.querySelectorAll("[data-mutation-action]").length).toBe(0);
     expect(preflight).not.toHaveBeenCalled();
@@ -340,21 +342,24 @@ describe("the ordered state machine", () => {
     await user.click(document.querySelector('[data-mutation-action="pause"]') as HTMLElement);
 
     await waitFor(() =>
-      expect(document.querySelector('[data-mutation-step="changed"]')!.textContent).toMatch(
-        /already paused/,
-      ),
+      expect(
+        document.querySelector('[data-mutation-step="changed"]')!.textContent,
+      ).toBe("The item changed. Refresh the decision before acting."),
     );
+    expect(document.body.textContent).not.toContain("The ad is already paused.");
     expect(dispatch).not.toHaveBeenCalled();
   });
 
-  it("states the exact proven scope in the confirmation", async () => {
+  it("states the buyer-facing target and current status in the confirmation", async () => {
     mount();
     const user = userEvent.setup();
     const dialog = await reachConfirm(user);
-    const scope = within(dialog).getByText(/ad ad-1 in account act_1/);
-    expect(scope.textContent).toMatch(/Currently ACTIVE/);
-    // And says plainly that this was persisted state, not a live check.
-    expect(scope.textContent).toMatch(/Meta was not contacted/);
+    const scope = within(dialog).getByText(/Ad 1\. Current status: Active/);
+    expect(scope.textContent).toContain(
+      "The item will be checked again before anything is sent to Meta.",
+    );
+    expect(scope.textContent).not.toContain("ad-1");
+    expect(scope.textContent).not.toContain("act_1");
   });
 });
 
@@ -508,8 +513,10 @@ describe("terminal outcomes", () => {
     });
     // The provider may already have applied it; retrying could double it.
     expect(document.querySelector("[data-mutation-retry]")).toBeNull();
-    expect(document.querySelector("[data-mutation-retry-blocked]")!.textContent).toMatch(
-      /reconciliation/,
+    expect(
+      document.querySelector("[data-mutation-retry-blocked]")!.textContent,
+    ).toBe(
+      "Check History before trying again.",
     );
   });
 
@@ -522,7 +529,7 @@ describe("terminal outcomes", () => {
     await terminal({ outcome: "silent_failure", durable: true, reference: "a-1", detail: "?" });
     expect(
       document.querySelector('[data-mutation-outcome="silent_failure"]')!.textContent,
-    ).toMatch(/verification failed/i);
+    ).toContain("The result is unknown. Check History before acting again.");
   });
 });
 
@@ -673,8 +680,8 @@ describe("actions with operator choices collect and validate first", () => {
 
     // The route refuses activation outright, so no toggle is offered and the
     // constraint is stated instead.
-    expect(document.querySelector("[data-mutation-note]")!.textContent).toMatch(
-      /always created paused/,
+    expect(document.querySelector("[data-mutation-note]")!.textContent).toBe(
+      "The duplicate will be created paused.",
     );
     expect(document.querySelectorAll('input[type="checkbox"]').length).toBe(0);
 
@@ -749,10 +756,11 @@ describe("the target is re-checked at dispatch, not only before confirmation", (
     await user.click(within(dialog).getByRole("button", { name: "pause" }));
 
     await waitFor(() =>
-      expect(document.querySelector('[data-mutation-step="changed"]')!.textContent).toMatch(
-        /already paused/,
-      ),
+      expect(
+        document.querySelector('[data-mutation-step="changed"]')!.textContent,
+      ).toBe("The item changed. Refresh the decision before acting."),
     );
+    expect(document.body.textContent).not.toContain("The ad is already paused.");
     expect(dispatchSpy).not.toHaveBeenCalled();
   });
 

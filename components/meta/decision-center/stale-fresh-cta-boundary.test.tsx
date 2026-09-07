@@ -315,7 +315,7 @@ describe("stale/fresh mutation-CTA boundary — static presentation→adapter→
     expect(freshItem.action.scopeNote).toMatch(/live preflight/i);
   });
 
-  it("the rendered Decision Center shows the stale row's evidence with NO mutation CTA and the fresh row's supervised Cut", () => {
+  it("the rendered Decision Center separates the stale review from the fresh served Cut", () => {
     const viewModel = buildMetaDecisionCenterExactViewModel({
       workspace: {
         decisionReadModel: readModel([stale, fresh]),
@@ -386,16 +386,31 @@ describe("stale/fresh mutation-CTA boundary — static presentation→adapter→
     expect(actionHtml).toContain("120000000000000043");
     expect(actionHtml).not.toContain("120000000000000042");
 
-    // The stale row: review-only Refresh Decision; no enabled Cut control
-    // anywhere in its card.
+    // The stale row stays blocked, asks for refreshed data, and exposes no
+    // enabled Cut control anywhere in its card.
     const staleCard = blockedHtml.match(
-      /<[^>]*data-decision-id="stale-cut"[\s\S]*?(?=data-decision-id="|$)/,
-    )?.[0] ?? blockedHtml;
-    expect(staleCard).toContain("Refresh Decision");
+      /<article[^>]*data-meta-exact-creative-row="ad:120000000000000042"[\s\S]*?<\/article>/,
+    )?.[0] ?? "";
+    expect(staleCard).not.toBe("");
+    expect(staleCard).toContain('data-meta-exact-creative-state="Blocked"');
+    expect(staleCard).toContain(
+      'data-meta-exact-creative-served-action="Refresh data"',
+    );
+    expect(staleCard).toMatch(
+      /<button[^>]*disabled[^>]*>Review evidence<\//,
+    );
     expect(staleCard).not.toMatch(/<button[^>]*(?<!disabled[^>]*)>\s*Cut\s*</);
 
-    // The fresh row: the supervised Cut with explicit live-preflight copy.
-    expect(actionHtml).toContain("Cut");
-    expect(actionHtml).toMatch(/live preflight/i);
+    // The fresh row stays in Act, presents the served cut as a buyer-facing
+    // spend review, and explains its preflight. This direct adapter fixture
+    // supplies no provider callback, so it must not invent an enabled control.
+    expect(actionHtml).toContain('data-meta-exact-creative-state="Act"');
+    expect(actionHtml).toContain(
+      'data-meta-exact-creative-served-action="Review spend reduction"',
+    );
+    expect(actionHtml).toContain(
+      "Runs a fresh safety check before pausing this ad.",
+    );
+    expect(actionHtml).toMatch(/<button[^>]*disabled[^>]*>Review evidence<\//);
   });
 });

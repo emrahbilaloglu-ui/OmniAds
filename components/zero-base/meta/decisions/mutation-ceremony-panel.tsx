@@ -50,7 +50,11 @@ export interface MutationCeremonySeed {
   businessId: string;
   /** Server-read. The panel is not rendered at all when this is false. */
   enabled: true;
-  viewer: { isReviewer: boolean; demo: boolean; role: "admin" | "collaborator" | "guest" | null };
+  viewer: {
+    isReviewer: boolean;
+    demo: boolean;
+    role: "admin" | "collaborator" | "guest" | null;
+  };
   /** Injected so tests drive the boundary without a network. */
   preflight: (input: {
     businessId: string;
@@ -71,7 +75,12 @@ export interface MutationCeremonySeed {
 export type PreflightAnswer =
   | {
       ok: true;
-      target: { grain: MutationGrain; entityId: string; providerAccountId: string; status: string | null };
+      target: {
+        grain: MutationGrain;
+        entityId: string;
+        providerAccountId: string;
+        status: string | null;
+      };
       verdict: "ready" | "drifted" | "blocked" | "ambiguous" | "not_found";
       detail: string;
       checkedAt: string;
@@ -109,14 +118,24 @@ export type Step =
       kind: "collect";
       action: MutationAction;
       dispatch: DispatchDescriptor;
-      target: { grain: MutationGrain; entityId: string; providerAccountId: string; status: string | null };
+      target: {
+        grain: MutationGrain;
+        entityId: string;
+        providerAccountId: string;
+        status: string | null;
+      };
       checkedAt: string;
     }
   | {
       kind: "confirm";
       action: MutationAction;
       dispatch: DispatchDescriptor;
-      target: { grain: MutationGrain; entityId: string; providerAccountId: string; status: string | null };
+      target: {
+        grain: MutationGrain;
+        entityId: string;
+        providerAccountId: string;
+        status: string | null;
+      };
       checkedAt: string;
     }
   | { kind: "dispatching"; action: MutationAction }
@@ -130,7 +149,12 @@ export type Step =
  * offered "duplicate" at a grain `endpointFor` has no path for and the
  * route answers `unsupported_action`.
  */
-const DEFAULT_OFFERED_ACTIONS: readonly MutationAction[] = ["pause", "resume", "bid", "duplicate"];
+const DEFAULT_OFFERED_ACTIONS: readonly MutationAction[] = [
+  "pause",
+  "resume",
+  "bid",
+  "duplicate",
+];
 
 /** Preflight older than this must be re-run before anything is dispatched. */
 const MAX_AGE_MS = 15 * 60 * 1000;
@@ -146,6 +170,40 @@ const TYPED_PHRASE: Record<MutationAction, string> = {
   // Same: a launch is executed through its intent, not through this panel.
   launch: "CREATE PAUSED AD",
 };
+
+const ACTION_LABEL: Record<MutationAction, string> = {
+  pause: "Pause",
+  resume: "Resume",
+  bid: "Change bid",
+  duplicate: "Duplicate",
+  budget: "Change budget",
+  launch: "Create ad",
+};
+
+function refusalCopy(code: string): string {
+  if (code.includes("account")) {
+    return "Select an available Meta account and try again.";
+  }
+  if (code.includes("currency")) {
+    return "The account currency is unavailable, so the bid cannot be changed.";
+  }
+  if (code.includes("identity") || code.includes("lineage")) {
+    return "This item cannot be matched to an editable Meta ad.";
+  }
+  return "This action is unavailable for the current decision. Refresh and try again.";
+}
+
+function readableTargetStatus(status: string | null): string {
+  if (status === "ACTIVE") return "Active";
+  if (status === "PAUSED") return "Paused";
+  return "Unavailable";
+}
+
+function safeDispatchNote(action: MutationAction): string | null {
+  return action === "duplicate"
+    ? "The duplicate will be created paused."
+    : null;
+}
 
 export function MutationCeremonyPanel({
   row,
@@ -182,13 +240,13 @@ export function MutationCeremonyPanel({
   const decisionKey = row.decisionKey;
 
   const denial = seed.viewer.isReviewer
-    ? "Reviewer sessions are read-only and never reach a provider."
+    ? "Your access is read-only."
     : seed.viewer.demo
-      ? "The demo business has no Meta write authority."
+      ? "Changes are unavailable in demo mode."
       : seed.viewer.role === "guest" || seed.viewer.role === null
-        ? "Your role on this business cannot make provider changes."
+        ? "You do not have permission to apply changes."
         : row.held
-          ? (row.heldReason ?? "This decision offers no authorized action.")
+          ? "This decision has no action to apply."
           : /*
              * A row with no grain identity has no decision-bound key, so every
              * verb on it would reach `parseDecisionKey` and come back
@@ -197,7 +255,7 @@ export function MutationCeremonyPanel({
              * contract `buildDispatchDescriptor` applies server-side.
              */
             row.decisionKey === null
-            ? "This decision does not name a single campaign or ad set, so there is nothing to act on here."
+            ? "This decision does not point to one editable campaign or ad set."
             : null;
 
   const startPreflight = useCallback(
@@ -206,7 +264,9 @@ export function MutationCeremonyPanel({
       // triggers; kept so no future caller can drive this without a key.
       if (decisionKey === null) return;
       setStep({ kind: "preflighting", action });
-      setAnnouncement(`Checking whether ${action} is still safe…`);
+      setAnnouncement(
+        `Checking whether ${ACTION_LABEL[action].toLowerCase()} is available…`,
+      );
       const answer = await seed.preflight({
         businessId: seed.businessId,
         decisionKey,
@@ -214,21 +274,32 @@ export function MutationCeremonyPanel({
       });
 
       if (!answer.ok) {
-        setStep({ kind: "refused", action, code: answer.code, message: answer.message });
-        setAnnouncement(`${action} was refused. ${answer.message}`);
+        setStep({
+          kind: "refused",
+          action,
+          code: answer.code,
+          message: answer.message,
+        });
+        setAnnouncement(refusalCopy(answer.code));
         return;
       }
 
       const ageMs = now().getTime() - new Date(answer.checkedAt).getTime();
       if (!Number.isFinite(ageMs) || ageMs > MAX_AGE_MS) {
         // An aged check describes a world that may have moved on.
-        setStep({ kind: "stale", action, ageMs: Number.isFinite(ageMs) ? ageMs : 0 });
+        setStep({
+          kind: "stale",
+          action,
+          ageMs: Number.isFinite(ageMs) ? ageMs : 0,
+        });
         setAnnouncement("That check is too old to act on. Run it again.");
         return;
       }
       if (answer.verdict !== "ready") {
         setStep({ kind: "changed", action, detail: answer.detail });
-        setAnnouncement(`${action} was not offered: ${answer.detail}`);
+        setAnnouncement(
+          "The item changed. Refresh the decision before acting.",
+        );
         return;
       }
 
@@ -242,7 +313,7 @@ export function MutationCeremonyPanel({
           target: answer.target,
           checkedAt: answer.checkedAt,
         });
-        setAnnouncement(`${action} needs a few details before it can be confirmed.`);
+        setAnnouncement(`${ACTION_LABEL[action]} needs a few details.`);
         return;
       }
 
@@ -253,7 +324,9 @@ export function MutationCeremonyPanel({
         target: answer.target,
         checkedAt: answer.checkedAt,
       });
-      setAnnouncement(`Ready to ${action}. Confirm to continue.`);
+      setAnnouncement(
+        `Ready to ${ACTION_LABEL[action].toLowerCase()}. Confirm to continue.`,
+      );
     },
     [decisionKey, now, seed],
   );
@@ -268,7 +341,9 @@ export function MutationCeremonyPanel({
         return;
       }
       setStep({ ...collecting, kind: "confirm" });
-      setAnnouncement(`Ready to ${collecting.action}. Confirm to continue.`);
+      setAnnouncement(
+        `Ready to ${ACTION_LABEL[collecting.action].toLowerCase()}. Confirm to continue.`,
+      );
     },
     [values],
   );
@@ -297,16 +372,24 @@ export function MutationCeremonyPanel({
           code: fresh.code,
           message: fresh.message,
         });
-        setAnnouncement(`${confirmed.action} was refused at dispatch. ${fresh.message}`);
+        setAnnouncement(refusalCopy(fresh.code));
         return;
       }
       if (fresh.verdict !== "ready") {
-        setStep({ kind: "changed", action: confirmed.action, detail: fresh.detail });
-        setAnnouncement(`${confirmed.action} was not sent: ${fresh.detail}`);
+        setStep({
+          kind: "changed",
+          action: confirmed.action,
+          detail: fresh.detail,
+        });
+        setAnnouncement(
+          "The item changed. Refresh the decision before acting.",
+        );
         return;
       }
 
-      setAnnouncement(`Sending ${confirmed.action} to Meta…`);
+      setAnnouncement(
+        `Sending ${ACTION_LABEL[confirmed.action].toLowerCase()} to Meta…`,
+      );
       const answer = await seed.dispatch({
         // The path and body the server just issued. The browser adds only the
         // operator choices the descriptor asked for, already validated.
@@ -317,7 +400,9 @@ export function MutationCeremonyPanel({
 
       if (answer.outcome !== "failed") attemptId.current = null;
       setStep({ kind: "terminal", action: confirmed.action, answer });
-      setAnnouncement(`${TERMINAL_COPY[answer.outcome].title}. ${TERMINAL_COPY[answer.outcome].body}`);
+      setAnnouncement(
+        `${TERMINAL_COPY[answer.outcome].title}. ${TERMINAL_COPY[answer.outcome].body}`,
+      );
     },
     [decisionKey, seed, values],
   );
@@ -334,23 +419,40 @@ export function MutationCeremonyPanel({
         border: "1px solid var(--ledger-border-control)",
       }}
     >
-      <h3 style={{ margin: 0, fontSize: 13, fontWeight: 600 }}>{t.manualWrite}</h3>
+      <h3 style={{ margin: 0, fontSize: 13, fontWeight: 600 }}>
+        {t.manualWrite}
+      </h3>
 
       <p
         role="status"
         aria-live="polite"
         data-mutation-live=""
-        style={{ margin: 0, fontSize: 12, color: "var(--ledger-ink-secondary)", minHeight: 16 }}
+        style={{
+          margin: 0,
+          fontSize: 12,
+          color: "var(--ledger-ink-secondary)",
+          minHeight: 16,
+        }}
       >
         {announcement}
       </p>
 
       {denial ? (
-        <p data-mutation-denied="" style={{ margin: 0, fontSize: 12, color: "var(--ledger-ink-secondary)" }}>
+        <p
+          data-mutation-denied=""
+          style={{
+            margin: 0,
+            fontSize: 12,
+            color: "var(--ledger-ink-secondary)",
+          }}
+        >
           {denial}
         </p>
       ) : (
-        <div data-mutation-actions="" style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+        <div
+          data-mutation-actions=""
+          style={{ display: "flex", flexWrap: "wrap", gap: 6 }}
+        >
           {offeredActions.map((action) => (
             <Button
               key={action}
@@ -380,8 +482,11 @@ export function MutationCeremonyPanel({
       )}
 
       {step.kind === "preflighting" ? (
-        <p data-mutation-step="preflighting" style={{ margin: 0, fontSize: 12 }}>
-          Checking persisted provider state…
+        <p
+          data-mutation-step="preflighting"
+          style={{ margin: 0, fontSize: 12 }}
+        >
+          Checking current status…
         </p>
       ) : null}
 
@@ -389,19 +494,33 @@ export function MutationCeremonyPanel({
         <p
           data-mutation-step="refused"
           data-mutation-refusal={step.code}
-          style={{ margin: 0, fontSize: 12, color: "var(--ledger-semantic-warn)" }}
+          style={{
+            margin: 0,
+            fontSize: 12,
+            color: "var(--ledger-semantic-warn)",
+          }}
         >
-          {step.message}
+          {refusalCopy(step.code)}
         </p>
       ) : null}
 
       {step.kind === "collect" ? (
-        <div data-mutation-step="collect" data-el="before-after" style={{ display: "grid", gap: 10 }}>
+        <div
+          data-mutation-step="collect"
+          data-el="before-after"
+          style={{ display: "grid", gap: 10 }}
+        >
           {/* How old the check is, always — an operator deciding whether to act
               needs it before the check goes stale, not only after. */}
           <div data-el="preflight-age" style={{ display: "grid", gap: 6 }}>
-            <p style={{ margin: 0, fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
-              Checked at {step.checkedAt} against persisted state. Meta was not contacted.
+            <p
+              style={{
+                margin: 0,
+                fontSize: 12,
+                color: "var(--ledger-ink-tertiary)",
+              }}
+            >
+              Status checked. It will be checked again before sending to Meta.
             </p>
             <div>
               <Button
@@ -414,9 +533,16 @@ export function MutationCeremonyPanel({
               </Button>
             </div>
           </div>
-          {step.dispatch.note ? (
-            <p data-mutation-note="" style={{ margin: 0, fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
-              {step.dispatch.note}
+          {safeDispatchNote(step.action) ? (
+            <p
+              data-mutation-note=""
+              style={{
+                margin: 0,
+                fontSize: 12,
+                color: "var(--ledger-ink-tertiary)",
+              }}
+            >
+              {safeDispatchNote(step.action)}
             </p>
           ) : null}
           {step.dispatch.operatorFields.map((field) => (
@@ -431,7 +557,10 @@ export function MutationCeremonyPanel({
               inputMode={field.kind === "minor_amount" ? "numeric" : undefined}
               value={values[field.name] ?? ""}
               onChange={(event) =>
-                setValues((current) => ({ ...current, [field.name]: event.target.value }))
+                setValues((current) => ({
+                  ...current,
+                  [field.name]: event.target.value,
+                }))
               }
               hint={
                 field.kind === "minor_amount"
@@ -441,9 +570,15 @@ export function MutationCeremonyPanel({
             />
           ))}
           {problems.length > 0 ? (
-            <ul data-mutation-problems="" style={{ margin: 0, paddingLeft: 16 }}>
+            <ul
+              data-mutation-problems=""
+              style={{ margin: 0, paddingLeft: 16 }}
+            >
               {problems.map((problem) => (
-                <li key={problem} style={{ fontSize: 12, color: "var(--ledger-semantic-warn)" }}>
+                <li
+                  key={problem}
+                  style={{ fontSize: 12, color: "var(--ledger-semantic-warn)" }}
+                >
                   {problem}
                 </li>
               ))}
@@ -456,7 +591,7 @@ export function MutationCeremonyPanel({
               data-ctl="gated:META-WRITE-02 continue"
               onClick={() => review(step)}
             >
-              Review {step.action}
+              Review {ACTION_LABEL[step.action].toLowerCase()}
             </Button>
             <Button
               variant="quiet"
@@ -477,7 +612,11 @@ export function MutationCeremonyPanel({
       ) : null}
 
       {step.kind === "stale" ? (
-        <div data-mutation-step="stale" data-el="preflight-age" style={{ fontSize: 12 }}>
+        <div
+          data-mutation-step="stale"
+          data-el="preflight-age"
+          style={{ fontSize: 12 }}
+        >
           <p style={{ margin: 0, color: "var(--ledger-semantic-warn)" }}>
             {t.checkOlderThan15}
           </p>
@@ -493,8 +632,15 @@ export function MutationCeremonyPanel({
       ) : null}
 
       {step.kind === "changed" ? (
-        <p data-mutation-step="changed" style={{ margin: 0, fontSize: 12, color: "var(--ledger-semantic-warn)" }}>
-          {step.detail}
+        <p
+          data-mutation-step="changed"
+          style={{
+            margin: 0,
+            fontSize: 12,
+            color: "var(--ledger-semantic-warn)",
+          }}
+        >
+          The item changed. Refresh the decision before acting.
         </p>
       ) : null}
 
@@ -533,16 +679,22 @@ export function MutationCeremonyPanel({
             if (action) triggerRefs.current[action]?.focus();
           }
         }}
-        title={step.kind === "confirm" ? `${step.action} this ${step.target.grain}?` : "Confirm"}
+        title={
+          step.kind === "confirm"
+            ? `Confirm ${ACTION_LABEL[step.action].toLowerCase()}`
+            : "Confirm"
+        }
         description={
           step.kind === "confirm" ? (
             <span data-mutation-confirm-scope="" data-el="confirm-restate">
-              {step.target.grain} {step.target.entityId} in account {step.target.providerAccountId}.
-              Currently {step.target.status ?? "unknown"}. Checked at {step.checkedAt} against
-              persisted state — Meta was not contacted. The target is re-checked once more
-              before anything is sent.
+              {row.title}. Current status:{" "}
+              {readableTargetStatus(step.target.status)}. The item will be
+              checked again before anything is sent to Meta.
               {step.dispatch.operatorFields.length > 0 ? (
-                <span data-mutation-confirm-values="" style={{ display: "block", marginTop: 4 }}>
+                <span
+                  data-mutation-confirm-values=""
+                  style={{ display: "block", marginTop: 4 }}
+                >
                   {step.dispatch.operatorFields
                     .filter((field) => (values[field.name] ?? "").trim())
                     .map((field) => `${field.label}: ${values[field.name]}`)
@@ -558,7 +710,8 @@ export function MutationCeremonyPanel({
         // Resuming spend and changing a bid take a typed phrase; pausing and
         // duplicating are acknowledged.
         confirmPhrase={
-          step.kind === "confirm" && confirmationFor(step.action) === "typed_phrase"
+          step.kind === "confirm" &&
+          confirmationFor(step.action) === "typed_phrase"
             ? TYPED_PHRASE[step.action]
             : undefined
         }
@@ -595,15 +748,16 @@ function TerminalPanel({
       data-mutation-outcome={outcome.outcome}
       // Ambiguous is the reconciliation state: recorded, but not settled either
       // way, and it must not read as either success or failure.
-      data-el={outcome.outcome === "provider_outcome_ambiguous" ? "reconciliation-state" : undefined}
+      data-el={
+        outcome.outcome === "provider_outcome_ambiguous"
+          ? "reconciliation-state"
+          : undefined
+      }
       style={{ display: "grid", gap: 6, fontSize: 12 }}
     >
       <strong style={{ fontWeight: 600 }}>{copy.title}</strong>
       <span>{copy.body}</span>
       <div data-el="receipt" style={{ display: "grid", gap: 6 }}>
-        <span data-mutation-detail="" style={{ color: "var(--ledger-ink-tertiary)" }}>
-          {outcome.detail}
-        </span>
         {receipt ? (
           <div>
             <Button
@@ -611,7 +765,9 @@ function TerminalPanel({
               data-mutation-receipt=""
               data-ctl="live:META-WRITE-08 copy-receipt"
               onClick={() => {
-                void navigator.clipboard?.writeText?.(outcome.reference ?? "").catch(() => {});
+                void navigator.clipboard
+                  ?.writeText?.(outcome.reference ?? "")
+                  .catch(() => {});
                 onCopy();
               }}
             >
@@ -622,7 +778,12 @@ function TerminalPanel({
       </div>
 
       <div>
-        <Button variant="secondary" data-mutation-done="" data-ctl="live:done" onClick={onDone}>
+        <Button
+          variant="secondary"
+          data-mutation-done=""
+          data-ctl="live:done"
+          onClick={onDone}
+        >
           {t.done}
         </Button>
       </div>
@@ -630,22 +791,28 @@ function TerminalPanel({
       {receipt ? null : (
         // Nothing is settled, and a receipt would invite reading "we do not
         // know" as "it worked".
-        <span data-mutation-receipt-withheld="" style={{ color: "var(--ledger-ink-tertiary)" }}>
-          No receipt: this attempt is not durably settled.
+        <span
+          data-mutation-receipt-withheld=""
+          style={{ color: "var(--ledger-ink-tertiary)" }}
+        >
+          No confirmation record is available for this attempt.
         </span>
       )}
 
       {onRetry ? (
         <div>
           <Button variant="secondary" data-mutation-retry="" onClick={onRetry}>
-            Try {action} again
+            Try {ACTION_LABEL[action].toLowerCase()} again
           </Button>
         </div>
       ) : (
-        <span data-mutation-retry-blocked="" style={{ color: "var(--ledger-ink-tertiary)" }}>
+        <span
+          data-mutation-retry-blocked=""
+          style={{ color: "var(--ledger-ink-tertiary)" }}
+        >
           {outcome.outcome === "verified"
-            ? "Applied — nothing to retry."
-            : "Retrying is not offered until reconciliation settles this attempt."}
+            ? "The change is complete."
+            : "Check History before trying again."}
         </span>
       )}
     </div>

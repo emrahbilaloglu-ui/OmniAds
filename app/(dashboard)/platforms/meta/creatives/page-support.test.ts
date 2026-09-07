@@ -370,6 +370,25 @@ describe("mapApiRowToUiRow", () => {
     expect(row.frequency).toBe(2.4);
   });
 
+  it("keeps creative IDs internal when the provider supplies no buyer-facing name", () => {
+    const creativeId = "120219876543210021";
+
+    for (const providerName of [null, creativeId, `Creative ${creativeId}`]) {
+      const row = mapApiRowToUiRow(
+        buildApiRow({
+          id: "ad-row-21",
+          creative_id: creativeId,
+          name: providerName as never,
+          copy_text: null,
+        }),
+      );
+
+      expect(row.name).toBe("Unnamed creative");
+      expect(row.creativeId).toBe(creativeId);
+      expect(row.id).toBe("ad-row-21");
+    }
+  });
+
   it("fails closed when metric or usage evidence is missing instead of presenting fabricated zeroes", () => {
     const row = mapApiRowToUiRow(
       buildApiRow({

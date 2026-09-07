@@ -6,15 +6,11 @@ import styles from "./CopyDetailDrawerExact.module.css";
 
 const EM_DASH = "—";
 
-export type CopyDetailDrawerExactDisplayValue = string | number | null | undefined;
+export type CopyDetailDrawerExactDisplayValue =
+  string | number | null | undefined;
 
 export type CopyDetailDrawerExactTone =
-  | "positive"
-  | "negative"
-  | "warning"
-  | "info"
-  | "automation"
-  | "neutral";
+  "positive" | "negative" | "warning" | "info" | "automation" | "neutral";
 
 export interface CopyDetailDrawerExactStat {
   id: string;
@@ -38,14 +34,10 @@ export interface CopyDetailDrawerExactViewModel {
   text?: CopyDetailDrawerExactDisplayValue;
   angle?: CopyDetailDrawerExactDisplayValue;
   angleTone?: CopyDetailDrawerExactTone;
-  edgeTone?: CopyDetailDrawerExactTone;
-  read?: CopyDetailDrawerExactDisplayValue;
   stats?: readonly CopyDetailDrawerExactStat[];
   alternatesNote?: CopyDetailDrawerExactDisplayValue;
   alternates?: readonly CopyDetailDrawerExactAlternate[];
   footnote?: CopyDetailDrawerExactDisplayValue;
-  draftAllLabel?: CopyDetailDrawerExactDisplayValue;
-  draftAllHref?: string | null;
 }
 
 export interface CopyDetailDrawerExactProps {
@@ -77,7 +69,8 @@ const TONE_CLASS: Record<CopyDetailDrawerExactTone, string> = {
 };
 
 function display(value: CopyDetailDrawerExactDisplayValue): string {
-  if (typeof value === "number") return Number.isFinite(value) ? String(value) : EM_DASH;
+  if (typeof value === "number")
+    return Number.isFinite(value) ? String(value) : EM_DASH;
   if (typeof value !== "string") return EM_DASH;
   return value.trim() || EM_DASH;
 }
@@ -86,7 +79,10 @@ function toneClass(tone: CopyDetailDrawerExactTone | null | undefined): string {
   return TONE_CLASS[tone ?? "neutral"];
 }
 
-function slots<T>(values: readonly T[] | null | undefined, count: number): Array<T | undefined> {
+function slots<T>(
+  values: readonly T[] | null | undefined,
+  count: number,
+): Array<T | undefined> {
   return Array.from({ length: count }, (_, index) => values?.[index]);
 }
 
@@ -104,7 +100,8 @@ export function CopyDetailDrawerExact({
 
   useEffect(() => {
     const previousFocus =
-      typeof document !== "undefined" && document.activeElement instanceof HTMLElement
+      typeof document !== "undefined" &&
+      document.activeElement instanceof HTMLElement
         ? document.activeElement
         : null;
     const onKeyDown = (event: KeyboardEvent) => {
@@ -138,7 +135,9 @@ export function CopyDetailDrawerExact({
       >
         <div className={styles.header}>
           <div className={styles.headerIdentity}>
-            <p className={styles.headerEyebrow}>Copy detail · {display(viewModel.kind)}</p>
+            <p className={styles.headerEyebrow}>
+              Copy detail · {display(viewModel.kind)}
+            </p>
             <p className={styles.headerTitle} id="copy-detail-title">
               “{text}”
             </p>
@@ -158,13 +157,18 @@ export function CopyDetailDrawerExact({
           <div className={styles.lineCard}>
             <div className={styles.lineHead}>
               <p className={styles.lineText}>“{text}”</p>
-              <span className={`${styles.anglePill} ${toneClass(viewModel.angleTone)}`}>
+              <span
+                className={`${styles.anglePill} ${toneClass(viewModel.angleTone)}`}
+              >
                 {display(viewModel.angle)}
               </span>
             </div>
             <div className={styles.statGrid}>
               {stats.map((stat, index) => (
-                <div className={styles.statTile} key={stat?.id ?? `stat-${index}`}>
+                <div
+                  className={styles.statTile}
+                  key={stat?.id ?? `stat-${index}`}
+                >
                   <p className={styles.statLabel}>{display(stat?.label)}</p>
                   <p className={`${styles.statValue} ${toneClass(stat?.tone)}`}>
                     {display(stat?.value)}
@@ -173,11 +177,6 @@ export function CopyDetailDrawerExact({
                 </div>
               ))}
             </div>
-          </div>
-
-          <div className={`${styles.readCard} ${toneClass(viewModel.edgeTone)}`}>
-            <p className={styles.cardEyebrow}>Read</p>
-            <p className={styles.readText}>{display(viewModel.read)}</p>
           </div>
 
           <div className={styles.alternatesCard}>
@@ -189,7 +188,9 @@ export function CopyDetailDrawerExact({
               {alternates.length === 0 ? (
                 <div className={styles.alternateRow} data-copy-alternate="none">
                   <div className={styles.alternateHead}>
-                    <span className={`${styles.alternateAngle} ${styles.toneNeutral}`}>
+                    <span
+                      className={`${styles.alternateAngle} ${styles.toneNeutral}`}
+                    >
                       {EM_DASH}
                     </span>
                   </div>
@@ -210,30 +211,33 @@ export function CopyDetailDrawerExact({
                         {display(alternate.angle)}
                       </span>
                       {alternate.draftHref ? (
-                        <a className={styles.draftButton} href={alternate.draftHref}>
+                        <a
+                          className={styles.draftButton}
+                          href={alternate.draftHref}
+                        >
                           Draft →
                         </a>
-                      ) : (
+                      ) : onDraftAlternate && alternate.text ? (
                         // Same element and same class in both states; only
                         // `disabled` and the handler differ. Enabled exactly
                         // when a host can actually prepare a draft for this
                         // line — never as a link to a generic Launchpad URL.
                         <button
                           className={styles.draftButton}
-                          disabled={!onDraftAlternate || draftPending || !alternate.text}
-                          onClick={
-                            onDraftAlternate
-                              ? () => onDraftAlternate(alternate)
-                              : undefined
-                          }
+                          disabled={draftPending}
+                          onClick={() => onDraftAlternate(alternate)}
                           type="button"
                         >
                           Draft →
                         </button>
-                      )}
+                      ) : null}
                     </div>
-                    <p className={styles.alternateText}>“{display(alternate.text)}”</p>
-                    <p className={styles.alternateWhy}>{display(alternate.why)}</p>
+                    <p className={styles.alternateText}>
+                      “{display(alternate.text)}”
+                    </p>
+                    <p className={styles.alternateWhy}>
+                      {display(alternate.why)}
+                    </p>
                   </div>
                 ))
               )}
@@ -244,16 +248,11 @@ export function CopyDetailDrawerExact({
         </div>
 
         <div className={styles.footer}>
-          {viewModel.draftAllHref ? (
-            <a className={styles.primaryButton} href={viewModel.draftAllHref}>
-              {display(viewModel.draftAllLabel)}
-            </a>
-          ) : (
-            <button className={styles.primaryButton} disabled type="button">
-              {display(viewModel.draftAllLabel)}
-            </button>
-          )}
-          <button className={styles.closeButton} onClick={onClose} type="button">
+          <button
+            className={styles.closeButton}
+            onClick={onClose}
+            type="button"
+          >
             Close
           </button>
         </div>

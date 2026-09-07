@@ -23,7 +23,10 @@ import type { WidthBucket } from "@/lib/zero-base/instrumentation-schema";
 
 export type MutationGrain = "campaign" | "adset" | "ad";
 export type { MutationAction } from "@/lib/zero-base/meta/dispatch-contract";
-import { endpointFor, type MutationAction } from "@/lib/zero-base/meta/dispatch-contract";
+import {
+  endpointFor,
+  type MutationAction,
+} from "@/lib/zero-base/meta/dispatch-contract";
 
 /**
  * Endpoints and their request contracts live in `dispatch-contract.ts`.
@@ -65,7 +68,9 @@ export const MUTATION_UI_FLAG = "ZERO_BASE_MUTATION_UI_ENABLED";
  * This decides what the product OFFERS. What a viewer may actually do is
  * decided per business by `resolveMetaWriteCapability` on the server.
  */
-export function isMutationUiEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+export function isMutationUiEnabled(
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
   if (env[MUTATION_UI_FLAG]?.trim() === "true") return true;
   return readMetaReleaseGates(env).automationLiveWrites;
 }
@@ -77,7 +82,10 @@ export function isMutationUiEnabled(env: NodeJS.ProcessEnv = process.env): boole
  * server now issues a concrete path inside the dispatch descriptor, so the
  * browser never assembles one.
  */
-export function resolveEndpointPath(endpoint: string, provenEntityId: string): string {
+export function resolveEndpointPath(
+  endpoint: string,
+  provenEntityId: string,
+): string {
   return endpoint.replace(/\[[^\]]+\]/, encodeURIComponent(provenEntityId));
 }
 
@@ -162,7 +170,13 @@ export interface CeremonyState {
 }
 
 function blocked(step: CeremonyStep, blocker: CeremonyBlocker): CeremonyState {
-  return { step, blocker, confirmation: "none", endpoint: null, preflightAgeMs: null };
+  return {
+    step,
+    blocker,
+    confirmation: "none",
+    endpoint: null,
+    preflightAgeMs: null,
+  };
 }
 
 /**
@@ -247,7 +261,13 @@ export function resolveCeremony(input: CeremonyInput): CeremonyState {
 
   // 4 · Preflight must have run and succeeded.
   if (!input.preflight.ok || !input.preflight.ranAt) {
-    return { step: "preflight", blocker: null, confirmation: "none", endpoint: null, preflightAgeMs: null };
+    return {
+      step: "preflight",
+      blocker: null,
+      confirmation: "none",
+      endpoint: null,
+      preflightAgeMs: null,
+    };
   }
 
   if (input.preflight.held) {
@@ -281,7 +301,8 @@ export function resolveCeremony(input: CeremonyInput): CeremonyState {
   if (businessMismatch || accountMismatch) {
     return blocked("unavailable", {
       code: "target_mismatch",
-      message: "The proven target does not match the account you are working in.",
+      message:
+        "The proven target does not match the account you are working in.",
     });
   }
 
@@ -301,7 +322,13 @@ export function resolveCeremony(input: CeremonyInput): CeremonyState {
   // 7 · Live state that no longer matches the decision is re-reviewed, not
   //     confirmed away.
   if (input.preflight.changed) {
-    return { step: "changed", blocker: null, confirmation: "none", endpoint: null, preflightAgeMs: ageMs };
+    return {
+      step: "changed",
+      blocker: null,
+      confirmation: "none",
+      endpoint: null,
+      preflightAgeMs: ageMs,
+    };
   }
 
   return {
@@ -320,7 +347,10 @@ export function resolveCeremony(input: CeremonyInput): CeremonyState {
  * copy, and offering one would invite an operator to treat "we do not know" as
  * "it worked".
  */
-export function receiptAvailable(outcome: TerminalOutcome, durable: boolean): boolean {
+export function receiptAvailable(
+  outcome: TerminalOutcome,
+  durable: boolean,
+): boolean {
   if (!durable) return false;
   return (
     outcome === "verified" ||
@@ -341,10 +371,13 @@ export function retryAllowed(outcome: TerminalOutcome): boolean {
   return outcome === "failed" || outcome === "dry_run";
 }
 
-export const TERMINAL_COPY: Record<TerminalOutcome, { title: string; body: string }> = {
+export const TERMINAL_COPY: Record<
+  TerminalOutcome,
+  { title: string; body: string }
+> = {
   verified: {
     title: "Applied and verified",
-    body: "Meta confirmed the change and we re-read it back.",
+    body: "The change was confirmed in Meta.",
   },
   dry_run: {
     title: "Rehearsed, not applied",
@@ -357,16 +390,12 @@ export const TERMINAL_COPY: Record<TerminalOutcome, { title: string; body: strin
     body: "Meta refused the change. Nothing was altered, so it is safe to try again.",
   },
   silent_failure: {
-    title: "Reported success, verification failed",
-    body:
-      "Meta accepted the request but the re-read did not confirm it. Treat the outcome as unknown " +
-      "and reconcile before acting again.",
+    title: "Change needs review",
+    body: "The result is unknown. Check History before acting again.",
   },
   provider_outcome_ambiguous: {
     title: "Outcome unknown",
-    body:
-      "The request may or may not have been applied. Do not retry — reconciliation will settle it, " +
-      "and retrying could apply the change twice.",
+    body: "The change may have been applied. Do not retry. Check History first.",
   },
 };
 
@@ -390,7 +419,8 @@ export function stripClientExpectations(body: Record<string, unknown>): {
   const cleaned = { ...body };
   const rejected: string[] = [];
   for (const field of CLIENT_SUPPLIED_EXPECTED_FIELDS) {
-    if (cleaned[field] !== undefined && cleaned[field] !== null) rejected.push(field);
+    if (cleaned[field] !== undefined && cleaned[field] !== null)
+      rejected.push(field);
     delete cleaned[field];
   }
   return { cleaned, rejected };

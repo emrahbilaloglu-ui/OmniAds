@@ -731,7 +731,11 @@ describe("Decision queue expansion and auxiliary failures", () => {
 
     expect(
       dom.querySelector("[data-mobile-anomaly-error]")?.textContent,
-    ).toContain("Anomaly read timed out.");
+    ).toContain("Some account checks could not update.");
+    expect(
+      dom.querySelector("[data-mobile-anomaly-error]")?.textContent,
+    ).toContain("The decisions below are still available.");
+    expect(dom.textContent).not.toContain("Anomaly read timed out.");
     expect(dom.textContent).not.toContain("Decision queue unavailable.");
     expect(state.exactProps.viewModel.counts.creatives).toBe(1);
   });
@@ -785,6 +789,9 @@ describe("Decisions write honesty", () => {
     const notice = dom.querySelector('[data-testid="meta-decision-notice"]');
     expect(notice?.textContent).toContain("Recommendation is review-only.");
     expect(notice?.textContent).toContain(
+      "Review this recommendation and its evidence before making changes in Meta Ads.",
+    );
+    expect(notice?.textContent).not.toContain(
       "Current target ROAS authority is unavailable",
     );
     expect(state.adapterInput.selection).toEqual({
@@ -829,9 +836,11 @@ describe("Decisions write honesty", () => {
     ).toHaveLength(0);
 
     const notice = dom.querySelector('[data-testid="meta-decision-notice"]');
+    expect(notice?.textContent).toContain("Launchpad opened.");
     expect(notice?.textContent).toContain(
-      "Launchpad opened without decision lineage.",
+      "Review the prepared setup before continuing.",
     );
+    expect(notice?.textContent).not.toContain("decision lineage");
   });
 });
 
@@ -979,7 +988,10 @@ describe("Decisions deep-link compatibility matrix", () => {
     state.search = "lane=whatever";
     const dom = render();
     expect(state.exactProps.lane).toBe("action");
-    expect(noticeText(dom)).toContain("lane=whatever");
+    expect(noticeText(dom)).toContain(
+      "The current decision list is shown instead.",
+    );
+    expect(noticeText(dom)).not.toContain("lane=whatever");
   });
 
   // `levels` is applied now. The old contract let a link say "campaigns only"
@@ -1010,7 +1022,9 @@ describe("Decisions deep-link compatibility matrix", () => {
     state.search = "levels=campaign";
     render();
     expect(
-      state.exactProps.viewModel.actionRows.map((row: { id: string }) => row.id),
+      state.exactProps.viewModel.actionRows.map(
+        (row: { id: string }) => row.id,
+      ),
     ).toEqual(["cmp"]);
   });
 
@@ -1039,9 +1053,8 @@ describe("Decisions deep-link compatibility matrix", () => {
     const dom = render();
     expect(state.exactProps.levels).toEqual(["campaign"]);
     const text = noticeText(dom);
-    expect(text).toContain("levels=account,campaign");
-    expect(text).toContain("account");
-    expect(text).toContain("applied as campaign");
+    expect(text).toContain("The current decision list is shown instead.");
+    expect(text).not.toContain("levels=account,campaign");
   });
 
   // `q` IS restorable: the queue has a row search. So it is restored, and the
@@ -1100,15 +1113,17 @@ describe("Decisions deep-link compatibility matrix", () => {
     state.search = "row=campaign:cmp_1";
     const dom = render();
     const text = noticeText(dom);
-    expect(text).toContain("row=campaign:cmp_1");
-    expect(text).toContain("row=ad:<adId>");
+    expect(text).toContain("The current decision list is shown instead.");
+    expect(text).not.toContain("row=campaign:cmp_1");
   });
 
   it("states that row=ad: with no id selected nothing", () => {
     state.workspaceData = workspacePayload();
     state.search = "row=ad:";
     const dom = render();
-    expect(noticeText(dom)).toContain("names no ad id");
+    expect(noticeText(dom)).toContain(
+      "The current decision list is shown instead.",
+    );
   });
 
   it("restores scope=creatives and says nothing", () => {
@@ -1124,7 +1139,10 @@ describe("Decisions deep-link compatibility matrix", () => {
     state.search = "scope=budgets";
     const dom = render();
     expect(state.exactProps.scope).toBe("structure");
-    expect(noticeText(dom)).toContain("scope=budgets");
+    expect(noticeText(dom)).toContain(
+      "The current decision list is shown instead.",
+    );
+    expect(noticeText(dom)).not.toContain("scope=budgets");
   });
 
   // entity: the restored half. `?entity=<recId>` opens that recommendation's
@@ -1161,8 +1179,8 @@ describe("Decisions deep-link compatibility matrix", () => {
       dom.querySelector('[data-testid="meta-mobile-evidence"]'),
     ).toBeNull();
     const text = noticeText(dom);
-    expect(text).toContain("entity=rec_missing");
-    expect(text).toContain("did not serve that decision");
+    expect(text).toContain("The current decision list is shown instead.");
+    expect(text).not.toContain("entity=rec_missing");
   });
 
   it("states that a creative selection the workspace did not serve opened nothing", async () => {
@@ -1175,8 +1193,9 @@ describe("Decisions deep-link compatibility matrix", () => {
     });
     expect(dom.querySelector("[data-stub-evidence]")).toBeNull();
     const text = noticeText(dom);
-    expect(text).toContain("row=ad:999_not_served");
-    expect(text).toContain("creativeId=creative_missing");
+    expect(text).toContain("The current decision list is shown instead.");
+    expect(text).not.toContain("row=ad:999_not_served");
+    expect(text).not.toContain("creativeId=creative_missing");
   });
 
   it("says nothing when a creative selection the workspace DID serve opened", async () => {
@@ -1294,8 +1313,8 @@ describe("Decisions provider-account metadata degradation", () => {
   });
 });
 
-describe("mobile served structure inventory", () => {
-  it("mounts the complete read-only census only after the operator opens it", () => {
+describe("mobile structure inventory presentation", () => {
+  it("keeps the technical census out while the decision queue remains readable", () => {
     state.workspaceData = workspacePayload({
       structureInventory: [
         {
@@ -1332,34 +1351,13 @@ describe("mobile served structure inventory", () => {
       ],
     });
     const dom = render({ currency: "USD" });
-    const disclosure = dom.querySelector<HTMLDetailsElement>(
-      "[data-mobile-structure-inventory]",
-    )!;
 
-    expect(disclosure).not.toBeNull();
-    expect(disclosure.textContent).toContain("1 served");
     expect(
-      disclosure.querySelector("[data-mobile-structure-inventory-row]"),
-    ).toBeNull();
-
-    act(() => {
-      disclosure.open = true;
-      disclosure.dispatchEvent(new Event("toggle", { bubbles: true }));
-    });
-
-    const row = disclosure.querySelector(
-      '[data-mobile-structure-inventory-row="campaign:camp_inventory"]',
-    );
-    expect(row?.textContent).toContain("Inventory Campaign");
-    expect(row?.textContent).toContain("Spend $120");
-    expect(row?.textContent).toContain("ROAS 3.50");
-    expect(row?.textContent).toContain("Purchases 4");
-    expect(row?.textContent).toContain("CPA $30");
-    expect(row?.textContent).toContain("CTR 1.25%");
-    expect(row?.textContent).toContain("Lowest Cost");
-    // Inventory is visibility, not authority.
-    expect(disclosure.querySelector("button")).toBeNull();
-    expect(disclosure.querySelector("a")).toBeNull();
+      dom.querySelector("[data-testid='meta-mobile-decisions']"),
+    ).toBeTruthy();
+    expect(dom.querySelector("[data-mobile-structure-inventory]")).toBeNull();
+    expect(dom.textContent).not.toContain("Inventory Campaign");
+    expect(dom.textContent).not.toContain("Lowest Cost");
   });
 });
 
@@ -1506,7 +1504,7 @@ describe("Decisions to Launchpad handoff", () => {
       await Promise.resolve();
     });
     const primary = state.evidenceProps?.viewModel?.primaryAction;
-    expect(primary?.label).toBe("Cut");
+    expect(primary?.label).toBe("Review spend reduction");
     expect(primary?.onClick).toBeTypeOf("function");
     return { dom, primary };
   }
@@ -1597,7 +1595,7 @@ describe("Decisions to Launchpad handoff", () => {
     });
 
     expect(state.evidenceProps?.viewModel?.primaryAction?.label).toBe(
-      "Keep Running",
+      "Review decision",
     );
     expect(
       state.evidenceProps?.viewModel?.primaryAction?.onClick,
@@ -1675,7 +1673,7 @@ describe("Decisions to Launchpad handoff", () => {
     expect(state.routerPush).toHaveBeenCalledTimes(1);
   });
 
-  it("stays put and states the server's reason when the handoff is refused", async () => {
+  it("stays put and hides the raw server reason when Launchpad cannot open", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: false,
       status: 409,
@@ -1692,15 +1690,13 @@ describe("Decisions to Launchpad handoff", () => {
 
     expect(state.routerPush).not.toHaveBeenCalled();
     const notice = dom.querySelector('[data-testid="meta-decision-notice"]');
-    expect(notice?.textContent).toContain("Launchpad handoff refused.");
-    expect(notice?.textContent).toContain("held");
-    // The refusal names the control that was refused, in the SERVER's words —
-    // its label, its code and its intent, straight off the tuple that
-    // travelled to this handler. Nothing here is composed from the decision
-    // label.
-    expect(notice?.textContent).toContain("Refresh creative");
-    expect(notice?.textContent).toContain("refresh_creative");
-    expect(notice?.textContent).toContain("intent brief");
+    expect(notice?.textContent).toContain("Launchpad could not open.");
+    expect(notice?.textContent).toContain(
+      "Refresh the decision and try again.",
+    );
+    expect(notice?.textContent).not.toContain("held");
+    expect(notice?.textContent).not.toContain("refresh_creative");
+    expect(notice?.textContent).not.toContain("intent brief");
   });
 
   it("confirms one exact native Ad pause with immutable lineage and no manual claims", async () => {
@@ -1719,7 +1715,11 @@ describe("Decisions to Launchpad handoff", () => {
     });
     expect(fetchMock).not.toHaveBeenCalled();
     const dialog = dom.querySelector("[data-meta-native-ad-pause-dialog]");
-    expect(dialog?.textContent).toContain("Pause this exact Meta Ad?");
+    expect(dialog?.textContent).toContain("Pause this Meta ad?");
+    expect(dialog?.textContent).toContain(
+      "Only this ad will be paused. Its campaign, ad set, budget, creative, and sibling ads will stay unchanged.",
+    );
+    expect(dialog?.textContent).not.toContain("immutable decision lineage");
 
     const confirm = dom.querySelector<HTMLButtonElement>(
       "[data-meta-native-ad-pause-confirm]",
@@ -1771,7 +1771,7 @@ describe("Decisions to Launchpad handoff", () => {
     expect(dom.querySelector("[data-stub-evidence]")).toBeNull();
     expect(
       dom.querySelector('[data-testid="meta-decision-notice"]')?.textContent,
-    ).toContain("Exact Ad paused.");
+    ).toContain("Meta ad paused.");
     // Provider execution is not an operator-response shortcut.
     expect(
       fetchMock.mock.calls.filter((call) =>
@@ -1839,9 +1839,11 @@ describe("Decisions to Launchpad handoff", () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const error = dom.querySelector("[data-meta-native-ad-pause-error]");
-    expect(error?.textContent).toContain("verification is incomplete");
-    expect(error?.textContent).toContain("requires reconciliation");
-    expect(error?.textContent).toContain("Do not retry");
+    expect(error?.textContent).toContain(
+      "Meta may have received this pause, but the final ad status is not confirmed.",
+    );
+    expect(error?.textContent).toContain("do not retry yet");
+    expect(error?.textContent).not.toContain("provider_outcome_ambiguous");
     expect(
       dom.querySelector("[data-meta-native-ad-pause-dialog]"),
     ).not.toBeNull();
@@ -1888,10 +1890,12 @@ describe("Decisions to Launchpad handoff", () => {
     });
 
     const error = dom.querySelector("[data-meta-native-ad-pause-error]");
-    expect(error?.textContent).toContain("Provider mutation status: succeeded");
-    expect(error?.textContent).toContain("requires reconciliation");
+    expect(error?.textContent).toContain(
+      "Meta may have received this pause, but the final ad status is not confirmed.",
+    );
+    expect(error?.textContent).not.toContain("Provider mutation status");
     expect(confirm.disabled).toBe(true);
-    expect(confirm.textContent).toContain("Await fresh read-back");
+    expect(confirm.textContent).toContain("Refresh before retrying");
 
     act(() => confirm.click());
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -1927,9 +1931,11 @@ describe("Decisions to Launchpad handoff", () => {
     });
 
     const error = dom.querySelector("[data-meta-native-ad-pause-error]");
-    expect(error?.textContent).toContain("already in flight");
-    expect(error?.textContent).toContain("non-retryable");
-    expect(error?.textContent).not.toContain("requires reconciliation");
+    expect(error?.textContent).toContain(
+      "This pause could not be confirmed. Refresh decisions before trying again.",
+    );
+    expect(error?.textContent).not.toContain("already in flight");
+    expect(error?.textContent).not.toContain("non-retryable");
     const confirm = dom.querySelector<HTMLButtonElement>(
       "[data-meta-native-ad-pause-confirm]",
     )!;
@@ -2058,7 +2064,7 @@ describe("Decisions to Launchpad handoff", () => {
     ],
   ])(
     "closes the primary and states why for a decision that is %s",
-    async (_name, override, expectedFragment) => {
+    async (_name, override, _expectedFragment) => {
       const fetchMock = vi.fn();
       vi.stubGlobal("fetch", fetchMock);
       const base = canonicalDecision();
@@ -2124,13 +2130,14 @@ describe("Decisions to Launchpad handoff", () => {
         ),
       ).toHaveLength(0);
 
-      // The window says WHY, in the server's own refusal sentence, rather than
-      // leaving a dead button to explain itself.
+      // The window still explains the unavailable action without leaking the
+      // contract's internal refusal vocabulary.
       const route = state.evidenceProps?.viewModel?.authority?.find(
         (row: { id: string }) => row.id === "launchpad-route",
       );
-      expect(String(route?.value)).toContain("refused");
-      expect(String(route?.value)).toContain(expectedFragment);
+      expect(String(route?.value)).toBe(
+        "This recommendation can be reviewed, but it cannot open Launchpad.",
+      );
     },
   );
 
@@ -2152,15 +2159,16 @@ describe("Decisions to Launchpad handoff", () => {
 
   // The Launchpad read site sends a refused handoff back here with its code.
   // Landing on Decisions with no explanation would read as "nothing happened".
-  it("renders the refusal the Launchpad read site sent back", () => {
+  it("renders a safe recovery message for a refused Launchpad return", () => {
     state.workspaceData = workspacePayload();
     state.search = "providerAccountId=act_1&handoffRefused=already_consumed";
 
     const dom = render();
 
     const notice = dom.querySelector('[data-testid="meta-decision-notice"]');
-    expect(notice?.textContent).toContain("Launchpad handoff refused.");
-    expect(notice?.textContent).toContain("already used");
+    expect(notice?.textContent).toContain("Launchpad could not open.");
+    expect(notice?.textContent).toContain("Return to Decisions and try again.");
+    expect(notice?.textContent).not.toContain("already used");
   });
 
   // The code is validated against the closed refusal vocabulary, never echoed,

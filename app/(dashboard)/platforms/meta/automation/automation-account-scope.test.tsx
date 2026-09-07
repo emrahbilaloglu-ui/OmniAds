@@ -55,7 +55,8 @@ vi.mock("@/lib/meta/history-client", () => ({
   fetchMetaHistoryAccounts: scopeMocks.fetchAccounts,
 }));
 
-const MetaAutomationPage = (await import("./automation-view")).default;
+const automationView = await import("./automation-view");
+const MetaAutomationPage = automationView.default;
 
 function notice(container: HTMLElement) {
   return container.querySelector("[data-field='read-error']");
@@ -71,6 +72,27 @@ afterEach(() => {
 });
 
 describe("Meta Automation account scope", () => {
+  it("uses fixed buyer-facing freshness reasons", () => {
+    expect(
+      automationView.metaAutomationFreshnessPartialReason({
+        hasProviderAccount: false,
+        incomplete: true,
+      }),
+    ).toBe("Select a Meta account to view automation data.");
+    expect(
+      automationView.metaAutomationFreshnessPartialReason({
+        hasProviderAccount: true,
+        incomplete: true,
+      }),
+    ).toBe("Some automation data is unavailable. Try again.");
+    expect(
+      automationView.metaAutomationFreshnessPartialReason({
+        hasProviderAccount: true,
+        incomplete: false,
+      }),
+    ).toBeNull();
+  });
+
   it("states the reason when more than one assigned account leaves the scope unresolved", async () => {
     const providerFetch = vi.spyOn(globalThis, "fetch");
     scopeMocks.fetchAccounts.mockResolvedValue([
@@ -87,7 +109,7 @@ describe("Meta Automation account scope", () => {
       "provider_account_scope_unresolved",
     );
     expect(notice(container)?.textContent).toContain(
-      "No Meta ad account is resolved for this business",
+      "Choose a Meta ad account to see its automation status",
     );
     // The silence was the defect, not the refusal to read: no request may be
     // issued for an unresolved scope.
@@ -115,7 +137,10 @@ describe("Meta Automation account scope", () => {
     ]);
 
     const { container } = render(
-      <MetaAutomationPage businessId="route_business" providerAccountId={null} />,
+      <MetaAutomationPage
+        businessId="route_business"
+        providerAccountId={null}
+      />,
     );
 
     const picker = await waitFor(() => {
@@ -156,9 +181,17 @@ describe("Meta Automation account scope", () => {
     );
     expect(newRule).toBeDefined();
     expect(newRule).toBeDisabled();
-    expect(
-      container.querySelector("[data-control='approve']"),
-    ).toBeNull();
+    expect(container.querySelector("[data-control='approve']")).toBeNull();
+
+    const modeButtons = container.querySelectorAll<HTMLButtonElement>(
+      "[data-testid='automation-action-modes-desktop'] [data-mode]",
+    );
+    expect(modeButtons).toHaveLength(12);
+    for (const button of modeButtons) {
+      expect(button).toBeDisabled();
+      expect(button).toHaveAttribute("data-mode-refused");
+      expect(button.title).toContain("Choose a Meta ad account");
+    }
   });
 
   it("distinguishes a business with no assigned account from a failed assignments read", async () => {
@@ -193,7 +226,10 @@ describe("Meta Automation account scope", () => {
       { id: "act_2", name: "Two" },
     ]);
     const { container } = render(
-      <MetaAutomationPage businessId="route_business" providerAccountId={null} />,
+      <MetaAutomationPage
+        businessId="route_business"
+        providerAccountId={null}
+      />,
     );
 
     await waitFor(() => {
@@ -228,7 +264,9 @@ describe("Meta Automation account scope", () => {
    * on the server, not a button's.
    */
   it("never re-sends a decision from the queue's retry control", async () => {
-    scopeMocks.fetchAccounts.mockResolvedValue([{ id: "act_solo", name: "Solo" }]);
+    scopeMocks.fetchAccounts.mockResolvedValue([
+      { id: "act_solo", name: "Solo" },
+    ]);
     const calls: Array<{ url: string; method: string }> = [];
     vi.spyOn(globalThis, "fetch").mockImplementation((async (
       input: RequestInfo | URL,
@@ -241,7 +279,10 @@ describe("Meta Automation account scope", () => {
         return new Response(
           JSON.stringify({
             ok: false,
-            error: { code: "proposal_claim_conflict", message: "Held elsewhere." },
+            error: {
+              code: "proposal_claim_conflict",
+              message: "Held elsewhere.",
+            },
           }),
           { status: 409, headers: { "Content-Type": "application/json" } },
         );
@@ -294,14 +335,17 @@ describe("Meta Automation account scope", () => {
       return found!;
     });
 
-    const postsBeforeRetry = calls.filter((call) => call.method === "POST").length;
+    const postsBeforeRetry = calls.filter(
+      (call) => call.method === "POST",
+    ).length;
     expect(postsBeforeRetry).toBe(1);
 
     fireEvent.click(retry);
     await waitFor(() => {
       expect(
-        calls.filter((call) => call.url.startsWith("/api/meta/automation/proposals"))
-          .length,
+        calls.filter((call) =>
+          call.url.startsWith("/api/meta/automation/proposals"),
+        ).length,
       ).toBeGreaterThan(2);
     });
 
@@ -311,7 +355,9 @@ describe("Meta Automation account scope", () => {
   });
 
   it("clears the notice once exactly one assigned account resolves the scope", async () => {
-    scopeMocks.fetchAccounts.mockResolvedValue([{ id: "act_solo", name: "Solo" }]);
+    scopeMocks.fetchAccounts.mockResolvedValue([
+      { id: "act_solo", name: "Solo" },
+    ]);
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(JSON.stringify({ ok: true, proposals: [] }), {
         status: 200,
@@ -326,9 +372,9 @@ describe("Meta Automation account scope", () => {
     });
     await waitFor(() => {
       expect(
-        container.querySelector("[data-field='read-error']")?.getAttribute(
-          "data-reason",
-        ),
+        container
+          .querySelector("[data-field='read-error']")
+          ?.getAttribute("data-reason"),
       ).not.toBe("provider_account_scope_unresolved");
     });
   });

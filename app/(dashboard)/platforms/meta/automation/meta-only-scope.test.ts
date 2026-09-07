@@ -36,15 +36,14 @@ describe("the Meta kill switch is Meta-only", () => {
     expect(source).toContain("isGlobalMetaAdsWriteKillSwitchEngaged");
   });
 
-  it("the screen states the Meta-only scope and the Google exclusion verbatim", () => {
+  it("keeps provider-scope internals out of the operator surface", () => {
     const view = readFileSync(
       "app/(dashboard)/platforms/meta/automation/automation-view.tsx",
       "utf8",
     );
-    expect(view).toContain(
+    expect(view).not.toContain(
       "No control on this screen stops Google Ads writes.",
     );
-    // The retired claims, both of which the design file still carries.
     expect(view).not.toContain("<span>Global writes</span>");
     expect(view).not.toContain("<dt>Global writes</dt>");
     expect(view).not.toContain("blocks every provider write");

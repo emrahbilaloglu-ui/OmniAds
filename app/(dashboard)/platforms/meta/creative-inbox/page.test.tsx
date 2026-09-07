@@ -256,9 +256,21 @@ describe("MetaCreativeInboxPage exact integration", () => {
    */
   it("draws the authority's own served sections and places every card in the one it came from", () => {
     queryState.inbox = inboxData([
-      scopedCard("action-now", { id: "a1", creativeId: "a1", creativeName: "Act on me" }),
-      scopedCard("watching", { id: "w1", creativeId: "w1", creativeName: "Watch me" }),
-      scopedCard("healthy", { id: "h1", creativeId: "h1", creativeName: "Healthy one" }),
+      scopedCard("action-now", {
+        id: "a1",
+        creativeId: "a1",
+        creativeName: "Act on me",
+      }),
+      scopedCard("watching", {
+        id: "w1",
+        creativeId: "w1",
+        creativeName: "Watch me",
+      }),
+      scopedCard("healthy", {
+        id: "h1",
+        creativeId: "h1",
+        creativeName: "Healthy one",
+      }),
     ]);
 
     const html = renderToStaticMarkup(
@@ -335,20 +347,13 @@ describe("MetaCreativeInboxPage exact integration", () => {
     );
 
     expect(html).toContain('data-inbox-state="empty"');
-    expect(html).toContain(
-      "The creative briefing authority served no decision items for this account.",
-    );
+    expect(html).toContain("No data for this view.");
     expect(html).not.toContain("data-inbox-card=");
     // Not "unavailable": the read succeeded and returned nothing.
     expect(html).not.toContain("unavailable, not empty");
     // A measured zero draws no count chip at all, which is the reference's own
     // behaviour for zero — and is NOT the em dash, which would mean unread.
-    const inboxTab = html.match(
-      /data-creative-studio-tab="inbox"[^>]*>(.*?)<\/a>/,
-    )?.[1];
-    expect(inboxTab).toBeTruthy();
-    expect(inboxTab).not.toContain("—");
-    expect(inboxTab).not.toMatch(/>\s*0\s*</);
+    expect(html).not.toContain('data-creative-studio-tab="inbox"');
   });
 
   /** 4 · A failed read is unavailable, never an empty board. */
@@ -360,26 +365,22 @@ describe("MetaCreativeInboxPage exact integration", () => {
     );
 
     expect(html).toContain('data-inbox-state="error"');
-    expect(html).toContain("briefing failed");
-    expect(html).toContain("These segments are unavailable, not empty.");
+    expect(html).toContain("Creative data is temporarily unavailable.");
+    expect(html).not.toContain("briefing failed");
     expect(html).not.toContain("data-inbox-card=");
-    // The read produced no count, so the chip is the em dash, not a zero.
-    const inboxTab = html.match(
-      /data-creative-studio-tab="inbox"[^>]*>(.*?)<\/a>/,
-    )?.[1];
-    expect(inboxTab).toContain("—");
+    expect(html).not.toContain('data-creative-studio-tab="inbox"');
   });
 
   /** 5 · Nothing claims request / version / approval / handoff works. */
-  it("names the unbuilt workflow instead of drawing one", () => {
+  it("does not draw or describe an unsupported workflow", () => {
     queryState.inbox = inboxData([scopedCard("action-now")]);
 
     const html = renderToStaticMarkup(
       <MetaCreativeInboxPage businessId="biz_1" providerAccountId="act_1" />,
     );
 
-    expect(html).toContain("are not built");
-    expect(html).toContain(
+    expect(html).not.toContain("are not built");
+    expect(html).not.toContain(
       "no request, owner, due date, version or approval is recorded anywhere in this product",
     );
     // The sentence that reported a workflow as read-and-empty is gone, and no
@@ -390,8 +391,8 @@ describe("MetaCreativeInboxPage exact integration", () => {
     expect(html).not.toContain("Drop new exports here");
     expect(html).not.toContain("Browse files");
     expect(html).not.toMatch(/Review & approve/);
-    expect(html).not.toContain("data-inbox-fact=\"Owner\"");
-    expect(html).not.toContain("data-inbox-fact=\"Due\"");
+    expect(html).not.toContain('data-inbox-fact="Owner"');
+    expect(html).not.toContain('data-inbox-fact="Due"');
   });
 
   /**
@@ -399,7 +400,7 @@ describe("MetaCreativeInboxPage exact integration", () => {
    * shows something. It used to be permanently withheld because the board drew
    * a queue nobody measured.
    */
-  it("states the served item count on the Inbox tab", () => {
+  it("keeps the incomplete Inbox tab out of navigation when served items exist", () => {
     queryState.inbox = inboxData([
       scopedCard("action-now", { id: "a1", creativeId: "a1" }),
       scopedCard("watching", { id: "w1", creativeId: "w1" }),
@@ -409,11 +410,9 @@ describe("MetaCreativeInboxPage exact integration", () => {
       <MetaCreativeInboxPage businessId="biz_1" providerAccountId="act_1" />,
     );
 
-    const inboxTab = html.match(
-      /data-creative-studio-tab="inbox"[^>]*>(.*?)<\/a>/,
-    )?.[1];
-    expect(inboxTab).toContain(">2<");
-    expect(inboxTab).not.toContain("—");
+    expect(html).not.toContain('data-creative-studio-tab="inbox"');
+    expect(html).toContain('data-inbox-card="a1"');
+    expect(html).toContain('data-inbox-card="w1"');
   });
 
   /**
@@ -465,7 +464,11 @@ describe("MetaCreativeInboxPage exact integration", () => {
     vi.stubGlobal("fetch", fetchMock);
     try {
       const result = (await queryFn!()) as {
-        inbox: Array<{ id: string; briefingSegment: string; businessId: string }>;
+        inbox: Array<{
+          id: string;
+          briefingSegment: string;
+          businessId: string;
+        }>;
       };
       expect(fetchMock).toHaveBeenCalledTimes(1);
       expect(String(fetchMock.mock.calls[0]?.[0])).toContain(
@@ -479,7 +482,9 @@ describe("MetaCreativeInboxPage exact integration", () => {
         ["h1", "healthy"],
       ]);
       // Business identity is stamped by the caller, never trusted from the card.
-      expect(result.inbox.every((card) => card.businessId === "biz_1")).toBe(true);
+      expect(result.inbox.every((card) => card.businessId === "biz_1")).toBe(
+        true,
+      );
     } finally {
       vi.unstubAllGlobals();
     }
@@ -520,10 +525,8 @@ describe("MetaCreativeInboxPage exact integration", () => {
       }),
     );
     // The account prompt promises only what picking an account can deliver.
-    expect(html).toContain(
-      "Select one assigned Meta account to read the creative decision items served for it.",
-    );
-    expect(html).toContain("are not built");
+    expect(html).toContain("Select a Meta account to continue.");
+    expect(html).not.toContain("are not built");
     expect(html).not.toContain("providerAccountId=act_url");
   });
 
@@ -567,7 +570,7 @@ describe("MetaCreativeInboxPage exact integration", () => {
         enabled: false,
       }),
     );
-    expect(html).toContain("Loading assigned Meta account scope");
+    expect(html).toContain("Loading creative data…");
     expect(html).not.toContain("data-inbox-card=");
   });
 
@@ -592,8 +595,10 @@ describe("MetaCreativeInboxPage exact integration", () => {
     );
 
     expect(html).not.toContain('data-inbox-card="no-account"');
-    expect(html).toContain(
-      "1 item was withheld because provider account identity is missing.",
+    expect(html).toContain("No data for this view.");
+    expect(html).not.toContain(
+      "Some items could not be matched to the selected account.",
     );
+    expect(html).not.toContain("provider account identity");
   });
 });

@@ -502,7 +502,7 @@ describe("buildMetaDecisionCenterExactViewModel R7 boundaries", () => {
     });
 
     expect(viewModel.identity).toMatchObject({
-      accountLabel: "act_unscoped",
+      accountLabel: "Meta ad account",
       currency: "—",
       syncedLabel: "synced —",
     });
@@ -646,18 +646,18 @@ describe("buildMetaDecisionCenterExactViewModel R7 boundaries", () => {
     expect(viewModel.counts?.deferred).toBe(6);
     expect(viewModel.actionRows?.[0]).toMatchObject({
       id: "rec_action",
-      actionLabel: "Review Campaign Budget",
+      actionLabel: "Review budget",
       money: "₺500 · ROAS 4.20",
-      moneySub: "vs 3.50 target · Server expected impact",
+      moneySub: "vs 3.50 target",
     });
     viewModel.actionRows?.[0]?.onPrimary?.();
     expect(onStructurePrimary).toHaveBeenCalledTimes(1);
     expect(onStructurePrimary).toHaveBeenCalledWith(recommendation, action);
 
     expect(viewModel.inspector).toMatchObject({
-      readiness: "Manual review required · Literal server readiness reason.",
+      readiness: "Manual review required",
       blockers:
-        "No executor is enabled for this action type · Literal server receipt",
+        "No executor is enabled for this action type · Confidence is limited by the available evidence",
       blockerTone: "warning",
     });
     expect(JSON.stringify(viewModel.inspector)).not.toContain("manual_review");
@@ -678,7 +678,7 @@ describe("buildMetaDecisionCenterExactViewModel R7 boundaries", () => {
       name: "Server Creative",
       kindShort: "—",
       money: "€725 · ROAS 3.80",
-      actionLabel: "Review served creative decision",
+      actionLabel: "Review pause",
     });
     viewModel.creativeDecisions?.[0]?.onPrimary?.();
     viewModel.creativeDecisions?.[0]?.onOpen?.();
@@ -752,7 +752,7 @@ describe("buildMetaDecisionCenterExactViewModel R7 boundaries", () => {
     expect(viewModel.inspector).toMatchObject({
       blockers: "—",
       blockerTone: "neutral",
-      advisories: "Risk is unclassified (risk tier producer not persisted)",
+      advisories: "—",
     });
     // An advisory is not a reason a row cannot move, so it never becomes the
     // blocked note.
@@ -794,9 +794,7 @@ describe("buildMetaDecisionCenterExactViewModel R7 boundaries", () => {
       }),
     });
 
-    expect(viewModel.inspector?.readiness).toBe(
-      "Manual review required · This action class is not mapped to a safe Meta executor.",
-    );
+    expect(viewModel.inspector?.readiness).toBe("Manual review required");
     expect(viewModel.inspector?.blockers).toContain(
       "Controlled causal evidence is missing",
     );
@@ -1343,10 +1341,13 @@ describe("the creative queue is the served set, split by the served state", () =
     expect(rows.get("os_ad_pending")).toMatchObject({
       stateLabel: "Blocked",
       stateTone: "warning",
-      note: "Meta confirms this Ad is ACTIVE, but the exact Ad-grain decision snapshot is not available.",
+      note: "This active ad is waiting for an ad-level decision.",
       blockedNote:
-        "Exact Ad-grain decision evidence is unavailable — Next: Complete the native Ad decision schema and producer lineage gate.",
+        "Decision evidence is still being prepared. — Next: Wait for the next completed ad-level decision.",
     });
+    expect(JSON.stringify(rows.get("os_ad_pending"))).not.toContain(
+      "schema and producer lineage",
+    );
     /*
      * LAW: a served row can open its own evidence, and the envelope's absence
      * travels with it instead of closing the door.
@@ -1382,18 +1383,17 @@ describe("the creative queue is the served set, split by the served state", () =
     expect([...groups.keys()]).toEqual(["act", "blocked"]);
     expect(groups.get("blocked")).toMatchObject({
       label: "Blocked",
-      count: "1 shown · 80 eligible pre-cap",
-      note: "Evidence pending",
+      count: "1 of 80 decisions",
+      note: "Wait for ad-level decision",
     });
     // The act group is not capped, so it states one number, not two.
-    expect(groups.get("act")?.count).toBe("1 shown");
+    expect(groups.get("act")?.count).toBe("1 decision");
 
     // LAW: the footer states the SERVED vocabulary. It used to assert a fixed
     // three-verb list ("refresh, retire, scale winner") that no real account
     // serves.
     expect(viewModel.creativeFootnote).toBe(
-      "Ad-level calls served for this account: Review served creative decision · Evidence pending. " +
-        "Click a row for the evidence window; metric deep-dives and side-by-side comparison live in Creative Studio.",
+      "Open a decision for details, or use Creative Studio to compare performance.",
     );
   });
 
@@ -1401,7 +1401,49 @@ describe("the creative queue is the served set, split by the served state", () =
     const workspace = workspaceFixture({ os: fullOs({ creatives: [] }) });
     expect(
       buildMetaDecisionCenterExactViewModel({ workspace }).creativeFootnote,
-    ).toContain("No ad-level call was served for this account.");
+    ).toBe("No ad-level decision is available for this account.");
+  });
+
+  it("never forwards unknown creative producer text into a visible row", () => {
+    const creative = creativeFixture({
+      lane: "blocked",
+      whyNow: "internal warehouse schema join failed",
+      action: actionFixture({
+        code: "unmapped_internal_action",
+        label: "Review decision",
+        scopeNote: "raw provider mutation contract detail",
+      }),
+      blockers: [
+        {
+          code: "unmapped_internal_blocker",
+          label: "producer lineage does not match",
+        },
+      ],
+      resolution: {
+        code: "unmapped_internal_resolution",
+        category: "system",
+        owner: "system",
+        label: "Repair decision producer",
+        nextStep: "rebuild schema lineage and retry the resolver",
+      },
+    });
+    const workspace = workspaceFixture({
+      os: fullOs({ creatives: [creative] }),
+    });
+
+    const row = buildMetaDecisionCenterExactViewModel({ workspace })
+      .creativeDecisions?.[0];
+
+    expect(row).toMatchObject({
+      note: "This decision needs review before any action.",
+      blockedNote:
+        "More verified evidence is required. — Next: Wait for the missing decision evidence, then review again.",
+    });
+    const serialized = JSON.stringify(row);
+    expect(serialized).not.toContain("warehouse schema");
+    expect(serialized).not.toContain("producer lineage");
+    expect(serialized).not.toContain("rebuild schema lineage");
+    expect(serialized).not.toContain("provider mutation contract");
   });
 
   /**
@@ -3013,6 +3055,53 @@ describe("served structure inventory", () => {
     });
     expect(watchingModel.watchingRows?.[0]?.selected).toBe(true);
     expect(watchingModel.inspector?.entityName).toBe("Watching default");
+  });
+
+  it("maps blocked structure details from readiness codes without exposing producer prose", () => {
+    const recommendation = metaRec({
+      id: "rec_internal_copy",
+      campaignName: "Blocked campaign",
+      why: "raw recommendation producer lineage note",
+      automationReadiness: {
+        contractVersion: "meta-automation-readiness.v1",
+        tier: "manual_review",
+        autoExecuteEligible: false,
+        operatorReviewRequired: true,
+        decisionLabel: "scale",
+        blockers: ["missing_executor"],
+        missingEvidence: ["internal_executor_schema_receipt"],
+        requiredEvidence: ["internal_executor_schema_receipt"],
+        reason: "raw automation readiness producer reason",
+      },
+    });
+    const node = structureNodeFixture({
+      sourceRecommendationId: recommendation.id,
+      lane: "blocked",
+      assessment: "raw resolver assessment",
+      whyNow: "raw structure producer why-now",
+      action: actionFixture({
+        scopeNote: "raw provider contract scope note",
+      }),
+    });
+    const workspace = workspaceFixture({
+      actionNow: [recommendation],
+      os: fullOs({ nodes: [node] }),
+    });
+
+    const row = buildMetaDecisionCenterExactViewModel({ workspace })
+      .needsResolutionRows?.[0];
+
+    expect(row).toMatchObject({
+      blocker: "This change can only be completed manually.",
+      blockerCount: 2,
+      resolution: "Review and apply this change manually.",
+    });
+    const serialized = JSON.stringify(row);
+    expect(serialized).not.toContain("automation readiness producer");
+    expect(serialized).not.toContain("provider contract scope");
+    expect(serialized).not.toContain("structure producer why-now");
+    expect(serialized).not.toContain("recommendation producer lineage");
+    expect(serialized).not.toContain("internal_executor_schema_receipt");
   });
 
   it("withholds an inferred role chip until the independent action-authority gate passes", () => {

@@ -33,7 +33,11 @@ function renderTabs(
   counts: CreativeStudioExactProps["counts"],
 ) {
   return render(
-    <CreativeStudioExact activeTab={activeTab} counts={counts} tabHrefs={TAB_HREFS} />,
+    <CreativeStudioExact
+      activeTab={activeTab}
+      counts={counts}
+      tabHrefs={TAB_HREFS}
+    />,
   );
 }
 
@@ -50,7 +54,9 @@ function chips(): Record<string, string> {
   const result: Record<string, string> = {};
   for (const tab of Object.keys(TAB_HREFS) as CreativeStudioTabId[]) {
     const text =
-      document.querySelector(`[data-creative-studio-tab="${tab}"]`)?.textContent?.trim() ?? "";
+      document
+        .querySelector(`[data-creative-studio-tab="${tab}"]`)
+        ?.textContent?.trim() ?? "";
     result[tab] = text.replace(TAB_LABELS[tab], "").trim();
   }
   return result;
@@ -63,20 +69,21 @@ describe("Creative Studio tab counts", () => {
     // Copies, Landing Pages and Audiences are zero in every state of the
     // reference, so `count: d[2] || ''` draws nothing for them — ever, on any
     // route. The builder cannot express a count for them at all.
-    expect(Object.keys(buildCreativeStudioTabCounts({ assets: 8, inbox: 5 })).sort()).toEqual([
-      "assets",
-      "inbox",
-    ]);
+    expect(
+      Object.keys(buildCreativeStudioTabCounts({ assets: 8, inbox: 5 })).sort(),
+    ).toEqual(["assets", "inbox"]);
   });
 
-  it("em-dashes an unserved count instead of moving the chip to the active tab", () => {
+  it("hides an unserved count instead of moving the chip to the active tab", () => {
     // The defect: the Assets pill carried the chip on /creatives and the Copies
     // pill carried it on /copies, because each route passed only its own tab.
     renderTabs("copies", buildCreativeStudioTabCounts({}));
 
     const row = chips();
-    expect(row.assets).toBe("—");
-    expect(row.inbox).toBe("—");
+    expect(row.assets).toBe("");
+    expect(
+      document.querySelector('[data-creative-studio-tab="inbox"]'),
+    ).toBeNull();
     expect(row.copies).toBe("");
     expect(row["landing-pages"]).toBe("");
     expect(row.audiences).toBe("");
@@ -93,7 +100,9 @@ describe("Creative Studio tab counts", () => {
 
     expect(onAssets).toEqual(onAudiences);
     expect(onAssets.assets).toBe("34");
-    expect(onAssets.inbox).toBe("—");
+    expect(
+      document.querySelector('[data-creative-studio-tab="inbox"]'),
+    ).toBeNull();
   });
 
   it("draws no chip for a served zero, as the reference does", () => {
@@ -104,11 +113,14 @@ describe("Creative Studio tab counts", () => {
     expect(row.inbox).toBe("");
   });
 
-  it("serves the numbers it was given", () => {
+  it("serves the visible Assets number without restoring the Inbox tab", () => {
     renderTabs("inbox", buildCreativeStudioTabCounts({ assets: 8, inbox: 5 }));
 
     const row = chips();
     expect(row.assets).toBe("8");
-    expect(row.inbox).toBe("5");
+    expect(row.inbox).toBe("");
+    expect(
+      document.querySelector('[data-creative-studio-tab="inbox"]'),
+    ).toBeNull();
   });
 });

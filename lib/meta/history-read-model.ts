@@ -579,7 +579,16 @@ history_entries AS (
         ELSE action_log.action
       END,
       '_', ' '
-    )) || ' | ' || COALESCE(resolved.entity_name, resolved.entity_id),
+    )) || ' | ' || COALESCE(
+      NULLIF(NULLIF(BTRIM(resolved.entity_name), ''), resolved.entity_id),
+      CASE resolved.entity_type
+        WHEN 'campaign' THEN 'Unnamed campaign'
+        WHEN 'adset' THEN 'Unnamed ad set'
+        WHEN 'ad' THEN 'Unnamed ad'
+        WHEN 'creative' THEN 'Unnamed creative'
+        ELSE 'Unnamed item'
+      END
+    ),
     NULLIF(action_log.error_message, ''),
     resolved.entity_type,
     resolved.entity_id,
@@ -965,7 +974,11 @@ history_entries AS (
     'structures',
     COALESCE(campaign.source_updated_at, campaign.updated_at, campaign.last_seen_at, campaign.created_at),
     COALESCE(campaign.source_updated_at, campaign.updated_at, campaign.last_seen_at, campaign.created_at)::date,
-    COALESCE(campaign.campaign_name_current, campaign.campaign_name_historical, campaign.campaign_id),
+    COALESCE(
+      NULLIF(NULLIF(BTRIM(campaign.campaign_name_current), ''), campaign.campaign_id),
+      NULLIF(NULLIF(BTRIM(campaign.campaign_name_historical), ''), campaign.campaign_id),
+      'Unnamed campaign'
+    ),
     'Last persisted campaign status: ' || UPPER(campaign.campaign_status) || '.',
     'campaign',
     campaign.campaign_id,
@@ -1003,7 +1016,11 @@ history_entries AS (
     'structures',
     COALESCE(adset.source_updated_at, adset.updated_at, adset.last_seen_at, adset.created_at),
     COALESCE(adset.source_updated_at, adset.updated_at, adset.last_seen_at, adset.created_at)::date,
-    COALESCE(adset.adset_name_current, adset.adset_name_historical, adset.adset_id),
+    COALESCE(
+      NULLIF(NULLIF(BTRIM(adset.adset_name_current), ''), adset.adset_id),
+      NULLIF(NULLIF(BTRIM(adset.adset_name_historical), ''), adset.adset_id),
+      'Unnamed ad set'
+    ),
     'Last persisted ad set status: ' || UPPER(adset.adset_status) || '.',
     'adset',
     adset.adset_id,
@@ -1046,7 +1063,11 @@ history_entries AS (
     config.captured_at,
     config.captured_at::date,
     'Campaign configuration changed | '
-      || COALESCE(campaign.campaign_name_current, campaign.campaign_name_historical, config.campaign_id),
+      || COALESCE(
+        NULLIF(NULLIF(BTRIM(campaign.campaign_name_current), ''), config.campaign_id),
+        NULLIF(NULLIF(BTRIM(campaign.campaign_name_historical), ''), config.campaign_id),
+        'Unnamed campaign'
+      ),
     NULL,
     'campaign',
     config.campaign_id,
@@ -1120,7 +1141,11 @@ history_entries AS (
     adset_config.captured_at,
     adset_config.captured_at::date,
     'Ad set configuration changed | '
-      || COALESCE(adset_dim.adset_name_current, adset_dim.adset_name_historical, adset_config.adset_id),
+      || COALESCE(
+        NULLIF(NULLIF(BTRIM(adset_dim.adset_name_current), ''), adset_config.adset_id),
+        NULLIF(NULLIF(BTRIM(adset_dim.adset_name_historical), ''), adset_config.adset_id),
+        'Unnamed ad set'
+      ),
     NULL,
     'adset',
     adset_config.adset_id,
@@ -1201,7 +1226,16 @@ history_entries AS (
       -- The column is CHECK-constrained to those four, so there is no fifth
       -- case; naming them all keeps the label honest if one is ever added.
       ELSE 'Entity status changed | '
-    END || COALESCE(entity_state.entity_name, entity_state.entity_id),
+    END || COALESCE(
+      NULLIF(NULLIF(BTRIM(entity_state.entity_name), ''), entity_state.entity_id),
+      CASE entity_state.entity_type
+        WHEN 'campaign' THEN 'Unnamed campaign'
+        WHEN 'adset' THEN 'Unnamed ad set'
+        WHEN 'ad' THEN 'Unnamed ad'
+        WHEN 'creative' THEN 'Unnamed creative'
+        ELSE 'Unnamed item'
+      END
+    ),
     NULL,
     entity_state.entity_type,
     entity_state.entity_id,

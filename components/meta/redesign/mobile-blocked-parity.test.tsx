@@ -41,21 +41,9 @@ describe("mobile carries the served decision state", () => {
    * risk is unclassified at all. Not a refusal, still a fact, and a surface
    * that drops it is a different account of the same decision.
    */
-  it("states the advisories the desktop inspector states", () => {
-    // `ad-mobile-desktop-note` appears on several mobile screens, and the first
-    // one precedes this block — so the end marker is searched FROM the start.
-    const start = PAGE.indexOf('data-mobile-posture="inspector"');
-    expect(start, "the mobile inspector block is gone").toBeGreaterThan(-1);
-    const inspector = PAGE.slice(
-      start,
-      PAGE.indexOf("ad-mobile-desktop-note", start),
-    );
-    expect(inspector.length, "the inspector slice is empty").toBeGreaterThan(0);
-    expect(inspector).toContain("mobileDisplay(inspector.blockers)");
-    expect(inspector).toContain("mobileDisplay(inspector.advisories)");
-    // The advisory must not be folded back into the Blockers line: the whole
-    // point of the move is that it withholds nothing.
-    expect(inspector).not.toMatch(/blockers:\s*{[^}]*advisories/);
+  it("does not restore the removed duplicate mobile inspector", () => {
+    expect(PAGE).not.toContain('data-mobile-posture="inspector"');
+    expect(PAGE).not.toContain("ad-mobile-desktop-note");
   });
 
   it("renders the state before the decision label, not instead of it", () => {
@@ -80,7 +68,7 @@ describe("mobile carries the served decision state", () => {
     expect(card).toContain('mobileDisplay(blockedNote) !== "—"');
   });
 
-  it("keeps the ENGINE's routed action on the desktop, and never wires onPrimary", () => {
+  it("keeps the mobile row free of the removed desktop suffix and onPrimary", () => {
     /*
       The parity being fixed is DATA parity. The engine's routed action still
       says "· desktop" because its destination — Launchpad, and the desktop
@@ -96,7 +84,7 @@ describe("mobile carries the served decision state", () => {
       PAGE.indexOf("function MetaMobileQueueRow"),
       PAGE.indexOf("function MetaMobileDecisionsScreen"),
     );
-    expect(card).toContain("· desktop");
+    expect(card).not.toContain("· desktop");
     expect(card).not.toContain("onPrimary");
   });
 });

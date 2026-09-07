@@ -4623,6 +4623,12 @@
     white-space: nowrap;
   }
 
+  .ad-final .meta-posture-banner--critical .meta-posture-banner__detail {
+    overflow: visible;
+    text-overflow: clip;
+    white-space: normal;
+  }
+
   .ad-final .meta-posture-banner__spacer {
     flex: 1 1 auto;
   }
@@ -9872,23 +9878,23 @@
 /* dashboard-v2-shell-exact-reference-type:start */
 .adv-rail-version,
 .adv-rail-group {
-  font-size: 9.5px;
+  font-size: 12px;
 }
 
 .adv-rail-count {
-  font-size: 10.5px;
+  font-size: 12px;
 }
 
 .adv-rail-badge {
-  font-size: 9px;
+  font-size: 12px;
 }
 
 .adv-rail-avatar {
-  font-size: 11.5px;
+  font-size: 12px;
 }
 
 .adv-kbd {
-  font-size: 10px;
+  font-size: 12px;
 }
 /* dashboard-v2-shell-exact-reference-type:end */
 

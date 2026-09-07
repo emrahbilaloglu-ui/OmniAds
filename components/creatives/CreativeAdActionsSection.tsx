@@ -15,7 +15,8 @@ import {
 import type { MetaCreativeRow } from "@/components/creatives/metricConfig";
 
 type ManualAction = "pause" | "resume";
-export type DuplicateProgress = "idle" | "submitting" | "verifying" | "success" | "error";
+export type DuplicateProgress =
+  "idle" | "submitting" | "verifying" | "success" | "error";
 
 interface CreativeAdActionsSectionProps {
   businessId: string;
@@ -87,7 +88,8 @@ export function CreativeAdActionsSection({
   const [selectedCampaignId, setSelectedCampaignId] = useState("");
   const [selectedAdsetId, setSelectedAdsetId] = useState("");
   const [nameOverride, setNameOverride] = useState(`${row.name} (copy)`);
-  const [duplicateProgress, setDuplicateProgress] = useState<DuplicateProgress>("idle");
+  const [duplicateProgress, setDuplicateProgress] =
+    useState<DuplicateProgress>("idle");
   const [duplicateMessage, setDuplicateMessage] = useState<string | null>(null);
   const [duplicateResult, setDuplicateResult] = useState<{
     newAdId: string;
@@ -217,7 +219,8 @@ export function CreativeAdActionsSection({
     setLocalStatus(normalizeStatus(result.status ?? optimisticStatus));
     setToast({
       type: "success",
-      message: action === "pause" ? "Ad paused on Meta." : "Ad resumed on Meta.",
+      message:
+        action === "pause" ? "Ad paused on Meta." : "Ad resumed on Meta.",
     });
   }
 
@@ -276,7 +279,9 @@ export function CreativeAdActionsSection({
         <div>
           <h4 className="text-sm font-semibold text-neutral-900">Actions</h4>
           <div className="mt-2 flex items-center gap-2">
-            <span className={statusClassName(localStatus)}>{localStatus}</span>
+            <span className={statusClassName(localStatus)}>
+              {statusDisplayLabel(localStatus)}
+            </span>
             <span className="text-xs text-neutral-500">Meta ad status</span>
           </div>
         </div>
@@ -319,8 +324,8 @@ export function CreativeAdActionsSection({
       </div>
       {!hasExactAdAuthority ? (
         <p className="mt-2 text-xs leading-5 text-[var(--adc-caution-fg)]">
-          Review only: Meta did not present one exact ad, creative, and account
-          identity for this row. Provider actions stay disabled.
+          Actions are unavailable because this row could not be matched to one
+          confirmed Meta ad. Review it in Ads Manager.
         </p>
       ) : null}
 
@@ -333,7 +338,9 @@ export function CreativeAdActionsSection({
           {historyQuery.isLoading ? (
             <p className="text-sm text-neutral-500">Loading actions...</p>
           ) : historyQuery.isError ? (
-            <p className="text-sm text-[var(--adc-danger-fg)]">Action history unavailable.</p>
+            <p className="text-sm text-[var(--adc-danger-fg)]">
+              Action history unavailable.
+            </p>
           ) : (historyQuery.data ?? []).length === 0 ? (
             <p className="text-sm text-neutral-500">No actions yet.</p>
           ) : (
@@ -348,10 +355,10 @@ export function CreativeAdActionsSection({
                   <span className={historyStatusClassName(item.status)}>
                     {item.status}
                   </span>
-                  {item.errorMessage ? (
+                  {item.errorMessage || item.errorCode ? (
                     <p className="col-span-3 text-[var(--adc-danger-fg)]">
-                      {item.errorCode ? `${item.errorCode}: ` : ""}
-                      {item.errorMessage}
+                      This action could not be completed. Check the ad in Ads
+                      Manager.
                     </p>
                   ) : null}
                 </div>
@@ -447,7 +454,9 @@ export function CreativeAdActionsSection({
                   className="mt-1 h-10 w-full rounded-lg border border-neutral-200 bg-white px-3 text-sm outline-none focus:border-neutral-400 disabled:cursor-not-allowed disabled:bg-neutral-50 disabled:text-neutral-400"
                 >
                   <option value="">
-                    {selectedCampaignId ? "Select active ad set" : "Select campaign first"}
+                    {selectedCampaignId
+                      ? "Select active ad set"
+                      : "Select campaign first"}
                   </option>
                   {selectedCampaignAdsets.map((adset) => (
                     <option key={adset.id} value={adset.id}>
@@ -482,7 +491,6 @@ export function CreativeAdActionsSection({
                     <p>{duplicateMessage}</p>
                     {duplicateResult ? (
                       <div className="mt-1 flex flex-wrap items-center gap-2">
-                        <span className="font-mono text-xs">{duplicateResult.newAdId}</span>
                         {duplicateResult.adsManagerUrl ? (
                           <a
                             href={duplicateResult.adsManagerUrl}
@@ -515,7 +523,8 @@ export function CreativeAdActionsSection({
                 onClick={() => void runDuplicate()}
                 className="inline-flex h-9 items-center gap-2 rounded-lg bg-neutral-900 px-3 text-sm font-semibold text-white hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-45"
               >
-                {duplicateProgress === "submitting" || duplicateProgress === "verifying" ? (
+                {duplicateProgress === "submitting" ||
+                duplicateProgress === "verifying" ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
                 ) : (
                   <Copy className="h-4 w-4" />
@@ -598,23 +607,37 @@ export function resolveManualAdActionCandidateIds(row: MetaCreativeRow) {
 
 function statusClassName(status: string) {
   const base = "rounded border px-2 py-0.5 text-xs font-semibold";
-  if (status === "ACTIVE") return `${base} border-[var(--adc-pos-bd)] bg-[var(--adc-pos-bg)] text-[var(--adc-pos-fg)]`;
-  if (status === "PAUSED") return `${base} border-[var(--adc-caution-bd)] bg-[var(--adc-caution-bg)] text-[var(--adc-caution-fg)]`;
+  if (status === "ACTIVE")
+    return `${base} border-[var(--adc-pos-bd)] bg-[var(--adc-pos-bg)] text-[var(--adc-pos-fg)]`;
+  if (status === "PAUSED")
+    return `${base} border-[var(--adc-caution-bd)] bg-[var(--adc-caution-bg)] text-[var(--adc-caution-fg)]`;
   return `${base} border-neutral-200 bg-neutral-50 text-neutral-600`;
 }
 
+function statusDisplayLabel(status: string) {
+  if (status === "ACTIVE") return "Active";
+  if (status === "PAUSED") return "Paused";
+  return "Status unavailable";
+}
+
 function historyStatusClassName(status: ActionHistoryRow["status"]) {
-  const base = "rounded border px-2 py-0.5 text-center text-[11px] font-semibold";
-  if (status === "success") return `${base} border-[var(--adc-pos-bd)] bg-[var(--adc-pos-bg)] text-[var(--adc-pos-fg)]`;
-  if (status === "silent_failure") return `${base} border-[var(--adc-caution-bd)] bg-[var(--adc-caution-bg)] text-[var(--adc-caution-fg)]`;
-  if (status === "failure") return `${base} border-[var(--adc-danger-bd)] bg-[var(--adc-danger-bg)] text-[var(--adc-danger-fg)]`;
+  const base =
+    "rounded border px-2 py-0.5 text-center text-[11px] font-semibold";
+  if (status === "success")
+    return `${base} border-[var(--adc-pos-bd)] bg-[var(--adc-pos-bg)] text-[var(--adc-pos-fg)]`;
+  if (status === "silent_failure")
+    return `${base} border-[var(--adc-caution-bd)] bg-[var(--adc-caution-bg)] text-[var(--adc-caution-fg)]`;
+  if (status === "failure")
+    return `${base} border-[var(--adc-danger-bd)] bg-[var(--adc-danger-bg)] text-[var(--adc-danger-fg)]`;
   return `${base} border-neutral-200 bg-neutral-50 text-neutral-600`;
 }
 
 function duplicateProgressClassName(progress: DuplicateProgress) {
   const base = "flex items-start gap-2 rounded-xl border px-3 py-2 text-sm";
-  if (progress === "success") return `${base} border-[var(--adc-pos-bd)] bg-[var(--adc-pos-bg)] text-[var(--adc-pos-fg)]`;
-  if (progress === "error") return `${base} border-[var(--adc-danger-bd)] bg-[var(--adc-danger-bg)] text-[var(--adc-danger-fg)]`;
+  if (progress === "success")
+    return `${base} border-[var(--adc-pos-bd)] bg-[var(--adc-pos-bg)] text-[var(--adc-pos-fg)]`;
+  if (progress === "error")
+    return `${base} border-[var(--adc-danger-bd)] bg-[var(--adc-danger-bg)] text-[var(--adc-danger-fg)]`;
   return `${base} border-neutral-200 bg-neutral-50 text-neutral-700`;
 }
 
@@ -629,12 +652,9 @@ function formatTimestamp(value: string) {
   });
 }
 
-function formatActionError(result: ActionResponse, fallback: string) {
-  const code = result.error?.code?.trim();
-  const message = result.error?.message?.trim();
-  if (code && message) return `${code}: ${message}`;
-  if (message) return message;
-  if (code) return code;
+export function formatActionError(_result: ActionResponse, fallback: string) {
+  // Provider and route diagnostics stay in logs. This surface always presents
+  // stable recovery copy rather than rendering a raw code or response message.
   return fallback;
 }
 
@@ -655,9 +675,11 @@ async function fetchCampaigns(
 ): Promise<CampaignPickerRow[]> {
   const url = new URL("/api/meta/campaigns", window.location.origin);
   url.searchParams.set("businessId", businessId);
-  if (providerAccountId) url.searchParams.set("providerAccountId", providerAccountId);
+  if (providerAccountId)
+    url.searchParams.set("providerAccountId", providerAccountId);
   const response = await fetch(url.toString(), { cache: "no-store" });
-  if (!response.ok) throw new Error(`campaign fetch failed: ${response.status}`);
+  if (!response.ok)
+    throw new Error(`campaign fetch failed: ${response.status}`);
   const payload = (await response.json()) as { rows?: CampaignPickerRow[] };
   return Array.isArray(payload.rows) ? payload.rows : [];
 }
@@ -668,7 +690,8 @@ async function fetchAdsets(
 ): Promise<AdsetPickerRow[]> {
   const url = new URL("/api/meta/adsets", window.location.origin);
   url.searchParams.set("businessId", businessId);
-  if (providerAccountId) url.searchParams.set("providerAccountId", providerAccountId);
+  if (providerAccountId)
+    url.searchParams.set("providerAccountId", providerAccountId);
   const response = await fetch(url.toString(), { cache: "no-store" });
   if (!response.ok) throw new Error(`ad set fetch failed: ${response.status}`);
   const payload = (await response.json()) as { rows?: AdsetPickerRow[] };
@@ -685,7 +708,8 @@ async function fetchActionHistory(input: {
   );
   url.searchParams.set("businessId", input.businessId);
   const response = await fetch(url.toString(), { cache: "no-store" });
-  if (!response.ok) throw new Error(`action history fetch failed: ${response.status}`);
+  if (!response.ok)
+    throw new Error(`action history fetch failed: ${response.status}`);
   const payload = (await response.json()) as { rows?: ActionHistoryRow[] };
   return Array.isArray(payload.rows) ? payload.rows : [];
 }
@@ -737,9 +761,9 @@ export async function postManualAdAction(input: {
       }),
     },
   );
-  const payload = (await response.json().catch(() => null)) as
-    | ActionResponse
-    | null;
+  const payload = (await response
+    .json()
+    .catch(() => null)) as ActionResponse | null;
   if (response.ok && payload?.ok) return payload;
   return (
     payload ?? {

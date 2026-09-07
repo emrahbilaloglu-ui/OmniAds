@@ -13,7 +13,6 @@ import type {
 } from "@/lib/meta/automation-control-plane";
 import {
   resolveStopCeremony,
-  STOP_PREFLIGHT_MAX_AGE_MS,
   type StopCeremonyState,
 } from "@/lib/zero-base/meta/automation-posture";
 import type {
@@ -64,9 +63,26 @@ import {
   type PreparationField,
 } from "@/lib/meta/budget-preparation-contract";
 import type { BudgetReadinessReadModel } from "@/lib/meta/budget-readiness-read-model";
+import {
+  formatMinorUnitsForDisplay,
+  resolveMinorUnitExponent,
+  type MinorUnitExponent,
+} from "@/lib/currency/iso-4217-minor-units";
 import styles from "./automation.module.css";
 
 type AutomationPayload = MetaAutomationControlPlane;
+
+export function metaAutomationFreshnessPartialReason(input: {
+  hasProviderAccount: boolean;
+  incomplete: boolean;
+}): string | null {
+  if (!input.hasProviderAccount) {
+    return "Select a Meta account to view automation data.";
+  }
+  return input.incomplete
+    ? "Some automation data is unavailable. Try again."
+    : null;
+}
 
 export interface MetaAutomationPageProps {
   /** A server-authorized route scope. When present, client store state cannot replace it. */
@@ -176,21 +192,20 @@ const MODE_SEGMENT_LABELS: Record<MetaAutomationDecisionMode, string> = {
 };
 
 const ACTIVATION_BLOCKER_LABELS: Record<BudgetActivationCondition, string> = {
-  control_row_absent: "Save this business's automation guardrails.",
-  global_gate_closed: "The production live-write capability is still closed.",
+  control_row_absent: "Save the automation limits below.",
+  global_gate_closed: "Automatic Meta actions are not available yet.",
   business_stop_engaged: "Release the business emergency stop.",
   budget_mode_not_auto: "Set Budget to Automatic.",
-  dry_run_guardrail_engaged: "Turn off dry-run-only in the saved guardrails.",
+  dry_run_guardrail_engaged: "Turn off preview-only mode in the saved limits.",
   canonical_fact_retention_not_ready:
-    "Historical canonical-decision retention is not yet proven.",
-  profile_retention_not_ready:
-    "Performance-profile retention is not yet proven.",
+    "More verified account history is needed.",
+  profile_retention_not_ready: "More verified performance history is needed.",
   automatic_role_retention_not_ready:
-    "Automatic campaign-role history is not yet proven.",
-  account_scope_not_exact: "Select and verify exactly one Meta ad account.",
-  journal_schema_not_ready: "The execution journal is not ready.",
-  unresolved_reconciliation: "Resolve the in-progress provider reconciliation.",
-  open_claim: "Wait for or clear the open execution claim.",
+    "More verified campaign history is needed.",
+  account_scope_not_exact: "Select one Meta ad account.",
+  journal_schema_not_ready: "Action history is not ready yet.",
+  unresolved_reconciliation: "Wait for the current Meta action to finish.",
+  open_claim: "Wait for the current Meta action to finish.",
 };
 
 function activationBlockerLabel(code: string): string {
@@ -199,21 +214,31 @@ function activationBlockerLabel(code: string): string {
   }
   return (
     ACTIVATION_BLOCKER_LABELS[code as BudgetActivationCondition] ??
-    code.replaceAll("_", " ").replace(/^./, (letter) => letter.toUpperCase())
+    "One setup requirement is not ready yet."
   );
+}
+
+function compactMetaAccountId(providerAccountId: string | null): string | null {
+  if (!providerAccountId) return null;
+  const accountId = providerAccountId.replace(/^act_/, "");
+  if (accountId.length <= 2) return `••${accountId.slice(-1)}`;
+  if (accountId.length <= 7) {
+    return `${accountId.slice(0, 1)}…${accountId.slice(-2)}`;
+  }
+  return `${accountId.slice(0, 3)}…${accountId.slice(-4)}`;
 }
 
 const PREPARATION_FIELD_LABELS: Record<
   (typeof BUDGET_PREPARATION_FIELDS)[number],
   string
 > = {
-  dryRunOnly: "dry-run choice",
-  budgetMinHoursBetweenChanges: "minimum hours between changes",
-  budgetMaxChangesPer7d: "maximum changes per 7 days",
-  budgetMaxAccountConcentrationPct: "maximum account concentration",
-  maxBudgetIncreasePct: "maximum single increase",
-  perActionSpendCeilingMinor: "per-action spend ceiling",
-  perActionSpendCeilingCurrency: "spend-ceiling currency",
+  dryRunOnly: "preview setting",
+  budgetMinHoursBetweenChanges: "minimum time between changes",
+  budgetMaxChangesPer7d: "maximum changes per week",
+  budgetMaxAccountConcentrationPct: "maximum account budget share",
+  maxBudgetIncreasePct: "maximum increase per change",
+  perActionSpendCeilingMinor: "spend limit",
+  perActionSpendCeilingCurrency: "spend-limit currency",
 };
 
 /**
@@ -355,26 +380,24 @@ function readFailureFor(input: {
  */
 const READ_FAILURE_MESSAGES: Record<string, string> = {
   automation_control_plane_unavailable:
-    "Automation could not be read, so every figure below is unknown rather than zero.",
+    "Automation is unavailable right now. Refresh to try again.",
   automation_control_state_unavailable:
-    "The automation control state could not be read, so the kill switch, guardrails and readiness above are unknown rather than the defaults they would otherwise show.",
+    "Automation status is unavailable right now. Refresh to try again.",
   provider_account_scope_unresolved:
-    "No Meta ad account is resolved for this business, so Automation was never read — the confirmation queue and every account-scoped figure below is unknown rather than empty.",
+    "Choose a Meta ad account to see its automation status.",
   provider_account_none_assigned:
-    "No Meta ad account is assigned to this business, so Automation has nothing to read.",
+    "No Meta ad account is assigned to this business.",
   provider_account_not_assigned:
-    "The requested Meta ad account is not assigned to this business, so Automation was never read.",
+    "That Meta ad account is not assigned to this business.",
   provider_account_scope_unavailable:
-    "Meta account assignments could not be read, so Automation was never read — every figure below is unknown rather than zero.",
+    "Meta ad accounts are unavailable right now. Refresh to try again.",
   // Codes the route returns that previously arrived here flattened into the
   // general sentence. Each says what actually happened and what to do, because
   // "could not be read" is true of all of them and useful for none.
   automation_contract_failed:
-    "Automation was read and the control plane failed while answering, so every figure below is unknown rather than zero. Retrying is safe — nothing on this screen has been changed.",
-  unauthorized:
-    "Your session is no longer signed in, so Automation was never read. Sign in again to see the current control state.",
-  forbidden:
-    "You do not have access to this business's Automation controls, so nothing below was read.",
+    "Automation is unavailable right now. Refresh to try again.",
+  unauthorized: "Your session has expired. Sign in again to see Automation.",
+  forbidden: "You do not have access to Automation for this business.",
 };
 
 /**
@@ -400,6 +423,65 @@ function readFailureMessage(code: string) {
     metaFailureMessage(code) ??
     READ_FAILURE_MESSAGES.automation_control_plane_unavailable!
   );
+}
+
+function automationRefusalMessage(
+  code: AutomationViewerEnvelope["reasonCode"],
+): string {
+  switch (code) {
+    case "reviewer_read_only":
+      return "This workspace is read-only.";
+    case "demo_business_read_only":
+      return "Automation changes are unavailable in demo workspaces.";
+    case "demo_status_unverified":
+      return "Automation changes are unavailable right now.";
+    case "insufficient_role":
+      return "Collaborator access is required to change automation.";
+    default:
+      return "Automation changes are unavailable from this view.";
+  }
+}
+
+function automaticActionsRefusalMessage(
+  code: BudgetMasterSwitchAuthorization["reasonCode"],
+): string {
+  switch (code) {
+    case "reviewer_read_only":
+      return "This workspace is read-only.";
+    case "demo_business_read_only":
+      return "Automatic actions are unavailable in demo workspaces.";
+    case "insufficient_role":
+      return "Admin access is required to change automatic actions.";
+    case "read_only_surface":
+      return "Open Automation on desktop to change automatic actions.";
+    case "demo_status_unverified":
+    case "viewer_not_established":
+      return "Automatic actions are unavailable right now.";
+    default:
+      return "Automatic actions cannot be changed from here.";
+  }
+}
+
+function stopBlockerMessage(
+  code: NonNullable<StopCeremonyState["blocker"]>["code"],
+  intent: "engage" | "release",
+): string {
+  switch (code) {
+    case "preflight_unavailable":
+    case "preflight_stale":
+    case "state_unavailable":
+      return "Refresh before changing the emergency stop.";
+    case "gate_closed":
+      return "The emergency stop is unavailable right now.";
+    case "reviewer":
+      return "This workspace is read-only.";
+    case "demo":
+      return "The emergency stop is unavailable in demo workspaces.";
+    case "insufficient_role":
+      return intent === "release"
+        ? "Admin access is required to release the emergency stop."
+        : "Collaborator access is required to use the emergency stop.";
+  }
 }
 
 function businessControlIsDefault(payload: AutomationPayload | null) {
@@ -501,7 +583,7 @@ function guardrailsFor(
        * unstated, which made an approval look like an action.
        */
       key: "dry-run",
-      label: "Approvals reach Meta",
+      label: "Approved actions",
       /*
        * The EFFECTIVE posture, not the column's alone. Either lock closes it,
        * and the server applies exactly this rule in `metaAutomationDryRunOnly`,
@@ -511,20 +593,20 @@ function guardrailsFor(
        */
       value: guardrails
         ? guardrails.dryRunOnly || liveWritesRefusalReason
-          ? "No — dry run only"
-          : "Yes"
+          ? "Preview only"
+          : "Sent to Meta"
         : UNKNOWN,
     },
     {
       key: "budget-change",
-      label: "Max budget change / day",
+      label: "Maximum budget increase",
       value: guardrails
         ? `+${formatNumber(guardrails.maxBudgetIncreasePct)}% max`
         : UNKNOWN,
     },
     {
       key: "roas-floor",
-      label: "Min ROAS floor (pause)",
+      label: "Pause below ROAS",
       value:
         typeof guardrails?.minRoasFloor === "number"
           ? formatRoas(guardrails.minRoasFloor)
@@ -532,7 +614,7 @@ function guardrailsFor(
     },
     {
       key: "actions-per-day",
-      label: "Max actions / day",
+      label: "Maximum actions per day",
       value: guardrails ? formatNumber(guardrails.dailyAutoActionCap) : UNKNOWN,
     },
     {
@@ -600,7 +682,12 @@ function autonomyFor(
    * kind's autonomy.
    */
   return [
-    mapped(`Budget changes ≤ ${budgetLimit}`, "budget"),
+    mapped(
+      budgetLimit === UNKNOWN
+        ? "Budget changes"
+        : `Budget changes ≤ ${budgetLimit}`,
+      "budget",
+    ),
     mapped("Pause / resume", "pause"),
     mapped("Bid changes", "bid"),
     mapped("Creative rotation", "creative"),
@@ -632,6 +719,24 @@ const LEDGER_ENTITY_LABELS: Record<string, string> = {
   creative: "Creative rotation",
 };
 
+const LEDGER_ACTION_LABELS: Record<string, string> = {
+  business_kill_switch_engaged: "Automation stopped",
+  business_kill_switch_released: "Automation resumed",
+  decision_type_mode_change: "Action mode changed",
+  automation_guardrail_policy_updated: "Limits updated",
+  automation_rule_created: "Rule created",
+  automation_rule_enabled: "Rule enabled",
+  automation_rule_disabled: "Rule disabled",
+  automation_proposal_approved: "Action approved",
+  automation_proposal_modify: "Action modified",
+  automation_proposal_dismiss: "Action dismissed",
+  automation_proposal_failed: "Action failed",
+  automation_proposal_reconcile: "Action needs review",
+  budget_auto_execution_enabled: "Automatic actions enabled",
+  budget_auto_execution_disabled: "Automatic actions disabled",
+  budget_automation_configuration_saved: "Automation limits updated",
+};
+
 function ledgerActorFor(item: MetaAutomationActivityItem) {
   return item.actor?.name?.trim() || UNKNOWN;
 }
@@ -643,7 +748,16 @@ function ledgerEntityFor(item: MetaAutomationActivityItem) {
   if (entity.type === "automation_decision_type" && entity.id) {
     return LEDGER_ENTITY_LABELS[entity.id] ?? entity.id;
   }
-  return entity.id?.trim() || UNKNOWN;
+  if (entity.type === "campaign") return "Campaign";
+  if (entity.type === "adset") return "Ad set";
+  if (entity.type === "ad") return "Ad";
+  if (entity.type === "business") return "Business";
+  return "Automation";
+}
+
+function ledgerActionFor(item: MetaAutomationActivityItem) {
+  if (item.activityType.startsWith("meta_")) return "Meta action";
+  return LEDGER_ACTION_LABELS[item.activityType] ?? "Automation updated";
 }
 
 function ledgerResultFor(
@@ -651,9 +765,6 @@ function ledgerResultFor(
 ): LedgerResultPresentation {
   const result = item.result;
   if (!result) return { label: UNKNOWN, tone: "unknown" };
-  if (result.receiptId) {
-    return { label: `Receipt ${result.receiptId}`, tone: result.status };
-  }
   const label = LEDGER_RESULT_LABELS[result.status];
   return label
     ? { label, tone: result.status }
@@ -917,8 +1028,8 @@ function AutomationRuleComposer({
         </label>
       </div>
       <p className={styles.ruleComposerNote}>
-        Rules raise proposals into the confirmation queue. Nothing created here
-        can execute a provider write.
+        Rules create suggestions for approval. They never change ads on Meta by
+        themselves.
       </p>
       {error ? (
         <p className={styles.ruleError} role="status">
@@ -986,7 +1097,8 @@ function AutomationAccountPicker({
         </option>
         {accounts.map((account) => (
           <option key={account.id} value={account.id}>
-            {account.name ?? account.id}
+            {account.name?.trim() ||
+              `Meta account ${compactMetaAccountId(account.id) ?? ""}`.trim()}
             {account.currency ? ` · ${account.currency}` : ""}
           </option>
         ))}
@@ -1203,6 +1315,8 @@ export function MetaAutomationView({
         },
       })
     : null;
+  const automationStopped =
+    payload?.globalKillSwitch.engaged === true || stopEngaged;
   /**
    * The phrase, per DIRECTION rather than per payload.
    *
@@ -1249,8 +1363,7 @@ export function MetaAutomationView({
           } | null;
           if (!response.ok || body?.ok === false) {
             setStopError(
-              body?.error?.message ??
-                "The stop could not be changed, and nothing on Meta was altered.",
+              "The emergency stop could not be changed. Refresh and try again.",
             );
             return;
           }
@@ -1283,7 +1396,9 @@ export function MetaAutomationView({
           });
         })
         .catch(() => {
-          setStopError("The automation control plane could not be reached.");
+          setStopError(
+            "The emergency stop could not be changed. Refresh and try again.",
+          );
         })
         .finally(() => setStopPending(false));
     },
@@ -1319,6 +1434,7 @@ export function MetaAutomationView({
     ) => {
       if (!businessId || !providerAccountId || modePending) return;
       if (!viewer.canMutate) return;
+      if (mode === "auto" && viewer.role !== "admin") return;
       setModePending(decisionType);
       setModeError((previous) => ({ ...previous, [decisionType]: "" }));
       setModeSaved((previous) => ({ ...previous, [decisionType]: "" }));
@@ -1343,9 +1459,7 @@ export function MetaAutomationView({
           if (!response.ok || body?.ok === false) {
             setModeError((previous) => ({
               ...previous,
-              [decisionType]:
-                body?.error?.message ??
-                "The autonomy mode could not be changed, and nothing on Meta was altered.",
+              [decisionType]: "Action mode could not be changed.",
             }));
             return;
           }
@@ -1357,7 +1471,7 @@ export function MetaAutomationView({
             setModeError((previous) => ({
               ...previous,
               [decisionType]:
-                "The change was accepted but the control plane could not be re-read, so this row may be stale.",
+                "The change was saved, but could not be confirmed. Refresh to check it.",
             }));
             return;
           }
@@ -1375,14 +1489,13 @@ export function MetaAutomationView({
             [decisionType]:
               stored?.mode === mode
                 ? `Saved — ${MODE_LABELS[mode]}`
-                : "Saved, but the control plane reports a different mode. Re-read shown.",
+                : "Saved, but the current mode could not be confirmed.",
           }));
         })
         .catch(() => {
           setModeError((previous) => ({
             ...previous,
-            [decisionType]:
-              "The automation control plane could not be reached.",
+            [decisionType]: "Automation is unavailable.",
           }));
         })
         .finally(() => setModePending(null));
@@ -1392,6 +1505,7 @@ export function MetaAutomationView({
       providerAccountId,
       modePending,
       viewer.canMutate,
+      viewer.role,
       onRulesChanged,
     ],
   );
@@ -1411,8 +1525,9 @@ export function MetaAutomationView({
   */
   const onGuardrailPolicySaved = useCallback(async () => {
     if (!businessId || !providerAccountId) return;
-    const next = await readAutomation({ businessId, providerAccountId })
-      .catch(() => null);
+    const next = await readAutomation({ businessId, providerAccountId }).catch(
+      () => null,
+    );
     if (next) onRulesChanged?.(next);
   }, [businessId, providerAccountId, onRulesChanged]);
   const autonomy = autonomyFor(payload);
@@ -1491,6 +1606,26 @@ export function MetaAutomationView({
    * about the refusal from a 403 after the click.
    */
   const canMutate = Boolean(businessId) && accountResolved && viewer.canMutate;
+  const automationStatus =
+    businessMasterSwitchState === UNKNOWN
+      ? "Unavailable"
+      : automationStopped
+        ? "Stopped"
+        : businessMasterSwitchState === "OFF"
+          ? "Off"
+          : payload?.execution.autoExecutionAllowed
+            ? "On"
+            : "Needs setup";
+  const automationStatusCopy =
+    automationStatus === "On"
+      ? "Eligible Meta actions can run automatically within your saved limits."
+      : automationStatus === "Off"
+        ? "Adsecute can recommend changes, but nothing runs automatically."
+        : automationStatus === "Stopped"
+          ? "All automatic Meta actions are paused for this business."
+          : automationStatus === "Needs setup"
+            ? "Automatic actions are selected, but setup still needs attention."
+            : "Automation status is unavailable. Refresh before making a change.";
 
   const rules = buildAutomationRulesViewModel({
     payload,
@@ -1514,10 +1649,8 @@ export function MetaAutomationView({
         active: !row.active,
       });
       onRulesChanged?.(next);
-    } catch (error) {
-      setRuleError(
-        error instanceof Error ? error.message : "Rule change was not applied.",
-      );
+    } catch {
+      setRuleError("The rule could not be changed. Try again.");
     } finally {
       setPendingRuleId(null);
     }
@@ -1535,14 +1668,175 @@ export function MetaAutomationView({
       });
       onRulesChanged?.(next);
       setComposerOpen(false);
-    } catch (error) {
-      setRuleError(
-        error instanceof Error ? error.message : "Rule was not created.",
-      );
+    } catch {
+      setRuleError("The rule could not be created. Try again.");
     } finally {
       setComposerBusy(false);
     }
   }
+
+  const renderActionModes = (surface: AutomationSurface) => (
+    <article
+      className={styles.autonomyCard}
+      data-testid={`automation-action-modes-${surface}`}
+    >
+      <div className={styles.sectionHeaderCompact}>
+        <h2>Action modes</h2>
+        <span className={styles.sectionHint}>
+          Choose how each kind of change is handled
+        </span>
+      </div>
+      {autonomy.map((item) => {
+        const current = item.decisionType
+          ? currentModeFor(payload, item.decisionType)
+          : null;
+        return (
+          <div
+            className={styles.autonomyRow}
+            data-decision-type={item.decisionType ?? "launch"}
+            key={`${surface}-${item.kind}`}
+          >
+            <div className={styles.autonomyTopline}>
+              <span className={styles.autonomyKind}>{item.kind}</span>
+              {!item.decisionType ? (
+                <span className={styles.autonomyTier} data-tone="manual">
+                  Always manual
+                </span>
+              ) : surface === "mobile" ? (
+                <span className={styles.autonomyTier} data-tone={item.tone}>
+                  {current ? MODE_SEGMENT_LABELS[current] : "Not set"}
+                </span>
+              ) : null}
+            </div>
+            {item.decisionType && surface === "desktop" ? (
+              <div
+                className={styles.modeGroup}
+                role="radiogroup"
+                aria-label={`Action mode — ${item.kind}`}
+                data-ctl="gated:AUTO-03 mode"
+              >
+                {AUTONOMY_MODES.map((mode) => {
+                  const refused =
+                    !canMutate || (mode === "auto" && viewer.role !== "admin");
+                  const refusalMessage = !canMutate
+                    ? !businessId
+                      ? "Choose a business and Meta ad account first."
+                      : !accountResolved
+                        ? "Choose a Meta ad account first."
+                        : automationRefusalMessage(viewer.reasonCode)
+                    : mode === "auto" && viewer.role !== "admin"
+                      ? "Admin access is required to turn on automatic actions."
+                      : undefined;
+                  return (
+                    <button
+                      key={mode}
+                      type="button"
+                      className={styles.modeSegment}
+                      role="radio"
+                      aria-checked={current === mode}
+                      data-mode={mode}
+                      data-mode-refused={refused ? "" : undefined}
+                      disabled={refused || modePending === item.decisionType}
+                      title={refusalMessage}
+                      aria-label={MODE_LABELS[mode]}
+                      onClick={() => onModeChange(item.decisionType!, mode)}
+                    >
+                      {MODE_SEGMENT_LABELS[mode]}
+                    </button>
+                  );
+                })}
+              </div>
+            ) : null}
+            {item.decisionType && modeError[item.decisionType] ? (
+              <p
+                className={styles.autonomyNext}
+                data-field={`mode-error-${item.decisionType}`}
+                role="status"
+              >
+                {modeError[item.decisionType]}
+              </p>
+            ) : null}
+            {item.decisionType && modeSaved[item.decisionType] ? (
+              <p
+                className={styles.autonomyNext}
+                data-field={`mode-saved-${item.decisionType}`}
+                role="status"
+              >
+                {modeSaved[item.decisionType]}
+              </p>
+            ) : null}
+          </div>
+        );
+      })}
+    </article>
+  );
+
+  const renderRecentActivity = (surface: AutomationSurface) => (
+    <article
+      className={styles.ledgerCard}
+      data-testid={`automation-recent-activity-${surface}`}
+    >
+      <div className={styles.ledgerHeader}>
+        <h2>Recent activity</h2>
+      </div>
+      <div
+        className={styles.tableScroll}
+        role="region"
+        tabIndex={0}
+        aria-label="Recent activity table, scrolls sideways"
+      >
+        <table className={styles.ledgerTable}>
+          <thead>
+            <tr>
+              <th>Time</th>
+              <th>Action</th>
+              <th>Item</th>
+              <th>Result</th>
+            </tr>
+          </thead>
+          <tbody>
+            {ledger.length > 0 ? (
+              ledger.slice(0, 8).map((item) => {
+                const result = ledgerResultFor(item);
+                return (
+                  <tr data-ledger-id={item.id} key={`${surface}-${item.id}`}>
+                    <td className={styles.ledgerTime}>
+                      {formatLedgerTime(item.createdAt)}
+                    </td>
+                    <td className={styles.ledgerAction}>
+                      {ledgerActionFor(item)}
+                    </td>
+                    <td data-field="ledger-entity">{ledgerEntityFor(item)}</td>
+                    <td>
+                      <span
+                        className={styles.ledgerResult}
+                        data-field="ledger-result"
+                        data-tone={result.tone}
+                      >
+                        {result.label}
+                      </span>
+                    </td>
+                  </tr>
+                );
+              })
+            ) : (
+              <tr
+                className={styles.ledgerEmpty}
+                data-testid="ledger-empty"
+                data-proven-empty={ledgerIsProvenEmpty ? "true" : "false"}
+              >
+                <td colSpan={4}>
+                  {ledgerIsProvenEmpty
+                    ? "No recent activity"
+                    : "Activity is unavailable"}
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </article>
+  );
 
   return (
     <div className={styles.page}>
@@ -1551,10 +1845,13 @@ export function MetaAutomationView({
         data-screen-label="Automation"
         data-testid="automation-exact-desktop"
       >
-        <div>
-          <p className={styles.eyebrow}>Meta · Automation control</p>
+        <header>
           <h1 className={styles.title}>Automation</h1>
-        </div>
+          <p className={styles.pageIntro}>
+            Choose which Meta actions need approval and which can run
+            automatically.
+          </p>
+        </header>
 
         <article
           className={styles.operatingState}
@@ -1562,55 +1859,22 @@ export function MetaAutomationView({
           data-business-master-switch={businessMasterSwitchState.toLowerCase()}
         >
           <div>
-            <p className={styles.operatingStateEyebrow}>
-              Business-wide setting
-            </p>
-            <h2>Business master switch is {businessMasterSwitchState}</h2>
-            <p>
-              {businessMasterSwitchState === "OFF"
-                ? "No Meta change can run automatically for this business. You can finish configuration, historical backtests and readiness checks without turning it on."
-                : businessMasterSwitchState === "ON"
-                  ? payload?.execution.autoExecutionAllowed
-                    ? "The business master switch is on and the business-level safety gates currently allow automatic execution. The exact account activation and every proposal preflight must still pass before Meta can change."
-                    : "The business master switch is on, but effective automatic execution is blocked by the current safety state. Review the blockers below; no Meta change can run automatically while they remain."
-                  : "The server could not prove the business master-switch setting. Writes remain fail-closed until the control state can be read."}
-            </p>
-            {budgetWriteReadiness ? (
-              <a
-                className={styles.operatingStateLink}
-                href="#automatic-execution-control"
-              >
-                Review setup and execution controls
-              </a>
-            ) : null}
+            <p className={styles.operatingStateEyebrow}>Status</p>
+            <h2>{automationStatus}</h2>
+            <p>{automationStatusCopy}</p>
           </div>
           <dl>
-            <div>
-              <dt>Readiness</dt>
-              <dd>{readiness}</dd>
-            </div>
             <div>
               <dt>Pending approvals</dt>
               <dd>{proposals.count}</dd>
             </div>
             <div>
-              <dt>Activation blockers</dt>
-              <dd>
-                {budgetWriteReadiness
-                  ? budgetWriteReadiness.execution.activationReadyBlockers
-                      .length
-                  : UNKNOWN}
-              </dd>
+              <dt>Emergency stop</dt>
+              <dd>{automationStopped ? "Active" : "Not active"}</dd>
             </div>
           </dl>
         </article>
 
-        {/*
-          The failure state's own recovery. The read this re-runs is the one
-          that already exists; without a control to invoke it the only way back
-          from a transient failure was a full page reload, and the screen gave
-          no sign that a reload was what it needed.
-        */}
         {readFailure ? (
           <p
             className={styles.readError}
@@ -1619,11 +1883,6 @@ export function MetaAutomationView({
             data-reason={readFailure}
           >
             <span>{readFailureMessage(readFailure)}</span>
-            {/*
-              The way out of the dead end, mounted only here. In the resolved
-              state this whole notice does not render, so the design's surface
-              is untouched.
-            */}
             {onSelectProviderAccount && !providerAccountId ? (
               <AutomationAccountPicker
                 accounts={providerAccounts}
@@ -1643,192 +1902,7 @@ export function MetaAutomationView({
           </p>
         ) : null}
 
-        <div className={styles.summaryGrid}>
-          <article className={styles.killCard}>
-            <p className={styles.cardKickerDark}>Emergency stops</p>
-            <div className={styles.killRow}>
-              {/*
-                Was "Global writes". The switch behind it is
-                `META_ADS_WRITE_KILL_SWITCH`, which only `lib/meta/ads-write.ts`
-                and the Meta routes read — `lib/google-ads/advisor-mutate.ts`
-                neither reads it nor imports anything from the Meta control
-                plane. "Global" therefore claimed a reach the control does not
-                have, and an operator reaching for it in an incident would have
-                believed Google Ads had stopped too.
-              */}
-              <span>All-business Meta stop</span>
-              <span
-                className={styles.statusPill}
-                data-tone={globalStatus.tone}
-                data-field="global-writes"
-                data-read-only="true"
-              >
-                {globalStatus.label}
-              </span>
-            </div>
-            <div className={styles.killRow}>
-              <span>This-business Meta stop</span>
-              <span
-                className={styles.statusPill}
-                data-tone={businessStatus.tone}
-                data-field="business-writes"
-              >
-                {businessStatus.label}
-              </span>
-            </div>
-            {/*
-              The Stop itself, which this screen described and never offered.
-              WP13 left it out deliberately, and "deliberately absent" reads on
-              screen as "this product cannot stop Meta writes" — which is false,
-              and dangerous in the moment an operator needs it.
-
-              Engage is held by `META_AUTOMATION_STOP_UI` and stays visible with
-              its reason: a control that vanishes teaches an operator there is
-              nothing here to reach for. Release is NEVER held, at any gate
-              setting — a stop that cannot be lifted is the trap the gate was
-              written to avoid.
-            */}
-            <MetaStopControl
-              surface="desktop"
-              payload={payload}
-              viewer={viewer}
-              stopEngaged={stopEngaged}
-              stopPending={stopPending}
-              stopError={stopError}
-              stopConfirm={stopConfirm}
-              stopTyped={stopTyped}
-              stopAborted={stopAborted}
-              stopIntent={stopIntent}
-              stopCeremony={stopCeremony}
-              stopOutcome={stopOutcome}
-              stopEngageRefusalReason={stopEngageRefusalReason}
-              stopPhraseFor={stopPhraseFor}
-              setStopConfirm={setStopConfirm}
-              setStopTyped={setStopTyped}
-              setStopAborted={setStopAborted}
-              onStopControl={onStopControl}
-            />
-            <p
-              className={styles.killNote}
-              data-field="kill-switch-scope"
-              /*
-               * H19's `google-posture-row`. This IS the row that states
-               * Google's posture: that neither switch above reaches it. The
-               * artboard requires the claim to be addressable, because "one
-               * switch stops everything" is the belief this sentence exists to
-               * correct.
-               */
-              data-el="google-posture-row"
-            >
-              Flipping either switch blocks every <b>Meta</b> write instantly —
-              server-enforced, not a UI state.{" "}
-              <b>No control on this screen stops Google Ads writes.</b>
-            </p>
-          </article>
-
-          <article
-            className={styles.guardrailCard}
-            /*
-             * H19 requires the guardrails to be addressable AND to say that
-             * they are read-only here — `AUTO-05..10 remain read-only rows` in
-             * the interaction manifest. They are: every row below renders a
-             * label and a value with no control.
-             */
-            data-el="guardrails-readonly"
-            /*
-             * The KIND, not the artboard-prefixed id. `collectionKind` in
-             * `verify-reference-anatomy.ts` strips the `h19-` prefix before
-             * comparing, so the prefixed value the manifest lists is never what
-             * a body should carry — a marker written as `h19-guardrails` is a
-             * marker the gate looks for and cannot find.
-             */
-          >
-            <p className={styles.cardKicker}>
-              Guardrails
-              {hasServedBusinessControl(payload) &&
-              businessControlIsDefault(payload) ? (
-                // These are the system defaults, and they are in force: every
-                // approval on this screen is a dry run because `dryRunOnly`
-                // defaults true. Naming them as defaults is the difference
-                // between "nobody set a limit" and "nobody set a limit, so
-                // these apply".
-                //
-                // Gated on the read having happened, because an unread control
-                // also arrives with `source: "default"`. Saying "defaults, not
-                // set here" there asserts nobody configured a guardrail, when
-                // what actually happened is that the server could not find out
-                // — the opposite claim, beside four em dashes.
-                <span data-field="guardrail-source">
-                  {" "}
-                  · defaults, not set here
-                </span>
-              ) : null}
-            </p>
-            {/*
-              The collection NESTED inside the region, which is where the
-              reference puts it. `data-el="guardrails-readonly"` and
-              `data-collection="guardrails"` were on the same element, and the
-              fidelity gate reads ownership from the tree: it reported
-              `wrong-owner — reference nests this inside el:guardrails-readonly;
-              implementation nests it under the frame root`. A marker in the
-              right document but the wrong place is not the same marker.
-            */}
-            <div data-collection="guardrails">
-              {guardrails.map((guardrail) => (
-                <div
-                  className={styles.guardrailRow}
-                  data-field={`guardrail-${guardrail.key}`}
-                  key={guardrail.key}
-                >
-                  <span>{guardrail.label}</span>
-                  <strong>{guardrail.value}</strong>
-                </div>
-              ))}
-            </div>
-            {/*
-              Two of those rows were readable and unsettable.
-
-              The ROAS floor gates whether a pause is even proposed, and quiet
-              hours decide when an alert may interrupt someone — both persisted,
-              both server-enforced, and neither reachable from any screen. The
-              route has accepted `set_guardrail_policy` all along; nothing sent
-              it. A limit an operator cannot set is a limit that belongs to
-              whoever last edited the database.
-            */}
-            <GuardrailPolicyForm
-              businessId={businessId}
-              providerAccountId={providerAccountId}
-              canMutate={viewer.canMutate}
-              minRoasFloor={payloadGuardrails?.minRoasFloor ?? null}
-              quietHours={payloadGuardrails?.quietHours ?? null}
-              onSaved={onGuardrailPolicySaved}
-            />
-          </article>
-
-          <article className={styles.readinessCard}>
-            <p className={styles.cardKicker}>Readiness</p>
-            <span className={styles.readinessBadge} data-field="readiness-tier">
-              {readiness}
-            </span>
-            <p className={styles.readinessCopy}>
-              {showCanonicalReadinessCopy ? (
-                <>
-                  Every action requires operator confirmation. Per-action
-                  auto-execute is <b>locked · contract required</b> — promotion
-                  records will unlock tiers per action kind.
-                </>
-              ) : (
-                UNKNOWN
-              )}
-            </p>
-            <span
-              className={styles.promotionCount}
-              data-field="promotion-count"
-            >
-              {promotionCount}
-            </span>
-          </article>
-        </div>
+        {renderActionModes("desktop")}
 
         <ConfirmationQueue
           surface="desktop"
@@ -1849,369 +1923,198 @@ export function MetaAutomationView({
           ledgerEvidence={ledgerEvidence}
         />
 
+        {renderRecentActivity("desktop")}
+
         <details className={styles.advancedAutomation}>
           <summary>
-            <span>Advanced automation settings</span>
-            <small>Rules, autonomy tiers and activity history</small>
+            <span>Controls and limits</span>
           </summary>
           <div className={styles.advancedAutomationBody}>
-            <div className={styles.rulesAutonomyGrid}>
-              <article className={styles.rulesCard}>
-                <div className={styles.sectionHeader}>
-                  <h2>Rules</h2>
-                  <span className={styles.sectionHint}>
-                    deterministic triggers · anchored to the Commercial Truth
-                    pack
-                  </span>
-                  <button
-                    type="button"
-                    className={styles.newRule}
-                    disabled={!rules.canCreate || composerOpen}
-                    aria-disabled={!rules.canCreate || composerOpen}
-                    aria-expanded={composerOpen}
-                    onClick={
-                      rules.canCreate ? () => setComposerOpen(true) : undefined
-                    }
+            <div className={styles.summaryGrid}>
+              <article className={styles.killCard}>
+                <p className={styles.cardKickerDark}>Emergency stop</p>
+                <div className={styles.killRow}>
+                  <span>Status</span>
+                  <span
+                    className={styles.statusPill}
+                    data-tone={businessStatus.tone}
+                    data-field="business-writes"
                   >
-                    + New rule
-                  </button>
+                    {stopEngaged ? "ON" : "OFF"}
+                  </span>
                 </div>
-                <div className={styles.tableScroll}>
-                  <table className={styles.rulesTable}>
-                    <thead>
-                      <tr>
-                        <th>Rule</th>
-                        <th>Then</th>
-                        <th>Mode</th>
-                        <th>Fired · 28d</th>
-                        <th>Active</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {rules.rows && rules.rows.length > 0 ? (
-                        rules.rows.map((row) => (
-                          <AutomationRuleRow
-                            key={row.id}
-                            row={row}
-                            busy={pendingRuleId === row.id}
-                            canMutate={canMutate}
-                            onToggle={() => void toggleRule(row)}
-                          />
-                        ))
-                      ) : (
-                        // "No rules exist" and "the rules could not be read" are
-                        // different facts, and the adapter has already separated
-                        // them. Collapsing both into an em dash told an operator
-                        // who had just created a rule the same thing it told one
-                        // whose read had failed. Same rule as `0×` on the Fired
-                        // column: a proven zero is a fact and is stated as one.
-                        <tr
-                          className={styles.rulesEmpty}
-                          data-testid="rules-empty"
-                          data-proven-empty={
-                            rules.isProvenEmpty ? "true" : "false"
-                          }
-                        >
-                          <td colSpan={5}>
-                            {rules.isProvenEmpty ? "No rules yet" : UNKNOWN}
-                          </td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-                {composerOpen ? (
-                  <AutomationRuleComposer
-                    busy={composerBusy}
-                    error={ruleError}
-                    onCancel={() => {
-                      setComposerOpen(false);
-                      setRuleError(null);
-                    }}
-                    onSubmit={(draft) => void createRule(draft)}
-                  />
-                ) : ruleError ? (
-                  <p className={styles.ruleError} role="status">
-                    {ruleError}
-                  </p>
-                ) : null}
-                <p className={styles.sectionFootnote}>
-                  rules never write directly — they raise proposals into the
-                  confirmation queue (or hard-block, for guards)
-                </p>
+                <MetaStopControl
+                  surface="desktop"
+                  payload={payload}
+                  viewer={viewer}
+                  stopEngaged={stopEngaged}
+                  stopPending={stopPending}
+                  stopError={stopError}
+                  stopConfirm={stopConfirm}
+                  stopTyped={stopTyped}
+                  stopAborted={stopAborted}
+                  stopIntent={stopIntent}
+                  stopCeremony={stopCeremony}
+                  stopOutcome={stopOutcome}
+                  stopEngageRefusalReason={stopEngageRefusalReason}
+                  stopPhraseFor={stopPhraseFor}
+                  setStopConfirm={setStopConfirm}
+                  setStopTyped={setStopTyped}
+                  setStopAborted={setStopAborted}
+                  onStopControl={onStopControl}
+                />
               </article>
 
-              <article className={styles.autonomyCard}>
-                <div className={styles.sectionHeaderCompact}>
-                  <h2>Autonomy ladder</h2>
-                  <span className={styles.sectionHint}>per action kind</span>
+              <article
+                className={styles.guardrailCard}
+                data-el="guardrails-readonly"
+              >
+                <p className={styles.cardKicker}>Limits</p>
+                <div data-collection="guardrails">
+                  {guardrails.map((guardrail) => (
+                    <div
+                      className={styles.guardrailRow}
+                      data-field={`guardrail-${guardrail.key}`}
+                      key={guardrail.key}
+                    >
+                      <span>{guardrail.label}</span>
+                      <strong>{guardrail.value}</strong>
+                    </div>
+                  ))}
                 </div>
-                {autonomy.map((item) => (
-                  <div
-                    className={styles.autonomyRow}
-                    data-decision-type={item.decisionType ?? "launch"}
-                    key={item.kind}
-                  >
-                    <div className={styles.autonomyTopline}>
-                      <span className={styles.autonomyKind}>{item.kind}</span>
-                      <span
-                        className={styles.autonomyTier}
-                        data-tone={item.tone}
-                      >
-                        {item.tier}
-                      </span>
-                    </div>
-                    {/*
-                  AUTO-03 — the mode itself, as a control rather than a caption.
-                  The launch row is deliberately excluded: it has no server
-                  decision type, and new spend never automates by design, so a
-                  control there would offer a choice the product does not have.
-                */}
-                    {item.decisionType ? (
-                      <div
-                        className={styles.modeGroup}
-                        role="radiogroup"
-                        aria-label={`Autonomy mode — ${item.kind}`}
-                        data-ctl="gated:AUTO-03 mode"
-                        data-mode-refused={viewer.canMutate ? undefined : ""}
-                      >
-                        {AUTONOMY_MODES.map((mode) => {
-                          const current = currentModeFor(
-                            payload,
-                            item.decisionType!,
-                          );
-                          const refused = !viewer.canMutate;
-                          return (
-                            <button
-                              key={mode}
-                              type="button"
-                              className={styles.modeSegment}
-                              role="radio"
-                              aria-checked={current === mode}
-                              data-mode={mode}
-                              disabled={
-                                refused || modePending === item.decisionType
-                              }
-                              title={
-                                refused
-                                  ? (viewer.reason ?? undefined)
-                                  : undefined
-                              }
-                              /*
-                               * Short on screen, full to a reader. Three segments
-                               * carrying "Tier 2 · Backtest" wrap the row at the
-                               * card's width and stop being one scannable control;
-                               * the tier chip beside them already spells the
-                               * current one out, and the accessible name carries
-                               * the whole thing for anyone not reading the chip.
-                               */
-                              aria-label={MODE_LABELS[mode]}
-                              onClick={() =>
-                                onModeChange(item.decisionType!, mode)
-                              }
-                            >
-                              {MODE_SEGMENT_LABELS[mode]}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    ) : null}
-                    {item.decisionType && modeError[item.decisionType] ? (
-                      <p
-                        className={styles.autonomyNext}
-                        data-field={`mode-error-${item.decisionType}`}
-                        role="status"
-                      >
-                        {modeError[item.decisionType]}
-                      </p>
-                    ) : null}
-                    {item.decisionType && modeSaved[item.decisionType] ? (
-                      <p
-                        className={styles.autonomyNext}
-                        data-field={`mode-saved-${item.decisionType}`}
-                        role="status"
-                      >
-                        {modeSaved[item.decisionType]}
-                      </p>
-                    ) : null}
-                    <div className={styles.progressRow}>
-                      <span className={styles.progressTrack}>
-                        <span
-                          className={styles.progressFill}
-                          data-tone={item.progressTone}
-                          style={{ width: item.progressWidth }}
-                        />
-                      </span>
-                      <span className={styles.progressValue}>
-                        {item.progress}
-                      </span>
-                    </div>
-                    <p className={styles.autonomyNext}>{item.next}</p>
-                  </div>
-                ))}
-                <p className={styles.sectionFootnote}>
-                  promotion reviews weekly on clean-approval streaks · any error
-                  demotes instantly
-                </p>
-                {/*
-              What recording a mode does and does not do.
-              `setMetaAutomationDecisionTypeMode` writes a row in our own
-              control plane; it is not a Meta write and it does not by itself
-              enable auto-execution. Without this sentence, moving a row to
-              Tier 3 while `META_AUTOMATION_LIVE_WRITES` is shut reads as
-              "this now changes things on Meta", which is the one thing it
-              must never be mistaken for.
-            */}
-                <p className={styles.sectionFootnote} data-field="mode-posture">
-                  {liveWritesRefusalReason
-                    ? `Choosing a mode records it in this workspace. It is not a Meta write, and it does not enable automatic execution: ${liveWritesRefusalReason}`
-                    : "Choosing a mode records it in this workspace. It is not a Meta write; execution still runs through the confirmation queue."}
-                </p>
+                {canMutate && viewer.role === "admin" ? (
+                  <GuardrailPolicyForm
+                    businessId={businessId}
+                    providerAccountId={providerAccountId}
+                    canMutate
+                    minRoasFloor={payloadGuardrails?.minRoasFloor ?? null}
+                    quietHours={payloadGuardrails?.quietHours ?? null}
+                    onSaved={onGuardrailPolicySaved}
+                  />
+                ) : null}
               </article>
             </div>
 
-            <article className={styles.ledgerCard}>
-              <div className={styles.ledgerHeader}>
-                <h2>Activity ledger</h2>
+            <BudgetWriteReadinessSection
+              readiness={budgetWriteReadiness}
+              authorization={buildBudgetMasterSwitchAuthorization({
+                viewer,
+                surface: "desktop",
+              })}
+              onActivationChanged={onBudgetActivationChanged}
+            />
+          </div>
+        </details>
+
+        <details className={styles.advancedAutomation}>
+          <summary>
+            <span>Custom rules</span>
+          </summary>
+          <div className={styles.advancedAutomationBody}>
+            <article className={styles.rulesCard}>
+              <div className={styles.sectionHeader}>
+                <h2>Custom rules</h2>
+                <button
+                  type="button"
+                  className={styles.newRule}
+                  disabled={!rules.canCreate || composerOpen}
+                  aria-disabled={!rules.canCreate || composerOpen}
+                  aria-expanded={composerOpen}
+                  onClick={
+                    rules.canCreate ? () => setComposerOpen(true) : undefined
+                  }
+                >
+                  + New rule
+                </button>
               </div>
-              <div className={styles.tableScroll}>
-                <table className={styles.ledgerTable}>
+              <div
+                className={styles.tableScroll}
+                role="region"
+                tabIndex={0}
+                aria-label="Custom rules table, scrolls sideways"
+              >
+                <table className={styles.rulesTable}>
                   <thead>
                     <tr>
-                      <th>Time</th>
-                      <th>Actor</th>
-                      <th>Action</th>
-                      <th>Entity</th>
-                      <th>Result</th>
+                      <th>Rule</th>
+                      <th>Then</th>
+                      <th>Mode</th>
+                      <th>Fired · 28d</th>
+                      <th>Active</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {ledger.length > 0 ? (
-                      ledger.map((item) => {
-                        const result = ledgerResultFor(item);
-                        return (
-                          <tr data-ledger-id={item.id} key={item.id}>
-                            <td className={styles.ledgerTime}>
-                              {formatLedgerTime(item.createdAt)}
-                            </td>
-                            <td data-field="ledger-actor">
-                              {ledgerActorFor(item)}
-                            </td>
-                            <td className={styles.ledgerAction}>
-                              {item.message.trim() || item.activityType}
-                            </td>
-                            <td data-field="ledger-entity">
-                              {ledgerEntityFor(item)}
-                            </td>
-                            <td>
-                              <span
-                                className={styles.ledgerResult}
-                                data-field="ledger-result"
-                                data-tone={result.tone}
-                              >
-                                {result.label}
-                              </span>
-                            </td>
-                          </tr>
-                        );
-                      })
+                    {rules.rows && rules.rows.length > 0 ? (
+                      rules.rows.map((row) => (
+                        <AutomationRuleRow
+                          key={row.id}
+                          row={row}
+                          busy={pendingRuleId === row.id}
+                          canMutate={canMutate}
+                          onToggle={() => void toggleRule(row)}
+                        />
+                      ))
                     ) : (
-                      // "This workspace has never acted" and "the activity read
-                      // failed" are different facts and only one of them may be
-                      // stated. Same `data-proven-empty` pattern the rules table
-                      // uses two sections up, for the same reason.
                       <tr
-                        className={styles.ledgerEmpty}
-                        data-testid="ledger-empty"
+                        className={styles.rulesEmpty}
+                        data-testid="rules-empty"
                         data-proven-empty={
-                          ledgerIsProvenEmpty ? "true" : "false"
+                          rules.isProvenEmpty ? "true" : "false"
                         }
                       >
                         <td colSpan={5}>
-                          {ledgerIsProvenEmpty ? "No activity yet" : UNKNOWN}
+                          {rules.isProvenEmpty ? "No custom rules" : UNKNOWN}
                         </td>
                       </tr>
                     )}
                   </tbody>
                 </table>
               </div>
+              {composerOpen ? (
+                <AutomationRuleComposer
+                  busy={composerBusy}
+                  error={ruleError}
+                  onCancel={() => {
+                    setComposerOpen(false);
+                    setRuleError(null);
+                  }}
+                  onSubmit={(draft) => void createRule(draft)}
+                />
+              ) : ruleError ? (
+                <p className={styles.ruleError} role="status">
+                  {ruleError}
+                </p>
+              ) : null}
             </article>
           </div>
         </details>
-
-        <details className={styles.systemDiagnostics}>
-          <summary>System diagnostics</summary>
-          <p>
-            Storage admission and proposal construction evidence for recovery
-            work. These diagnostics do not enable automation.
-          </p>
-          <div className={styles.systemDiagnosticsBody}>
-            <StateHistoryRecoverySection readiness={stateHistoryReadiness} />
-            <BudgetReadinessSection readiness={budgetReadiness} />
-          </div>
-        </details>
-        <BudgetWriteReadinessSection
-          readiness={budgetWriteReadiness}
-          authorization={buildBudgetMasterSwitchAuthorization({
-            viewer,
-            surface: "desktop",
-          })}
-          onActivationChanged={onBudgetActivationChanged}
-        />
       </section>
 
       <section
         className={styles.mobileSurface}
         data-testid="meta-mobile-automation"
-        /*
-          No longer read-only, and it must not claim to be.
-
-          The pane used to render `data-read-only="true"` and say automation
-          controls were desktop-only. An operator who needs to STOP Meta writes,
-          or to approve a proposal before it expires, is very often not at a
-          desktop — so the emergency control was visible and inoperable, and the
-          confirmation queue was absent entirely. Both are here now; what stays
-          on desktop is stated below rather than implied by an absence.
-        */
         data-read-only="false"
         aria-labelledby="automation-mobile-title"
       >
-        <div className={styles.mobileHeading}>
-          <p className={styles.mobileEyebrow}>Automation status</p>
-        </div>
-        <h1 id="automation-mobile-title">Meta authority</h1>
-        <p className={styles.mobileIntro}>
-          Current server-read status. The Meta stop and the confirmation queue
-          are operable here; guardrails, rules, the autonomy ladder and
-          automatic execution are set in the desktop workspace. Everything here
-          governs Meta writes only; no control on this screen stops Google Ads
-          writes.
-        </p>
+        <h1 id="automation-mobile-title">Automation</h1>
+        <p className={styles.mobileIntro}>{automationStatusCopy}</p>
         <dl className={styles.mobileFacts}>
           <div>
-            <dt>Meta writes · all businesses</dt>
-            <dd>{globalStatus.label}</dd>
+            <dt>Status</dt>
+            <dd>{automationStatus}</dd>
           </div>
           <div>
-            <dt>Meta writes · this business</dt>
-            <dd>{businessStatus.label}</dd>
+            <dt>Pending approvals</dt>
+            <dd>{proposals.count}</dd>
           </div>
           <div>
-            <dt>Readiness</dt>
-            <dd>{readiness}</dd>
-          </div>
-          <div>
-            <dt>Ad account</dt>
-            <dd>{providerAccountId || UNKNOWN}</dd>
+            <dt>Emergency stop</dt>
+            <dd>{automationStopped ? "Active" : "Not active"}</dd>
           </div>
         </dl>
-        {/*
-          STOP first, before anything else on this pane. It is the emergency
-          control, and the plan's §1.5 requires it reachable whenever the
-          surface is. This is the same component the desktop pane renders,
-          reading the same state — opening the confirmation here opens the same
-          one there, because there is one `stopConfirm`, not one per pane.
-        */}
+
+        {renderActionModes("mobile")}
+
         <div className={styles.mobileStop} data-testid="mobile-stop-control">
           <MetaStopControl
             surface="mobile"
@@ -2234,6 +2137,7 @@ export function MetaAutomationView({
             onStopControl={onStopControl}
           />
         </div>
+
         <ConfirmationQueue
           surface="mobile"
           proposals={proposals}
@@ -2252,32 +2156,8 @@ export function MetaAutomationView({
           viewer={viewer}
           ledgerEvidence={ledgerEvidence}
         />
-        <details className={styles.systemDiagnostics}>
-          <summary>Readiness details</summary>
-          <p>
-            Historical evidence, storage health and budget execution readiness.
-            None of these carry a control on either surface.
-          </p>
-          <div className={styles.systemDiagnosticsBody}>
-            <StateHistoryRecoverySection readiness={stateHistoryReadiness} />
-            <BudgetReadinessSection readiness={budgetReadiness} />
-            {/*
-              Automatic execution stays desktop-and-admin-only even though the
-              pane is now operable: `buildBudgetMasterSwitchAuthorization` is an
-              allowlist whose single grant requires `surface === "desktop"`, and
-              `"mobile_read_only"` is refused unconditionally. Arming automatic
-              spend is not an emergency control and does not belong on a phone.
-            */}
-            <BudgetWriteReadinessSection
-              readiness={budgetWriteReadiness}
-              anchorId="automatic-execution-control-mobile"
-              authorization={buildBudgetMasterSwitchAuthorization({
-                viewer,
-                surface: "mobile_read_only",
-              })}
-            />
-          </div>
-        </details>
+
+        {renderRecentActivity("mobile")}
       </section>
     </div>
   );
@@ -2373,7 +2253,6 @@ async function readProposalQueue(input: {
   return parseProposalQueue(await response.json().catch(() => null));
 }
 
-
 /**
  * The two guardrails an operator could read and not set.
  *
@@ -2413,13 +2292,14 @@ function GuardrailPolicyForm({
   const ready = Boolean(businessId && providerAccountId && canMutate);
   const trimmedFloor = floor.trim();
   const parsedFloor = trimmedFloor === "" ? null : Number(trimmedFloor);
-  const floorValid = parsedFloor === null
-    || (Number.isFinite(parsedFloor) && parsedFloor > 0);
+  const floorValid =
+    parsedFloor === null || (Number.isFinite(parsedFloor) && parsedFloor > 0);
   // A window needs all three or none of them: two thirds of a quiet window is
   // not a window, and the route refuses it.
   const windowParts = [start.trim(), end.trim(), zone.trim()];
-  const windowValid = windowParts.every((part) => part === "")
-    || windowParts.every((part) => part !== "");
+  const windowValid =
+    windowParts.every((part) => part === "") ||
+    windowParts.every((part) => part !== "");
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -2440,25 +2320,27 @@ function GuardrailPolicyForm({
           action: "set_guardrail_policy",
           minRoasFloor: parsedFloor,
           quietHours: windowParts[0]
-            ? { start: windowParts[0], end: windowParts[1], timezone: windowParts[2] }
+            ? {
+                start: windowParts[0],
+                end: windowParts[1],
+                timezone: windowParts[2],
+              }
             : null,
           reason: "Set from the Automation guardrails card.",
         }),
       });
       const body = (await response.json().catch(() => null)) as {
-        ok?: boolean; error?: { message?: string };
+        ok?: boolean;
+        error?: { message?: string };
       } | null;
       if (!response.ok || body?.ok === false) {
-        setMessage(
-          body?.error?.message
-          ?? "The guardrail policy could not be saved, and nothing was changed.",
-        );
+        setMessage("Limits could not be saved.");
         return;
       }
       setMessage("Saved.");
       await onSaved();
     } catch {
-      setMessage("The request did not reach the server; nothing was changed.");
+      setMessage("Limits could not be saved.");
     } finally {
       setBusy(false);
     }
@@ -2479,18 +2361,18 @@ function GuardrailPolicyForm({
       data-testid="guardrail-policy-form"
       data-can-mutate={String(ready)}
       onSubmit={submit}
-      style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid var(--border, #e5e7eb)" }}
+      style={{
+        marginTop: 10,
+        paddingTop: 10,
+        borderTop: "1px solid var(--border, #e5e7eb)",
+      }}
     >
       <p style={{ margin: 0, fontSize: 12, fontWeight: 600 }}>
-        Set the pause floor and quiet hours
-      </p>
-      <p style={{ margin: "4px 0 0", fontSize: 11.5, opacity: 0.85 }}>
-        Blank clears. With no floor, automation may propose a pause for any
-        entity its evidence supports.
+        Pause threshold and quiet hours
       </p>
       <div style={{ display: "grid", gap: 8, margin: "8px 0 0" }}>
         <label style={{ display: "grid", gap: 3, fontSize: 11.5 }}>
-          Min ROAS floor (pause)
+          Pause below ROAS
           <input
             type="text"
             inputMode="decimal"
@@ -2498,12 +2380,18 @@ function GuardrailPolicyForm({
             value={floor}
             onChange={(event) => setFloor(event.target.value)}
             disabled={!ready || busy}
-            aria-label="Min ROAS floor"
+            aria-label="Pause below ROAS"
             aria-invalid={!floorValid}
             style={inputStyle}
           />
         </label>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1.4fr", gap: 6 }}>
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "1fr 1fr 1.4fr",
+            gap: 6,
+          }}
+        >
           <label style={{ display: "grid", gap: 3, fontSize: 11.5 }}>
             Quiet from
             <input
@@ -2546,12 +2434,18 @@ function GuardrailPolicyForm({
         </div>
       </div>
       {!floorValid ? (
-        <p data-field="guardrail-floor-invalid" style={{ margin: "6px 0 0", fontSize: 11.5 }}>
+        <p
+          data-field="guardrail-floor-invalid"
+          style={{ margin: "6px 0 0", fontSize: 11.5 }}
+        >
           A floor is a positive number, or blank to clear it.
         </p>
       ) : null}
       {!windowValid ? (
-        <p data-field="guardrail-window-invalid" style={{ margin: "6px 0 0", fontSize: 11.5 }}>
+        <p
+          data-field="guardrail-window-invalid"
+          style={{ margin: "6px 0 0", fontSize: 11.5 }}
+        >
           A quiet window needs a start, an end and a timezone — or none of them.
         </p>
       ) : null}
@@ -2571,10 +2465,13 @@ function GuardrailPolicyForm({
           opacity: ready && !busy && floorValid && windowValid ? 1 : 0.55,
         }}
       >
-        Save guardrail policy
+        Save limits
       </button>
       {message ? (
-        <p data-field="guardrail-policy-message" style={{ margin: "6px 0 0", fontSize: 11.5 }}>
+        <p
+          data-field="guardrail-policy-message"
+          style={{ margin: "6px 0 0", fontSize: 11.5 }}
+        >
           {message}
         </p>
       ) : null}
@@ -3222,25 +3119,22 @@ export default function MetaAutomationPage({
    * is a fact about the read, and only the second one belongs here.
    */
   const partialReason = useMemo(() => {
-    if (!providerAccountId) return "provider account scope unresolved";
     const incomplete = (
       [
-        ["businessControl", "automation control state"],
-        ["rules", "automation rules"],
-        ["activity", "activity ledger"],
-        ["promotionRecords", "promotion records"],
-        ["decisionModes", "decision-type modes"],
-        ["anchors", "commercial anchors"],
-        ["readiness", "readiness ladder"],
+        "businessControl",
+        "rules",
+        "activity",
+        "promotionRecords",
+        "decisionModes",
+        "anchors",
+        "readiness",
       ] as const
-    ).filter(([key]) => sectionState(payload, key) !== "complete");
+    ).some((key) => sectionState(payload, key) !== "complete");
     const queueIncomplete = queue.readCompleteness !== "complete";
-    if (incomplete.length === 0 && !queueIncomplete) return null;
-    const names = [
-      ...incomplete.map(([, label]) => label),
-      ...(queueIncomplete ? ["confirmation queue"] : []),
-    ];
-    return `${names.join(", ")} not proven`;
+    return metaAutomationFreshnessPartialReason({
+      hasProviderAccount: Boolean(providerAccountId),
+      incomplete: incomplete || queueIncomplete,
+    });
   }, [payload, providerAccountId, queue.readCompleteness]);
 
   useTierZeroFreshness({
@@ -3481,12 +3375,7 @@ export default function MetaAutomationPage({
             setSessionLedgerCompleteness(body.ledgerCompleteness);
           }
           if (!response.ok || body?.ok !== true) {
-            // The server's own refusal, verbatim. Re-wording it here would
-            // describe a guard this surface does not own.
-            setProposalError(
-              body?.error?.message ??
-                "The confirmation queue could not record that decision.",
-            );
+            setProposalError("This action could not be saved.");
             setQueue(UNAVAILABLE_QUEUE);
             return;
           }
@@ -3504,10 +3393,10 @@ export default function MetaAutomationPage({
             const dryRun = body?.receipt?.dryRun;
             setProposalNotice(
               dryRun === true
-                ? "Recorded as a dry run — nothing was sent to Meta. The dryRunOnly guardrail held this approval inside the building."
+                ? "Saved as a preview. Nothing was sent to Meta."
                 : dryRun === false
-                  ? "Approved and dispatched to Meta. Check the activity ledger for the receipt."
-                  : "Recorded. This response carried no receipt, so whether anything reached Meta is unknown — check the activity ledger before approving it again.",
+                  ? "Applied on Meta."
+                  : "Saved, but the result could not be confirmed. Check recent activity before trying again.",
             );
           }
           setQueue(parseProposalQueue(body));
@@ -3613,6 +3502,18 @@ export function BudgetWriteReadinessSection({
 
   const submitActivation = async (enabled: boolean) => {
     if (!readiness) return;
+    const activeAccount = readiness.execution.activatedProviderAccountId;
+    const activeElsewhere =
+      activeAccount !== null && activeAccount !== readiness.providerAccountId;
+    if (enabled && (!auth.canConfigure || activeElsewhere)) return;
+    if (
+      !enabled &&
+      (!auth.canDisable ||
+        readiness.execution.executionEnabled !== true ||
+        activeAccount !== readiness.providerAccountId)
+    ) {
+      return;
+    }
     setActivationBusy(true);
     setActivationMessage(null);
     try {
@@ -3639,20 +3540,16 @@ export function BudgetWriteReadinessSection({
       if (payload?.ok) {
         setActivationMessage(
           enabled
-            ? "Automatic execution enabled for this account. Each decision " +
-                "type also needs its own standing mode set to Automatic."
-            : "Automatic execution disabled for this business.",
+            ? "Automatic actions are on for this account."
+            : "Automatic actions are off.",
         );
         setActivationPhrase("");
         onActivationChanged?.();
       } else {
-        setActivationMessage(
-          `${payload?.error?.code ?? "refused"}` +
-            `${payload?.blockers?.length ? `: ${payload.blockers.join("; ")}` : ""}`,
-        );
+        setActivationMessage("Automatic actions could not be changed.");
       }
     } catch {
-      setActivationMessage("The activation request could not be sent.");
+      setActivationMessage("Automatic actions could not be changed.");
     } finally {
       setActivationBusy(false);
     }
@@ -3671,41 +3568,33 @@ export function BudgetWriteReadinessSection({
           fontSize: 13,
         }}
       >
-        <h3 style={{ margin: 0, fontSize: 14 }}>
-          Automatic execution — master switch
-        </h3>
+        <h3 style={{ margin: 0, fontSize: 14 }}>Automatic actions</h3>
         <p style={{ margin: "6px 0 0" }}>
-          Automatic-execution state unavailable. Unavailable is not
-          &ldquo;off&rdquo;: the server could not prove the current posture, so
-          nothing here should be read as a state.
+          Automatic actions are unavailable. Refresh and try again.
         </p>
       </article>
     );
   }
 
-  const { proposal, execution } = readiness;
-  /*
-    The dry-run guardrail is not carried on this model, so it is reported as
-    UNKNOWN rather than guessed. Unknown is not "off".
-  */
+  const { execution } = readiness;
+  const activatedElsewhere =
+    execution.activatedProviderAccountId !== null &&
+    execution.activatedProviderAccountId !== readiness.providerAccountId;
+  const activationAccountUnresolved =
+    execution.executionEnabled && execution.activatedProviderAccountId === null;
+  const activatedAccountLabel = compactMetaAccountId(
+    execution.activatedProviderAccountId,
+  );
   const dryRunBlockerPresent = execution.activationReadyBlockers.includes(
     "dry_run_guardrail_engaged",
   );
-  const dryRunFactValue = dryRunBlockerPresent ? "engaged" : "not_reported";
-  const dryRunFactLabel = dryRunBlockerPresent
-    ? "Engaged — every write stays inside the building"
-    : "Not reported as a blocker by the server readiness read";
-  /*
-    The AND of every input above. It is deliberately not a new authority: the
-    runtime re-checks all of it, and this row only says what the operator
-    should expect.
-  */
   const effectiveWriteAbility =
     execution.capabilityPrepared &&
     execution.executionEnabled &&
     !dryRunBlockerPresent &&
     execution.activationReadyBlockers.length === 0 &&
     execution.activatedProviderAccountId === readiness.providerAccountId;
+
   return (
     <article
       id={anchorId}
@@ -3713,6 +3602,11 @@ export function BudgetWriteReadinessSection({
       data-display-only="true"
       data-execution-enabled={String(execution.executionEnabled)}
       data-capability-prepared={String(execution.capabilityPrepared)}
+      data-effective-write={String(effectiveWriteAbility)}
+      data-activated-account={activatedAccountLabel ?? "none"}
+      data-activated-here={String(
+        execution.activatedProviderAccountId === readiness.providerAccountId,
+      )}
       style={{
         border: "1px solid var(--border, #e5e7eb)",
         borderRadius: 12,
@@ -3720,216 +3614,77 @@ export function BudgetWriteReadinessSection({
         fontSize: 13,
       }}
     >
-      <h3 style={{ margin: 0, fontSize: 14 }}>
-        Automatic execution — master switch
-      </h3>
-      {/*
-        PRE-DEPLOY AUDIT: say what this control actually flips.
-
-        The switch below writes `meta_automation_business_controls
-        .auto_execution_enabled`, which is the business-wide MASTER
-        automatic-execution flag — not a budget-only setting. Budget is simply
-        the only decision type that has an automatic executor today, and it
-        additionally requires its own standing mode to be Tier 3. Labelling the
-        master as if it were budget-scoped told an admin they were enabling one
-        family when they were enabling the business-wide gate every future
-        family would read.
-      */}
-      <p style={{ margin: "6px 0 0" }} data-field="master-switch-scope">
-        This is the business-wide master switch for automatic Meta execution.
-        Two keys are required and both are server-checked on every run: this
-        master switch, and the decision type&rsquo;s own standing mode set to
-        Automatic. Budget, pause and resume have automatic executors; turning
-        this on never makes bid or creative write by themselves, and every
-        operator-approved write keeps its own approval.
-      </p>
-      {/*
-        PRE-DEPLOY AUDIT — SIX separate facts, not one word.
-
-        "Prepared and disabled" collapsed the environment's capability, the
-        business's master switch, the dry-run guardrail, the readiness verdict,
-        the account binding and the effective write ability into a single
-        phrase. An operator could not tell which of them was the reason, and a
-        missing control row read the same as a configured-and-off one.
-
-        Every row below is a server fact rendered verbatim. `effective-write`
-        is the AND of all of them, stated last so it cannot be mistaken for any
-        single input.
-      */}
-      <dl
-        data-field="master-switch-facts"
+      <div
         style={{
-          display: "grid",
-          gridTemplateColumns: "auto 1fr",
-          gap: "2px 12px",
-          margin: "8px 0 0",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 12,
         }}
       >
-        <dt>Environment capability</dt>
-        <dd
-          data-field="environment-capability"
-          data-value={String(execution.capabilityPrepared)}
-        >
-          {execution.capabilityPrepared
-            ? "Transport prepared in this build"
-            : "Transport not prepared in this build"}
-        </dd>
-
-        <dt>Business master switch</dt>
-        <dd
+        <h3 style={{ margin: 0, fontSize: 14 }}>Automatic actions</h3>
+        <strong
           data-field="business-master-switch"
           data-value={String(execution.executionEnabled)}
         >
-          {/*
-            A control row that could not be read, or that does not exist, is
-            OFF here. It is never rendered as enabled and never inferred.
-          */}
-          {execution.executionEnabled ? "ON" : "OFF"}
-        </dd>
-
-        <dt>Dry-run guardrail</dt>
-        <dd data-field="dry-run-guardrail" data-value={dryRunFactValue}>
-          {dryRunFactLabel}
-        </dd>
-
-        <dt>Activation readiness</dt>
-        <dd
-          data-field="activation-readiness"
-          data-value={
-            execution.activationReadyBlockers.length === 0 ? "ready" : "blocked"
-          }
-        >
-          {execution.activationReadyBlockers.length === 0
-            ? "No blockers reported"
-            : `${execution.activationReadyBlockers.length} blocker(s)`}
-        </dd>
-
-        <dt>Activated account</dt>
-        <dd data-field="activated-account-fact">
-          {execution.activatedProviderAccountId ?? "none"}
-        </dd>
-
-        <dt>Effective write ability</dt>
-        <dd
-          data-field="effective-write"
-          data-value={String(effectiveWriteAbility)}
-        >
-          {effectiveWriteAbility
-            ? "This account can execute automatic budget writes"
-            : "No automatic budget write can execute for this account"}
-        </dd>
-      </dl>
-      {/*
-        D088 C3: WHICH account automatic execution is enabled for.
-
-        The control row is business-wide. Rendering only "on" would tell an
-        operator on a second account that their budgets will move, when the
-        activation was performed — and its readiness proven — for another
-        account entirely.
-      */}
-      <p
-        style={{ margin: "4px 0 0" }}
-        data-field="activated-account"
-        data-activated-account={execution.activatedProviderAccountId ?? "none"}
-        data-activated-here={String(
-          execution.activatedProviderAccountId !== null &&
-            execution.activatedProviderAccountId ===
-              readiness.providerAccountId,
-        )}
-      >
-        {execution.activatedProviderAccountId === null
-          ? "Automatic execution is not enabled for any account."
-          : execution.activatedProviderAccountId === readiness.providerAccountId
-            ? `Automatic execution is enabled for this account (${execution.activatedProviderAccountId}).`
-            : `Automatic execution is enabled for ${execution.activatedProviderAccountId}, not this account.`}
+          {activatedElsewhere
+            ? "On for another account"
+            : activationAccountUnresolved
+              ? "On — account unavailable"
+              : execution.executionEnabled
+                ? "On"
+                : "Off"}
+        </strong>
+      </div>
+      <p style={{ margin: "6px 0 0" }} data-field="master-switch-scope">
+        Eligible actions set to Automatic can run within your saved limits.
       </p>
 
-      {proposal ? (
-        <dl
-          style={{
-            display: "grid",
-            gridTemplateColumns: "auto auto",
-            gap: "2px 12px",
-            margin: "8px 0 0",
-          }}
+      {!activatedElsewhere && !activationAccountUnresolved ? (
+        <div
+          style={{ margin: "10px 0 0" }}
+          data-field="activation-ready-blockers"
         >
-          <dt>Owner</dt>
-          <dd data-field="owner-grain">{proposal.ownerGrain}</dd>
-          <dt>Entity</dt>
-          <dd data-field="entity-id">{proposal.entityId}</dd>
-          <dt>Field</dt>
-          <dd data-field="budget-field">{proposal.budgetField}</dd>
-          <dt>Before</dt>
-          <dd data-field="before-amount-minor">{proposal.beforeAmountMinor}</dd>
-          <dt>Proposed</dt>
-          <dd data-field="intended-amount-minor">
-            {proposal.intendedAmountMinor}
-          </dd>
-          <dt>Currency</dt>
-          <dd data-field="currency">
-            {proposal.currency} (exponent {proposal.currencyExponent})
-          </dd>
-          <dt>Change</dt>
-          <dd data-field="change-percent">
-            {proposal.changePercent === null
-              ? "unknown"
-              : `${proposal.changePercent}%`}
-          </dd>
-          <dt>Evidence as of</dt>
-          <dd data-field="evidence-as-of">{proposal.evidenceAsOf}</dd>
-          <dt>Evidence age</dt>
-          <dd data-field="evidence-age-hours">
-            {proposal.evidenceAgeHours === null
-              ? "unknown"
-              : `${proposal.evidenceAgeHours}h`}
-          </dd>
-          <dt>Read-back</dt>
-          <dd data-field="readback-state">{execution.readbackState}</dd>
-          <dt>Rollback</dt>
-          <dd data-field="rollback-eligible">
-            {execution.rollbackEligible ? "eligible" : "not eligible"}
-          </dd>
-          <dt>Proposal</dt>
-          <dd data-field="proposal-state">
-            {execution.proposalState ?? "none"}
-          </dd>
-          <dt>Claim</dt>
-          <dd data-field="claim-state">{execution.claimState ?? "none"}</dd>
-          <dt>Reconcile</dt>
-          <dd data-field="reconcile-state">
-            {execution.reconcileState ?? "none"}
-          </dd>
-        </dl>
-      ) : (
-        <p style={{ margin: "8px 0 0" }} data-field="unavailable-reason">
-          {readiness.unavailableReason ?? "No budget proposal is available."}
+          {execution.activationReadyBlockers.length === 0 ? (
+            <p style={{ margin: 0 }}>Ready to turn on.</p>
+          ) : (
+            <>
+              <p style={{ margin: 0, fontWeight: 600 }}>
+                Before this can start
+              </p>
+              <ul style={{ margin: "6px 0 0", paddingLeft: 18 }}>
+                {execution.activationReadyBlockers.map((blocker) => (
+                  <li key={blocker} data-blocker-code={blocker}>
+                    {activationBlockerLabel(blocker)}
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+        </div>
+      ) : null}
+
+      {activatedElsewhere ? (
+        <p style={{ margin: "10px 0 0" }} data-field="activated-account-fact">
+          Automatic actions are active for Meta ad account{" "}
+          {activatedAccountLabel}. Open that account to manage them.
         </p>
-      )}
+      ) : null}
 
-      <p
-        style={{ margin: "8px 0 0" }}
-        data-field="preflight-blockers"
-        data-blockers={execution.preflightBlockers.join(",")}
-      >
-        {execution.preflightBlockers.length === 0
-          ? "No proposal safety blockers are reported."
-          : execution.preflightBlockers.map(activationBlockerLabel).join("; ")}
-      </p>
-      {/*
-        PRE-DEPLOY AUDIT — the controls exist only for a viewer who may use them.
+      {activationAccountUnresolved ? (
+        <p style={{ margin: "10px 0 0" }} data-field="activated-account-fact">
+          The active Meta ad account is unavailable. Refresh before managing
+          automatic actions.
+        </p>
+      ) : null}
 
-        An unauthorized viewer gets the same status above plus the CONCRETE
-        refusal the route would answer with, and no button at all. The
-        read-only mobile pane never reaches this branch.
-
-        D088 C2 (kept): the form itself is the REAL ceremony. C1 rendered a
-        button with no handler, which looked like a control and was scenery.
-        This types the phrase, posts to the existing Automation route, renders
-        whatever the server answers and refreshes. The server remains the only
-        readiness authority: this component sends an intent and a phrase, and
-        never a verdict.
-      */}
-      {auth.canConfigure || auth.canDisable ? (
+      {!activatedElsewhere &&
+      !activationAccountUnresolved &&
+      (auth.canConfigure ||
+        (auth.canDisable &&
+          execution.executionEnabled &&
+          execution.activatedProviderAccountId ===
+            readiness.providerAccountId)) ? (
         <form
           data-testid="budget-activation-form"
           onSubmit={(event) => {
@@ -3943,167 +3698,110 @@ export function BudgetWriteReadinessSection({
             flexWrap: "wrap",
           }}
         >
-          <input
-            type="text"
-            name="confirmationPhrase"
-            data-testid="budget-activation-phrase"
-            value={activationPhrase}
-            onChange={(event) => setActivationPhrase(event.target.value)}
-            placeholder={BUDGET_ACTIVATION_CONFIRMATION_PHRASE}
-            aria-label="Confirmation phrase"
-            disabled={
-              activationBusy ||
-              execution.executionEnabled ||
-              execution.activationReadyBlockers.length > 0
-            }
-            style={{
-              padding: "6px 10px",
-              borderRadius: 8,
-              border: "1px solid var(--border, #e5e7eb)",
-              minWidth: 280,
-            }}
-          />
-          <button
-            type="submit"
-            data-testid="budget-activation-enable"
-            data-enabled={String(
-              execution.activationReadyBlockers.length === 0 &&
-                !execution.executionEnabled &&
-                !activationBusy,
-            )}
-            disabled={
-              activationBusy ||
-              execution.executionEnabled ||
-              execution.activationReadyBlockers.length > 0
-            }
-            aria-disabled={
-              activationBusy ||
-              execution.executionEnabled ||
-              execution.activationReadyBlockers.length > 0
-            }
-            style={{
-              padding: "6px 12px",
-              borderRadius: 8,
-              border: "1px solid var(--border, #e5e7eb)",
-              background: "transparent",
-              cursor:
-                execution.executionEnabled ||
-                execution.activationReadyBlockers.length > 0
-                  ? "not-allowed"
-                  : "pointer",
-              opacity:
-                execution.executionEnabled ||
-                execution.activationReadyBlockers.length > 0
-                  ? 0.55
-                  : 1,
-            }}
-          >
-            Enable automatic execution (budget)
-          </button>
-          {/* STOP is never gated. A stop that could be refused is not a stop. */}
-          <button
-            type="button"
-            data-testid="budget-activation-disable"
-            disabled={activationBusy}
-            onClick={() => {
-              void submitActivation(false);
-            }}
-            style={{
-              padding: "6px 12px",
-              borderRadius: 8,
-              border: "1px solid var(--border, #e5e7eb)",
-              background: "transparent",
-              cursor: "pointer",
-            }}
-          >
-            Disable automatic execution
-          </button>
+          {auth.canConfigure && !execution.executionEnabled ? (
+            <>
+              <input
+                type="text"
+                name="confirmationPhrase"
+                data-testid="budget-activation-phrase"
+                value={activationPhrase}
+                onChange={(event) => setActivationPhrase(event.target.value)}
+                placeholder={BUDGET_ACTIVATION_CONFIRMATION_PHRASE}
+                aria-label="Confirmation phrase"
+                disabled={
+                  activationBusy || execution.activationReadyBlockers.length > 0
+                }
+                style={{
+                  padding: "6px 10px",
+                  borderRadius: 8,
+                  border: "1px solid var(--border, #e5e7eb)",
+                  minWidth: 280,
+                }}
+              />
+              <button
+                type="submit"
+                data-testid="budget-activation-enable"
+                data-enabled={String(
+                  execution.activationReadyBlockers.length === 0 &&
+                    !activationBusy,
+                )}
+                disabled={
+                  activationBusy || execution.activationReadyBlockers.length > 0
+                }
+                aria-disabled={
+                  activationBusy || execution.activationReadyBlockers.length > 0
+                }
+                style={{
+                  padding: "6px 12px",
+                  borderRadius: 8,
+                  border: "1px solid var(--border, #e5e7eb)",
+                  background: "transparent",
+                  cursor:
+                    execution.activationReadyBlockers.length > 0
+                      ? "not-allowed"
+                      : "pointer",
+                  opacity:
+                    execution.activationReadyBlockers.length > 0 ? 0.55 : 1,
+                }}
+              >
+                Turn on automatic actions
+              </button>
+            </>
+          ) : null}
+          {auth.canDisable &&
+          execution.executionEnabled &&
+          execution.activatedProviderAccountId ===
+            readiness.providerAccountId ? (
+            <button
+              type="button"
+              data-testid="budget-activation-disable"
+              disabled={activationBusy}
+              onClick={() => {
+                void submitActivation(false);
+              }}
+              style={{
+                padding: "6px 12px",
+                borderRadius: 8,
+                border: "1px solid var(--border, #e5e7eb)",
+                background: "transparent",
+                cursor: "pointer",
+              }}
+            >
+              Turn off automatic actions
+            </button>
+          ) : null}
         </form>
-      ) : (
+      ) : !auth.canConfigure && !auth.canDisable ? (
         <p
           style={{ margin: "10px 0 0" }}
           data-field="master-switch-refusal"
           data-reason-code={auth.reasonCode ?? "none"}
           data-surface={auth.surface}
         >
-          {auth.reason ?? "Automatic execution cannot be changed from here."}
+          {automaticActionsRefusalMessage(auth.reasonCode)}
         </p>
-      )}
-      {/*
-        PRE-DEPLOY AUDIT — the SAFE preparation path, finally mounted.
-
-        `save_budget_automation_config` has existed on the Automation route
-        since D088 C3 and had ZERO callers anywhere in the product. Activation
-        readiness requires a persisted control row with a lifted dry-run
-        guardrail and three real budget numbers; five of the six target
-        businesses have no control row at all, and nothing on any screen could
-        write one. So the documented ceremony ended at a button that can only
-        ever answer "not ready", and the only way forward was a hand-run SQL
-        statement — the exact thing an activation ceremony exists to replace.
-
-        This form is that path. It is a different VERB from the switch above:
-        the route pins `auto_execution_enabled` to FALSE and clears the bound
-        account on every path through the save, so preparing can never enable.
-        The warning below says so before the operator commits, because a
-        control that silently changes another control's state is how an
-        operator loses track of what is on.
-      */}
-      {auth.canConfigure ? (
-        <BudgetPreparationForm
-          /*
-            PRE-DEPLOY AUDIT — a scope-keyed remount, not an effect that tries
-            to reconcile state after the fact. Switching account or business
-            hands React a NEW key, which discards every hook's state and
-            re-runs every `useState` initializer against the CURRENT props —
-            there is no window in which a stale local value from the previous
-            scope can be read, submitted, or displayed. An ordinary re-render
-            for the SAME scope (a readiness refetch after Save, a background
-            poll) keeps the key unchanged, so it does not touch what the
-            operator is mid-typing.
-          */
-          key={`${readiness.businessId}::${readiness.providerAccountId}`}
-          businessId={readiness.businessId}
-          providerAccountId={readiness.providerAccountId}
-          preparation={readiness.preparation ?? null}
-          onSaved={onActivationChanged}
-        />
       ) : null}
+
+      {auth.canConfigure &&
+      !activatedElsewhere &&
+      !activationAccountUnresolved ? (
+        <details style={{ margin: "12px 0 0" }}>
+          <summary>Setup limits</summary>
+          <BudgetPreparationForm
+            key={`${readiness.businessId}::${readiness.providerAccountId}`}
+            businessId={readiness.businessId}
+            providerAccountId={readiness.providerAccountId}
+            preparation={readiness.preparation ?? null}
+            onSaved={onActivationChanged}
+          />
+        </details>
+      ) : null}
+
       {activationMessage ? (
-        <p style={{ margin: "6px 0 0" }} data-field="activation-response">
+        <p style={{ margin: "8px 0 0" }} data-field="activation-response">
           {activationMessage}
         </p>
       ) : null}
-      <div style={{ margin: "8px 0 0" }} data-field="activation-ready-blockers">
-        {execution.activationReadyBlockers.length === 0 ? (
-          <p style={{ margin: 0 }}>
-            All activation requirements are satisfied.
-          </p>
-        ) : (
-          <details>
-            <summary>
-              Show {execution.activationReadyBlockers.length} activation
-              requirements
-            </summary>
-            <ul style={{ margin: "6px 0 0", paddingLeft: 18 }}>
-              {execution.activationReadyBlockers.map((blocker) => (
-                <li key={blocker} data-blocker-code={blocker}>
-                  {activationBlockerLabel(blocker)}
-                </li>
-              ))}
-            </ul>
-          </details>
-        )}
-      </div>
-      <ul
-        style={{ margin: "6px 0 0", paddingLeft: 18 }}
-        data-field="activation-blockers"
-      >
-        {execution.activationBlockers.map((blocker) => (
-          <li key={blocker.code} data-blocker={blocker.code}>
-            {blocker.why}
-          </li>
-        ))}
-      </ul>
     </article>
   );
 }
@@ -4133,32 +3831,6 @@ export function BudgetWriteReadinessSection({
  *  - It never enables anything. The save pins the master switch OFF and clears
  *    the bound account, and the warning states that before the button.
  */
-function PreparationFact({
-  label,
-  field,
-  render,
-}: {
-  label: string;
-  field: PreparationField<unknown> | undefined;
-  render: (value: unknown) => string;
-}) {
-  const state = field?.state ?? "unknown";
-  return (
-    <span
-      data-field="preparation-state"
-      data-key={label}
-      data-state={state}
-      style={{ fontSize: 12, opacity: 0.85 }}
-    >
-      {state === "persisted"
-        ? `saved: ${render(field!.value)}`
-        : state === "unset"
-          ? "not set"
-          : "could not be read"}
-    </span>
-  );
-}
-
 /** "" | "true" | "false" — an unmade choice is its OWN state, never a default. */
 type DryRunTriState = "" | "true" | "false";
 
@@ -4178,6 +3850,46 @@ function preparedFieldText(
   return String(field.value);
 }
 
+function preparedSpendLimitText(
+  preparation: BudgetPreparationView | null,
+): string {
+  const amount = preparation?.perActionSpendCeilingMinor;
+  const currency = preparation?.perActionSpendCeilingCurrency;
+  if (
+    amount?.state !== "persisted" ||
+    typeof amount.value !== "number" ||
+    !Number.isSafeInteger(amount.value) ||
+    currency?.state !== "persisted"
+  ) {
+    return "";
+  }
+  const exponent = resolveMinorUnitExponent(currency.value);
+  return exponent.status === "resolved"
+    ? formatMinorUnitsForDisplay(amount.value, exponent.exponent)
+    : "";
+}
+
+function spendLimitMinorFromText(
+  raw: string,
+  exponent: MinorUnitExponent | null,
+): number | null | undefined {
+  const value = raw.trim();
+  if (!value) return null;
+  if (exponent === null) return undefined;
+  const match = /^(\d+)(?:\.(\d+))?$/.exec(value);
+  if (!match || (match[2]?.length ?? 0) > exponent) return undefined;
+  const minorText = `${match[1]}${(match[2] ?? "").padEnd(exponent, "0")}`;
+  const minor = Number(minorText);
+  return Number.isSafeInteger(minor) && minor > 0 ? minor : undefined;
+}
+
+function spendLimitLabel(currency: string): string {
+  const code = currency.trim().toUpperCase();
+  return /^[A-Z]{3}$/.test(code)
+    ? `Per-action spend limit (${code})`
+    : "Per-action spend limit";
+}
+
 /**
  * PRE-DEPLOY AUDIT — no fabricated default. `dryRunOnly` used to initialize
  * to `true` whenever the stored value was not `persisted`, which means an
@@ -4191,6 +3903,27 @@ function preparedDryRunOnly(
 ): DryRunTriState {
   if (preparation?.dryRunOnly.state !== "persisted") return "";
   return preparation.dryRunOnly.value ? "true" : "false";
+}
+
+function preparationErrorMessage(rejection: string): string {
+  switch (rejection) {
+    case "dry_run_only_not_boolean":
+      return "Choose whether changes should stay in preview mode.";
+    case "min_hours_between_changes_invalid":
+      return "Enter a valid number of hours between changes.";
+    case "max_changes_per_7d_invalid":
+      return "Enter a whole number of changes allowed per week.";
+    case "max_account_concentration_pct_invalid":
+      return "Enter an account budget share between 1 and 100%.";
+    case "max_budget_increase_pct_invalid":
+      return "Enter a valid maximum increase percentage.";
+    case "per_action_spend_ceiling_invalid":
+      return "Enter a valid spend limit for the selected currency.";
+    case "per_action_spend_ceiling_currency_invalid":
+      return "Enter a three-letter currency code for the spend limit.";
+    default:
+      return "Review the limits and try again.";
+  }
 }
 
 function BudgetPreparationForm({
@@ -4234,8 +3967,8 @@ function BudgetPreparationForm({
   const [maxIncrease, setMaxIncrease] = useState(
     preparedFieldText(preparation, "maxBudgetIncreasePct"),
   );
-  const [ceilingMinor, setCeilingMinor] = useState(
-    preparedFieldText(preparation, "perActionSpendCeilingMinor"),
+  const [ceilingAmount, setCeilingAmount] = useState(
+    preparedSpendLimitText(preparation),
   );
   const [ceilingCurrency, setCeilingCurrency] = useState(
     preparedFieldText(preparation, "perActionSpendCeilingCurrency"),
@@ -4272,9 +4005,7 @@ function BudgetPreparationForm({
       preparedFieldText(preparation, "budgetMaxAccountConcentrationPct"),
     );
     setMaxIncrease(preparedFieldText(preparation, "maxBudgetIncreasePct"));
-    setCeilingMinor(
-      preparedFieldText(preparation, "perActionSpendCeilingMinor"),
-    );
+    setCeilingAmount(preparedSpendLimitText(preparation));
     setCeilingCurrency(
       preparedFieldText(preparation, "perActionSpendCeilingCurrency"),
     );
@@ -4295,6 +4026,7 @@ function BudgetPreparationForm({
     const value = Number(trimmed);
     return Number.isFinite(value) ? value : null;
   };
+  const ceilingExponent = resolveMinorUnitExponent(ceilingCurrency);
   const candidate = {
     dryRunOnly: dryRunOnly === "" ? undefined : dryRunOnly === "true",
     budgetMinHoursBetweenChanges: numeric(minHours),
@@ -4302,7 +4034,10 @@ function BudgetPreparationForm({
     budgetMaxAccountConcentrationPct: numeric(maxConcentration),
     maxBudgetIncreasePct: numeric(maxIncrease),
     // A blank ceiling is a real, valid choice: it CLEARS the ceiling.
-    perActionSpendCeilingMinor: numeric(ceilingMinor),
+    perActionSpendCeilingMinor: spendLimitMinorFromText(
+      ceilingAmount,
+      ceilingExponent.status === "resolved" ? ceilingExponent.exponent : null,
+    ),
     perActionSpendCeilingCurrency: ceilingCurrency.trim()
       ? ceilingCurrency.trim().toUpperCase()
       : null,
@@ -4342,18 +4077,16 @@ function BudgetPreparationForm({
       } | null;
       if (payload?.ok) {
         setMessage(
-          "Preparation saved. Automatic execution is OFF and any bound account was cleared.",
+          "Limits saved. Automatic actions remain off until you turn them on.",
         );
         // Re-read the server model so readiness reflects the new row rather
         // than this component's optimism.
         onSaved?.();
       } else {
-        setMessage(
-          `${payload?.error?.code ?? "refused"}: ${payload?.error?.message ?? ""}`.trim(),
-        );
+        setMessage("Limits could not be saved.");
       }
     } catch {
-      setMessage("The preparation request could not be sent.");
+      setMessage("Limits could not be saved.");
     } finally {
       setBusy(false);
     }
@@ -4386,9 +4119,7 @@ function BudgetPreparationForm({
         borderTop: "1px solid var(--border, #e5e7eb)",
       }}
     >
-      <h4 style={{ margin: 0, fontSize: 13 }}>
-        Prepare budget automation (does not enable it)
-      </h4>
+      <h4 style={{ margin: 0, fontSize: 13 }}>Automation limits</h4>
       {/*
         The warning comes BEFORE the fields, not beside the button. An operator
         who reads only the heading and the first sentence must still have been
@@ -4398,11 +4129,7 @@ function BudgetPreparationForm({
         data-field="preparation-warning"
         style={{ margin: "6px 0 0", fontSize: 12 }}
       >
-        Saving this configuration{" "}
-        <strong>forces automatic execution OFF</strong> for this business and{" "}
-        <strong>clears any activated account binding</strong>. It is the
-        preparation step: after saving, activation readiness is recomputed and
-        the enable ceremony above must be performed again.
+        Saving limits turns automatic actions off until you turn them on again.
       </p>
       {/*
         PRE-DEPLOY AUDIT — fail-closed banner, for BOTH ways this form can
@@ -4418,13 +4145,7 @@ function BudgetPreparationForm({
           data-field="preparation-unreadable"
           style={{ margin: "6px 0 0", fontSize: 12 }}
         >
-          The stored configuration could not be read
-          {!preparation
-            ? " — no preparation state is available for this account yet"
-            : ""}
-          . Every field below is locked rather than shown editable-but-empty:
-          unknown is not &ldquo;unset&rdquo;, and saving over it would overwrite
-          values nobody has seen.
+          Saved limits are unavailable. Refresh before changing them.
         </p>
       ) : null}
       {missing.length > 0 ? (
@@ -4433,8 +4154,7 @@ function BudgetPreparationForm({
           data-missing={missing.join(",")}
           style={{ margin: "6px 0 0", fontSize: 12 }}
         >
-          Not yet prepared: {missingLabels.join(", ")}. Activation readiness
-          cannot be satisfied until each carries a value.
+          Complete these settings: {missingLabels.join(", ")}.
         </p>
       ) : null}
 
@@ -4448,12 +4168,7 @@ function BudgetPreparationForm({
         }}
       >
         <label style={{ display: "grid", gap: 4, fontSize: 12 }}>
-          Dry-run only
-          <PreparationFact
-            label="dryRunOnly"
-            field={preparation?.dryRunOnly}
-            render={(value) => String(value)}
-          />
+          Preview changes only
           <select
             data-testid="preparation-dry-run-only"
             value={dryRunOnly}
@@ -4469,12 +4184,8 @@ function BudgetPreparationForm({
               unmade choice, not a value that already reads as "true".
             */}
             <option value="">Choose…</option>
-            <option value="true">
-              true — every write stays inside the building
-            </option>
-            <option value="false">
-              false — required before activation readiness
-            </option>
+            <option value="true">On — do not send changes to Meta</option>
+            <option value="false">Off — allow automatic Meta actions</option>
           </select>
         </label>
 
@@ -4482,48 +4193,36 @@ function BudgetPreparationForm({
           [
             [
               "budgetMinHoursBetweenChanges",
-              "Min hours between changes",
+              "Minimum hours between changes",
               minHours,
               setMinHours,
               "preparation-min-hours",
             ],
             [
               "budgetMaxChangesPer7d",
-              "Max changes per 7 days",
+              "Maximum changes per week",
               maxChanges,
               setMaxChanges,
               "preparation-max-changes",
             ],
             [
               "budgetMaxAccountConcentrationPct",
-              "Max account concentration (%)",
+              "Maximum account budget share (%)",
               maxConcentration,
               setMaxConcentration,
               "preparation-max-concentration",
             ],
             [
               "maxBudgetIncreasePct",
-              "Max single increase (%)",
+              "Maximum increase per change (%)",
               maxIncrease,
               setMaxIncrease,
               "preparation-max-increase",
-            ],
-            [
-              "perActionSpendCeilingMinor",
-              "Per-action spend ceiling (minor units, blank clears)",
-              ceilingMinor,
-              setCeilingMinor,
-              "preparation-ceiling-minor",
             ],
           ] as const
         ).map(([key, label, value, setValue, testId]) => (
           <label key={key} style={{ display: "grid", gap: 4, fontSize: 12 }}>
             {label}
-            <PreparationFact
-              label={key}
-              field={preparation?.[key]}
-              render={(stored) => String(stored)}
-            />
             <input
               type="text"
               inputMode="numeric"
@@ -4538,19 +4237,33 @@ function BudgetPreparationForm({
         ))}
 
         <label style={{ display: "grid", gap: 4, fontSize: 12 }}>
-          Ceiling currency (ISO-4217, blank clears)
-          <PreparationFact
-            label="perActionSpendCeilingCurrency"
-            field={preparation?.perActionSpendCeilingCurrency}
-            render={(stored) => String(stored)}
+          {spendLimitLabel(ceilingCurrency)}
+          <input
+            type="text"
+            inputMode="decimal"
+            data-testid="preparation-ceiling-minor"
+            value={ceilingAmount}
+            onChange={(event) => setCeilingAmount(event.target.value)}
+            disabled={busy || fieldsLocked}
+            aria-label={spendLimitLabel(ceilingCurrency)}
+            style={inputStyle}
           />
+        </label>
+
+        <label style={{ display: "grid", gap: 4, fontSize: 12 }}>
+          Spend-limit currency
           <input
             type="text"
             data-testid="preparation-ceiling-currency"
             value={ceilingCurrency}
-            onChange={(event) => setCeilingCurrency(event.target.value)}
+            maxLength={3}
+            spellCheck={false}
+            onChange={(event) =>
+              setCeilingCurrency(event.target.value.toUpperCase())
+            }
             disabled={busy || fieldsLocked}
-            aria-label="Ceiling currency"
+            aria-label="Spend-limit currency"
+            placeholder="TRY"
             style={inputStyle}
           />
         </label>
@@ -4570,9 +4283,7 @@ function BudgetPreparationForm({
           data-rejection={parsed.rejection}
           style={{ margin: "8px 0 0", fontSize: 12 }}
         >
-          {parsed.rejection === "dry_run_only_not_boolean"
-            ? "Choose whether this setup should remain dry-run only."
-            : parsed.message}
+          {preparationErrorMessage(parsed.rejection)}
         </p>
       ) : null}
 
@@ -4595,7 +4306,7 @@ function BudgetPreparationForm({
           maxWidth: 360,
         }}
       >
-        Save preparation (keeps automation OFF)
+        Save limits
       </button>
       {message ? (
         <p
@@ -4662,10 +4373,14 @@ function MetaStopControl({
   setStopConfirm: (next: "engage" | "release" | null) => void;
   setStopTyped: (next: string) => void;
   setStopAborted: (next: string | null) => void;
-  onStopControl: (
-    action: "engage_kill_switch" | "release_kill_switch",
-  ) => void;
+  onStopControl: (action: "engage_kill_switch" | "release_kill_switch") => void;
 }) {
+  const blockerMessage = stopCeremony.blocker
+    ? stopBlockerMessage(stopCeremony.blocker.code, stopIntent)
+    : null;
+  const engageRefusalMessage = stopEngageRefusalReason
+    ? "The emergency stop is unavailable right now."
+    : null;
   /*
    * `aria-disabled`, never `disabled`.
    *
@@ -4684,8 +4399,10 @@ function MetaStopControl({
     "aria-disabled": releaseRefused || stopPending ? true : undefined,
     "data-stop-refused": releaseRefused ? "" : undefined,
     title:
-      stopCeremony.blocker?.message ??
-      (viewer.canMutate ? undefined : (viewer.reason ?? undefined)),
+      blockerMessage ??
+      (viewer.canMutate
+        ? undefined
+        : automationRefusalMessage(viewer.reasonCode)),
     onClick: () => {
       if (releaseRefused || stopPending) return;
       setStopTyped("");
@@ -4708,10 +4425,11 @@ function MetaStopControl({
     "aria-disabled": engageRefused || stopPending ? true : undefined,
     "data-stop-refused": engageRefused ? "" : undefined,
     title:
-      stopCeremony.blocker?.message ??
-      stopEngageRefusalReason ??
-      viewer.reason ??
-      undefined,
+      blockerMessage ??
+      engageRefusalMessage ??
+      (viewer.canMutate
+        ? undefined
+        : automationRefusalMessage(viewer.reasonCode)),
     onClick: () => {
       if (engageRefused || stopPending) return;
       setStopTyped("");
@@ -4723,18 +4441,9 @@ function MetaStopControl({
 
   return (
     <>
-      {/*
-        The reading this confirmation is made against, and its age.
-
-        `sections.businessControl` is the server's own per-section
-        provenance: the instant the read was ATTEMPTED, and the error code
-        when it failed. Stated on screen because a typed confirmation is a
-        confirmation of a READING — an operator who types the phrase
-        against a reading from half an hour ago has confirmed a screen.
-      */}
-      <p
-        className={styles.killNote}
-        data-field="stop-preflight"
+      <div
+        className={styles.killRow}
+        data-field="business-writes-control"
         data-surface={surface}
         data-stop-preflight={
           payload?.sections?.businessControl?.status ?? "unproven"
@@ -4743,21 +4452,8 @@ function MetaStopControl({
           payload?.sections?.businessControl?.observedAt ?? undefined
         }
       >
-        Control-plane reading{" "}
-        {payload?.sections?.businessControl
-          ? `${payload.sections.businessControl.status} at ${payload.sections.businessControl.observedAt}`
-          : "not served by this payload"}
-        . A confirmation older than{" "}
-        {Math.round(STOP_PREFLIGHT_MAX_AGE_MS / 60000)} minutes is
-        refused.
-      </p>
-      <div
-        className={styles.killRow}
-        data-field="business-writes-control"
-        data-surface={surface}
-      >
-        {stopEngaged
-          ? /*
+        {stopEngaged ? (
+          /*
                One set of trigger behaviour, two tags.
 
                The tags differ by exactly one attribute — H19/H20's `data-ctl`
@@ -4768,33 +4464,33 @@ function MetaStopControl({
                `releaseTriggerProps`, written once, so the two panes cannot
                drift.
              */
-            surface === "desktop"
-            ? (
-              <button {...releaseTriggerProps} data-ctl="gated:AUTO-02 release">
-                {releaseLabel}
-              </button>
-            )
-            : <button {...releaseTriggerProps}>{releaseLabel}</button>
-          : surface === "desktop"
-            ? (
-              /*
-               * The manifest's own key, prefix included.
-               *
-               * `docs/zero-base-design/v3/export/interaction-manifest.json`
-               * states `k: "gated:AUTO-01A engage"`, and the key IS the
-               * `data-ctl` value — the `gated:` prefix is part of the
-               * contract, not a state this body chooses. An earlier revision
-               * invented `live:`/`disabled:AUTOMATION-STOP`, which left the
-               * anatomy gate unable to find the control it was looking for.
-               * Whether the control is currently refused is carried by
-               * `aria-disabled` and `data-stop-engage-refused`, where a state
-               * belongs.
-               */
-              <button {...engageTriggerProps} data-ctl="gated:AUTO-01A engage">
-                {engageLabel}
-              </button>
-            )
-            : <button {...engageTriggerProps}>{engageLabel}</button>}
+          surface === "desktop" ? (
+            <button {...releaseTriggerProps} data-ctl="gated:AUTO-02 release">
+              {releaseLabel}
+            </button>
+          ) : (
+            <button {...releaseTriggerProps}>{releaseLabel}</button>
+          )
+        ) : surface === "desktop" ? (
+          /*
+           * The manifest's own key, prefix included.
+           *
+           * `docs/zero-base-design/v3/export/interaction-manifest.json`
+           * states `k: "gated:AUTO-01A engage"`, and the key IS the
+           * `data-ctl` value — the `gated:` prefix is part of the
+           * contract, not a state this body chooses. An earlier revision
+           * invented `live:`/`disabled:AUTOMATION-STOP`, which left the
+           * anatomy gate unable to find the control it was looking for.
+           * Whether the control is currently refused is carried by
+           * `aria-disabled` and `data-stop-engage-refused`, where a state
+           * belongs.
+           */
+          <button {...engageTriggerProps} data-ctl="gated:AUTO-01A engage">
+            {engageLabel}
+          </button>
+        ) : (
+          <button {...engageTriggerProps}>{engageLabel}</button>
+        )}
       </div>
       {/*
         The typed confirmation, for BOTH directions.
@@ -4813,9 +4509,7 @@ function MetaStopControl({
           onSubmit={(event) => {
             event.preventDefault();
             const direction = stopConfirm;
-            if (
-              stopTyped.trim().toUpperCase() !== stopPhraseFor(direction)
-            )
+            if (stopTyped.trim().toUpperCase() !== stopPhraseFor(direction))
               return;
             /*
              * Re-resolved at SUBMIT, against the payload as it is now and
@@ -4838,10 +4532,7 @@ function MetaStopControl({
                 isReviewer: viewer.reviewerReadOnly,
                 demo: viewer.demo,
               },
-              currentlyEngaged: sectionIsComplete(
-                payload,
-                "businessControl",
-              )
+              currentlyEngaged: sectionIsComplete(payload, "businessControl")
                 ? stopEngaged
                 : null,
               gateClosedReason: stopEngageRefusalReason ?? null,
@@ -4852,7 +4543,7 @@ function MetaStopControl({
             if (atSubmit.blocker) {
               setStopConfirm(null);
               setStopTyped("");
-              setStopAborted(atSubmit.blocker.message);
+              setStopAborted("Refresh before changing the emergency stop.");
               return;
             }
             // The direction the system currently permits must still be
@@ -4895,14 +4586,11 @@ function MetaStopControl({
             <button
               data-stop-confirm-submit=""
               disabled={
-                stopTyped.trim().toUpperCase() !==
-                stopPhraseFor(stopConfirm)
+                stopTyped.trim().toUpperCase() !== stopPhraseFor(stopConfirm)
               }
               type="submit"
             >
-              {stopConfirm === "engage"
-                ? "Stop Meta automation"
-                : "Resume"}
+              {stopConfirm === "engage" ? "Stop Meta automation" : "Resume"}
             </button>
             <button
               data-stop-confirm-cancel=""
@@ -4932,7 +4620,7 @@ function MetaStopControl({
           data-stop-blocked={stopCeremony.blocker.code}
           role="note"
         >
-          {stopCeremony.blocker.message}
+          {blockerMessage}
         </p>
       ) : null}
       {/*
@@ -4945,15 +4633,13 @@ function MetaStopControl({
           {stopAborted}
         </p>
       ) : null}
-      {stopEngageRefusalReason &&
-      !stopEngaged &&
-      !stopCeremony.blocker ? (
+      {stopEngageRefusalReason && !stopEngaged && !stopCeremony.blocker ? (
         <p
           className={styles.killNote}
           data-field="stop-engage-refusal"
           role="note"
         >
-          {stopEngageRefusalReason}
+          {engageRefusalMessage}
         </p>
       ) : null}
       {/*
@@ -4967,30 +4653,23 @@ function MetaStopControl({
       */}
       {stopOutcome?.showStatusBanner ? (
         <p className={styles.killNote} data-stop-status="" role="status">
-          {stopOutcome.statusMessage}
+          {stopEngaged
+            ? "Meta automation stopped."
+            : "Meta automation resumed."}
         </p>
       ) : stopOutcome?.statusMessage ? (
-        <p
-          className={styles.killNote}
-          data-stop-unconfirmed=""
-          role="status"
-        >
-          {stopOutcome.statusMessage}
+        <p className={styles.killNote} data-stop-unconfirmed="" role="status">
+          The change could not be confirmed. Refresh before trying again.
         </p>
       ) : null}
       {stopError ? (
-        <p
-          className={styles.killNote}
-          data-field="stop-error"
-          role="status"
-        >
+        <p className={styles.killNote} data-field="stop-error" role="status">
           {stopError}
         </p>
       ) : null}
     </>
   );
 }
-
 
 /**
  * The confirmation queue, rendered on whichever surface the operator is on.
@@ -5044,181 +4723,182 @@ function ConfirmationQueue({
   ledgerEvidence: "complete" | "unavailable" | "no_evidence";
 }) {
   return (
-      <article className={styles.confirmationCard} data-surface={surface}>
-        <div className={styles.confirmationHeader}>
-          <h2>Needs your confirmation</h2>
-          <span
-            className={styles.confirmationCount}
-            data-field="confirmation-count"
-          >
-            {proposals.count}
-          </span>
-          <span className={styles.confirmationHint}>
-            engine proposals wait here — nothing executes without you at Tier
-            1
-          </span>
-        </div>
-        {proposals.rows.length > 0 ? (
-          proposals.rows.map((row) => (
-            <div key={row.id}>
-              <div className={styles.proposalRow} data-proposal-id={row.id}>
-                <span className={styles.proposalAction} data-tone={row.tone}>
-                  {row.action}
-                </span>
-                <div className={styles.proposalBody}>
-                  <p className={styles.proposalEntity}>{row.entity}</p>
-                  <p className={styles.proposalWhy}>{row.why}</p>
-                </div>
-                <span className={styles.proposalEvidence}>
-                  {row.evidence}
-                </span>
-                <span className={styles.proposalExpiry}>
-                  expires {row.expires}
-                </span>
-                <div className={styles.proposalControls}>
-                  <button
-                    type="button"
-                    className={styles.proposalPrimary}
-                    data-tone={row.tone}
-                    data-control="approve"
-                    disabled={
-                      !onProposalControl ||
-                      !canMutate ||
-                      pendingProposalId !== null
-                    }
-                    onClick={() => onProposalControl?.(row.id, "approve")}
-                  >
-                    {row.primaryCaption}
-                  </button>
-                  <button
-                    type="button"
-                    className={styles.proposalSecondary}
-                    data-control="modify"
-                    aria-expanded={modifyingProposalId === row.id}
-                    disabled={
-                      !onProposalControl ||
-                      !canMutate ||
-                      pendingProposalId !== null
-                    }
-                    onClick={() => {
-                      setModificationNote("");
-                      setModifyingProposalId(
-                        modifyingProposalId === row.id ? null : row.id,
-                      );
-                    }}
-                  >
-                    Modify
-                  </button>
-                  <button
-                    type="button"
-                    className={styles.proposalTertiary}
-                    data-control="dismiss"
-                    disabled={
-                      !onProposalControl ||
-                      !canMutate ||
-                      pendingProposalId !== null
-                    }
-                    onClick={() => onProposalControl?.(row.id, "dismiss")}
-                  >
-                    Dismiss
-                  </button>
-                </div>
+    <article
+      className={styles.confirmationCard}
+      data-surface={surface}
+      data-ledger-evidence={ledgerEvidence}
+    >
+      <div className={styles.confirmationHeader}>
+        <h2>Pending approvals</h2>
+        <span
+          className={styles.confirmationCount}
+          data-field="confirmation-count"
+        >
+          {proposals.count}
+        </span>
+        <span className={styles.confirmationHint}>Review before applying</span>
+      </div>
+      {proposals.rows.length > 0 ? (
+        proposals.rows.map((row) => (
+          <div key={row.id}>
+            <div className={styles.proposalRow} data-proposal-id={row.id}>
+              <span className={styles.proposalAction} data-tone={row.tone}>
+                {row.action}
+              </span>
+              <div className={styles.proposalBody}>
+                <p className={styles.proposalEntity}>{row.entity}</p>
+                <p className={styles.proposalWhy}>{row.why}</p>
               </div>
-              {modifyingProposalId === row.id ? (
-                <div
-                  className={styles.proposalModify}
-                  data-testid="proposal-modify"
+              <span className={styles.proposalEvidence}>{row.evidence}</span>
+              <span className={styles.proposalExpiry}>
+                expires {row.expires}
+              </span>
+              <div className={styles.proposalControls}>
+                <button
+                  type="button"
+                  className={styles.proposalPrimary}
+                  data-tone={row.tone}
+                  data-control="approve"
+                  disabled={
+                    !onProposalControl ||
+                    !canMutate ||
+                    pendingProposalId !== null
+                  }
+                  onClick={() => onProposalControl?.(row.id, "approve")}
                 >
-                  <label htmlFor={`proposal-note-${row.id}-${surface}`}>
-                    What should happen instead
-                  </label>
-                  <input
-                    id={`proposal-note-${row.id}-${surface}`}
-                    type="text"
-                    value={modificationNote}
-                    onChange={(event) =>
-                      setModificationNote(event.target.value)
-                    }
-                  />
-                  <button
-                    type="button"
-                    className={styles.proposalSecondary}
-                    data-control="modify-submit"
-                    disabled={
-                      !onProposalControl ||
-                      !canMutate ||
-                      pendingProposalId !== null ||
-                      modificationNote.trim().length === 0
-                    }
-                    onClick={() => {
-                      onProposalControl?.(
-                        row.id,
-                        "modify",
-                        modificationNote.trim(),
-                      );
-                      setModifyingProposalId(null);
-                      setModificationNote("");
-                    }}
-                  >
-                    Record modification
-                  </button>
-                </div>
-              ) : null}
+                  {row.primaryCaption}
+                </button>
+                <button
+                  type="button"
+                  className={styles.proposalSecondary}
+                  data-control="modify"
+                  aria-expanded={modifyingProposalId === row.id}
+                  disabled={
+                    !onProposalControl ||
+                    !canMutate ||
+                    pendingProposalId !== null
+                  }
+                  onClick={() => {
+                    setModificationNote("");
+                    setModifyingProposalId(
+                      modifyingProposalId === row.id ? null : row.id,
+                    );
+                  }}
+                >
+                  Modify
+                </button>
+                <button
+                  type="button"
+                  className={styles.proposalTertiary}
+                  data-control="dismiss"
+                  disabled={
+                    !onProposalControl ||
+                    !canMutate ||
+                    pendingProposalId !== null
+                  }
+                  onClick={() => onProposalControl?.(row.id, "dismiss")}
+                >
+                  Dismiss
+                </button>
+              </div>
             </div>
-          ))
-        ) : (
-          // "Nothing needs confirmation" and "the queue could not be read"
-          // are different facts and only one of them may be offered a
-          // recovery. The proven-empty state renders exactly what it always
-          // did; the unreadable one gets the em dash AND the control that
-          // re-runs the read, because a failure with no way back is a dead
-          // end an operator can only escape by reloading the page.
-          <div
-            className={styles.confirmationEmpty}
-            data-testid="confirmation-empty"
-            // Proven empty means the queue read completed AND the server
-            // proved nothing is being held. A claimed row being dispatched
-            // right now, a reconcile row awaiting reconciliation, or a hold
-            // count that could not be read at all each keep this `false`.
-            data-proven-empty={queueProvenEmpty ? "true" : "false"}
-          >
-            {/*
+            {modifyingProposalId === row.id ? (
+              <div
+                className={styles.proposalModify}
+                data-testid="proposal-modify"
+              >
+                <label htmlFor={`proposal-note-${row.id}-${surface}`}>
+                  What should happen instead
+                </label>
+                <input
+                  id={`proposal-note-${row.id}-${surface}`}
+                  type="text"
+                  value={modificationNote}
+                  onChange={(event) => setModificationNote(event.target.value)}
+                />
+                <button
+                  type="button"
+                  className={styles.proposalSecondary}
+                  data-control="modify-submit"
+                  disabled={
+                    !onProposalControl ||
+                    !canMutate ||
+                    pendingProposalId !== null ||
+                    modificationNote.trim().length === 0
+                  }
+                  onClick={() => {
+                    onProposalControl?.(
+                      row.id,
+                      "modify",
+                      modificationNote.trim(),
+                    );
+                    setModifyingProposalId(null);
+                    setModificationNote("");
+                  }}
+                >
+                  Record modification
+                </button>
+              </div>
+            ) : null}
+          </div>
+        ))
+      ) : (
+        // "Nothing needs confirmation" and "the queue could not be read"
+        // are different facts and only one of them may be offered a
+        // recovery. The proven-empty state renders exactly what it always
+        // did; the unreadable one gets the em dash AND the control that
+        // re-runs the read, because a failure with no way back is a dead
+        // end an operator can only escape by reloading the page.
+        <div
+          className={styles.confirmationEmpty}
+          data-testid="confirmation-empty"
+          // Proven empty means the queue read completed AND the server
+          // proved nothing is being held. A claimed row being dispatched
+          // right now, a reconcile row awaiting reconciliation, or a hold
+          // count that could not be read at all each keep this `false`.
+          data-proven-empty={queueProvenEmpty ? "true" : "false"}
+        >
+          {/*
               The em dash stays in BOTH states: the count badge above already
               separates a proven `0` from an unproven `—`, and changing this
               cell's own copy is a design decision this change has no mandate
               to make. What changes is only that the unreadable state now has
               a way back.
             */}
-            <span>{UNKNOWN}</span>
-            {queueProvenEmpty ? null : (
-              <button
-                type="button"
-                className={styles.readRetry}
-                data-control="retry-queue"
-                disabled={!onRetryRead}
-                onClick={onRetryRead}
-              >
-                Retry
-              </button>
-            )}
-          </div>
-        )}
-        {proposalNotice ? (
-          <p
-            className={styles.proposalError}
-            data-field="proposal-notice"
-            data-tone="notice"
-            role="status"
-          >
-            {proposalNotice}
-          </p>
-        ) : null}
-        {proposalError ? (
-          <p className={styles.proposalError} role="status">
-            {proposalError}
-          </p>
-        ) : null}
-        {/*
+          <span>
+            {queueProvenEmpty
+              ? "No actions waiting for approval"
+              : "Pending actions are unavailable"}
+          </span>
+          {queueProvenEmpty ? null : (
+            <button
+              type="button"
+              className={styles.readRetry}
+              data-control="retry-queue"
+              disabled={!onRetryRead}
+              onClick={onRetryRead}
+            >
+              Retry
+            </button>
+          )}
+        </div>
+      )}
+      {proposalNotice ? (
+        <p
+          className={styles.proposalError}
+          data-field="proposal-notice"
+          data-tone="notice"
+          role="status"
+        >
+          {proposalNotice}
+        </p>
+      ) : null}
+      {proposalError ? (
+        <p className={styles.proposalError} role="status">
+          {proposalError}
+        </p>
+      ) : null}
+      {/*
           The server said this viewer may not write, so the refusal is stated
           once, here, beside the controls it explains — rather than arriving
           as a 403 after a click. It is the SERVER's sentence and the SERVER's
@@ -5228,17 +4908,17 @@ function ConfirmationQueue({
           No new happy-path chrome: `canMutate` is true on every canonical
           render, so this element does not exist there at all.
         */}
-        {!viewer.canMutate && viewer.reason ? (
-          <p
-            className={styles.sectionFootnote}
-            role="status"
-            data-field="viewer-refusal"
-            data-reason-code={viewer.reasonCode ?? ""}
-          >
-            {viewer.reason}
-          </p>
-        ) : null}
-        {/*
+      {!viewer.canMutate && viewer.reason ? (
+        <p
+          className={styles.sectionFootnote}
+          role="status"
+          data-field="viewer-refusal"
+          data-reason-code={viewer.reasonCode ?? ""}
+        >
+          {automationRefusalMessage(viewer.reasonCode)}
+        </p>
+      ) : null}
+      {/*
           What the queue is holding but cannot offer. `claimed` is a dispatch
           in flight and `reconcile` is an outcome nobody has confirmed; the
           invariant keeps the second one pending with retry forbidden, so the
@@ -5249,78 +4929,31 @@ function ConfirmationQueue({
           Renders only when there is something to say. A queue with no holds
           draws nothing, so the canonical state is untouched.
         */}
-        {queueHolds === null ? (
-          <p
-            className={styles.sectionFootnote}
-            role="status"
-            data-field="queue-holds"
-            data-holds="unreadable"
-          >
-            held proposals could not be counted, so this queue is not proven
-            empty — a dispatch in progress or a row awaiting reconciliation
-            would not be visible here
-          </p>
-        ) : queueHolds.claimed > 0 || queueHolds.reconcile > 0 ? (
-          <p
-            className={styles.sectionFootnote}
-            role="status"
-            data-field="queue-holds"
-            data-holds="present"
-            data-claimed={queueHolds.claimed}
-            data-reconcile={queueHolds.reconcile}
-          >
-            {queueHolds.claimed > 0 ? (
-              <span data-field="queue-holds-claimed">
-                {queueHolds.claimed} dispatch in progress
-              </span>
-            ) : null}
-            {queueHolds.claimed > 0 && queueHolds.reconcile > 0
-              ? " · "
-              : null}
-            {queueHolds.reconcile > 0 ? (
-              <span data-field="queue-holds-reconcile">
-                {queueHolds.reconcile} reconciliation required — retry is
-                forbidden until it is reconciled
-              </span>
-            ) : null}
-          </p>
-        ) : null}
-        {/*
-          The middle clause is a claim about evidence, so it is only made
-          when the evidence exists. A decision whose ledger INSERT failed is
-          still recorded — on the proposal row itself, with its receipt and
-          its receipt key — but it is NOT in the ledger, and printing the
-          promise anyway is what turned a swallowed error into a lie. Every
-          other state renders the design's own sentence, unchanged.
-        */}
+      {queueHolds !== null &&
+      (queueHolds.claimed > 0 || queueHolds.reconcile > 0) ? (
         <p
           className={styles.sectionFootnote}
-          data-field="queue-footnote"
-          data-ledger-evidence={ledgerEvidence}
+          role="status"
+          data-field="queue-holds"
+          data-holds="present"
+          data-claimed={queueHolds.claimed}
+          data-reconcile={queueHolds.reconcile}
         >
-          {ledgerEvidence === "unavailable" ? (
-            <>
-              approving executes inside the guardrails above · the last
-              decision could not be written to the activity ledger — its
-              receipt is on the proposal record · expired proposals
-              re-evaluate on the next snapshot
-            </>
-          ) : ledgerEvidence === "no_evidence" ? (
-            // Nothing proves the ledger works and nothing proves it failed.
-            // The two clauses that are still true are printed; the one that
-            // is a claim about evidence is not made at all.
-            <>
-              approving executes inside the guardrails above · expired
-              proposals re-evaluate on the next snapshot
-            </>
-          ) : (
-            <>
-              approving executes inside the guardrails above · every outcome
-              lands in the ledger with a receipt · expired proposals
-              re-evaluate on the next snapshot
-            </>
-          )}
+          {queueHolds.claimed > 0 ? (
+            <span data-field="queue-holds-claimed">
+              {queueHolds.claimed} action{queueHolds.claimed === 1 ? "" : "s"}{" "}
+              in progress
+            </span>
+          ) : null}
+          {queueHolds.claimed > 0 && queueHolds.reconcile > 0 ? " · " : null}
+          {queueHolds.reconcile > 0 ? (
+            <span data-field="queue-holds-reconcile">
+              {queueHolds.reconcile} action
+              {queueHolds.reconcile === 1 ? "" : "s"} need review
+            </span>
+          ) : null}
         </p>
-      </article>
+      ) : null}
+    </article>
   );
 }

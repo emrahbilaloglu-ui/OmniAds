@@ -15,7 +15,9 @@ import { D087_ACTIVATION_BLOCKERS } from "@/lib/meta/budget-write-capability";
 import type { BudgetWriteReadinessModel } from "@/lib/meta/budget-write-readiness";
 import { BudgetWriteReadinessSection } from "./automation-view";
 
-const model = (over: Partial<BudgetWriteReadinessModel> = {}): BudgetWriteReadinessModel => ({
+const model = (
+  over: Partial<BudgetWriteReadinessModel> = {},
+): BudgetWriteReadinessModel => ({
   contract: "meta.budget-write-readiness.v1",
   businessId: "b1",
   providerAccountId: "act_1",
@@ -51,50 +53,64 @@ const model = (over: Partial<BudgetWriteReadinessModel> = {}): BudgetWriteReadin
 });
 
 const ADMIN_DESKTOP = {
-  canConfigure: true, canDisable: true,
-  reason: null, reasonCode: null, surface: "desktop" as const,
+  canConfigure: true,
+  canDisable: true,
+  reason: null,
+  reasonCode: null,
+  surface: "desktop" as const,
 };
 
-describe("D087 — the budget write panel is truthful and unpressable", () => {
-  it("renders the before, the proposal, the owner and the evidence age", () => {
-    const html = renderToStaticMarkup(<BudgetWriteReadinessSection readiness={model()} authorization={ADMIN_DESKTOP} />);
+describe("D087 — automatic actions stay truthful without backend detail", () => {
+  it("shows the operator state and omits proposal internals", () => {
+    const html = renderToStaticMarkup(
+      <BudgetWriteReadinessSection
+        readiness={model()}
+        authorization={ADMIN_DESKTOP}
+      />,
+    );
     for (const field of [
-      "owner-grain", "entity-id", "budget-field", "before-amount-minor",
-      "intended-amount-minor", "currency", "change-percent", "evidence-as-of",
-      "evidence-age-hours", "readback-state", "rollback-eligible",
-      // D088: the live queue facts the operator is actually looking at.
-      "proposal-state", "claim-state", "reconcile-state",
+      "owner-grain",
+      "entity-id",
+      "budget-field",
+      "before-amount-minor",
+      "intended-amount-minor",
+      "currency",
+      "change-percent",
+      "evidence-as-of",
+      "evidence-age-hours",
+      "readback-state",
+      "rollback-eligible",
+      "proposal-state",
+      "claim-state",
+      "reconcile-state",
     ]) {
-      expect(html, field).toContain(`data-field="${field}"`);
+      expect(html, field).not.toContain(`data-field="${field}"`);
     }
-    expect(html).toContain(">250000<");
-    expect(html).toContain(">300000<");
-    /*
-      PRE-DEPLOY AUDIT: the single phrase became six separately rendered facts,
-      so an operator can tell WHICH one is the reason.
-    */
-    expect(html).toContain('data-field="environment-capability"');
-    expect(html).toContain("Transport prepared in this build");
-    expect(html).toContain('data-field="business-master-switch" data-value="false"');
+    expect(html).toContain("Automatic actions");
+    expect(html).toContain(
+      'data-field="business-master-switch" data-value="false"',
+    );
+    expect(html).not.toContain("250000");
+    expect(html).not.toContain("300000");
+    expect(html).not.toContain("Transport prepared");
   });
 
-  it("declares execution DISABLED and lists why", () => {
-    const html = renderToStaticMarkup(<BudgetWriteReadinessSection readiness={model()} authorization={ADMIN_DESKTOP} />);
+  it("declares automatic actions off and lists human-readable requirements", () => {
+    const html = renderToStaticMarkup(
+      <BudgetWriteReadinessSection
+        readiness={model()}
+        authorization={ADMIN_DESKTOP}
+      />,
+    );
     expect(html).toContain('data-execution-enabled="false"');
     expect(html).toContain('data-capability-prepared="true"');
-    for (const blocker of D087_ACTIVATION_BLOCKERS) {
-      expect(html, blocker.code).toContain(`data-blocker="${blocker.code}"`);
-    }
-    expect(html).toContain("automation_disabled");
-    // ...and the activation verdict's own named conditions.
     expect(html).toContain('data-field="activation-ready-blockers"');
     expect(html).toContain('data-blocker-code="global_gate_closed"');
-    expect(html).toContain("The production live-write capability is still closed.");
+    expect(html).toContain("Automatic Meta actions are not available yet.");
     expect(html).toContain('data-blocker-code="budget_mode_not_auto"');
-    // The blocker is stated in the operator's own vocabulary; "Tier 3" was a
-    // rung on an internal readiness ladder appearing on a control that decides
-    // whether this product spends money.
     expect(html).toContain("Set Budget to Automatic.");
+    expect(html).not.toContain("automation_disabled");
+    expect(html).not.toContain("live-write capability");
   });
 
   it("offers no DISPATCH affordance; its controls change a CONTROL ROW, not a budget", () => {
@@ -104,7 +120,12 @@ describe("D087 — the budget write panel is truthful and unpressable", () => {
       is disabled by the server's own verdict rather than by a constant — so the
       day that verdict is clean, it works with no code change.
     */
-    const html = renderToStaticMarkup(<BudgetWriteReadinessSection readiness={model()} authorization={ADMIN_DESKTOP} />);
+    const html = renderToStaticMarkup(
+      <BudgetWriteReadinessSection
+        readiness={model()}
+        authorization={ADMIN_DESKTOP}
+      />,
+    );
     /*
       D088 C2: there IS a form now, and it is the activation ceremony — it posts
       an intent and a typed phrase to the Automation route. It cannot dispatch a
@@ -117,8 +138,8 @@ describe("D087 — the budget write panel is truthful and unpressable", () => {
     expect(html).toContain('data-testid="budget-activation-form"');
     expect(html).toContain('data-testid="budget-activation-phrase"');
     expect(html).toContain('data-testid="budget-activation-enable"');
-    // STOP is never gated.
-    expect(html).toContain('data-testid="budget-activation-disable"');
+    // The current account is off, so a business-wide-looking Disable would lie.
+    expect(html).not.toContain('data-testid="budget-activation-disable"');
     expect(html).toContain('data-enabled="false"');
     expect(html).toContain('data-display-only="true"');
   });
@@ -135,37 +156,56 @@ describe("D087 — the budget write panel is truthful and unpressable", () => {
       />,
     );
     expect(html).toContain('data-enabled="true"');
-    expect(html).not.toMatch(/data-testid="budget-activation-enable"[^>]*disabled=""/);
+    expect(html).not.toMatch(
+      /data-testid="budget-activation-enable"[^>]*disabled=""/,
+    );
   });
 
-  it("computes nothing: every value rendered came from the model", () => {
+  it("does not expose proposal values or compute a buyer action", () => {
     const m = model();
-    const html = renderToStaticMarkup(<BudgetWriteReadinessSection readiness={m} authorization={ADMIN_DESKTOP} />);
-    expect(html).toContain(m.proposal!.entityId);
-    expect(html).toContain(m.proposal!.budgetField);
-    expect(html).toContain(String(m.proposal!.changePercent));
+    const html = renderToStaticMarkup(
+      <BudgetWriteReadinessSection
+        readiness={m}
+        authorization={ADMIN_DESKTOP}
+      />,
+    );
+    expect(html).not.toContain(m.proposal!.entityId);
+    expect(html).not.toContain(m.proposal!.budgetField);
     // Whole words: "execution" legitimately contains "cut", and a substring
     // test that failed on it would be measuring English, not authority.
     for (const forbidden of [
-      "buyerAction", "scale", "cut", "refresh", "Promote to main",
-      "Test campaign", "Main campaign", "brief_variation",
+      "buyerAction",
+      "scale",
+      "cut",
+      "refresh",
+      "Promote to main",
+      "Test campaign",
+      "Main campaign",
+      "brief_variation",
     ]) {
       expect(html, forbidden).not.toMatch(new RegExp(`\\b${forbidden}\\b`));
     }
   });
 
-  it("renders an unknown change as unknown, never as zero", () => {
+  it("does not surface raw proposal measurements when they are unknown", () => {
     const m = model();
     const html = renderToStaticMarkup(
       <BudgetWriteReadinessSection
-        readiness={{ ...m, proposal: { ...m.proposal!, changePercent: null, evidenceAgeHours: null } }}
+        readiness={{
+          ...m,
+          proposal: {
+            ...m.proposal!,
+            changePercent: null,
+            evidenceAgeHours: null,
+          },
+        }}
       />,
     );
-    expect(html).toMatch(/data-field="change-percent"[^>]*>unknown</);
-    expect(html).toMatch(/data-field="evidence-age-hours"[^>]*>unknown</);
+    expect(html).not.toContain('data-field="change-percent"');
+    expect(html).not.toContain('data-field="evidence-age-hours"');
   });
 
-  it("renders NO proposal as a stated reason, never as an empty panel", () => {
+  it("keeps the control usable without exposing a backend unavailable reason", () => {
     const html = renderToStaticMarkup(
       <BudgetWriteReadinessSection
         readiness={{
@@ -175,13 +215,19 @@ describe("D087 — the budget write panel is truthful and unpressable", () => {
         }}
       />,
     );
-    expect(html).toContain('data-field="unavailable-reason"');
-    expect(html).toContain("The baseline must carry a retained amount.");
+    expect(html).toContain("Automatic actions");
+    expect(html).not.toContain('data-field="unavailable-reason"');
+    expect(html).not.toContain("The baseline must carry a retained amount.");
     expect(html).not.toContain('data-field="intended-amount-minor"');
   });
 
   it("a missing model renders unavailable, never enabled", () => {
-    const html = renderToStaticMarkup(<BudgetWriteReadinessSection readiness={null} authorization={ADMIN_DESKTOP} />);
+    const html = renderToStaticMarkup(
+      <BudgetWriteReadinessSection
+        readiness={null}
+        authorization={ADMIN_DESKTOP}
+      />,
+    );
     expect(html).toContain('data-testid="budget-write-readiness-unavailable"');
     expect(html).not.toContain('data-execution-enabled="true"');
   });
@@ -190,7 +236,9 @@ describe("D087 — the budget write panel is truthful and unpressable", () => {
 describe("D088 C2 — the ceremony calls the real admin route", () => {
   it("posts the intent and the phrase, and NEVER a readiness verdict", () => {
     const source = readFileSync(
-      "app/(dashboard)/platforms/meta/automation/automation-view.tsx", "utf8");
+      "app/(dashboard)/platforms/meta/automation/automation-view.tsx",
+      "utf8",
+    );
     const handler = source.slice(
       source.indexOf("const submitActivation"),
       source.indexOf("      setActivationBusy(false);"),
@@ -201,32 +249,39 @@ describe("D088 C2 — the ceremony calls the real admin route", () => {
     expect(handler).toContain("confirmationPhrase");
     // The client sends no verdict and no blockers.
     for (const forbidden of [
-      "readiness:", "globalGateOpen", "canonicalFactRetentionReady", "blockers:",
+      "readiness:",
+      "globalGateOpen",
+      "canonicalFactRetentionReady",
+      "blockers:",
     ]) {
       expect(handler, forbidden).not.toContain(forbidden);
     }
   });
 
-  it("renders the server's refusal rather than inventing one", () => {
+  it("does not expose raw refusal codes or blocker lists", () => {
     const source = readFileSync(
-      "app/(dashboard)/platforms/meta/automation/automation-view.tsx", "utf8");
+      "app/(dashboard)/platforms/meta/automation/automation-view.tsx",
+      "utf8",
+    );
     expect(source).toContain('data-field="activation-response"');
-    expect(source).toContain("payload?.error?.code");
-    expect(source).toContain("payload?.blockers");
+    expect(source).toContain("Automatic actions could not be changed.");
   });
 
-  it("names the MASTER switch and the second key, not a budget-only setting", () => {
+  it("names automatic actions and their per-action mode", () => {
     /*
       PRE-DEPLOY AUDIT: the control writes the business-wide
       `auto_execution_enabled` column. Copy that called it a budget setting told
       an admin they were enabling one decision type when they were enabling the
       business-wide gate. The section now states both keys.
     */
-    const html = renderToStaticMarkup(<BudgetWriteReadinessSection readiness={model()} authorization={ADMIN_DESKTOP} />);
+    const html = renderToStaticMarkup(
+      <BudgetWriteReadinessSection
+        readiness={model()}
+        authorization={ADMIN_DESKTOP}
+      />,
+    );
     expect(html).toContain('data-field="master-switch-scope"');
-    expect(html).toContain("business-wide master switch");
-    // The second key, named the way the control that sets it is now labelled.
-    expect(html).toContain("standing mode set to Automatic");
+    expect(html).toContain("Eligible actions set to Automatic");
     // And it must not describe itself as budget-scoped in the heading.
     expect(html).not.toContain("Budget change capability");
   });
@@ -248,23 +303,35 @@ describe("D088 C2 — the ceremony calls the real admin route", () => {
       <BudgetWriteReadinessSection
         readiness={model()}
         authorization={{
-          canConfigure: false, canDisable: false,
-          reason: "Automatic execution is changed only in the desktop workspace. Open Automation on a desktop browser to change it.",
-          reasonCode: "read_only_surface", surface: "mobile_read_only",
+          canConfigure: false,
+          canDisable: false,
+          reason:
+            "Automatic execution is changed only in the desktop workspace. Open Automation on a desktop browser to change it.",
+          reasonCode: "read_only_surface",
+          surface: "mobile_read_only",
         }}
       />,
     );
     for (const control of [
-      "budget-activation-form", "budget-activation-phrase",
-      "budget-activation-enable", "budget-activation-disable",
-      "<form", "<button", "<input",
+      "budget-activation-form",
+      "budget-activation-phrase",
+      "budget-activation-enable",
+      "budget-activation-disable",
+      "<form",
+      "<button",
+      "<input",
     ]) {
       expect(html, control).not.toContain(control);
     }
     // The STATUS is still fully rendered — refused is not blind.
-    expect(html).toContain("desktop workspace");
+    expect(html).toContain(
+      "Open Automation on desktop to change automatic actions.",
+    );
+    expect(html).not.toContain(
+      "Automatic execution is changed only in the desktop workspace.",
+    );
     expect(html).toContain('data-field="business-master-switch"');
-    expect(html).toContain('data-field="effective-write"');
+    expect(html).toContain('data-effective-write="false"');
     expect(html).toContain('data-field="master-switch-refusal"');
     expect(html).toContain('data-reason-code="read_only_surface"');
   });
@@ -274,29 +341,39 @@ describe("D088 C2 — the ceremony calls the real admin route", () => {
       <BudgetWriteReadinessSection
         readiness={model()}
         authorization={{
-          canConfigure: false, canDisable: false,
-          reason: "Changing automatic execution requires admin access on this business.",
-          reasonCode: "insufficient_role", surface: "desktop",
+          canConfigure: false,
+          canDisable: false,
+          reason:
+            "Changing automatic execution requires admin access on this business.",
+          reasonCode: "insufficient_role",
+          surface: "desktop",
         }}
       />,
     );
     expect(html).not.toContain("budget-activation-enable");
     expect(html).not.toContain("budget-activation-disable");
-    expect(html).toContain("requires admin access");
+    expect(html).toContain(
+      "Admin access is required to change automatic actions.",
+    );
+    expect(html).not.toContain(
+      "Changing automatic execution requires admin access on this business.",
+    );
     expect(html).toContain('data-reason-code="insufficient_role"');
   });
 
   it("an ABSENT authorization renders read-only, never a control", () => {
     // The safe default: a section mounted without an explicit authorization
     // must not offer the strongest control in the product.
-    const html = renderToStaticMarkup(<BudgetWriteReadinessSection readiness={model()} />);
+    const html = renderToStaticMarkup(
+      <BudgetWriteReadinessSection readiness={model()} />,
+    );
     expect(html).not.toContain("<form");
     expect(html).not.toContain("<button");
     expect(html).toContain('data-reason-code="read_only_surface"');
   });
 
   it("DISABLE stays available to an admin when readiness is RED", () => {
-    // A stop that readiness could refuse is not a stop.
+    // Once this exact account is active, readiness cannot hide its stop.
     const m = model();
     const html = renderToStaticMarkup(
       <BudgetWriteReadinessSection
@@ -304,7 +381,12 @@ describe("D088 C2 — the ceremony calls the real admin route", () => {
           ...m,
           execution: {
             ...m.execution,
-            activationReadyBlockers: ["dry_run_guardrail_engaged", "open_claim"],
+            executionEnabled: true,
+            activatedProviderAccountId: "act_1",
+            activationReadyBlockers: [
+              "dry_run_guardrail_engaged",
+              "open_claim",
+            ],
           },
         }}
         authorization={ADMIN_DESKTOP}
@@ -312,9 +394,65 @@ describe("D088 C2 — the ceremony calls the real admin route", () => {
     );
     expect(html).toContain('data-testid="budget-activation-disable"');
     // ...and it is NOT disabled, while Enable is.
-    const disableTag = html.slice(html.indexOf('data-testid="budget-activation-disable"'));
+    const disableTag = html.slice(
+      html.indexOf('data-testid="budget-activation-disable"'),
+    );
     expect(disableTag.slice(0, 200)).not.toContain("disabled=");
-    expect(html).toContain('data-enabled="false"');
+    expect(html).not.toContain('data-testid="budget-activation-enable"');
+  });
+
+  it("names the other exact account and offers no cross-account switch", () => {
+    const m = model();
+    const html = renderToStaticMarkup(
+      <BudgetWriteReadinessSection
+        readiness={{
+          ...m,
+          execution: {
+            ...m.execution,
+            executionEnabled: false,
+            activatedProviderAccountId: "act_987654321",
+            activationReadyBlockers: [],
+          },
+        }}
+        authorization={ADMIN_DESKTOP}
+      />,
+    );
+
+    expect(html).toContain("On for another account");
+    expect(html).toContain('data-field="activated-account-fact"');
+    expect(html).toContain("Meta ad account 987…4321");
+    expect(html).not.toContain("987654321");
+    expect(html).toContain("Open that account to manage them.");
+    expect(html).not.toContain('data-field="activation-ready-blockers"');
+    expect(html).not.toContain('data-testid="budget-activation-form"');
+    expect(html).not.toContain('data-testid="budget-activation-enable"');
+    expect(html).not.toContain('data-testid="budget-activation-disable"');
+    expect(html).not.toContain('data-testid="budget-preparation-form"');
+  });
+
+  it("withholds every business-wide switch when the active account is unknown", () => {
+    const m = model();
+    const html = renderToStaticMarkup(
+      <BudgetWriteReadinessSection
+        readiness={{
+          ...m,
+          execution: {
+            ...m.execution,
+            executionEnabled: true,
+            activatedProviderAccountId: null,
+            activationReadyBlockers: [],
+          },
+        }}
+        authorization={ADMIN_DESKTOP}
+      />,
+    );
+
+    expect(html).toContain("On — account unavailable");
+    expect(html).toContain("Refresh before managing automatic actions.");
+    expect(html).not.toContain('data-field="activation-ready-blockers"');
+    expect(html).not.toContain('data-testid="budget-activation-form"');
+    expect(html).not.toContain('data-testid="budget-activation-disable"');
+    expect(html).not.toContain('data-testid="budget-preparation-form"');
   });
 
   it("a MISSING control row reads OFF, and never infers enabled", () => {
@@ -332,20 +470,29 @@ describe("D088 C2 — the ceremony calls the real admin route", () => {
         authorization={ADMIN_DESKTOP}
       />,
     );
-    expect(html).toContain('data-field="business-master-switch" data-value="false"');
-    expect(html).toContain(">OFF<");
-    expect(html).toContain('data-field="effective-write" data-value="false"');
-    expect(html).toContain("No automatic budget write can execute");
+    expect(html).toContain(
+      'data-field="business-master-switch" data-value="false"',
+    );
+    expect(html).toContain(">Off<");
+    expect(html).toContain('data-effective-write="false"');
+    expect(html).not.toContain("automatic budget write");
   });
 
-  it("separates the six facts an operator needs to tell the reason apart", () => {
+  it("keeps backend readiness facts out of the visible panel", () => {
     const html = renderToStaticMarkup(
-      <BudgetWriteReadinessSection readiness={model()} authorization={ADMIN_DESKTOP} />);
+      <BudgetWriteReadinessSection
+        readiness={model()}
+        authorization={ADMIN_DESKTOP}
+      />,
+    );
     for (const field of [
-      "environment-capability", "business-master-switch", "dry-run-guardrail",
-      "activation-readiness", "activated-account-fact", "effective-write",
+      "environment-capability",
+      "dry-run-guardrail",
+      "activation-readiness",
+      "effective-write",
     ]) {
-      expect(html, field).toContain(`data-field="${field}"`);
+      expect(html, field).not.toContain(`data-field="${field}"`);
     }
+    expect(html).toContain('data-field="business-master-switch"');
   });
 });

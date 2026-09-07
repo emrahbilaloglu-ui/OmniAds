@@ -208,7 +208,8 @@ describe("interpretMetaSnapshotRunResponse", () => {
         ok: false,
         error: {
           code: "reviewer_read_only",
-          message: "Reviewer access is read-only; write actions are unavailable for this workspace.",
+          message:
+            "Reviewer access is read-only; write actions are unavailable for this workspace.",
         },
       }),
     ).toEqual({
@@ -230,7 +231,10 @@ describe("interpretMetaSnapshotRunResponse", () => {
 
   it("still falls back when neither shape carries a sentence", () => {
     expect(
-      interpretMetaSnapshotRunResponse(false, { ok: false, error: "missing_business_id" }),
+      interpretMetaSnapshotRunResponse(false, {
+        ok: false,
+        error: "missing_business_id",
+      }),
     ).toEqual({ ok: false, message: "Snapshot refresh failed." });
   });
 });
@@ -595,6 +599,17 @@ function countText(html: string, text: string) {
   return html.split(text).length - 1;
 }
 
+function quietWorkspaceDigest() {
+  return {
+    snapshotDate: "2026-05-07",
+    unavailableReason: null,
+    labelFlips: { count: 0, publishedCount: 0, items: [] },
+    actions: { verifiedCount: 0, silentFailureCount: 0, items: [] },
+    anomalies: { openedCount: 0, items: [] },
+    deferrals: { dueCount: 0, items: [] },
+  };
+}
+
 function exactArticleHtml(html: string, attribute: string) {
   const attributeIndex = html.indexOf(attribute);
   if (attributeIndex < 0) return "";
@@ -649,7 +664,8 @@ describe("MetaPlatformPage", () => {
     );
     expect(html).toContain("Meta · ");
     expect(html).toContain("<h1>Decision Center</h1>");
-    expect(html).toContain("Policy delivery block");
+    expect(html).toContain("Some recent changes need review.");
+    expect(html).not.toContain("Policy delivery block");
     expect(html).toContain('data-screen-label="Meta Decision Center"');
     expect(html).toContain('data-meta-exact-section="kpis"');
     expect(html).toContain("Spend · 2026-05-07");
@@ -661,15 +677,15 @@ describe("MetaPlatformPage", () => {
     expect(html).toContain('data-meta-exact-lane="action"');
     expect(html).toContain('data-meta-exact-lane="watching"');
     expect(html).toContain('data-meta-exact-lane="healthy"');
-    expect(html).toContain('data-meta-exact-lane="nonsales"');
-    expect(html).toContain('data-meta-exact-lane="archive"');
+    expect(html).not.toContain('data-meta-exact-lane="nonsales"');
+    expect(html).not.toContain('data-meta-exact-lane="archive"');
     expect(html).toContain('data-meta-exact-action-row="rec_1"');
     expect(html).toContain('data-meta-exact-workspace="true"');
     expect(html).toContain('data-meta-exact-inspector="true"');
     expect(html).toContain('aria-label="Sort decisions"');
     expect(html).toContain('aria-label="Find entities"');
-    expect(html).toContain("Run a snapshot");
-    expect(html).toContain("+ New campaign");
+    expect(html).toContain("Refresh decisions");
+    expect(html).not.toContain("+ New campaign");
     expect(html).not.toContain('data-testid="meta-business-strip"');
     expect(html).not.toContain('data-testid="meta-overnight-digest"');
     expect(html).not.toContain("Since last snapshot");
@@ -685,9 +701,9 @@ describe("MetaPlatformPage", () => {
     // rather than folded into a decision tally they are not part of.
     expect(html).toContain("TheSwaf · Act now 1");
     expect(html).toContain('data-meta-exact-lane="action"');
-    expect(html).toContain("Policy delivery block");
+    expect(html).not.toContain("A policy issue is blocking delivery");
     expect(html).toContain("ASC Prospecting");
-    expect(html).toContain(
+    expect(html).not.toContain(
       "the same manual action sheet the desktop carries",
     );
     expect(html).not.toContain("Mobile diagnostic summary unavailable");
@@ -943,7 +959,10 @@ describe("MetaPlatformPage", () => {
       'data-meta-exact-creative-row="os_ad_1"',
     );
     expect(creative).toContain("Hook Variant A");
-    expect(creative).toContain("Scale · Promote To Main");
+    expect(creative).toContain(">Scale</span>");
+    expect(creative).toContain("Review decision");
+    expect(creative).toContain(">Review evidence</button>");
+    expect(creative).not.toContain("Promote To Main");
     expect(creative).toContain("$250 · ROAS 3.20");
     expect(html).not.toContain("Server selected 1 of 8");
     expect(html).not.toContain("87% confidence");
@@ -1072,14 +1091,13 @@ describe("MetaPlatformPage", () => {
       'data-meta-exact-creative-row="os_ad_pending_1"',
     );
     expect(pending).toContain("Live Ad Without A Decision");
-    // It says what it is, in the server's own words.
-    expect(pending).toContain("Evidence pending");
+    // It says what it is without exposing producer vocabulary.
+    expect(pending).toContain("Decision pending");
+    expect(pending).toContain("Decision evidence is still being prepared.");
     expect(pending).toContain(
-      "Exact Ad-grain decision evidence is unavailable",
+      "Wait for the next completed ad-level decision.",
     );
-    expect(pending).toContain(
-      "Complete the native Ad decision schema and producer lineage gate.",
-    );
+    expect(pending).not.toContain("schema and producer lineage");
     // The served state is on the row, not pooled away.
     expect(pending).toContain('data-meta-exact-creative-state="Blocked"');
     /*
@@ -1092,16 +1110,14 @@ describe("MetaPlatformPage", () => {
      * `pending_native_evidence` with no envelope, so no row on the account
      * could open the window that exists to explain exactly this state.
      *
-     * The control it now offers is the SERVED review action, verbatim
-     * ("Evidence pending", intent `review`, `providerMutation: null`), and the
-     * row still says what it is: the Blocked badge, the blocker and the next
-     * step stay on it. Provider-write authority is decided in the window, from
-     * the canonical envelope, and is refused when there is none.
+     * The control now offers a clear evidence review action. The row still
+     * names its blocked state, the blocker, and the next step. Provider-write
+     * authority remains refused when no canonical envelope exists.
      */
     expect(pending).toContain(
-      'aria-label="Evidence for Live Ad Without A Decision"',
+      'aria-label="Review evidence — Live Ad Without A Decision"',
     );
-    expect(pending).toContain('role="button"');
+    expect(pending).toContain('type="button"');
     expect(pending).not.toContain("disabled");
     // It is a review affordance, never a provider mutation dressed as one.
     expect(pending).not.toContain("Pause");
@@ -1111,13 +1127,11 @@ describe("MetaPlatformPage", () => {
     expect(actionHtml).toContain('data-meta-exact-creative-group="act"');
     expect(blockedHtml).toContain('data-meta-exact-creative-group="blocked"');
     expect(monitorHtml).toContain('data-meta-exact-creative-group="monitor"');
-    // The closing sentence names what THIS account was served — no more, and
-    // certainly not a hand-written three-verb vocabulary.
-    expect(actionHtml).toContain("Ad-level calls served for this account");
-    expect(actionHtml).toContain("Evidence pending");
-    expect(actionHtml).toContain("Watch");
+    expect(actionHtml).toContain(
+      "Open a decision for details, or use Creative Studio to compare performance.",
+    );
+    expect(actionHtml).not.toContain("Ad-level calls served for this account");
     expect(actionHtml).not.toContain("only three ad-level calls");
-    expect(actionHtml).not.toContain("scale winner");
   });
 
   it("renders native decisions Ad-first when creative grouping is unavailable", () => {
@@ -1273,7 +1287,9 @@ describe("MetaPlatformPage", () => {
       <MetaPlatformPage businessId="biz_1" businessName="TheSwaf" />,
     );
     expect(unscoped).toContain('data-testid="meta-account-required"');
-    expect(unscoped).toContain("Decisions stay withheld");
+    expect(unscoped).toContain(
+      "Select the account whose decisions you want to review.",
+    );
 
     state.search = "window=28d&providerAccountId=act_2";
     renderToStaticMarkup(
@@ -1332,7 +1348,10 @@ describe("MetaPlatformPage", () => {
     );
 
     expect(html).toContain('data-testid="meta-briefing-error"');
-    expect(html).toContain("workspace request failed");
+    expect(html).toContain(
+      "We could not load Meta decisions. Please try again.",
+    );
+    expect(html).not.toContain("workspace request failed");
     expect(html).not.toContain('data-meta-exact-section="kpis"');
     expect(countText(html, ">—<")).toBeLessThanOrEqual(1);
     expect(html).not.toContain("$0");
@@ -1356,10 +1375,11 @@ describe("MetaPlatformPage", () => {
     );
 
     expect(html).toContain('data-testid="meta-anomaly-error"');
-    expect(html).toContain("snapshot 2026-05-07");
     expect(html).toContain("Spend · 2026-05-07");
     expect(html).toContain("$401");
-    expect(html).toContain("anomaly scan failed");
+    expect(html).toContain("Some checks are unavailable.");
+    expect(html).toContain("The decisions below are still available.");
+    expect(html).not.toContain("anomaly scan failed");
     expect(html).not.toContain('data-testid="meta-briefing-error"');
     expect(html).toContain('data-meta-exact-action-row="rec_1"');
   });
@@ -1420,7 +1440,9 @@ describe("MetaPlatformPage", () => {
       'data-meta-exact-action-row="rec_pause"',
     );
     expect(row).toContain("Cold Prospecting - Broad");
-    expect(row).toMatch(/<button[^>]*disabled=""[^>]*>—<\/button>/);
+    expect(row).toMatch(
+      /<button[^>]*disabled=""[^>]*>Review recommendation<\/button>/,
+    );
     expect(row).not.toContain("Pause adset");
     expect(html).not.toContain('data-action-authority="execute"');
     expect(html).not.toContain('data-action-kind="execute_pause"');
@@ -1442,7 +1464,7 @@ describe("MetaPlatformPage", () => {
     expect(source).not.toContain("<MetaDrillDrawer");
   });
 
-  it("shows automatic campaign-role coverage without mounting legacy scope management", () => {
+  it("keeps campaign-role diagnostics out without mounting scope management", () => {
     state.pulsePayload = metaPulse({
       campaignRoleCoverage: {
         activeCampaigns: 2,
@@ -1493,10 +1515,10 @@ describe("MetaPlatformPage", () => {
     );
 
     expect(html).toContain('data-meta-exact-section="kpis"');
-    expect(html).toContain(">1/2 ");
-    expect(html).toContain(">50%</span>");
-    expect(html).toContain("Campaign roles");
-    expect(html).toContain("Automatic inference");
+    expect(html).not.toContain(">1/2 ");
+    expect(html).not.toContain(">50%</span>");
+    expect(html).not.toContain("Campaign roles");
+    expect(html).not.toContain("Automatic inference");
     expect(html).not.toContain("Review exceptions");
     expect(html).not.toContain(
       'aria-label="Review campaign context exceptions"',
@@ -1732,7 +1754,9 @@ describe("MetaPlatformPage", () => {
 
     expect(html).toContain("target 2.50 · freshness unknown");
     expect(html).not.toContain("authority unchanged");
-    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>—<\/button>/);
+    expect(html).toMatch(
+      /<button[^>]*disabled=""[^>]*>Review recommendation<\/button>/,
+    );
   });
 
   it("routes closed structures to the additive History surface", () => {
@@ -1798,8 +1822,7 @@ describe("MetaPlatformPage", () => {
      * strip that OPENS this lane. What must stay gone is the quiet inline row
      * — a closed structure smuggled back into a live lane as a dimmed line.
      */
-    expect(html).toContain('data-meta-exact-inactive-strip="true"');
-    expect(html).toContain('data-ctl="live:META-DEC-13 open"');
+    expect(html).not.toContain('data-meta-exact-inactive-strip="true"');
     expect(html).not.toContain('data-quiet-row="inactive-structure"');
   });
 
@@ -2420,7 +2443,7 @@ describe("MetaPlatformPage", () => {
   });
 });
 
-describe("header as-of cluster and queue-scope note", () => {
+describe("concise header freshness", () => {
   beforeEach(() => {
     state.lanePayload = null;
     state.pulsePayload = null;
@@ -2428,7 +2451,7 @@ describe("header as-of cluster and queue-scope note", () => {
     state.storeBusinesses = [];
   });
 
-  it("surfaces the real synced / snapshot / engine as-of from the payloads", () => {
+  it("surfaces the real sync age without backend snapshot metadata", () => {
     state.pulsePayload = metaPulse({ lastSyncAt: "2020-01-01T00:00:00.000Z" });
 
     const html = renderToStaticMarkup(
@@ -2440,9 +2463,9 @@ describe("header as-of cluster and queue-scope note", () => {
     );
 
     expect(html).toContain('data-screen-label="Meta Decision Center"');
-    expect(html).toMatch(
-      /synced \d+d ago · snapshot 2026-05-07 · engine v3-test · 06:00 UTC/,
-    );
+    expect(html).toMatch(/Updated: synced \d+d ago/);
+    expect(html).not.toContain("snapshot 2026-05-07");
+    expect(html).not.toContain("engine v3-test");
     expect(html).not.toContain("engine v3.6.0-meta-taxonomy");
   });
 
@@ -2455,13 +2478,13 @@ describe("header as-of cluster and queue-scope note", () => {
       />,
     );
 
-    expect(html).toContain(
-      ">synced — · snapshot 2026-05-07 · engine v3-test · 06:00 UTC<",
-    );
+    expect(html).toContain(">Updated: synced —<");
+    expect(html).not.toContain("snapshot 2026-05-07");
+    expect(html).not.toContain("engine v3-test");
     expect(html).not.toContain("sync unknown");
   });
 
-  it("pins the queue to the served snapshot date, scoping metrics not decisions", () => {
+  it("does not expose the old queue-scope diagnostic note", () => {
     const html = renderToStaticMarkup(
       <MetaPlatformPage
         businessId="biz_1"
@@ -2470,9 +2493,7 @@ describe("header as-of cluster and queue-scope note", () => {
       />,
     );
 
-    expect(html).toContain(
-      "queue reflects snapshot 2026-05-07 — the date range scopes metrics, not decisions",
-    );
+    expect(html).not.toContain("queue reflects snapshot");
     expect(html).not.toContain('data-testid="meta-queue-scope-note"');
   });
 });
@@ -2560,6 +2581,7 @@ describe("tracking write gate (regression: dismissal must not unlock writes)", (
 
 describe("data readiness banner", () => {
   it("surfaces not-ready data instead of silent zeros", () => {
+    state.workspaceDigest = quietWorkspaceDigest();
     state.pulsePayload = metaPulse({
       dataReadiness: {
         status: "no_accounts_assigned",
@@ -2575,8 +2597,9 @@ describe("data readiness banner", () => {
         currency="USD"
       />,
     );
-    expect(html).toContain("Data is not fully ready.");
-    expect(html).toContain("No Meta ad account is assigned");
+    expect(html).toContain("Recent data is still loading.");
+    expect(html).toContain("The recommendations shown here may update.");
+    expect(html).not.toContain("No Meta ad account is assigned");
   });
 });
 
@@ -2601,7 +2624,7 @@ describe("evidence-source disclosure", () => {
     state.lanePayload = null;
     state.pulsePayload = null;
     state.workspaceBanners = [];
-    state.workspaceDigest = null;
+    state.workspaceDigest = quietWorkspaceDigest();
     state.search = "window=28d";
     state.storeBusinesses = [];
   });
@@ -2662,13 +2685,18 @@ describe("evidence-source disclosure", () => {
     expect(future?.detail).toContain("federated_export");
   });
 
-  it("says the numbers are demonstration data when the demo arm answered", () => {
+  it("maps demonstration provenance to concise buyer-facing status", () => {
     const html = renderWithEvidence("demo");
     expect(html).toContain('data-banner-id="readiness_evidence_source"');
-    expect(html).toContain(
+    expect(html).toContain("Performance figures need verification.");
+    expect(html).toContain("sample or unverified data");
+    expect(html).toContain("not confirmed measurements for this Meta account");
+    expect(html).not.toContain(
       "These are demonstration numbers, not measurements.",
     );
-    expect(html).toContain("sample values, not readings of this ad account");
+    expect(html).not.toContain(
+      "sample values, not readings of this ad account",
+    );
     // The readiness banner still cannot fire here - that is the whole defect.
     expect(html).not.toContain('data-banner-id="data_readiness"');
     // It reports; it does not act. No control, no decision, no write.
@@ -2678,11 +2706,13 @@ describe("evidence-source disclosure", () => {
     expect(banner.slice(0, banner.indexOf("</div>"))).not.toContain("<button");
   });
 
-  it("names an unrecognised source instead of passing it off as measured", () => {
+  it("does not expose an unrecognised backend source token", () => {
     const html = renderWithEvidence("federated_export");
     expect(html).toContain('data-banner-id="readiness_evidence_source"');
-    expect(html).toContain("federated_export");
-    expect(html).toContain("cannot read");
+    expect(html).toContain("Performance figures need verification.");
+    expect(html).toContain("sample or unverified data");
+    expect(html).not.toContain("federated_export");
+    expect(html).not.toContain("cannot read");
   });
 
   it("stays silent when the evidence IS a measurement", () => {
@@ -2715,7 +2745,7 @@ describe("evidence-source disclosure", () => {
     expect(html).not.toContain('data-banner-id="readiness_evidence_source"');
   });
 
-  it("survives a served banner set, which would have discarded the fallback", () => {
+  it("keeps evidence truth inside one prioritized status when a served banner is also present", () => {
     // The regression this guards: `served.length > 0` replaces the whole
     // fallback list, so a demo account with any served banner used to go back
     // to drawing fabricated numbers in silence.
@@ -2730,10 +2760,15 @@ describe("evidence-source disclosure", () => {
     ];
     const html = renderWithEvidence("demo");
     expect(html).toContain('data-banner-id="snapshot_health"');
-    expect(html).toContain('data-banner-id="readiness_evidence_source"');
+    expect(html).not.toContain('data-banner-id="readiness_evidence_source"');
+    expect(html).toContain('data-critical-evidence="true"');
+    expect(countText(html, 'class="meta-posture-banner ')).toBe(1);
+    expect(html).toContain("Decisions are updating.");
+    expect(html).toContain("sample or unverified data");
+    expect(html).not.toContain("These are demonstration numbers");
   });
 
-  it("lets a served banner of the same id win over the page's own", () => {
+  it("sanitizes a served banner with the same evidence id", () => {
     state.workspaceBanners = [
       {
         id: "readiness_evidence_source",
@@ -2744,7 +2779,9 @@ describe("evidence-source disclosure", () => {
       },
     ];
     const html = renderWithEvidence("demo");
-    expect(html).toContain("Served evidence disclosure.");
+    expect(html).not.toContain("Served evidence disclosure.");
+    expect(html).toContain("Performance figures need verification.");
+    expect(html).toContain("sample or unverified data");
     expect(html).not.toContain(
       "These are demonstration numbers, not measurements.",
     );
@@ -2894,7 +2931,7 @@ describe("silent action failure disclosure", () => {
     expect(metaSilentActionFailureNotice(undefined)).toBeNull();
   });
 
-  it("puts the count on the desk and the phone, and offers no control", () => {
+  it("puts a concise review status on the desk and phone", () => {
     state.workspaceDigest = digest({
       verifiedCount: 1,
       silentFailureCount: 2,
@@ -2908,7 +2945,9 @@ describe("silent action failure disclosure", () => {
     );
     expect(html).toContain('data-banner-id="silent_action_failures"');
     expect(html).toContain('data-mobile-banner="silent_action_failures"');
-    expect(html).toContain(
+    expect(html).toContain("Some recent changes need review.");
+    expect(html).toContain("Open History to check them.");
+    expect(html).not.toContain(
       "2 recorded actions ended without a verified outcome.",
     );
     expect(html).toContain('data-banner-blocking="false"');
@@ -2916,6 +2955,41 @@ describe("silent action failure disclosure", () => {
       html.indexOf('data-banner-id="silent_action_failures"'),
     );
     expect(banner.slice(0, banner.indexOf("</div>"))).not.toContain("<button");
+  });
+
+  it("does not let a stronger operating gate hide an uncertain action outcome", () => {
+    state.workspaceBanners = [
+      {
+        id: "pipeline_blocker",
+        tone: "warning",
+        title: "Internal pipeline blocker detail.",
+        detail: "raw_producer_reason",
+        blocking: true,
+      },
+    ];
+    state.workspaceDigest = digest({
+      verifiedCount: 1,
+      silentFailureCount: 2,
+    });
+
+    const html = renderToStaticMarkup(
+      <MetaPlatformPage
+        businessId="biz_1"
+        businessName="TheSwaf"
+        currency="USD"
+      />,
+    );
+
+    expect(html).toContain('data-banner-id="pipeline_blocker"');
+    expect(html).toContain('data-mobile-banner="pipeline_blocker"');
+    expect(html).toContain('data-critical-unverified-action="true"');
+    expect(html).toContain("Actions are temporarily unavailable.");
+    expect(html).toContain("One or more recent Meta changes");
+    expect(html).toContain("have an unverified result");
+    expect(html).not.toContain("Internal pipeline blocker detail.");
+    expect(html).not.toContain("raw_producer_reason");
+    expect(countText(html, ">Open History</a>")).toBe(2);
+    expect(countText(html, 'class="meta-posture-banner ')).toBe(1);
   });
 
   /**
@@ -3088,9 +3162,7 @@ describe("silent action failure disclosure", () => {
     );
     // Named in words, so every surface carries the destination even where a
     // control would not.
-    expect(html).toContain(
-      "Meta History lists each recorded action on its own row",
-    );
+    expect(html).toContain("Open History to check them.");
     // And reachable, scoped to the same business and account this page is
     // answering for rather than whichever one the journal would pick.
     expect(html).toContain(
@@ -3100,12 +3172,12 @@ describe("silent action failure disclosure", () => {
       html.indexOf('data-banner-id="silent_action_failures"'),
     );
     const desktopBanner = desktop.slice(0, desktop.indexOf("</div>"));
-    expect(desktopBanner).toContain(">Meta History</a>");
+    expect(desktopBanner).toContain(">Open History</a>");
     const mobile = html.slice(
       html.indexOf('data-mobile-banner="silent_action_failures"'),
     );
     expect(mobile.slice(0, mobile.indexOf("</article>"))).toContain(
-      ">Meta History</a>",
+      ">Open History</a>",
     );
   });
 
@@ -3150,7 +3222,7 @@ describe("silent action failure disclosure", () => {
     }
   });
 
-  it("lets a served banner of the same id win over the page's own", () => {
+  it("sanitizes a served silent-failure banner with the same id", () => {
     state.workspaceBanners = [
       {
         id: "silent_action_failures",
@@ -3171,7 +3243,8 @@ describe("silent action failure disclosure", () => {
         currency="USD"
       />,
     );
-    expect(html).toContain("Served silent-failure recap.");
+    expect(html).not.toContain("Served silent-failure recap.");
+    expect(html).toContain("Some recent changes need review.");
     expect(html).not.toContain(
       "2 recorded actions ended without a verified outcome.",
     );
@@ -3301,10 +3374,13 @@ describe("mobile decision surface parity", () => {
     expect(row).not.toContain("Resume");
     expect(row).not.toContain("data-mobile-apply=");
     expect(mobile).not.toContain("Writes are desktop-only");
-    expect(mobile).toContain("the same manual action sheet the desktop carries");
+    expect(mobile).not.toContain(
+      "the same manual action sheet the desktop carries",
+    );
   });
 
-  it("states viewer authority and the served source posture beside the rows", () => {
+  it("maps read-only authority to one useful status without source diagnostics", () => {
+    state.workspaceDigest = quietWorkspaceDigest();
     state.workspaceViewer = {
       role: "guest",
       isReviewer: true,
@@ -3370,24 +3446,20 @@ describe("mobile decision surface parity", () => {
         <MetaPlatformPage businessId="biz_1" businessName="TheSwaf" />,
       ),
     );
-    // Claim 8, mobile half: the posture is rendered ALONGSIDE a non-empty
-    // queue, not only when the queue is empty.
     expect(mobile).toContain('data-mobile-row-id="rec_1"');
-    expect(mobile).toContain('data-mobile-posture="source"');
-    expect(mobile).toContain("Legacy Creative Review Only");
-    expect(mobile).toContain("health Degraded");
-    expect(mobile).toContain("native_schema_or_generation_read_failed");
-    expect(mobile).toContain("Response Attribution unavailable");
-    expect(mobile).toContain("Provider Write Linkage unavailable");
-    expect(mobile).toContain('data-mobile-posture="viewer"');
-    expect(mobile).toContain("role guest · read-only");
-    expect(mobile).toContain("Reviewer access is read-only.");
-    expect(mobile).toContain('data-mobile-posture="withheld"');
-    expect(mobile).toContain("83 inactive Ads");
-    expect(mobile).toContain("blocked 2");
+    expect(mobile).toContain("Read-only access.");
+    expect(mobile).toContain(
+      "You can review recommendations, but you cannot apply changes.",
+    );
+    expect(mobile).not.toContain("data-mobile-posture");
+    expect(mobile).not.toContain("Legacy Creative Review Only");
+    expect(mobile).not.toContain("native_schema_or_generation_read_failed");
+    expect(mobile).not.toContain("provider_write_journal");
+    expect(mobile).not.toContain("83 inactive Ads");
   });
 
-  it("lists every served anomaly rather than only the first", () => {
+  it("shows one concise anomaly instead of a diagnostic list", () => {
+    state.workspaceDigest = quietWorkspaceDigest();
     state.lanePayload = metaLanePayload({
       actionNow: [],
       watching: [],
@@ -3413,8 +3485,10 @@ describe("mobile decision surface parity", () => {
         <MetaPlatformPage businessId="biz_1" businessName="TheSwaf" />,
       ),
     );
-    expect(mobile).toContain("First anomaly");
-    expect(mobile).toContain("Second anomaly");
+    expect(mobile).toContain("A policy issue is blocking delivery");
+    expect(countText(mobile, "A policy issue is blocking delivery")).toBe(1);
+    expect(mobile).not.toContain("First anomaly");
+    expect(mobile).not.toContain("Second anomaly");
   });
 
   it("renders creative rows on mobile and opens the mobile evidence screen", () => {
@@ -3515,7 +3589,7 @@ describe("mobile decision surface parity", () => {
     expect(monitorMobile).toContain('data-mobile-row-id="monitor-row"');
   });
 
-  it("carries the same scope and lane chips the desktop carries", () => {
+  it("carries only the useful scope and decision lane chips", () => {
     state.lanePayload = metaLanePayload({
       counts: {
         actionNow: 3,
@@ -3550,16 +3624,20 @@ describe("mobile decision surface parity", () => {
     expect(mobile).toContain("Campaigns &amp; Ad sets 4");
     expect(mobile).toContain("Action 3");
     expect(mobile).toContain("Watching 1089");
-    expect(mobile).toContain("Non-sales 30");
-    expect(mobile).toContain("data-mobile-structure-inventory");
-    expect(mobile).toContain("Account inventory · 4 served");
-    // The full census is reachable, but 1,230-row accounts are not mounted
-    // behind a disclosure the operator has not opened.
+    expect(mobile).not.toContain("Non-sales 30");
+    expect(mobile).not.toContain("Healthy 0");
+    expect(mobile).not.toContain("Archive 0");
+    expect(mobile).not.toContain("data-mobile-structure-inventory");
+    expect(mobile).not.toContain("Account inventory");
     expect(mobile).not.toContain("data-mobile-structure-inventory-row");
   });
 });
 
 describe("workspace posture banners", () => {
+  beforeEach(() => {
+    state.workspaceDigest = quietWorkspaceDigest();
+  });
+
   it.each([
     ["/platforms/meta", "/commercial-truth"],
     ["/app/meta/decisions", "/app/manage/business"],
@@ -3588,17 +3666,22 @@ describe("workspace posture banners", () => {
         <MetaPlatformPage businessId="biz_1" businessName="TheSwaf" />,
       );
 
-      expect(html).toContain('data-banner-scope="target_hard_actions"');
-      expect(html).toContain('data-mobile-banner-scope="target_hard_actions"');
       expect(html).toContain(
-        "This applies to hard Scale/Cut authority; the rest of the queue remains readable.",
+        'data-banner-id="commercial_target_authority_missing"',
+      );
+      expect(html).toContain(
+        'data-mobile-banner="commercial_target_authority_missing"',
+      );
+      expect(html).toContain("A ROAS target is required.");
+      expect(html).toContain(
+        "Set the target used to evaluate Scale and Cut recommendations.",
       );
       expect(countText(html, `href="${expectedHref}"`)).toBe(2);
-      expect(countText(html, ">Set commercial truth</a>")).toBe(2);
+      expect(countText(html, ">Set target</a>")).toBe(2);
     },
   );
 
-  it("renders server posture banners in reference priority without implying dismissed tracking unlocks writes", () => {
+  it("renders only the highest-priority posture in buyer language", () => {
     state.pathname = "/platforms/meta";
     state.workspaceBanners = [
       {
@@ -3628,16 +3711,15 @@ describe("workspace posture banners", () => {
 
     expect(html).toContain('data-testid="meta-posture-banners"');
     expect(html).toContain('data-banner-id="meta_write_kill_switch"');
-    expect(html).toContain('data-banner-id="tracking_write_gate"');
-    expect(html.indexOf("Kill switch engaged.")).toBeLessThan(
-      html.indexOf("Tracking degraded"),
-    );
+    expect(html).not.toContain('data-banner-id="tracking_write_gate"');
+    expect(html).toContain("Meta changes are paused.");
+    expect(html).not.toContain("Kill switch engaged.");
+    expect(html).not.toContain("META_ADS_WRITE_KILL_SWITCH");
     expect(html).toContain('href="/platforms/meta/automation"');
-    expect(html).toContain("System Status");
-    expect(html).toContain("Hiding this banner does not unlock writes");
+    expect(html).toContain("Open Automation");
   });
 
-  it("keeps every blocking or danger banner outside the collapsed informational notes", () => {
+  it("shows one blocking status without collapsed technical notes", () => {
     state.workspaceBanners = [
       {
         id: "informational_note",
@@ -3665,17 +3747,12 @@ describe("workspace posture banners", () => {
     const html = renderToStaticMarkup(
       <MetaPlatformPage businessId="biz_1" businessName="TheSwaf" />,
     );
-    const detailsIndex = html.indexOf(
-      '<details class="meta-posture-banners__details">',
-    );
-
-    expect(detailsIndex).toBeGreaterThan(-1);
-    expect(html.lastIndexOf("Pipeline is not ready.")).toBeLessThan(detailsIndex);
-    expect(html.lastIndexOf("Critical provider failure.")).toBeLessThan(
-      detailsIndex,
-    );
-    expect(html.lastIndexOf("Informational note.")).toBeGreaterThan(detailsIndex);
-    expect(html).toContain("1 additional data note");
+    expect(html).toContain('data-banner-id="pipeline_blocker"');
+    expect(html).toContain("Actions are temporarily unavailable.");
+    expect(html).not.toContain("Pipeline is not ready.");
+    expect(html).not.toContain("Critical provider failure.");
+    expect(html).not.toContain("Informational note.");
+    expect(html).not.toContain("meta-posture-banners__details");
   });
 
   it("downgrades write controls to evidence review when the server marks the viewer read-only", () => {
@@ -3722,17 +3799,21 @@ describe("workspace posture banners", () => {
     const html = renderToStaticMarkup(<MetaPlatformPage businessId="biz_1" />);
 
     expect(html).toContain('data-banner-id="reviewer_read_only"');
-    expect(html).toContain("Reviewer access is read-only.");
+    expect(html).toContain("Read-only access.");
+    expect(html).toContain(
+      "You can review recommendations, but you cannot apply changes.",
+    );
+    expect(html).not.toContain("Reviewer access is read-only.");
     expect(html).toContain('data-screen-label="Meta Decision Center"');
     const row = exactArticleHtml(
       html,
       'data-meta-exact-action-row="pause-rec"',
     );
-    expect(row).toMatch(/<button[^>]*disabled=""[^>]*>—<\/button>/);
-    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Run a snapshot<\/button>/);
-    expect(html).toMatch(
-      /<button[^>]*disabled=""[^>]*>\+ New campaign<\/button>/,
+    expect(row).toMatch(
+      /<button[^>]*disabled=""[^>]*>Review recommendation<\/button>/,
     );
+    expect(html).not.toContain(">Refresh decisions</button>");
+    expect(html).not.toContain("+ New campaign");
     expect(html).not.toContain('data-action-authority="execute"');
     expect(html).not.toContain('data-action="undefer"');
     expect(html).not.toContain(">Pause weakest<");
@@ -3763,27 +3844,8 @@ describe("tracking confirm label follows the server actionKind", () => {
   });
 });
 
-/**
- * The served census, reachable without going through Archive.
- *
- * MEASURED on Grandmix (5dbc7147-f051-4681-a4d6-20617170074f /
- * act_805150454596350, window 28d, snapshot 2026-08-18):
- * `lanes.structureInventory` serves 1,230 entities — 476 campaigns and 754 ad
- * sets — while the lanes that render them hold Action Now 3, Watching 19,
- * Healthy 0, Non-sales 0, Archive 1,211 structure rows (+83 withheld Ad
- * decisions). 1,211 of 1,230 were reachable only by opening a lane named
- * Archive, and the grouped copy of the same census (`os.structure.groups`,
- * 476 groups / 1,230 nodes) was read once in the whole client — by
- * `structureNodesByRecommendationId`, to enrich rows that already had a lane.
- * It was served and rendered nowhere.
- *
- * THE LAW these tests hold: inventory visibility is not recommendation or
- * execution eligibility (INVARIANTS.md). The panel may make the census
- * findable; it may not give a row an action, a lane or a decision, and it may
- * not move a row out of the lane the server filed it in.
- */
-describe("served structure inventory panel", () => {
-  beforeEach(() => {
+describe("served structure inventory stays out of the buyer surface", () => {
+  it("keeps decision rows visible without mounting the technical census", () => {
     state.lanePayload = metaLanePayload({
       counts: {
         actionNow: 1,
@@ -3805,75 +3867,6 @@ describe("served structure inventory panel", () => {
         }),
       ],
     });
-  });
-
-  it("mounts the census on the structure scope and names its served size", () => {
-    const html = renderToStaticMarkup(
-      <MetaPlatformPage
-        businessId="biz_1"
-        businessName="TheSwaf"
-        currency="USD"
-      />,
-    );
-
-    expect(html).toContain("data-meta-structure-inventory");
-    expect(html).toContain('data-meta-structure-inventory-served="2"');
-    expect(html).toContain("Account inventory");
-    expect(html).toContain("2 served · 1 campaigns · 1 ad sets");
-    // The scope pill names the scope it counts.
-    expect(html).toContain("Campaigns &amp; Ad sets");
-  });
-
-  it("offers the census no control that could reach a provider write", () => {
-    const html = renderToStaticMarkup(
-      <MetaPlatformPage
-        businessId="biz_1"
-        businessName="TheSwaf"
-        currency="USD"
-      />,
-    );
-
-    const start = html.indexOf("data-meta-structure-inventory");
-    expect(start).toBeGreaterThan(-1);
-    const panel = html.slice(start, html.indexOf("</details>", start));
-    /*
-     * No button, no link, no role="button", no onclick. The panel is a list of
-     * what the account HAS. Every write path on this screen runs through a
-     * server-supplied action tuple, and an inventory row has none — so drawing
-     * a control here would be a promise the surface could never keep, and a
-     * row that gained an action it was never served.
-     */
-    expect(panel).not.toMatch(/<button|<a\s|role="button"|onclick/i);
-    expect(panel).toContain("grants no action");
-  });
-
-  it("keeps the census closed until it is opened, so 1,230 rows are not always mounted", () => {
-    const html = renderToStaticMarkup(
-      <MetaPlatformPage
-        businessId="biz_1"
-        businessName="TheSwaf"
-        currency="USD"
-      />,
-    );
-
-    const start = html.indexOf("data-meta-structure-inventory");
-    const panel = html.slice(start, html.indexOf("</details>", start));
-    // `<details>` mounts its children even collapsed, so the rows are gated on
-    // the open state rather than on the disclosure triangle.
-    expect(panel).not.toContain("data-meta-structure-inventory-row");
-    expect(panel).not.toContain("Census Campaign");
-  });
-
-  it("says an absent census is absent rather than reporting an empty account", () => {
-    state.lanePayload = metaLanePayload({
-      counts: {
-        actionNow: 1,
-        watching: 1,
-        healthy: 1,
-        nonSales: 0,
-        archive: 0,
-      },
-    });
 
     const html = renderToStaticMarkup(
       <MetaPlatformPage
@@ -3883,6 +3876,11 @@ describe("served structure inventory panel", () => {
       />,
     );
 
-    expect(html).toContain('data-meta-structure-inventory-served="—"');
+    expect(html).toContain('data-meta-exact-action-row="rec_1"');
+    expect(html).not.toContain("data-meta-structure-inventory");
+    expect(html).not.toContain("data-mobile-structure-inventory");
+    expect(html).not.toContain("Account inventory");
+    expect(html).not.toContain("Census Campaign");
+    expect(html).not.toContain("Census Ad set");
   });
 });

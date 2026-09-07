@@ -3,11 +3,16 @@ import { describe, expect, it } from "vitest";
 import {
   actionFor,
   actorFor,
+  historyAccountLabel,
+  historySummaryFor,
   moneyFactText,
   toHistoryPage,
   toHistoryRow,
 } from "@/lib/zero-base/meta/history-adapter";
-import type { MetaHistoryEntry, MetaHistoryResponse } from "@/lib/meta/history-contract";
+import type {
+  MetaHistoryEntry,
+  MetaHistoryResponse,
+} from "@/lib/meta/history-contract";
 
 function entry(overrides: Partial<MetaHistoryEntry> = {}): MetaHistoryEntry {
   return {
@@ -41,7 +46,9 @@ function entry(overrides: Partial<MetaHistoryEntry> = {}): MetaHistoryEntry {
   } as MetaHistoryEntry;
 }
 
-function payload(overrides: Partial<MetaHistoryResponse> = {}): MetaHistoryResponse {
+function payload(
+  overrides: Partial<MetaHistoryResponse> = {},
+): MetaHistoryResponse {
   return {
     mode: "read_only",
     scope: {
@@ -80,23 +87,37 @@ describe("actor provenance survives the mapping", () => {
 
   it("returns null when the actor is unavailable, so the view says not recorded", () => {
     // Not "System": that would be a claim about who acted.
-    expect(actorFor(entry({ actor: { id: null, name: null, availability: "unavailable" } }))).toBeNull();
+    expect(
+      actorFor(
+        entry({ actor: { id: null, name: null, availability: "unavailable" } }),
+      ),
+    ).toBeNull();
   });
 
   it("names the engine when no human actor applies", () => {
     expect(
-      actorFor(entry({ actor: { id: null, name: null, availability: "not_applicable" } })),
+      actorFor(
+        entry({
+          actor: { id: null, name: null, availability: "not_applicable" },
+        }),
+      ),
     ).toBe("No human actor (engine)");
   });
 
   it("treats an available-but-empty name as unrecorded", () => {
-    expect(actorFor(entry({ actor: { id: "u1", name: "  ", availability: "available" } }))).toBeNull();
+    expect(
+      actorFor(
+        entry({ actor: { id: "u1", name: "  ", availability: "available" } }),
+      ),
+    ).toBeNull();
   });
 });
 
 describe("replay provenance survives the mapping", () => {
   it("marks a replayed entry", () => {
-    const row = toHistoryRow(entry({ replay: { date: "2026-08-01", engineVersion: "v3" } }));
+    const row = toHistoryRow(
+      entry({ replay: { date: "2026-08-01", engineVersion: "v3" } }),
+    );
     expect(row.replayed).toBe(true);
   });
 
@@ -108,13 +129,17 @@ describe("replay provenance survives the mapping", () => {
     // The boolean alone cannot answer the question the design's replay caveat
     // raises ("Replay ≠ live; V1/V2 snapshot badges"): which engine produced
     // the snapshot. Dropping it here left no replay able to say.
-    const row = toHistoryRow(entry({ replay: { date: "2026-08-01", engineVersion: "v3" } }));
+    const row = toHistoryRow(
+      entry({ replay: { date: "2026-08-01", engineVersion: "v3" } }),
+    );
     expect(row.replayEngineVersion).toBe("v3");
   });
 
   it("keeps a null engine version null rather than substituting one", () => {
     // An unsupplied fact stays unsupplied; the view renders it as an em-dash.
-    const row = toHistoryRow(entry({ replay: { date: "2026-08-01", engineVersion: null } }));
+    const row = toHistoryRow(
+      entry({ replay: { date: "2026-08-01", engineVersion: null } }),
+    );
     expect(row.replayed).toBe(true);
     expect(row.replayEngineVersion).toBeNull();
   });
@@ -126,32 +151,65 @@ describe("the row names the entity it is about", () => {
     // "Scale budget"), so the operator could not tell which campaign or ad set
     // a money move concerned.
     expect(
-      actionFor(entry({ title: "Scale budget", entity: { type: "campaign", id: "c-1", name: "Prospecting — broad" } })),
+      actionFor(
+        entry({
+          title: "Scale budget",
+          entity: { type: "campaign", id: "c-1", name: "Prospecting — broad" },
+        }),
+      ),
     ).toBe("Scale budget | Prospecting — broad");
   });
 
   it("does not duplicate an entity the SQL already folded into the title", () => {
     // Write and external-change rows are served as "… | <entity>" already.
     expect(
-      actionFor(entry({ title: "Pause Ad | Ad 1", entity: { type: "ad", id: "ad-1", name: "Ad 1" } })),
+      actionFor(
+        entry({
+          title: "Pause Ad | Ad 1",
+          entity: { type: "ad", id: "ad-1", name: "Ad 1" },
+        }),
+      ),
     ).toBe("Pause Ad | Ad 1");
   });
 
-  it("falls back to the entity id, never to a made-up name", () => {
+  it("uses a neutral entity label instead of exposing the provider id", () => {
     expect(
-      actionFor(entry({ title: "Scale budget", entity: { type: "adset", id: "as-9", name: null } })),
-    ).toBe("Scale budget | as-9");
+      actionFor(
+        entry({
+          title: "Scale budget",
+          entity: { type: "adset", id: "as-9", name: null },
+        }),
+      ),
+    ).toBe("Scale budget | Unnamed ad set");
+  });
+
+  it("replaces a provider id already folded into the title", () => {
+    const providerId = "238901234567890";
+    const action = actionFor(
+      entry({
+        title: `Pause Ad | ${providerId}`,
+        entity: { type: "ad", id: providerId, name: providerId },
+      }),
+    );
+
+    expect(action).toBe("Pause Ad | Unnamed ad");
+    expect(action).not.toContain(providerId);
   });
 
   it("leaves the title alone when no entity was served", () => {
     expect(
-      actionFor(entry({ title: "Scale budget", entity: { type: "ad", id: "", name: null } })),
+      actionFor(
+        entry({
+          title: "Scale budget",
+          entity: { type: "ad", id: "", name: null },
+        }),
+      ),
     ).toBe("Scale budget");
   });
 });
 
 describe("served detail reaches the row", () => {
-  it("carries the summary and money facts verbatim", () => {
+  it("carries buyer-facing summary prose and money facts", () => {
     const money = [
       {
         label: "Before spend",
@@ -161,9 +219,52 @@ describe("served detail reaches the row", () => {
         attribution: "meta_attributed" as const,
       },
     ];
-    const row = toHistoryRow(entry({ summary: "Spend outran the floor.", money }));
+    const row = toHistoryRow(
+      entry({ summary: "Spend outran the floor.", money }),
+    );
     expect(row.summary).toBe("Spend outran the floor.");
     expect(row.money).toEqual(money);
+  });
+
+  it("maps automatic KPI storage text without losing the measured result", () => {
+    const raw = "auto_kpi_7d: improved (ROAS 1.25 -> 2.10, operator acted)";
+    const row = toHistoryRow(entry({ status: "improved", summary: raw }));
+    expect(row.summary).toBe(
+      "ROAS improved from 1.25 to 2.10 over the next 7 days. A recorded action was applied.",
+    );
+    expect(row.summary).not.toContain("auto_kpi_7d");
+  });
+
+  it("hides unknown machine summaries while preserving the status", () => {
+    const item = entry({
+      status: "unknown",
+      summary: "source_read_failed: relation activity missing",
+    });
+    expect(historySummaryFor(item)).toBeNull();
+    expect(toHistoryRow(item).outcome).toBe("unknown");
+  });
+});
+
+describe("buyer-facing account labels", () => {
+  it("uses a real account name", () => {
+    expect(historyAccountLabel({ id: "act_12345678", name: "Main" })).toBe(
+      "Main",
+    );
+  });
+
+  it("masks an unnamed account instead of exposing the provider id", () => {
+    const label = historyAccountLabel({ id: "act_12345678", name: null });
+    expect(label).toBe("Meta account ••••5678");
+    expect(label).not.toContain("act_12345678");
+  });
+
+  it("treats a provider id copied into the name field as unnamed", () => {
+    expect(
+      historyAccountLabel({ id: "act_12345678", name: "act_12345678" }),
+    ).toBe("Meta account ••••5678");
+    expect(historyAccountLabel({ id: "act_12345678", name: "12345678" })).toBe(
+      "Meta account ••••5678",
+    );
   });
 });
 
@@ -208,14 +309,18 @@ describe("served text is not re-derived", () => {
   // " | " form the SQL already uses on the branches that fold it in themselves.
   // Appended, never substituted.
   it("copies the served status through and keeps the served title intact", () => {
-    const row = toHistoryRow(entry({ title: "Resume ad set", status: "silent_failure" }));
+    const row = toHistoryRow(
+      entry({ title: "Resume ad set", status: "silent_failure" }),
+    );
     expect(row.action.startsWith("Resume ad set")).toBe(true);
     expect(row.action).toBe("Resume ad set | Ad 1");
     expect(row.outcome).toBe("silent_failure");
   });
 
   it("leaves a title that already names its entity exactly as served", () => {
-    const row = toHistoryRow(entry({ title: "Resume ad set | Ad 1", status: "verified_success" }));
+    const row = toHistoryRow(
+      entry({ title: "Resume ad set | Ad 1", status: "verified_success" }),
+    );
     expect(row.action).toBe("Resume ad set | Ad 1");
   });
 });
@@ -223,14 +328,18 @@ describe("served text is not re-derived", () => {
 describe("page cap disclosure", () => {
   it("says more exist when a cursor was returned", () => {
     const page = toHistoryPage(
-      payload({ page: { limit: 40, returned: 40, total: null, nextCursor: "c1" } }),
+      payload({
+        page: { limit: 40, returned: 40, total: null, nextCursor: "c1" },
+      }),
     );
     expect(page.disclosure).toMatch(/More exist beyond this page/);
   });
 
   it("names the cap when the page is full without a cursor", () => {
     const page = toHistoryPage(
-      payload({ page: { limit: 40, returned: 40, total: null, nextCursor: null } }),
+      payload({
+        page: { limit: 40, returned: 40, total: null, nextCursor: null },
+      }),
     );
     expect(page.disclosure).toMatch(/maximum for one page/);
   });
@@ -241,7 +350,9 @@ describe("page cap disclosure", () => {
 
   it("never states a total, because the cursor path does not compute one", () => {
     const page = toHistoryPage(
-      payload({ page: { limit: 40, returned: 40, total: null, nextCursor: "c1" } }),
+      payload({
+        page: { limit: 40, returned: 40, total: null, nextCursor: "c1" },
+      }),
     );
     expect(page.disclosure).not.toMatch(/\btotal\b/i);
     expect(page.disclosure).not.toMatch(/\bof \d+/);
@@ -258,10 +369,26 @@ describe("page cap disclosure", () => {
         ],
       } as Partial<MetaHistoryResponse>),
     );
-    expect(page.limitations).toEqual(["Rows without an account scope were omitted."]);
+    expect(page.limitations).toEqual([
+      "Rows without an account scope were omitted.",
+    ]);
   });
 
   it("names the account the journal was read for", () => {
     expect(toHistoryPage(payload()).accountLabel).toBe("Main account");
+  });
+
+  it("does not use the full account id when its name is unavailable", () => {
+    const page = toHistoryPage(
+      payload({
+        scope: {
+          ...payload().scope,
+          providerAccountId: "act_12345678",
+          providerAccountName: null,
+        },
+      }),
+    );
+    expect(page.accountLabel).toBe("Meta account ••••5678");
+    expect(page.accountLabel).not.toContain("act_12345678");
   });
 });

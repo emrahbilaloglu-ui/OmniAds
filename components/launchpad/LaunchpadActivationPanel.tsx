@@ -55,11 +55,7 @@ export interface LaunchpadActivationStep {
   grain: ActivationGrain;
   entityId: string;
   outcome:
-    | "activated"
-    | "already_active"
-    | "blocked"
-    | "ambiguous"
-    | "not_attempted";
+    "activated" | "already_active" | "blocked" | "ambiguous" | "not_attempted";
   reason: string | null;
   verified: { status: string | null; effectiveStatus: string | null } | null;
   /** The `meta_ads_action_log` row this step was journalled in, when there is one. */
@@ -123,6 +119,7 @@ export interface LaunchpadActivationRevocation {
 const APPROVAL_CONTRACT = "meta.launch-activation-approval.v2";
 const REVOCATION_CONTRACT = "meta.launch-activation-revocation.v1";
 const ACTIVATION_RECEIPT_CONTRACT = "meta.launch-activation-receipt.v1";
+const APPROVED_ASSET_VERSION = "v1";
 
 const GRAIN_LABEL: Record<ActivationGrain, string> = {
   campaign: "campaign",
@@ -130,8 +127,29 @@ const GRAIN_LABEL: Record<ActivationGrain, string> = {
   ad: "ad",
 };
 
+/** A row needs an identity, while a full provider id is unnecessary UI noise. */
+export function shortMetaEntityId(value: string) {
+  const id = value.trim().replace(/^act_/, "");
+  if (!id) return "unknown";
+  return id.length <= 8 ? id : `…${id.slice(-6)}`;
+}
+
 function text(value: unknown): string | null {
-  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+  return typeof value === "string" && value.trim().length > 0
+    ? value.trim()
+    : null;
+}
+
+function displayDateTime(value: string): string {
+  const time = Date.parse(value);
+  if (!Number.isFinite(time)) return "date unavailable";
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(time));
 }
 
 /**
@@ -142,7 +160,9 @@ function text(value: unknown): string | null {
  * would render an authorization that the dispatch-time validator is about to
  * refuse, so anything that does not name this exact contract reads as absent.
  */
-export function readStandingApproval(value: unknown): LaunchpadStandingApproval | null {
+export function readStandingApproval(
+  value: unknown,
+): LaunchpadStandingApproval | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const raw = value as Record<string, unknown>;
   if (text(raw.contractVersion) !== APPROVAL_CONTRACT) return null;
@@ -166,8 +186,10 @@ export function readStandingApproval(value: unknown): LaunchpadStandingApproval 
         : null,
     )
     .filter((value): value is string => Boolean(value));
-  const destination = (raw.approvedDestination ?? null) as
-    Record<string, unknown> | null;
+  const destination = (raw.approvedDestination ?? null) as Record<
+    string,
+    unknown
+  > | null;
   const approvedAdsetIds = (
     destination && Array.isArray(destination.adsetIds)
       ? destination.adsetIds
@@ -175,13 +197,14 @@ export function readStandingApproval(value: unknown): LaunchpadStandingApproval 
   )
     .map((value) => text(value))
     .filter((value): value is string => Boolean(value));
-  const firstVersion = assets
-    .map((item) =>
-      item && typeof item === "object"
-        ? text((item as Record<string, unknown>).version)
-        : null,
-    )
-    .find((value): value is string => Boolean(value)) ?? null;
+  const firstVersion =
+    assets
+      .map((item) =>
+        item && typeof item === "object"
+          ? text((item as Record<string, unknown>).version)
+          : null,
+      )
+      .find((value): value is string => Boolean(value)) ?? null;
   return {
     approvedScope: scope,
     approvedBy,
@@ -224,11 +247,15 @@ export function readActivationRevocation(
  * that may already be spending. The intent carries its own receipt, so the
  * panel opens on what actually happened rather than on a blank slate.
  */
-export function readStoredActivation(value: unknown): LaunchpadActivationOutcome | null {
+export function readStoredActivation(
+  value: unknown,
+): LaunchpadActivationOutcome | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const raw = value as Record<string, unknown>;
   if (text(raw.contract) !== ACTIVATION_RECEIPT_CONTRACT) return null;
-  const steps = Array.isArray(raw.steps) ? (raw.steps as LaunchpadActivationStep[]) : [];
+  const steps = Array.isArray(raw.steps)
+    ? (raw.steps as LaunchpadActivationStep[])
+    : [];
   return {
     ok: true,
     delivering: raw.delivering === true,
@@ -278,7 +305,8 @@ export function describeBlockedHierarchy(
     const planned = steps.filter((step) => step.grain === grain);
     if (planned.length === 0) continue;
     const active = planned.filter(
-      (step) => step.outcome === "activated" || step.outcome === "already_active",
+      (step) =>
+        step.outcome === "activated" || step.outcome === "already_active",
     ).length;
     if (active === 0) continue;
     on.push(
@@ -290,7 +318,9 @@ export function describeBlockedHierarchy(
   const blocked = GRAIN_LABEL[blockedAt];
   if (on.length === 0) return `${blocked} is not on`;
   const list =
-    on.length === 1 ? on[0] : `${on.slice(0, -1).join(", ")} and ${on[on.length - 1]}`;
+    on.length === 1
+      ? on[0]
+      : `${on.slice(0, -1).join(", ")} and ${on[on.length - 1]}`;
   const verb = on.length === 1 && !on[0]!.includes(" of ") ? "is" : "are";
   return `${list} ${verb} on, ${blocked} is not`;
 }
@@ -332,7 +362,9 @@ export function LaunchpadActivationPanel({
 }) {
   const approvalUnreadable = Boolean(approvalUnavailableReason);
   const standing = approvalUnreadable ? null : readStandingApproval(approval);
-  const revocation = approvalUnreadable ? null : readActivationRevocation(approval);
+  const revocation = approvalUnreadable
+    ? null
+    : readActivationRevocation(approval);
   /*
     Whether pressing Revoke could still change anything.
 
@@ -348,15 +380,21 @@ export function LaunchpadActivationPanel({
   */
   const alreadyWithdrawn = Boolean(standing?.revokedAt) || Boolean(revocation);
   const stored = readStoredActivation(activationReceipt);
-  const [outcome, setOutcome] = useState<LaunchpadActivationOutcome | null>(null);
-  const [pending, setPending] = useState<null | "activate" | "approve" | "revoke">(null);
+  const [outcome, setOutcome] = useState<LaunchpadActivationOutcome | null>(
+    null,
+  );
+  const [pending, setPending] = useState<
+    null | "activate" | "approve" | "revoke"
+  >(null);
   const [phrase, setPhrase] = useState("");
   const [approvePhrase, setApprovePhrase] = useState("");
-  const [assetVersion, setAssetVersion] = useState("v1");
   const [ttlHours, setTtlHours] = useState(String(DEFAULT_TTL_HOURS));
-  const [approvalOutcome, setApprovalOutcome] = useState<
-    { ok: boolean; code?: string; message?: string; revoked?: boolean } | null
-  >(null);
+  const [approvalOutcome, setApprovalOutcome] = useState<{
+    ok: boolean;
+    code?: string;
+    message?: string;
+    revoked?: boolean;
+  } | null>(null);
 
   const shown = outcome ?? stored;
   const scopes = approvableScopes(operation);
@@ -385,9 +423,10 @@ export function LaunchpadActivationPanel({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
-    const parsed = (await response
-      .json()
-      .catch(() => null)) as Record<string, unknown> | null;
+    const parsed = (await response.json().catch(() => null)) as Record<
+      string,
+      unknown
+    > | null;
     return { status: response.status, body: parsed };
   }
 
@@ -409,12 +448,15 @@ export function LaunchpadActivationPanel({
         delivering: body.delivering === true,
         blockedAt: (text(body.blockedAt) as ActivationGrain | null) ?? null,
         blockedReason: text(body.blockedReason),
-        steps: Array.isArray(body.steps) ? (body.steps as LaunchpadActivationStep[]) : [],
-        error: (body.error as { code: string; message: string } | undefined) ?? null,
+        steps: Array.isArray(body.steps)
+          ? (body.steps as LaunchpadActivationStep[])
+          : [],
+        error:
+          (body.error as { code: string; message: string } | undefined) ?? null,
       });
       setPhrase("");
       onResult?.({ kind: "activation" });
-    } catch (error) {
+    } catch {
       /*
         A transport failure after the POST reached the server is not "nothing
         happened". The activation may have run; this panel simply never heard
@@ -425,9 +467,7 @@ export function LaunchpadActivationPanel({
         error: {
           code: "activation_request_failed",
           message:
-            error instanceof Error
-              ? `${error.message} — the outcome of this activation is unknown; reconcile in Audit Trail before retrying.`
-              : "The activation request failed and its outcome is unknown.",
+            "The activation outcome is unknown. Check History and Ads Manager before trying again.",
         },
       });
     } finally {
@@ -453,12 +493,13 @@ export function LaunchpadActivationPanel({
               actionOrigin: MANUAL_ACTION_ORIGIN,
               manualConfirmation: MANUAL_CONFIRMATION,
               approvedScope: scope,
-              approvedAssetVersion: assetVersion.trim() || "v1",
+              approvedAssetVersion: APPROVED_ASSET_VERSION,
               ttlHours: Number(ttlHours) || DEFAULT_TTL_HOURS,
             },
       );
       const body = answer.body ?? {};
-      const error = body.error as { code?: string; message?: string } | undefined;
+      const error = body.error as
+        { code?: string; message?: string } | undefined;
       setApprovalOutcome({
         ok: body.ok === true,
         code: error?.code,
@@ -467,11 +508,11 @@ export function LaunchpadActivationPanel({
       });
       setApprovePhrase("");
       onResult?.({ kind: "approval" });
-    } catch (error) {
+    } catch {
       setApprovalOutcome({
         ok: false,
         code: "activation_approval_request_failed",
-        message: error instanceof Error ? error.message : "The approval request failed.",
+        message: "The approval request failed.",
       });
     } finally {
       setPending(null);
@@ -486,14 +527,11 @@ export function LaunchpadActivationPanel({
     >
       <div>
         <h3 className="text-[14px] font-semibold text-[var(--ink)]">
-          Publish ACTIVE · activation
+          Activate campaign
         </h3>
         <p className="mt-1 text-[13px] leading-relaxed text-[var(--muted)]">
-          Everything created above is PAUSED. Activation is a separate write with its own
-          confirmation: campaign, then ad set, then ad, each proved by reading the entity
-          back and requiring both its own status and its effective status to be active. A
-          step that does not come back active stops the sequence and is reported as a
-          blocked step, never as a launch.
+          Created items are paused. Activate them when you are ready to begin
+          delivery.
         </p>
       </div>
 
@@ -514,7 +552,9 @@ export function LaunchpadActivationPanel({
               <PlayCircle className="h-5 w-5" />
             </span>
             <div className="min-w-0 flex-1">
-              <p className="text-[13px] font-semibold text-[var(--ink)]">Activate now</p>
+              <p className="text-[13px] font-semibold text-[var(--ink)]">
+                Activate now
+              </p>
               <p className="mt-1 text-[12px] leading-relaxed text-[var(--muted)]">
                 {operation === "new_campaign"
                   ? "Turns on the campaign, the ad set and the ad this launch created, in that order."
@@ -536,7 +576,9 @@ export function LaunchpadActivationPanel({
                 type="button"
                 className="btn btn--primary mt-3 w-full sm:w-auto"
                 data-activation-run=""
-                disabled={locked || phrase.trim().toUpperCase() !== ACTIVATE_PHRASE}
+                disabled={
+                  locked || phrase.trim().toUpperCase() !== ACTIVATE_PHRASE
+                }
                 onClick={() => void activateNow()}
               >
                 <PlayCircle className="h-4 w-4" />
@@ -554,14 +596,14 @@ export function LaunchpadActivationPanel({
             </span>
             <div className="min-w-0 flex-1">
               <p className="text-[13px] font-semibold text-[var(--ink)]">
-                Unattended activation
+                Scheduled activation
               </p>
               {approvalUnreadable ? (
                 <p
                   className="mt-1 text-[12px] leading-relaxed text-[var(--warn)]"
                   data-activation-approval="unknown"
                 >
-                  {approvalUnavailableReason}
+                  Scheduled activation status is temporarily unavailable.
                 </p>
               ) : standing ? (
                 <div
@@ -596,18 +638,18 @@ export function LaunchpadActivationPanel({
                       </>
                     ) : null}
                   </p>
-                  <p className="break-all font-mono text-[11px]">
-                    approved by {standing.approvedBy}
-                  </p>
                   <p>
                     {standing.revokedAt
-                      ? `withdrawn ${standing.revokedAt}`
-                      : `expires ${standing.expiresAt}`}
+                      ? "Scheduled activation withdrawn"
+                      : `Approved until ${displayDateTime(standing.expiresAt)}`}
                   </p>
+                  <p>Approved {displayDateTime(standing.approvedAt)}</p>
                   {standing.revokedAt ? (
-                    <p className="text-[var(--warn)]" data-activation-approval-revoked="">
-                      Withdrawn. Unattended activation is refused; this intent is
-                      operator-only again.
+                    <p
+                      className="text-[var(--warn)]"
+                      data-activation-approval-revoked=""
+                    >
+                      Scheduled activation is off.
                     </p>
                   ) : null}
                 </div>
@@ -623,15 +665,11 @@ export function LaunchpadActivationPanel({
                   className="mt-1 space-y-0.5 text-[12px] text-[var(--muted)]"
                   data-activation-approval="revoked"
                 >
-                  <p>withdrawn {revocation.revokedAt}</p>
-                  {revocation.revokedBy ? (
-                    <p className="break-all font-mono text-[11px]">
-                      withdrawn by {revocation.revokedBy}
-                    </p>
-                  ) : null}
-                  <p className="text-[var(--warn)]" data-activation-approval-revoked="">
-                    Withdrawn. Unattended activation is refused; this intent is
-                    operator-only again.
+                  <p
+                    className="text-[var(--warn)]"
+                    data-activation-approval-revoked=""
+                  >
+                    Scheduled activation is off.
                   </p>
                 </div>
               ) : (
@@ -639,37 +677,17 @@ export function LaunchpadActivationPanel({
                   className="mt-1 text-[12px] leading-relaxed text-[var(--muted)]"
                   data-activation-approval="absent"
                 >
-                  No approval is stored, so this intent is <strong>operator only</strong>.
-                  Nothing can turn it on unattended.
+                  Scheduled activation is off.
                 </p>
               )}
 
               <div className="mt-3 space-y-2">
                 <p className="text-[11px] leading-relaxed text-[var(--muted)]">
-                  Approving records that this exact payload may be activated later without
-                  you. Scope for this launch is{" "}
-                  <strong className="text-[var(--ink)]">
-                    {scope === "hierarchy" ? "campaign, ad set and ad" : "the ad alone"}
-                  </strong>
-                  {operation === "new_campaign"
-                    ? " — an ad-only approval cannot turn on a campaign this launch created paused."
-                    : " — this launch joined an existing campaign, so approving the hierarchy would authorize structure it never made."}
+                  Allow this launch to activate later without a person present.
                 </p>
                 <div className="flex flex-wrap gap-2">
                   <label className="min-w-0 flex-1 text-[11px] text-[var(--muted)]">
-                    Asset version
-                    <input
-                      type="text"
-                      className="mt-1 w-full rounded-[6px] border border-[var(--border)] bg-[var(--bg)] px-2 py-1.5 font-mono text-[12px] text-[var(--ink)]"
-                      value={assetVersion}
-                      disabled={locked}
-                      onChange={(event) => setAssetVersion(event.target.value)}
-                      data-activation-asset-version=""
-                      aria-label="Approved asset version"
-                    />
-                  </label>
-                  <label className="min-w-0 flex-1 text-[11px] text-[var(--muted)]">
-                    Stands for (hours)
+                    Approval duration (hours)
                     <input
                       type="number"
                       min={1}
@@ -701,13 +719,15 @@ export function LaunchpadActivationPanel({
                     className="btn btn--primary"
                     data-activation-approve=""
                     disabled={
-                      locked
-                      || approvalUnreadable
-                      || approvePhrase.trim().toUpperCase() !== APPROVE_PHRASE
+                      locked ||
+                      approvalUnreadable ||
+                      approvePhrase.trim().toUpperCase() !== APPROVE_PHRASE
                     }
                     onClick={() => void writeApproval(false)}
                   >
-                    {pending === "approve" ? "Recording..." : "Approve for unattended activation"}
+                    {pending === "approve"
+                      ? "Saving..."
+                      : "Approve scheduled activation"}
                   </button>
                   {/*
                     Revoking takes no typed phrase. It removes authority rather
@@ -735,15 +755,15 @@ export function LaunchpadActivationPanel({
                       ? "mt-2 text-[11.5px] text-[var(--ok)]"
                       : "mt-2 text-[11.5px] text-[var(--danger)]"
                   }
-                  data-activation-approval-outcome={approvalOutcome.ok ? "ok" : "refused"}
+                  data-activation-approval-outcome={
+                    approvalOutcome.ok ? "ok" : "refused"
+                  }
                 >
                   {approvalOutcome.ok
                     ? approvalOutcome.revoked
-                      ? "Approval withdrawn. This intent is operator-only again."
-                      : "Approval recorded. Nothing was activated by this write."
-                    : `${approvalOutcome.code ?? "activation_approval_failed"} — ${
-                        approvalOutcome.message ?? "The approval was not recorded."
-                      }`}
+                      ? "Scheduled activation is off."
+                      : "Scheduled activation approved."
+                    : "The scheduled activation setting could not be saved."}
                 </p>
               ) : null}
             </div>
@@ -755,25 +775,28 @@ export function LaunchpadActivationPanel({
         <div
           className="overflow-hidden rounded-[8px] border border-[var(--border)]"
           data-activation-receipt=""
-          data-activation-delivering={shown.delivering === true ? "true" : "false"}
+          data-activation-delivering={
+            shown.delivering === true ? "true" : "false"
+          }
         >
           <div className="border-b border-[var(--border)] px-3 py-2">
             {shown.delivering === true ? (
               <p className="text-[13px] font-semibold text-[var(--ok)]">
-                Delivering · every step read back active
+                Activation complete
               </p>
             ) : shown.blockedAt ? (
               <p className="text-[13px] font-semibold text-[var(--warn)]">
-                Blocked step: {describeBlockedHierarchy(shown.steps ?? [], shown.blockedAt)}
-                {shown.blockedReason ? ` (${shown.blockedReason})` : ""}
+                Activation stopped:{" "}
+                {describeBlockedHierarchy(shown.steps ?? [], shown.blockedAt)}
               </p>
             ) : shown.error ? (
               <p className="text-[13px] font-semibold text-[var(--danger)]">
-                <span className="font-mono">{shown.error.code}</span> — {shown.error.message}
+                Activation could not be confirmed. Check History and Ads Manager
+                before trying again.
               </p>
             ) : (
               <p className="text-[13px] font-semibold text-[var(--ink)]">
-                Activation attempted · not reported as delivering
+                Activation could not be confirmed
               </p>
             )}
             {/*
@@ -792,14 +815,12 @@ export function LaunchpadActivationPanel({
                 }/${activationCoverage(shown.steps ?? []).planned}`}
               >
                 {activationCoverage(shown.steps ?? []).on} of{" "}
-                {activationCoverage(shown.steps ?? []).planned} entities this launch
-                created are on
+                {activationCoverage(shown.steps ?? []).planned} items are active
               </p>
             ) : null}
             {shown.recordedAt ? (
               <p className="mt-1 text-[11px] text-[var(--muted)]">
-                Recorded {shown.recordedAt}
-                {shown.authorization ? ` · ${shown.authorization} authority` : ""}
+                Recorded {displayDateTime(shown.recordedAt)}
               </p>
             ) : null}
           </div>
@@ -813,31 +834,18 @@ export function LaunchpadActivationPanel({
               >
                 <div className="min-w-0">
                   <p className="text-[12.5px] font-medium text-[var(--ink)]">
-                    {GRAIN_LABEL[step.grain]} · {step.outcome.replace(/_/g, " ")}
-                    {step.reason ? (
-                      <span className="font-mono text-[11px] text-[var(--danger)]">
-                        {" "}
-                        {step.reason}
-                      </span>
-                    ) : null}
-                  </p>
-                  <p className="break-all font-mono text-[10.5px] text-[var(--muted)]">
-                    {step.entityId}
-                    {step.verified
-                      ? ` · status ${step.verified.status ?? "—"} · effective ${
-                          step.verified.effectiveStatus ?? "—"
-                        }`
-                      : ""}
+                    {GRAIN_LABEL[step.grain]} · Meta{" "}
+                    {shortMetaEntityId(step.entityId)} ·{" "}
+                    {step.outcome === "activated" ||
+                    step.outcome === "already_active"
+                      ? "Active"
+                      : step.outcome === "blocked"
+                        ? "Not active"
+                        : step.outcome === "ambiguous"
+                          ? "Needs review"
+                          : "Not started"}
                   </p>
                 </div>
-                <p className="break-all font-mono text-[10.5px] text-[var(--muted)]">
-                  {/*
-                    The durable id, not a transient one. Each step names the
-                    `meta_ads_action_log` row it was journalled in, so a blocked
-                    ad set here is the same row History shows.
-                  */}
-                  {step.actionLogId ? `log ${step.actionLogId}` : "no action-log row"}
-                </p>
               </div>
             ))}
           </div>

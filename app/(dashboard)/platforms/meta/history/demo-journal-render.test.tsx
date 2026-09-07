@@ -95,9 +95,7 @@ function response(
       grouping: "persisted_source_rows",
       limitation: "Demo workspaces record no provider-action journal.",
     },
-    limitations: [
-      { code: "demo_journal_not_recorded", message: DEMO_MESSAGE },
-    ],
+    limitations: [{ code: "demo_journal_not_recorded", message: DEMO_MESSAGE }],
     ...overrides,
   } as MetaHistoryResponse;
 }
@@ -119,38 +117,38 @@ async function mountDemoJournal(payload: MetaHistoryResponse) {
     expect(clientMock.fetchMetaHistoryPage).toHaveBeenCalled(),
   );
   await waitFor(() =>
-    expect(screen.getAllByText(/Demo journal is not recorded/i).length)
-      .toBeGreaterThan(0),
+    expect(
+      screen.getAllByText(/Demo activity is unavailable/i).length,
+    ).toBeGreaterThan(0),
   );
 }
 
 describe("a demo journal states why it is empty, without being opened", () => {
-  it("shows the limitation outside any collapsed disclosure", async () => {
+  it("shows a concise notice without a technical disclosure", async () => {
     await mountDemoJournal(response());
 
-    // The notice must not be inside the <details> the reader has to open.
+    // The single empty-state notice must not be inside a disclosure the reader
+    // has to open, and the same message must not be repeated above the table.
     const notice = document.querySelector('[role="status"]');
     expect(notice).toBeTruthy();
     expect(notice!.closest("details")).toBeNull();
-    expect(notice!.textContent).toContain("Demo journal is not recorded");
-    expect(notice!.textContent).toContain(DEMO_MESSAGE);
-
-    // And the collapsed disclosure is still closed, proving no click happened.
-    const details = document.querySelector("details");
-    expect(details).toBeTruthy();
-    expect((details as HTMLDetailsElement).open).toBe(false);
+    expect(notice!.textContent).toContain("Demo activity is unavailable");
+    expect(notice!.textContent).toContain(
+      "This demo workspace does not record Meta activity.",
+    );
+    expect(notice!.textContent).not.toContain(DEMO_MESSAGE);
+    expect(screen.getAllByText("Demo activity is unavailable")).toHaveLength(1);
+    expect(document.querySelector("details")).toBeNull();
   });
 
   it("drops the false-zero title and body", async () => {
     await mountDemoJournal(response());
 
     const text = document.body.textContent ?? "";
-    expect(text).not.toContain("No journal entries match");
-    expect(text).not.toContain(
-      "The selected account and filters returned no keyed persisted rows.",
-    );
-    expect(text).toContain("Demo journal is not recorded");
-    expect(text).toContain(DEMO_MESSAGE);
+    expect(text).not.toContain("No activity matches");
+    expect(text).not.toContain("keyed persisted rows");
+    expect(text).toContain("Demo activity is unavailable");
+    expect(text).not.toContain(DEMO_MESSAGE);
   });
 
   it("never claims end of results while the total is unknown", async () => {
@@ -158,13 +156,13 @@ describe("a demo journal states why it is empty, without being opened", () => {
 
     const text = document.body.textContent ?? "";
     expect(text).not.toContain("end of results");
-    expect(text).toContain("total unavailable");
+    expect(text).not.toContain("total unavailable");
     expect(text).toContain("0 shown");
   });
 });
 
-describe("a live journal keeps its existing copy", () => {
-  it("still says end of results with a known total and no demo limitation", async () => {
+describe("a live journal keeps a simple empty state", () => {
+  it("shows a useful next step with a known zero and no demo limitation", async () => {
     clientMock.fetchMetaHistoryPage.mockResolvedValue(
       response({
         page: { limit: 50, returned: 0, total: 0, nextCursor: null },
@@ -180,12 +178,10 @@ describe("a live journal keeps its existing copy", () => {
     );
 
     const text = document.body.textContent ?? "";
-    expect(text).toContain("No journal entries match");
-    expect(text).toContain(
-      "The selected account and filters returned no keyed persisted rows.",
-    );
-    expect(text).toContain("end of results");
-    expect(text).not.toContain("Demo journal is not recorded");
+    expect(text).toContain("No activity matches");
+    expect(text).toContain("Try another account or clear the filters.");
+    expect(text).not.toContain("end of results");
+    expect(text).not.toContain("Demo activity is unavailable");
     expect(text).not.toContain("total unavailable");
     expect(document.querySelector('[role="status"]')).toBeNull();
   });

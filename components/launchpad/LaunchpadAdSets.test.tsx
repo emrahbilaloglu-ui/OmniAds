@@ -25,7 +25,7 @@ const abo: LaunchpadBudgetState = {
 };
 
 describe("LaunchpadAdSets", () => {
-  it("renders attribution presets and custom toggle preview", () => {
+  it("renders attribution presets without exposing the provider payload", () => {
     const adset = {
       ...makeDefaultLaunchpadAdSet(1, "Campaign"),
       attributionPresetId: "custom" as const,
@@ -43,7 +43,8 @@ describe("LaunchpadAdSets", () => {
 
     expect(html).toContain("Click 7d + View 1d (e-commerce default)");
     expect(html).toContain("Engaged video view 1-day");
-    expect(html).toContain("attribution_spec preview");
+    expect(html).not.toContain("attribution_spec");
+    expect(html).not.toContain("CLICK_THROUGH");
     expect(html).toContain("At least one click window is required");
   });
 
@@ -57,7 +58,8 @@ describe("LaunchpadAdSets", () => {
         onChange={vi.fn()}
       />,
     );
-    expect(onePixel).toContain("Primary / pixel_1");
+    expect(onePixel).toContain("Primary");
+    expect(onePixel).not.toContain("Primary / pixel_1");
 
     const multiplePixels = renderToStaticMarkup(
       <LaunchpadAdSets
@@ -71,7 +73,9 @@ describe("LaunchpadAdSets", () => {
         onChange={vi.fn()}
       />,
     );
-    expect(multiplePixels).toContain("Most used / pixel_2");
+    expect(multiplePixels).toContain("Most used");
+    expect(multiplePixels).not.toContain("Most used / pixel_2");
+    expect(multiplePixels).not.toContain("Backup / pixel_1");
     expect(multiplePixels).toContain("most used");
     expect(multiplePixels).toContain("selected");
 

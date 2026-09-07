@@ -28,9 +28,7 @@
 import { describe, expect, it } from "vitest";
 
 import { metaRec } from "@/components/meta/redesign/test-fixtures";
-import type {
-  MetaDecisionsWorkspacePayload,
-} from "@/components/meta/redesign/types";
+import type { MetaDecisionsWorkspacePayload } from "@/components/meta/redesign/types";
 import type { MetaRecommendation } from "@/lib/meta/recommendations";
 import type {
   MetaOsDecisionsPresentation,
@@ -288,17 +286,15 @@ describe("the lane is the server's classification, not the surface's", () => {
   });
 
   it("treats an unserved projection as unknown, not as zero blocked rows", () => {
-    const model = build(
-      workspace({ actionNow: [metaRec({ id: "rec_a" })] }),
-    );
+    const model = build(workspace({ actionNow: [metaRec({ id: "rec_a" })] }));
 
     expect(model.needsResolutionRows).toEqual([]);
     expect(model.counts?.needsres).toBe(0);
     // The lane says the difference out loud rather than drawing an empty list.
-    expect(model.needsResolutionNotice).toContain(
-      "No decision projection was served",
+    expect(model.needsResolutionNotice).toBe(
+      "Decision status is unavailable. Refresh decisions and try again.",
     );
-    expect(model.needsResolutionNotice).toContain(
+    expect(model.needsResolutionNotice).not.toContain(
       "native_generation_unavailable",
     );
   });
@@ -390,7 +386,7 @@ describe("the counters stay the server's totals", () => {
 });
 
 describe("a blocked row is drawn without an action", () => {
-  it("carries the server's concise reason, blocker count and next step without an action", () => {
+  it("carries concise buyer copy, blocker count and next step without an action", () => {
     const recommendation = metaRec({
       id: "rec_b",
       title: "Held campaign",
@@ -417,16 +413,20 @@ describe("a blocked row is drawn without an action", () => {
 
     const row = model.needsResolutionRows?.[0];
     expect(row?.id).toBe("rec_b");
-    expect(row?.blocker).toBe("Resolve source freshness before acting.");
+    expect(row?.blocker).toBe("This change can only be completed manually.");
     expect(row?.blockerCount).toBe(3);
-    expect(row?.resolution).toBe(
-      "Restore commercial target provenance before this can move.",
-    );
+    expect(row?.resolution).toBe("Review and apply this change manually.");
     expect(row?.staleDemotedReason).toBe(
-      "Automatic campaign context review only",
+      "Confidence is limited by campaign context",
     );
     expect(JSON.stringify(row)).not.toContain(
       "automatic_campaign_context_review_only",
+    );
+    expect(JSON.stringify(row)).not.toContain(
+      "Resolve source freshness before acting.",
+    );
+    expect(JSON.stringify(row)).not.toContain(
+      "Restore commercial target provenance before this can move.",
     );
     // `authority_blocker IS NOT NULL` implies `authorized_action IS NULL`, so
     // there is nothing here for a control to invoke.

@@ -43,7 +43,8 @@ function toSearchParams(
   const search = new URLSearchParams();
   for (const [key, value] of Object.entries(raw)) {
     if (typeof value === "string") search.append(key, value);
-    else if (Array.isArray(value)) for (const item of value) search.append(key, item);
+    else if (Array.isArray(value))
+      for (const item of value) search.append(key, item);
   }
   return search;
 }
@@ -149,14 +150,17 @@ export default async function MetaHistoryPage({
   } catch {
     return (
       <>
-      <MetaSurfaceState
-        envelope={earlyState({ canRead: false, readBlockedBy: "source_read_failed" })}
-        surfaceId="meta-history"
-      />
-      <HistoryView
-        rows={[]}
-        unavailableReason="The persisted Meta journal is unavailable right now."
-      />
+        <MetaSurfaceState
+          envelope={earlyState({
+            canRead: false,
+            readBlockedBy: "source_read_failed",
+          })}
+          surfaceId="meta-history"
+        />
+        <HistoryView
+          rows={[]}
+          unavailableReason="Meta history is unavailable right now. Refresh to try again."
+        />
       </>
     );
   }
@@ -169,14 +173,17 @@ export default async function MetaHistoryPage({
   if (assignedAccounts.length === 0) {
     return (
       <>
-      <MetaSurfaceState
-        envelope={earlyState({ canRead: true }, "provider_account_none_assigned")}
-        surfaceId="meta-history"
-      />
-      <HistoryView
-        rows={[]}
-        unavailableReason="No Meta account is assigned to this business, so there is no journal to read."
-      />
+        <MetaSurfaceState
+          envelope={earlyState(
+            { canRead: true },
+            "provider_account_none_assigned",
+          )}
+          surfaceId="meta-history"
+        />
+        <HistoryView
+          rows={[]}
+          unavailableReason="Assign a Meta ad account to view its history."
+        />
       </>
     );
   }
@@ -224,7 +231,9 @@ export default async function MetaHistoryPage({
       reviewerReadOnly: access.context.reviewerReadOnly,
       demo: access.context.demo,
     },
-    evidence: { window: { startDate: dateWindow.start, endDate: dateWindow.end } },
+    evidence: {
+      window: { startDate: dateWindow.start, endDate: dateWindow.end },
+    },
   });
 
   if (!providerAccountId) {
@@ -234,25 +243,25 @@ export default async function MetaHistoryPage({
     // would print one account's journal under another account's name.
     return (
       <>
-      <MetaSurfaceState envelope={pageState} surfaceId="meta-history" />
-      <HistoryView
-        rows={[]}
-        unavailableReason={
-          requestedAccountId
-            ? `Meta account ${requestedAccountId} is not assigned to this business, so its journal cannot be read.`
-            : "Several Meta accounts are assigned to this business. Select one to read its journal."
-        }
-        // A choice, not a fallback. The picker offers only accounts this
-        // business is currently assigned, and choosing one re-enters this route
-        // so the server resolves it again — it can never widen scope. It is
-        // offered only where the refusal is "which one?": a wrong id is a wrong
-        // link, and a list of the right ones is not an answer to that.
-        unavailableAction={
-          requestedAccountId ? undefined : (
-            <HistoryAccountPicker accounts={assignedAccounts} />
-          )
-        }
-      />
+        <MetaSurfaceState envelope={pageState} surfaceId="meta-history" />
+        <HistoryView
+          rows={[]}
+          unavailableReason={
+            requestedAccountId
+              ? "That Meta ad account is not assigned to this business."
+              : "Select a Meta ad account to view its history."
+          }
+          // A choice, not a fallback. The picker offers only accounts this
+          // business is currently assigned, and choosing one re-enters this route
+          // so the server resolves it again — it can never widen scope. It is
+          // offered only where the refusal is "which one?": a wrong id is a wrong
+          // link, and a list of the right ones is not an answer to that.
+          unavailableAction={
+            requestedAccountId ? undefined : (
+              <HistoryAccountPicker accounts={assignedAccounts} />
+            )
+          }
+        />
       </>
     );
   }
@@ -266,21 +275,24 @@ export default async function MetaHistoryPage({
   if (!account) {
     return (
       <>
-      <MetaSurfaceState
-        envelope={resolveMetaSurfaceReadState({
-          businessId,
-          providerAccountId: null,
-          scopeRefusal: "provider_account_not_assigned",
-          requiresProviderAccount: true,
-          permissions: pageState.permissions,
-          capability: { canRead: true, canWrite: pageState.capability.canWrite },
-        })}
-        surfaceId="meta-history"
-      />
-      <HistoryView
-        rows={[]}
-        unavailableReason={`The Meta journal could not be scoped to account ${providerAccountId}.`}
-      />
+        <MetaSurfaceState
+          envelope={resolveMetaSurfaceReadState({
+            businessId,
+            providerAccountId: null,
+            scopeRefusal: "provider_account_not_assigned",
+            requiresProviderAccount: true,
+            permissions: pageState.permissions,
+            capability: {
+              canRead: true,
+              canWrite: pageState.capability.canWrite,
+            },
+          })}
+          surfaceId="meta-history"
+        />
+        <HistoryView
+          rows={[]}
+          unavailableReason="History is unavailable for the selected Meta ad account."
+        />
       </>
     );
   }
@@ -295,7 +307,9 @@ export default async function MetaHistoryPage({
   const rawOutcome = first(raw?.outcome);
   const requestedKind = isMetaHistoryKind(rawKind) ? rawKind : null;
   const requestedEntity = isMetaHistoryEntityType(rawEntity) ? rawEntity : null;
-  const requestedOutcome = isMetaHistoryOutcomeFilter(rawOutcome) ? rawOutcome : null;
+  const requestedOutcome = isMetaHistoryOutcomeFilter(rawOutcome)
+    ? rawOutcome
+    : null;
 
   const payload = await readMetaHistoryJournal({
     query: {
@@ -330,27 +344,27 @@ export default async function MetaHistoryPage({
     // Degraded, not empty. The journal was asked and did not answer.
     return (
       <>
-      <MetaSurfaceState
-        envelope={resolveMetaSurfaceReadState({
-          businessId,
-          providerAccountId: account.id,
-          requiresProviderAccount: true,
-          permissions: pageState.permissions,
-          capability: {
-            canRead: false,
-            canWrite: pageState.capability.canWrite,
-            readBlockedBy: "source_read_failed",
-          },
-          evidence: {
-            window: { startDate: dateWindow.start, endDate: dateWindow.end },
-          },
-        })}
-        surfaceId="meta-history"
-      />
-      <HistoryView
-        rows={[]}
-        unavailableReason="The persisted Meta journal could not be read for this account."
-      />
+        <MetaSurfaceState
+          envelope={resolveMetaSurfaceReadState({
+            businessId,
+            providerAccountId: account.id,
+            requiresProviderAccount: true,
+            permissions: pageState.permissions,
+            capability: {
+              canRead: false,
+              canWrite: pageState.capability.canWrite,
+              readBlockedBy: "source_read_failed",
+            },
+            evidence: {
+              window: { startDate: dateWindow.start, endDate: dateWindow.end },
+            },
+          })}
+          surfaceId="meta-history"
+        />
+        <HistoryView
+          rows={[]}
+          unavailableReason="History could not be loaded for this Meta ad account. Refresh to try again."
+        />
       </>
     );
   }
@@ -362,39 +376,42 @@ export default async function MetaHistoryPage({
   // code runs; the client only takes over when the operator asks for more.
   return (
     <>
-    <MetaSurfaceState
-      envelope={resolveMetaSurfaceReadState({
-        businessId,
-        providerAccountId: account.id,
-        requiresProviderAccount: true,
-        permissions: pageState.permissions,
-        capability: { canRead: true, canWrite: pageState.capability.canWrite },
-        // One source, and its row count is the journal page the server just
-        // read. Zero rows here is a proven-empty journal, not a failed read —
-        // the failed read returned above.
-        sources: [
-          {
-            id: "journal",
-            outcome: page.rows.length > 0 ? "served" : "empty",
-            rowCount: page.rows.length,
+      <MetaSurfaceState
+        envelope={resolveMetaSurfaceReadState({
+          businessId,
+          providerAccountId: account.id,
+          requiresProviderAccount: true,
+          permissions: pageState.permissions,
+          capability: {
+            canRead: true,
+            canWrite: pageState.capability.canWrite,
           },
-        ],
-        evidence: {
-          window: { startDate: dateWindow.start, endDate: dateWindow.end },
-        },
-      })}
-      surfaceId="meta-history"
-    />
-    <HistoryClient
-      businessId={businessId}
-      providerAccountId={account.id}
-      // Handed down, never re-derived: the client's refetch, its return to
-      // unfiltered defaults and every "Load more" page read the same window
-      // these first rows were read for.
-      dateWindow={dateWindow}
-      initialPage={page}
-      pageLimit={PAGE_LIMIT}
-    />
+          // One source, and its row count is the journal page the server just
+          // read. Zero rows here is a proven-empty journal, not a failed read —
+          // the failed read returned above.
+          sources: [
+            {
+              id: "journal",
+              outcome: page.rows.length > 0 ? "served" : "empty",
+              rowCount: page.rows.length,
+            },
+          ],
+          evidence: {
+            window: { startDate: dateWindow.start, endDate: dateWindow.end },
+          },
+        })}
+        surfaceId="meta-history"
+      />
+      <HistoryClient
+        businessId={businessId}
+        providerAccountId={account.id}
+        // Handed down, never re-derived: the client's refetch, its return to
+        // unfiltered defaults and every "Load more" page read the same window
+        // these first rows were read for.
+        dateWindow={dateWindow}
+        initialPage={page}
+        pageLimit={PAGE_LIMIT}
+      />
     </>
   );
 }

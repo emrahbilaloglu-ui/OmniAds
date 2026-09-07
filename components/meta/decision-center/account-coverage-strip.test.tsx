@@ -1,16 +1,7 @@
-// D078 R4 (correction 2) rendered proof: the Decision Center's
-// account-coverage panel makes every ASSIGNED account state explicit with
-// ALL required evidence AVAILABLE in an operator-openable disclosure — id/name, selection state, currency,
-// timezone, own-window spend, fact freshness, latest generation with
-// produced/authorized counts, and the operator policy implication as plain
-// text (never hover-only). Tri-state: `null` (read FAILED) renders a
-// visible warning; `[]` (read proved zero) renders a distinct anomalous
-// state; populated renders the panel; `undefined` (legacy payload) renders
-// nothing. Display-only throughout.
-//
-// Fail-first: correction 1 rendered a compressed one-line strip with the
-// policy hidden in a title attribute, dropped the timezone entirely, and
-// PINNED that `null` renders nothing — these assertions fail on that code.
+// Account assignment diagnostics remain available to the adapter but do not
+// belong in the primary buyer queue. They are intentionally omitted here so a
+// buyer sees decisions and remedies instead of ids, source dates and policy
+// prose.
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
@@ -53,71 +44,32 @@ const STATES = [
   },
 ];
 
-describe("Decision Center · assigned-account coverage panel (D078 R4, correction 2)", () => {
-  it("keeps every required account fact and policy in one operator-openable disclosure", () => {
+describe("Decision Center · assigned-account diagnostics", () => {
+  it("does not mount the diagnostic panel or expose raw account facts", () => {
     const html = renderToStaticMarkup(
       <MetaDecisionCenterExact viewModel={{ assignedAccountStates: STATES }} />,
     );
-    const panel = html.match(
-      /<details[^>]*data-testid="assigned-account-coverage"[\s\S]*?<\/details>/,
-    )?.[0];
-    expect(panel).toBeTruthy();
-    expect(panel).not.toMatch(/^<details[^>]*\sopen(?:=|\s|>)/);
-    expect(panel).toContain("2 assigned Meta accounts");
-    expect(panel).toContain(
-      "Warning: 1 deselected account has recorded 14-day spend; it is read-only and excluded from served decisions.",
-    );
-    // Identity + state.
-    expect(panel).toContain("TheSwaf-Main | act_main");
-    expect(panel).toContain("selected · serving");
-    expect(panel).toContain("TheSwaf-NonTesvik | act_second");
-    expect(panel).toContain("deselected · read-only history");
-    // Currency AND timezone, visibly.
-    expect(panel).toContain("currency USD");
-    expect(panel).toContain("timezone America/Chicago");
-    // Own-window spend + freshness + generation evidence.
-    expect(panel).toContain("spend 14d 1,652 USD");
-    expect(panel).toContain("facts to 2026-08-20");
-    expect(panel).toContain("latest decisions 2026-08-21");
-    expect(panel).toContain("126 decision rows (2 authorized) — unserved");
-    // The policy implication is body text, not a title attribute.
-    const policySpan = panel!.match(
-      /<span[^>]*data-account-coverage-policy[^>]*>([^<]*)<\/span>/g,
-    );
-    expect(policySpan?.length).toBe(2);
-    expect(panel).toContain(
-      "Re-selecting it (or stopping its production) is an explicit operator decision.",
-    );
-    expect(panel).not.toMatch(/title="[^"]*Deselected/);
-    // Display-only: no control on any row.
-    expect(panel).not.toMatch(/<(button|a|input|select|form)\b/);
-  });
-
-  it("null (read FAILED) renders a visible coverage-unavailable warning — never silence", () => {
-    const html = renderToStaticMarkup(
-      <MetaDecisionCenterExact viewModel={{ assignedAccountStates: null }} />,
-    );
-    expect(html).toContain(
-      'data-testid="assigned-account-coverage-unavailable"',
-    );
-    expect(html).toContain("Assigned-account coverage unavailable");
-    expect(html).toContain("Do not assume there is only one account");
-    expect(html).not.toContain('data-testid="assigned-account-coverage"');
-  });
-
-  it("[] (read proved zero) renders a distinct anomalous-empty state", () => {
-    const html = renderToStaticMarkup(
-      <MetaDecisionCenterExact viewModel={{ assignedAccountStates: [] }} />,
-    );
-    expect(html).toContain('data-testid="assigned-account-coverage-empty"');
-    expect(html).toContain("ZERO assigned Meta identities");
-    expect(html).not.toContain("coverage unavailable");
-  });
-
-  it("undefined (legacy payload) renders nothing — compatibility only", () => {
-    const html = renderToStaticMarkup(
-      <MetaDecisionCenterExact viewModel={{}} />,
-    );
     expect(html).not.toContain("assigned-account-coverage");
+    expect(html).not.toContain("act_main");
+    expect(html).not.toContain("act_second");
+    expect(html).not.toContain("America/Chicago");
+    expect(html).not.toContain("decision rows");
+    expect(html).not.toContain("explicit operator decision");
   });
+
+  it.each([
+    ["failed", null],
+    ["proved empty", []],
+    ["legacy", undefined],
+  ] as const)(
+    "omits the %s diagnostic state",
+    (_label, assignedAccountStates) => {
+      const html = renderToStaticMarkup(
+        <MetaDecisionCenterExact viewModel={{ assignedAccountStates }} />,
+      );
+      expect(html).not.toContain("assigned-account-coverage");
+      expect(html).not.toContain("Assigned-account coverage unavailable");
+      expect(html).not.toContain("ZERO assigned Meta identities");
+    },
+  );
 });

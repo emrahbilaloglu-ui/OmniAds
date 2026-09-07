@@ -8,13 +8,11 @@ import {
   ChevronDown,
   ChevronUp,
   Clock3,
-  Database,
   Filter,
   History,
   RefreshCw,
   RotateCcw,
   Search,
-  ShieldCheck,
 } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -33,6 +31,10 @@ import {
   fetchMetaHistoryPage,
   type MetaHistoryClientFilters,
 } from "@/lib/meta/history-client";
+import {
+  historyAccountLabel,
+  historySummaryFor,
+} from "@/lib/zero-base/meta/history-adapter";
 import { useAppStore } from "@/store/app-store";
 import { buildMetaScopedHref } from "@/lib/meta/meta-route-scope";
 import {
@@ -42,6 +44,9 @@ import {
 import styles from "./HistoryPage.module.css";
 
 type HistoryMode = "journal" | "replay";
+
+export const META_HISTORY_PARTIAL_REASON =
+  "Some history data is unavailable. Try again.";
 
 const EMPTY_FILTERS: MetaHistoryClientFilters = {
   kind: null,
@@ -55,8 +60,8 @@ const EMPTY_FILTERS: MetaHistoryClientFilters = {
 
 const KIND_LABELS = {
   decisions: "Decisions",
-  writes: "Writes",
-  responses: "Responses",
+  writes: "Changes",
+  responses: "Action results",
   // Wire kind stays `label_flips` (persisted history compatibility); the
   // buyer-facing word is automatic-decision vocabulary — the manual
   // Test/Main label product is gone (D074/D074b), so the surface must not
@@ -65,7 +70,7 @@ const KIND_LABELS = {
   outcomes: "Outcomes",
   briefs: "Briefs",
   launches: "Launches",
-  structures: "Structure inventory",
+  structures: "Structure changes",
   external_changes: "External changes",
 } as const;
 
@@ -76,7 +81,7 @@ const ENTITY_LABELS = {
   ad: "Ad",
   creative: "Creative",
   creative_brief: "Creative brief",
-  launch_intent: "LaunchIntent",
+  launch_intent: "Launch",
   recommendation: "Recommendation",
 } as const;
 
@@ -96,8 +101,8 @@ const STATUS_LABELS: Record<MetaHistoryEntryStatus, string> = {
   pending: "Pending",
   verified_success: "Verified",
   failed: "Failed",
-  silent_failure: "Silent failure",
-  unknown_outcome: "Unknown outcome",
+  silent_failure: "Needs review",
+  unknown_outcome: "Needs review",
   open: "Open",
   resolved: "Resolved",
   closed: "Closed",
@@ -181,8 +186,12 @@ function statusTone(status: MetaHistoryEntryStatus) {
 function formatMoneyFact(entry: MetaHistoryEntry, index: number) {
   const fact = entry.money[index];
   if (!fact) return null;
-  if (fact.availability === "currency_unavailable" || !fact.currency || fact.amount == null) {
-    return `${fact.label}: unavailable - currency not persisted`;
+  if (
+    fact.availability === "currency_unavailable" ||
+    !fact.currency ||
+    fact.amount == null
+  ) {
+    return `${fact.label}: currency unavailable`;
   }
   return `${fact.label}: ${new Intl.NumberFormat("en", {
     style: "currency",
@@ -212,49 +221,23 @@ function updateHistoryLocation(input: {
 
 export function HistoricalReplayChrome({
   date,
-  engineVersions,
 }: {
   date: string;
   engineVersions: string[];
 }) {
   return (
-    <section className={styles.replayChrome} aria-label="Historical Replay read-only mode">
+    <section className={styles.replayChrome} aria-label="Past decisions">
       <div className={styles.replayIcon} aria-hidden="true">
         <History size={18} />
       </div>
       <div className={styles.replayCopy}>
-        <strong>Historical Replay</strong>
-        <span>
-          {date} | {engineVersions.length > 0 ? engineVersions.join(" | ") : "persisted snapshots"} | actions disabled
-        </span>
-        <small>
-          Persisted decision snapshots only. Live lanes, current provider status, and write controls are not reconstructed.
-        </small>
+        <strong>Past decisions</strong>
+        <span>{date}</span>
+        <small>Review decisions recorded on this date.</small>
       </div>
-      <span className={styles.readOnlySeal}>
-        <ShieldCheck size={14} aria-hidden="true" />
-        read only
-      </span>
+      <span className={styles.readOnlySeal}>Actions unavailable</span>
     </section>
   );
-}
-
-function CorrelationState({ entry }: { entry: MetaHistoryEntry }) {
-  if (entry.correlation.status === "keyed") {
-    return (
-      <span className={styles.keyedJoin}>
-        Keyed join | {entry.correlation.key ?? "persisted key"}
-      </span>
-    );
-  }
-  if (entry.correlation.status === "unavailable") {
-    return (
-      <span className={styles.unavailableJoin}>
-        Join unavailable | {entry.correlation.reason ?? "No persisted key is available."}
-      </span>
-    );
-  }
-  return <span className={styles.notApplicable}>Join not applicable</span>;
 }
 
 export function MetaHistoryEntries({
@@ -265,92 +248,73 @@ export function MetaHistoryEntries({
   onOpenReplay?: (date: string) => void;
 }) {
   return (
-    <div className={styles.journalList} role="list" aria-label="Meta journal entries">
+    <div className={styles.journalList} role="list" aria-label="Meta activity">
       <div className={styles.listHeader} aria-hidden="true">
         <span>Time</span>
-        <span>Kind</span>
-        <span>Entity and event</span>
+        <span>Type</span>
+        <span>Activity</span>
         <span>Status</span>
         <span>Actor</span>
         <span />
       </div>
-      {entries.map((entry) => (
-        <article className={styles.journalRow} role="listitem" key={entry.id}>
-          <time className={styles.timestamp} dateTime={entry.occurredAt}>
-            {formatDateTime(entry.occurredAt)}
-          </time>
-          <span className={`${styles.kindChip} ${styles[`kind_${entry.kind}`]}`}>
-            {KIND_LABELS[entry.kind]}
-          </span>
-          <div className={styles.entryMain}>
-            <div className={styles.entryTitleLine}>
-              <strong title={entry.entity.name ?? entry.entity.id}>
-                {entry.entity.name ?? entry.entity.id}
-              </strong>
-              <span>{ENTITY_LABELS[entry.entity.type]}</span>
-              {entry.label ? <span>{humanize(entry.label)}</span> : null}
+      {entries.map((entry) => {
+        const summary = historySummaryFor(entry);
+        return (
+          <article className={styles.journalRow} role="listitem" key={entry.id}>
+            <time className={styles.timestamp} dateTime={entry.occurredAt}>
+              {formatDateTime(entry.occurredAt)}
+            </time>
+            <span
+              className={`${styles.kindChip} ${styles[`kind_${entry.kind}`]}`}
+            >
+              {KIND_LABELS[entry.kind]}
+            </span>
+            <div className={styles.entryMain}>
+              <div className={styles.entryTitleLine}>
+                <strong>
+                  {entry.entity.name ?? ENTITY_LABELS[entry.entity.type]}
+                </strong>
+                <span>{ENTITY_LABELS[entry.entity.type]}</span>
+                {entry.label ? <span>{humanize(entry.label)}</span> : null}
+              </div>
+              <p>{entry.title}</p>
+              {summary ? <small>{summary}</small> : null}
+              {entry.money.length > 0 ? (
+                <div className={styles.moneyFacts}>
+                  {entry.money.map((_, index) => (
+                    <span key={`${entry.id}:money:${index}`}>
+                      {formatMoneyFact(entry, index)}
+                    </span>
+                  ))}
+                </div>
+              ) : null}
             </div>
-            <p>{entry.title}</p>
-            {entry.summary ? <small>{entry.summary}</small> : null}
-          </div>
-          <span className={`${styles.statusChip} ${statusTone(entry.status)}`}>
-            {STATUS_LABELS[entry.status]}
-          </span>
-          <span className={styles.actor}>
-            {entry.actor.availability === "available"
-              ? entry.actor.name ?? entry.actor.id
-              : entry.actor.availability === "unavailable"
-                ? "Actor unavailable"
+            <span
+              className={`${styles.statusChip} ${statusTone(entry.status)}`}
+            >
+              {STATUS_LABELS[entry.status]}
+            </span>
+            <span className={styles.actor}>
+              {entry.actor.availability === "available"
+                ? (entry.actor.name ?? "Team member")
                 : "System"}
-          </span>
-          <div className={styles.rowCommands}>
-            {entry.replay && onOpenReplay ? (
-              <button
-                type="button"
-                className={styles.iconTextButton}
-                onClick={() => onOpenReplay(entry.replay?.date ?? "")}
-                title={`Open Historical Replay for ${entry.replay.date}`}
-              >
-                <History size={14} aria-hidden="true" />
-                Replay
-              </button>
-            ) : null}
-          </div>
-          <details className={styles.entryDetails}>
-            <summary>Receipt and provenance</summary>
-            <div className={styles.detailGrid}>
-              <div>
-                <span>Source</span>
-                <strong>{entry.provenance.source}</strong>
-              </div>
-              <div>
-                <span>Persisted ID</span>
-                <strong>{entry.identity.sourceId}</strong>
-              </div>
-              <div>
-                <span>Account scope</span>
-                <strong>{humanize(entry.provenance.accountScopeBasis)}</strong>
-              </div>
-              <div>
-                <span>Provenance</span>
-                <strong>{humanize(entry.provenance.attribution)}</strong>
-              </div>
+            </span>
+            <div className={styles.rowCommands}>
+              {entry.replay && onOpenReplay ? (
+                <button
+                  type="button"
+                  className={styles.iconTextButton}
+                  onClick={() => onOpenReplay(entry.replay?.date ?? "")}
+                  title={`Review decisions from ${entry.replay.date}`}
+                >
+                  <History size={14} aria-hidden="true" />
+                  Review
+                </button>
+              ) : null}
             </div>
-            <CorrelationState entry={entry} />
-            {entry.money.length > 0 ? (
-              <div className={styles.moneyFacts}>
-                {entry.money.map((_, index) => (
-                  <span key={`${entry.id}:money:${index}`}>{formatMoneyFact(entry, index)}</span>
-                ))}
-              </div>
-            ) : null}
-            <p className={styles.identityLimit}>{entry.identity.limitation}</p>
-            {entry.detail ? (
-              <pre className={styles.rawDetail}>{JSON.stringify(entry.detail, null, 2)}</pre>
-            ) : null}
-          </details>
-        </article>
-      ))}
+          </article>
+        );
+      })}
     </div>
   );
 }
@@ -392,8 +356,10 @@ function HistoryFilters({
           <input
             type="search"
             value={draft.q ?? ""}
-            onChange={(event) => onChange({ ...draft, q: event.target.value || null })}
-            placeholder="Name, ID, event"
+            onChange={(event) =>
+              onChange({ ...draft, q: event.target.value || null })
+            }
+            placeholder="Campaign, ad or action"
           />
         </div>
       </label>
@@ -404,7 +370,8 @@ function HistoryFilters({
           onChange={(event) =>
             onChange({
               ...draft,
-              kind: (event.target.value || null) as MetaHistoryClientFilters["kind"],
+              kind: (event.target.value ||
+                null) as MetaHistoryClientFilters["kind"],
             })
           }
         >
@@ -423,7 +390,8 @@ function HistoryFilters({
           onChange={(event) =>
             onChange({
               ...draft,
-              entity: (event.target.value || null) as MetaHistoryClientFilters["entity"],
+              entity: (event.target.value ||
+                null) as MetaHistoryClientFilters["entity"],
             })
           }
         >
@@ -439,7 +407,9 @@ function HistoryFilters({
         <span>Label</span>
         <select
           value={draft.label ?? ""}
-          onChange={(event) => onChange({ ...draft, label: event.target.value || null })}
+          onChange={(event) =>
+            onChange({ ...draft, label: event.target.value || null })
+          }
         >
           <option value="">All labels</option>
           {LABEL_OPTIONS.map((label) => (
@@ -474,11 +444,19 @@ function HistoryFilters({
         />
       </div>
       <div className={styles.filterCommands}>
-        <button type="button" className={styles.secondaryButton} onClick={onReset}>
+        <button
+          type="button"
+          className={styles.secondaryButton}
+          onClick={onReset}
+        >
           <RotateCcw size={15} aria-hidden="true" />
           Reset
         </button>
-        <button type="button" className={styles.primaryButton} onClick={onApply}>
+        <button
+          type="button"
+          className={styles.primaryButton}
+          onClick={onApply}
+        >
           <Filter size={15} aria-hidden="true" />
           Apply
         </button>
@@ -490,7 +468,8 @@ function HistoryFilters({
 export default function MetaHistoryView() {
   const businesses = useAppStore((state) => state.businesses);
   const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
-  const business = businesses.find((item) => item.id === selectedBusinessId) ?? null;
+  const business =
+    businesses.find((item) => item.id === selectedBusinessId) ?? null;
   const [accounts, setAccounts] = useState<MetaHistoryAccount[]>([]);
   const [historicalAccounts, setHistoricalAccounts] = useState<
     MetaHistoryHistoricalAccount[] | null
@@ -500,12 +479,16 @@ export default function MetaHistoryView() {
   const [accountsError, setAccountsError] = useState<string | null>(null);
   const [mode, setMode] = useState<HistoryMode>("journal");
   const [replayDate, setReplayDate] = useState(todayIsoDate);
-  const [draftFilters, setDraftFilters] = useState<MetaHistoryClientFilters>(EMPTY_FILTERS);
-  const [filters, setFilters] = useState<MetaHistoryClientFilters>(EMPTY_FILTERS);
+  const [draftFilters, setDraftFilters] =
+    useState<MetaHistoryClientFilters>(EMPTY_FILTERS);
+  const [filters, setFilters] =
+    useState<MetaHistoryClientFilters>(EMPTY_FILTERS);
   const [payload, setPayload] = useState<MetaHistoryResponse | null>(null);
   const [entries, setEntries] = useState<MetaHistoryEntry[]>([]);
   const [pageCursor, setPageCursor] = useState<string | null>(null);
-  const [newerPageCursors, setNewerPageCursors] = useState<Array<string | null>>([]);
+  const [newerPageCursors, setNewerPageCursors] = useState<
+    Array<string | null>
+  >([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -551,9 +534,7 @@ export default function MetaHistoryView() {
     // instant, so a malformed row leaves the age unknown instead of guessing.
     asOf: measuredAsOf(entries[0]?.occurredAt ?? null),
     businessId: payload?.scope.businessId ?? selectedBusinessId ?? null,
-    partialReason: omittedSources
-      ? "Optional workflow sources are omitted from this journal"
-      : null,
+    partialReason: omittedSources ? META_HISTORY_PARTIAL_REASON : null,
     // The journal already knows how to re-read itself; without this the
     // surface named a terminal failure and offered no way out of it.
     onRetry: () => setReloadToken((value) => value + 1),
@@ -575,40 +556,49 @@ export default function MetaHistoryView() {
       businessId: selectedBusinessId,
       signal: controller.signal,
     })
-      .then(({ accounts: nextAccounts, historicalAccounts: nextHistorical }) => {
-        if (controller.signal.aborted) return;
-        setAccounts(nextAccounts);
-        setHistoricalAccounts(nextHistorical);
-        const search = new URLSearchParams(window.location.search);
-        const requestedAccount = search.get("providerAccountId");
-        // A deep link may name a deselected historical scope; the picker
-        // honours it read-only. When the historical read FAILED (null) the
-        // requested id is still honoured — the journal endpoint answers
-        // fail-closed unavailable rather than this view guessing.
-        const account =
-          nextAccounts.find((item) => item.id === requestedAccount) ??
-          (nextHistorical ?? []).find((item) => item.id === requestedAccount) ??
-          nextAccounts[0] ??
-          null;
-        setSelectedAccountId(account?.id ?? "");
-        const requestedMode = search.get("mode");
-        const requestedReplayDate = search.get("replayDate");
-        if (requestedMode === "replay" && /^\d{4}-\d{2}-\d{2}$/.test(requestedReplayDate ?? "")) {
-          const accountToday = getTodayIsoForTimeZone(
-            account?.timezone || business?.timezone || "UTC",
-          );
-          setMode("replay");
-          setReplayDate(
-            (requestedReplayDate as string) > accountToday
-              ? accountToday
-              : (requestedReplayDate as string),
-          );
-        }
-      })
+      .then(
+        ({ accounts: nextAccounts, historicalAccounts: nextHistorical }) => {
+          if (controller.signal.aborted) return;
+          setAccounts(nextAccounts);
+          setHistoricalAccounts(nextHistorical);
+          const search = new URLSearchParams(window.location.search);
+          const requestedAccount = search.get("providerAccountId");
+          // A deep link may name a deselected historical scope; the picker
+          // honours it read-only. When the historical read FAILED (null) the
+          // requested id is still honoured — the journal endpoint answers
+          // fail-closed unavailable rather than this view guessing.
+          const account =
+            nextAccounts.find((item) => item.id === requestedAccount) ??
+            (nextHistorical ?? []).find(
+              (item) => item.id === requestedAccount,
+            ) ??
+            nextAccounts[0] ??
+            null;
+          setSelectedAccountId(account?.id ?? "");
+          const requestedMode = search.get("mode");
+          const requestedReplayDate = search.get("replayDate");
+          if (
+            requestedMode === "replay" &&
+            /^\d{4}-\d{2}-\d{2}$/.test(requestedReplayDate ?? "")
+          ) {
+            const accountToday = getTodayIsoForTimeZone(
+              account?.timezone || business?.timezone || "UTC",
+            );
+            setMode("replay");
+            setReplayDate(
+              (requestedReplayDate as string) > accountToday
+                ? accountToday
+                : (requestedReplayDate as string),
+            );
+          }
+        },
+      )
       .catch((requestError: unknown) => {
         if (controller.signal.aborted) return;
         setAccountsError(
-          requestError instanceof Error ? requestError.message : "Assigned accounts unavailable.",
+          requestError instanceof Error
+            ? requestError.message
+            : "Assigned accounts unavailable.",
         );
       })
       .finally(() => {
@@ -664,7 +654,11 @@ export default function MetaHistoryView() {
         setPayload(null);
         setEntries([]);
         setNextCursor(null);
-        setError(requestError instanceof Error ? requestError.message : "Meta History unavailable.");
+        setError(
+          requestError instanceof Error
+            ? requestError.message
+            : "Meta History unavailable.",
+        );
       })
       .finally(() => {
         if (!controller.signal.aborted) setLoading(false);
@@ -673,7 +667,8 @@ export default function MetaHistoryView() {
   }, [reloadToken, requestFilters, selectedAccountId, selectedBusinessId]);
 
   const loadOlder = useCallback(async () => {
-    if (!selectedBusinessId || !selectedAccountId || !nextCursor || loadingMore) return;
+    if (!selectedBusinessId || !selectedAccountId || !nextCursor || loadingMore)
+      return;
     const requestedCursor = nextCursor;
     setLoadingMore(true);
     setError(null);
@@ -690,17 +685,34 @@ export default function MetaHistoryView() {
       setPageCursor(requestedCursor);
       setNextCursor(nextPayload.page.nextCursor);
     } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "Older entries unavailable.");
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Older entries unavailable.",
+      );
     } finally {
       setLoadingMore(false);
     }
-  }, [loadingMore, nextCursor, pageCursor, requestFilters, selectedAccountId, selectedBusinessId]);
+  }, [
+    loadingMore,
+    nextCursor,
+    pageCursor,
+    requestFilters,
+    selectedAccountId,
+    selectedBusinessId,
+  ]);
 
   const loadNewer = useCallback(async () => {
-    if (!selectedBusinessId || !selectedAccountId || newerPageCursors.length === 0 || loadingMore) {
+    if (
+      !selectedBusinessId ||
+      !selectedAccountId ||
+      newerPageCursors.length === 0 ||
+      loadingMore
+    ) {
       return;
     }
-    const requestedCursor = newerPageCursors[newerPageCursors.length - 1] ?? null;
+    const requestedCursor =
+      newerPageCursors[newerPageCursors.length - 1] ?? null;
     setLoadingMore(true);
     setError(null);
     try {
@@ -716,11 +728,21 @@ export default function MetaHistoryView() {
       setPageCursor(requestedCursor);
       setNextCursor(nextPayload.page.nextCursor);
     } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "Newer entries unavailable.");
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Newer entries unavailable.",
+      );
     } finally {
       setLoadingMore(false);
     }
-  }, [loadingMore, newerPageCursors, requestFilters, selectedAccountId, selectedBusinessId]);
+  }, [
+    loadingMore,
+    newerPageCursors,
+    requestFilters,
+    selectedAccountId,
+    selectedBusinessId,
+  ]);
 
   if (!selectedBusinessId || !business) return <BusinessEmptyState />;
   const decisionsHref = buildMetaScopedHref("/platforms/meta", {
@@ -735,8 +757,11 @@ export default function MetaHistoryView() {
   const selectedHistoricalAccount =
     (historicalAccounts ?? []).find((item) => item.id === selectedAccountId) ??
     null;
-  const selectedAccountTimeZone = selectedAccount?.timezone || business?.timezone || "UTC";
-  const selectedAccountReferenceDate = getTodayIsoForTimeZone(selectedAccountTimeZone);
+  const selectedAccountTimeZone =
+    selectedAccount?.timezone || business?.timezone || "UTC";
+  const selectedAccountReferenceDate = getTodayIsoForTimeZone(
+    selectedAccountTimeZone,
+  );
   const historyState =
     accountsLoading || loading
       ? "loading"
@@ -747,14 +772,6 @@ export default function MetaHistoryView() {
           : selectedAccountId
             ? "idle"
             : "account_required";
-  const engineVersions = Array.from(
-    new Set(
-      entries
-        .map((entry) => entry.replay?.engineVersion ?? null)
-        .filter((value): value is string => Boolean(value)),
-    ),
-  );
-
   const changeMode = (nextMode: HistoryMode) => {
     const nextReplayDate =
       replayDate > selectedAccountReferenceDate
@@ -797,22 +814,11 @@ export default function MetaHistoryView() {
         </div>
         <div className={styles.titleRow}>
           <div>
-            <h1>Meta History</h1>
-            <p>{business.name} | persisted decision and execution journal</p>
+            <h1>History</h1>
+            <p>{business.name} · Meta decisions and changes</p>
           </div>
-          <span className={styles.authBadge}>
-            <ShieldCheck size={14} aria-hidden="true" />
-            authenticated | read only
-          </span>
         </div>
         <div className={styles.scopeRow}>
-          <div className={styles.scopeIdentity}>
-            <Database size={16} aria-hidden="true" />
-            <span>
-              <small>Business</small>
-              <strong>{business.name}</strong>
-            </span>
-          </div>
           <label className={styles.accountField}>
             <span>Meta account</span>
             <select
@@ -834,9 +840,11 @@ export default function MetaHistoryView() {
                 const accountToday = getTodayIsoForTimeZone(
                   account?.timezone || business?.timezone || "UTC",
                 );
-                const nextReplayDate = replayDate > accountToday ? accountToday : replayDate;
+                const nextReplayDate =
+                  replayDate > accountToday ? accountToday : replayDate;
                 setSelectedAccountId(accountId);
-                if (nextReplayDate !== replayDate) setReplayDate(nextReplayDate);
+                if (nextReplayDate !== replayDate)
+                  setReplayDate(nextReplayDate);
                 updateHistoryLocation({
                   mode,
                   providerAccountId: accountId,
@@ -844,7 +852,9 @@ export default function MetaHistoryView() {
                 });
               }}
             >
-              {accountsLoading ? <option value="">Loading assigned accounts</option> : null}
+              {accountsLoading ? (
+                <option value="">Loading assigned accounts</option>
+              ) : null}
               {!accountsLoading &&
               accounts.length === 0 &&
               (historicalAccounts?.length ?? 0) === 0 ? (
@@ -852,15 +862,14 @@ export default function MetaHistoryView() {
               ) : null}
               {accounts.map((account) => (
                 <option value={account.id} key={account.id}>
-                  {account.name ? `${account.name} | ${account.id}` : account.id}
+                  {historyAccountLabel(account)}
                 </option>
               ))}
               {historicalAccounts && historicalAccounts.length > 0 ? (
-                <optgroup label="Historical / deselected — read-only">
+                <optgroup label="Past accounts">
                   {historicalAccounts.map((account) => (
                     <option value={account.id} key={account.id}>
-                      {(account.name ? `${account.name} | ${account.id}` : account.id) +
-                        " — deselected · read-only"}
+                      {historyAccountLabel(account) + " · past"}
                     </option>
                   ))}
                 </optgroup>
@@ -872,9 +881,7 @@ export default function MetaHistoryView() {
                 className={styles.historicalScopeNote}
                 role="alert"
               >
-                Historical account scope unavailable — the assigned-account
-                read failed. Deselected assigned accounts may exist but could
-                not be listed; do not treat this picker as complete.
+                Past accounts are temporarily unavailable.
               </small>
             ) : null}
             {selectedHistoricalAccount ? (
@@ -882,25 +889,11 @@ export default function MetaHistoryView() {
                 data-testid="historical-account-scope-note"
                 className={styles.historicalScopeNote}
               >
-                Deselected account — read-only historical evidence; excluded
-                from serving and from every write control.
-                {` Currency ${selectedHistoricalAccount.currency ?? "unavailable"} · timezone ${selectedHistoricalAccount.timezone ?? "unavailable"}.`}
-                {selectedHistoricalAccount.spend14d !== null &&
-                selectedHistoricalAccount.spend14d > 0
-                  ? ` Spend continued through ${selectedHistoricalAccount.latestFactDate ?? "an unknown date"}.`
-                  : ""}
-                {selectedHistoricalAccount.latestDecisionRows
-                  ? ` ${selectedHistoricalAccount.latestDecisionRows} produced decision rows (latest ${selectedHistoricalAccount.latestDecisionAsOf ?? "unknown"}) are served nowhere else.`
-                  : " No produced decision generation on record for this account."}
-                {/* The exact operator policy implication, visible text. */}
-                {` ${selectedHistoricalAccount.policy}`}
+                This account is no longer assigned. Its past activity remains
+                available here.
               </small>
             ) : null}
           </label>
-          <div className={styles.currencyScope}>
-            <small>Currency scope</small>
-            <strong>{selectedAccount?.currency ?? "Unavailable"}</strong>
-          </div>
           <div className={styles.modeSwitch} aria-label="History mode">
             <button
               type="button"
@@ -909,7 +902,7 @@ export default function MetaHistoryView() {
               onClick={() => changeMode("journal")}
             >
               <Archive size={15} aria-hidden="true" />
-              Journal
+              Activity
             </button>
             <button
               type="button"
@@ -918,7 +911,7 @@ export default function MetaHistoryView() {
               onClick={() => changeMode("replay")}
             >
               <History size={15} aria-hidden="true" />
-              Historical Replay
+              Past decisions
             </button>
           </div>
         </div>
@@ -927,16 +920,16 @@ export default function MetaHistoryView() {
       {accountsError ? (
         <section className={styles.errorBand} role="alert">
           <AlertTriangle size={17} aria-hidden="true" />
-          <span>{accountsError}</span>
+          <span>Meta accounts are temporarily unavailable.</span>
         </section>
       ) : null}
 
       {mode === "replay" ? (
         <>
-          <HistoricalReplayChrome date={replayDate} engineVersions={engineVersions} />
+          <HistoricalReplayChrome date={replayDate} engineVersions={[]} />
           <section className={styles.replayControls} aria-label="Replay date">
             <DatePicker
-              label="Snapshot date"
+              label="Date"
               value={replayDate}
               maxDate={selectedAccountReferenceDate}
               referenceDate={selectedAccountReferenceDate}
@@ -945,14 +938,14 @@ export default function MetaHistoryView() {
               align="end"
               className="w-full"
               onChange={(value) => {
-                  const date = value || selectedAccountReferenceDate;
-                  setReplayDate(date);
-                  updateHistoryLocation({
-                    mode: "replay",
-                    providerAccountId: selectedAccountId,
-                    replayDate: date,
-                  });
-                }}
+                const date = value || selectedAccountReferenceDate;
+                setReplayDate(date);
+                updateHistoryLocation({
+                  mode: "replay",
+                  providerAccountId: selectedAccountId,
+                  replayDate: date,
+                });
+              }}
             />
           </section>
         </>
@@ -969,51 +962,26 @@ export default function MetaHistoryView() {
         />
       )}
 
-      {demoJournalNotRecorded ? (
-        <section className={styles.noticeBand} role="status">
-          <AlertTriangle size={15} aria-hidden="true" />
-          <div>
-            <strong>Demo journal is not recorded</strong>
-            <p>{demoJournalNotRecorded.message}</p>
-          </div>
-        </section>
-      ) : null}
-
-      {payload ? (
-        <details className={styles.limitations}>
-          <summary>
-            <AlertTriangle size={15} aria-hidden="true" />
-            Identity and join limits
-          </summary>
-          <div>
-            {payload.limitations.map((limitation) => (
-              <p key={limitation.code}>{limitation.message}</p>
-            ))}
-          </div>
-        </details>
-      ) : null}
-
-      <section className={styles.journalSection} aria-labelledby="history-results-title">
+      <section
+        className={styles.journalSection}
+        aria-labelledby="history-results-title"
+      >
         <div className={styles.resultsHeader}>
           <div>
             <h2 id="history-results-title">
-              {mode === "replay" ? `Snapshots | ${replayDate}` : "Journal"}
+              {mode === "replay"
+                ? `Past decisions · ${replayDate}`
+                : "Activity"}
             </h2>
             <p>
               {selectedAccount
-                ? `${selectedAccount.name ?? selectedAccount.id} | ${selectedAccount.id}`
+                ? historyAccountLabel(selectedAccount)
                 : "Select an assigned Meta account"}
             </p>
           </div>
           {payload ? (
             <span className={styles.resultCount}>
-              {payload.page.returned} shown ·{" "}
-              {payload.page.nextCursor
-                ? "more available"
-                : payload.page.total === null
-                  ? "total unavailable"
-                  : "end of results"}{" "}
-              · page {newerPageCursors.length + 1}
+              {payload.page.returned} shown
             </span>
           ) : null}
         </div>
@@ -1024,7 +992,7 @@ export default function MetaHistoryView() {
             <AlertTriangle size={20} aria-hidden="true" />
             <div>
               <strong>Meta History unavailable</strong>
-              <p>{error}</p>
+              <p>History could not load. Please try again.</p>
             </div>
             <button
               type="button"
@@ -1037,21 +1005,24 @@ export default function MetaHistoryView() {
           </div>
         ) : null}
         {!loading && !error && selectedAccountId && entries.length === 0 ? (
-          <div className={styles.emptyState}>
+          <div
+            className={styles.emptyState}
+            role={demoJournalNotRecorded ? "status" : undefined}
+          >
             <Clock3 size={22} aria-hidden="true" />
             <strong>
               {demoJournalNotRecorded
-                ? "Demo journal is not recorded"
+                ? "Demo activity is unavailable"
                 : mode === "replay"
-                  ? "No persisted snapshot for this date"
-                  : "No journal entries match"}
+                  ? "No decisions for this date"
+                  : "No activity matches"}
             </strong>
             <p>
               {demoJournalNotRecorded
-                ? demoJournalNotRecorded.message
+                ? "This demo workspace does not record Meta activity."
                 : mode === "replay"
-                  ? "Replay does not compute missing history or reconstruct live state."
-                  : "The selected account and filters returned no keyed persisted rows."}
+                  ? "Choose another date to review past decisions."
+                  : "Try another account or clear the filters."}
             </p>
           </div>
         ) : null}
@@ -1076,7 +1047,15 @@ export default function MetaHistoryView() {
               disabled={loadingMore || !nextCursor}
               onClick={loadOlder}
             >
-              {loadingMore ? <RefreshCw className={styles.spin} size={15} aria-hidden="true" /> : <ChevronDown size={15} aria-hidden="true" />}
+              {loadingMore ? (
+                <RefreshCw
+                  className={styles.spin}
+                  size={15}
+                  aria-hidden="true"
+                />
+              ) : (
+                <ChevronDown size={15} aria-hidden="true" />
+              )}
               {loadingMore ? "Loading" : "Older"}
             </button>
           </div>

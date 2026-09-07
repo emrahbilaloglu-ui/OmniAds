@@ -202,18 +202,19 @@ describe("D085 — the component computes nothing", () => {
   });
 });
 
-describe("D085 — desktop and mobile mount the same server object", () => {
-  it("is mounted on both surfaces from viewModel.budgetDryRun", () => {
+describe("D085 — technical dry-run detail stays out of the decision queue", () => {
+  it("is not mounted on either buyer-facing decision surface", () => {
     const desktop = readFileSync(resolve("components/meta/decision-center/MetaDecisionCenterExact.tsx"), "utf8");
     const page = readFileSync(resolve("components/meta/redesign/MetaPlatformPage.tsx"), "utf8");
     const expression = "panel={viewModel.budgetDryRun ?? null}";
-    expect(desktop).toContain(expression);
+    expect(desktop).not.toContain("<BudgetDryRunPanel");
+    expect(desktop).not.toContain(expression);
     // The mobile mount must be inside the mobile stage subtree.
     const start = page.indexOf("function MetaMobileDecisionsScreen(");
     const end = page.indexOf("\nfunction ", start + 10);
     const mobile = page.slice(start, end === -1 ? page.length : end);
-    expect(mobile).toContain("<BudgetDryRunPanel");
-    expect(mobile).toContain(expression);
+    expect(mobile).not.toContain("<BudgetDryRunPanel");
+    expect(mobile).not.toContain(expression);
     expect(mobile).toContain("meta-mobile-decision-stage");
   });
 });

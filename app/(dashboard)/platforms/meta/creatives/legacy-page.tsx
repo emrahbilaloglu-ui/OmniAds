@@ -8,6 +8,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { X } from "lucide-react";
 import { BusinessEmptyState } from "@/components/business/BusinessEmptyState";
 import { CreativeStudioExact } from "@/components/creatives/CreativeStudioExact";
+import { creativeShareFailureMessage } from "@/components/creatives/creative-error-copy";
 import { buildCreativeStudioTabCounts } from "@/components/creatives/creative-studio-tab-counts";
 import { buildCreativeStudioTabHrefs } from "@/lib/meta/creative-studio-tab-hrefs";
 import type {
@@ -449,16 +450,25 @@ export default function MetaCreativeStudioPage({
   // ---- Share a frozen snapshot: config -> creating -> failed | ready ----
   const [shareModalOpen, setShareModalOpen] = useState(false);
   const [sharePhase, setSharePhase] = useState<ShareSnapshotPhase>("config");
-  const [shareAudience, setShareAudience] = useState<ShareAudience>("creative_team");
+  const [shareAudience, setShareAudience] =
+    useState<ShareAudience>("creative_team");
   const [buyerAcknowledged, setBuyerAcknowledged] = useState(false);
   const [buyerAckErrorShown, setBuyerAckErrorShown] = useState(false);
   const [shareCsv, setShareCsv] = useState(false);
   const [shareExpiryDays, setShareExpiryDays] = useState<7 | 14 | 30>(7);
   const [shareNote, setShareNote] = useState("");
   const [shareError, setShareError] = useState<string | null>(null);
-  const [shareLink, setShareLink] = useState<{ token: string; url: string } | null>(null);
-  const [shareCopyStatus, setShareCopyStatus] = useState<"idle" | "copied" | "failed">("idle");
-  const shareRequestRef = useRef<Promise<{ token: string; url: string } | null> | null>(null);
+  const [shareLink, setShareLink] = useState<{
+    token: string;
+    url: string;
+  } | null>(null);
+  const [shareCopyStatus, setShareCopyStatus] = useState<
+    "idle" | "copied" | "failed"
+  >("idle");
+  const shareRequestRef = useRef<Promise<{
+    token: string;
+    url: string;
+  } | null> | null>(null);
 
   // ---- Shared links manager, and rotate / revoke / delete ----
   const [linksOpen, setLinksOpen] = useState(false);
@@ -671,7 +681,11 @@ export default function MetaCreativeStudioPage({
       },
       {
         id: "briefing",
-        outcome: briefingQuery.isError ? "failed" : briefingQuery.data ? "served" : "empty",
+        outcome: briefingQuery.isError
+          ? "failed"
+          : briefingQuery.data
+            ? "served"
+            : "empty",
         rowCount: briefingQuery.data ? 1 : 0,
         failureCode: briefingQuery.isError ? "source_read_failed" : undefined,
       },
@@ -721,9 +735,11 @@ export default function MetaCreativeStudioPage({
     // surfaces with a gap, which is what "partial" means.
     partialReason:
       [
-        sourceHealth.kind === "serving" ? sourceHealth.partialReason : null,
+        sourceHealth.kind === "serving" && sourceHealth.partialReason
+          ? "Some creative data is unavailable. Try again."
+          : null,
         briefingQuery.error
-          ? "Creative decision context could not be read; this view is incomplete"
+          ? "Some creative data is unavailable. Try again."
           : null,
       ]
         .filter(Boolean)
@@ -793,10 +809,9 @@ export default function MetaCreativeStudioPage({
       );
       const payload = (await response.json().catch(() => null)) as {
         grants?: CreativeShareLedgerEntry[];
-        message?: string;
       } | null;
       if (!response.ok || !payload) {
-        throw new Error(payload?.message ?? "Shared links could not be read.");
+        throw new Error(creativeShareFailureMessage("load"));
       }
       return payload.grants ?? [];
     },
@@ -828,7 +843,10 @@ export default function MetaCreativeStudioPage({
   const shareExpiresAtIso = () =>
     new Date(Date.now() + shareExpiryDays * 24 * 60 * 60 * 1000).toISOString();
 
-  const submitShareCreate = async (): Promise<{ token: string; url: string } | null> => {
+  const submitShareCreate = async (): Promise<{
+    token: string;
+    url: string;
+  } | null> => {
     if (shareRequestRef.current) return shareRequestRef.current;
     const request = (async () => {
       setShareError(null);
@@ -887,10 +905,9 @@ export default function MetaCreativeStudioPage({
           token?: string;
           path?: string;
           url?: string;
-          message?: string;
         } | null;
         if (!response.ok || !payload) {
-          throw new Error(payload?.message ?? "Share link could not be created.");
+          throw new Error(creativeShareFailureMessage("create"));
         }
         const absoluteUrl = resolveCreativeShareUrl(
           payload,
@@ -898,16 +915,12 @@ export default function MetaCreativeStudioPage({
         );
         const token = typeof payload.token === "string" ? payload.token : null;
         if (!absoluteUrl || !token) {
-          throw new Error("The server created a share but returned an invalid link.");
+          throw new Error(creativeShareFailureMessage("create"));
         }
         invalidateSharedLinks();
         return { token, url: absoluteUrl };
-      } catch (error) {
-        setShareError(
-          error instanceof Error
-            ? error.message
-            : "Share link could not be created.",
-        );
+      } catch {
+        setShareError(creativeShareFailureMessage("create"));
         return null;
       }
     })();
@@ -963,7 +976,9 @@ export default function MetaCreativeStudioPage({
     }
     setBuyerAckErrorShown(false);
     const previewWindow =
-      typeof window === "undefined" ? null : window.open("about:blank", "_blank");
+      typeof window === "undefined"
+        ? null
+        : window.open("about:blank", "_blank");
     if (previewWindow) previewWindow.opener = null;
     setSharePhase("creating");
     const result = await submitShareCreate();
@@ -1008,14 +1023,18 @@ export default function MetaCreativeStudioPage({
     try {
       const response = await fetch(`/api/creatives/share/${rotateFor}`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
         body: JSON.stringify({ businessId, action: "rotate" }),
       });
-      const payload = (await response.json().catch(() => null)) as
-        | { token?: string; url?: string; message?: string }
-        | null;
+      const payload = (await response.json().catch(() => null)) as {
+        token?: string;
+        url?: string;
+      } | null;
       if (!response.ok || !payload?.url) {
-        throw new Error(payload?.message ?? "The link could not be rotated.");
+        throw new Error(creativeShareFailureMessage("rotate"));
       }
       const absoluteUrl = resolveCreativeShareUrl(
         payload,
@@ -1024,8 +1043,8 @@ export default function MetaCreativeStudioPage({
       setRotatedUrl(absoluteUrl ?? payload.url);
       setRotatePhase("done");
       invalidateSharedLinks();
-    } catch (error) {
-      setShareError(error instanceof Error ? error.message : "The link could not be rotated.");
+    } catch {
+      setShareError(creativeShareFailureMessage("rotate"));
       setRotateFor(null);
       setRotatePhase("confirm");
     }
@@ -1038,16 +1057,16 @@ export default function MetaCreativeStudioPage({
         `/api/creatives/share/${revokeFor}?businessId=${encodeURIComponent(businessId)}`,
         { method: "DELETE", headers: { Accept: "application/json" } },
       );
-      const payload = (await response.json().catch(() => null)) as
-        | { revoked?: boolean; message?: string }
-        | null;
+      const payload = (await response.json().catch(() => null)) as {
+        revoked?: boolean;
+      } | null;
       if (!response.ok || !payload?.revoked) {
-        throw new Error(payload?.message ?? "The link could not be revoked.");
+        throw new Error(creativeShareFailureMessage("revoke"));
       }
       setRevokePhase("done");
       invalidateSharedLinks();
-    } catch (error) {
-      setShareError(error instanceof Error ? error.message : "The link could not be revoked.");
+    } catch {
+      setShareError(creativeShareFailureMessage("revoke"));
       setRevokeFor(null);
       setRevokePhase("confirm");
     }
@@ -1058,19 +1077,22 @@ export default function MetaCreativeStudioPage({
     try {
       const response = await fetch(`/api/creatives/share/${deleteFor}`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
         body: JSON.stringify({ businessId, action: "delete" }),
       });
-      const payload = (await response.json().catch(() => null)) as
-        | { deleted?: boolean; message?: string }
-        | null;
+      const payload = (await response.json().catch(() => null)) as {
+        deleted?: boolean;
+      } | null;
       if (!response.ok || !payload?.deleted) {
-        throw new Error(payload?.message ?? "The link could not be deleted.");
+        throw new Error(creativeShareFailureMessage("delete"));
       }
       setDeletePhase("done");
       invalidateSharedLinks();
-    } catch (error) {
-      setShareError(error instanceof Error ? error.message : "The link could not be deleted.");
+    } catch {
+      setShareError(creativeShareFailureMessage("delete"));
       setDeleteFor(null);
       setDeletePhase("confirm");
     }
@@ -1113,22 +1135,16 @@ export default function MetaCreativeStudioPage({
   const assetsMessage =
     assetsState === "loading"
       ? scopeLoading
-        ? "Loading assigned Meta account scope."
+        ? "Loading Meta accounts."
         : "Loading creative assets."
       : assetsState === "account_required"
-        ? "Select one assigned Meta ad account. Assets remain withheld until the provider scope is explicit."
+        ? "Select a Meta ad account to view creatives."
         : assetsState === "error"
-          ? providerAccountsQuery.error instanceof Error && scopeError
-            ? providerAccountsQuery.error.message
-            : creativesQuery.error instanceof Error
-              ? creativesQuery.error.message
-              : "Creative assets could not be read."
+          ? "Creative data could not be loaded. Try again."
           : assetsState === "unavailable"
-            ? sourceHealth.kind === "unavailable"
-              ? sourceHealth.message
-              : "Meta creative data could not be read for this scope."
+            ? "Creative data could not be loaded. Try again."
             : assetsState === "empty"
-              ? "No creative assets were served for this window."
+              ? "No creatives found for this date range."
               : null;
   /**
    * The engine's own classification per creative, from the briefing this page
@@ -1206,18 +1222,24 @@ export default function MetaCreativeStudioPage({
     allowCsv: shareCsv,
     anonymizeCampaignNames: true,
   });
-  const shareIncluded = sharePolicyPreview.metrics.map((key) => PUBLIC_METRICS[key].label);
+  const shareIncluded = sharePolicyPreview.metrics.map(
+    (key) => PUBLIC_METRICS[key].label,
+  );
   // Buyer sends exactly the columns the operator picked in the table — there
   // is no tier reduction to report. Creator-tier audiences are held to a
   // fixed metric allow-list, and everything outside it is a real removal.
   const shareRemovedMetrics =
     shareAudience === "buyer"
       ? []
-      : SHARE_METRIC_KEYS.filter((key) => !sharePolicyPreview.metrics.includes(key));
+      : SHARE_METRIC_KEYS.filter(
+          (key) => !sharePolicyPreview.metrics.includes(key),
+        );
   const shareRemoved = [
     ...(sharePolicyPreview.includeCampaignNames ? [] : ["Campaign names"]),
     "Account & workspace identifiers",
-    ...(sharePolicyPreview.includeDecisionLanguage ? [] : ["Decision language"]),
+    ...(sharePolicyPreview.includeDecisionLanguage
+      ? []
+      : ["Decision language"]),
     ...(sharePolicyPreview.allowCsv ? [] : ["CSV download"]),
     ...shareRemovedMetrics.map((key) => PUBLIC_METRICS[key].label),
   ];
@@ -1226,13 +1248,17 @@ export default function MetaCreativeStudioPage({
     name: row.name,
     imageUrl: assetImageUrl(row),
   }));
-  const shareExpiresOnLabel = new Date(shareExpiresAtIso()).toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
+  const shareExpiresOnLabel = new Date(shareExpiresAtIso()).toLocaleDateString(
+    "en-US",
+    {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    },
+  );
   const shareAudienceLabel =
-    SHARE_AUDIENCE_PRESETS.find((preset) => preset.value === shareAudience)?.name ?? shareAudience;
+    SHARE_AUDIENCE_PRESETS.find((preset) => preset.value === shareAudience)
+      ?.name ?? shareAudience;
   const shareKeepChips = [
     shareAudienceLabel,
     `${selectedRows.length} creative${selectedRows.length === 1 ? "" : "s"}`,
@@ -1255,35 +1281,55 @@ export default function MetaCreativeStudioPage({
           }),
         },
         { label: "Expires", value: shareExpiresOnLabel },
-        { label: "CSV download", value: sharePolicyPreview.allowCsv ? "Allowed" : "Off" },
+        {
+          label: "CSV download",
+          value: sharePolicyPreview.allowCsv ? "Allowed" : "Off",
+        },
       ]
     : [];
 
-  const sharedLinksRows: SharedLinksManagerRowViewModel[] = (sharedLinksQuery.data ?? []).map(
-    (entry) => {
-      const url =
-        resolveCreativeShareUrl(
-          { token: entry.token },
-          typeof window === "undefined" ? "" : window.location.origin,
-        ) ?? `/share/creative/${entry.token}`;
-      const copyState = linkCopyStatus[entry.token] ?? "idle";
-      return {
-        entry,
-        url,
-        audienceLabel:
-          SHARE_AUDIENCE_PRESETS.find((preset) => preset.value === entry.audience)?.name ??
-          entry.audience,
-        statusLabel:
-          entry.status === "active" ? "Active" : entry.status === "expired" ? "Expired" : "Revoked",
-        metaLine: `${entry.creativeCount} creative${entry.creativeCount === 1 ? "" : "s"} · created ${new Date(entry.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })} · expires ${new Date(entry.expiresAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })} · ${entry.openCount} open${entry.openCount === 1 ? "" : "s"}`,
-        copyLabel: copyState === "copied" ? "Copied" : copyState === "failed" ? "Copy failed" : "Copy",
-      };
-    },
-  );
-  const rotateEntry = rotateFor ? sharedLinksRows.find((row) => row.entry.token === rotateFor) : null;
-  const revokeEntry = revokeFor ? sharedLinksRows.find((row) => row.entry.token === revokeFor) : null;
-  const deleteEntry = deleteFor ? sharedLinksRows.find((row) => row.entry.token === deleteFor) : null;
-  const rotateCopyState = rotateFor ? (linkCopyStatus[`rotate:${rotateFor}`] ?? "idle") : "idle";
+  const sharedLinksRows: SharedLinksManagerRowViewModel[] = (
+    sharedLinksQuery.data ?? []
+  ).map((entry) => {
+    const url =
+      resolveCreativeShareUrl(
+        { token: entry.token },
+        typeof window === "undefined" ? "" : window.location.origin,
+      ) ?? `/share/creative/${entry.token}`;
+    const copyState = linkCopyStatus[entry.token] ?? "idle";
+    return {
+      entry,
+      url,
+      audienceLabel:
+        SHARE_AUDIENCE_PRESETS.find((preset) => preset.value === entry.audience)
+          ?.name ?? entry.audience,
+      statusLabel:
+        entry.status === "active"
+          ? "Active"
+          : entry.status === "expired"
+            ? "Expired"
+            : "Revoked",
+      metaLine: `${entry.creativeCount} creative${entry.creativeCount === 1 ? "" : "s"} · created ${new Date(entry.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })} · expires ${new Date(entry.expiresAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })} · ${entry.openCount} open${entry.openCount === 1 ? "" : "s"}`,
+      copyLabel:
+        copyState === "copied"
+          ? "Copied"
+          : copyState === "failed"
+            ? "Copy failed"
+            : "Copy",
+    };
+  });
+  const rotateEntry = rotateFor
+    ? sharedLinksRows.find((row) => row.entry.token === rotateFor)
+    : null;
+  const revokeEntry = revokeFor
+    ? sharedLinksRows.find((row) => row.entry.token === revokeFor)
+    : null;
+  const deleteEntry = deleteFor
+    ? sharedLinksRows.find((row) => row.entry.token === deleteFor)
+    : null;
+  const rotateCopyState = rotateFor
+    ? (linkCopyStatus[`rotate:${rotateFor}`] ?? "idle")
+    : "idle";
 
   if (!businessId) return <BusinessEmptyState />;
 
@@ -1318,7 +1364,9 @@ export default function MetaCreativeStudioPage({
           onShare={openShareModal}
           shareRefusalReason={shareMintRefusalReason}
           shareSelectedCount={selectedRows.length}
-          sharedLinksCount={sharedLinksQuery.data ? sharedLinksQuery.data.length : null}
+          sharedLinksCount={
+            sharedLinksQuery.data ? sharedLinksQuery.data.length : null
+          }
           onOpenSharedLinks={() => setLinksOpen(true)}
           assets={assetsModel}
         />
@@ -1375,7 +1423,8 @@ export default function MetaCreativeStudioPage({
             onNewShare={handleShareNewSnapshot}
             onNoteChange={setShareNote}
             onOpenReady={() => {
-              if (shareLink) window.open(shareLink.url, "_blank", "noopener,noreferrer");
+              if (shareLink)
+                window.open(shareLink.url, "_blank", "noopener,noreferrer");
             }}
             onPreview={handleSharePreview}
             onRetry={runShareCreate}
@@ -1396,9 +1445,7 @@ export default function MetaCreativeStudioPage({
           <SharedLinksManager
             errorMessage={
               sharedLinksQuery.isError
-                ? sharedLinksQuery.error instanceof Error
-                  ? sharedLinksQuery.error.message
-                  : "Shared links could not be read."
+                ? creativeShareFailureMessage("load")
                 : null
             }
             loading={sharedLinksQuery.isLoading}
@@ -1409,7 +1456,9 @@ export default function MetaCreativeStudioPage({
               setShareModalOpen(false);
             }}
             onOpen={(token) => {
-              const row = sharedLinksRows.find((entry) => entry.entry.token === token);
+              const row = sharedLinksRows.find(
+                (entry) => entry.entry.token === token,
+              );
               if (row) handleLinkOpen(row.url);
             }}
             onDelete={(token) => {

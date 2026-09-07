@@ -1527,19 +1527,23 @@ export function DateRangePicker({
      * together for a screen reader.
      */
     return (
-      <>
+      <span
+        className={cn("contents", className)}
+        data-testid={testId}
+        data-hydrated={hydrated}
+      >
         {controls}
         {inactiveReason ? (
           <span
             id={inactiveNoteId}
             role="note"
             data-testid={`${testId}-inactive-note`}
-            className="hidden text-[11.5px] leading-tight text-[var(--adv-ink-3)] md:inline"
+            className="hidden text-xs leading-tight text-[var(--adv-ink-3)] md:inline"
           >
             {inactiveReason}
           </span>
         ) : null}
-      </>
+      </span>
     );
   }
 

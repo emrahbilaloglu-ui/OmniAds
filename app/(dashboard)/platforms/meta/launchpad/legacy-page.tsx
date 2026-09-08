@@ -3056,12 +3056,8 @@ function LaunchpadMobileSurface({
 }
 
 function launchpadAccountLabel(account: MetaHistoryAccount): string {
-  const name = account.name?.trim();
-  if (name) return name;
-  const accountId = account.id.replace(/^act_/, "");
-  return accountId
-    ? `Meta account ••••${accountId.slice(-4)}`
-    : "Unnamed Meta account";
+  const name = account.name?.trim() || "Unnamed Meta account";
+  return `${name} · ID ${account.id}`;
 }
 
 function LaunchpadContextBar({

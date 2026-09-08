@@ -46,6 +46,7 @@ import {
   resolveDateWindowFromParams,
   type SearchParamsLike,
 } from "@/lib/dashboard/date-window-url";
+import { accountSwitchQuery } from "@/lib/dashboard/account-scope-url";
 import {
   DatePicker,
   getTodayIsoForTimeZone,
@@ -260,6 +261,19 @@ function updateHistoryLocation(input: {
     url.searchParams.delete("replayDate");
   }
   window.history.replaceState(null, "", url);
+}
+
+function updateHistoryAccountLocation(providerAccountId: string) {
+  if (typeof window === "undefined") return;
+  const url = new URL(window.location.href);
+  url.search = accountSwitchQuery(url.search, providerAccountId).toString();
+  window.history.replaceState(null, "", url);
+}
+
+function historyAccountOptionLabel(
+  account: MetaHistoryAccount | MetaHistoryHistoricalAccount,
+): string {
+  return `${historyAccountLabel(account)} · ID ${account.id}`;
 }
 
 export function HistoricalReplayChrome({
@@ -512,6 +526,20 @@ export default function MetaHistoryView() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [reloadToken, setReloadToken] = useState(0);
+  const clearAccountBoundState = useCallback((referenceDate: string) => {
+    setMode("journal");
+    setReplayDate(referenceDate);
+    setDraftFilters(EMPTY_FILTERS);
+    setFilters(EMPTY_FILTERS);
+    setPayload(null);
+    setEntries([]);
+    setPageCursor(null);
+    setNewerPageCursors([]);
+    setNextCursor(null);
+    setLoading(false);
+    setLoadingMore(false);
+    setError(null);
+  }, []);
   const selectedAccount =
     accounts.find((item) => item.id === selectedAccountId) ??
     (historicalAccounts ?? []).find((item) => item.id === selectedAccountId) ??
@@ -537,7 +565,8 @@ export default function MetaHistoryView() {
       ),
     [filters, reportingQuery, selectedAccountReferenceDate],
   );
-  const awaitingReportingWindow = mode === "journal" && !journalFilters;
+  const awaitingReportingWindow =
+    mode === "journal" && Boolean(selectedAccountId) && !journalFilters;
 
   // Whole journal sources are dropped while their migrations are pending, and
   // the route says so in its limitations. A journal missing sources is
@@ -589,7 +618,9 @@ export default function MetaHistoryView() {
   useEffect(() => {
     if (!selectedBusinessId) {
       setAccounts([]);
+      setHistoricalAccounts([]);
       setSelectedAccountId("");
+      clearAccountBoundState(todayIsoDate());
       return;
     }
     const controller = new AbortController();
@@ -598,6 +629,7 @@ export default function MetaHistoryView() {
     setAccounts([]);
     setHistoricalAccounts([]);
     setSelectedAccountId("");
+    clearAccountBoundState(getTodayIsoForTimeZone(business?.timezone || "UTC"));
     fetchMetaHistoryAccountScopes({
       businessId: selectedBusinessId,
       signal: controller.signal,
@@ -620,11 +652,15 @@ export default function MetaHistoryView() {
                 (item) => item.id === requestedAccount,
               ) ??
               null)
-            : (nextAccounts[0] ?? null);
-          setSelectedAccountId(requestedAccount ?? account?.id ?? "");
+            : nextAccounts.length === 1
+              ? nextAccounts[0]!
+              : null;
+          const resolvedAccountId = requestedAccount ?? account?.id ?? "";
+          setSelectedAccountId(resolvedAccountId);
           const requestedMode = search.get("mode");
           const requestedReplayDate = search.get("replayDate");
           if (
+            resolvedAccountId &&
             requestedMode === "replay" &&
             /^\d{4}-\d{2}-\d{2}$/.test(requestedReplayDate ?? "")
           ) {
@@ -652,7 +688,7 @@ export default function MetaHistoryView() {
         if (!controller.signal.aborted) setAccountsLoading(false);
       });
     return () => controller.abort();
-  }, [business?.timezone, selectedBusinessId]);
+  }, [business?.timezone, clearAccountBoundState, selectedBusinessId]);
 
   const requestFilters = useMemo<MetaHistoryClientFilters | null>(
     () =>
@@ -838,6 +874,20 @@ export default function MetaHistoryView() {
       replayDate: date,
     });
   };
+  const changeAccount = (accountId: string) => {
+    const account =
+      accounts.find((item) => item.id === accountId) ??
+      (historicalAccounts ?? []).find((item) => item.id === accountId) ??
+      null;
+    const accountToday = getTodayIsoForTimeZone(
+      account?.timezone || business?.timezone || "UTC",
+    );
+    clearAccountBoundState(accountToday);
+    setSelectedAccountId(accountId);
+    updateHistoryAccountLocation(accountId);
+  };
+  const availableAccountCount =
+    accounts.length + (historicalAccounts?.length ?? 0);
 
   return (
     <main
@@ -858,45 +908,30 @@ export default function MetaHistoryView() {
             <select
               aria-label="Meta account for History"
               value={selectedAccountId}
-              disabled={
-                accountsLoading &&
-                accounts.length === 0 &&
-                (historicalAccounts?.length ?? 0) === 0
-              }
-              onChange={(event) => {
-                const accountId = event.target.value;
-                const account =
-                  accounts.find((item) => item.id === accountId) ??
-                  (historicalAccounts ?? []).find(
-                    (item) => item.id === accountId,
-                  ) ??
-                  null;
-                const accountToday = getTodayIsoForTimeZone(
-                  account?.timezone || business?.timezone || "UTC",
-                );
-                const nextReplayDate =
-                  replayDate > accountToday ? accountToday : replayDate;
-                setSelectedAccountId(accountId);
-                if (nextReplayDate !== replayDate)
-                  setReplayDate(nextReplayDate);
-                updateHistoryLocation({
-                  mode,
-                  providerAccountId: accountId,
-                  replayDate: nextReplayDate,
-                });
-              }}
+              disabled={accountsLoading || Boolean(accountsError)}
+              onChange={(event) => changeAccount(event.target.value)}
             >
               {accountsLoading ? (
                 <option value="">Loading assigned accounts</option>
               ) : null}
+              {!accountsLoading && accountsError ? (
+                <option value="">Meta accounts unavailable</option>
+              ) : null}
               {!accountsLoading &&
+              !accountsError &&
+              !selectedAccountId &&
+              availableAccountCount > 0 ? (
+                <option value="">Select account</option>
+              ) : null}
+              {!accountsLoading &&
+              !accountsError &&
               accounts.length === 0 &&
               (historicalAccounts?.length ?? 0) === 0 ? (
                 <option value="">No assigned Meta account</option>
               ) : null}
               {accounts.map((account) => (
                 <option value={account.id} key={account.id}>
-                  {historyAccountLabel(account)}
+                  {historyAccountOptionLabel(account)}
                 </option>
               ))}
               {requestedAccountUnavailable ? (
@@ -908,7 +943,7 @@ export default function MetaHistoryView() {
                 <optgroup label="Past accounts">
                   {historicalAccounts.map((account) => (
                     <option value={account.id} key={account.id}>
-                      {historyAccountLabel(account) + " · past"}
+                      {historyAccountOptionLabel(account) + " · past"}
                     </option>
                   ))}
                 </optgroup>
@@ -1037,6 +1072,20 @@ export default function MetaHistoryView() {
               <RefreshCw size={15} aria-hidden="true" />
               Retry
             </button>
+          </div>
+        ) : null}
+        {!loading &&
+        !accountsLoading &&
+        !accountsError &&
+        !selectedAccountId &&
+        availableAccountCount > 0 ? (
+          <div
+            className={styles.emptyState}
+            data-testid="history-account-required"
+          >
+            <Clock3 size={22} aria-hidden="true" />
+            <strong>Select a Meta account</strong>
+            <p>Choose an account above to view its history.</p>
           </div>
         ) : null}
         {!loading &&

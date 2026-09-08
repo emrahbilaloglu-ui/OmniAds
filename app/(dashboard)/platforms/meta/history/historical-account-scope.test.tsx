@@ -5,7 +5,13 @@
 // past-account lookup stays visible and does not silently redirect a requested
 // historical scope to the first assigned account.
 import React from "react";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type {
@@ -51,6 +57,12 @@ const SELECTED: MetaHistoryAccount = {
   name: "Main",
   currency: "USD",
   timezone: "America/Chicago",
+};
+const SECOND_SELECTED: MetaHistoryAccount = {
+  id: "act_backup",
+  name: "Backup",
+  currency: "EUR",
+  timezone: "Europe/Berlin",
 };
 const HISTORICAL: MetaHistoryHistoricalAccount = {
   id: "act_second",
@@ -108,6 +120,11 @@ beforeEach(() => {
   url.searchParams.delete("providerAccountId");
   url.searchParams.delete("mode");
   url.searchParams.delete("replayDate");
+  url.searchParams.delete("businessId");
+  url.searchParams.delete("row");
+  url.searchParams.delete("cursor");
+  url.searchParams.delete("q");
+  url.searchParams.delete("inspector");
   url.searchParams.set("window", "28d");
   url.searchParams.set("startDate", "2026-08-09");
   url.searchParams.set("endDate", "2026-09-05");
@@ -124,6 +141,132 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("History account picker — deselected/historical scopes (D078 R4)", () => {
+  it("requires an explicit responsive selection when multiple accounts are assigned", async () => {
+    clientMock.fetchMetaHistoryAccountScopes.mockResolvedValue({
+      accounts: [SELECTED, SECOND_SELECTED],
+      historicalAccounts: [],
+    });
+
+    render(<MetaHistoryView />);
+
+    const picker = await screen.findByLabelText("Meta account for History");
+    await waitFor(() => expect(picker).toHaveValue(""));
+    expect(
+      screen.getByRole("option", { name: "Select account" }),
+    ).toBeInTheDocument();
+    expect(screen.getByTestId("history-account-required")).toHaveTextContent(
+      "Choose an account above to view its history.",
+    );
+    expect(clientMock.fetchMetaHistoryPage).not.toHaveBeenCalled();
+  });
+
+  it("keeps duplicate assigned and historical names distinguishable by full account id", async () => {
+    clientMock.fetchMetaHistoryAccountScopes.mockResolvedValue({
+      accounts: [
+        { ...SELECTED, name: "Same name" },
+        { ...SECOND_SELECTED, name: "Same name" },
+      ],
+      historicalAccounts: [{ ...HISTORICAL, name: "Same name" }],
+    });
+
+    render(<MetaHistoryView />);
+
+    const picker = await screen.findByLabelText("Meta account for History");
+    await waitFor(() => expect(picker).toHaveValue(""));
+    expect(
+      Array.from((picker as HTMLSelectElement).options).map(
+        (option) => option.text,
+      ),
+    ).toEqual([
+      "Select account",
+      "Same name · ID act_main",
+      "Same name · ID act_backup",
+      "Same name · ID act_second · past",
+    ]);
+  });
+
+  it("clears account-bound URL and replay state before reading the selected account", async () => {
+    clientMock.fetchMetaHistoryAccountScopes.mockResolvedValue({
+      accounts: [SELECTED, SECOND_SELECTED],
+      historicalAccounts: [],
+    });
+    const url = new URL(window.location.href);
+    url.searchParams.set("businessId", "biz_1");
+    url.searchParams.set("providerAccountId", SELECTED.id);
+    url.searchParams.set("mode", "replay");
+    url.searchParams.set("replayDate", "2026-08-20");
+    url.searchParams.set("row", "ad:old");
+    url.searchParams.set("cursor", "old-page");
+    url.searchParams.set("q", "old search");
+    url.searchParams.set("inspector", "open");
+    window.history.replaceState({}, "", url);
+
+    render(<MetaHistoryView />);
+    await waitFor(() =>
+      expect(clientMock.fetchMetaHistoryPage).toHaveBeenCalledWith(
+        expect.objectContaining({ providerAccountId: SELECTED.id }),
+      ),
+    );
+    clientMock.fetchMetaHistoryPage.mockClear();
+
+    fireEvent.change(screen.getByLabelText("Meta account for History"), {
+      target: { value: SECOND_SELECTED.id },
+    });
+
+    const switched = new URL(window.location.href);
+    expect(switched.searchParams.get("businessId")).toBe("biz_1");
+    expect(switched.searchParams.get("window")).toBe("28d");
+    expect(switched.searchParams.get("startDate")).toBe("2026-08-09");
+    expect(switched.searchParams.get("endDate")).toBe("2026-09-05");
+    expect(switched.searchParams.get("providerAccountId")).toBe(
+      SECOND_SELECTED.id,
+    );
+    for (const dropped of [
+      "mode",
+      "replayDate",
+      "row",
+      "cursor",
+      "q",
+      "inspector",
+    ]) {
+      expect(switched.searchParams.get(dropped), dropped).toBeNull();
+    }
+    expect(screen.getByRole("button", { name: "Activity" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    await waitFor(() =>
+      expect(clientMock.fetchMetaHistoryPage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          providerAccountId: SECOND_SELECTED.id,
+          filters: expect.objectContaining({
+            from: "2026-08-09",
+            to: "2026-09-05",
+          }),
+        }),
+      ),
+    );
+  });
+
+  it("keeps account-catalog failures unavailable without claiming no assignment", async () => {
+    clientMock.fetchMetaHistoryAccountScopes.mockRejectedValue(
+      new Error("assignments down"),
+    );
+
+    render(<MetaHistoryView />);
+
+    expect(
+      await screen.findByText("Meta accounts are temporarily unavailable."),
+    ).toBeInTheDocument();
+    const picker = screen.getByLabelText("Meta account for History");
+    expect(picker).toBeDisabled();
+    expect(
+      screen.getByRole("option", { name: "Meta accounts unavailable" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("No assigned Meta account")).toBeNull();
+    expect(clientMock.fetchMetaHistoryPage).not.toHaveBeenCalled();
+  });
+
   it("renders the deselected account in a clearly-marked read-only group, not the selected group", async () => {
     render(<MetaHistoryView />);
     await waitFor(() =>
@@ -136,10 +279,10 @@ describe("History account picker — deselected/historical scopes (D078 R4)", ()
     const option = Array.from(group.querySelectorAll("option")).find((item) =>
       item.value.includes("act_second"),
     );
-    expect(option?.textContent).toContain("Second · past");
+    expect(option?.textContent).toContain("Second · ID act_second · past");
     // The selected group keeps its own clean labelling.
     const mainOption = screen.getByRole("option", {
-      name: "Main",
+      name: "Main · ID act_main",
     }) as HTMLOptionElement;
     expect(mainOption.closest("optgroup")).toBeNull();
   });

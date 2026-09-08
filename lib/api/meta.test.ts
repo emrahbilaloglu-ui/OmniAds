@@ -136,6 +136,81 @@ function jsonResponseFor(body: unknown, status = 200) {
   });
 }
 
+function rawResponseFor(body: string, status = 200) {
+  return new Response(body, {
+    status,
+    headers: { "content-type": "application/json" },
+  });
+}
+
+async function expectBulkParseFailure(run: () => Promise<unknown>) {
+  const thrown = await run().then(
+    () => null,
+    (error: unknown) => error,
+  );
+  expect(thrown).toBeInstanceOf(Error);
+  const failure = thrown as Error & Record<string, unknown>;
+  expect(failure).toMatchObject({
+    name: "MetaGraphRequestError",
+    termination: "parse_failure",
+    httpStatus: 200,
+    errorCode: null,
+    errorSubcode: null,
+    isTransient: null,
+    fbtraceId: null,
+  });
+  expect(failure.message).toBe(
+    "meta_bulk_page_parse_failure:status=200:code=none:subcode=none",
+  );
+  return failure;
+}
+
+async function expectBulkMissingTerminalProof(
+  run: () => Promise<unknown>,
+) {
+  const thrown = await run().then(
+    () => null,
+    (error: unknown) => error,
+  );
+  expect(thrown).toBeInstanceOf(Error);
+  const failure = thrown as Error & Record<string, unknown>;
+  expect(failure).toMatchObject({
+    name: "MetaGraphRequestError",
+    termination: "missing_terminal_proof",
+    httpStatus: 200,
+    errorCode: null,
+    errorSubcode: null,
+    isTransient: null,
+    fbtraceId: null,
+  });
+  expect(failure.message).toBe(
+    "meta_bulk_page_missing_terminal_proof:status=200:code=none:subcode=none",
+  );
+  return failure;
+}
+
+async function expectBulkCursorCycle(run: () => Promise<unknown>) {
+  const thrown = await run().then(
+    () => null,
+    (error: unknown) => error,
+  );
+  expect(thrown).toBeInstanceOf(Error);
+  const failure = thrown as Error & Record<string, unknown>;
+  expect(failure).toMatchObject({
+    name: "MetaGraphRequestError",
+    termination: "cursor_cycle",
+    httpStatus: 200,
+    errorCode: null,
+    errorSubcode: null,
+    isTransient: null,
+    fbtraceId: null,
+  });
+  expect(failure.message).toBe(
+    "meta_bulk_page_cursor_cycle:status=200:code=none:subcode=none",
+  );
+  return failure;
+}
+
 describe("Meta pagination receipts", () => {
   beforeEach(() => {
     vi.unstubAllGlobals();
@@ -251,6 +326,55 @@ describe("Meta pagination receipts", () => {
       complete: false,
       termination: "http_failure",
       failure: { httpStatus: 429 },
+    });
+  });
+
+  it("accepts an explicit null paging.next as terminal", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        jsonResponseFor({
+          data: [{ id: "campaign-1" }],
+          paging: { next: null },
+        }),
+      ),
+    );
+
+    const receipt = await fetchMetaPagedCollectionReceipt<{ id: string }>(
+      "https://graph.facebook.com/v25.0/page-1",
+    );
+
+    expect(receipt).toMatchObject({
+      rows: [{ id: "campaign-1" }],
+      pageCount: 1,
+      complete: true,
+      termination: "natural_end",
+      failure: null,
+    });
+  });
+
+  it("rejects array paging metadata instead of treating it as terminal", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        jsonResponseFor({ data: [{ id: "campaign-1" }], paging: [] }),
+      ),
+    );
+
+    const receipt = await fetchMetaPagedCollectionReceipt<{ id: string }>(
+      "https://graph.facebook.com/v25.0/page-1",
+    );
+
+    expect(receipt).toMatchObject({
+      rows: [{ id: "campaign-1" }],
+      pageCount: 1,
+      complete: false,
+      termination: "missing_terminal_proof",
+      failure: {
+        kind: "missing_terminal_proof",
+        pageIndex: 1,
+        httpStatus: 200,
+      },
     });
   });
 
@@ -3267,6 +3391,27 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
     };
   }
 
+  function runBulkCoreSyncForTest(partitionId: string) {
+    return syncMetaAccountCoreWarehouseDay({
+      credentials: {
+        businessId: "biz-1",
+        accessToken: "token-1",
+        accountIds: ["act_1"],
+        currency: "USD",
+        accountProfiles: {
+          act_1: { currency: "USD", timezone: "UTC", name: "Account 1" },
+        },
+      },
+      accountId: "act_1",
+      day: "2026-04-03",
+      partitionId,
+      workerId: "worker-1",
+      leaseEpoch: 1,
+      attemptCount: 1,
+      leaseMinutes: 15,
+    });
+  }
+
   async function expectStructuredSanitizedRefusal(run: () => Promise<unknown>) {
     const error = await run().then(
       () => null,
@@ -3470,6 +3615,242 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
     // Nothing was written from the refusal.
     expect(warehouse.upsertMetaAdDailyRows).not.toHaveBeenCalled();
   });
+
+  it.each([
+    ["an empty body", ""],
+    ["invalid JSON", "not-json EAAG-BODY-SECRET"],
+    ["JSON null", "null"],
+    ["a JSON scalar", JSON.stringify("provider prose EAAG-BODY-SECRET")],
+    ["an object without data", JSON.stringify({ paging: {} })],
+    ["a non-array data member", JSON.stringify({ data: { id: "ad-1" } })],
+  ])(
+    "refuses %s on the first bulk core page before recording or finalizing",
+    async (_label, body) => {
+      process.env.META_AUTHORITATIVE_FINALIZATION_V2 = "1";
+      const warnings: Array<{ event: string; details: unknown }> = [];
+      const warnSpy = vi
+        .spyOn(runtimeLogging, "logRuntimeWarn")
+        .mockImplementation((_scope, event, details) => {
+          warnings.push({ event, details });
+        });
+      vi.mocked(warehouse.getMetaSyncCheckpoint).mockResolvedValue(null);
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => rawResponseFor(body)),
+      );
+
+      try {
+        const failure = await expectBulkParseFailure(() =>
+          runBulkCoreSyncForTest(`partition-bulk-first-parse-${_label}`),
+        );
+        expect(failure.message).not.toContain("EAAG-BODY-SECRET");
+        expect(JSON.stringify(warnings)).not.toContain("EAAG-BODY-SECRET");
+        expect(warnings).toContainEqual(
+          expect.objectContaining({
+            event: "bulk_page_rejected",
+            details: expect.objectContaining({
+              termination: "parse_failure",
+              pageIndex: 0,
+            }),
+          }),
+        );
+      } finally {
+        warnSpy.mockRestore();
+      }
+
+      expect(warehouse.persistMetaRawSnapshot).not.toHaveBeenCalled();
+      expect(warehouse.replaceMetaAccountDailySlice).not.toHaveBeenCalled();
+      expect(warehouse.replaceMetaCampaignDailySlice).not.toHaveBeenCalled();
+      expect(warehouse.replaceMetaAdSetDailySlice).not.toHaveBeenCalled();
+      expect(warehouse.replaceMetaAdDailySlice).not.toHaveBeenCalled();
+      expect(
+        warehouse.createMetaAuthoritativeSourceManifest,
+      ).not.toHaveBeenCalled();
+      expect(warehouse.publishMetaAuthoritativeSliceVersion).not.toHaveBeenCalled();
+      expect(
+        vi
+          .mocked(warehouse.upsertMetaSyncCheckpoint)
+          .mock.calls.some(([call]) => call.phase === "finalize"),
+      ).toBe(false);
+    },
+  );
+
+  it("refuses a malformed later bulk core page without publishing the fetched prefix", async () => {
+    process.env.META_AUTHORITATIVE_FINALIZATION_V2 = "1";
+    vi.mocked(warehouse.getMetaSyncCheckpoint).mockResolvedValue(null);
+    const pageTwo =
+      "https://graph.facebook.com/v25.0/bulk-core-page-2?access_token=EAAG-PAGING-SECRET";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        if (url.startsWith(pageTwo)) {
+          return rawResponseFor("<html>temporary gateway body</html>");
+        }
+        return jsonResponseFor({
+          data: [
+            {
+              campaign_id: "cmp-1",
+              campaign_name: "Campaign 1",
+              adset_id: "adset-1",
+              adset_name: "Adset 1",
+              ad_id: "ad-1",
+              ad_name: "Ad 1",
+              spend: "12.50",
+              impressions: "100",
+              clicks: "4",
+              reach: "90",
+              actions: [],
+              action_values: [],
+              purchase_roas: [],
+            },
+          ],
+          paging: { next: pageTwo },
+        });
+      }),
+    );
+
+    const failure = await expectBulkParseFailure(() =>
+      runBulkCoreSyncForTest("partition-bulk-later-parse"),
+    );
+    expect(failure.message).not.toContain("gateway body");
+    expect(failure.message).not.toContain("EAAG-PAGING-SECRET");
+
+    // Page one remains resumable raw evidence; no derived slice may represent
+    // that prefix as a complete account day.
+    expect(warehouse.persistMetaRawSnapshot).toHaveBeenCalledTimes(1);
+    expect(warehouse.replaceMetaAccountDailySlice).not.toHaveBeenCalled();
+    expect(warehouse.replaceMetaCampaignDailySlice).not.toHaveBeenCalled();
+    expect(warehouse.replaceMetaAdSetDailySlice).not.toHaveBeenCalled();
+    expect(warehouse.replaceMetaAdDailySlice).not.toHaveBeenCalled();
+    expect(warehouse.upsertMetaAccountDailyRows).not.toHaveBeenCalled();
+    expect(warehouse.upsertMetaCampaignDailyRows).not.toHaveBeenCalled();
+    expect(warehouse.upsertMetaAdSetDailyRows).not.toHaveBeenCalled();
+    expect(warehouse.upsertMetaAdDailyRows).not.toHaveBeenCalled();
+    expect(
+      warehouse.createMetaAuthoritativeSourceManifest,
+    ).not.toHaveBeenCalled();
+    expect(warehouse.publishMetaAuthoritativeSliceVersion).not.toHaveBeenCalled();
+    expect(
+      vi
+        .mocked(warehouse.upsertMetaSyncCheckpoint)
+        .mock.calls.some(([call]) => call.phase === "finalize"),
+    ).toBe(false);
+  });
+
+  it.each([
+    ["a scalar paging member", "not-an-object"],
+    ["an array paging member", []],
+    ["a blank paging.next", { next: "   " }],
+    ["a numeric paging.next", { next: 42 }],
+  ])(
+    "refuses %s on the first bulk core page without treating it as terminal",
+    async (_label, paging) => {
+      process.env.META_AUTHORITATIVE_FINALIZATION_V2 = "1";
+      vi.mocked(warehouse.getMetaSyncCheckpoint).mockResolvedValue(null);
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => jsonResponseFor({ data: [], paging })),
+      );
+
+      await expectBulkMissingTerminalProof(() =>
+        runBulkCoreSyncForTest(`partition-bulk-first-paging-${_label}`),
+      );
+
+      expect(warehouse.persistMetaRawSnapshot).not.toHaveBeenCalled();
+      expect(warehouse.replaceMetaAccountDailySlice).not.toHaveBeenCalled();
+      expect(warehouse.replaceMetaCampaignDailySlice).not.toHaveBeenCalled();
+      expect(warehouse.replaceMetaAdSetDailySlice).not.toHaveBeenCalled();
+      expect(warehouse.replaceMetaAdDailySlice).not.toHaveBeenCalled();
+      expect(
+        warehouse.createMetaAuthoritativeSourceManifest,
+      ).not.toHaveBeenCalled();
+      expect(
+        warehouse.publishMetaAuthoritativeSliceVersion,
+      ).not.toHaveBeenCalled();
+      expect(
+        vi
+          .mocked(warehouse.upsertMetaSyncCheckpoint)
+          .mock.calls.some(([call]) => call.phase === "finalize"),
+      ).toBe(false);
+    },
+  );
+
+  it("refuses malformed paging on a later bulk core page without finalizing its prefix", async () => {
+    process.env.META_AUTHORITATIVE_FINALIZATION_V2 = "1";
+    vi.mocked(warehouse.getMetaSyncCheckpoint).mockResolvedValue(null);
+    const pageTwo =
+      "https://graph.facebook.com/v25.0/bulk-core-paging-page-2?access_token=EAAG-PAGING-SECRET";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        if (url.startsWith(pageTwo)) {
+          return jsonResponseFor({
+            data: [{ ad_id: "ad-2", spend: "8.00" }],
+            paging: { next: 42 },
+          });
+        }
+        return jsonResponseFor({
+          data: [{ ad_id: "ad-1", spend: "12.00" }],
+          paging: { next: pageTwo },
+        });
+      }),
+    );
+
+    const failure = await expectBulkMissingTerminalProof(() =>
+      runBulkCoreSyncForTest("partition-bulk-later-paging"),
+    );
+    expect(failure.message).not.toContain("EAAG-PAGING-SECRET");
+
+    expect(warehouse.persistMetaRawSnapshot).toHaveBeenCalledTimes(1);
+    expect(warehouse.replaceMetaAccountDailySlice).not.toHaveBeenCalled();
+    expect(warehouse.replaceMetaCampaignDailySlice).not.toHaveBeenCalled();
+    expect(warehouse.replaceMetaAdSetDailySlice).not.toHaveBeenCalled();
+    expect(warehouse.replaceMetaAdDailySlice).not.toHaveBeenCalled();
+    expect(
+      warehouse.createMetaAuthoritativeSourceManifest,
+    ).not.toHaveBeenCalled();
+    expect(
+      warehouse.publishMetaAuthoritativeSliceVersion,
+    ).not.toHaveBeenCalled();
+    expect(
+      vi
+        .mocked(warehouse.upsertMetaSyncCheckpoint)
+        .mock.calls.some(([call]) => call.phase === "finalize"),
+    ).toBe(false);
+  });
+
+  it("rejects a self-repeating bulk core cursor before recording its response", async () => {
+    vi.mocked(warehouse.getMetaSyncCheckpoint).mockResolvedValue(null);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) =>
+        jsonResponseFor({
+          data: [{ ad_id: "ad-1", spend: "12.00" }],
+          paging: { next: url },
+        }),
+      ),
+    );
+
+    const failure = await expectBulkCursorCycle(() =>
+      runBulkCoreSyncForTest("partition-bulk-self-cycle"),
+    );
+    expect(failure.message).not.toContain("token-1");
+
+    expect(warehouse.persistMetaRawSnapshot).not.toHaveBeenCalled();
+    expect(
+      vi
+        .mocked(warehouse.upsertMetaSyncCheckpoint)
+        .mock.calls.some(
+          ([call]) => call.phase === "fetch_raw" && call.rowsFetched === 1,
+        ),
+    ).toBe(false);
+    expect(warehouse.replaceMetaAccountDailySlice).not.toHaveBeenCalled();
+    expect(
+      vi
+        .mocked(warehouse.upsertMetaSyncCheckpoint)
+        .mock.calls.some(([call]) => call.phase === "finalize"),
+    ).toBe(false);
+  });
 });
 
 
@@ -3478,6 +3859,7 @@ describe("syncMetaAccountBreakdownWarehouseDay", () => {
     vi.resetAllMocks();
     vi.mocked(warehouse.heartbeatMetaPartitionLease).mockResolvedValue(true);
     vi.mocked(warehouse.getMetaSyncCheckpoint).mockResolvedValue(null);
+    vi.mocked(warehouse.listMetaRawSnapshotsForRun).mockResolvedValue([]);
     vi.mocked(warehouse.persistMetaRawSnapshot).mockResolvedValue(
       "snapshot-id",
     );
@@ -3486,6 +3868,312 @@ describe("syncMetaAccountBreakdownWarehouseDay", () => {
     );
     vi.mocked(warehouse.upsertMetaSyncPhaseTiming).mockResolvedValue(
       "phase-timing-id" as never,
+    );
+  });
+
+  function runBreakdownSyncForTest(partitionId: string) {
+    return syncMetaAccountBreakdownWarehouseDay({
+      credentials: {
+        businessId: "biz-1",
+        accessToken: "token-1",
+        accountIds: ["act_1"],
+        currency: "USD",
+        accountProfiles: {
+          act_1: { currency: "USD", timezone: "UTC", name: "Account 1" },
+        },
+      },
+      accountId: "act_1",
+      day: "2026-04-03",
+      partitionId,
+      workerId: "worker-1",
+      leaseEpoch: 31,
+      attemptCount: 1,
+      breakdowns: "country",
+      endpointName: "breakdown_country",
+      positiveSpendAdIds: [],
+      leaseMinutes: 15,
+    });
+  }
+
+  it("refuses a first breakdown page without a data array before recording or replacing", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => jsonResponseFor({ data: { country: "US" } })),
+    );
+
+    await expectBulkParseFailure(() =>
+      runBreakdownSyncForTest("partition-breakdown-first-parse"),
+    );
+
+    expect(warehouse.persistMetaRawSnapshot).not.toHaveBeenCalled();
+    expect(warehouse.replaceMetaBreakdownDailySlice).not.toHaveBeenCalled();
+    expect(
+      vi
+        .mocked(warehouse.upsertMetaSyncCheckpoint)
+        .mock.calls.some(([call]) => call.phase === "finalize"),
+    ).toBe(false);
+    expect(
+      vi
+        .mocked(warehouse.upsertMetaSyncPhaseTiming)
+        .mock.calls.some(
+          ([call]) => call.phase === "finalize" && call.status === "succeeded",
+        ),
+    ).toBe(false);
+  });
+
+  it("refuses a malformed later breakdown page without replacing the fetched prefix", async () => {
+    const pageTwo =
+      "https://graph.facebook.com/v25.0/breakdown-page-2?access_token=EAAG-PAGING-SECRET";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        if (url.startsWith(pageTwo)) return rawResponseFor("");
+        return jsonResponseFor({
+          data: [
+            {
+              country: "US",
+              spend: "4.20",
+              impressions: "120",
+              clicks: "5",
+              reach: "95",
+              actions: [],
+              action_values: [],
+              purchase_roas: [],
+            },
+          ],
+          paging: { next: pageTwo },
+        });
+      }),
+    );
+
+    const failure = await expectBulkParseFailure(() =>
+      runBreakdownSyncForTest("partition-breakdown-later-parse"),
+    );
+    expect(failure.message).not.toContain("EAAG-PAGING-SECRET");
+
+    // The first page is retained only as resumable raw evidence. The partial
+    // row set never reaches the replacing writer or a successful finalize.
+    expect(warehouse.persistMetaRawSnapshot).toHaveBeenCalledTimes(1);
+    expect(warehouse.replaceMetaBreakdownDailySlice).not.toHaveBeenCalled();
+    expect(
+      vi
+        .mocked(warehouse.upsertMetaSyncCheckpoint)
+        .mock.calls.some(([call]) => call.phase === "finalize"),
+    ).toBe(false);
+    expect(
+      vi
+        .mocked(warehouse.upsertMetaSyncPhaseTiming)
+        .mock.calls.some(
+          ([call]) => call.phase === "finalize" && call.status === "succeeded",
+        ),
+    ).toBe(false);
+  });
+
+  it.each([
+    ["absent paging", { data: [] }],
+    ["an explicit null paging.next", { data: [], paging: { next: null } }],
+  ])("accepts a valid empty data array with %s", async (label, body) => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => jsonResponseFor(body)),
+    );
+
+    await expect(
+      runBreakdownSyncForTest(`partition-breakdown-empty-terminal-${label}`),
+    ).resolves.toBeUndefined();
+
+    expect(warehouse.persistMetaRawSnapshot).toHaveBeenCalledTimes(1);
+    expect(warehouse.replaceMetaBreakdownDailySlice).toHaveBeenCalledWith({
+      slice: {
+        businessId: "biz-1",
+        providerAccountId: "act_1",
+        date: "2026-04-03",
+        breakdownType: "country",
+      },
+      rows: [],
+      proof: expect.objectContaining({
+        complete: true,
+        validationStatus: "passed",
+      }),
+    });
+    expect(warehouse.upsertMetaSyncCheckpoint).toHaveBeenCalledWith(
+      expect.objectContaining({
+        phase: "finalize",
+        status: "succeeded",
+        rowsFetched: 0,
+        rowsWritten: 0,
+      }),
+    );
+  });
+
+  it("rejects a later breakdown cursor that repeats an earlier page before recording it", async () => {
+    const pageTwo =
+      "https://graph.facebook.com/v25.0/breakdown-cycle-page-2?access_token=EAAG-PAGING-SECRET";
+    let initialPageUrl: string | null = null;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        if (url.startsWith(pageTwo)) {
+          return jsonResponseFor({
+            data: [{ country: "CA", spend: "3.80" }],
+            paging: { next: initialPageUrl },
+          });
+        }
+        initialPageUrl = url;
+        return jsonResponseFor({
+          data: [{ country: "US", spend: "4.20" }],
+          paging: { next: pageTwo },
+        });
+      }),
+    );
+
+    const failure = await expectBulkCursorCycle(() =>
+      runBreakdownSyncForTest("partition-breakdown-repeated-cycle"),
+    );
+    expect(failure.message).not.toContain("EAAG-PAGING-SECRET");
+    expect(failure.message).not.toContain("token-1");
+
+    expect(warehouse.persistMetaRawSnapshot).toHaveBeenCalledTimes(1);
+    expect(
+      vi
+        .mocked(warehouse.upsertMetaSyncCheckpoint)
+        .mock.calls.filter(([call]) => call.phase === "fetch_raw"),
+    ).toHaveLength(1);
+    expect(warehouse.replaceMetaBreakdownDailySlice).not.toHaveBeenCalled();
+    expect(
+      vi
+        .mocked(warehouse.upsertMetaSyncCheckpoint)
+        .mock.calls.some(([call]) => call.phase === "finalize"),
+    ).toBe(false);
+  });
+
+  it("restores a durable first breakdown page before completing page two on retry", async () => {
+    const pageTwo =
+      "https://graph.facebook.com/v25.0/breakdown-retry-page-2?access_token=EAAG-PAGING-SECRET";
+    const pageOneRow = {
+      country: "US",
+      spend: "4.20",
+      impressions: "120",
+      clicks: "5",
+      reach: "95",
+      actions: [],
+      action_values: [],
+      purchase_roas: [],
+    };
+    const pageTwoRow = {
+      country: "CA",
+      spend: "3.80",
+      impressions: "100",
+      clicks: "4",
+      reach: "80",
+      actions: [],
+      action_values: [],
+      purchase_roas: [],
+    };
+    vi.mocked(warehouse.getMetaSyncCheckpoint)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({
+        phase: "fetch_raw",
+        pageIndex: 0,
+        nextPageUrl: pageTwo,
+        providerCursor: pageTwo,
+        rowsFetched: 1,
+        startedAt: "2026-04-03T03:00:00.000Z",
+      } as never);
+    vi.mocked(warehouse.listMetaRawSnapshotsForRun)
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        {
+          id: "breakdown-raw-page-0",
+          page_index: 0,
+          payload_json: [pageOneRow],
+          provider_cursor: pageTwo,
+          provider_http_status: 200,
+          status: "fetched",
+          fetched_at: "2026-04-03T03:00:01.000Z",
+        },
+      ] as never);
+    let pageTwoAttempts = 0;
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.startsWith(pageTwo)) {
+        pageTwoAttempts += 1;
+        if (pageTwoAttempts === 1) {
+          return jsonResponseFor(
+            { error: { message: "temporary outage", code: 2 } },
+            503,
+          );
+        }
+        return jsonResponseFor({ data: [pageTwoRow] });
+      }
+      return jsonResponseFor({
+        data: [pageOneRow],
+        paging: { next: pageTwo },
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      runBreakdownSyncForTest("partition-breakdown-durable-retry"),
+    ).rejects.toMatchObject({
+      name: "MetaGraphRequestError",
+      termination: "http_failure",
+      httpStatus: 503,
+    });
+    expect(warehouse.replaceMetaBreakdownDailySlice).not.toHaveBeenCalled();
+
+    await syncMetaAccountBreakdownWarehouseDay({
+      credentials: {
+        businessId: "biz-1",
+        accessToken: "token-1",
+        accountIds: ["act_1"],
+        currency: "USD",
+        accountProfiles: {
+          act_1: { currency: "USD", timezone: "UTC", name: "Account 1" },
+        },
+      },
+      accountId: "act_1",
+      day: "2026-04-03",
+      partitionId: "partition-breakdown-durable-retry",
+      workerId: "worker-1",
+      leaseEpoch: 31,
+      attemptCount: 2,
+      breakdowns: "country",
+      endpointName: "breakdown_country",
+      positiveSpendAdIds: [],
+      leaseMinutes: 15,
+    });
+
+    const initialPageCalls = fetchMock.mock.calls.filter(
+      ([url]) => !String(url).startsWith(pageTwo),
+    );
+    expect(initialPageCalls).toHaveLength(1);
+    expect(pageTwoAttempts).toBe(2);
+    expect(warehouse.persistMetaRawSnapshot).toHaveBeenCalledTimes(2);
+    expect(warehouse.replaceMetaBreakdownDailySlice).toHaveBeenCalledTimes(1);
+    expect(warehouse.replaceMetaBreakdownDailySlice).toHaveBeenCalledWith({
+      slice: {
+        businessId: "biz-1",
+        providerAccountId: "act_1",
+        date: "2026-04-03",
+        breakdownType: "country",
+      },
+      rows: expect.arrayContaining([
+        expect.objectContaining({ breakdownKey: "US", spend: 4.2 }),
+        expect.objectContaining({ breakdownKey: "CA", spend: 3.8 }),
+      ]),
+      proof: expect.objectContaining({
+        complete: true,
+        validationStatus: "passed",
+      }),
+    });
+    expect(warehouse.upsertMetaSyncCheckpoint).toHaveBeenCalledWith(
+      expect.objectContaining({
+        phase: "finalize",
+        status: "succeeded",
+        pageIndex: 2,
+        rowsFetched: 2,
+        rowsWritten: 2,
+      }),
     );
   });
 

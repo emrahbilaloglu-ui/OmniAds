@@ -7,6 +7,7 @@ type LegacyMetaPageProps = {
   businessId: string;
   businessName?: string | null;
   currency?: string | null;
+  accountSelection?: "shared" | "local";
 };
 
 const redirect = vi.fn((href: string): never => {
@@ -39,9 +40,10 @@ vi.mock("@/lib/zero-base/provider-scope-server", () => ({
   resolveProviderAccountScope: async (input: unknown) => {
     // Reaches the same mock through the module itself, because the factory
     // runs before the file's own bindings exist and cannot close over one.
-    const { resolveProviderAccountId: resolveId } = (await import(
-      "@/lib/zero-base/provider-scope-server"
-    )) as { resolveProviderAccountId: (value: unknown) => Promise<string | null> };
+    const { resolveProviderAccountId: resolveId } =
+      (await import("@/lib/zero-base/provider-scope-server")) as {
+        resolveProviderAccountId: (value: unknown) => Promise<string | null>;
+      };
     const id = await resolveId(input);
     return id
       ? { providerAccountId: id, refusal: null, requestedButUnassigned: null }
@@ -51,7 +53,10 @@ vi.mock("@/lib/zero-base/provider-scope-server", () => ({
           requestedButUnassigned: null,
         };
   },
-  readProviderScopeCatalog: async () => ({ provider: "meta" as const, accounts: [] }),
+  readProviderScopeCatalog: async () => ({
+    provider: "meta" as const,
+    accounts: [],
+  }),
   resolveProviderAccountId: vi.fn(),
 }));
 vi.mock("@/app/(dashboard)/platforms/meta/legacy-page", () => ({
@@ -67,9 +72,8 @@ const MetaDecisionsPage = (
 ).default;
 const auth = await import("@/lib/auth");
 const access = await import("@/lib/access");
-const businessPageAccess = await import(
-  "@/lib/access/require-business-page-context"
-);
+const businessPageAccess =
+  await import("@/lib/access/require-business-page-context");
 const authRouting = await import("@/lib/zero-base/auth-routing");
 const providerScope = await import("@/lib/zero-base/provider-scope-server");
 
@@ -124,16 +128,14 @@ beforeEach(() => {
   vi.mocked(businessPageAccess.requireBusinessPageContext).mockResolvedValue(
     authorizedContext("biz_route") as never,
   );
-  vi.mocked(access.listUserBusinesses).mockResolvedValue(
-    [
-      {
-        id: "different_selected_business",
-        name: "Client Store Selection",
-        currency: "USD",
-      },
-      { id: "biz_route", name: "Route Business", currency: "TRY" },
-    ] as never,
-  );
+  vi.mocked(access.listUserBusinesses).mockResolvedValue([
+    {
+      id: "different_selected_business",
+      name: "Client Store Selection",
+      currency: "USD",
+    },
+    { id: "biz_route", name: "Route Business", currency: "TRY" },
+  ] as never);
   vi.mocked(providerScope.resolveProviderAccountId).mockResolvedValue(
     "act_assigned",
   );
@@ -161,6 +163,7 @@ describe("Meta Decisions canonical route authority", () => {
       businessName: "Route Business",
       currency: "TRY",
       serverProviderAccountId: "act_assigned",
+      accountSelection: "shared",
       // Stated rather than left absent, and false because nothing set
       // META_DECISION_WORKFLOW_UI here. The workflow overlay's shipped state is
       // off (§18: the design draws no ownership controls, so they wait for the
@@ -218,6 +221,7 @@ describe("Meta Decisions canonical route authority", () => {
       businessName: "Route Business",
       currency: "TRY",
       serverProviderAccountId: null,
+      accountSelection: "shared",
       decisionWorkflowUiEnabled: false,
       // The second, independent gate. Both default off, and opening one does
       // not open the other.
@@ -266,9 +270,9 @@ describe("Meta Decisions canonical route authority", () => {
       }),
     ).rejects.toThrow("NEXT_NOT_FOUND");
 
-    expect(
-      businessPageAccess.requireBusinessPageContext,
-    ).toHaveBeenCalledWith({ businessId: "biz_foreign" });
+    expect(businessPageAccess.requireBusinessPageContext).toHaveBeenCalledWith({
+      businessId: "biz_foreign",
+    });
     expect(notFound).toHaveBeenCalledTimes(1);
     expect(redirect).not.toHaveBeenCalled();
     expect(access.listUserBusinesses).not.toHaveBeenCalled();
@@ -293,7 +297,9 @@ describe("the server-resolved provider account reaches the body", () => {
   );
 
   it("forwards it instead of voiding it", () => {
-    expect(routeSource).toContain("serverProviderAccountId={providerAccountId}");
+    expect(routeSource).toContain(
+      "serverProviderAccountId={providerAccountId}",
+    );
     expect(routeSource).not.toContain("void providerAccountId;");
   });
 

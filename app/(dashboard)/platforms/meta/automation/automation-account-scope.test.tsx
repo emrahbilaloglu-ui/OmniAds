@@ -162,8 +162,8 @@ describe("Meta Automation account scope", () => {
     scopeMocks.query =
       "businessId=route_business&window=custom&startDate=2026-08-01&endDate=2026-08-31&row=ad%3Aold&handoff=stale";
     scopeMocks.fetchAccounts.mockResolvedValue([
-      { id: "act_1", name: "One", currency: "USD" },
-      { id: "act_2", name: "Two", currency: "EUR" },
+      { id: "act_1", name: "Same name", currency: "USD" },
+      { id: "act_2", name: "Same name", currency: "USD" },
     ]);
     const providerFetch = vi.spyOn(globalThis, "fetch");
 
@@ -194,6 +194,13 @@ describe("Meta Automation account scope", () => {
     expect(
       Array.from(desktopPicker!.options).map((option) => option.value),
     ).toEqual(["", "act_1", "act_2"]);
+    expect(
+      Array.from(desktopPicker!.options).map((option) => option.text),
+    ).toEqual([
+      "Select account",
+      "Same name · ID act_1 · USD",
+      "Same name · ID act_2 · USD",
+    ]);
     fireEvent.change(desktopPicker!, { target: { value: "act_2" } });
 
     const replacement = String(scopeMocks.replace.mock.calls[0]?.[0]);
@@ -224,7 +231,9 @@ describe("Meta Automation account scope", () => {
         "provider_account_scope_unavailable",
       );
     });
-    expect(container.querySelector("[data-control='account-picker']")).toBeNull();
+    expect(
+      container.querySelector("[data-control='account-picker']"),
+    ).toBeNull();
     expect(notice(container)?.textContent).toContain(
       "Meta ad accounts are unavailable right now",
     );
@@ -233,10 +242,13 @@ describe("Meta Automation account scope", () => {
 
   it("does not keep the legacy picker after the server resolves an account", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response(JSON.stringify({ ok: true, automation: null, proposals: [] }), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      }),
+      new Response(
+        JSON.stringify({ ok: true, automation: null, proposals: [] }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
     );
     const { container } = render(
       <MetaAutomationPage
@@ -253,7 +265,9 @@ describe("Meta Automation account scope", () => {
         ),
       ).toBe(true);
     });
-    expect(container.querySelector("[data-control='account-picker']")).toBeNull();
+    expect(
+      container.querySelector("[data-control='account-picker']"),
+    ).toBeNull();
   });
 
   it("accepts a server-authorized topbar switch without mounting a local selector", async () => {
@@ -262,10 +276,13 @@ describe("Meta Automation account scope", () => {
       { id: "act_2", name: "Two" },
     ]);
     const providerFetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response(JSON.stringify({ ok: true, automation: null, proposals: [] }), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      }),
+      new Response(
+        JSON.stringify({ ok: true, automation: null, proposals: [] }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
     );
 
     const { container, rerender } = render(
@@ -280,7 +297,9 @@ describe("Meta Automation account scope", () => {
         "provider_account_scope_unresolved",
       );
     });
-    expect(container.querySelector("[data-control='account-picker']")).toBeNull();
+    expect(
+      container.querySelector("[data-control='account-picker']"),
+    ).toBeNull();
     expect(scopeMocks.replace).not.toHaveBeenCalled();
 
     rerender(
@@ -297,7 +316,9 @@ describe("Meta Automation account scope", () => {
         ),
       ).toBe(true);
     });
-    expect(container.querySelector("[data-control='account-picker']")).toBeNull();
+    expect(
+      container.querySelector("[data-control='account-picker']"),
+    ).toBeNull();
   });
 
   it("disables every mutating control while no account is resolved", async () => {

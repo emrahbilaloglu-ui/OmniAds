@@ -603,6 +603,84 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+describe("Decisions account scope ownership", () => {
+  it("keeps canonical account selection in the shared shell", () => {
+    state.providerAccounts = [
+      { id: "act_1", name: "Same name", currency: "USD", timezone: "UTC" },
+      { id: "act_2", name: "Same name", currency: "USD", timezone: "UTC" },
+    ];
+    const dom = render({
+      accountSelection: "shared",
+      serverProviderAccountId: null,
+    });
+
+    expect(
+      dom.querySelector('[data-testid="meta-account-required"]'),
+    ).toBeNull();
+    expect(
+      dom.querySelector('[aria-label="Meta ad account for Decisions mobile"]'),
+    ).toBeNull();
+  });
+
+  it("offers legacy desktop and mobile recovery and writes only a reauthorizable scope request", () => {
+    state.pathname = "/platforms/meta";
+    state.search =
+      "businessId=biz_1&window=custom&startDate=2026-08-01&endDate=2026-08-31&levels=campaign&row=ad%3Aold&creativeId=old&handoff=stale";
+    state.providerAccounts = [
+      { id: "act_1", name: "Same name", currency: "USD", timezone: "UTC" },
+      { id: "act_2", name: "Same name", currency: "USD", timezone: "UTC" },
+    ];
+    state.workspaceData = workspacePayload();
+
+    const dom = render({
+      accountSelection: "local",
+      serverProviderAccountId: null,
+    });
+    const desktop = dom.querySelector<HTMLSelectElement>(
+      '[data-testid="meta-account-required"] select',
+    );
+    const mobile = dom.querySelector<HTMLSelectElement>(
+      '[aria-label="Meta ad account for Decisions mobile"]',
+    );
+    expect(desktop).not.toBeNull();
+    expect(mobile).not.toBeNull();
+    expect(state.exactProps.levels).toEqual(["campaign"]);
+    expect(
+      mobile
+        ?.closest("[data-mobile-read-state]")
+        ?.getAttribute("data-mobile-read-state"),
+    ).toBe("account-required");
+    expect(Array.from(mobile!.options).map((option) => option.text)).toEqual([
+      "Select account",
+      "Same name · ID act_1 · USD",
+      "Same name · ID act_2 · USD",
+    ]);
+
+    act(() => {
+      mobile!.value = "act_2";
+      mobile!.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+
+    const href = String(state.routerReplace.mock.calls[0]?.[0]);
+    const query = new URL(href, "https://adsecute.test").searchParams;
+    expect(query.get("businessId")).toBe("biz_1");
+    expect(query.get("window")).toBe("custom");
+    expect(query.get("startDate")).toBe("2026-08-01");
+    expect(query.get("endDate")).toBe("2026-08-31");
+    expect(query.get("providerAccountId")).toBe("act_2");
+    expect(query.has("row")).toBe(false);
+    expect(query.has("creativeId")).toBe(false);
+    expect(query.has("handoff")).toBe(false);
+    expect(query.has("levels")).toBe(false);
+    expect(state.exactProps.levels).toEqual([]);
+    expect(
+      state.queryKeys.some(
+        (key) => key[0] === "meta-decisions-workspace" && key[2] === "act_2",
+      ),
+    ).toBe(false);
+  });
+});
+
 describe("Decisions error recovery", () => {
   it("does not automatically repeat an expensive failed workspace fan-out", () => {
     render({ serverProviderAccountId: "act_server" });

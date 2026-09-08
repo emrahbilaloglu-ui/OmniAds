@@ -34,6 +34,7 @@ function MetaLegacyBodyWithCapability(props: Record<string, unknown>) {
   return (
     <LegacyBody
       {...props}
+      accountSelection="local"
       decisionWorkflowUiEnabled={readMetaReleaseGates().decisionWorkflowUi}
       mutationUiEnabled={isMutationUiEnabled()}
     />

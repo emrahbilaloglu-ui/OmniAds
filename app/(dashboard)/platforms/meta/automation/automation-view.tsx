@@ -1093,14 +1093,18 @@ function AutomationAccountPicker({
         </option>
         {accounts.map((account) => (
           <option key={account.id} value={account.id}>
-            {account.name?.trim() ||
-              `Meta account ${compactMetaAccountId(account.id) ?? ""}`.trim()}
+            {automationAccountOptionLabel(account)}
             {account.currency ? ` · ${account.currency}` : ""}
           </option>
         ))}
       </select>
     </label>
   );
+}
+
+function automationAccountOptionLabel(account: MetaHistoryAccount): string {
+  const name = account.name?.trim() || "Unnamed Meta account";
+  return `${name} · ID ${account.id}`;
 }
 
 /**

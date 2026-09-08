@@ -42,8 +42,8 @@ const MetaLaunchpadPage = (await import("./legacy-page")).default;
 const { buildLaunchpadViewerEnvelope } = await import("./viewer-envelope");
 
 const ASSIGNED_ACCOUNTS = [
-  { id: "act_1", name: "Account One", currency: "USD", timezone: null },
-  { id: "act_2", name: "Account Two", currency: "USD", timezone: null },
+  { id: "act_1", name: "Same name", currency: "USD", timezone: null },
+  { id: "act_2", name: "Same name", currency: "USD", timezone: null },
 ];
 
 const SECTION_READ = {
@@ -154,9 +154,7 @@ describe("Meta Launchpad authorized client scope", () => {
         "Select a Meta ad account in the top bar to use Launchpad.",
       );
     });
-    expect(
-      screen.queryByLabelText("Meta ad account for Launchpad"),
-    ).toBeNull();
+    expect(screen.queryByLabelText("Meta ad account for Launchpad")).toBeNull();
     expect(
       screen.getByTestId("meta-mobile-launchpad").querySelector("select"),
     ).toBeNull();
@@ -182,9 +180,7 @@ describe("Meta Launchpad authorized client scope", () => {
     const start = await screen.findByTestId("launchpad-start-manual");
     fireEvent.click(start.querySelector("button")!);
     await screen.findByTestId("launchpad-wizard");
-    expect(
-      screen.queryByLabelText("Meta ad account for Launchpad"),
-    ).toBeNull();
+    expect(screen.queryByLabelText("Meta ad account for Launchpad")).toBeNull();
     expect(scopeMocks.replace).not.toHaveBeenCalled();
     expect(
       screen.getByTestId("meta-mobile-launchpad").querySelector("select"),
@@ -209,6 +205,24 @@ describe("Meta Launchpad authorized client scope", () => {
         (option) => option.value,
       ),
     ).toEqual(["", "act_1", "act_2"]);
+    expect(
+      Array.from((desktopPicker as HTMLSelectElement).options).map(
+        (option) => option.text,
+      ),
+    ).toEqual([
+      "Select account",
+      "Same name · ID act_1 · USD",
+      "Same name · ID act_2 · USD",
+    ]);
+    expect(
+      Array.from((mobilePicker as HTMLSelectElement).options).map(
+        (option) => option.text,
+      ),
+    ).toEqual([
+      "Select account",
+      "Same name · ID act_1 · USD",
+      "Same name · ID act_2 · USD",
+    ]);
     expect(container.textContent).toContain(
       "Select a Meta ad account below to use Launchpad.",
     );
@@ -227,9 +241,9 @@ describe("Meta Launchpad authorized client scope", () => {
     const start = await screen.findByTestId("launchpad-start-manual");
     fireEvent.click(start.querySelector("button")!);
     await screen.findByTestId("launchpad-wizard");
-    expect(
-      screen.getByLabelText("Meta ad account for Launchpad"),
-    ).toHaveValue("act_2");
+    expect(screen.getByLabelText("Meta ad account for Launchpad")).toHaveValue(
+      "act_2",
+    );
   });
 
   it.each([
@@ -247,28 +261,28 @@ describe("Meta Launchpad authorized client scope", () => {
       },
       message: "Meta ad accounts are temporarily unavailable.",
     },
-  ])("does not offer a false legacy choice with $label", async ({
-    accountsSection,
-    message,
-  }) => {
-    scopeMocks.query = "";
-    const body = workspaceBody();
-    stubWorkspace({
-      ...body,
-      accounts: [],
-      sections: { ...body.sections, accounts: accountsSection },
-    });
+  ])(
+    "does not offer a false legacy choice with $label",
+    async ({ accountsSection, message }) => {
+      scopeMocks.query = "";
+      const body = workspaceBody();
+      stubWorkspace({
+        ...body,
+        accounts: [],
+        sections: { ...body.sections, accounts: accountsSection },
+      });
 
-    render(<MetaLaunchpadPage />);
+      render(<MetaLaunchpadPage />);
 
-    await screen.findAllByText(message);
-    expect(
-      screen.queryByLabelText("Meta ad account for Launchpad"),
-    ).toBeNull();
-    expect(
-      screen.queryByLabelText("Meta ad account for Launchpad mobile"),
-    ).toBeNull();
-  });
+      await screen.findAllByText(message);
+      expect(
+        screen.queryByLabelText("Meta ad account for Launchpad"),
+      ).toBeNull();
+      expect(
+        screen.queryByLabelText("Meta ad account for Launchpad mobile"),
+      ).toBeNull();
+    },
+  );
 
   it("retains the legacy account choice when the selected account lacks currency", async () => {
     scopeMocks.query = "providerAccountId=act_1";
@@ -288,9 +302,9 @@ describe("Meta Launchpad authorized client scope", () => {
         "The selected Meta account needs a currency before launching.",
       ),
     ).toBeInTheDocument();
-    expect(
-      screen.getByLabelText("Meta ad account for Launchpad"),
-    ).toHaveValue("act_1");
+    expect(screen.getByLabelText("Meta ad account for Launchpad")).toHaveValue(
+      "act_1",
+    );
     expect(
       screen.getByLabelText("Meta ad account for Launchpad mobile"),
     ).toHaveValue("act_1");

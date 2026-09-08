@@ -38,6 +38,7 @@ import type {
   MetaOsDecisionAction,
 } from "@/lib/meta/decisions-os-contract";
 import { dashboardHrefForRouteFamily } from "@/lib/dashboard-v2/screen-registry";
+import { accountSwitchQuery } from "@/lib/dashboard/account-scope-url";
 import { buildMetaScopedHref } from "@/lib/meta/meta-route-scope";
 import {
   authorizeLaunchpadHandoff,
@@ -161,6 +162,12 @@ interface MetaPlatformPageProps {
    * and a client must not mint scope it has not had verified.
    */
   serverProviderAccountId?: string | null;
+  /**
+   * Canonical `/c/**` routes use the shared topbar account control. The
+   * compatibility mount opts into the local recovery control because its shell
+   * has no provider catalog.
+   */
+  accountSelection?: "shared" | "local";
   /**
    * Whether decision ownership actions may run, read from the server's gate.
    *
@@ -1236,6 +1243,12 @@ function metaAccountDisplayLabel(
   return `Meta account ••••${cleanId.slice(-4)}`;
 }
 
+function metaProviderAccountOptionLabel(account: MetaHistoryAccount): string {
+  const name = account.name?.trim() || "Unnamed Meta account";
+  const currency = account.currency?.trim();
+  return `${name} · ID ${account.id}${currency ? ` · ${currency}` : ""}`;
+}
+
 function mobileTimestamp(value: string | null | undefined) {
   if (!value) return "—";
   const date = new Date(value);
@@ -2059,6 +2072,7 @@ function MetaMobileDecisionsScreen({
   manualActionFor,
   ceremonyRowId,
   ceremony,
+  localAccountSelection,
 }: {
   businessName?: string | null;
   viewModel: MetaDecisionCenterExactViewModel;
@@ -2090,6 +2104,13 @@ function MetaMobileDecisionsScreen({
   /** The row whose ceremony is open, so the sheet renders beside its card. */
   ceremonyRowId?: string | null;
   ceremony?: ReactNode;
+  localAccountSelection?: {
+    accounts: MetaHistoryAccount[];
+    providerAccountId: string | null;
+    loading: boolean;
+    error: Error | null;
+    onSelect: (providerAccountId: string) => void;
+  };
 }) {
   const counts = viewModel.counts ?? {};
   const creativeLaneCounts = viewModel.operatorSummary?.scopeCounts?.creatives;
@@ -2101,6 +2122,55 @@ function MetaMobileDecisionsScreen({
     historyHref,
     pathname,
   });
+  if (
+    localAccountSelection &&
+    !localAccountSelection.providerAccountId &&
+    !localAccountSelection.loading &&
+    !localAccountSelection.error
+  ) {
+    return (
+      <section
+        className="meta-mobile-decision-stage"
+        data-testid="meta-mobile-decisions"
+        data-mobile-read-state="account-required"
+      >
+        <div className="ad-mobile-device">
+          <div className="ad-mobile-screen">
+            <div className="ad-mobile-status">
+              <span>Meta Decision Center</span>
+              <span>{businessName ?? "Meta"}</span>
+            </div>
+            <article className="ad-mobile-row-card" role="status">
+              <h3>Select a Meta ad account</h3>
+              <p>Select the account whose decisions you want to review.</p>
+              <label>
+                <span className="sr-only">Meta ad account</span>
+                <select
+                  aria-label="Meta ad account for Decisions mobile"
+                  value=""
+                  disabled={localAccountSelection.accounts.length === 0}
+                  onChange={(event) =>
+                    localAccountSelection.onSelect(event.currentTarget.value)
+                  }
+                >
+                  <option value="">
+                    {localAccountSelection.accounts.length === 0
+                      ? "No assigned account"
+                      : "Select account"}
+                  </option>
+                  {localAccountSelection.accounts.map((account) => (
+                    <option key={account.id} value={account.id}>
+                      {metaProviderAccountOptionLabel(account)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </article>
+          </div>
+        </div>
+      </section>
+    );
+  }
   if (loading || error) {
     return (
       <section
@@ -3490,6 +3560,7 @@ export function MetaPlatformPage({
   businessId,
   businessName,
   serverProviderAccountId = null,
+  accountSelection = "shared",
   decisionWorkflowUiEnabled: authorizedWorkflowUiEnabled,
   mutationUiEnabled: authorizedMutationUiEnabled,
 }: MetaPlatformPageProps) {
@@ -4317,17 +4388,21 @@ export function MetaPlatformPage({
   };
 
   const setProviderAccount = (nextProviderAccountId: string) => {
-    const params = currentUrlParams();
-    if (nextProviderAccountId) {
-      params.set("providerAccountId", nextProviderAccountId);
-    } else {
-      params.delete("providerAccountId");
-    }
-    params.delete("entity");
+    const params = accountSwitchQuery(
+      currentUrlParams().toString(),
+      nextProviderAccountId,
+    );
     setDrillItem(null);
+    setOverlay(EMPTY_OVERLAY);
+    setPendingStructurePrimary(null);
     setNativeAdPauseAuthorization(null);
     setNativeAdPauseError(null);
     setCreativeDrill(null);
+    setManualCeremonyRec(null);
+    setActiveScope("structure");
+    setActiveLane("action");
+    setActiveLevels([]);
+    setRowSearch("");
     replaceMetaParams(params);
   };
 
@@ -5228,13 +5303,9 @@ export function MetaPlatformPage({
    */
   const manualActionForRec = (
     rec: MetaRecommendation | null,
-  ):
-    | NonNullable<
-        NonNullable<
-          MetaDecisionCenterExactViewModel["inspector"]
-        >["manualAction"]
-      >
-    | null => {
+  ): NonNullable<
+    NonNullable<MetaDecisionCenterExactViewModel["inspector"]>["manualAction"]
+  > | null => {
     if (!rec || blockedStructureIds.has(rec.id)) return null;
     const operatorApply = rec.operatorApply ?? null;
     const decisionKey = toDecisionRow(rec).decisionKey;
@@ -5634,6 +5705,17 @@ export function MetaPlatformPage({
           manualActionFor={mobileManualActionFor}
           ceremonyRowId={manualCeremonyRec?.id ?? null}
           ceremony={manualCeremonySheetFor("mobile")}
+          localAccountSelection={
+            accountSelection === "local"
+              ? {
+                  accounts: providerAccounts,
+                  providerAccountId,
+                  loading: providerAccountsQuery.isLoading,
+                  error: providerAccountMetadataError,
+                  onSelect: setProviderAccount,
+                }
+              : undefined
+          }
         />
       )}
 
@@ -5644,7 +5726,8 @@ export function MetaPlatformPage({
           filled it is broken presents a read failure as an empty success; the
           blocking banner below states the failure instead.
         */}
-        {!providerAccountsQuery.isLoading &&
+        {accountSelection === "local" &&
+        !providerAccountsQuery.isLoading &&
         !providerAccountId &&
         !providerAccountMetadataError ? (
           <div className="banner warn" data-testid="meta-account-required">
@@ -5670,9 +5753,7 @@ export function MetaPlatformPage({
                   </option>
                   {providerAccounts.map((account) => (
                     <option key={account.id} value={account.id}>
-                      {metaAccountDisplayLabel(account.name, account.id) ??
-                        "Unnamed Meta account"}
-                      {account.currency ? " · " + account.currency : ""}
+                      {metaProviderAccountOptionLabel(account)}
                     </option>
                   ))}
                 </select>

@@ -1860,7 +1860,10 @@ export async function fetchMetaPagedCollectionReceipt<TItem>(
       pageCount += 1;
 
       const paging = (payload as { paging?: unknown }).paging;
-      if (paging != null && typeof paging !== "object") {
+      if (
+        paging != null &&
+        (typeof paging !== "object" || Array.isArray(paging))
+      ) {
         return incompletePaginationReceipt({
           rows,
           rowObservedAt,
@@ -3108,7 +3111,11 @@ async function upsertOwnedMetaPhaseTimingOrThrow(
  */
 async function fetchMetaPagedJson<TItem>(
   url: string,
-  context: { pageIndex: number; stage: string } = {
+  context: {
+    pageIndex: number;
+    stage: string;
+    visitedPageUrls?: Set<string>;
+  } = {
     pageIndex: 0,
     stage: "meta_bulk_page",
   },
@@ -3191,17 +3198,163 @@ async function fetchMetaPagedJson<TItem>(
     );
   }
 
-  let parsed: unknown = {};
-  if (rawBody.trim() !== "") {
+  let parsed: unknown;
+  let parseFailureReason:
+    | "empty_body"
+    | "invalid_json"
+    | "non_object_json"
+    | "missing_data_array"
+    | null = null;
+  if (rawBody.trim() === "") {
+    parseFailureReason = "empty_body";
+  } else {
     try {
       parsed = JSON.parse(rawBody);
     } catch {
-      parsed = {};
+      parseFailureReason = "invalid_json";
     }
   }
-  const json = (
-    parsed && typeof parsed === "object" ? parsed : {}
-  ) as MetaGraphCollectionResponse<TItem> & { error?: { message?: string } };
+  if (
+    parseFailureReason === null &&
+    (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
+  ) {
+    parseFailureReason = "non_object_json";
+  }
+  if (
+    parseFailureReason === null &&
+    !Array.isArray((parsed as { data?: unknown }).data)
+  ) {
+    parseFailureReason = "missing_data_array";
+  }
+  if (parseFailureReason !== null) {
+    /*
+      An unusable 2xx body is not an empty page. In particular, coercing a
+      malformed LATER page to `{}` makes `paging.next` disappear and promotes
+      the already-fetched prefix to a complete authoritative capture. Mirror
+      the receipt walk's parse boundary: classify the shape, retain no body
+      prose, and throw before either bulk caller can checkpoint or write it.
+    */
+    logRuntimeWarn("meta-graph", "bulk_page_rejected", {
+      stage: context.stage,
+      httpStatus: response.status,
+      errorCode: null,
+      errorSubcode: null,
+      isTransient: null,
+      fbtraceId: null,
+      pageIndex: context.pageIndex,
+      refusedByEnvelope: false,
+      termination: "parse_failure",
+      parseFailureReason,
+    });
+    const failure: MetaPaginationFailure = {
+      kind: "parse_failure",
+      message: "Meta bulk page response was not a usable collection.",
+      pageIndex: context.pageIndex,
+      pageUrl: sanitizeMetaPageUrl(url),
+      httpStatus: response.status,
+      errorCode: null,
+      errorSubcode: null,
+      isTransient: null,
+      fbtraceId: null,
+      attempts: 1,
+    };
+    throw new MetaGraphRequestError(
+      `meta_bulk_page_parse_failure:status=${response.status}:code=none:subcode=none`,
+      { termination: "parse_failure", failure },
+    );
+  }
+  const paging = (parsed as { paging?: unknown }).paging;
+  let pagingFailureReason:
+    | "paging_not_object"
+    | "paging_next_not_nonempty_string"
+    | null = null;
+  if (
+    paging != null &&
+    (typeof paging !== "object" || Array.isArray(paging))
+  ) {
+    pagingFailureReason = "paging_not_object";
+  }
+  const rawNext =
+    paging && typeof paging === "object"
+      ? (paging as { next?: unknown }).next
+      : undefined;
+  if (rawNext != null && (typeof rawNext !== "string" || !rawNext.trim())) {
+    pagingFailureReason = "paging_next_not_nonempty_string";
+  }
+  if (pagingFailureReason !== null) {
+    /*
+      Rows without trustworthy paging metadata are a prefix, not a complete
+      collection. Reject the page before the bulk caller can checkpoint its
+      rows or turn the malformed terminal claim into an authoritative slice.
+    */
+    logRuntimeWarn("meta-graph", "bulk_page_rejected", {
+      stage: context.stage,
+      httpStatus: response.status,
+      errorCode: null,
+      errorSubcode: null,
+      isTransient: null,
+      fbtraceId: null,
+      pageIndex: context.pageIndex,
+      refusedByEnvelope: false,
+      termination: "missing_terminal_proof",
+      pagingFailureReason,
+    });
+    const failure: MetaPaginationFailure = {
+      kind: "missing_terminal_proof",
+      message: "Meta bulk page did not contain usable paging metadata.",
+      pageIndex: context.pageIndex,
+      pageUrl: sanitizeMetaPageUrl(url),
+      httpStatus: response.status,
+      errorCode: null,
+      errorSubcode: null,
+      isTransient: null,
+      fbtraceId: null,
+      attempts: 1,
+    };
+    throw new MetaGraphRequestError(
+      `meta_bulk_page_missing_terminal_proof:status=${response.status}:code=none:subcode=none`,
+      { termination: "missing_terminal_proof", failure },
+    );
+  }
+  const candidateNext = typeof rawNext === "string" ? rawNext : null;
+  if (
+    candidateNext !== null &&
+    context.visitedPageUrls?.has(candidateNext)
+  ) {
+    logRuntimeWarn("meta-graph", "bulk_page_rejected", {
+      stage: context.stage,
+      httpStatus: response.status,
+      errorCode: null,
+      errorSubcode: null,
+      isTransient: null,
+      fbtraceId: null,
+      pageIndex: context.pageIndex,
+      refusedByEnvelope: false,
+      termination: "cursor_cycle",
+    });
+    const failure: MetaPaginationFailure = {
+      kind: "cursor_cycle",
+      message: "Meta bulk page repeated a page URL already fetched.",
+      pageIndex: context.pageIndex,
+      pageUrl: sanitizeMetaPageUrl(candidateNext),
+      httpStatus: response.status,
+      errorCode: null,
+      errorSubcode: null,
+      isTransient: null,
+      fbtraceId: null,
+      attempts: 1,
+    };
+    throw new MetaGraphRequestError(
+      `meta_bulk_page_cursor_cycle:status=${response.status}:code=none:subcode=none`,
+      { termination: "cursor_cycle", failure },
+    );
+  }
+  if (candidateNext !== null) {
+    context.visitedPageUrls?.add(candidateNext);
+  }
+  const json = parsed as MetaGraphCollectionResponse<TItem> & {
+    error?: { message?: string };
+  };
   return {
     response,
     json,
@@ -3335,9 +3488,10 @@ function deriveWarehouseMetrics(
  * `restore_raw_pages` sub-stage), and then the pages fetched from the cursor
  * the restore left off at (`fetch_source_pages`) — `resolveMetaRawSnapshotFetchUrl`
  * / `resolveMetaRawSnapshotResumeState` exist precisely so the fetch resumes
- * after the restored frontier instead of re-reading it, and `visitedPageUrls`
- * in `fetchMetaPagedCollectionReceipt` plus the `cursor_cycle` termination stop
- * a provider cursor that points backwards.
+ * after the restored frontier instead of re-reading it. The bulk sync seeds
+ * `visitedPageUrls` from that restored chain and passes it to every page fetch,
+ * where `cursor_cycle` stops a provider cursor that points backwards before
+ * the repeated response can be recorded or applied.
  *
  * So each provider row is visited once, and every metric here is a single
  * addition per visit into a map keyed by entity id. If a page ever WERE applied
@@ -3835,6 +3989,12 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
     pages: restoredPages,
     checkpoint,
   });
+  const initialPageUrl = buildMetaBulkCoreInsightsUrl({
+    accountId: input.accountId,
+    accessToken: input.credentials.accessToken,
+    since: normalizedDay,
+    until: normalizedDay,
+  });
   // When the resume rewound to the durable raw frontier, the checkpoint's own
   // cursor must NOT be used: it points one page past the page that never
   // landed, so following it would skip that page's rows without any error.
@@ -3843,13 +4003,15 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
     ? restoreState.resumeCursor
     : resolveMetaRawSnapshotFetchUrl({
         checkpoint,
-        initialPageUrl: buildMetaBulkCoreInsightsUrl({
-          accountId: input.accountId,
-          accessToken: input.credentials.accessToken,
-          since: normalizedDay,
-          until: normalizedDay,
-        }),
+        initialPageUrl,
       });
+  const visitedPageUrls = new Set<string>([
+    initialPageUrl,
+    ...restoredPages.flatMap((page) =>
+      page.provider_cursor ? [page.provider_cursor] : [],
+    ),
+  ]);
+  if (nextPageUrl) visitedPageUrls.add(nextPageUrl);
   let pageIndex = restoreState.nextPageIndex;
   let throttleCount = 0;
   let lastUsagePercent = 0;
@@ -3967,6 +4129,7 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
           pageResult = await fetchMetaPagedJson<RawAdInsight>(nextPageUrl, {
             pageIndex,
             stage: "syncMetaAccountCoreWarehouseDay.fetch_source_pages",
+            visitedPageUrls,
           });
         } finally {
           clearInterval(fetchHeartbeat);
@@ -6076,24 +6239,49 @@ export async function syncMetaAccountBreakdownWarehouseDay(input: {
   const referenceToday = normalizeMetaApiDate(
     input.referenceToday ?? getTodayIsoForTimeZone(profile?.timezone ?? null),
   );
-  const restoredRows: RawBreakdownInsight[] = [];
   const checkpoint = await getMetaSyncCheckpoint({
     partitionId: input.partitionId,
     checkpointScope,
     runId: sourceRunId,
   });
-  let nextPageUrl: string | null =
-    checkpoint?.nextPageUrl ??
-    buildMetaBreakdownInsightsUrl({
-      accountId: input.accountId,
-      accessToken: input.credentials.accessToken,
-      since: normalizedDay,
-      until: normalizedDay,
-      breakdowns: input.breakdowns,
-      positiveSpendAdIds: input.positiveSpendAdIds,
-    });
-  let pageIndex = checkpoint?.pageIndex ?? 0;
-  let rowsFetchedTotal = checkpoint?.rowsFetched ?? 0;
+  const observedPages = await listMetaRawSnapshotsForRun({
+    partitionId: input.partitionId,
+    endpointName: input.endpointName,
+    runId: sourceRunId,
+  });
+  const restoredPages = selectLatestMetaRawSnapshotGeneration(observedPages);
+  const restoreState = resolveMetaRawSnapshotResumeState({
+    pages: restoredPages,
+    checkpoint,
+  });
+  const restoredRows: RawBreakdownInsight[] = [];
+  for (const rawPage of restoreState.pages) {
+    restoredRows.push(...(rawPage.payload_json as RawBreakdownInsight[]));
+  }
+  const initialPageUrl = buildMetaBreakdownInsightsUrl({
+    accountId: input.accountId,
+    accessToken: input.credentials.accessToken,
+    since: normalizedDay,
+    until: normalizedDay,
+    breakdowns: input.breakdowns,
+    positiveSpendAdIds: input.positiveSpendAdIds,
+  });
+  // The raw page generation is the durable prefix. If the checkpoint landed
+  // before its page receipt, rewind to the last durable cursor; otherwise
+  // resume from the checkpoint while rebuilding the transform input from all
+  // raw pages already recorded for this run.
+  let nextPageUrl: string | null = restoreState.rewoundToDurableFrontier
+    ? restoreState.resumeCursor
+    : resolveMetaRawSnapshotFetchUrl({ checkpoint, initialPageUrl });
+  const visitedPageUrls = new Set<string>([
+    initialPageUrl,
+    ...restoreState.pages.flatMap((page) =>
+      page.provider_cursor ? [page.provider_cursor] : [],
+    ),
+  ]);
+  if (nextPageUrl) visitedPageUrls.add(nextPageUrl);
+  let pageIndex = restoreState.nextPageIndex;
+  let rowsFetchedTotal = restoredRows.length;
   const fetchTimingScope = buildMetaPhaseTimingScope({
     phase: "fetch_raw",
     scope: checkpointScope,
@@ -6147,6 +6335,7 @@ export async function syncMetaAccountBreakdownWarehouseDay(input: {
       pageResult = await fetchMetaPagedJson<RawBreakdownInsight>(nextPageUrl, {
         pageIndex,
         stage: "syncMetaAccountBreakdownWarehouseDay.fetch_source_pages",
+        visitedPageUrls,
       });
     } finally {
       clearInterval(fetchHeartbeat);

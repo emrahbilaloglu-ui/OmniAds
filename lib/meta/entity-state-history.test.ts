@@ -577,11 +577,12 @@ describe("Meta schedule timestamp normalization", () => {
       reason: "blank",
     });
     // An out-of-range date. PostgreSQL ACCEPTS the raw '99999-01-01', which is
-    // the trap: its canonical rendering is '+099998-12-31T21:00:00.000Z' and
-    // PostgreSQL refuses THAT with 'time zone displacement out of range'. So
-    // normalizing it would create the abort this function removes.
-    expect(new Date("99999-01-01").toISOString()).toBe(
-      "+099998-12-31T21:00:00.000Z",
+    // the trap: JavaScript canonicalizes it to an expanded-year ISO string and
+    // PostgreSQL refuses that form with 'time zone displacement out of range'.
+    // The exact instant depends on the process timezone, but the expanded-year
+    // shape and the normalizer's refusal do not.
+    expect(new Date("99999-01-01").toISOString()).toMatch(
+      /^\+\d{6}-\d{2}-\d{2}T/,
     );
     expect(normalizeMetaScheduleTimestamp("99999-01-01")).toEqual({
       outcome: "invalid",

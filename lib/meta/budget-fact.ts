@@ -29,6 +29,7 @@ import {
   ISO_4217_REGISTRY_VERSION,
   resolveMinorUnitExponent,
 } from "@/lib/currency/iso-4217-minor-units";
+import { providerLocalDayStartInclusive } from "@/lib/meta/provider-local-day";
 
 export const BUDGET_FACT_CONTRACT_VERSION = "meta.budget-fact.v4" as const;
 
@@ -504,21 +505,16 @@ export function zoneCacheStats(): {
   };
 }
 
-function zoneOffsetMs(instantMs: number, timeZone: string): number {
-  const canonical = canonicalZone(timeZone);
-  if (canonical === null) return Number.NaN;
-  const formatter = zoneFormatter(canonical);
+function zoneCalendarDateWithFormatter(
+  instantMs: number,
+  formatter: Intl.DateTimeFormat,
+): string | null {
   const parts: Record<string, string> = {};
-  for (const part of formatter.formatToParts(new Date(instantMs))) parts[part.type] = part.value;
-  const asUtc = Date.UTC(
-    Number(parts.year),
-    Number(parts.month) - 1,
-    Number(parts.day),
-    Number(parts.hour) % 24,
-    Number(parts.minute),
-    Number(parts.second),
-  );
-  return asUtc - instantMs;
+  for (const part of formatter.formatToParts(new Date(instantMs))) {
+    parts[part.type] = part.value;
+  }
+  if (!parts.year || !parts.month || !parts.day) return null;
+  return `${parts.year}-${parts.month}-${parts.day}`;
 }
 
 export function isKnownTimeZone(timeZone: unknown): timeZone is string {
@@ -547,19 +543,27 @@ export function isRealCalendarDate(value: unknown): value is string {
 }
 
 export function pitCutoffMs(asOf: string, timeZone: string): number | null {
-  if (!isRealCalendarDate(asOf) || !isKnownTimeZone(timeZone)) return null;
-  const utcGuess = Date.parse(`${asOf}T00:00:00.000Z`);
-  if (!Number.isFinite(utcGuess)) return null;
-  const firstOffset = zoneOffsetMs(utcGuess, timeZone);
-  if (!Number.isFinite(firstOffset)) return null;
-  let candidate = utcGuess - firstOffset;
-  const secondOffset = zoneOffsetMs(candidate, timeZone);
-  if (!Number.isFinite(secondOffset)) return null;
-  if (secondOffset !== firstOffset) candidate = utcGuess - secondOffset;
-  // A cache eviction between the two probes can only cost a reconstruction,
-  // never a different offset, but an unusable offset must still fail closed
-  // rather than propagate NaN into a cutoff comparison.
-  return Number.isFinite(candidate) ? candidate : null;
+  if (!isRealCalendarDate(asOf)) return null;
+  const canonical = canonicalZone(timeZone);
+  if (canonical === null) return null;
+  const boundary = providerLocalDayStartInclusive({
+    day: asOf,
+    timeZone: canonical,
+  });
+  if (!boundary) return null;
+  // Keep the budget module's bounded formatter cache as an independent
+  // fail-closed projection check. The shared resolver owns gap/overlap
+  // disambiguation; this verifies that its answer really lands on `asOf` in
+  // the canonical account zone before the instant can gate a budget fact.
+  if (
+    zoneCalendarDateWithFormatter(
+      boundary.getTime(),
+      zoneFormatter(canonical),
+    ) !== asOf
+  ) {
+    return null;
+  }
+  return boundary.getTime();
 }
 
 export interface PitRequest {

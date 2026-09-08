@@ -20,7 +20,9 @@ import { describe, expect, it } from "vitest";
 
 import {
   isSupportedIanaTimeZone,
+  providerLocalCalendarDate,
   providerLocalDayEndExclusive,
+  providerLocalDayStartInclusive,
   resolveMetaProviderLocalDayEnd,
 } from "@/lib/meta/provider-local-day";
 
@@ -100,6 +102,60 @@ describe("the exclusive end of a provider-local day", () => {
     ).toBe("2026-03-09T07:00:00.000Z");
   });
 
+  it("uses the first real instant after a midnight DST gap", () => {
+    /*
+      Santiago skips from 23:59:59 on September 5 directly to 01:00:00 on
+      September 6. There is no local 00:00 for a fixed-point offset solver to
+      find. The boundary is 04:00Z, the first instant whose provider-local date
+      is the 6th; the old two-pass calculation oscillated and returned 03:00Z,
+      which was still 23:00 on the 5th.
+    */
+    const boundary = providerLocalDayEndExclusive({
+      day: "2026-09-05",
+      timeZone: "America/Santiago",
+    });
+    expect(iso(boundary)).toBe("2026-09-06T04:00:00.000Z");
+    expect(
+      providerLocalCalendarDate({
+        instant: boundary!,
+        timeZone: "America/Santiago",
+      }),
+    ).toBe("2026-09-06");
+    expect(
+      providerLocalCalendarDate({
+        instant: boundary!.getTime() - 1,
+        timeZone: "America/Santiago",
+      }),
+    ).toBe("2026-09-05");
+    expect(
+      iso(
+        providerLocalDayStartInclusive({
+          day: "2026-09-06",
+          timeZone: "America/Santiago",
+        }),
+      ),
+    ).toBe("2026-09-06T04:00:00.000Z");
+  });
+
+  it("chooses the first occurrence when local midnight overlaps", () => {
+    /*
+      Havana repeats 00:00 on November 1, 2026. Both offsets can spell a local
+      midnight, but only 04:00Z is the first crossing into the date; returning
+      05:00Z would silently omit its first hour.
+    */
+    const boundary = providerLocalDayEndExclusive({
+      day: "2026-10-31",
+      timeZone: "America/Havana",
+    });
+    expect(iso(boundary)).toBe("2026-11-01T04:00:00.000Z");
+    expect(
+      providerLocalCalendarDate({
+        instant: boundary!.getTime() - 1,
+        timeZone: "America/Havana",
+      }),
+    ).toBe("2026-10-31");
+  });
+
   it("differs from the UTC reading, which is the whole defect", () => {
     /*
       The control. If the advertiser boundary happened to coincide with the UTC
@@ -120,6 +176,9 @@ describe("the exclusive end of a provider-local day", () => {
       expect(
         providerLocalDayEndExclusive({ day: bad, timeZone: "UTC" }),
       ).toBeNull();
+      expect(
+        providerLocalDayStartInclusive({ day: bad, timeZone: "UTC" }),
+      ).toBeNull();
     }
     for (const zone of ["", "+03:00", "PST", "Mars/Olympus", null, 3]) {
       expect(
@@ -129,6 +188,16 @@ describe("the exclusive end of a provider-local day", () => {
         }),
       ).toBeNull();
     }
+  });
+
+  it("fails closed when the intended next local date never exists", () => {
+    // Samoa skipped 30 December 2011 when it moved across the date line.
+    expect(
+      providerLocalDayEndExclusive({
+        day: "2011-12-29",
+        timeZone: "Pacific/Apia",
+      }),
+    ).toBeNull();
   });
 });
 

@@ -59,7 +59,16 @@ export function isSupportedIanaTimeZone(value: unknown): value is string {
  * without a tz library, and correct across DST because the offset is sampled at
  * the instant rather than assumed.
  */
-function zoneOffsetMinutes(instantMs: number, timeZone: string): number {
+interface ZoneWallClock {
+  year: number;
+  month: number;
+  day: number;
+  hour: number;
+  minute: number;
+  second: number;
+}
+
+function zoneWallClock(instantMs: number, timeZone: string): ZoneWallClock {
   const formatter = new Intl.DateTimeFormat("en-US", {
     timeZone,
     hour12: false,
@@ -76,16 +85,48 @@ function zoneOffsetMinutes(instantMs: number, timeZone: string): number {
       .filter((part) => part.type !== "literal")
       .map((part) => [part.type, part.value]),
   );
-  const asUtc = Date.UTC(
-    Number(parts.get("year")),
-    Number(parts.get("month")) - 1,
-    Number(parts.get("day")),
+  return {
+    year: Number(parts.get("year")),
+    month: Number(parts.get("month")),
+    day: Number(parts.get("day")),
     // `hour12: false` can render midnight as "24"; normalise it.
-    Number(parts.get("hour")) % 24,
-    Number(parts.get("minute")),
-    Number(parts.get("second")),
+    hour: Number(parts.get("hour")) % 24,
+    minute: Number(parts.get("minute")),
+    second: Number(parts.get("second")),
+  };
+}
+
+function zoneCalendarDate(instantMs: number, timeZone: string): string {
+  const wall = zoneWallClock(instantMs, timeZone);
+  return `${String(wall.year).padStart(4, "0")}-${String(wall.month).padStart(2, "0")}-${String(wall.day).padStart(2, "0")}`;
+}
+
+function zoneOffsetMinutes(instantMs: number, timeZone: string): number {
+  const wall = zoneWallClock(instantMs, timeZone);
+  const asUtc = Date.UTC(
+    wall.year,
+    wall.month - 1,
+    wall.day,
+    wall.hour,
+    wall.minute,
+    wall.second,
   );
   return (asUtc - instantMs) / 60_000;
+}
+
+function parseRealCalendarDay(
+  value: unknown,
+): { year: number; month: number; dayOfMonth: number } | null {
+  if (typeof value !== "string") return null;
+  const day = value.trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return null;
+  const [year, month, dayOfMonth] = day.split("-").map(Number);
+  const monthStart = Date.UTC(year!, month! - 1, 1);
+  if (!Number.isFinite(monthStart)) return null;
+  if (month! < 1 || month! > 12) return null;
+  const daysInMonth = new Date(Date.UTC(year!, month!, 0)).getUTCDate();
+  if (dayOfMonth! < 1 || dayOfMonth! > daysInMonth) return null;
+  return { year: year!, month: month!, dayOfMonth: dayOfMonth! };
 }
 
 /**
@@ -94,43 +135,64 @@ function zoneOffsetMinutes(instantMs: number, timeZone: string): number {
  * Returned as an exclusive upper bound: the first moment of `day + 1` in the
  * account's own zone. Null when the day or the zone is unusable.
  *
- * The two-pass offset resolution is deliberate. The offset that applies at the
- * target wall-clock moment is not necessarily the offset that applies at the
- * naive UTC guess, and on a DST boundary the difference is exactly the hour
- * this bound exists to place. Sampling once at the guess and once at the
- * corrected instant converges for every real zone rule.
+ * The offset that applies at the target wall-clock moment is not necessarily
+ * the offset at the naive UTC guess. More importantly, local midnight can be a
+ * DST gap or overlap: a fixed-point iteration can then oscillate between the
+ * offsets on either side and return neither boundary. We sample both sides of
+ * the target, build the midnight candidate for every observed offset, and
+ * accept only a candidate whose instant is the actual forward crossing into
+ * the intended next local date. This explicitly handles a skipped midnight
+ * (the first clock time may be 01:00) and a repeated midnight (the first
+ * crossing wins). If that date never exists, the function fails closed.
  */
 export function providerLocalDayEndExclusive(input: {
   /** `YYYY-MM-DD`, the last provider-local day the window includes. */
   day: string;
   timeZone: string;
 }): Date | null {
-  const day = input.day?.trim() ?? "";
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return null;
+  const parsedDay = parseRealCalendarDay(input.day);
+  if (!parsedDay) return null;
   if (!isSupportedIanaTimeZone(input.timeZone)) return null;
 
-  const [year, month, dayOfMonth] = day.split("-").map(Number);
-  /*
-    THE ROLLOVER GUARD, for the same reason the commercial-target parser has
-    one: `Date.UTC(2026, 1, 30)` silently answers 2026-03-02, so an impossible
-    day would produce a confident boundary for a day that never existed. The
-    literal fields are checked against the real month length first.
-  */
-  const monthStart = Date.UTC(year!, month! - 1, 1);
-  if (!Number.isFinite(monthStart)) return null;
-  if (month! < 1 || month! > 12) return null;
-  const daysInMonth = new Date(Date.UTC(year!, month!, 0)).getUTCDate();
-  if (dayOfMonth! < 1 || dayOfMonth! > daysInMonth) return null;
-
   // Midnight at the start of the NEXT local day, expressed as if UTC.
-  const naiveNextMidnightUtc = Date.UTC(year!, month! - 1, dayOfMonth! + 1);
+  const naiveNextMidnightUtc = Date.UTC(
+    parsedDay.year,
+    parsedDay.month - 1,
+    parsedDay.dayOfMonth + 1,
+  );
   if (!Number.isFinite(naiveNextMidnightUtc)) return null;
 
-  const firstOffset = zoneOffsetMinutes(naiveNextMidnightUtc, input.timeZone);
-  const firstGuess = naiveNextMidnightUtc - firstOffset * 60_000;
-  const secondOffset = zoneOffsetMinutes(firstGuess, input.timeZone);
-  const resolved = naiveNextMidnightUtc - secondOffset * 60_000;
-  return new Date(resolved);
+  const targetLocalDay = new Date(naiveNextMidnightUtc)
+    .toISOString()
+    .slice(0, 10);
+  const offsetSampleDistanceMs = 36 * 60 * 60 * 1_000;
+  const offsets = new Set(
+    [
+      naiveNextMidnightUtc - offsetSampleDistanceMs,
+      naiveNextMidnightUtc,
+      naiveNextMidnightUtc + offsetSampleDistanceMs,
+    ].map((instantMs) => zoneOffsetMinutes(instantMs, input.timeZone)),
+  );
+  const candidates = [
+    ...new Set(
+      [...offsets]
+        .filter(Number.isFinite)
+        .map(
+          (offsetMinutes) =>
+            naiveNextMidnightUtc - offsetMinutes * 60_000,
+        ),
+    ),
+  ].sort((left, right) => left - right);
+
+  for (const candidate of candidates) {
+    if (
+      zoneCalendarDate(candidate, input.timeZone) === targetLocalDay &&
+      zoneCalendarDate(candidate - 1, input.timeZone) < targetLocalDay
+    ) {
+      return new Date(candidate);
+    }
+  }
+  return null;
 }
 
 /**
@@ -193,10 +255,15 @@ export function providerLocalDayStartInclusive(input: {
   day: string;
   timeZone: string;
 }): Date | null {
-  const day = input.day?.trim() ?? "";
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return null;
-  const [year, month, dayOfMonth] = day.split("-").map(Number);
-  const previous = new Date(Date.UTC(year!, month! - 1, dayOfMonth! - 1));
+  const parsedDay = parseRealCalendarDay(input.day);
+  if (!parsedDay) return null;
+  const previous = new Date(
+    Date.UTC(
+      parsedDay.year,
+      parsedDay.month - 1,
+      parsedDay.dayOfMonth - 1,
+    ),
+  );
   if (!Number.isFinite(previous.getTime())) return null;
   return providerLocalDayEndExclusive({
     day: previous.toISOString().slice(0, 10),

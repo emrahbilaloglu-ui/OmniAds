@@ -648,8 +648,8 @@ export function normalizeMetaProviderUpdatedAt(
  *   select '99999-01-01'::timestamptz     -> accepted, year 99999 (the exact
  *                                            rendering depends on the server
  *                                            time zone; acceptance does not)
- *   new Date('99999-01-01').toISOString() -> '+099998-12-31T21:00:00.000Z'
- *   select '+099998-12-31T21:00:00.000Z'::timestamptz
+ *   new Date('99999-01-01').toISOString() -> a signed six-digit-year ISO
+ *   select <that expanded-year ISO>::timestamptz
  *     -> ERROR: time zone displacement out of range
  *
  * A year-99999 schedule is not a schedule; it is also a value whose canonical

@@ -3686,10 +3686,10 @@ async function main() {
       CODEX ROUND 4 ITEM 7 — schedule timestamps are validated before the write.
 
       Measured on a real cluster: 'not-a-date'::timestamptz and ''::timestamptz
-      both raise, and '99999-01-01' is ACCEPTED by the cast while its ISO
-      round-trip ('+099998-12-31T21:00:00.000Z') raises "time zone displacement
-      out of range" — so NORMALIZING an out-of-range date would create the very
-      abort it was meant to prevent. It has to become an explicit unknown.
+      both raise, and '99999-01-01' is ACCEPTED by the cast while its signed
+      six-digit-year ISO round-trip raises "time zone displacement out of
+      range" — so NORMALIZING an out-of-range date would create the very abort
+      it was meant to prevent. It has to become an explicit unknown.
       PostgreSQL was the first thing to look at these values, inside the
       transaction, so one bad provider string aborted an entire account's
       capture. Only a real database can prove the fix, which is why this is a

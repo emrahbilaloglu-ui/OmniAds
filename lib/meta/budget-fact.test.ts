@@ -444,6 +444,17 @@ describe("point-in-time in the account's timezone", () => {
     expect(pitCutoffMs("2026-03-09", "America/Los_Angeles")).toBe(Date.parse("2026-03-09T07:00:00Z"));
   });
 
+  it("uses the first real instant across midnight gaps and overlaps", () => {
+    // Santiago has no 00:00 on this date; it enters the 6th at 01:00 local.
+    expect(pitCutoffMs("2026-09-06", "America/Santiago")).toBe(
+      Date.parse("2026-09-06T04:00:00Z"),
+    );
+    // Havana spells local 00:00 twice; the point-in-time cutoff is the first.
+    expect(pitCutoffMs("2026-11-01", "America/Havana")).toBe(
+      Date.parse("2026-11-01T04:00:00Z"),
+    );
+  });
+
   it("fails closed on an unknown timezone", () => {
     expect(isKnownTimeZone("Not/AZone")).toBe(false);
     expect(pitCutoffMs("2026-07-20", "Not/AZone")).toBeNull();

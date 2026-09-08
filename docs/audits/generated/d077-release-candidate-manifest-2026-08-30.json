@@ -1,20 +1,20 @@
 {
- "manifestHash": "71e9030f94460544fa5dd342e4ad31f441262e7111f687dbce0db633c2c5a79f",
+ "manifestHash": "7df50f6b772299641102c47a590b8d6d03e17648a976f1974e0c5935a5fd5150",
  "hashAlgorithm": "sha256",
  "hashBasis": "sha256 over UTF-8 bytes of JSON.stringify(artifact, null, 1) of the artifact WITHOUT its embedded hash fields (the artifact object before {<hashField>, hashAlgorithm, hashBasis} are prepended)",
  "contract": "adsecute.d077.release-candidate-manifest.v3",
- "generatedAtUtc": "2026-09-08T13:41:51.867Z",
+ "generatedAtUtc": "2026-09-08T14:40:24.411Z",
  "branch": "codex/meta-release-finalization",
  "supersededBranchLabel": "codex/meta-disabled-readiness-20260829",
- "head": "a2eb1b1b1dae9e69ffe470c39ada19731a570224",
+ "head": "20165ac32869d0b39232af2721885507bac4ab40",
  "baseMain": "babf158e150fd33057117b39b175da044ac62d2e",
  "originMain": "a2eb1b1b1dae9e69ffe470c39ada19731a570224",
  "remoteDivergence": {
-  "aheadOfOriginMain": 0,
+  "aheadOfOriginMain": 1,
   "behindOriginMain": 0
  },
  "selfExclusion": "this manifest's own path (docs/audits/generated/d077-release-candidate-manifest-2026-08-30.json) is EXCLUDED from its entry list: a manifest cannot recursively pin its own final bytes; its external SHA-256 is reported in the final response and by Codex's own hashing",
- "gitPorcelainEntryCount": 288,
+ "gitPorcelainEntryCount": 8,
  "releaseDiffEntryCountIncludingSelf": 1049,
  "expandedOnDiskCandidateFileCountIncludingSelf": 1049,
  "pinnedNonSelfFileCount": 1048,
@@ -3881,13 +3881,13 @@
    "path": "lib/meta/budget-fact.test.ts",
    "git": "A",
    "class": "tests_only",
-   "sha256": "c2c8c8c1a766edcd490d6edc40f85a26f5d7ef542e69d23a288a9279871e5f48"
+   "sha256": "089cccecdd268dd3f217c976f2129ebb54d70e3008671ba81be5365c134359ca"
   },
   {
    "path": "lib/meta/budget-fact.ts",
    "git": "A",
    "class": "runtime",
-   "sha256": "baa38be8ff6e3ad581387ed6d7513617f1fd3f106fd00bd8b7b7edd9654164a9"
+   "sha256": "a3f590ce0de81e0290267e65289f844d3eb16f49b3261a63dc4b3f91ba14c345"
   },
   {
    "path": "lib/meta/budget-intent-contract.test.ts",
@@ -4529,13 +4529,13 @@
    "path": "lib/meta/entity-state-history.test.ts",
    "git": "M",
    "class": "tests_only",
-   "sha256": "db17dc24c07627833718c84db8be3749d8b95fc8354babb03dec7d27e6af83ea"
+   "sha256": "028f0849dde930dd5c68e65bff451c328d969dd4ac8856fa06a33288273ebf06"
   },
   {
    "path": "lib/meta/entity-state-history.ts",
    "git": "M",
    "class": "runtime",
-   "sha256": "4df72ba2bd990a54d19194cb91226ce154fe7d67312f2918795c0c2d198ef756"
+   "sha256": "62fcbad5768fd1a57f8b767b5d4b2cdb249d37d444bbcd383ebd23184621424d"
   },
   {
    "path": "lib/meta/fixtures/demo-native-canonical-generation.v1.json",
@@ -4829,13 +4829,13 @@
    "path": "lib/meta/provider-local-day.test.ts",
    "git": "A",
    "class": "tests_only",
-   "sha256": "1f67ef2b7d32e9db07a36131bba035285a5fda974cb2b9c4dc1de002da7419af"
+   "sha256": "3a22ab1c60640e7bc3d87b442fe734716227973e8302605a1c08c4ea44fa25a0"
   },
   {
    "path": "lib/meta/provider-local-day.ts",
    "git": "A",
    "class": "runtime",
-   "sha256": "ed93570bec31b0f42030f114ba17fe7a4eafdee100d752519ffa7b8d2a654f0f"
+   "sha256": "82733c4fed252c9104f09305c854630cf12302fc9eb8d3ae7ec05bd0542a6072"
   },
   {
    "path": "lib/meta/provider-readback-contract.test.ts",
@@ -4979,7 +4979,7 @@
    "path": "lib/meta/schedule-timestamp-normalization.db.test.ts",
    "git": "A",
    "class": "tests_only",
-   "sha256": "c17da35144f8a641d98899bcc46fc3d3398a4b6260f999ab3e5d5eaae6e14b5e"
+   "sha256": "17f6cd1016b8e0ecedd310161389125b8d0a09567f0b84bbe39d06bac1e5bef0"
   },
   {
    "path": "lib/meta/scheduled-action-execution.test.ts",
@@ -6143,7 +6143,7 @@
    "path": "scripts/ephemeral-postgres-migrations-check.ts",
    "git": "M",
    "class": "script_ops_non_request_path",
-   "sha256": "75e85ad036b60b0177a8d878ac8432596fecfd9252c799e9d85938f52ff0876e"
+   "sha256": "b25bb3b4b945f93839791ba09aeb785cc2a604facc4c9c82937a9461e3ab4510"
   },
   {
    "path": "scripts/ephemeral-postgres-native-ad-decision-seam.ts",

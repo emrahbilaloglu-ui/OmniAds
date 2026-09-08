@@ -28,9 +28,8 @@
  *     than nulls, which is the whole reason validation has to happen before
  *     the write;
  *   - that `'99999-01-01'::timestamptz` is ACCEPTED while its own canonical
- *     ISO rendering, `'+099998-12-31T21:00:00.000Z'`, is REFUSED — the trap
- *     that makes an out-of-range date an explicit unknown instead of something
- *     to normalize;
+ *     expanded-year ISO rendering is REFUSED — the trap that makes an
+ *     out-of-range date an explicit unknown instead of something to normalize;
  *   - that the carry-forward lateral inside `stateSelect` restores a prior
  *     schedule for a `degraded_not_observed` row and does NOT restore one for
  *     an `invalid_not_retained` row. That lateral is SQL. It is executed here,
@@ -398,14 +397,15 @@ describe.skipIf(!SEAM)(
         SELECT ${"99999-01-01"}::timestamptz::text AS value
       `;
       expect(raw?.value).toContain("99999-01-01");
-      // ...and refuses the canonical rendering of that very same value, which
-      // is what any normalizer would have produced. So the answer cannot be
-      // "normalize it"; it has to be "this is unknown".
-      expect(new Date("99999-01-01").toISOString()).toBe(
-        "+099998-12-31T21:00:00.000Z",
-      );
+      // ...and refuses the canonical expanded-year rendering of that very
+      // same value, which is what any normalizer would have produced. A
+      // date-only string is interpreted in the process timezone, so the exact
+      // instant differs between UTC CI and a local non-UTC workstation; the
+      // expanded-year shape and PostgreSQL refusal are the stable contract.
+      const expandedIso = new Date("99999-01-01").toISOString();
+      expect(expandedIso).toMatch(/^\+\d{6}-\d{2}-\d{2}T/);
       await expect(
-        sql`SELECT ${"+099998-12-31T21:00:00.000Z"}::timestamptz AS value`,
+        sql`SELECT ${expandedIso}::timestamptz AS value`,
       ).rejects.toThrow(/time zone displacement out of range/);
 
       const result = await persistMetaEntityObservation(

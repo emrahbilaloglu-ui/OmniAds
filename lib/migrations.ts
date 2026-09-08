@@ -3219,8 +3219,8 @@ export async function runMigrations(options?: {
     `migrationsCompleted` exactly as before. Both phases remain inside the one
     overall `withMigrationTimeout`, so the total bound is unchanged.
   */
-  migrationsPromise = withMigrationTimeout(
-    (async () => {
+  const migrationOperation = Promise.resolve().then(
+    async () => {
       await withPinnedDbClient<void>(async (pinnedClient) => {
         /*
         ── ROUND 18, ITEM C13: ONE BACKEND FOR THE WHOLE RUN ────────────────
@@ -3282,7 +3282,9 @@ export async function runMigrations(options?: {
                 -- renders it for humans -- 15000 comes back as "15s" -- so the
                 -- comparison uses the raw integer, not the rendering.
                 (SELECT setting FROM pg_settings WHERE name = 'lock_timeout')
-                  AS lock_timeout_ms`,
+                  AS lock_timeout_ms,
+                (SELECT setting FROM pg_settings WHERE name = 'statement_timeout')
+                  AS statement_timeout_ms`,
         )) as Array<Record<string, string>>;
         /* READ BACK ON THE BACKEND THAT WILL RUN THE DDL. */
         const observedLockTimeoutMs = Number(
@@ -3295,6 +3297,18 @@ export async function runMigrations(options?: {
                 ? `${observedLockTimeoutMs}ms`
                 : String(migrationSessionSettings[0]?.lock_timeout ?? "nothing")
             }`,
+          );
+        }
+        const observedStatementTimeoutMs = Number(
+          migrationSessionSettings[0]?.statement_timeout_ms ?? Number.NaN,
+        );
+        if (
+          !Number.isFinite(observedStatementTimeoutMs) ||
+          observedStatementTimeoutMs <= 0 ||
+          observedStatementTimeoutMs > timeoutMs
+        ) {
+          throw new Error(
+            `migration_statement_timeout_unverified: expected a positive bound no greater than ${timeoutMs}ms on the pinned backend but read ${String(migrationSessionSettings[0]?.statement_timeout ?? "nothing")}`,
           );
         }
         const observedBackendPid = Number(
@@ -16496,7 +16510,7 @@ export async function runMigrations(options?: {
           reason,
           verifiedObjects: budgetSchema.verified.length,
         });
-      });
+      }, { timeoutMs });
 
       /*
         THE LEASE IS NOW RELEASED. Everything below needs its OWN connections.
@@ -16517,13 +16531,17 @@ export async function runMigrations(options?: {
 
       migrationsCompleted = true;
       logStartupEvent("migrations_completed", { reason });
-    })(),
-    timeoutMs,
+    },
   );
+  migrationsPromise = withMigrationTimeout(migrationOperation, timeoutMs);
 
   try {
     await migrationsPromise;
   } catch (error) {
+    // If the outer wall-clock guard wins the race, keep the latch occupied
+    // until PostgreSQL has cancelled the bounded in-flight query and the
+    // pinned lease has been released. A retry can then never overlap it.
+    await migrationOperation.catch(() => undefined);
     migrationsPromise = null;
 
     const isSystemCatalogRace =

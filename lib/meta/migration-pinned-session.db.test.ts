@@ -83,6 +83,19 @@ describe.skipIf(!SEAM)("the migration session is pinned to one backend", () => {
     });
   });
 
+  it("cancels long-running work on a timeout-bound pinned session", async () => {
+    const startedAt = Date.now();
+
+    await expect(
+      withPinnedDbClient(
+        async (client) => client.query("SELECT pg_sleep(1)"),
+        { timeoutMs: 75 },
+      ),
+    ).rejects.toMatchObject({ code: "57014" });
+
+    expect(Date.now() - startedAt).toBeLessThan(750);
+  });
+
   it("a POOLED client cannot make the same guarantee", async () => {
     /*
       The discriminating half. Without it the three cases above could pass on a

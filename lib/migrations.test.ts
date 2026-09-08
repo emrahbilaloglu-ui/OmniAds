@@ -139,6 +139,10 @@ describe("runMigrations", () => {
     expect(db.runPinnedDbTransaction).toHaveBeenCalledWith(
       expect.objectContaining({ timeoutMs: 120_000, lockTimeoutMs: 15_000 }),
     );
+    expect(db.withPinnedDbClient).toHaveBeenCalledWith(
+      expect.any(Function),
+      { timeoutMs: 120_000 },
+    );
     expect(db.getDb).not.toHaveBeenCalled();
     expect(startupDiagnostics.logStartupEvent).toHaveBeenCalledWith(
       "migrations_started",

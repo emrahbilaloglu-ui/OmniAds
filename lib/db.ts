@@ -892,7 +892,17 @@ export async function withPinnedDbClient<T>(
   }
   const pool = globalStore.__omniadsDbPool;
   const client = await pool.connect();
+  const timeoutMs = options?.timeoutMs;
+  let statementTimeoutApplied = false;
+  let releaseError: Error | undefined;
   try {
+    if (timeoutMs != null) {
+      // A caller-level Promise.race cannot cancel PostgreSQL work. Put the
+      // bound on this session so long-running pinned DDL is cancelled by the
+      // server before the lease can be reused.
+      await client.query(buildStatementTimeoutSql(timeoutMs));
+      statementTimeoutApplied = true;
+    }
     const pidRows = await client.query<{ pid: number }>(
       "SELECT pg_backend_pid() AS pid",
     );
@@ -902,7 +912,14 @@ export async function withPinnedDbClient<T>(
       backendPid: Number.isFinite(backendPid) ? backendPid : null,
     });
   } finally {
-    client.release();
+    if (statementTimeoutApplied) {
+      try {
+        await client.query("RESET statement_timeout");
+      } catch (error) {
+        releaseError = error instanceof Error ? error : new Error(String(error));
+      }
+    }
+    client.release(releaseError);
   }
 }
 

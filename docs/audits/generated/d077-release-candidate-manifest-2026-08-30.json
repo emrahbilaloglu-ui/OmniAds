@@ -1,20 +1,20 @@
 {
- "manifestHash": "a10003eff4f024359c37c235c5438f35c3271d5bca744fac054c32561c91d5ed",
+ "manifestHash": "6985624174c6913ac38fc68f87fd2df65f06e25a2044226b5e191d7d6cdcffc6",
  "hashAlgorithm": "sha256",
  "hashBasis": "sha256 over UTF-8 bytes of JSON.stringify(artifact, null, 1) of the artifact WITHOUT its embedded hash fields (the artifact object before {<hashField>, hashAlgorithm, hashBasis} are prepended)",
  "contract": "adsecute.d077.release-candidate-manifest.v3",
- "generatedAtUtc": "2026-09-08T22:22:18.515Z",
+ "generatedAtUtc": "2026-09-08T22:44:00.864Z",
  "branch": "codex/meta-release-finalization",
  "supersededBranchLabel": "codex/meta-disabled-readiness-20260829",
- "head": "da986b4949f07010f49a45f31b10ada11d24e908",
+ "head": "5436ac6c0992fbc6e87df5750cc12790c8cec305",
  "baseMain": "babf158e150fd33057117b39b175da044ac62d2e",
  "originMain": "a2eb1b1b1dae9e69ffe470c39ada19731a570224",
  "remoteDivergence": {
-  "aheadOfOriginMain": 13,
+  "aheadOfOriginMain": 14,
   "behindOriginMain": 0
  },
  "selfExclusion": "this manifest's own path (docs/audits/generated/d077-release-candidate-manifest-2026-08-30.json) is EXCLUDED from its entry list: a manifest cannot recursively pin its own final bytes; its external SHA-256 is reported in the final response and by Codex's own hashing",
- "gitPorcelainEntryCount": 5,
+ "gitPorcelainEntryCount": 9,
  "releaseDiffEntryCountIncludingSelf": 1057,
  "expandedOnDiskCandidateFileCountIncludingSelf": 1057,
  "pinnedNonSelfFileCount": 1056,
@@ -2015,13 +2015,13 @@
    "path": "docs/audits/generated/d077-correction1-verification-ledger-2026-08-30.json",
    "git": "A",
    "class": "generated_evidence",
-   "sha256": "e9b4b163b0805c37709188514a734e0b7ddc8af5780655e0eb94e574e03b39fe"
+   "sha256": "c0b2d386f2185c73e48dbde94e9eeccf6c424b4e4d37c767d4c03af2427abfad"
   },
   {
    "path": "docs/audits/generated/d077-database-recovery-approval-packet-2026-08-30.json",
    "git": "A",
    "class": "generated_evidence",
-   "sha256": "a63e768c2c11ab8e52058198a15c68adfff494bff77df89348a8bb0cec49b522"
+   "sha256": "81a829896eb650764d3e96b2750a2b32f428ad960c4fca9beb8270ce2d532405"
   },
   {
    "path": "docs/audits/generated/d077-production-recovery-readonly-evidence-2026-08-30.json",
@@ -2033,7 +2033,7 @@
    "path": "docs/audits/generated/d077-release-deploy-approval-packet-2026-08-30.json",
    "git": "A",
    "class": "generated_evidence",
-   "sha256": "7b37340444e61a0c493fd1596f8b4b08050fce3e7e1f0c2b7c64a2588c7d5ec3"
+   "sha256": "508c590bf7138cb8bc162c7513ad01237e509d4b263bffcbe5e7c7590d6e3956"
   },
   {
    "path": "docs/audits/generated/d078-hard-action-recompute-2026-08-30.json",
@@ -2555,7 +2555,7 @@
    "path": "lib/__tests__/pinned-migration-client-mock.ts",
    "git": "A",
    "class": "tests_only",
-   "sha256": "6352b45a9c11dec85f7c0e20a7f28317a96052e4b1a8d9dd441d90122f3e3bfe"
+   "sha256": "82ae86bfb716a5747a8b68e07a4a7a179bd5aba520e5629f2b55981995ab141e"
   },
   {
    "path": "lib/api/meta-link-click-source.test.ts",
@@ -3155,7 +3155,7 @@
    "path": "lib/db.ts",
    "git": "M",
    "class": "runtime",
-   "sha256": "0fdf7cfee3e9b1eefaccd258716a6da70ab5dbb516b57c4c2ec7ebce2ac713d8"
+   "sha256": "a5f7e596f0a8a6ea4b6fedd43b3a88741f254452968773c99aa7b4c521c3afce"
   },
   {
    "path": "lib/demo-business-support.ts",
@@ -4841,7 +4841,7 @@
    "path": "lib/meta/migration-pinned-session.db.test.ts",
    "git": "A",
    "class": "tests_only",
-   "sha256": "49aea333d3ad483d5831019f2f485a5723f38986d007e1dffbc3e1dc5d9b7830"
+   "sha256": "7d7689e547cce09419a19f35c43e6017aba16ebc06e5c633fe40327101f97f81"
   },
   {
    "path": "lib/meta/migration-safety-contract.db.test.ts",
@@ -5327,13 +5327,13 @@
    "path": "lib/migrations.test.ts",
    "git": "M",
    "class": "tests_only",
-   "sha256": "dc36dc0e87df27d28715de2402fd2799bbb88a4007ba954907013651047de501"
+   "sha256": "eb5d5a1d95a158754621ad090d11461484f1507b1e049a22d9d2479268bc4f97"
   },
   {
    "path": "lib/migrations.ts",
    "git": "M",
    "class": "migration",
-   "sha256": "fcdc2db8913815ac0a925bc39f557d3bea1e4a057853ab24c25f8ac3a9c16aa4"
+   "sha256": "ea933226bdd1b9b558147c61185df3e21fb0ea1534720f70c6867650ac6c28df"
   },
   {
    "path": "lib/notification-producer-account-scope.test.ts",
@@ -6191,7 +6191,7 @@
    "path": "scripts/ephemeral-postgres-migrations-check.ts",
    "git": "M",
    "class": "script_ops_non_request_path",
-   "sha256": "51fcce584981aeea5b8d538e65dbea26a027e8f504a4b6c694d6e5b628e12ddd"
+   "sha256": "01ff978582cdbb48db210beadbf047b25c8fff54c323c22c2b89a6580f742107"
   },
   {
    "path": "scripts/ephemeral-postgres-native-ad-decision-seam.ts",

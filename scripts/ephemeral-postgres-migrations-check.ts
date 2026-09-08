@@ -3862,7 +3862,7 @@ async function main() {
       databaseUrl,
       path.join("lib", "meta", "migration-pinned-session.db.test.ts"),
       "Migration pinned-session backend check",
-      4,
+      5,
     );
 
     /*

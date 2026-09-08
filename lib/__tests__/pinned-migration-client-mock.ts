@@ -33,10 +33,15 @@ type CapturingSql = {
  */
 export function pinnedMigrationClientOver(
   sql: CapturingSql,
-  options?: { lockTimeoutMs?: number; backendPid?: number },
+  options?: {
+    lockTimeoutMs?: number;
+    statementTimeoutMs?: number;
+    backendPid?: number;
+  },
 ) {
   const lockTimeoutMs =
     options?.lockTimeoutMs ?? MIGRATION_DEFAULT_LOCK_TIMEOUT_MS;
+  const statementTimeoutMs = options?.statementTimeoutMs ?? 60_000;
   const backendPid = options?.backendPid ?? MIGRATION_MOCK_BACKEND_PID;
   return {
     backendPid,
@@ -50,10 +55,11 @@ export function pinnedMigrationClientOver(
           rows: [
             {
               lock_timeout: `${lockTimeoutMs / 1000}s`,
-              statement_timeout: "0",
+              statement_timeout: `${statementTimeoutMs / 1000}s`,
               idle_timeout: "0",
               backend_pid: backendPid,
               lock_timeout_ms: String(lockTimeoutMs),
+              statement_timeout_ms: String(statementTimeoutMs),
             },
           ],
         };
@@ -79,7 +85,14 @@ export function migrationDbMockModule(
     runDbTransaction: async (operation: () => Promise<unknown>) => operation(),
     withPinnedDbClient: async <T>(
       fn: (client: ReturnType<typeof pinnedMigrationClientOver>) => Promise<T>,
-    ) => fn(pinnedMigrationClientOver(sql, options)),
+      leaseOptions?: { timeoutMs?: number },
+    ) =>
+      fn(
+        pinnedMigrationClientOver(sql, {
+          ...options,
+          statementTimeoutMs: leaseOptions?.timeoutMs,
+        }),
+      ),
     runPinnedDbTransaction: async <T>(input: {
       fn: (db: unknown) => Promise<T>;
     }) => input.fn(sql),

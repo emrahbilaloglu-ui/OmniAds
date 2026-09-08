@@ -265,10 +265,11 @@ function recentEditCooldownActive(signals: MetaEntityDecisionSignal | null | und
  * than withholding one, and turning a missing timezone into a false statement
  * on the operator's screen.
  *
- * This one answers "may an ACT decision rely on the edit age at all", and it is
- * applied ONLY at the `act`-emitting call sites. The watch and test emitters
- * keep firing: they exist to describe an account whose evidence is incomplete,
- * and silencing them would replace a held action with no explanation at all.
+ * This one answers whether a decision may rely on the edit age at all. It is
+ * applied at the `act`-emitting call sites and at J1, whose stable-winner
+ * protection also declares `last_significant_edit_at` as a required signal.
+ * Other watch and test emitters keep firing when their own required evidence
+ * remains available.
  */
 function recentEditAuthorityUnavailable(
   signals: MetaEntityDecisionSignal | null | undefined,
@@ -957,6 +958,7 @@ export function maybeJ1StableWinnerProtected(input: CampaignScenarioInput): Meta
   const row = input.window.selected;
   const roas = metric(input.context, "roas_28d");
   if (!roas || !sampleReady(input.context, "roas_28d")) return null;
+  if (recentEditAuthorityUnavailable(input.signals)) return null;
   if (recentEditCooldownActive(input.signals)) return null;
   if (historyAgeDays(input.window) < 28 || row.purchases < 8 || row.roas < roas.p75) return null;
   const conf = confidence({ level: "campaign", context: input.context, metricValue: row.roas, threshold: roas.p75 });

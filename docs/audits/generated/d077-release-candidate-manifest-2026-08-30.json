@@ -1,20 +1,20 @@
 {
- "manifestHash": "7df50f6b772299641102c47a590b8d6d03e17648a976f1974e0c5935a5fd5150",
+ "manifestHash": "b97eedd0cb2d05126344cba41cd82951d60fc066af35b6e03a6417433b7d0706",
  "hashAlgorithm": "sha256",
  "hashBasis": "sha256 over UTF-8 bytes of JSON.stringify(artifact, null, 1) of the artifact WITHOUT its embedded hash fields (the artifact object before {<hashField>, hashAlgorithm, hashBasis} are prepended)",
  "contract": "adsecute.d077.release-candidate-manifest.v3",
- "generatedAtUtc": "2026-09-08T14:40:24.411Z",
+ "generatedAtUtc": "2026-09-08T15:17:54.729Z",
  "branch": "codex/meta-release-finalization",
  "supersededBranchLabel": "codex/meta-disabled-readiness-20260829",
- "head": "20165ac32869d0b39232af2721885507bac4ab40",
+ "head": "e277552acfdd00eb4d2d3d97897fceb2da87af2a",
  "baseMain": "babf158e150fd33057117b39b175da044ac62d2e",
  "originMain": "a2eb1b1b1dae9e69ffe470c39ada19731a570224",
  "remoteDivergence": {
-  "aheadOfOriginMain": 1,
+  "aheadOfOriginMain": 2,
   "behindOriginMain": 0
  },
  "selfExclusion": "this manifest's own path (docs/audits/generated/d077-release-candidate-manifest-2026-08-30.json) is EXCLUDED from its entry list: a manifest cannot recursively pin its own final bytes; its external SHA-256 is reported in the final response and by Codex's own hashing",
- "gitPorcelainEntryCount": 8,
+ "gitPorcelainEntryCount": 4,
  "releaseDiffEntryCountIncludingSelf": 1049,
  "expandedOnDiskCandidateFileCountIncludingSelf": 1049,
  "pinnedNonSelfFileCount": 1048,
@@ -2543,13 +2543,13 @@
    "path": "lib/api/meta.test.ts",
    "git": "M",
    "class": "tests_only",
-   "sha256": "624bd7606baaa9a70878c48ec427960c1cd7a1e6de24d15e5cffb5e0d2a4c497"
+   "sha256": "c88e37e91fa09c849684e56c8617f29894ad283f2c5bc7012c6f0acb10181103"
   },
   {
    "path": "lib/api/meta.ts",
    "git": "M",
    "class": "runtime",
-   "sha256": "92f5c46976118df3c9a244a74fcfeeb5e843ac9952e278604fbe9c87bc875462"
+   "sha256": "f16700da3b44c0d163bcc8b55c323fdf691d97f6b6a40f735912782708304ae5"
   },
   {
    "path": "lib/business-commercial.test.ts",
@@ -4967,13 +4967,13 @@
    "path": "lib/meta/scenario-emitters/high-priority.test.ts",
    "git": "M",
    "class": "tests_only",
-   "sha256": "df5458e61ad25c6d0c7aeb94a9bbc46956fc00b6b0d3bb52a5792df5f16c4a52"
+   "sha256": "b6d30583130b620e31ce1b0d3e9e4b2af83ba2a06bbd885ce5ccc36641b4af9f"
   },
   {
    "path": "lib/meta/scenario-emitters/high-priority.ts",
    "git": "M",
    "class": "runtime",
-   "sha256": "08cf3f17dc86d961c6fd4861a8d8222e9342b88076dd12dd990cd9201aa5a468"
+   "sha256": "f5dc718eb5d2c4f44ca5d327c81103d42eef454da03f0990d67fc448471b0ed2"
   },
   {
    "path": "lib/meta/schedule-timestamp-normalization.db.test.ts",

@@ -513,6 +513,7 @@ describe("high priority Meta scenario emitters", () => {
           window: windowFor(campaign({ roas: 3.4, purchases: 20 })),
           context,
           cohort: purchaseCohort,
+          signals: signal(),
         }),
     ],
     [
@@ -1671,15 +1672,14 @@ describe("high priority Meta scenario emitters", () => {
     expect(rec?.type).toBe("scenario_c1_controlled_scale");
   });
 
-  it("HOLDS campaign controlled scale when no signal pack was served at all", () => {
+  it("does not fall through from an authority-held C1 candidate to J1", () => {
     /*
       ── ROUND 12: A BEHAVIOUR CHANGE, ASSERTED RATHER THAN ABSORBED ─────────
 
-      This case previously EMITTED. `recentEditCooldownActive(undefined)` is
-      false, so a campaign with no entity-signal row at all — no learning state,
-      no edit history, no timezone, nothing — passed the cooldown gate and
-      scaled. The ad-set path never behaved this way: `blocksPurchaseHardAction`
-      has always refused on `!signals`. The two paths now agree.
+      Without an entity-signal row, C1 correctly refuses to scale because the
+      edit window has no authority. The campaign still satisfies J1's mature
+      winner thresholds, so campaign precedence must not turn the held C1 into
+      a high-confidence stable-winner verdict using the same missing edit fact.
     */
     const rec = emitHighPriorityCampaignScenario({
       window: windowFor(campaign({ roas: 3.4, purchases: 20 })),
@@ -1687,7 +1687,7 @@ describe("high priority Meta scenario emitters", () => {
       cohort: purchaseCohort,
       commercialTargets,
     });
-    expect(rec?.type).not.toBe("scenario_c1_controlled_scale");
+    expect(rec).toBeNull();
   });
 
   it("allows adset fatigue in mid-funnel cohort", () => {

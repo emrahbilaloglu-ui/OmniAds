@@ -252,6 +252,84 @@ describe("Meta pagination receipts", () => {
       failure: { httpStatus: 429 },
     });
   });
+
+  it("does not mark field narrowing recovered when its 2xx body has no data array", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponseFor(
+          {
+            error: {
+              message: "Unsupported field",
+              code: 100,
+            },
+          },
+          400,
+        ),
+      )
+      .mockResolvedValueOnce(jsonResponseFor({ data: { id: "not-an-array" } }, 200));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const receipt = await fetchMetaPagedCollectionReceipt<{ id: string }>(
+      "https://graph.facebook.com/v25.0/campaigns?fields=id,optional_metric&access_token=secret",
+      {
+        maxAttemptsPerPage: 1,
+        optionalFields: ["optional_metric"],
+      },
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(new URL(String(fetchMock.mock.calls[1]?.[0])).searchParams.get("fields")).toBe("id");
+    expect(receipt).toMatchObject({
+      rows: [],
+      pageCount: 0,
+      complete: false,
+      termination: "parse_failure",
+      fieldDegradation: {
+        droppedFields: ["optional_metric"],
+        recovered: false,
+        cause: { kind: "http_failure", httpStatus: 400 },
+      },
+    });
+  });
+
+  it("marks field narrowing recovered after its 2xx body supplies a data array", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponseFor(
+          {
+            error: {
+              message: "Unsupported field",
+              code: 100,
+            },
+          },
+          400,
+        ),
+      )
+      .mockResolvedValueOnce(jsonResponseFor({ data: [{ id: "campaign-1" }] }, 200));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const receipt = await fetchMetaPagedCollectionReceipt<{ id: string }>(
+      "https://graph.facebook.com/v25.0/campaigns?fields=id,optional_metric&access_token=secret",
+      {
+        maxAttemptsPerPage: 1,
+        optionalFields: ["optional_metric"],
+      },
+    );
+
+    expect(receipt).toMatchObject({
+      rows: [{ id: "campaign-1" }],
+      pageCount: 1,
+      complete: true,
+      termination: "natural_end",
+      fieldDegradation: {
+        droppedFields: ["optional_metric"],
+        recovered: true,
+        cause: { kind: "http_failure", httpStatus: 400 },
+      },
+    });
+  });
 });
 
 describe("syncMetaAccountCoreWarehouseDay", () => {

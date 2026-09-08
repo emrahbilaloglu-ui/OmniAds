@@ -1340,10 +1340,11 @@ export interface MetaPagedFieldDegradation {
   droppedFields: string[];
   cause: MetaPaginationFailure;
   /**
-   * True only once a narrowed request came back non-error, where "non-error"
-   * means all three of: a 2xx status, no Graph `error` object in the envelope,
-   * and a body this client could parse. A 2xx carrying an error is a refusal
-   * the narrowing did not fix, and it leaves this false.
+   * True only once a narrowed request came back usable, where "usable" means
+   * all four of: a 2xx status, no Graph `error` object in the envelope, a body
+   * this client could parse, and a `data` array. A 2xx carrying an error or an
+   * unusable collection shape is not evidence that narrowing worked, and it
+   * leaves this false.
    */
   recovered: boolean;
 }
@@ -1779,17 +1780,6 @@ export async function fetchMetaPagedCollectionReceipt<TItem>(
         });
       }
 
-      // The narrowed request was accepted: a 2xx whose envelope carries no
-      // Graph error and whose body parsed. Only now is the narrowing a
-      // diagnosis rather than a hypothesis — the same request minus these
-      // fields is the one the provider would serve, so the receipt may say the
-      // provider refuses them. Every response that does not get this far (the
-      // narrowed request refused by status, refused by envelope on a 2xx, or
-      // unparseable) keeps `recovered: false` and attributes nothing to the
-      // field names.
-      if (fieldDegradation && !fieldDegradation.recovered) {
-        fieldDegradation = { ...fieldDegradation, recovered: true };
-      }
       if (
         payload == null ||
         typeof payload !== "object" ||
@@ -1808,6 +1798,16 @@ export async function fetchMetaPagedCollectionReceipt<TItem>(
           startedAt,
           lastResponseObservedAt,
         });
+      }
+      // The narrowed request was accepted: a 2xx whose envelope carries no
+      // Graph error and whose parsed body contains a usable collection. Only
+      // now is the narrowing a diagnosis rather than a hypothesis — the same
+      // request minus these fields is the one the provider would serve, so the
+      // receipt may say the provider refuses them. Every response that does not
+      // get this far keeps `recovered: false` and attributes nothing to the
+      // field names.
+      if (fieldDegradation && !fieldDegradation.recovered) {
+        fieldDegradation = { ...fieldDegradation, recovered: true };
       }
       const json = payload as MetaGraphCollectionResponse<TItem>;
       const pageRows = json.data ?? [];

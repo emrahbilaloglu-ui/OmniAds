@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { LIFECYCLE_HELD_REFRESH_CONFIDENCE_CAP } from "../../config-values";
+import { HARD_ACTION_HOLD_CONFIDENCE_CAP } from "../../config-values";
 import {
   enforceHardActionEligibility,
   finalizeDecision,
@@ -96,6 +96,7 @@ describe("finalizeDecision - test cohort semantic transform", () => {
     expect(
       output.badges.filter((badge) => badge.type === "cut_candidate"),
     ).toHaveLength(1);
+    expect(output.confidence).toBe(HARD_ACTION_HOLD_CONFIDENCE_CAP);
   });
 
   it("still emits cut when refresh would have been soft-blocked but cut is allowed", () => {
@@ -184,31 +185,93 @@ describe("finalizeDecision - test cohort semantic transform", () => {
     expect(output.confidence).toBe(95);
   });
 
-  it("enforces profile authority idempotently and preserves the first blocker", () => {
-    const eligible = finalizeDecision(
-      contextFor({ campaignKind: "main" }),
+  it.each([
+    ["scale", "keep"],
+    ["cut", "test_more"],
+    ["refresh", "keep"],
+  ] as const)(
+    "caps a profile-held %s in finalizeDecision",
+    (hardLabel, heldLabel) => {
+      const output = finalizeDecision(
+        contextFor({
+          campaignKind: "main",
+          gate: { confidenceBase: 95 },
+          hardActionEligibility: {
+            scale: hardLabel !== "scale",
+            cut: hardLabel !== "cut",
+            refresh: hardLabel !== "refresh",
+            reason: `${hardLabel} authority unavailable`,
+          },
+        }),
+        hardLabel,
+        `${hardLabel} evidence supports the verdict`,
+      );
+
+      expect(output).toMatchObject({
+        label: heldLabel,
+        preAuthorityLabel: hardLabel,
+        authorityBlocker: "profile_hard_action_ineligible",
+        blockedActionType: hardLabel,
+        confidence: HARD_ACTION_HOLD_CONFIDENCE_CAP,
+      });
+    },
+  );
+
+  it.each([
+    ["scale", "keep"],
+    ["cut", "test_more"],
+    ["refresh", "keep"],
+  ] as const)(
+    "caps a profile-held %s in the engine-level enforcement seam",
+    (hardLabel, heldLabel) => {
+      const eligible = finalizeDecision(
+        contextFor({
+          campaignKind: "main",
+          gate: { confidenceBase: 95 },
+        }),
+        hardLabel,
+        `${hardLabel} evidence supports the verdict`,
+      );
+      const profile = makeAccountDecisionProfile({
+        hardActionEligibility: {
+          scale: hardLabel !== "scale",
+          cut: hardLabel !== "cut",
+          refresh: hardLabel !== "refresh",
+          reason: `${hardLabel} authority unavailable`,
+        },
+      });
+
+      const once = enforceHardActionEligibility(eligible, profile);
+      const twice = enforceHardActionEligibility(once, profile);
+
+      expect(once).toMatchObject({
+        label: heldLabel,
+        preAuthorityLabel: hardLabel,
+        authorityBlocker: "profile_hard_action_ineligible",
+        blockedActionType: hardLabel,
+        confidence: HARD_ACTION_HOLD_CONFIDENCE_CAP,
+      });
+      expect(twice).toBe(once);
+    },
+  );
+
+  it("does not raise confidence that is already below the hard-action hold cap", () => {
+    const output = finalizeDecision(
+      contextFor({
+        campaignKind: "main",
+        gate: { confidenceBase: 55 },
+        hardActionEligibility: {
+          scale: false,
+          cut: true,
+          refresh: true,
+          reason: "scale authority unavailable",
+        },
+      }),
       "scale",
       "winner evidence supports promotion",
     );
-    const profile = makeAccountDecisionProfile({
-      hardActionEligibility: {
-        scale: false,
-        cut: true,
-        refresh: true,
-        reason: "scale authority unavailable",
-      },
-    });
 
-    const once = enforceHardActionEligibility(eligible, profile);
-    const twice = enforceHardActionEligibility(once, profile);
-
-    expect(once).toMatchObject({
-      label: "keep",
-      preAuthorityLabel: "scale",
-      authorityBlocker: "profile_hard_action_ineligible",
-      blockedActionType: "scale",
-    });
-    expect(twice).toBe(once);
+    expect(output.confidence).toBe(55);
   });
 });
 
@@ -264,7 +327,7 @@ describe("a label transform cannot silently drop a requested authority hold", ()
     expect(output.preAuthorityLabel).toBe("refresh");
     expect(output.authorityBlocker).toBe("native_metrics_unavailable");
     expect(output.blockedActionType).toBe("refresh");
-    expect(output.confidence).toBe(LIFECYCLE_HELD_REFRESH_CONFIDENCE_CAP);
+    expect(output.confidence).toBe(HARD_ACTION_HOLD_CONFIDENCE_CAP);
   });
 
   it("still holds it on a Test campaign, as the Cut the transform makes it", () => {
@@ -295,7 +358,7 @@ describe("a label transform cannot silently drop a requested authority hold", ()
     // rewrite the label did rather than being dropped.
     expect(output.blockedActionType).toBe("cut");
     expect(output.preAuthorityLabel).toBe("cut");
-    expect(output.confidence).toBe(LIFECYCLE_HELD_REFRESH_CONFIDENCE_CAP);
+    expect(output.confidence).toBe(HARD_ACTION_HOLD_CONFIDENCE_CAP);
   });
 
   it("caps a lifecycle-held Refresh when profile authority is also unavailable", () => {
@@ -326,7 +389,7 @@ describe("a label transform cannot silently drop a requested authority hold", ()
 
     expect(output.authorityBlocker).toBe("profile_hard_action_ineligible");
     expect(output.blockedActionType).toBe("refresh");
-    expect(output.confidence).toBe(LIFECYCLE_HELD_REFRESH_CONFIDENCE_CAP);
+    expect(output.confidence).toBe(HARD_ACTION_HOLD_CONFIDENCE_CAP);
   });
 
   it("leaves a Scale hold alone, because only refresh is ever rewritten", () => {

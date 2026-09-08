@@ -14,7 +14,7 @@ import {
 import { computeFunnelDiagnosis } from "../funnel";
 import { applyTestCohortRefreshOverride } from "../test-cohort-semantic";
 import {
-  LIFECYCLE_HELD_REFRESH_CONFIDENCE_CAP,
+  HARD_ACTION_HOLD_CONFIDENCE_CAP,
   STALE_CONFIDENCE_CAP,
   STALE_SOURCE_UPDATED_AT_HOURS,
 } from "../config-values";
@@ -96,17 +96,22 @@ export function formatAccountCurrencySpend(
   return currency ? `${currency} ${amount}` : `${amount} account-currency`;
 }
 
-function confidenceCapForBadges(
+function confidenceCapForDecision(
   badges: readonly DecisionBadge[],
-  lifecycleRefreshHeld: boolean,
+  holds: {
+    lifecycleRefresh: boolean;
+    profileHardAction: boolean;
+  },
 ): number | null {
   const caps = [
     hasDecisionBadge(badges, "stale_evidence") ||
     hasDecisionBadge(badges, "unknown_freshness")
       ? STALE_CONFIDENCE_CAP
       : null,
-    lifecycleRefreshHeld && hasDecisionBadge(badges, "lifecycle_unavailable")
-      ? LIFECYCLE_HELD_REFRESH_CONFIDENCE_CAP
+    holds.profileHardAction ||
+    (holds.lifecycleRefresh &&
+      hasDecisionBadge(badges, "lifecycle_unavailable"))
+      ? HARD_ACTION_HOLD_CONFIDENCE_CAP
       : null,
   ].filter((cap): cap is number => cap !== null);
   return caps.length === 0 ? null : Math.min(...caps);
@@ -605,10 +610,12 @@ export function finalizeDecision(
     reason: finalReason,
     confidence: capConfidence(
       clampConfidence(ctx.confidenceBase, confidenceDeltas),
-      confidenceCapForBadges(
-        finalBadges,
-        label === "refresh" && authorityHold?.blockedActionType === "refresh",
-      ),
+      confidenceCapForDecision(finalBadges, {
+        lifecycleRefresh:
+          label === "refresh" &&
+          authorityHold?.blockedActionType === "refresh",
+        profileHardAction: profileBlocksHardAuthority,
+      }),
     ),
     badges: finalBadges,
     preAuthorityLabel,
@@ -643,6 +650,10 @@ export function enforceHardActionEligibility(
       authorityBlocker:
         decision.authorityBlocker ?? "profile_hard_action_ineligible",
       blockedActionType: decision.blockedActionType ?? "scale",
+      confidence: capConfidence(
+        decision.confidence,
+        HARD_ACTION_HOLD_CONFIDENCE_CAP,
+      ),
     };
   }
   if (decision.label === "cut" && !profile.hardActionEligibility.cut) {
@@ -661,6 +672,10 @@ export function enforceHardActionEligibility(
       authorityBlocker:
         decision.authorityBlocker ?? "profile_hard_action_ineligible",
       blockedActionType: decision.blockedActionType ?? "cut",
+      confidence: capConfidence(
+        decision.confidence,
+        HARD_ACTION_HOLD_CONFIDENCE_CAP,
+      ),
     };
   }
   if (decision.label === "refresh" && !profile.hardActionEligibility.refresh) {
@@ -674,6 +689,10 @@ export function enforceHardActionEligibility(
       authorityBlocker:
         decision.authorityBlocker ?? "profile_hard_action_ineligible",
       blockedActionType: decision.blockedActionType ?? "refresh",
+      confidence: capConfidence(
+        decision.confidence,
+        HARD_ACTION_HOLD_CONFIDENCE_CAP,
+      ),
     };
   }
   return decision;

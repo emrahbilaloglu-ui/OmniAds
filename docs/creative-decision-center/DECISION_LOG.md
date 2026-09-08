@@ -8459,7 +8459,11 @@ evidence does not exist a Refresh is openly held and never ready. That held
 Refresh is capped at confidence 65, including the Test-cohort Refresh-to-Cut
 presentation transform. The cap is tied to the held Refresh request rather than
 the generic `lifecycle_unavailable` badge, so an independently proven economic
-Cut does not lose confidence merely because lifecycle data is unavailable.
+Cut does not lose confidence merely because lifecycle data is unavailable. The
+same 65 ceiling applies whenever `hardActionEligibility` itself turns a hard
+Scale, Cut or Refresh verdict into a profile-held decision; both the gate
+finalizer and the engine-level enforcement seam apply it, while an already-lower
+confidence is preserved.
 
 **Directional label.** One mapper owns direction, and no prose is authority.
 `scale_for_profitability` names a DEFENSIVE verdict —

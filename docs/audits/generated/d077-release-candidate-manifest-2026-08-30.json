@@ -1,20 +1,20 @@
 {
- "manifestHash": "1f663314e95344a2c4851dc42e972377323eda8b11752ab1109d988500252259",
+ "manifestHash": "8771b515e5fd7c38f3231189520e93316b6a711015d0b1a195aa2c7630fdfc30",
  "hashAlgorithm": "sha256",
  "hashBasis": "sha256 over UTF-8 bytes of JSON.stringify(artifact, null, 1) of the artifact WITHOUT its embedded hash fields (the artifact object before {<hashField>, hashAlgorithm, hashBasis} are prepended)",
  "contract": "adsecute.d077.release-candidate-manifest.v3",
- "generatedAtUtc": "2026-09-08T20:59:32.332Z",
+ "generatedAtUtc": "2026-09-08T21:27:09.472Z",
  "branch": "codex/meta-release-finalization",
  "supersededBranchLabel": "codex/meta-disabled-readiness-20260829",
- "head": "78a80012c971e0add77bdde404a0fd6f5703454b",
+ "head": "e5879c9a686fb6d2c4392db033b9d95f08dc9bba",
  "baseMain": "babf158e150fd33057117b39b175da044ac62d2e",
  "originMain": "a2eb1b1b1dae9e69ffe470c39ada19731a570224",
  "remoteDivergence": {
-  "aheadOfOriginMain": 10,
+  "aheadOfOriginMain": 11,
   "behindOriginMain": 0
  },
  "selfExclusion": "this manifest's own path (docs/audits/generated/d077-release-candidate-manifest-2026-08-30.json) is EXCLUDED from its entry list: a manifest cannot recursively pin its own final bytes; its external SHA-256 is reported in the final response and by Codex's own hashing",
- "gitPorcelainEntryCount": 15,
+ "gitPorcelainEntryCount": 9,
  "releaseDiffEntryCountIncludingSelf": 1056,
  "expandedOnDiskCandidateFileCountIncludingSelf": 1056,
  "pinnedNonSelfFileCount": 1055,
@@ -2015,13 +2015,13 @@
    "path": "docs/audits/generated/d077-correction1-verification-ledger-2026-08-30.json",
    "git": "A",
    "class": "generated_evidence",
-   "sha256": "b1039cfc0d682639c09e1e9fd16429516950455d504343e99159a5320e9b9fcb"
+   "sha256": "efcb5fa50485e48f008dd806549fbd7a3e7b524032a55aea1f969f453cf0c594"
   },
   {
    "path": "docs/audits/generated/d077-database-recovery-approval-packet-2026-08-30.json",
    "git": "A",
    "class": "generated_evidence",
-   "sha256": "3d062dd14c4d8da2e4047c1077bd09aa08626c0e0499291faa6bc7c1d90281cc"
+   "sha256": "6eadcb0ed953a2ced53c706cc8931285c1f3c8f776abd099e872f8369a2d8ffc"
   },
   {
    "path": "docs/audits/generated/d077-production-recovery-readonly-evidence-2026-08-30.json",
@@ -2033,7 +2033,7 @@
    "path": "docs/audits/generated/d077-release-deploy-approval-packet-2026-08-30.json",
    "git": "A",
    "class": "generated_evidence",
-   "sha256": "00d5e264bfb7601461697316a13ef829d0c080d33551e4f0be23d8410b3e2585"
+   "sha256": "6920e754fe65e0b2b767c23350e0796984616f5a498951d8e0d860d4c9432152"
   },
   {
    "path": "docs/audits/generated/d078-hard-action-recompute-2026-08-30.json",
@@ -2417,7 +2417,7 @@
    "path": "docs/creative-decision-center/DECISION_LOG.md",
    "git": "M",
    "class": "docs",
-   "sha256": "68eb944eb2168c3fff6f09b439ed7fd89b815e6553e1afed1ffa200fd6f98c8d"
+   "sha256": "25023bebb565bd2fda213d88969e7bddb44df72bc5aff0b03158e24a6f0a66dc"
   },
   {
    "path": "docs/creative-decision-center/generated/h11b-context-lifecycle-bundle-2026-07-13-to-2026-08-22.json",
@@ -2705,7 +2705,7 @@
    "path": "lib/creative-decision-engine/__tests__/config-values.test.ts",
    "git": "M",
    "class": "tests_only",
-   "sha256": "be73e1575a525f6393e5cac987942426d3551f77b0c6402ffdb3b6e96ebcbeb5"
+   "sha256": "33a609b640fd31bb7187e247d90f6a2038572284f3c610587a061d3118a81efc"
   },
   {
    "path": "lib/creative-decision-engine/__tests__/data-source.ad-grain.test.ts",
@@ -2753,7 +2753,7 @@
    "path": "lib/creative-decision-engine/__tests__/gates/finalize-decision.test.ts",
    "git": "M",
    "class": "tests_only",
-   "sha256": "bc4afab1aca6e79a3211ff238cbac7fa20bd5f5acf5d2a899c69998379328569"
+   "sha256": "ff44a55a49839e1e4b7b7066ba1607605445029d3f99086baf07443aa2dd833b"
   },
   {
    "path": "lib/creative-decision-engine/__tests__/gates/ratio-zones.test.ts",
@@ -2831,7 +2831,7 @@
    "path": "lib/creative-decision-engine/__tests__/jobs/native-refresh-evidence-contract.test.ts",
    "git": "A",
    "class": "tests_only",
-   "sha256": "710b6f0e0888fd41d83a6f5441d3101b721e852f4d8f84f75d5185d41902cea8"
+   "sha256": "2c55dd2d52945a4ad71ea82ea6a6035aa6d8ad1ac4a74cc7ebfa47b7098ac476"
   },
   {
    "path": "lib/creative-decision-engine/__tests__/jobs/operator-response-job.test.ts",
@@ -2969,7 +2969,7 @@
    "path": "lib/creative-decision-engine/config-values.ts",
    "git": "M",
    "class": "runtime",
-   "sha256": "a3622a1c3043981c18d22721fa791140f2c543c975e7a789bf6a50ae299a4d91"
+   "sha256": "0489bf0a20d7f55c763e4fa9cf77a8758f98e79ac729087b0c5d6c078015a632"
   },
   {
    "path": "lib/creative-decision-engine/data-source.ts",
@@ -3011,7 +3011,7 @@
    "path": "lib/creative-decision-engine/gates/types.ts",
    "git": "M",
    "class": "runtime",
-   "sha256": "ec1586aea22414880a11d3c9693621af7b03f6254f5306c61dc2a4344f02c172"
+   "sha256": "29cf1673970a8c8adf5a7f0983c7019f677fea6a817d4d3737ca0c056450de36"
   },
   {
    "path": "lib/creative-decision-engine/jobs/ad-calibration-job.ts",

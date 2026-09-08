@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { CampaignContextLabelMap } from "../../campaign-context/source";
-import { LIFECYCLE_HELD_REFRESH_CONFIDENCE_CAP } from "../../config-values";
+import { HARD_ACTION_HOLD_CONFIDENCE_CAP } from "../../config-values";
 import {
   NATIVE_AD_LIFECYCLE_EVIDENCE_CONTRACT,
   computeNativeAdDecisions,
@@ -863,7 +863,7 @@ describe("native Ad lifecycle evidence contract", () => {
     expect(decision.preAuthorityLabel).toBe("refresh");
     expect(decision.blockedActionType).toBe("refresh");
     expect(decision.confidence).toBe(
-      LIFECYCLE_HELD_REFRESH_CONFIDENCE_CAP,
+      HARD_ACTION_HOLD_CONFIDENCE_CAP,
     );
     expect(decision.blockers).toEqual(
       expect.arrayContaining([
@@ -895,7 +895,7 @@ describe("native Ad lifecycle evidence contract", () => {
       computedAt: `${AS_OF}T03:00:00.000Z`,
     });
     expect(persisted.confidence).toBe(
-      LIFECYCLE_HELD_REFRESH_CONFIDENCE_CAP,
+      HARD_ACTION_HOLD_CONFIDENCE_CAP,
     );
     expect(persisted.authorized_action).toBeNull();
   });

@@ -1815,6 +1815,30 @@ describe("generalized PIT replay — frozen package drift ledger", () => {
       an unrelated assertion failure.
     */
     "lib/creative-decision-engine/data-source.ts",
+    /*
+      Codex Round 4, item 2/5: the presentation projector now forwards the
+      engine's PERSISTED predicate blockers to `projectMetaDecisionSemantics`.
+
+      Three specific held-verdict resolutions were keyed on that argument while
+      the single production caller never passed it, so every served row fell to
+      `[]` and the branches were reachable only from tests that constructed the
+      call themselves — green, and invisible to the operator.
+
+      The replay's own inputs and outputs are unchanged: its `project()` helper
+      asserts nothing about `semantics.resolution`, and the frozen artifact's
+      decisions carry no blockers payload, so the forwarded value is `[]` for
+      every row the replay holds. Verified, not assumed — the other 63 tests in
+      this file, the replay among them, still pass. Only the file's hash moved.
+    */
+    "lib/meta/canonical-decision-presentation.ts",
+    /*
+      The migration runner now pins one database session and applies its
+      transaction-local timeouts through `lib/db.ts`. The replay never opens a
+      database connection, so this is source-hash drift without a replay
+      semantic change; the semantic assertion below still names the sole
+      re-derived difference.
+    */
+    "lib/db.ts",
     // The runner and its own test, edited alongside the work above.
     "scripts/creative-decision-center/generalized-pit-replay.ts",
     "scripts/creative-decision-center/generalized-pit-replay.test.ts",

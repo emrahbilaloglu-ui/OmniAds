@@ -15,9 +15,44 @@ vi.mock("@/lib/db", () => ({ getDb: vi.fn() }));
 vi.mock("@/lib/db-schema-readiness", () => ({
   getDbSchemaReadiness: vi.fn(async () => ({ ready: true })),
 }));
-vi.mock("@/lib/business-commercial", () => ({
-  getBusinessCommercialTruthSnapshot: vi.fn(),
+/*
+  ── ROUND 9 ITEM 10: STALE SINCE ROUND 8, AND NEVER RUN ────────────────────
+  Round 8 stopped `evaluateBusinessAutomationRules` from reading the CURRENT
+  workspace pack and made it read `business_target_pack_history` AS OF the
+  evaluation cutoff. This suite still mocked only the current-snapshot reader,
+  so every case here evaluated with no anchors at all and returned
+  `commercial_targets_unreadable` before reaching the ROAS floor it exists to
+  test. It was not in Round 8's targeted set.
+
+  `resolveBusinessTargetPackFreshness` is the REAL implementation for the same
+  reason it is in `automation-rules-evaluation.test.ts`: freshness is what
+  `hasMetaHardActionAnchor` gates purchase-value authority on, and stubbing it
+  would let an unprovenanced pack authorize a proposal.
+*/
+/*
+  The account/cutoff-scoped Meta-attributed purchase sample.
+
+  A rule firing on `target_roas` mints a purchase-BUDGET proposal, so Round 8's
+  authority gate refuses to evaluate at all without a READY sample for the
+  evaluated account and day. This suite is about the ROAS FLOOR, so the sample
+  is ready by default and the gate stays out of its way.
+*/
+vi.mock("@/lib/creative-decision-engine/meta-aov-calculator", () => ({
+  computeMetaAttributedAov: vi.fn(async () => ({
+    aovMean: 180,
+    purchaseCount: 60,
+    totalRevenue: 10_800,
+  })),
 }));
+vi.mock("@/lib/business-commercial", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@/lib/business-commercial")>();
+  return {
+    getBusinessCommercialTruthSnapshot: vi.fn(),
+    getBusinessTargetPackHistoryAsOf: vi.fn(async () => null),
+    resolveBusinessTargetPackFreshness: actual.resolveBusinessTargetPackFreshness,
+  };
+});
 vi.mock("@/lib/meta/automation-rules-store", async () => {
   const actual = await vi.importActual<
     typeof import("@/lib/meta/automation-rules-store")
@@ -371,14 +406,14 @@ describe("the ROAS floor gates the rule evaluator's proposals", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(store.recordRuleFirings).mockResolvedValue([]);
-    vi.mocked(commercial.getBusinessCommercialTruthSnapshot).mockResolvedValue({
-      businessId: BUSINESS_ID,
-      targetPack: {
-        targetRoas: 3.8,
-        breakEvenRoas: 2.5,
-        targetCpa: null,
-        breakEvenCpa: null,
-      },
+    vi.mocked(commercial.getBusinessTargetPackHistoryAsOf).mockResolvedValue({
+      targetRoas: 3.8,
+      breakEvenRoas: 2.5,
+      targetCpa: null,
+      breakEvenCpa: null,
+      // Real provenance, before the evaluation cutoff, so the pack can anchor a
+      // hard action on its own terms.
+      updatedAt: "2026-08-10T00:00:00.000Z",
     } as never);
   });
 

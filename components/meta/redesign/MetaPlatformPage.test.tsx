@@ -1147,11 +1147,14 @@ describe("MetaPlatformPage", () => {
       'data-meta-exact-creative-row="os_ad_pending_1"',
     );
     expect(pending).toContain("Live Ad Without A Decision");
-    // It says what it is without exposing producer vocabulary.
-    expect(pending).toContain("Decision pending");
-    expect(pending).toContain("Decision evidence is still being prepared.");
+    // The blocked group carries the state; the row states one next step.
+    expect(pending).not.toContain("Decision pending");
+    expect(pending).not.toContain("Decision evidence is still being prepared.");
     expect(pending).toContain(
       "Wait for the next completed ad-level decision.",
+    );
+    expect(pending.match(/data-meta-exact-creative-next-step/g)).toHaveLength(
+      1,
     );
     expect(pending).not.toContain("schema and producer lineage");
     // The served state is on the row, not pooled away.
@@ -3478,7 +3481,7 @@ describe("mobile decision surface parity", () => {
       html,
       'data-meta-exact-needsres-row="rec_blocked"',
     );
-    const nextStep = "Confirm the ROAS or break-even target before acting.";
+    const nextStep = "Confirm the ROAS target before acting.";
 
     expect(rowStart).toBeGreaterThan(-1);
     expect(countText(row, nextStep)).toBe(1);
@@ -4048,4 +4051,5 @@ describe("served structure inventory stays out of the buyer surface", () => {
     expect(html).not.toContain("Census Campaign");
     expect(html).not.toContain("Census Ad set");
   });
+
 });

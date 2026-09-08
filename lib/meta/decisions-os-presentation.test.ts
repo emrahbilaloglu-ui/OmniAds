@@ -1,9 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
   MetaCanonicalDecision,
+  MetaDecisionAuthorityBlocker,
   MetaDecisionBuyerAction,
   MetaDecisionsWorkspaceReadModel,
 } from "@/lib/meta/decisions-workspace-contract";
+import type { MetaOsDecisionsPresentation } from "@/lib/meta/decisions-os-contract";
+import { projectMetaDecisionSemantics } from "@/lib/meta/decision-semantics";
 import type { MetaRecommendation } from "@/lib/meta/recommendations";
 import {
   buildMetaOsDecisionsPresentation,
@@ -1436,7 +1439,7 @@ describe("buildMetaOsDecisionsPresentation", () => {
     );
   });
 
-  it("shows current ACTIVE provider inventory instead of an empty Ads layer", () => {
+  it("counts ACTIVE provider inventory as source health, never as a decision", () => {
     const result = buildMetaOsDecisionsPresentation({
       actionNow: [],
       watching: [],
@@ -1482,43 +1485,36 @@ describe("buildMetaOsDecisionsPresentation", () => {
       currency: "EUR",
     });
 
-    expect(result.ads.items).toHaveLength(1);
-    expect(result.ads.items[0]).toMatchObject({
-      adId: "120000000000000021",
-      lane: "blocked",
-      decisionAvailability: "pending_native_evidence",
-      lifecycleRole: "test",
-      campaignRoleSource: "automatic",
-      campaignRoleConfidence: "unknown",
-      campaignRoleTrustedForAction: false,
-      action: {
-        code: "await_ad_grain_evidence",
-        intent: "review",
-        providerMutation: null,
-      },
-    });
     /*
-     * LAW: a fabricated constant must never be served as a measurement.
+     * LAW: the decision lanes carry DECISIONS.
      *
-     * This row is SYNTHESISED — Meta says the Ad is live, no Ad-grain decision
-     * snapshot exists, and the placeholder's own `whyNow` says so. No engine
-     * produced a confidence for it. It used to carry `confidenceScore: 0`, and
-     * the creative evidence window rendered that constant as "low · score 0.00"
-     * in the same format a real engine score is rendered in. Null is the honest
-     * value; the "low" BAND stays, because that is a stated property of a
-     * placeholder rather than a number nobody computed.
+     * An ACTIVE Ad that no producer has decided is real and must be stated, but
+     * it is not a decision and an operator cannot act on it. It used to be
+     * synthesised into `ads.items` as a `lane: "blocked"` placeholder with
+     * every metric null, which made `blockedCount` a mixture of withheld
+     * verdicts and un-evaluated inventory, and — on an account whose producer
+     * had failed — filled the entire response cap with rows that say only that
+     * nothing was decided.
+     *
+     * It is now one count and one sentence.
      */
-    expect(result.ads.items[0]?.confidenceScore).toBeNull();
-    expect(result.ads.items[0]?.confidence).toBe("low");
-    expect(result.ads.blockedCount).toBe(1);
-    expect(JSON.stringify(result)).not.toContain("label_needed");
-    expect(result.limitations).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          code: "active_ad_inventory_pending_native_decision",
-        }),
-      ]),
+    expect(result.ads.items).toHaveLength(0);
+    expect(result.ads.blockedCount).toBe(0);
+    expect(result.ads.statePreCapCounts.blocked).toBe(0);
+    expect(result.ads.eligiblePreCapCount).toBe(0);
+
+    // The PAUSED ad in `currentAds` above is not inventory awaiting a decision,
+    // so the count is 1 and not 2.
+    expect(result.ads.pendingInventoryCount).toBe(1);
+    const limitation = result.limitations.find(
+      (item) => item.code === "active_ad_inventory_pending_native_decision",
     );
+    expect(limitation?.message).toContain("1 ACTIVE Ad has");
+    expect(JSON.stringify(result)).not.toContain("label_needed");
+    // The placeholder vocabulary must not reach the payload at all now, under
+    // any key: it was the row, and the row is gone.
+    expect(JSON.stringify(result)).not.toContain("await_ad_grain_evidence");
+    expect(JSON.stringify(result)).not.toContain("pending_native_evidence");
   });
 
   it("selects canonical and pending Ads before the cap with stable 60, 120 and 300 prefixes", () => {
@@ -1588,21 +1584,27 @@ describe("buildMetaOsDecisionsPresentation", () => {
       currency: "EUR",
     });
 
+    /*
+     * THE CAP BELONGS TO THE DECISIONS.
+     *
+     * The pending Ad used to take one of the 60 slots, so the page carried 59
+     * real verdicts instead of 60 and the counts described a mixed population.
+     * Every slot now goes to a decision, at all three limits.
+     */
     expect(first.ads.items).toHaveLength(60);
     expect(first.ads).toMatchObject({
-      actCount: 59,
-      blockedCount: 1,
+      actCount: 60,
+      blockedCount: 0,
       monitorCount: 0,
-      statePreCapCounts: { act: 320, blocked: 1, monitor: 0 },
-      eligiblePreCapCount: 321,
+      statePreCapCounts: { act: 320, blocked: 0, monitor: 0 },
+      eligiblePreCapCount: 320,
+      pendingInventoryCount: 1,
     });
-    expect(first.ads.items).toContainEqual(
-      expect.objectContaining({
-        adId: pendingAd.adId,
-        lane: "blocked",
-        decisionAvailability: "pending_native_evidence",
-      }),
-    );
+    expect(
+      first.ads.items.some(
+        (item) => item.decisionAvailability === "pending_native_evidence",
+      ),
+    ).toBe(false);
     expect(expanded.ads.items.slice(0, 60).map((item) => item.decisionId)).toEqual(
       first.ads.items.map((item) => item.decisionId),
     );
@@ -1610,20 +1612,29 @@ describe("buildMetaOsDecisionsPresentation", () => {
       expanded.ads.items.map((item) => item.decisionId),
     );
     expect(full.ads).toMatchObject({
-      actCount: 299,
-      blockedCount: 1,
+      actCount: 300,
+      blockedCount: 0,
       monitorCount: 0,
-      statePreCapCounts: { act: 320, blocked: 1, monitor: 0 },
-      eligiblePreCapCount: 321,
+      statePreCapCounts: { act: 320, blocked: 0, monitor: 0 },
+      eligiblePreCapCount: 320,
+      pendingInventoryCount: 1,
     });
-    expect(
-      first.limitations.find(
-        (item) => item.code === "active_ad_inventory_pending_native_decision",
-      )?.message,
-    ).toContain("1 ACTIVE Ad is visible");
+    /*
+     * The sentence no longer depends on the cap. The population is summarised
+     * rather than paginated, so "withheld by the response cap" would describe a
+     * mechanism that no longer applies to it — and the count is the same at
+     * every limit, which is the point.
+     */
+    for (const result of [first, expanded, full]) {
+      expect(
+        result.limitations.find(
+          (item) => item.code === "active_ad_inventory_pending_native_decision",
+        )?.message,
+      ).toContain("1 ACTIVE Ad has no exact Ad-grain decision yet");
+    }
   });
 
-  it("states when pending ACTIVE inventory is withheld by the response cap", () => {
+  it("keeps un-evaluated inventory out of a full page of real held verdicts", () => {
     const canonical = Array.from({ length: 60 }, (_, index) =>
       canonicalDecision({
         id: `canonical-blocked-${index + 1}`,
@@ -1675,8 +1686,18 @@ describe("buildMetaOsDecisionsPresentation", () => {
     });
 
     expect(result.ads.items).toHaveLength(60);
+    /*
+     * `blocked` counts WITHHELD VERDICTS, and only those.
+     *
+     * All 60 canonical rows here are genuinely blocked decisions, so the lane
+     * count is 60 and the pre-cap count is 60 too. It used to be 61 — the
+     * un-evaluated Ad was added in, so the two numbers described different
+     * populations and no reader could tell which one they were looking at.
+     * The un-evaluated Ad is counted under its own name instead.
+     */
     expect(result.ads.blockedCount).toBe(60);
-    expect(result.ads.statePreCapCounts.blocked).toBe(61);
+    expect(result.ads.statePreCapCounts.blocked).toBe(60);
+    expect(result.ads.pendingInventoryCount).toBe(1);
     expect(
       result.ads.items.some(
         (item) => item.decisionAvailability === "pending_native_evidence",
@@ -1685,11 +1706,82 @@ describe("buildMetaOsDecisionsPresentation", () => {
     const limitation = result.limitations.find(
       (item) => item.code === "active_ad_inventory_pending_native_decision",
     );
-    expect(limitation?.message).toContain("1 ACTIVE Ad is withheld");
+    expect(limitation?.message).toContain(
+      "1 ACTIVE Ad has no exact Ad-grain decision yet",
+    );
+    // The cap is not the reason any more, so it must not be named as one.
+    expect(limitation?.message).not.toContain("response cap");
     expect(limitation?.message).not.toContain("is visible");
   });
 
-  it("auto-assigns a non-authoritative role when the daily context row is missing", () => {
+  it("serves a zero commercial target as the absence of a target", () => {
+    /*
+     * `truth_source = 'global_default'` PERSISTS A TARGET OF ZERO.
+     *
+     * Measured read-only against production on 2026-09-07: of the 11,438 rows
+     * in `engine_v3_ad_decision_snapshots_daily`, 6,365 carry
+     * `truth_source = 'global_default'` and EVERY ONE of them has
+     * `effective_target_roas = 0` (min 0, max 0). The other three truth sources
+     * have no zero at all.
+     *
+     * Zero is finite, so it passed every `Number.isFinite` guard on the way to
+     * the surface, and the money line rendered "vs 0.00 target" beside a real
+     * ROAS — a goal nobody set, printed as a goal that every ad on the account
+     * clears. A ratio measured against it is arithmetic on a number that does
+     * not mean anything, so it goes with it.
+     */
+    const zeroTarget = canonicalDecision({
+      id: "global-default-target",
+      adId: "120000000000000041",
+      buyerAction: "protect",
+    });
+    zeroTarget.identityGrain = "ad";
+    zeroTarget.sourceDecision.truthSource = "global_default";
+    zeroTarget.metrics.effectiveTargetRoas = 0;
+    zeroTarget.metrics.ratioToTarget = 0;
+
+    const result = buildMetaOsDecisionsPresentation({
+      actionNow: [],
+      watching: [],
+      nonSales: [],
+      decisionReadModel: readModel([zeroTarget]),
+      currency: "EUR",
+    });
+
+    const served = result.ads.items[0];
+    expect(served?.adId).toBe("120000000000000041");
+    expect(served?.metrics.effectiveTargetRoas).toBeNull();
+    expect(served?.metrics.ratioToTarget).toBeNull();
+    // The real ROAS is untouched: this is about the target, not the measurement.
+    expect(served?.metrics.roas).toBe(2.4);
+  });
+
+  it("keeps a real commercial target and its ratio", () => {
+    // The other side of the same rule, so the guard cannot be widened into
+    // deleting targets that exist. `canonicalDecision` carries 1.8 / 1.33.
+    const result = buildMetaOsDecisionsPresentation({
+      actionNow: [],
+      watching: [],
+      nonSales: [],
+      decisionReadModel: readModel([
+        (() => {
+          const decision = canonicalDecision({
+            id: "real-target",
+            adId: "120000000000000042",
+            buyerAction: "protect",
+          });
+          decision.identityGrain = "ad";
+          return decision;
+        })(),
+      ]),
+      currency: "EUR",
+    });
+
+    expect(result.ads.items[0]?.metrics.effectiveTargetRoas).toBe(1.8);
+    expect(result.ads.items[0]?.metrics.ratioToTarget).toBe(1.33);
+  });
+
+  it("does not decide an ACTIVE Ad the producer never reached", () => {
     const result = buildMetaOsDecisionsPresentation({
       actionNow: [],
       watching: [],
@@ -1714,16 +1806,21 @@ describe("buildMetaOsDecisionsPresentation", () => {
       currency: "USD",
     });
 
-    expect(result.ads.items[0]).toMatchObject({
-      campaignName: "R3 US Test",
-      lifecycleRole: "test",
-      campaignRoleSource: "automatic",
-      campaignRoleConfidence: "unknown",
-      campaignRoleTrustedForAction: false,
-      decisionAvailability: "pending_native_evidence",
-      action: { providerMutation: null },
-    });
+    /*
+     * An Ad with no campaign-context row and no decision snapshot yields no
+     * decision — not a placeholder one, and above all not a labelled one.
+     *
+     * The campaign name is the only thing the payload knew about it, and it is
+     * NOT served on a decision, because there is no decision to attach it to.
+     * `presentedCampaignRole` — the resolver this case used to reach through
+     * the placeholder — is still exercised by the structure-node cases in this
+     * file, where it describes a campaign that was actually decided.
+     */
+    expect(result.ads.items).toHaveLength(0);
+    expect(result.ads.pendingInventoryCount).toBe(1);
     expect(JSON.stringify(result)).not.toMatch(/label_needed|Label needed/i);
+    // No inferred role escapes onto a row that has no verdict to qualify.
+    expect(JSON.stringify(result.ads)).not.toContain("R3 US Test");
   });
 
   it("presents first-blocker provenance without authorizing a hard pre-authority verdict", () => {
@@ -1766,10 +1863,22 @@ describe("buildMetaOsDecisionsPresentation", () => {
     });
 
     expect(result.contractVersion).toBe("meta-os-decisions.presentation.v5");
+    /*
+      RE-PINNED. This asserted `code: "keep_running", intent: "none"` — the
+      published `keep` label's own affirmative soft action, served for a row
+      whose engine verdict was a withheld Cut. INVARIANTS.md forbids exactly
+      that inheritance ("It must never inherit an affirmative soft label such
+      as `Continue Test` from the published compatibility label"), and it is
+      how a held Refresh reached the operator as "Keep Running". The row is
+      now served in the blocked lane with the withheld verdict typed beside
+      it. The provenance assertions below are unchanged.
+    */
     expect(result.ads.items[0]).toMatchObject({
+      lane: "blocked",
+      heldAction: "cut",
       action: {
-        code: "keep_running",
-        intent: "none",
+        code: "resolve_evidence_gap",
+        intent: "review",
         providerMutation: null,
       },
       authorityProvenance: {
@@ -1783,6 +1892,18 @@ describe("buildMetaOsDecisionsPresentation", () => {
         },
       },
     });
+    /*
+      The held verdict does not become an authorization on the way out, and no
+      resolution is invented for it: this payload's classification carries
+      none, and a fabricated generic one would read as a measured answer.
+    */
+    expect(result.ads.items[0]!.heldResolution).toBeNull();
+    expect(result.ads.items[0]!.action.providerMutation).toBeNull();
+    expect(result.ads.items[0]!.action.intent).not.toBe("execute");
+    expect(result.ads.heldCounts).toEqual({ scale: 0, cut: 1, refresh: 0 });
+    // Counted separately: the row is in `blockedCount` exactly once.
+    expect(result.ads.blockedCount).toBe(1);
+    expect(result.ads.actCount + result.ads.monitorCount).toBe(0);
   });
 
   it("presents the D063 recent-evidence blocker without a provider mutation", () => {
@@ -1866,5 +1987,559 @@ describe("buildMetaOsDecisionsPresentation", () => {
       publishedLabel: "test_more",
       firstBlocker: null,
     });
+  });
+});
+
+/**
+ * ITEM 5 — THE VERDICT THE ENGINE REACHED AND THEN WITHHELD.
+ *
+ * These drive the REAL semantics projector rather than hand-setting a
+ * classification, because the defect lives in the seam between the two: the
+ * projector already computed a held Refresh and its specific resolution, the
+ * presentation read `heldAction` in exactly one place (`priorityForDecision`,
+ * to rank the row) and then dropped it, and the row reached the operator
+ * under its published compatibility label — `keep`, rendered "Keep Running" —
+ * with no served evidence that a Refresh verdict existed at all.
+ */
+function heldCanonicalDecision(input: {
+  id: string;
+  adId: string;
+  heldAction: "scale" | "cut" | "refresh";
+  publishedLabel: string;
+  authorityBlocker: MetaDecisionAuthorityBlocker;
+  legacyBuyerAction: MetaDecisionBuyerAction;
+  predicateBlockers?: ReadonlyArray<{
+    predicate: string;
+    observed: string | number | null;
+    threshold: string | number | null;
+  }>;
+}): MetaCanonicalDecision {
+  const decision = canonicalDecision({
+    id: input.id,
+    adId: input.adId,
+    buyerAction: input.legacyBuyerAction,
+  });
+  const semantics = projectMetaDecisionSemantics({
+    legacyBuyerAction: input.legacyBuyerAction,
+    sourceLabel: input.publishedLabel,
+    lifecycleRole: "main",
+    badgeCodes: [],
+    blockerCodes: [],
+    heldAction: input.heldAction,
+    authorityBlocker: input.authorityBlocker,
+    predicateBlockers: input.predicateBlockers ?? [],
+  });
+  decision.identityGrain = "ad";
+  decision.sourceDecision.label = input.publishedLabel;
+  decision.sourceDecision.rawLabel = input.publishedLabel;
+  decision.sourceDecision.preAuthorityLabel = input.heldAction;
+  decision.sourceDecision.authorityBlocker = input.authorityBlocker;
+  decision.classification.decisionState = semantics.decisionState;
+  decision.classification.heldAction = semantics.heldAction;
+  decision.classification.legacyBuyerAction = semantics.legacyBuyerAction;
+  decision.classification.buyerAction = semantics.buyerAction;
+  decision.classification.resolution = semantics.resolution;
+  decision.classification.executionAction = null;
+  // A fully authorized native exact identity, so nothing about the ad itself
+  // is what withholds the action: only the held verdict is.
+  decision.sourceAuthority = {
+    status: "native_exact",
+    actionEligible: true,
+    reviewOnlyReason: null,
+    snapshotId: decision.sourceSnapshotId,
+    evaluationId: "10000000-0000-4000-8000-000000000501",
+    inputHash: "a".repeat(64),
+    decisionHash: "b".repeat(64),
+    providerAccountRefId: "30000000-0000-4000-8000-000000000001",
+    engineVersion: "v3-ad-test",
+    realAdId: input.adId,
+    authorizedAction: input.heldAction === "cut" ? "cut" : null,
+    executionReadiness: "live_preflight_required",
+    jobRunId: "20000000-0000-4000-8000-000000000001",
+  };
+  return decision;
+}
+
+function nativeReadModel(
+  decisions: MetaCanonicalDecision[],
+): MetaDecisionsWorkspaceReadModel {
+  const model = readModel(decisions);
+  model.source.authority = "native_ad";
+  model.source.table = "engine_v3_ad_decision_snapshots_daily";
+  model.source.fallbackReason = null;
+  return model;
+}
+
+describe("held verdicts on the served Ad decision", () => {
+  it("serves a held Refresh beside the published keep label, with its own resolution", () => {
+    const decision = heldCanonicalDecision({
+      id: "held-refresh",
+      adId: "120000000000000501",
+      heldAction: "refresh",
+      publishedLabel: "keep",
+      authorityBlocker: "native_metrics_unavailable",
+      legacyBuyerAction: "refresh",
+      predicateBlockers: [
+        {
+          predicate: "refresh_ad_lifecycle_evidence",
+          observed: null,
+          threshold: null,
+        },
+      ],
+    });
+
+    const result = buildMetaOsDecisionsPresentation({
+      actionNow: [],
+      watching: [],
+      nonSales: [],
+      decisionReadModel: nativeReadModel([decision]),
+      currency: "EUR",
+    });
+
+    const item = result.ads.items[0]!;
+    // The PUBLISHED label is untouched. The held verdict is served alongside.
+    expect(item.publishedLabel).toBe("keep");
+    expect(item.heldAction).toBe("refresh");
+    /*
+      The resolution belonging to the HELD verdict, not the published row's
+      generic one. `resolutionForAuthorityBlocker` in
+      lib/meta/decision-semantics.ts produces this exact sentence for a Refresh
+      held on missing ad-level fatigue evidence; the generic answers it beats
+      are "Refresh Decision Data" (the same blocker without the predicate) and
+      `adAction`'s own "Resolve Evidence Gap" fallback.
+    */
+    expect(item.heldResolution).toEqual({
+      code: "complete_hard_action_evidence",
+      category: "system",
+      owner: "system",
+      label: "Refresh Held — Ad Fatigue Evidence Missing",
+      nextStep:
+        "The recent window decayed against this ad's own earlier period, but no ad-level fatigue verdict exists to confirm creative wear, so no provider action is authorized yet. The verdict resolves as sibling-ad exposure evidence accumulates.",
+    });
+    expect(item.heldResolution?.code).not.toBe("resolve_evidence_gap");
+    expect(item.heldResolution?.label).not.toBe("Refresh Decision Data");
+    // The engine's own reason for the row survives too.
+    expect(item.whyNow).toBe(decision.sourceDecision.reason);
+
+    // EVERY execution field is null on a held row.
+    expect(item.action.providerMutation).toBeNull();
+    expect(item.action.intent).not.toBe("execute");
+    expect(item.action.budgetIntent).toBeUndefined();
+    expect(item.action.bidIntent).toBeUndefined();
+    expect(item.lane).toBe("blocked");
+    expect(item.action.code).not.toBe("keep_running");
+
+    // Counted separately from the lane counts, never added to them.
+    expect(result.ads.heldCounts).toEqual({ scale: 0, cut: 0, refresh: 1 });
+    expect(result.ads.blockedCount).toBe(1);
+    expect(result.ads.actCount).toBe(0);
+    expect(result.ads.monitorCount).toBe(0);
+  });
+
+  it("counts each held verdict separately and leaves the lane counts alone", () => {
+    const decisions = [
+      heldCanonicalDecision({
+        id: "held-refresh-2",
+        adId: "120000000000000502",
+        heldAction: "refresh",
+        publishedLabel: "keep",
+        authorityBlocker: "source_freshness",
+        legacyBuyerAction: "refresh",
+      }),
+      heldCanonicalDecision({
+        id: "held-cut-2",
+        adId: "120000000000000503",
+        heldAction: "cut",
+        publishedLabel: "test_more",
+        authorityBlocker: "source_freshness",
+        legacyBuyerAction: "cut",
+      }),
+      heldCanonicalDecision({
+        id: "held-scale-2",
+        adId: "120000000000000504",
+        heldAction: "scale",
+        publishedLabel: "keep",
+        authorityBlocker: "profile_hard_action_ineligible",
+        legacyBuyerAction: "scale",
+      }),
+    ];
+
+    const result = buildMetaOsDecisionsPresentation({
+      actionNow: [],
+      watching: [],
+      nonSales: [],
+      decisionReadModel: nativeReadModel(decisions),
+      currency: "EUR",
+    });
+
+    expect(result.ads.heldCounts).toEqual({ scale: 1, cut: 1, refresh: 1 });
+    // All three sit in `blockedCount` exactly once. The held tally is a second,
+    // orthogonal reading of the same rows, not a fourth lane.
+    expect(result.ads.blockedCount).toBe(3);
+    expect(
+      result.ads.actCount +
+        result.ads.blockedCount +
+        result.ads.monitorCount,
+    ).toBe(result.ads.items.length);
+    for (const item of result.ads.items) {
+      expect(item.action.providerMutation).toBeNull();
+      expect(item.action.intent).not.toBe("execute");
+      expect(item.heldResolution).not.toBeNull();
+    }
+  });
+
+  it("refuses a provider mutation for a held verdict a payload claims is actionable", () => {
+    /*
+      A CONTRACT-INVALID payload, deliberately.
+
+      INVARIANTS.md pairs a non-null held verdict with `decisionState: blocked`
+      and `buyerAction: null`, and `projectMetaDecisionSemantics` produces only
+      that pairing. A stored or hand-built payload that claims otherwise used
+      to be read through `buyerAction` alone: a held Cut beside
+      `decisionState: "act"` and a native exact authority fell through to the
+      Cut branch and was served with `intent: "execute"` and
+      `providerMutation: "pause"` — a provider write originating from a verdict
+      the engine had explicitly withheld.
+    */
+    const decision = heldCanonicalDecision({
+      id: "held-cut-claiming-act",
+      adId: "120000000000000505",
+      heldAction: "cut",
+      publishedLabel: "keep",
+      authorityBlocker: "source_freshness",
+      legacyBuyerAction: "cut",
+    });
+    decision.classification.decisionState = "act";
+    decision.classification.buyerAction = "cut";
+
+    const result = buildMetaOsDecisionsPresentation({
+      actionNow: [],
+      watching: [],
+      nonSales: [],
+      decisionReadModel: nativeReadModel([decision]),
+      currency: "EUR",
+    });
+
+    const item = result.ads.items[0]!;
+    expect(item.action.providerMutation).toBeNull();
+    expect(item.action.intent).not.toBe("execute");
+    expect(item.lane).toBe("blocked");
+    expect(item.heldAction).toBe("cut");
+    expect(result.ads.heldCounts).toEqual({ scale: 0, cut: 1, refresh: 0 });
+  });
+
+  it("still authorizes a Cut that was never held", () => {
+    /*
+      The guard against over-correcting. Withholding execution for a HELD
+      verdict must not withhold it for every Cut: a decision with no held
+      verdict and a native exact authorization keeps its provider mutation.
+    */
+    const decision = canonicalDecision({
+      id: "authorized-cut",
+      adId: "120000000000000506",
+      buyerAction: "cut",
+    });
+    decision.identityGrain = "ad";
+    decision.sourceAuthority = {
+      status: "native_exact",
+      actionEligible: true,
+      reviewOnlyReason: null,
+      snapshotId: decision.sourceSnapshotId,
+      evaluationId: "10000000-0000-4000-8000-000000000506",
+      inputHash: "a".repeat(64),
+      decisionHash: "b".repeat(64),
+      providerAccountRefId: "30000000-0000-4000-8000-000000000001",
+      engineVersion: "v3-ad-test",
+      realAdId: "120000000000000506",
+      authorizedAction: "cut",
+      executionReadiness: "live_preflight_required",
+      jobRunId: "20000000-0000-4000-8000-000000000001",
+    };
+
+    const result = buildMetaOsDecisionsPresentation({
+      actionNow: [],
+      watching: [],
+      nonSales: [],
+      decisionReadModel: nativeReadModel([decision]),
+      currency: "EUR",
+    });
+
+    const item = result.ads.items[0]!;
+    expect(item.heldAction).toBeNull();
+    expect(item.heldResolution).toBeNull();
+    expect(item.lane).toBe("act");
+    expect(item.action).toMatchObject({
+      code: "cut",
+      intent: "execute",
+      providerMutation: "pause",
+    });
+    expect(result.ads.heldCounts).toEqual({ scale: 0, cut: 0, refresh: 0 });
+  });
+
+  it("keeps a payload serialized before the held fields readable", () => {
+    const decision = heldCanonicalDecision({
+      id: "held-refresh-legacy",
+      adId: "120000000000000507",
+      heldAction: "refresh",
+      publishedLabel: "keep",
+      authorityBlocker: "source_freshness",
+      legacyBuyerAction: "refresh",
+    });
+    const built = buildMetaOsDecisionsPresentation({
+      actionNow: [],
+      watching: [],
+      nonSales: [],
+      decisionReadModel: nativeReadModel([decision]),
+      currency: "EUR",
+    });
+
+    // What the current builder emits...
+    expect(built.ads.heldCounts).toEqual({ scale: 0, cut: 0, refresh: 1 });
+    expect(built.ads.items[0]!.heldAction).toBe("refresh");
+
+    // ...and the same payload as it was serialized before these fields existed.
+    const serializedBeforeTheseFields = JSON.parse(
+      JSON.stringify(built),
+    ) as MetaOsDecisionsPresentation;
+    delete serializedBeforeTheseFields.ads.heldCounts;
+    for (const item of serializedBeforeTheseFields.ads.items) {
+      delete item.heldAction;
+      delete item.heldResolution;
+    }
+
+    // Still a valid presentation: the fields are optional, and their ABSENCE
+    // reads as "not measured", which a reader must not confuse with three
+    // measured zeroes or with a measured "no verdict was held".
+    expect(serializedBeforeTheseFields.contractVersion).toBe(
+      "meta-os-decisions.presentation.v5",
+    );
+    expect(serializedBeforeTheseFields.ads.heldCounts).toBeUndefined();
+    expect(serializedBeforeTheseFields.ads.items[0]!.heldAction).toBeUndefined();
+    expect(
+      serializedBeforeTheseFields.ads.items[0]!.heldResolution,
+    ).toBeUndefined();
+    expect(serializedBeforeTheseFields.ads.blockedCount).toBe(1);
+    expect(serializedBeforeTheseFields.ads.items[0]!.publishedLabel).toBe(
+      "keep",
+    );
+  });
+});
+
+/**
+ * ITEM 6 — A STRUCTURE ACTION MUST NOT BE DECIDED BY ITS OWN COPY.
+ *
+ * `structureAction` used to test English against the producer's operator copy
+ * to choose the served label AND the served `intent`:
+ *
+ *     (decisionLabel === "scale" && !/^(increase|reduce)\b.*\bbudget\b/i…) ||
+ *       /\bscale\b/i.test(label)
+ *     … else if (/review structure\s*&\s*scale/i.test(label))
+ *     … if (/budget/i.test(label) && providerMutation === null) intent = "manual"
+ *
+ * `intent` is authority-bearing — `launchModeForServedStructureAction` in
+ * components/meta/redesign/MetaPlatformPage.tsx opens Launchpad only for
+ * `intent === "launchpad"` — so a copy edit could move a row between
+ * authorities, and word order made the "Review Structure" branch unreachable.
+ *
+ * Each case below is the SAME typed input under four different copies. The
+ * shipped one, an English rewrite, a Turkish translation, and none at all.
+ */
+const STRUCTURE_COPY_PERMUTATIONS = [
+  { name: "shipped copy", copy: "Review scale plan" },
+  { name: "English rewrite", copy: "Push the daily spend up a notch" },
+  { name: "Turkish translation", copy: "Bütçeyi kontrollü biçimde artırın" },
+  { name: "no copy at all", copy: "" },
+] as const;
+
+function structureActionUnderCopy(input: {
+  copy: string;
+  rec: Partial<MetaRecommendation>;
+  eligibility?: { scale: boolean; cut: boolean };
+}) {
+  const result = buildMetaOsDecisionsPresentation({
+    actionNow: [
+      recommendation({
+        id: "rec_copy_permutation",
+        level: "campaign",
+        campaignId: "cmp_copy_permutation",
+        campaignName: "Copy permutations",
+        primaryActionLabel: input.copy,
+        recommendedAction: input.copy,
+        decision: input.copy,
+        ...input.rec,
+      }),
+    ],
+    watching: [],
+    nonSales: [],
+    decisionReadModel: readModel([]),
+    currency: "EUR",
+    targetHardActionEligibility: input.eligibility ?? { scale: true, cut: true },
+  });
+  return result.structure.groups[0]!.campaign.action;
+}
+
+describe("structure actions are decided by typed fields, not by their copy", () => {
+  const cases = [
+    {
+      shape: "commercial truth withheld",
+      rec: { decisionLabel: "scale" as const },
+      eligibility: { scale: false, cut: true },
+      expected: {
+        code: "review_commercial_truth",
+        label: "Review Commercial Truth",
+        intent: "review",
+        targetLevel: "campaign",
+        providerMutation: null,
+        scopeNote:
+          "Current target ROAS authority is unavailable; no Scale action is authorized",
+      },
+    },
+    {
+      shape: "decision inputs missing",
+      rec: { decisionLabel: "diagnose" as const },
+      expected: {
+        code: "resolve_decision_inputs",
+        label: "Resolve Decision Inputs",
+        intent: "review",
+        targetLevel: "campaign",
+        providerMutation: null,
+        scopeNote:
+          "Complete the missing server evidence before changing provider state",
+      },
+    },
+    {
+      shape: "budget review on a Main campaign",
+      rec: {
+        decisionLabel: "scale" as const,
+        campaignKind: "main" as const,
+        actionKind: "review_drill" as const,
+      },
+      expected: {
+        code: "review_drill",
+        label: "Review Campaign Budget",
+        intent: "manual",
+        targetLevel: "campaign",
+        providerMutation: null,
+        scopeNote: "Affects this campaign only",
+      },
+    },
+    {
+      shape: "structure review on a Mixed campaign",
+      rec: {
+        decisionLabel: "scale" as const,
+        campaignKind: "mixed" as const,
+        actionKind: "review_drill" as const,
+      },
+      expected: {
+        code: "review_drill",
+        // D016: a Mixed campaign reviews its structure BEFORE any execution
+        // instruction. The predecessor served "Review Campaign Budget" here,
+        // because `/\bscale\b/i` matched first and made this branch dead.
+        label: "Review Structure",
+        intent: "manual",
+        targetLevel: "campaign",
+        providerMutation: null,
+        scopeNote: "Affects this campaign only",
+      },
+    },
+    {
+      shape: "pause on a row that carries a pause control",
+      rec: {
+        decisionLabel: "cut" as const,
+        actionKind: "execute_pause" as const,
+      },
+      expected: {
+        code: "execute_pause",
+        label: "Pause Campaign",
+        intent: "review",
+        targetLevel: "campaign",
+        providerMutation: "pause",
+        scopeNote: "Affects this campaign only",
+      },
+    },
+  ];
+
+  it("serves one identical action per typed shape across every copy", () => {
+    for (const testCase of cases) {
+      for (const permutation of STRUCTURE_COPY_PERMUTATIONS) {
+        const action = structureActionUnderCopy({
+          copy: permutation.copy,
+          rec: testCase.rec,
+          eligibility: testCase.eligibility,
+        });
+        expect(
+          { shape: testCase.shape, permutation: permutation.name, ...action },
+          `${testCase.shape} under ${permutation.name}`,
+        ).toEqual({
+          shape: testCase.shape,
+          permutation: permutation.name,
+          ...testCase.expected,
+        });
+      }
+    }
+  });
+
+  it("still shows the producer's own copy where no typed shape names the action", () => {
+    /*
+      The guard against over-correcting.
+
+      Removing the regexes must not flatten every structure row to a typed
+      constant: a row whose typed fields name no specific shape still DISPLAYS
+      the producer's operator copy. What changed is that the copy no longer
+      DECIDES anything — the code, the intent, the authority and the target
+      level are identical across all four permutations.
+    */
+    const rec = {
+      decisionLabel: "keep" as const,
+      actionKind: "review_drill" as const,
+    };
+    const served = STRUCTURE_COPY_PERMUTATIONS.map((permutation) =>
+      structureActionUnderCopy({ copy: permutation.copy, rec }),
+    );
+
+    expect(served.map((action) => action.label)).toEqual([
+      "Review scale plan",
+      "Push the daily spend up a notch",
+      "Bütçeyi kontrollü biçimde artırın",
+      // The only typed fallback: the producer supplied no copy at all.
+      "Review",
+    ]);
+    for (const action of served) {
+      expect(action.code).toBe("review_drill");
+      expect(action.intent).toBe("review");
+      expect(action.providerMutation).toBeNull();
+      expect(action.targetLevel).toBe("campaign");
+    }
+  });
+
+  it("does not turn a Launchpad route into a manual budget review", () => {
+    /*
+      `intent` is authority. A `route_launchpad_duplicate` row whose copy
+      happens to contain the word "budget" used to be downgraded to `manual`
+      by `/budget/i.test(label)`, which is `launchModeForServedStructureAction`
+      refusing to open Launchpad because of a word in a sentence.
+    */
+    const served = STRUCTURE_COPY_PERMUTATIONS.map((permutation) =>
+      structureActionUnderCopy({
+        copy: permutation.copy,
+        rec: {
+          decisionLabel: "swap",
+          actionKind: "route_launchpad_duplicate",
+        },
+      }),
+    );
+    for (const action of served) {
+      expect(action.intent).toBe("launchpad");
+      expect(action.code).toBe("route_launchpad_duplicate");
+    }
+    expect(
+      structureActionUnderCopy({
+        copy: "Duplicate the winner and give it its own budget",
+        rec: {
+          decisionLabel: "swap",
+          actionKind: "route_launchpad_duplicate",
+        },
+      }).intent,
+    ).toBe("launchpad");
   });
 });

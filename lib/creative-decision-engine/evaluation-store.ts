@@ -16,8 +16,40 @@ import {
 export { DECISION_AUTHORITY_BLOCKERS };
 export type { DecisionAuthorityBlocker };
 
+/**
+ * The key that actually LABELS a persisted native-Ad evaluation.
+ *
+ * `buildAdCanonicalEvaluationProvenance` strips the base `contractVersion` from
+ * all three payloads and stamps THIS constant in its place, so
+ * `CANONICAL_EVALUATION_CONTRACT_VERSION` never reaches storage on the ad path.
+ * Any change to what the canonical normalizer hashes therefore moves the bytes
+ * under this key, and only this key can record it.
+ *
+ * `.v7 -> .v8` because the envelope's `spendUnitEvidence` projection is now
+ * ENUMERATED and Shopify-free: under `.v5`/`.v7` it was a bare spread, so
+ * adding the Shopify members to `SpendUnitEvidence` silently changed the hashed
+ * field list without moving any version key. Production already shows `.v7`
+ * labelling two different field lists — 14,340 rows written without the Shopify
+ * keys and 23 with them — and leaving it in place would make one key label a
+ * third. Rows under `.v7` and earlier stay readable under their own key and are
+ * never recomputed under current semantics.
+ */
 export const AD_DECISION_EVALUATION_CONTRACT_VERSION =
-  "engine-v3-canonical-ad-evaluation.v7" as const;
+  /*
+  `.v11` — the ad-grain envelope stamps the canonical evaluation contract,
+  which moved to `.v9` when the account-CPA projection was extended from
+  `spendUnitEvidence` to `accountBaselines` / `accountBaselinesByKind`. Those
+  live inside `accountProfile`, which is part of THIS envelope's
+  `contextPayload` — so `contextHash` moves, and `inputHash` and `decisionHash`
+  move with it. The ad-grain identity therefore genuinely changes and cannot
+  stay under `.v10`.
+
+  (`.v10` recorded the canonical move to `.v8`; `.v9` the move to `.v7` for the
+  operator's Target CPA and AOV assumption.) Rows under `.v10` and earlier stay
+  readable under their own key and are never recomputed under current
+  semantics.
+*/
+  "engine-v3-canonical-ad-evaluation.v11" as const;
 
 export interface AdDecisionEvaluationIdentity {
   decisionEntityType: "ad";

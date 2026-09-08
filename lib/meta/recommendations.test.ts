@@ -124,6 +124,26 @@ const breakdowns: MetaBreakdownsResponse = {
   products: { available: true },
 };
 
+/*
+  A ROAS-GOVERNED ACCOUNT THAT CAN ACT.
+
+  This fixture carried a Target ROAS and two CPAs and NO Meta-attributed AOV,
+  which is why it never caught the substitution: with no canonical unit the
+  maturity floor and the Scale ceiling both fell to a CPA, and every assertion
+  below was really asserting CPA-sized behaviour on an account whose rule says
+  the CPA governs nothing.
+
+  A positive Target ROAS now admits exactly one unit — READY Meta-attributed
+  AOV over that ratio — so the sample is stated, and it is stated CONSISTENTLY
+  with the campaigns in this file: they run at roughly ROAS 3.6 and CPA 50,
+  which implies an attributed AOV near 180, not some unrelated number. 60
+  purchases clears `classifyMetaAovQuality`'s ready bar of 20, and 180 / 2.2 =
+  81.8 is the allowance per purchase, comfortably above the fixture's CPA — so
+  a strong campaign is still a scale candidate for the right reason.
+
+  The CPAs stay on the fixture on purpose: they must be present and must change
+  nothing.
+*/
 const commercialTargets = {
   source: "configured_targets" as const,
   targetRoas: 2.2,
@@ -133,6 +153,7 @@ const commercialTargets = {
   riskPosture: "balanced" as const,
   freshness: "fresh" as const,
   updatedAt: "2026-05-08T00:00:00.000Z",
+  metaAttributedAov: { aovMean: 180, purchaseCount: 60 },
 };
 
 const calibrationContext: MetaCalibrationContext = {
@@ -705,6 +726,103 @@ describe("buildMetaRecommendations", () => {
         (item) => item.type === "scale_for_profitability",
       ),
     ).toBe(true);
+  });
+
+  /*
+    ── ROUND 6 AUDIT ITEM 2: THE CAMPAIGN PROFITABILITY PATH ────────────────
+    Two corrections, proven on the SAME fixture the positive case above uses,
+    so any hold here is attributable to the one field each case changes.
+
+    1. It read `metaCutRoasReviewCeiling` — break-even ROAS alone — and
+       returned early without one, making break-even a second mandatory user
+       target for a purchase-budget cut.
+    2. Its maturity floor was passed a calibrated `cpa_28d` p50 (or the
+       selection's spend-over-purchases) as `accountCpaBaseline`. That is inert
+       under a governing Target ROAS, but it read as a fallback and IS the
+       fallback in the legacy case; the hold has to come from the missing Meta
+       AOV, not from a number that happens to be absent.
+  */
+  const profitabilityWindows = () => {
+    const weak = campaign({
+      roas: 1.2,
+      purchases: 18,
+      spend: 3000,
+      revenue: 3600,
+      cpa: 166.67,
+    });
+    const strongPeer = campaign({
+      id: "cmp-2",
+      name: "Campaign 2",
+      roas: 3.4,
+      purchases: 35,
+      spend: 2000,
+      revenue: 6800,
+      cpa: 57.14,
+    });
+    const history = (over: Record<string, number>) => [
+      campaign({ roas: 1.3, purchases: 20, spend: 2900, revenue: 3770, cpa: 145, ...over }),
+      strongPeer,
+    ];
+    return {
+      selected: [weak, strongPeer],
+      previousSelected: [],
+      last3: [weak, strongPeer],
+      last7: [weak, strongPeer],
+      last14: history({ roas: 1.28 }),
+      last30: history({}),
+      last90: history({ roas: 1.35 }),
+      allHistory: history({ roas: 1.4 }),
+    };
+  };
+
+  it("produces the profitability recommendation with NO break-even configured", () => {
+    const result = buildMetaRecommendations({
+      windows: profitabilityWindows(),
+      breakdowns,
+      commercialTargets: { ...commercialTargets, breakEvenRoas: null },
+    });
+    expect(
+      result.recommendations.some(
+        (item) => item.type === "scale_for_profitability",
+      ),
+    ).toBe(true);
+  });
+
+  it.each([
+    ["missing", null],
+    ["thin", { aovMean: 180, purchaseCount: 9 }],
+  ])("HOLDS the profitability recommendation on a %s Meta sample", (_case, sample) => {
+    const result = buildMetaRecommendations({
+      windows: profitabilityWindows(),
+      breakdowns,
+      commercialTargets: { ...commercialTargets, metaAttributedAov: sample },
+    });
+    expect(
+      result.recommendations.some(
+        (item) => item.type === "scale_for_profitability",
+      ),
+    ).toBe(false);
+  });
+
+  it("does not answer a missing Meta sample with the CPAs typed beside it", () => {
+    // The account carries both CPAs and a calibrated CPA distribution; neither
+    // may substitute for the unit while the Target ROAS governs.
+    const result = buildMetaRecommendations({
+      windows: profitabilityWindows(),
+      breakdowns,
+      calibrationContext,
+      commercialTargets: {
+        ...commercialTargets,
+        metaAttributedAov: null,
+        targetCpa: 120,
+        breakEvenCpa: 160,
+      },
+    });
+    expect(
+      result.recommendations.some(
+        (item) => item.type === "scale_for_profitability",
+      ),
+    ).toBe(false);
   });
 
   it("does not produce insights for add to cart campaigns without explicit recent purchase signal", () => {
@@ -1901,5 +2019,162 @@ describe("buildMetaRecommendations", () => {
         ].includes(item.type),
       ),
     ).toBe(false);
+  });
+});
+
+/*
+  CODEX C24 — the snapshot's campaignKind and the action meaning downstream of
+  it stay gated by ONE high-trust predicate, proven at runtime through the real
+  builder.
+
+  Before this, the structural emitters had no trusted role at emit time: `I4`
+  decided from `${campaignRole} ${campaignName}`.toLowerCase() containing
+  "test", and the label guard that would have demoted the row runs later, over
+  recommendations already emitted as `act`. `buildMetaRecommendations` now
+  receives the canonical context map and asks `isContextTrustedForAction`.
+*/
+describe("campaign role authority gates the emitted action, at runtime", () => {
+  const testCampaign = () =>
+    campaign({
+      id: "cmp_test",
+      name: "Latest Winners",
+      roas: 1.2,
+      purchases: 8,
+      spend: 900,
+      budgetLevel: "campaign",
+    });
+
+  function buildWith(entry: Record<string, unknown> | null) {
+    const row = testCampaign();
+    return buildMetaRecommendations({
+      windows: {
+        selected: [row],
+        previousSelected: [],
+        last3: [row],
+        last7: [row],
+        last14: [row],
+        last30: [row],
+        last90: [row],
+        allHistory: [row],
+      },
+      breakdowns: null,
+      campaignContextById: entry
+        ? (new Map([["cmp_test", entry]]) as never)
+        : null,
+    }).recommendations;
+  }
+
+  const provenanced = {
+    kind: "test",
+    contextTrust: "high",
+    source: "system_inferred",
+    inferenceConfidenceClass: "high",
+    resolverAuthorityValidated: true,
+  };
+
+  const i4 = (recs: Array<{ type: string; decisionState?: string }>) =>
+    recs.filter((rec) => rec.type === "scenario_i4_test_should_use_abo");
+
+  it("emits no structural rebuild from an untrusted role", () => {
+    for (const entry of [
+      null,
+      { ...provenanced, contextTrust: "medium" },
+      { ...provenanced, resolverAuthorityValidated: false },
+      { ...provenanced, inferenceConfidenceClass: "medium" },
+      { ...provenanced, source: "user_override" },
+      { ...provenanced, kind: "main" },
+    ]) {
+      expect(i4(buildWith(entry) as never), JSON.stringify(entry)).toEqual([]);
+    }
+  });
+
+  it("emits it from a fully provenanced canonical test kind", () => {
+    // The control: the gate is trust, not a blanket refusal. Note the campaign
+    // is named "Latest Winners" — the name is now irrelevant in both directions.
+    const emitted = i4(buildWith(provenanced) as never);
+    expect(emitted.length).toBe(1);
+    expect(emitted[0]?.decisionState).toBe("act");
+  });
+});
+
+/*
+  CODEX repair 1 — with a positive Target ROAS the CPA ladder is CLOSED, and
+  the four commercial states are distinguished on the real recommendation path.
+
+  `maybeVolumeScaleRecommendation` judged Scale against
+  `canonicalUnit ?? breakEvenCpa ?? targetCpa * 1.1`, so an account WITH a
+  Target ROAS whose Meta AOV was missing or thin fell through to a typed CPA
+  and a Scale was authorized against a number the rule says governs nothing.
+  The fixtures in this file missed it because they set a Target ROAS and two
+  CPAs and no Meta AOV at all — every assertion was really about CPA-sized
+  behaviour.
+*/
+describe("the canonical unit gates Scale on the real builder", () => {
+  const strong = () =>
+    campaign({
+      id: "cmp_scale",
+      roas: 3.6,
+      purchases: 32,
+      spend: 1800,
+      revenue: 6480,
+      cpa: 50,
+      status: "ACTIVE",
+    });
+
+  function scaleFor(targets: Record<string, unknown> | null) {
+    const row = strong();
+    return buildMetaRecommendations({
+      windows: {
+        selected: [row],
+        previousSelected: [row],
+        last3: [row],
+        last7: [row],
+        last14: [row],
+        last30: [row],
+        last90: [row],
+        allHistory: [row],
+      },
+      breakdowns,
+      calibrationContext,
+      commercialTargets: targets as never,
+    }).recommendations.find((rec) => rec.type === "scale_for_volume");
+  }
+
+  const base = { ...commercialTargets };
+
+  it("READY: authorizes Scale from the Meta-AOV unit", () => {
+    expect(scaleFor(base)).toBeDefined();
+  });
+
+  it("MISSING: withholds Scale instead of falling to the CPA", () => {
+    // The CPAs are still on the pack. Under the old ceiling they authorized a
+    // Scale at 160; the rule says a missing canonical unit HOLDS.
+    expect(scaleFor({ ...base, metaAttributedAov: null })).toBeUndefined();
+  });
+
+  it("THIN: withholds Scale on a sample below the ready bar", () => {
+    expect(
+      scaleFor({ ...base, metaAttributedAov: { aovMean: 180, purchaseCount: 4 } }),
+    ).toBeUndefined();
+  });
+
+  it("NO TARGET ROAS: Scale is unreachable regardless of any CPA", () => {
+    /*
+      The compatibility case, stated for what it actually is HERE.
+      `metaScaleRoasFloor` returns null without a positive Target ROAS, so this
+      builder returns before a ceiling is ever computed — budget expansion needs
+      an explicit operating target, and a typed CPA is not one. The legacy CPA
+      ladder is preserved where it IS reachable: the maturity floor, asserted in
+      `canonical-unit-outranks-cpa.test.ts`.
+    */
+    expect(
+      scaleFor({
+        ...base,
+        targetRoas: null,
+        metaAttributedAov: null,
+        targetCpa: 120,
+        breakEvenCpa: 160,
+      }),
+    ).toBeUndefined();
   });
 });

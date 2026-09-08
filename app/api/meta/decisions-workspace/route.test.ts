@@ -576,7 +576,7 @@ describe("GET /api/meta/decisions-workspace", () => {
     });
   });
 
-  it("keeps every current ACTIVE Ad visible when an exact decision snapshot is pending", async () => {
+  it("counts every current ACTIVE Ad awaiting an exact decision, without deciding it", async () => {
     assignmentsMock.getProviderAccountAssignments.mockResolvedValue({
       id: "assignment_1",
       business_id: "biz_1",
@@ -668,21 +668,37 @@ describe("GET /api/meta/decisions-workspace", () => {
         ]),
       }),
     );
-    expect(payload.os.ads.items).toHaveLength(1);
-    expect(payload.os.ads.items[0]).toMatchObject({
-      adId: "120000000000000001",
-      adName: "Current active Ad",
-      campaignName: "Main Winners",
-      lifecycleRole: "main",
-      campaignRoleSource: "automatic",
-      lane: "blocked",
-      decisionAvailability: "pending_native_evidence",
-      action: { code: "await_ad_grain_evidence", providerMutation: null },
-    });
+    /*
+     * WHAT CHANGED, AND WHY THE CLAIM SURVIVED IT.
+     *
+     * This used to assert a SYNTHESISED decision row: an ACTIVE Ad with no
+     * exact decision was published into `os.ads.items` as a `lane: "blocked"`
+     * placeholder. It is not a decision — every metric on it is null and an
+     * operator cannot act on it — and while it sat in the lane it consumed a
+     * slot of the response cap, counted into `blockedCount`, and inflated
+     * `eligiblePreCapCount` so the surface offered to fetch more decisions
+     * that did not exist. It is now served as a count and a sentence.
+     *
+     * The claim this test exists for is untouched: the ACTIVE inventory still
+     * reaches the read model (asserted immediately above) and the resolver's
+     * explanation still travels verbatim — on the campaign the account is
+     * actually running, which is a decided entity rather than a placeholder.
+     */
+    expect(payload.os.ads.items).toHaveLength(0);
+    expect(payload.os.ads.pendingInventoryCount).toBe(1);
+    expect(payload.os.ads.blockedCount).toBe(0);
+    expect(
+      payload.os.limitations.map((item: { code: string }) => item.code),
+    ).toContain("active_ad_inventory_pending_native_decision");
+
     // D074/D076: the resolver's explanation travels verbatim, and its null
-    // kind stays null even though the display role above is provisionally
-    // "main" — the two are separate claims and must stay distinguishable.
-    expect(payload.os.ads.items[0].campaignRoleExplanation).toEqual({
+    // kind stays null even though the displayed role is provisionally "main" —
+    // the two are separate claims and must stay distinguishable.
+    const campaignNode = payload.os.structure.groups[0].campaign;
+    expect(campaignNode.lifecycleRole).toBe("main");
+    expect(campaignNode.campaignRoleSource).toBe("automatic");
+    expect(campaignNode.campaignRoleTrustedForAction).toBe(false);
+    expect(campaignNode.campaignRoleExplanation).toEqual({
       kind: null,
       confidenceClass: "unknown",
       confidenceScore: 0.34,
@@ -757,8 +773,14 @@ describe("GET /api/meta/decisions-workspace", () => {
     const payload = await response.json();
 
     expect(response.status).toBe(200);
-    expect(payload.os.ads.items).toHaveLength(1);
-    expect(payload.os.ads.items[0].campaignRoleExplanation).toEqual({
+    // Same relocation as above: the un-decided ACTIVE Ad is a count, and the
+    // resolver's "never evaluated" explanation rides the campaign it belongs
+    // to. @see the pending-inventory note earlier in this file.
+    expect(payload.os.ads.items).toHaveLength(0);
+    expect(payload.os.ads.pendingInventoryCount).toBe(1);
+    expect(
+      payload.os.structure.groups[0].campaign.campaignRoleExplanation,
+    ).toEqual({
       kind: null,
       confidenceClass: "unknown",
       confidenceScore: null,

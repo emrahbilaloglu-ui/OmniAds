@@ -4,7 +4,21 @@ import type { MetaAdSetData } from "@/lib/api/meta";
 import { LEGACY_META_CALIBRATION_THRESHOLDS } from "@/lib/meta/calibration";
 import type { MetaCalibrationContext } from "@/lib/meta/recommendations";
 import type { MetaEntityDecisionSignal } from "@/lib/meta/entity-signals";
+import {
+  META_RECENT_EDIT_AUTHORITY_KEY,
+  metaRecentEditAuthorityRecord,
+} from "@/lib/meta/recent-edit-authority";
 
+  /*
+    A ROAS-GOVERNED ACCOUNT WITH ITS OWN READY SAMPLE.
+
+    These fixtures carried a Target ROAS and two CPAs and NO Meta-attributed
+    AOV, which is why they never caught the substitution: with no canonical
+    unit the maturity floor fell to a CPA, and the assertions below were really
+    asserting CPA-sized behaviour on an account whose rule says the CPA governs
+    nothing. A positive Target ROAS admits exactly one unit, so the sample is
+    stated. The CPAs stay: they must be present and must change nothing.
+  */
 const commercialTargets = {
   source: "configured_targets" as const,
   targetRoas: 2.2,
@@ -14,6 +28,7 @@ const commercialTargets = {
   riskPosture: "balanced" as const,
   freshness: "fresh" as const,
   updatedAt: "2026-05-14T00:00:00.000Z",
+  metaAttributedAov: { aovMean: 180, purchaseCount: 60 },
 };
 
 function adset(
@@ -50,11 +65,24 @@ function adset(
   };
 }
 
+/**
+ * ── ROUND 12 ────────────────────────────────────────────────────────────────
+ * A trusted IANA zone and a config-history read that succeeded, built through
+ * the PRODUCTION constructor so the fixture cannot drift from what the backfill
+ * writes. Every hard-action case in this file is an ordinary account, and this
+ * is what an ordinary account carries.
+ */
+const READY_EDIT_AUTHORITY = metaRecentEditAuthorityRecord({
+  status: "ready",
+  reason: "observed",
+  timeZone: "America/Los_Angeles",
+});
+
 function readySignal(
   scopeId = "adset-1",
   overrides: Partial<MetaEntityDecisionSignal> = {},
 ): MetaEntityDecisionSignal {
-  return {
+  const base: MetaEntityDecisionSignal = {
     businessId: "biz_1",
     providerAccountId: "act_1",
     scopeType: "adset",
@@ -72,6 +100,14 @@ function readySignal(
     sourceJson: { age_days: 20 },
     qualityStatus: "ready",
     ...overrides,
+  };
+  return {
+    ...base,
+    // Authority FIRST, so a case that means to withhold it can still say so.
+    sourceJson: {
+      [META_RECENT_EDIT_AUTHORITY_KEY]: READY_EDIT_AUTHORITY,
+      ...base.sourceJson,
+    },
   };
 }
 
@@ -377,6 +413,185 @@ describe("buildMetaAdsetRecommendations funnel cohort gating", () => {
     const scaleRec = recs.find((rec) => rec.type === "adset_scale_budget");
     expect(scaleRec).toBeTruthy();
     expect(scaleRec?.cohort).toBe("purchase");
+  });
+
+  /*
+    ── ROUND 6 ITEM 1 AT THE AD-SET GRAIN ───────────────────────────────────
+    Scale gated on `adset.cpa <= cpa.p75` — the account's own measured
+    cost-per-purchase distribution deciding a purchase-VALUE budget increase on
+    an account whose Target ROAS says only a READY Meta-attributed AOV may
+    answer. It is the same class of number as the typed CPA the rule names,
+    measured instead of typed, and it let a thin-sample account be scaled.
+  */
+  it.each([
+    ["missing", null, "commercial_anchor_missing"],
+    ["thin", { aovMean: 180, purchaseCount: 9 }, "commercial_anchor_sample_insufficient"],
+  ])("does not scale a purchase ad set on a %s Meta sample", (_case, sample, blocker) => {
+    const recs = buildMetaAdsetRecommendations({
+      adsets: [
+        adset({
+          optimizationGoal: "OFFSITE_CONVERSIONS",
+          customEventType: "",
+          spend: 1000,
+          purchases: 12,
+          revenue: 4500,
+          roas: 4.5,
+          cpa: 83,
+          ctr: 2,
+          cpm: 10,
+        }),
+      ],
+      commercialTargets: { ...commercialTargets, metaAttributedAov: sample },
+      calibrationContext: purchaseContext,
+      entitySignalsByAdsetId: { "adset-1": readySignal() },
+    });
+
+    const scaleRec = recs.find((rec) => rec.type === "adset_scale_budget");
+    // Either no candidate at all, or one that authorizes nothing and says why.
+    if (scaleRec) {
+      expect(scaleRec.decisionState).toBe("watch");
+      expect(scaleRec.signalQuality?.hard_action_blocker).toBe(blocker);
+      expect(scaleRec).not.toHaveProperty("targetValue");
+    }
+    expect(recs.some((rec) => rec.decisionState === "act")).toBe(false);
+  });
+
+  it("scales the same ad set on a READY Meta sample, whatever CPAs sit beside it", () => {
+    /*
+      The control AND the conflicting-CPA invariance in one: the ad set's own
+      cost per purchase (83) is ABOVE the account allowance implied by the unit
+      (180 / 2.2 = 81.8) and above the calibrated p75, and neither may refuse a
+      Scale the ratio gate authorized. An ad set whose basket is larger than the
+      account average carries a higher CPA at the same ROAS.
+    */
+    for (const over of [
+      {},
+      { targetCpa: 31 },
+      { breakEvenCpa: 44 },
+      { targetCpa: 31, breakEvenCpa: 44 },
+    ]) {
+      const recs = buildMetaAdsetRecommendations({
+        adsets: [
+          adset({
+            optimizationGoal: "OFFSITE_CONVERSIONS",
+            customEventType: "",
+            spend: 1000,
+            purchases: 12,
+            revenue: 4500,
+            roas: 4.5,
+            cpa: 83,
+            ctr: 2,
+            cpm: 10,
+          }),
+        ],
+        commercialTargets: { ...commercialTargets, ...over },
+        calibrationContext: purchaseContext,
+        entitySignalsByAdsetId: { "adset-1": readySignal() },
+      });
+      const scaleRec = recs.find((rec) => rec.type === "adset_scale_budget");
+      expect(scaleRec, JSON.stringify(over)).toBeTruthy();
+      expect(scaleRec?.decisionState).toBe("act");
+    }
+  });
+
+  it.each([
+    ["missing", null],
+    ["thin", { aovMean: 180, purchaseCount: 9 }],
+  ])(
+    "does NOT cut a relative loser on a %s Meta sample, even above the calibrated floor",
+    (_case, sample) => {
+      /*
+        ROUND 6 AUDIT ITEM 2. The relative cut fell back to the calibrated
+        `hardCutSpend` whenever the canonical maturity was null — which, under a
+        positive Target ROAS, is null for exactly one reason: no READY Meta
+        AOV. That re-opened a purchase-budget spend action on an account with
+        no authoritative money-per-purchase, sized from a spend percentile
+        instead. Spend here is far above any calibrated floor, so a fallback
+        would fire.
+      */
+      const recs = buildMetaAdsetRecommendations({
+        adsets: [
+          adset({
+            optimizationGoal: "OFFSITE_CONVERSIONS",
+            customEventType: "",
+            spend: 40_000,
+            purchases: 4,
+            revenue: 1600,
+            roas: 0.04,
+            cpa: 10_000,
+            ctr: 1,
+            cpm: 10,
+          }),
+        ],
+        commercialTargets: { ...commercialTargets, metaAttributedAov: sample },
+        calibrationContext: purchaseContext,
+        entitySignalsByAdsetId: { "adset-1": readySignal() },
+      });
+
+      expect(recs.some((rec) => rec.type === "adset_cut_spend")).toBe(false);
+      expect(recs.some((rec) => rec.decisionState === "act")).toBe(false);
+    },
+  );
+
+  it("still cuts on the legacy CPA ladder when NO Target ROAS governs", () => {
+    /*
+      The compatibility control for the hold above: with no ratio to divide,
+      `metaLossBudgetMaturity` answers from `breakEvenCpa ?? targetCpa ??
+      accountCpa` and the calibrated floor is legitimate.
+    */
+    const recs = buildMetaAdsetRecommendations({
+      adsets: [
+        adset({
+          optimizationGoal: "OFFSITE_CONVERSIONS",
+          customEventType: "",
+          spend: 40_000,
+          purchases: 4,
+          revenue: 1600,
+          roas: 0.04,
+          cpa: 10_000,
+          ctr: 1,
+          cpm: 10,
+        }),
+      ],
+      commercialTargets: {
+        ...commercialTargets,
+        targetRoas: null,
+        metaAttributedAov: null,
+      },
+      calibrationContext: purchaseContext,
+      entitySignalsByAdsetId: { "adset-1": readySignal() },
+    });
+
+    expect(recs.some((rec) => rec.type === "adset_cut_spend")).toBe(true);
+  });
+
+  it("cuts a relative loser on a Target ROAS alone, with no break-even configured", () => {
+    /*
+      ROUND 6: break-even is NOT a second mandatory user target. The relative
+      path compares against the account's own calibrated distribution and the
+      configured ratio; requiring break-even specifically refused a Cut on an
+      account carrying the one target the product asks for.
+    */
+    const recs = buildMetaAdsetRecommendations({
+      adsets: [
+        adset({
+          optimizationGoal: "OFFSITE_CONVERSIONS",
+          customEventType: "",
+          spend: 4000,
+          purchases: 4,
+          revenue: 1600,
+          roas: 0.4,
+          cpa: 1000,
+          ctr: 1,
+          cpm: 10,
+        }),
+      ],
+      commercialTargets: { ...commercialTargets, breakEvenRoas: null },
+      calibrationContext: purchaseContext,
+      entitySignalsByAdsetId: { "adset-1": readySignal() },
+    });
+
+    expect(recs.some((rec) => rec.type === "adset_cut_spend")).toBe(true);
   });
 
   it("does not emit hard purchase adset scale or cut without commercial targets", () => {

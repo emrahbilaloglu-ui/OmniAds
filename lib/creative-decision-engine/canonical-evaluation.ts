@@ -24,8 +24,67 @@ import type {
   SpendUnitProfile,
 } from "./types";
 
+import {
+  projectAccountCpaForIdentity,
+  projectSpendUnitWarningsForIdentity,
+  targetRoasGoverns,
+  type CommercialTargetPackFacts,
+} from "@/lib/creative-decision-engine/commercial-semantic-projection";
+
+/**
+ * The ENVELOPE contract: which fields are canonicalized, in what order, and how
+ * they are hashed.
+ *
+ * It is deliberately independent of what the producer decides. A change in
+ * decision semantics moves `ENGINE_VERSION` / `NATIVE_AD_ENGINE_VERSION` (see
+ * their comment in ./types.ts) and shows up as new `decisionHash` values under
+ * a new epoch; this constant moves only when the encoding itself changes, so
+ * that a snapshot written under an older epoch stays parseable by exactly the
+ * reader that wrote it.
+ *
+ * `.v6` MOVED because the encoding changed, not because the producer did.
+ * `normalizeSpendUnitEvidence` below stopped spreading `SpendUnitEvidence`
+ * wholesale and now enumerates the members it canonicalizes, dropping the three
+ * Shopify members and the Shopify-derived warnings. The producer is untouched:
+ * `resolveSpendUnit` (spend-unit-resolver.ts) still resolves the store
+ * observation, the profile still carries it and every surface still serves it —
+ * only which fields this envelope hashes changed, which is exactly what this
+ * constant names. Under `.v5` the bare spread meant the hashed field list was
+ * whatever `SpendUnitEvidence` happened to carry, so adding the Shopify members
+ * to that interface silently moved every `contextHash` without moving any
+ * version key at all. The enumeration below is what stops that recurring.
+ *
+ * `.v7` MOVES for the same class of reason, one step further. `.v6` projected
+ * the Shopify members out and left the other non-authoritative commercial
+ * inputs in — the operator's `targetCpa`, their `operatorAovAssumption`, and
+ * the `target_cpa_missing` / `operator_aov_missing` warnings that flip the
+ * moment either is typed or cleared. Under a governing Target ROAS none of
+ * them can change the verdict, so a CPA-only edit moved `contextHash` and
+ * reported itself as a changed decision. `normalizeSpendUnitEvidence` now
+ * applies the shared projection in `commercial-semantic-projection.ts`, which
+ * is the same one the native authority hashes and the D086 fingerprints use,
+ * so the three families cannot drift apart again. The no-Target-ROAS case is
+ * projected unchanged: there the legacy CPA is the anchor and it still keys
+ * identity.
+ */
 export const CANONICAL_EVALUATION_CONTRACT_VERSION =
-  "engine-v3-canonical-evaluation.v5" as const;
+  /*
+    `.v9` — the SAME projection is now applied to `accountBaselines` and to
+    every entry of `accountBaselinesByKind`.
+
+    `.v8` closed the account-CPA door in `normalizeSpendUnitEvidence` and left
+    it open two fields away: `AccountCalibration` carries `accountCpaP50` and
+    `accountCpaSampleCount` too, and `normalizeAccountCalibration` spread them
+    raw. The stated goal of `.v8` — that a re-measured account CPA cannot
+    discard a retained verdict it could not have changed — was therefore not
+    actually achieved on a ROAS-governed account, because the number still
+    reached `contextHash` through the baselines. Same facts, different digest,
+    so the version moves rather than letting `.v8` mean two encodings.
+
+    Rows written under `.v8` and earlier stay readable under their own key and
+    are never recomputed under current semantics.
+  */
+  "engine-v3-canonical-evaluation.v9" as const;
 
 export type CanonicalJsonPrimitive = string | number | boolean | null;
 export type CanonicalJsonValue =
@@ -407,11 +466,93 @@ function normalizeScope(scope: DecisionProfileScope): CanonicalJsonObject {
   });
 }
 
+/**
+ * Prefix of every warning `baseEvidence` derives from the store observation.
+ *
+ * It is built there as `` `observed_shopify_aov_${status}` `` for any status
+ * other than `observed` (spend-unit-resolver.ts, `baseEvidence`). Eleven of the
+ * twelve `ObservedShopifyAovStatus` members therefore each push a DIFFERENT
+ * string into `warnings` and `observed` pushes none. `warnings` is a hashed
+ * member, so without this filter a store-only status change still moved
+ * `contextHash` after the three Shopify members were excluded below — the same
+ * leak through a second door.
+ *
+ * Filtering here rather than in the resolver keeps the warning on the SERVED
+ * profile, where an operator reading a withheld unit needs to see which book
+ * was consulted; it only stops the warning from being part of identity. Nothing
+ * downstream reads it for a decision: the only warning any gate inspects is
+ * `commercial_target_freshness_unknown` (`engine.ts`, `initialConfidenceDeltas`).
+ */
+const SHOPIFY_DERIVED_WARNING_PREFIX = "observed_shopify_aov_";
+
+/**
+ * The hashed projection of `SpendUnitEvidence`, enumerated member by member.
+ *
+ * Enumerated on purpose. The `.v5` implementation spread the whole interface,
+ * which made the hashed field list track the TYPE rather than this contract: a
+ * member added to `SpendUnitEvidence` for any reason entered every
+ * `contextHash` with no version key moving. That is how the store observation
+ * got into evaluation identity in the first place.
+ *
+ * The three Shopify members and the Shopify-derived warnings are absent BY
+ * CONTRACT, not by oversight. For a Meta decision the hard-decision spend unit
+ * is Meta's own attributed AOV over the target ROAS; the store's books are
+ * diagnostic evidence beside that unit and choose nothing (see the ladder note
+ * in `resolveSpendUnit`). Evidence that chooses nothing must not move identity
+ * either, or a Shopify-only change reports itself as a changed decision.
+ */
 function normalizeSpendUnitEvidence(
   evidence: SpendUnitEvidence,
 ): Record<string, unknown> {
+  /*
+    THE SAME PROJECTION THE OTHER TWO HASH FAMILIES USE.
+
+    `.v6` enumerated the Shopify members out and stopped there, which left the
+    OTHER non-authoritative numbers in: `targetCpa` and
+    `operatorAovAssumption`, plus the `target_cpa_missing` /
+    `operator_aov_missing` warnings that flip the moment an operator types or
+    clears a CPA. With a governing Target ROAS none of them can change the
+    verdict — the unit is Meta's attributed AOV over the ratio — so a CPA-only
+    edit reported itself as a changed decision and discarded a retained one.
+
+    `.v8` closes the last door in this projection. `accountCpaP50` and
+    `accountCpaSampleCount` were deliberately KEPT hashed, and the reason was
+    written down here: under a Target ROAS with an unusable Meta AOV the ladder
+    FELL THROUGH to the `account_history` rung, so the account's median CPA
+    could still choose the unit. `resolveSpendUnit` no longer falls through —
+    the governed branch answers READY-or-`insufficient` — so under a governing
+    Target ROAS the account CPA chooses nothing and must not key identity
+    either. Without a Target ROAS the rung is still reachable and both fields
+    still key it, unchanged.
+  */
+  const pack = {
+    targetRoas: evidence.targetRoas,
+    breakEvenRoas: evidence.breakEvenRoas,
+    targetCpa: evidence.targetCpa,
+    operatorAovAssumption: evidence.operatorAovAssumption,
+  };
+  const governed = targetRoasGoverns(pack);
+  const accountCpa = projectAccountCpaForIdentity(pack, {
+    accountCpaP50: evidence.accountCpaP50,
+    accountCpaSampleCount: evidence.accountCpaSampleCount,
+  });
   return {
-    ...evidence,
+    targetCpa: governed ? null : evidence.targetCpa,
+    operatorAovAssumption: governed ? null : evidence.operatorAovAssumption,
+    metaAttributedAovMean90d: evidence.metaAttributedAovMean90d,
+    metaAttributedAovPurchaseCount90d:
+      evidence.metaAttributedAovPurchaseCount90d,
+    metaAttributedRevenue90d: evidence.metaAttributedRevenue90d,
+    targetRoas: evidence.targetRoas,
+    breakEvenRoas: evidence.breakEvenRoas,
+    accountCpaP50: accountCpa.accountCpaP50,
+    accountCpaSampleCount: accountCpa.accountCpaSampleCount,
+    warnings: projectSpendUnitWarningsForIdentity(
+      evidence.warnings.filter(
+        (warning) => !warning.startsWith(SHOPIFY_DERIVED_WARNING_PREFIX),
+      ),
+      pack,
+    ),
     confidenceBeforeFreshness: evidence.confidenceBeforeFreshness ?? null,
   };
 }
@@ -435,11 +576,33 @@ function normalizeHardActionEligibility(
   };
 }
 
+/**
+ * The account's calibration baselines, as an identity may see them.
+ *
+ * THE OTHER DOOR THE `.v8` PROJECTION LEFT OPEN. `normalizeSpendUnitEvidence`
+ * stopped hashing `accountCpaP50` / `accountCpaSampleCount` under a governing
+ * Target ROAS — but `AccountCalibration` carries the SAME two fields, and this
+ * spread them raw into `accountBaselines` and every entry of
+ * `accountBaselinesByKind`. So the numbers left one half of the context payload
+ * and stayed in the other, and one more purchase in the account's measured
+ * history still moved `contextHash`, `inputHash` and `decisionHash` and
+ * reported itself as a changed decision.
+ *
+ * The `pack` is the same one `normalizeSpendUnitEvidence` builds, so both
+ * halves branch on one predicate and cannot disagree about which case the
+ * account is in. Without a Target ROAS the `account_history` rung is reachable,
+ * both fields genuinely choose the unit, and they are hashed exactly as before.
+ */
 function normalizeAccountCalibration(
   calibration: AccountCalibration,
+  pack: CommercialTargetPackFacts,
 ): Record<string, unknown> {
   return {
     ...calibration,
+    ...projectAccountCpaForIdentity(pack, {
+      accountCpaP50: calibration.accountCpaP50,
+      accountCpaSampleCount: calibration.accountCpaSampleCount,
+    }),
     campaignKind: calibration.campaignKind ?? null,
   };
 }
@@ -506,6 +669,18 @@ function normalizeAccountProfile(
     commercialStopLossCanonicalEligibility !== null;
   const expandedEconomicCutAuthority =
     profile.expandedEconomicCutAuthority;
+  /*
+    The one commercial pack this whole profile projection branches on, built
+    from the same four fields `normalizeSpendUnitEvidence` reads. Derived once
+    here so the evidence half and the baselines half of the payload cannot
+    answer "does a Target ROAS govern this account" differently.
+  */
+  const identityTargetPack: CommercialTargetPackFacts = {
+    targetRoas: profile.spendUnitEvidence.targetRoas,
+    breakEvenRoas: profile.spendUnitEvidence.breakEvenRoas,
+    targetCpa: profile.spendUnitEvidence.targetCpa,
+    operatorAovAssumption: profile.spendUnitEvidence.operatorAovAssumption,
+  };
   return canonicalObject({
     businessId: profile.businessId,
     asOfDate: profile.asOfDate,
@@ -543,11 +718,15 @@ function normalizeAccountProfile(
             reason: expandedEconomicCutAuthority.reason,
           }),
         }),
-    accountBaselines: normalizeAccountCalibration(profile.accountBaselines),
+    accountBaselines: normalizeAccountCalibration(
+      profile.accountBaselines,
+      identityTargetPack,
+    ),
     funnelCalibration: normalizeFunnelCalibration(profile.funnelCalibration),
     accountBaselinesByKind: mapNullableRecord(
       profile.accountBaselinesByKind,
-      normalizeAccountCalibration,
+      (calibration) =>
+        normalizeAccountCalibration(calibration, identityTargetPack),
     ),
     spendUnitByKind: mapNullableRecord(
       profile.spendUnitByKind,

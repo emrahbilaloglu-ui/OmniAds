@@ -27,7 +27,7 @@ describe("provider account snapshots", () => {
     let claimOwner: string | null = null;
     let claimEpoch = 0;
     const queries: string[] = [];
-    const sql = vi.fn(async (strings: TemplateStringsArray, ...values: unknown[]) => {
+    const sqlTag = vi.fn(async (strings: TemplateStringsArray, ...values: unknown[]) => {
       const query = strings.join(" ");
       queries.push(query);
 
@@ -45,17 +45,30 @@ describe("provider account snapshots", () => {
         if (typeof epoch === "number") claimEpoch = epoch;
       }
 
-      // The claim CAS. It joins the run to its connection and locks the run row,
-      // so connection generation, claim owner and claim epoch are settled in ONE
-      // statement instead of three separately-racy reads. Checked BEFORE the
-      // generic run read below, which would otherwise shadow it.
-      if (query.includes("FOR UPDATE OF run")) {
+      /*
+        The claim CAS, which is now TWO locking statements rather than one
+        joined read (Round 23, item 2): the shared `provider_connections` row is
+        locked first -- matching the only lock `upsertIntegration` takes, so the
+        two paths acquire it in the same order -- and the run row second.
+        `FOR UPDATE` cannot be applied to the nullable side of an outer join, so
+        the join could never have locked the connection it was comparing.
+        Checked BEFORE the generic run read below, which would otherwise shadow
+        them.
+      */
+      if (
+        query.includes("FROM provider_connections") &&
+        query.includes("FOR UPDATE")
+      ) {
+        return [{ connection_generation: null, connection_status: null }];
+      }
+      if (
+        query.includes("provider_account_snapshot_runs run") &&
+        query.includes("FOR UPDATE")
+      ) {
         return [
           {
             refresh_claim_owner: claimOwner,
             refresh_claim_epoch: String(claimEpoch),
-            connection_generation: null,
-            connection_status: null,
           },
         ];
       }
@@ -131,6 +144,20 @@ describe("provider account snapshots", () => {
 
       return [];
     });
+    /*
+      ROUND 22, ITEM 1: the real client exposes BOTH the tagged-template form and
+      `query(text, params)`. This double only had the first, so it stopped being a
+      faithful stand-in the moment a statement here was assembled rather than
+      templated -- which is what the timezone-authority switch requires, since the
+      ON CONFLICT rule is chosen in code rather than interpolated as a value.
+      Completing the double, not relaxing the assertions.
+    */
+    const sql = Object.assign(sqlTag, {
+      query: vi.fn(async (text: string) => {
+        queries.push(text);
+        return [] as Array<Record<string, unknown>>;
+      }),
+    });
     vi.mocked(db.getDb).mockReturnValue(sql as never);
 
     const { resolveProviderAccountSnapshot } = await import("@/lib/provider-account-snapshots");
@@ -138,6 +165,14 @@ describe("provider account snapshots", () => {
       businessId: "biz_1",
       provider: "meta",
       liveLoader: async () => [{ id: "acc_1", name: "Account 1", currency: "USD", timezone: "UTC" }],
+      /*
+        ROUND 23, ITEM 1: required now, and compared STRICTLY. This double's
+        connection query answers with no rows, so the generation observed at
+        claim time is null and the caller must say null to match -- which is
+        the point: "I read the credential when there was no connection" is a
+        statement, not an omission.
+      */
+      expectedConnectionGeneration: null,
     });
 
     expect(snapshot.accounts).toEqual([
@@ -157,15 +192,52 @@ describe("provider account snapshots", () => {
     // took. An old claimant that fails this compare-and-set writes nothing.
     expect(claimOwner).toMatch(/^\d+:[0-9a-f-]{36}$/);
     expect(claimEpoch).toBe(1);
-    expect(queries.some((text) => text.includes("FOR UPDATE OF run"))).toBe(true);
+    /*
+      ── ROUND 23, ITEM 2 ──────────────────────────────────────────────────────
+      This pinned `FOR UPDATE OF run`, which is the DEFECT: the connection row
+      was read through a LEFT JOIN and never locked, so `upsertIntegration`
+      could commit a reconnect between the generation check and the timezone
+      write inside the same transaction.
+
+      Both locks are pinned now, and so is their ORDER. The order is not a
+      preference: `upsertIntegration` takes the connection row and only the
+      connection row, so acquiring it first here is what keeps the two paths
+      from deadlocking while still serialising them.
+    */
+    const connectionLockAt = queries.findIndex(
+      (text) => text.includes("FROM provider_connections") && text.includes("FOR UPDATE"),
+    );
+    const runLockAt = queries.findIndex(
+      (text) =>
+        text.includes("provider_account_snapshot_runs run") && text.includes("FOR UPDATE"),
+    );
+    expect(connectionLockAt, "the connection row must be locked").toBeGreaterThan(-1);
+    expect(runLockAt, "the run row must be locked").toBeGreaterThan(-1);
+    expect(connectionLockAt).toBeLessThan(runLockAt);
+    // And never the shape that could not lock what it compared.
+    expect(queries.some((text) => text.includes("FOR UPDATE OF run"))).toBe(false);
   });
 
   it("clears canonical snapshot runs by business/provider", async () => {
     const queries: string[] = [];
-    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+    const sqlTag = vi.fn(async (strings: TemplateStringsArray) => {
       const query = strings.join(" ");
       queries.push(query);
       return [];
+    });
+    /*
+      ROUND 22, ITEM 1: the real client exposes BOTH the tagged-template form and
+      `query(text, params)`. This double only had the first, so it stopped being a
+      faithful stand-in the moment a statement here was assembled rather than
+      templated -- which is what the timezone-authority switch requires, since the
+      ON CONFLICT rule is chosen in code rather than interpolated as a value.
+      Completing the double, not relaxing the assertions.
+    */
+    const sql = Object.assign(sqlTag, {
+      query: vi.fn(async (text: string) => {
+        queries.push(text);
+        return [] as Array<Record<string, unknown>>;
+      }),
     });
     vi.mocked(db.getDb).mockReturnValue(sql as never);
 

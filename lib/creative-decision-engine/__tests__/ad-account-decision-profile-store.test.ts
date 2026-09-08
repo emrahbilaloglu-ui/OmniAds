@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { NATIVE_AD_CALIBRATION_CONTRACT_VERSION } from "../jobs/ad-calibration-job";
 
 import type { DbClient } from "@/lib/db";
 import {
@@ -15,6 +16,7 @@ import {
   NATIVE_AD_CALIBRATION_POLICY_VERSION,
   NATIVE_AD_CALIBRATION_TABLE,
   READ_NATIVE_AD_TARGET_AUTHORITY_FOR_ACCOUNT_SQL,
+  NATIVE_AD_SPEND_UNIT_AUTHORITY_CONTRACT_VERSION,
   buildNativeAdOptimizationContext,
   computeNativeAdCalibrationBatch,
   recomputeNativeAdCalibrationCellInputManifestHash,
@@ -55,22 +57,65 @@ const AOV_ONLY_TARGET: NativeAdTargetAuthorityInput = {
   operatorAovAssumption: null,
 };
 
-function targetCpaSpendUnitAuthority(
+/*
+  RE-PINNED for the reordered spend-unit ladder.
+
+  This helper used to mint `basis: "target_cpa"` over an `unavailable` account
+  AOV evidence. The target pack it is built against carries a Target ROAS as
+  well as a legacy Target CPA, and with a Target ROAS the only lane
+  `buildNativeAdSpendUnitAuthority` has is Meta's own attributed AOV over that
+  ratio — so a stored `target_cpa` basis now matches no expected basis and
+  `nativeSpendUnitAuthorityMatchesTarget` fails it CLOSED as
+  `native_target_authority_mismatch`. That refusal is the new rule working, not
+  a defect in these fixtures.
+
+  The evidence below is therefore `ready` at a mean of 100.00 over 20 purchases,
+  which reproduces the SAME `baseSpendUnit` of 50 (100 / targetRoas 2) that the
+  Target CPA supplied, so every downstream threshold in these suites is
+  unchanged and only the provenance moved.
+*/
+function persistedSpendUnitAuthority(
   targetAuthority: ReturnType<typeof resolveNativeAdTargetAuthority>,
 ): NativeAdSpendUnitAuthority {
+  /*
+    Both cases of the ladder, because these suites build cells for packs with a
+    Target ROAS and for packs without one. It mirrors
+    `buildNativeAdSpendUnitAuthority`: with a Target ROAS the basis is the
+    platform AOV over that ratio, and only without one does the legacy Target
+    CPA govern.
+  */
+  const roasAnchored =
+    targetAuthority.targetRoasAuthority &&
+    typeof targetAuthority.targetRoas === "number" &&
+    targetAuthority.targetRoas > 0;
   const authority: NativeAdSpendUnitAuthority = {
-    contractVersion: "engine-v3-native-ad-spend-unit-authority.v1",
+    /*
+      THE CURRENT CONTRACT, where this fixture used to hardcode `.v1`.
+
+      Every case in this file that expects a hydrated cell to AUTHORIZE was
+      therefore asserting that a historical authority governs a current
+      decision — which is the defect Codex A6 closes. The subject of those
+      cases is target-authority staleness and proof semantics, not spend-
+      authority versioning, so the fixture now mints what the producer mints
+      and the version transition is exercised deliberately, once, at the end of
+      this file.
+    */
+    contractVersion: NATIVE_AD_SPEND_UNIT_AUTHORITY_CONTRACT_VERSION,
     status: "ready",
-    basis: "target_cpa",
+    basis: roasAnchored
+      ? "physical_account_purchase_aov_90d"
+      : "target_cpa",
     businessId: BUSINESS_ID,
     providerAccountRefId: PROVIDER_ACCOUNT_REF_ID,
     providerAccountId: "act-native",
     accountCurrency: "USD",
     asOfCutoff: CUTOFF,
     targetAuthorityHash: targetAuthority.authorityHash,
-    baseSpendUnit: targetAuthority.targetCpa,
+    baseSpendUnit: roasAnchored
+      ? 100 / targetAuthority.targetRoas!
+      : targetAuthority.targetCpa,
     accountAovEvidence: {
-      status: "unavailable",
+      status: "ready",
       scope: "business_provider_account_currency",
       businessId: BUSINESS_ID,
       providerAccountRefId: PROVIDER_ACCOUNT_REF_ID,
@@ -79,15 +124,15 @@ function targetCpaSpendUnitAuthority(
       sampleWindowStart: "2026-04-14",
       sampleWindowEnd: AS_OF,
       asOfCutoff: CUTOFF,
-      observedPurchaseCount: 0,
+      observedPurchaseCount: 20,
       requiredPurchaseCount: 20,
-      revenueBackedRowCount: 0,
-      canonicalRowCount: 0,
+      revenueBackedRowCount: 20,
+      canonicalRowCount: 20,
       contradictoryRowCount: 0,
       legacySchemaRowCount: 0,
       unsupportedSchemaRowCount: 0,
-      totalRevenue: 0,
-      meanAov: null,
+      totalRevenue: 2000,
+      meanAov: 100,
       evidenceHash: "4".repeat(64),
     },
     authorityHash: "",
@@ -144,7 +189,7 @@ function nativeCellRow(
       "PURCHASE",
     )!,
   };
-  const spendUnitAuthority = targetCpaSpendUnitAuthority(target);
+  const spendUnitAuthority = persistedSpendUnitAuthority(target);
   const actionReadiness = resolveNativeAdCalibrationActionReadiness({
     key,
     matureAdCount: 30,
@@ -239,6 +284,10 @@ function nativeCellRow(
     computed_at: CUTOFF,
     batch_id: "00000000-0000-4000-8000-000000000754",
     batch_completeness: "complete",
+    // ROUND 9 ITEM 5. A persisted row carries its minted contract, and the cell
+    // must agree with its batch — the reader enforces both.
+    contract_version: NATIVE_AD_CALIBRATION_CONTRACT_VERSION,
+    batch_contract_version: NATIVE_AD_CALIBRATION_CONTRACT_VERSION,
     batch_cell_count: 1,
     batch_cell_set_hash: "4".repeat(64),
   };
@@ -274,6 +323,7 @@ function nativeCellRow(
     inputManifestHash: "0".repeat(64),
     sourceManifestHash: String(row.source_manifest_hash),
     qualityCounts,
+    contractVersion: NATIVE_AD_CALIBRATION_CONTRACT_VERSION,
   } satisfies NativeAdCalibrationCell;
   row.input_manifest_hash =
     recomputeNativeAdCalibrationCellInputManifestHash(cell);
@@ -469,6 +519,8 @@ describe("WarehouseNativeAdAccountProfileDataSource", () => {
     const persistedRow = {
       ...row!,
       batch_completeness: "complete",
+      contract_version: NATIVE_AD_CALIBRATION_CONTRACT_VERSION,
+      batch_contract_version: NATIVE_AD_CALIBRATION_CONTRACT_VERSION,
       batch_cell_count: batch.expectedCellCount,
       batch_cell_set_hash: batch.cellSetHash,
     };
@@ -893,8 +945,20 @@ describe("WarehouseNativeAdAccountProfileDataSource", () => {
       {
         label: "physical-account AOV basis carries unavailable evidence",
         mutate: (authority) => {
+          // The base fixture now mints this basis over READY evidence, so the
+          // forgery has to withdraw the evidence rather than only rename the
+          // basis: the rule under test is that the two cannot disagree.
           authority.basis = "physical_account_purchase_aov_90d";
           authority.baseSpendUnit = 50;
+          authority.accountAovEvidence = {
+            ...authority.accountAovEvidence,
+            status: "unavailable",
+            observedPurchaseCount: 0,
+            revenueBackedRowCount: 0,
+            canonicalRowCount: 0,
+            totalRevenue: 0,
+            meanAov: null,
+          };
         },
       },
       {
@@ -1191,5 +1255,54 @@ describe("native ad profile schema gate", () => {
     await expect(
       inspectNativeAdProfileSchemaCapability(missingDb),
     ).resolves.toMatchObject({ ready: false });
+  });
+});
+
+/*
+  CODEX A6 — A HISTORICAL SPEND AUTHORITY IS READABLE, NOT AUTHORITATIVE.
+
+  `nativeSpendUnitAuthorityMatchesTarget` applied TODAY's ladder to every
+  persisted authority, whatever contract minted it. A row written under an
+  older contract — when the rungs, the hashed content, or both, were different
+  — was therefore judged under semantics it had never been produced under. Two
+  ways that goes wrong, and only one of them is loud: an old row could be
+  declared a match and go on to AUTHORIZE a current decision, or a row valid
+  under its own contract could be declared a mismatch and take the whole native
+  job down with `native_target_authority_mismatch`.
+
+  These cases drive the REAL exported resolver over a hydrated cell, so they
+  exercise the gate where production reaches it.
+*/
+describe("spend-authority version transitions", () => {
+  const HISTORICAL_VERSIONS = [
+    "engine-v3-native-ad-spend-unit-authority.v1",
+    "engine-v3-native-ad-spend-unit-authority.v2",
+    "engine-v3-native-ad-spend-unit-authority.v3",
+  ] as const;
+
+  it("refuses to authorize on any superseded contract version", async () => {
+    const row = nativeCellRow();
+    for (const version of HISTORICAL_VERSIONS) {
+      /*
+        Everything else about the row is left exactly as the current producer
+        wrote it, and the authority hash is RECOMPUTED so the row stays
+        internally consistent and hash-verifiable. The only thing that differs
+        is the contract that claims to have minted it — which is precisely the
+        state a real historical row is in.
+      */
+      const result = await resolveNativeCell(
+        forgeSpendUnitAuthority(row, (authority) => {
+          (authority as { contractVersion: string }).contractVersion = version;
+        }),
+      );
+      expect(result, version).not.toMatchObject({ status: "ready" });
+    }
+  });
+
+  it("still authorizes the current contract version, so the gate is not blanket", async () => {
+    // The control. Without it, a resolver that refused everything would pass
+    // the case above while proving nothing about version scoping.
+    const result = await resolveNativeCell(nativeCellRow());
+    expect(result).toMatchObject({ status: "ready" });
   });
 });

@@ -6,6 +6,17 @@ import {
   syncMetaAccountCoreWarehouseDay,
 } from "@/lib/api/meta";
 import { isMetaAuthoritativeFinalizationV2EnabledForBusiness } from "@/lib/meta/authoritative-finalization-config";
+import { META_AUTHORITY_BOOTSTRAP_MAX_ATTEMPTS } from "@/lib/meta/recent-edit-authority";
+import {
+  claimMetaAuthorityBootstrapAttempt,
+  readMetaAuthorityBootstrapProbe,
+} from "@/lib/meta/config-observation-attestation";
+import {
+  providerLocalCalendarDate,
+  providerLocalDayEndExclusive,
+  readMetaAccountTimeZones,
+} from "@/lib/meta/provider-local-day";
+import { sanitizeMetaGraphTraceId } from "@/lib/meta/graph-trace-id";
 import { syncMetaCreativesWarehouseDay } from "@/lib/meta/creatives-warehouse";
 import {
   META_PRODUCT_CORE_PARTITION_SCOPE,
@@ -278,7 +289,7 @@ async function captureMetaPartitionStage<T>(input: {
     return result;
   } catch (error) {
     const taggedError = tagMetaPartitionStageError(error, input.stage);
-    const errorMessage = taggedError instanceof Error ? taggedError.message : String(taggedError);
+    const errorMessage = durableMetaFailureMessage(taggedError);
     logRuntimeWarn("meta-sync", "partition_stage_failed", buildMetaPartitionStagePayload({
       businessId: input.businessId,
       providerAccountId: input.providerAccountId,
@@ -294,6 +305,72 @@ async function captureMetaPartitionStage<T>(input: {
     }));
     throw taggedError;
   }
+}
+
+/**
+ * The failure text this module is allowed to PERSIST and LOG.
+ *
+ * WHY A FUNCTION AND NOT `error.message`. A provider refusal used to arrive
+ * here as `new Error(json.error.message)` — Meta's own prose, which routinely
+ * quotes the request that was refused — and every partition failure path wrote
+ * it straight into `meta_sync_partitions.last_error`,
+ * `meta_sync_runs.error_message` and the operator-facing logs. Those columns
+ * are durable, are read by people, and are not the place for a third party's
+ * free text.
+ *
+ * `lib/api/meta.ts` now refuses a Graph page as a `MetaGraphRequestError`
+ * carrying the STRUCTURED identity (`httpStatus`, `errorCode`, `errorSubcode`,
+ * `isTransient`, `fbtraceId`) and a message built from those numbers. This
+ * function composes the durable record from those fields — never from the
+ * carrier's message — so no path can reintroduce provider prose by throwing a
+ * differently-worded Graph error.
+ *
+ * Duck-typed on purpose, exactly as `readGraphErrorIdentity` in
+ * `lib/sync/meta-error-classification.ts` is: the sync layer classifies Graph
+ * failures without taking a dependency on the Graph client.
+ *
+ * Errors that are NOT Graph refusals keep their message. Those are this
+ * codebase's own text — a lease conflict, a database error, an assertion — and
+ * suppressing them would blind the operator to the failures they can act on.
+ */
+export function durableMetaFailureMessage(error: unknown): string {
+  const carrier =
+    error != null && typeof error === "object"
+      ? (error as Record<string, unknown>)
+      : null;
+  if (carrier?.name === "MetaGraphRequestError") {
+    const field = (key: string) => {
+      const value = carrier[key];
+      if (value === null || value === undefined || value === "") return "none";
+      return String(value);
+    };
+    /*
+      `fbtraceId` IS THE ONE FIELD A THIRD PARTY WRITES.
+
+      Every other member composed here is a number, a boolean or a termination
+      string this codebase chose. `field()` would `String(...)` the trace id
+      whatever it held — so prose, a newline that splits the durable record in
+      two, or one of the `:`/`=`/` ` delimiters this very message uses as
+      structure would be written straight into
+      `meta_sync_partitions.last_error` and `meta_sync_runs.error_message`.
+      The shared rule is applied here as well as at parse time, so a carrier
+      built by some other route cannot smuggle a value through the formatter.
+    */
+    const fbtrace = sanitizeMetaGraphTraceId(carrier.fbtraceId) ?? "none";
+    return [
+      `meta_graph_refusal:${field("termination")}`,
+      `status=${field("httpStatus")}`,
+      `code=${field("errorCode")}`,
+      `subcode=${field("errorSubcode")}`,
+      `transient=${
+        typeof carrier.isTransient === "boolean"
+          ? String(carrier.isTransient)
+          : "unknown"
+      }`,
+      `fbtrace=${fbtrace}`,
+    ].join(" ");
+  }
+  return error instanceof Error ? error.message : String(error);
 }
 
 async function heartbeatMetaPartitionBeforeCompletion(input: {
@@ -1758,11 +1835,38 @@ async function getMetaDailyCoverageState(input: {
   day: string;
   referenceToday?: string | null;
 }) {
-  if (isMetaAuthoritativeFinalizationV2EnabledForBusiness(input.businessId)) {
+  /*
+    ── ROUND 20, ITEM 1: THE CURRENT DAY IS NEVER "PUBLISHED" ────────────────
+
+    Under authoritative-finalization V2 this asked
+    `getMetaPublishedVerificationSummary(...).truthReady` for EVERY day. That is
+    the right question for a finalized day and an impossible one for the current
+    day: the current day is PROVISIONAL by construction, the core sync never
+    publishes authoritative slices for it, so `truthReady` is false no matter how
+    complete the account's own daily rows are.
+
+    Two consequences, both silent. Current-day coverage never reads complete, so
+    the coverage short-circuit never engages — and the recent-edit authority
+    bootstrap, which only fires when coverage WOULD otherwise skip the core
+    sync, could never engage either. Every current-day partition took the
+    ordinary incomplete-coverage path and the bootstrap was unreachable in
+    production.
+
+    The current day therefore uses the raw account+campaign+adset daily
+    coverage below, which measures what has actually been ingested. V2's
+    published-truth question is reserved for the historical/finalized days it
+    was written for.
+  */
+  const referenceToday =
+    input.referenceToday ?? new Date().toISOString().slice(0, 10);
+  const isCurrentDay = normalizeMetaPartitionDate(input.day) === referenceToday;
+  if (
+    !isCurrentDay &&
+    isMetaAuthoritativeFinalizationV2EnabledForBusiness(input.businessId)
+  ) {
     const requiredSurfaces = getMetaPlannerRequiredPublishedSurfacesForDay({
       day: input.day,
-      referenceToday:
-        input.referenceToday ?? new Date().toISOString().slice(0, 10),
+      referenceToday,
     });
     const verification = await getMetaPublishedVerificationSummary({
       businessId: input.businessId,
@@ -1851,16 +1955,168 @@ export function isMetaAuthoritativeHistoricalSource(source: string) {
   ]).has(source);
 }
 
+/**
+ * ── ROUND 17, ITEMS 1 AND 2: THE BOOTSTRAP DECISION ─────────────────────────
+ *
+ * Exported so the production sync path and its lifecycle test drive the SAME
+ * function. The decision has a WRITE side effect — it records the attempt in
+ * the durable ledger before returning true — so it cannot live inside a pure
+ * predicate, and it cannot honestly be proven by two disconnected halves.
+ *
+ * ITEM 1 — THE SAME TIMEZONE AUTHORITY THE ACTION PATH USES. This used to read
+ * `credentials.accountProfiles[...].timezone`, a value carried in the caller's
+ * credential payload. The recent-edit authority resolves the zone from the
+ * exact `business_provider_accounts` -> `provider_accounts` binding via
+ * `readMetaAccountTimeZones`. Two sources means two provider-local days: the
+ * bootstrap could decide an account was recoverable on one calendar while the
+ * authority judged its evidence on another. The binding is now the only source.
+ *
+ * AND A MISSING OR UNTRUSTED ZONE NO LONGER BYPASSES. Round 16 treated an
+ * unresolvable zone as "unknown, so allow the repair". A config refetch cannot
+ * heal a timezone — the authority holds on `provider_timezone_untrusted`
+ * however many times the provider is called — so that bypass was a
+ * guaranteed-useless provider request. No trusted zone, no bypass.
+ *
+ * ITEM 2 — THE ATTEMPT IS RECORDED BEFORE THE CALL. Every path returning true
+ * has already written a ledger row, so a zero-receipt failure and a
+ * campaign-only commit each count exactly once. Any provenance or ledger
+ * failure returns false: an uncounted attempt is how a bounded retry becomes a
+ * provider-call loop.
+ */
+/**
+ * ── ROUND 18, ITEM A3: THE PARTITION'S ONE BOUND DATE ───────────────────────
+ *
+ * Resolved from the DB binding the recent-edit authority uses, once, at
+ * partition start. `trusted` is false when no binding or no usable zone exists;
+ * the credential zone is then used only to keep `truthState` behaving as it
+ * always has, and the bootstrap refuses outright rather than reasoning about a
+ * day it cannot establish.
+ */
+export interface MetaPartitionDateAuthority {
+  trusted: boolean;
+  timeZone: string | null;
+  providerLocalToday: string;
+}
+
+export async function resolveMetaPartitionDateAuthority(input: {
+  businessId: string;
+  providerAccountId: string;
+  credentials: MetaCredentials;
+  now?: Date;
+}): Promise<MetaPartitionDateAuthority> {
+  const now = input.now ?? new Date();
+  const credentialToday = getMetaReferenceToday(
+    input.credentials,
+    input.providerAccountId,
+  );
+  try {
+    const zones = await readMetaAccountTimeZones({
+      businessId: input.businessId,
+      providerAccountIds: [input.providerAccountId],
+      query: (text, params) => getDb().query(text, params),
+    });
+    const timeZone = zones.get(input.providerAccountId) ?? null;
+    if (!timeZone) {
+      return { trusted: false, timeZone: null, providerLocalToday: credentialToday };
+    }
+    const providerLocalToday = providerLocalCalendarDate({ instant: now, timeZone });
+    if (!providerLocalToday) {
+      return { trusted: false, timeZone: null, providerLocalToday: credentialToday };
+    }
+    return { trusted: true, timeZone, providerLocalToday };
+  } catch {
+    return { trusted: false, timeZone: null, providerLocalToday: credentialToday };
+  }
+}
+
+/**
+ * ── ROUND 18, ITEMS A1-A3: THE BOOTSTRAP DECISION ───────────────────────────
+ *
+ * Exported so the production sync path and its lifecycle seam drive the SAME
+ * function. Returning true means an attempt has ALREADY been claimed
+ * atomically, so the caller must proceed to the provider call it paid for.
+ *
+ * A1 — the claim is one statement: the bound is enforced in SQL and the slot is
+ * taken by the unique constraint, so two workers racing the same budget cannot
+ * both proceed. Round 17's read-then-insert had two gaps between them.
+ *
+ * A3 — the day comes from the SHARED partition authority, not from a second
+ * resolution. `input.day` must be that same provider-local day: a partition
+ * whose target day is not today cannot be bootstrapped, and a mismatch is a
+ * disagreement about the calendar rather than a reason to guess.
+ */
+export async function resolveMetaAuthorityBootstrapDecision(input: {
+  businessId: string;
+  providerAccountId: string;
+  day: string;
+  truthState: "provisional" | "finalized";
+  coverageComplete: boolean;
+  partitionAuthority: MetaPartitionDateAuthority;
+  now?: Date;
+}): Promise<boolean> {
+  if (input.truthState !== "provisional" || !input.coverageComplete) return false;
+  // A config refetch cannot heal a timezone: without a trusted binding the
+  // authority holds however many times the provider is called.
+  if (!input.partitionAuthority.trusted || !input.partitionAuthority.timeZone) {
+    return false;
+  }
+  // FAIL CLOSED ON A CALENDAR DISAGREEMENT.
+  if (input.day !== input.partitionAuthority.providerLocalToday) return false;
+  try {
+    const dayEnd = providerLocalDayEndExclusive({
+      day: input.partitionAuthority.providerLocalToday,
+      timeZone: input.partitionAuthority.timeZone,
+    });
+    if (!dayEnd) return false;
+    const now = input.now ?? new Date();
+    const probe = await readMetaAuthorityBootstrapProbe({
+      businessId: input.businessId,
+      providerAccountId: input.providerAccountId,
+      knowledgeEndExclusive: new Date(Math.min(now.getTime(), dayEnd.getTime())),
+    });
+    if (probe.campaignReceiptLinked && probe.adsetReceiptLinked) return false;
+    const claim = await claimMetaAuthorityBootstrapAttempt({
+      businessId: input.businessId,
+      providerAccountId: input.providerAccountId,
+      providerLocalDay: input.partitionAuthority.providerLocalToday,
+      maxAttempts: META_AUTHORITY_BOOTSTRAP_MAX_ATTEMPTS,
+    });
+    return claim.claimed;
+  } catch {
+    return false;
+  }
+}
+
 export function shouldBypassMetaCoverageShortCircuit(input: {
   source: string;
   truthState: "provisional" | "finalized";
   businessId: string;
+  /**
+   * ── ROUND 17 ─────────────────────────────────────────────────────────────
+   * Whether the caller has already DECIDED to bootstrap — and, in deciding,
+   * recorded the attempt in the durable ledger before any provider call. The
+   * decision cannot live here because it has a write side effect that must
+   * happen exactly once per attempt.
+   */
+  authorityBootstrapForced?: boolean;
 }) {
-  return (
+  if (
     input.truthState === "finalized" &&
     isMetaAuthoritativeHistoricalSource(input.source) &&
     isMetaAuthoritativeFinalizationV2EnabledForBusiness(input.businessId)
-  );
+  ) {
+    return true;
+  }
+  /*
+    The bounded, SELF-TERMINATING half. Complete daily coverage skips the whole
+    account-core sync, which is the only path that writes current-config
+    receipts — so an account that is already up to date would never write the
+    linked receipt its authority now requires, and would hold every
+    purchase-budget hard action forever on a refusal that is individually
+    correct. One scoped refetch is allowed until such receipts exist; from then
+    on this answers false and ordinary short-circuiting resumes.
+  */
+  return input.authorityBootstrapForced === true;
 }
 
 export function shouldBypassMetaCreativeCoverageShortCircuit(input: {
@@ -2154,6 +2410,15 @@ function getMetaRequeuePriority(input: {
   }
 }
 
+/**
+ * ── ROUND 19, ITEM A2 ───────────────────────────────────────────────────────
+ * Exported narrowly so the bootstrap lifecycle seam drives the REAL
+ * orchestration — coverage read, bootstrap decision, core refetch, receipt
+ * writes — instead of hand-assembling those steps in a test and calling it a
+ * lifecycle. Nothing in production imports the alias.
+ */
+export { syncMetaPartitionDay as __syncMetaPartitionDayForSeams };
+
 async function syncMetaPartitionDay(input: {
   credentials: MetaCredentials;
   businessId: string;
@@ -2164,6 +2429,36 @@ async function syncMetaPartitionDay(input: {
   source: string;
   scopes: MetaWarehouseScope[];
   partitionId: string;
+  /**
+   * ROUND 14: the real `meta_sync_runs.id` for this attempt, created or
+   * recovered by `processMetaPartition`. Null only when the run row could not
+   * be established at all, which the authority reader denies on.
+   */
+  syncRunId?: string | null;
+  /**
+   * ROUND 19, ITEM A1: the DB-bound provider-local today for this account,
+   * threaded to the core writer so every layer shares one calendar.
+   */
+  providerLocalToday?: string | null;
+  /**
+   * ── ROUND 21, ITEM 1: THE NARROW SEAM CLOCK ──────────────────────────────
+   *
+   * The instant at which this partition is evaluated. Production never passes
+   * it and every reader below falls back to `new Date()`, exactly as before.
+   *
+   * It exists because the account calendar is the thing under test and the
+   * real clock cannot exercise it. The orchestration seam distinguishes the DB
+   * binding (America/Los_Angeles) from the credential profile
+   * (Europe/Istanbul) -- but for most of any real day those two zones are on
+   * the SAME calendar date, so the assertion that the run used the DB binding
+   * passed whichever source it had actually read. Pinning one instant where
+   * the two calendars provably differ is what turns that assertion into a
+   * discriminator.
+   *
+   * Deliberately narrow: it reaches only the two functions that already accept
+   * a `now`, so nothing else in the pipeline can be made to lie about time.
+   */
+  evaluationNow?: Date;
   workerId: string;
   leaseEpoch: number;
   attemptCount: number;
@@ -2174,7 +2469,35 @@ async function syncMetaPartitionDay(input: {
     throw new Error("Meta credentials are not available for this business.");
   }
   const assignedAccountIds = credentials.accountIds;
-  const referenceToday = getMetaReferenceToday(credentials, input.providerAccountId);
+  /*
+    ── ROUND 18, ITEM A3: ONE BOUND DATE, RESOLVED ONCE AT PARTITION START ───
+
+    `getMetaReferenceToday` reads `credentials.accountProfiles[...].timezone` —
+    the caller's payload — while the recent-edit authority resolves the exact
+    `business_provider_accounts` -> `provider_accounts` binding. Two sources
+    means `truthState`, the bootstrap's eligibility day, the provider call and
+    the current-evidence/receipt writer could each be reasoning about a
+    different provider-local day.
+
+    Resolved ONCE here from the DB binding and shared by all four. The credential
+    zone remains the fallback only where no binding exists at all, and in that
+    case the bootstrap refuses outright rather than guessing (see below).
+  */
+  const partitionAuthority = await resolveMetaPartitionDateAuthority({
+    businessId: input.businessId,
+    providerAccountId: input.providerAccountId,
+    credentials,
+    now: input.evaluationNow,
+  });
+  const referenceToday = partitionAuthority.providerLocalToday;
+  /*
+    Only a TRUSTED binding is threaded onward. An untrusted resolution fell back
+    to the credential zone for `truthState`, and passing that value down as
+    though it were DB-bound would launder a guess into the receipt writer.
+  */
+  const boundProviderLocalToday = partitionAuthority.trusted
+    ? partitionAuthority.providerLocalToday
+    : null;
   const coverageState = await captureMetaPartitionStage({
     businessId: input.businessId,
     providerAccountId: input.providerAccountId,
@@ -2214,14 +2537,72 @@ async function syncMetaPartitionDay(input: {
   const freshStart =
     truthState === "finalized" &&
     isMetaAuthoritativeHistoricalSource(input.source);
+  /*
+    ── ROUND 17, ITEMS 1 AND 2: THE BOOTSTRAP DECISION ──────────────────────
+
+    Probed only on the CURRENT provider-local day and only when coverage would
+    otherwise short-circuit, so a healthy account pays nothing.
+
+    ITEM 1 — THE SAME TIMEZONE AUTHORITY THE ACTION PATH USES. This read
+    `credentials.accountProfiles[...].timezone`, a value supplied by the
+    caller's credential payload. The recent-edit authority resolves the zone
+    from the exact `business_provider_accounts` -> `provider_accounts` binding
+    via `readMetaAccountTimeZones`. Two sources means two cutoffs: the bootstrap
+    could compute a different provider-local day from the authority it exists to
+    heal, decide the account was recoverable on one calendar, and refetch
+    against evidence judged on another. The DB binding is now the only source.
+
+    AND A MISSING OR UNTRUSTED ZONE NO LONGER BYPASSES. Round 16 treated an
+    unresolvable zone as "unknown, so allow the repair". That was wrong in a
+    specific way: a config refetch cannot heal a timezone. The authority holds
+    on `provider_timezone_untrusted` no matter how many times the provider is
+    called, so calling it is a guaranteed-useless provider request. No zone,
+    no bypass.
+
+    ITEM 2 — AND THE ATTEMPT IS RECORDED BEFORE THE CALL. Every path that
+    returns `true` here has already written a durable ledger row, so a
+    zero-receipt failure and a campaign-only commit both count exactly once. A
+    ledger that cannot be read or written yields no bypass at all.
+  */
+  /*
+    ── ROUND 18, ITEM A2: THE CLAIM BELONGS TO THE CORE REFETCH ─────────────
+
+    Round 17 decided (and spent a ledger attempt) before knowing whether this
+    partition would call the core provider at all. An extended creative/ad-scope
+    partition therefore burned the account's bootstrap budget without ever
+    touching the endpoint whose receipts the budget exists to obtain — three
+    such partitions could exhaust the day and leave the account unrepaired.
+
+    Eligibility is now decided first, and the attempt is claimed immediately
+    before the refetch that consumes it.
+  */
+  const productCoreEligible = input.scopes.some((scope) =>
+    isMetaProductCoreCoverageScope(scope),
+  );
+  const coverageWouldSkip =
+    productCoreEligible && coverageState.productCoreComplete;
+  const authorityBootstrapForced = coverageWouldSkip
+    ? await resolveMetaAuthorityBootstrapDecision({
+        businessId: input.businessId,
+        providerAccountId: input.providerAccountId,
+        day: normalizedDay,
+        truthState,
+        coverageComplete: true,
+        partitionAuthority,
+        now: input.evaluationNow,
+      })
+    : false;
   const forceAuthoritativeRefetch = shouldBypassMetaCoverageShortCircuit({
     source: input.source,
     truthState,
     businessId: input.businessId,
+    // The decision is taken above, where the attempt is claimed immediately
+    // before the call it pays for. This flag only reports it.
+    authorityBootstrapForced,
   });
 
   if (
-    input.scopes.some((scope) => isMetaProductCoreCoverageScope(scope)) &&
+    productCoreEligible &&
     (forceAuthoritativeRefetch || !coverageState.productCoreComplete)
   ) {
     const bulkResult = await captureMetaPartitionStage({
@@ -2247,6 +2628,15 @@ async function syncMetaPartitionDay(input: {
           truthState,
           lane: input.lane,
           sourceRunId: input.partitionId,
+          // ROUND 14: the ATTEMPT, distinct from the partition above.
+          syncRunId: input.syncRunId ?? null,
+          /*
+            ROUND 19, ITEM A1: the ONE DB-bound date, so the current-evidence
+            gate and the receipt writer share the calendar that decided
+            truthState and bootstrap eligibility. Passed only when the binding
+            actually resolved; otherwise the core day keeps its own fallback.
+          */
+          providerLocalToday: boundProviderLocalToday,
           source: input.source,
         }),
     });
@@ -2336,7 +2726,7 @@ async function syncMetaPartitionDay(input: {
                   providerAccountId: input.providerAccountId,
                   partitionDate: normalizedDay,
                   breakdowns: breakdownJob.breakdowns,
-                  message: error instanceof Error ? error.message : String(error),
+                  message: durableMetaFailureMessage(error),
                 });
                 return {
                   breakdownJob,
@@ -3321,7 +3711,7 @@ export function scheduleMetaBackgroundSync(input: {
           businessId: input.businessId,
           workerId: runtimeWorkerId ?? null,
           nextDelayMs,
-          message: error instanceof Error ? error.message : String(error),
+          message: durableMetaFailureMessage(error),
         });
       } finally {
         backgroundSyncKeys.delete(key);
@@ -3809,6 +4199,8 @@ async function processMetaPartition(input: {
       source: input.partition.source,
       scopes,
       partitionId,
+      // ROUND 14: the created-or-recovered run id, threaded to the receipt.
+      syncRunId: runId,
       workerId: input.workerId,
       leaseEpoch: input.partition.leaseEpoch,
       attemptCount: input.partition.attemptCount,
@@ -4083,7 +4475,9 @@ async function processMetaPartition(input: {
     return { outcome: "succeeded" };
   } catch (error) {
     const classified = classifyMetaError(error);
-    const message = error instanceof Error ? error.message : String(error);
+    // Durable: this value reaches `meta_sync_partitions.last_error`,
+    // `meta_sync_runs.error_message` and the operator log below.
+    const message = durableMetaFailureMessage(error);
     const shouldDeadLetter = shouldDeadLetterMetaFailure({
       errorClass: classified.errorClass,
       terminal: classified.terminal,

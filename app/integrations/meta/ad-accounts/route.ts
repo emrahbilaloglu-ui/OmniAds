@@ -2,7 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireBusinessAccess } from "@/lib/access";
 import { isDemoBusiness } from "@/lib/business-mode.server";
 import { getDemoProviderDiscoveryPayload } from "@/lib/demo-business";
-import { getIntegration } from "@/lib/integrations";
+import {
+  getIntegration,
+  providerConnectionGenerationTokenFromIntegration,
+} from "@/lib/integrations";
 import { fetchMetaAdAccounts, getMetaApiErrorMessage } from "@/lib/meta-ad-accounts";
 import { resolveProviderDiscoveryPayload } from "@/lib/provider-account-discovery";
 import { refreshProviderDiscoveryPayload } from "@/lib/provider-account-discovery-refresh";
@@ -12,6 +15,30 @@ import {
 } from "@/lib/provider-account-snapshots";
 
 const META_ACCOUNT_SNAPSHOT_FRESHNESS_MS = 6 * 60 * 60_000;
+
+/**
+ * An error whose message this route is willing to put in an HTTP response.
+ *
+ * The `meta_api_error` branch used to return `error.message` for whatever it
+ * caught. On the Meta path that message came from `getMetaApiErrorMessage`,
+ * which returned Meta's own `error.message` — free text the provider controls,
+ * observed echoing the access token back inside it. The helper is fixed, but
+ * the branch also catches errors from the snapshot store and the database,
+ * whose messages were never written to be shown to a browser either. Only what
+ * is thrown as this class is quoted; everything else gets the standing notice.
+ */
+class MetaAccountsClientError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "MetaAccountsClientError";
+  }
+}
+
+function clientSafeErrorMessage(error: unknown) {
+  return error instanceof MetaAccountsClientError
+    ? error.message
+    : getRefreshNotice(false);
+}
 
 function getRefreshNotice(hasSnapshot: boolean) {
   if (hasSnapshot) {
@@ -73,17 +100,21 @@ export async function GET(request: NextRequest) {
         "Meta ad accounts are being prepared in the background. You can keep using the page without waiting.",
       liveLoader: async () => {
         if (!integration.access_token) {
-          throw new Error("Meta access token is missing for this business integration.");
+          throw new MetaAccountsClientError(
+            "Meta access token is missing for this business integration.",
+          );
         }
         if (
           integration.token_expires_at &&
           new Date(integration.token_expires_at).getTime() <= Date.now()
         ) {
-          throw new Error("Meta access token has expired. Please reconnect Meta integration.");
+          throw new MetaAccountsClientError(
+            "Meta access token has expired. Please reconnect Meta integration.",
+          );
         }
         const metaResult = await fetchMetaAdAccounts(integration.access_token as string);
         if (!metaResult.ok || metaResult.body?.error) {
-          throw new Error(getMetaApiErrorMessage(metaResult));
+          throw new MetaAccountsClientError(getMetaApiErrorMessage(metaResult));
         }
         return metaResult.normalized.map((account) => ({
           id: account.id,
@@ -114,7 +145,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(
       {
         error: "meta_api_error",
-        message: error instanceof Error ? error.message : getRefreshNotice(false),
+        message: clientSafeErrorMessage(error),
       },
       { status: 500 }
     );
@@ -178,13 +209,17 @@ export async function POST(request: NextRequest) {
 
   const liveLoader = async () => {
     if (!integration.access_token) {
-      throw new Error("Meta access token is missing for this business integration.");
+      throw new MetaAccountsClientError(
+        "Meta access token is missing for this business integration.",
+      );
     }
     if (
       integration.token_expires_at &&
       new Date(integration.token_expires_at).getTime() <= Date.now()
     ) {
-      throw new Error("Meta access token has expired. Please reconnect Meta integration.");
+      throw new MetaAccountsClientError(
+        "Meta access token has expired. Please reconnect Meta integration.",
+      );
     }
     const metaResult = await fetchMetaAdAccounts(integration.access_token as string);
     const businessDiscoveryFailed = (metaResult.businessDiscovery?.errors.length ?? 0) > 0;
@@ -197,7 +232,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (!metaResult.ok || metaResult.body?.error) {
-      throw new Error(getMetaApiErrorMessage(metaResult));
+      throw new MetaAccountsClientError(getMetaApiErrorMessage(metaResult));
     }
     return toSnapshotItems(metaResult.normalized);
   };
@@ -209,6 +244,21 @@ export async function POST(request: NextRequest) {
       freshnessMs: META_ACCOUNT_SNAPSHOT_FRESHNESS_MS,
       reason: "assignment_drawer_manual_refresh",
       liveLoader,
+      /*
+        ── ROUND 23, ITEM 1 ───────────────────────────────────────────────────
+        The generation of the SAME record `integration` came from, so the
+        access token `liveLoader` is about to use and the grant this result is
+        attributed to are one fact rather than two reads.
+
+        Omitted entirely before. `runSnapshotRefresh` then adopted whichever
+        generation existed by the time it claimed, so a reconnect landing
+        between this route's token read and the refresh claim let an OLD
+        token's account list -- and the timezones in it -- reconcile under the
+        NEW grant's authority. Google's equivalent route already captured this;
+        Meta's did not.
+      */
+      expectedConnectionGeneration:
+        providerConnectionGenerationTokenFromIntegration(integration),
     });
 
     return NextResponse.json({
@@ -251,7 +301,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       {
         error: "meta_api_error",
-        message: error instanceof Error ? error.message : getRefreshNotice(false),
+        message: clientSafeErrorMessage(error),
       },
       { status: 500 },
     );

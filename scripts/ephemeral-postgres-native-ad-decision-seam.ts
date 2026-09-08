@@ -943,22 +943,26 @@ async function verifyMetaAdDailyWriteOwnershipAuthority(
     updatedA?.campaign_id === "campaign-authoritative" &&
       updatedA.adset_id === "adset-authoritative" &&
       updatedA.ad_status === "PAUSED" &&
-      updatedA.account_timezone === "America/New_York" &&
+      // Ordinary fact writers must stamp the existing DB-bound account
+      // calendar. Only a fresh profile reconciliation may move that binding.
+      updatedA.account_timezone === "America/Chicago" &&
       updatedA.account_currency === "CAD" &&
       Number(updatedA.spend) === 111 &&
       updatedA.truth_state === "provisional" &&
       updatedA.truth_version === 10 &&
       updatedA.validation_status === "pending" &&
       updatedA.payload_json.source === "authoritative",
-    "Default authoritative mode no longer owns fact and lifecycle updates.",
+    "Authoritative fact mode no longer owns fact and lifecycle updates while preserving the bound timezone.",
   );
   const insertedE = authoritative.rows[1];
   assert(
     insertedE?.ad_id === "ad-authoritative-new" &&
+      insertedE.account_timezone === "America/Chicago" &&
+      insertedE.account_currency === "CAD" &&
       insertedE.truth_state === "finalized" &&
       insertedE.validation_status === "passed" &&
       Number(insertedE.spend) === 222,
-    "Default authoritative mode no longer inserts new canonical facts.",
+    "Authoritative fact mode no longer inserts new canonical facts with the bound timezone.",
   );
   const provider = await client.query<{
     timezone: string | null;
@@ -970,9 +974,9 @@ async function verifyMetaAdDailyWriteOwnershipAuthority(
     [providerAccountId],
   );
   assert(
-    provider.rows[0]?.timezone === "America/New_York" &&
+    provider.rows[0]?.timezone === "America/Chicago" &&
       provider.rows[0]?.currency === "CAD",
-    "Default authoritative mode stopped updating provider-account metadata.",
+    "Authoritative fact mode moved the protected timezone binding or stopped updating allowed provider metadata.",
   );
   const dimensions = await client.query<{
     ad_id: string;

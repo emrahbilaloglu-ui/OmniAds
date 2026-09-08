@@ -50,8 +50,11 @@ async function projectReal(input: {
 
 describe("the projection copies the canonical profile and recomputes nothing", () => {
   it("explicit Target CPA: source, confidence and spend unit come from the profile", async () => {
+    // RE-PINNED: `makeAnchorTargetPack` defaults to `targetRoas: 3`, and a
+    // Target ROAS now routes to the platform AOV. The CPA rung is exercised
+    // where it still governs — with no ratio configured.
     const { profile, panel } = await projectReal({
-      targetPack: pack({ targetCpa: 25 }),
+      targetPack: pack({ targetCpa: 25, targetRoas: null }),
     });
     expect(profile.spendUnitSource).toBe("target_cpa");
     expect(panel.status).toBe("resolved");
@@ -64,13 +67,28 @@ describe("the projection copies the canonical profile and recomputes nothing", (
     expect(panel.explanation?.status).toBe("eligible_target_cpa");
   });
 
-  it("operator AOV + Target ROAS resolves through the profile", async () => {
+  it("a Target CPA under a Target ROAS projects the platform AOV instead", async () => {
+    const { profile, panel } = await projectReal({
+      targetPack: pack({ targetCpa: 25, targetRoas: 3 }),
+    });
+    expect(profile.spendUnitSource).toBe("meta_derived_aov");
+    expect(profile.spendUnit).not.toBe(25);
+    expect(panel.explanation).toBe(profile.hardActionEligibility.anchor);
+    expect(panel.explanation?.status).toBe("eligible_meta_derived_aov");
+    // Demoted, not dropped: the panel can still show what the operator typed.
+    expect(panel.explanation?.lineage.targetCpa).toBe(25);
+  });
+
+  it("operator AOV + Target ROAS projects the platform AOV, not the assumption", async () => {
+    // RE-PINNED: this asserted `operator_aov` at 90 / 3 = 30. The rung is
+    // retired; the account's own Meta-attributed AOV (50) over the ratio is.
     const { profile, panel } = await projectReal({
       targetPack: pack({ operatorAovAssumption: 90, targetRoas: 3 }),
     });
-    expect(profile.spendUnitSource).toBe("operator_aov");
-    expect(panel.explanation?.spendUnitSource).toBe("operator_aov");
-    expect(panel.explanation?.spendUnitConfidence).toBe("high");
+    expect(profile.spendUnitSource).toBe("meta_derived_aov");
+    expect(profile.spendUnit).not.toBe(30);
+    expect(panel.explanation?.spendUnitSource).toBe("meta_derived_aov");
+    expect(panel.explanation?.spendUnitConfidence).toBe("medium");
     expect(panel.explanation?.lineage.operatorAovAssumption).toBe(90);
     expect(panel.explanation?.lineage.targetRoas).toBe(3);
   });
@@ -113,7 +131,16 @@ describe("the projection copies the canonical profile and recomputes nothing", (
         metaAttributedRevenue90d: 360,
       }),
     });
-    expect(profile.spendUnitSource).toBe("meta_derived_aov");
+    /*
+      ROUND 6: no unit is built from six purchases under a Target ROAS, so the
+      source is the hold itself. The STATUS is what this case is about and it
+      is unchanged — the panel must still say "your sample is too small",
+      never "you have no anchor" — and `resolveStatus` now re-derives that from
+      the same purchase count the ladder divides by rather than from the source
+      string, which no longer distinguishes thin from absent.
+    */
+    expect(profile.spendUnitSource).toBe("insufficient");
+    expect(profile.spendUnit).toBeNull();
     expect(panel.explanation?.status).toBe(
       "blocked_meta_aov_sample_insufficient",
     );
@@ -133,10 +160,17 @@ describe("the projection copies the canonical profile and recomputes nothing", (
         accountCpaSampleCount: 40,
       }),
     });
-    expect(profile.spendUnitSource).toBe("account_history");
-    expect(panel.explanation?.spendUnitSource).toBe("account_history");
+    /*
+      ROUND 6: the fixture's pack carries a Target ROAS, so the account-history
+      rung is not reached at all and the panel reports the hold. The lineage
+      still CARRIES the account CPA — an operator may see what was measured —
+      it simply is not the resolved unit.
+    */
+    expect(profile.spendUnitSource).toBe("insufficient");
+    expect(panel.explanation?.spendUnitSource).toBe("insufficient");
     expect(panel.explanation?.thresholdEligible).toBe(false);
     expect(panel.explanation?.lineage.accountCpaP50).toBe(30);
+    expect(panel.explanation?.status).toBe("blocked_missing_owner_anchor");
     for (const row of panel.actions) expect(row.eligible).toBe(false);
   });
 
@@ -154,13 +188,27 @@ describe("the projection copies the canonical profile and recomputes nothing", (
     ]);
   });
 
-  it("missing per-action anchors block only their own action", async () => {
+  /**
+   * The per-action rule, as it now stands.
+   *
+   * Cut takes EITHER commercial ratio: `cutAnchorEligible` in
+   * `account-decision-profile.ts` is `breakEvenAnchored || targetRoasAnchored`.
+   * An explicit break-even used to be mandatory, which refused Cut on every
+   * account that configures only a Target ROAS — the shape this product asks
+   * for — even where the Cut the resolver wanted to publish was the
+   * account-relative one that never reads break-even. Scale is unchanged: it
+   * still needs a Target ROAS specifically, because that is the ratio it
+   * multiplies.
+   */
+  it("Cut takes either commercial ratio; Scale still needs the Target ROAS", async () => {
     const noBreakEven = await projectReal({
       targetPack: pack({ targetCpa: 25, breakEvenRoas: null }),
     });
-    const cut = noBreakEven.panel.actions.find((row) => row.action === "cut");
-    expect(cut?.eligible).toBe(false);
-    expect(cut?.blockerCode).toBe("break_even_roas_missing");
+    const cutOnTargetRoas = noBreakEven.panel.actions.find(
+      (row) => row.action === "cut",
+    );
+    expect(cutOnTargetRoas?.eligible).toBe(true);
+    expect(cutOnTargetRoas?.blockerCode).toBeNull();
     expect(
       noBreakEven.panel.actions.find((row) => row.action === "refresh")
         ?.eligible,
@@ -174,6 +222,29 @@ describe("the projection copies the canonical profile and recomputes nothing", (
     );
     expect(scale?.eligible).toBe(false);
     expect(scale?.blockerCode).toBe("target_roas_missing");
+    // Symmetrically, a break-even alone still carries Cut.
+    expect(
+      noTargetRoas.panel.actions.find((row) => row.action === "cut")?.eligible,
+    ).toBe(true);
+  });
+
+  /** The guard against over-correcting the rule above into a free pass. */
+  it("a Cut with NEITHER a break-even NOR a Target ROAS is still refused, by name", async () => {
+    const { profile, panel } = await projectReal({
+      targetPack: pack({ targetCpa: 25, targetRoas: null, breakEvenRoas: null }),
+    });
+    // The commercial threshold itself is satisfied by the Target CPA, so the
+    // refusal below is the per-action anchor rule and nothing else.
+    expect(profile.hardActionEligibility.anchor?.thresholdEligible).toBe(true);
+
+    const cut = panel.actions.find((row) => row.action === "cut");
+    expect(cut?.eligible).toBe(false);
+    // `break_even_roas_missing` is the code the resolver emits for an absent
+    // per-action Cut ratio; `CommercialAnchorBlockerCode` has no separate
+    // "neither ratio" member, so its operator copy still names only break-even
+    // and is now narrower than the rule it explains.
+    expect(cut?.blockerCode).toBe("break_even_roas_missing");
+    expect(cut?.operatorCopy).not.toBeNull();
   });
 
   it("shadow-only withholds every action", async () => {
@@ -372,20 +443,32 @@ describe("C2.2 — a generic profile blocker is never labelled a commercial-thre
 
 describe("C2.3 — effective code and operator copy must agree after an overlay", () => {
   /**
-   * The Cut-only commercial stop-loss overlay can change the EFFECTIVE Cut code
-   * while the pre-overlay canonical explanation still carries the old one.
-   * Copying the code from one and the sentence from the other is
+   * The Cut-only commercial stop-loss overlay can change the EFFECTIVE Cut
+   * decision while the pre-overlay canonical explanation still carries the old
+   * one. Copying the chip from one and the sentence from the other is
    * self-contradictory.
+   *
+   * The pack is ROAS-only on purpose (no Target CPA, no operator AOV, no
+   * break-even) and the base calibration has no usable sampled AOV, so the
+   * canonical anchor resolves to `commercial_anchor_missing`. The overlay then
+   * supplies a ready sampled AOV, and its Cut lane needs only the Target ROAS
+   * this pack already carries.
    */
-  async function overlaidProfile() {
+  const OVERLAY_PACK = pack({
+    targetCpa: null,
+    operatorAovAssumption: null,
+    breakEvenRoas: null,
+  });
+
+  async function overlaidProfile(
+    authority: {
+      meanAov: number;
+      purchaseCount: number;
+      totalRevenue: number;
+    } | null = { meanAov: 60, purchaseCount: 40, totalRevenue: 2400 },
+  ) {
     const base = await resolveAnchorProfileFixture({
-      // No owner anchor and no usable sampled AOV -> commercial_anchor_missing,
-      // and no break-even ROAS so the overlay's Cut needs one.
-      targetPack: pack({
-        targetCpa: null,
-        operatorAovAssumption: null,
-        breakEvenRoas: null,
-      }),
+      targetPack: OVERLAY_PACK,
       calibration: makeAccountCalibration({
         metaAttributedAovMean90d: null,
         metaAttributedAovPurchaseCount90d: 0,
@@ -394,28 +477,32 @@ describe("C2.3 — effective code and operator copy must agree after an overlay"
     });
     return applyCommercialStopLossAovAuthority({
       profile: base,
-      targetPack: pack({
-        targetCpa: null,
-        operatorAovAssumption: null,
-        breakEvenRoas: null,
-      }),
+      targetPack: OVERLAY_PACK,
       attributionAovAdjustmentMultiplier: 1,
       shadowOnly: false,
-      authority: { meanAov: 60, purchaseCount: 40, totalRevenue: 2400 },
+      authority,
     });
   }
 
-  it("the overlay really does change the effective Cut code", async () => {
+  it("the overlay really does change the effective Cut decision", async () => {
     const profile = await overlaidProfile();
+    // The canonical anchor is untouched by the Cut-only overlay and still
+    // reports the pre-overlay refusal.
+    expect(profile.hardActionEligibility.anchor?.actions.cut.eligible).toBe(
+      false,
+    );
     expect(profile.hardActionEligibility.anchor?.actions.cut.blockerCode).toBe(
       "commercial_anchor_missing",
     );
-    expect(profile.hardActionEligibility.codes?.cut).toBe(
-      "break_even_roas_missing",
-    );
+    // The effective decision disagrees with it: the overlay's sampled AOV plus
+    // the pack's Target ROAS carry Cut. Before break-even stopped being a
+    // required Cut input this was `break_even_roas_missing` — still blocked,
+    // just for a different reason than the anchor gave.
+    expect(profile.hardActionEligibility.cut).toBe(true);
+    expect(profile.hardActionEligibility.codes?.cut ?? null).toBeNull();
   });
 
-  it("the panel's Cut copy is derived from the EFFECTIVE code, not the stale one", async () => {
+  it("the panel's Cut row is derived from the EFFECTIVE decision, not the stale anchor", async () => {
     const profile = await overlaidProfile();
     const panel = projectMetaCommercialAnchorPanel({
       eligibility: profile.hardActionEligibility,
@@ -423,9 +510,34 @@ describe("C2.3 — effective code and operator copy must agree after an overlay"
       blockers: emptyAuthorityBlockerCounts(),
     });
     const cut = panel.actions.find((row) => row.action === "cut");
-    expect(cut?.blockerCode).toBe("break_even_roas_missing");
-    expect(cut?.operatorCopy).toContain("break-even ROAS");
-    expect(cut?.operatorCopy).not.toContain("No commercial anchor is configured");
+    expect(cut?.eligible).toBe(true);
+    expect(cut?.blockerCode).toBeNull();
+    expect(cut?.operatorCopy).toBeNull();
+    // The stale sentence was available on the copied explanation and was not
+    // used: that is the whole point of the row taking the effective decision.
+    expect(panel.explanation?.actions.cut.operatorCopy).toContain(
+      "No commercial anchor is available",
+    );
+  });
+
+  it("with no valid stop-loss AOV there is no overlay, and the canonical refusal is shown", async () => {
+    // 4 purchases is below `NATIVE_AD_ACCOUNT_AOV_PURCHASE_SAMPLE_FLOOR`, so
+    // no overlay is built at all. The panel must then report the canonical
+    // blocked row rather than the eligible one the case above produces.
+    const profile = await overlaidProfile({
+      meanAov: 60,
+      purchaseCount: 4,
+      totalRevenue: 240,
+    });
+    const panel = projectMetaCommercialAnchorPanel({
+      eligibility: profile.hardActionEligibility,
+      currency: "USD",
+      blockers: emptyAuthorityBlockerCounts(),
+    });
+    const cut = panel.actions.find((row) => row.action === "cut");
+    expect(cut?.eligible).toBe(false);
+    expect(cut?.blockerCode).toBe("commercial_anchor_missing");
+    expect(cut?.operatorCopy).toContain("No commercial anchor is available");
   });
 
   it("an eligible action carries no blocker copy at all", async () => {

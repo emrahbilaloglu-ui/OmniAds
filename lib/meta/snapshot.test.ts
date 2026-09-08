@@ -147,6 +147,22 @@ vi.mock("@/lib/meta/budget-proposal-source-loader", () => ({
   loadBudgetCompositionSourcesForCandidate: vi.fn(async () => null),
 }));
 
+/*
+  The account/cutoff-scoped Meta-attributed purchase sample.
+
+  ROUND 6 made a READY sample the second half of purchase-value budget
+  authority, and both snapshot paths now read it for the account and day they
+  are deciding. A READY sample is the default here so the persisted-authority
+  cases below keep measuring what they were written to measure — which TARGET
+  pack governs — rather than silently becoming assertions about a missing AOV.
+*/
+vi.mock("@/lib/creative-decision-engine/meta-aov-calculator", () => ({
+  computeMetaAttributedAov: vi.fn(async () => ({
+    aovMean: 264,
+    purchaseCount: 60,
+    totalRevenue: 15_840,
+  })),
+}));
 vi.mock("@/lib/meta/commercial-targets", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/meta/commercial-targets")>();
   return {
@@ -226,6 +242,23 @@ const commercialTargets = await import("@/lib/meta/commercial-targets");
 const assignments = await import("@/lib/provider-account-assignments");
 const automationProposals = await import("@/lib/meta/automation-proposals");
 
+/*
+  A FULLY PROVENANCED automatic entry — which is what this helper's callers
+  have always CLAIMED and did not previously SAY.
+
+  It used to omit `inferenceConfidenceClass` and `resolverAuthorityValidated`
+  while every test built on it asserted a high-confidence authoritative role.
+  `readCampaignContextGuardState` then read only `contextTrust` and `source`,
+  so the omission was invisible and the tests passed by saying less than the
+  resolver says. Once that reader was routed through the four-fact
+  `isContextTrustedForAction`, the gap surfaced as two failures — which is the
+  guard working, not a regression.
+
+  `readCampaignContextMap` populates both fields on every entry it mints, so
+  stating them here makes the fixture FAITHFUL to production rather than
+  loosening anything. The refusal cases keep their own partial entries on
+  purpose; this is the authorized shape.
+*/
 function automaticCampaignContext(
   campaignId: string,
   kind: "main" | "test" | "mixed",
@@ -237,6 +270,8 @@ function automaticCampaignContext(
         kind,
         testDimension: null,
         contextTrust: "high" as const,
+        inferenceConfidenceClass: "high" as const,
+        resolverAuthorityValidated: true,
         provenance: {
           mode: "automatic" as const,
           source: "system_inferred" as const,
@@ -1258,6 +1293,10 @@ describe("meta snapshot job", () => {
       businessId: "biz_1",
       startDate: "2026-05-01",
       endDate: "2026-05-06",
+      // ROUND 6: purchase-value budget authority needs the account-scoped
+      // Meta AOV as well as the ratio, so the scope is named. The unscoped
+      // read is pinned separately below, where the hold is the subject.
+      providerAccountId: "act_1",
     });
 
     expect(result?.recommendations[0]).toMatchObject({
@@ -1312,6 +1351,10 @@ describe("meta snapshot job", () => {
       businessId: "biz_1",
       startDate: "2026-05-01",
       endDate: "2026-05-06",
+      // ROUND 6: purchase-value budget authority needs the account-scoped
+      // Meta AOV as well as the ratio, so the scope is named. The unscoped
+      // read is pinned separately below, where the hold is the subject.
+      providerAccountId: "act_1",
     });
 
     expect(result?.recommendations[0]).toMatchObject({
@@ -1321,6 +1364,58 @@ describe("meta snapshot job", () => {
     expect(
       result?.recommendations[0]?.signalQuality?.hard_action_blocker,
     ).toBeUndefined();
+  });
+
+  it("HOLDS a persisted spend action on an unscoped, business-wide read", async () => {
+    /*
+      ROUND 6, and the fail-closed direction of the same rule. Money-per-purchase
+      is an ACCOUNT fact: with no provider account there is no same-account
+      sample to divide the Target ROAS into, and a business-wide average would
+      belong to no account at all. The verdict and its evidence are still
+      served; only the spend authority is withheld, with the reason named.
+    */
+    const sql = makeSqlMock([
+      {
+        scope_type: "campaign",
+        scope_id: "cmp_1",
+        business_id: "biz_1",
+        snapshot_date: "2026-05-06",
+        rec_id: "scale-cmp_1",
+        rec_type: "scale_for_volume",
+        level: "campaign",
+        decision_state: "act",
+        confidence_score: "0.9",
+        evidence: { items: [] },
+        recommended_action: "Increase budget 10-15%.",
+        target_value: 15,
+        expected_impact: "More volume.",
+        reasoning: "Strong scale signal.",
+        predictive_overlay: "Persisted snapshot.",
+        engine_version: "v1.0.0",
+        evidence_trail: {},
+        campaign_role: "prospecting_scale",
+        bid_regime: "lowest_cost",
+        created_at: "2026-05-06T03:00:00.000Z",
+      },
+    ]);
+    vi.mocked(db.getDb).mockReturnValue(sql.tag);
+    vi.mocked(
+      campaignContextSource.readCampaignContextLabelMap,
+    ).mockResolvedValue(automaticCampaignContext("cmp_1", "main"));
+
+    const result = await readMetaDecisionSnapshotForRange({
+      businessId: "biz_1",
+      startDate: "2026-05-01",
+      endDate: "2026-05-06",
+    });
+
+    expect(result?.recommendations[0]).toMatchObject({
+      type: "scale_for_volume",
+      decisionState: "watch",
+    });
+    expect(
+      result?.recommendations[0]?.signalQuality?.hard_action_blocker,
+    ).toBe("commercial_anchor_missing");
   });
 
   it("marks previously active anomalies resolved when absent on rerun", async () => {

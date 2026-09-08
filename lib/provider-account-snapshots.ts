@@ -1,8 +1,12 @@
 import { createHash, randomUUID } from "crypto";
 import { getDb, runDbTransaction } from "@/lib/db";
 import { getIntegration, type IntegrationProviderType } from "@/lib/integrations";
-import { resolveBusinessReferenceIds } from "@/lib/provider-account-reference-store";
+import {
+  resolveBusinessReferenceIds,
+  type ProviderAccountTimezoneAuthority,
+} from "@/lib/provider-account-reference-store";
 import { computeProviderConnectionFingerprint } from "@/lib/provider-connection-fingerprint";
+import { logStartupEvent } from "@/lib/startup-diagnostics";
 
 export interface ProviderAccountSnapshotItem {
   id: string;
@@ -126,15 +130,32 @@ interface ResolveProviderAccountSnapshotInput {
   bypassCooldown?: boolean;
   /**
    * The connection generation the caller read the access token under, from
-   * `readProviderConnectionGenerationToken`.
+   * `readProviderConnectionGenerationToken` or, better,
+   * `providerConnectionGenerationTokenFromIntegration` on the SAME integration
+   * record the token came from.
    *
    * The caller reads the token before calling here, so a reconnect between that
    * read and the start of the refresh is invisible from inside this module: a
    * generation captured at claim time would already be the NEW one, and the
    * result of an old-token call would be stamped with it. Supplying the
    * caller's generation makes that window a refusal instead.
+   *
+   * ── ROUND 23, ITEM 1: REQUIRED, NOT OPTIONAL ──────────────────────────────
+   *
+   * It was optional, and exactly one production path forgot it:
+   * `app/integrations/meta/ad-accounts/route.ts` read the integration record,
+   * called Meta with that token, and then refreshed without saying which
+   * generation the token belonged to. `runSnapshotRefresh` fell back to
+   * whatever generation existed by the time it looked -- so a reconnect landing
+   * in that window made the OLD token's account list, and its timezones, commit
+   * under the NEW grant's authority.
+   *
+   * Required now, so omitting it is a type error rather than a silent
+   * downgrade. `null` remains expressible and MEANS something: "there was no
+   * connection when I read the credential". It is compared strictly, so a
+   * connection that has since appeared is a refusal too.
    */
-  expectedConnectionGeneration?: string | null;
+  expectedConnectionGeneration: string | null;
 }
 
 const DEFAULT_FRESHNESS_MS = 6 * 60 * 60_000;
@@ -172,12 +193,45 @@ export class ProviderAccountSnapshotRefreshError extends Error {
   }
 }
 
+/**
+ * ── ROUND 24, ITEM 1: THE IN-FLIGHT ENTRY CARRIES ITS GENERATION ────────────
+ *
+ * The map used to hold a bare `Promise<void>` keyed by business/provider, and a
+ * joiner did `await existing.catch(() => undefined); return;`. Two defects fell
+ * out of that single line.
+ *
+ *   THE SWALLOWED FAILURE. `runSnapshotRefresh` RESOLVED for the joiner even
+ *   though the refresh it joined had failed. `forceProviderAccountSnapshotRefresh`
+ *   then re-read whatever was in the table -- stale, or the failed run's own
+ *   cached list -- and relabelled it `source: "live"`, `sourceHealth: "fresh"`,
+ *   `refreshFailed: false`, `trustLevel: "safe"`, `trustScore: 100`. The
+ *   operator was shown a provider outage as a successful live refresh. The
+ *   no-snapshot `resolveProviderAccountSnapshot` path did the same.
+ *
+ *   THE CROSSED GENERATION. The key names no generation, so a caller holding a
+ *   credential from generation B joined a refresh started under generation A
+ *   and adopted its outcome. Round 23 made the DURABLE path refuse exactly that
+ *   -- and this in-process short-circuit returned before ever reaching it.
+ *
+ * The entry therefore records the generation its promise is bound to. A joiner
+ * on the SAME generation is genuinely the same request and inherits the exact
+ * outcome, success or rejection. A joiner on a DIFFERENT generation waits for
+ * the old one to settle and then runs its own strict refresh.
+ */
+interface InFlightProviderRefresh {
+  expectedConnectionGeneration: string | null;
+  promise: Promise<void>;
+}
+
 function getRefreshLocks() {
   const globalStore = globalThis as typeof globalThis & {
-    __omniadsProviderAccountRefreshes?: Map<string, Promise<void>>;
+    __omniadsProviderAccountRefreshes?: Map<string, InFlightProviderRefresh>;
   };
   if (!globalStore.__omniadsProviderAccountRefreshes) {
-    globalStore.__omniadsProviderAccountRefreshes = new Map<string, Promise<void>>();
+    globalStore.__omniadsProviderAccountRefreshes = new Map<
+      string,
+      InFlightProviderRefresh
+    >();
   }
   return globalStore.__omniadsProviderAccountRefreshes;
 }
@@ -506,6 +560,13 @@ async function persistSnapshotState(input: {
   refreshClaimOwner?: string | null;
   refreshClaimEpoch?: number | null;
   refreshClaimGeneration?: string | null;
+  /**
+   * ROUND 22, ITEM 1. Whether these accounts are fresh enough to move the
+   * `provider_accounts.timezone` binding. Omitted -- the default -- preserves
+   * an existing non-null binding, which is what every REPLAY of a stored
+   * account list must do.
+   */
+  timezoneAuthority?: ProviderAccountTimezoneAuthority;
 }) {
   return runDbTransaction(() => persistSnapshotStateInTransaction(input));
 }
@@ -536,6 +597,13 @@ async function persistSnapshotStateInTransaction(input: {
   refreshClaimOwner?: string | null;
   refreshClaimEpoch?: number | null;
   refreshClaimGeneration?: string | null;
+  /**
+   * ROUND 22, ITEM 1. Whether these accounts are fresh enough to move the
+   * `provider_accounts.timezone` binding. Omitted -- the default -- preserves
+   * an existing non-null binding, which is what every REPLAY of a stored
+   * account list must do.
+   */
+  timezoneAuthority?: ProviderAccountTimezoneAuthority;
 }) {
   const sql = getDb();
   const accountsHash = computeAccountsHash(input.accounts);
@@ -642,7 +710,52 @@ async function persistSnapshotStateInTransaction(input: {
   `;
 
   if (input.accounts.length > 0) {
-    await sql`
+    /*
+      ── ROUND 22, ITEM 1: ONLY A FRESH READ MAY MOVE THE TIMEZONE BINDING ────
+
+      This upsert used `COALESCE(EXCLUDED.timezone, existing)` unconditionally,
+      and `persistSnapshotStateInTransaction` is reached from FOUR places -- only
+      one of which is holding freshly fetched accounts:
+
+        - the claim phase replays `existingSnapshot.accounts_payload`;
+        - the failure commit replays `currentSnapshot.accounts_payload`, and
+          says in its own comment that it keeps the previous accounts;
+        - `writeProviderAccountSnapshot` writes whatever a caller hands it;
+        - the phase-3 commit writes the accounts this refresh actually fetched,
+          under the connection-generation CAS.
+
+      So three of the four could re-assert a CACHED account list's timezone over
+      the binding -- including a list fetched days earlier, replayed by a
+      refresh that then FAILED. The default is therefore "preserve", and only
+      the fresh commit asks to reconcile.
+    */
+    /*
+      Read FIRST, so "what changed" is a measured difference rather than an
+      inference from the value that was proposed.
+    */
+    const priorTimezones = new Map<string, string | null>();
+    if (input.timezoneAuthority === "reconcile") {
+      const priorRows = (await sql.query(
+        `SELECT external_account_id, timezone
+           FROM provider_accounts
+          WHERE provider = $1 AND external_account_id = ANY($2::text[])`,
+        [
+          input.provider,
+          input.accounts
+            .map((account) => String(account.id ?? "").trim())
+            .filter((id) => id.length > 0),
+        ],
+      )) as Array<{ external_account_id: string; timezone: string | null }>;
+      for (const row of priorRows) {
+        priorTimezones.set(row.external_account_id, row.timezone ?? null);
+      }
+    }
+    const timezoneRule =
+      input.timezoneAuthority === "reconcile"
+        ? "COALESCE(EXCLUDED.timezone, provider_accounts.timezone)"
+        : "COALESCE(provider_accounts.timezone, EXCLUDED.timezone)";
+    const reconciled = (await sql.query(
+      `
       INSERT INTO provider_accounts (
         provider,
         external_account_id,
@@ -655,7 +768,7 @@ async function persistSnapshotStateInTransaction(input: {
         updated_at
       )
       SELECT
-        ${input.provider},
+        $1::text,
         NULLIF(item.item->>'id', ''),
         COALESCE(NULLIF(item.item->>'name', ''), NULLIF(item.item->>'id', '')),
         NULLIF(item.item->>'currency', ''),
@@ -665,21 +778,52 @@ async function persistSnapshotStateInTransaction(input: {
           ELSE NULL
         END,
         item.item,
-        ${now},
-        ${now}
-      FROM jsonb_array_elements(${JSON.stringify(input.accounts)}::jsonb) WITH ORDINALITY AS item(item, ordinality)
+        $3::timestamptz,
+        $3::timestamptz
+      FROM jsonb_array_elements($2::jsonb) WITH ORDINALITY AS item(item, ordinality)
       WHERE NULLIF(item.item->>'id', '') IS NOT NULL
       ON CONFLICT (provider, external_account_id) DO UPDATE SET
         account_name = COALESCE(EXCLUDED.account_name, provider_accounts.account_name),
         currency = COALESCE(EXCLUDED.currency, provider_accounts.currency),
-        timezone = COALESCE(EXCLUDED.timezone, provider_accounts.timezone),
+        timezone = ${timezoneRule},
         is_manager = COALESCE(EXCLUDED.is_manager, provider_accounts.is_manager),
         metadata = CASE
           WHEN EXCLUDED.metadata = '{}'::jsonb THEN provider_accounts.metadata
           ELSE provider_accounts.metadata || EXCLUDED.metadata
         END,
         updated_at = EXCLUDED.updated_at
-    `;
+      RETURNING external_account_id, timezone AS new_timezone
+      `,
+      [input.provider, JSON.stringify(input.accounts), now],
+    )) as Array<{ external_account_id: string; new_timezone: string | null }>;
+
+    /*
+      PROVENANCE. A binding move is a rare, consequential event -- every
+      provider-local day boundary downstream depends on it -- so the ones that
+      actually happen are recorded with the evidence that authorised them
+      rather than left to be inferred from a changed row.
+    */
+    if (input.timezoneAuthority === "reconcile") {
+      const changed = reconciled.filter(
+        (row) =>
+          (priorTimezones.get(row.external_account_id) ?? null) !==
+          (row.new_timezone ?? null),
+      );
+      if (changed.length > 0) {
+        logStartupEvent("provider_account_timezone_reconciled", {
+          provider: input.provider,
+          businessId: input.businessId,
+          fetchedAt,
+          connectionFingerprint,
+          sourceReason: input.sourceReason ?? null,
+          accounts: changed.map((row) => ({
+            externalAccountId: row.external_account_id,
+            from: priorTimezones.get(row.external_account_id) ?? null,
+            to: row.new_timezone,
+          })),
+        });
+      }
+    }
 
     await sql`
       INSERT INTO provider_account_snapshot_items (
@@ -942,14 +1086,38 @@ const SNAPSHOT_REFRESH_CLAIM_TIMEOUT_MS = 10 * 60_000;
 async function runSnapshotRefresh(input: ResolveProviderAccountSnapshotInput) {
   const key = getSnapshotKey(input.businessId, input.provider);
   const locks = getRefreshLocks();
-  const existingRequest = locks.get(key);
-  if (existingRequest) {
-    // Local coalescing only. It is a cheap short-circuit for two callers in the
-    // SAME process; the durable claim below is what serialises the web container
-    // against the worker container. A rejected in-flight refresh must not
-    // poison later callers, so its rejection is absorbed here.
-    await existingRequest.catch(() => undefined);
-    return;
+  /*
+    Local coalescing only. It is a cheap short-circuit for two callers in the
+    SAME process; the durable claim below is what serialises the web container
+    against the worker container.
+
+    The loop exists because settling one entry can reveal another: a caller may
+    have installed its own refresh while this one waited. Each iteration awaits
+    an entry that is guaranteed to settle and to remove itself, so this drains
+    rather than spins.
+  */
+  for (;;) {
+    const existing = locks.get(key);
+    if (!existing) break;
+    if (
+      existing.expectedConnectionGeneration === input.expectedConnectionGeneration
+    ) {
+      /*
+        THE SAME REQUEST. Awaited WITHOUT `.catch`, so a joiner inherits the
+        rejection exactly as the originator does. Absorbing it here is what let
+        `forceProviderAccountSnapshotRefresh` report a failed refresh as a fresh,
+        safe, live one.
+      */
+      await existing.promise;
+      return;
+    }
+    /*
+      A DIFFERENT credential generation. Its outcome says nothing about this
+      caller's authority, so it is waited out -- its failure is not this
+      caller's failure -- and then this caller performs its own refresh, with
+      its own claim, its own provider call and its own commit-time CAS.
+    */
+    await existing.promise.catch(() => undefined);
   }
 
   const refreshPromise = (async () => {
@@ -1010,8 +1178,15 @@ async function runSnapshotRefresh(input: ResolveProviderAccountSnapshotInput) {
         input.businessId,
         input.provider,
       );
-      const expected = input.expectedConnectionGeneration ?? null;
-      if (expected != null && expected !== claimedGeneration) {
+      /*
+        ROUND 23: compared STRICTLY, including null. `expected != null &&` meant
+        a caller that supplied nothing -- or that genuinely saw no connection --
+        adopted whatever generation existed at claim time. Both are the same
+        defect wearing different clothes: the result of a credential read is
+        being authorised by a grant it was not read under.
+      */
+      const expected = input.expectedConnectionGeneration;
+      if (expected !== claimedGeneration) {
         throw new ProviderAccountSnapshotRefreshError({
           provider: input.provider,
           businessId: input.businessId,
@@ -1021,7 +1196,7 @@ async function runSnapshotRefresh(input: ResolveProviderAccountSnapshotInput) {
           dueToRecentFailure: false,
         });
       }
-      const generation = expected ?? claimedGeneration;
+      const generation = expected;
 
       // OWNED claim. `refresh_in_progress = TRUE` alone identified nobody, so a
       // claimant whose claim had timed out could still commit its result over
@@ -1106,6 +1281,22 @@ async function runSnapshotRefresh(input: ResolveProviderAccountSnapshotInput) {
           sourceReason: reason,
           lastSuccessfulRefreshAt: now,
           refreshFailureStreak: 0,
+          /*
+            ── ROUND 22, ITEM 1: THE ONE PLACE A TIMEZONE BINDING MAY MOVE ────
+
+            This is the only call site holding accounts that were just fetched
+            from the provider, and it is already the strongest-guarded one:
+            `assertSnapshotClaimStillOurs` above is a single locked
+            compare-and-set over the connection generation, this process's claim
+            ownership and the claim epoch, and the fingerprint stamped below is
+            the generation the accounts were ACTUALLY fetched under.
+
+            Every other caller of this function is replaying a stored list --
+            the claim phase, the failure commit, and `writeProviderAccountSnapshot`
+            -- and each of those keeps the default, so a cached list can no
+            longer re-assert its timezone over the binding.
+          */
+          timezoneAuthority: "reconcile",
           // The generation these accounts were ACTUALLY fetched under.
           connectionFingerprint: await readConnectionFingerprintForGeneration(
             input.businessId,
@@ -1134,16 +1325,27 @@ async function runSnapshotRefresh(input: ResolveProviderAccountSnapshotInput) {
         dueToRecentFailure: false,
       });
     }
-  })().finally(() => {
-    // Always released, including on the cooldown and claim-conflict paths. The
-    // previous version deleted the key only inside the provider-call try/finally,
-    // so a cooldown rejection left a rejected promise in the map and every later
-    // refresh in that process awaited and rethrew it — forever.
-    locks.delete(key);
-  });
+  })();
 
-  locks.set(key, refreshPromise);
-  await refreshPromise;
+  /*
+    IDENTITY-SAFE RELEASE. `locks.delete(key)` deleted whatever was under the
+    key, so a slow refresh settling after a newer one had already been installed
+    evicted the NEWER entry -- and the next caller, seeing an empty map, started
+    a third concurrent refresh of the same account. Only the entry this call
+    installed may remove itself.
+  */
+  const entry: InFlightProviderRefresh = {
+    expectedConnectionGeneration: input.expectedConnectionGeneration,
+    // Always released, including on the cooldown and claim-conflict paths. An
+    // earlier version deleted the key only inside the provider-call
+    // try/finally, so a cooldown rejection left a rejected promise in the map
+    // and every later refresh in that process awaited and rethrew it — forever.
+    promise: refreshPromise.finally(() => {
+      if (locks.get(key) === entry) locks.delete(key);
+    }),
+  };
+  locks.set(key, entry);
+  await entry.promise;
 }
 
 
@@ -1162,33 +1364,59 @@ export interface SnapshotRefreshClaim {
  * how a timed-out claimant could still commit over the process that took over
  * from it. `FOR UPDATE` on the run row plus a single joined read closes it.
  */
+/**
+ * ── ROUND 23, ITEM 2: THE CHECK AND THE WRITE ARE ONE BOUNDARY ──────────────
+ *
+ * This read the connection through a LEFT JOIN and locked `FOR UPDATE OF run`
+ * -- the snapshot run only. The connection row it compared against was never
+ * locked, so `upsertIntegration`, which takes `FOR UPDATE OF connection` in its
+ * own transaction, could commit a reconnect in the window between this check
+ * passing and the timezone reconciliation a few statements later inside the
+ * SAME transaction. The generation was verified as A; the timezone was then
+ * written while the connection had already become B.
+ *
+ * `FOR UPDATE` cannot be applied to the nullable side of an outer join, so the
+ * two rows are locked as two statements. The CONNECTION is locked FIRST,
+ * matching the only lock `upsertIntegration` takes, so the two paths acquire
+ * the shared row in the same order and cannot deadlock against each other. From
+ * that lock until this transaction commits, no reconnect can interleave --
+ * which is what makes the generation check and the timezone write one real
+ * serialization boundary rather than two adjacent statements.
+ */
 async function assertSnapshotClaimStillOurs(input: {
   businessId: string;
   provider: string;
   claim: SnapshotRefreshClaim;
 }): Promise<void> {
   const sql = getDb();
-  const rows = (await sql`
-    SELECT run.refresh_claim_owner,
-           run.refresh_claim_epoch::text AS refresh_claim_epoch,
-           connection.connection_generation::text AS connection_generation,
-           connection.status AS connection_status
-    FROM provider_account_snapshot_runs run
-    LEFT JOIN provider_connections connection
-      ON connection.business_id = run.business_id
-     AND connection.provider = run.provider
-    WHERE run.business_id = ${input.businessId}
-      AND run.provider = ${input.provider}
-    FOR UPDATE OF run
+  // 1. The shared row, locked first and held to commit.
+  const connectionRows = (await sql`
+    SELECT connection_generation::text AS connection_generation,
+           status AS connection_status
+    FROM provider_connections
+    WHERE business_id = ${input.businessId}
+      AND provider = ${input.provider}
+    FOR UPDATE
   `) as Array<{
-    refresh_claim_owner: string | null;
-    refresh_claim_epoch: string;
     connection_generation: string | null;
     connection_status: string | null;
   }>;
+  // 2. Then this refresh's own run row.
+  const rows = (await sql`
+    SELECT run.refresh_claim_owner,
+           run.refresh_claim_epoch::text AS refresh_claim_epoch
+    FROM provider_account_snapshot_runs run
+    WHERE run.business_id = ${input.businessId}
+      AND run.provider = ${input.provider}
+    FOR UPDATE
+  `) as Array<{
+    refresh_claim_owner: string | null;
+    refresh_claim_epoch: string;
+  }>;
   const row = rows[0];
-  const observedGeneration = row?.connection_generation
-    ? `${row.connection_generation}:${row.connection_status}`
+  const connectionRow = connectionRows[0];
+  const observedGeneration = connectionRow?.connection_generation
+    ? `${connectionRow.connection_generation}:${connectionRow.connection_status}`
     : null;
 
   if (observedGeneration !== input.claim.generation) {

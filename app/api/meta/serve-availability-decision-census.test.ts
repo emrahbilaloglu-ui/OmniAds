@@ -73,6 +73,16 @@ const shopifyAovMock = vi.hoisted(() => ({
   resolveObservedShopifyAov: vi.fn(),
 }));
 const targetPackMock = vi.hoisted(() => ({ getBusinessTargetPack: vi.fn() }));
+/*
+  The account calibration the stub warehouse hands the REAL profile resolver.
+
+  Mutable so a case can remove the Meta purchase sample and watch the anchor
+  hold; every case that does not touch it gets `metaCalibrationMock.overrides`
+  as `beforeEach` leaves it.
+*/
+const metaCalibrationMock = vi.hoisted(() => ({
+  overrides: {} as Record<string, unknown>,
+}));
 
 vi.mock("@/app/api/meta/account-pulse/route", () => ({
   GET: upstreamRouteMock.accountPulseGet,
@@ -158,9 +168,18 @@ vi.mock("@/lib/creative-decision-engine/data-source", async (importOriginal) => 
   class StubWarehouseDataSource extends AnchorProfileDataSource {
     constructor() {
       super(null, makeAccountCalibration({
-        metaAttributedAovMean90d: null, metaAttributedAovPurchaseCount90d: 0,
-        metaAttributedRevenue90d: 0, metaAovQuality: "unavailable",
+        /*
+          The canonical Meta basis: 71.00 of Meta-attributed revenue per
+          Meta-attributed purchase over a `ready` sample. Deliberately NOT the
+          store fixture's 58.00 below, so a spend unit of 71/2.2 proves which
+          book the anchor came from.
+        */
+        metaAttributedAovMean90d: 71, metaAttributedAovPurchaseCount90d: 400,
+        metaAttributedRevenue90d: 28_400, metaAovQuality: "ready",
+        // The account-history rung stays absent: it is never hard-action
+        // eligible, so leaving it out keeps each case single-caused.
         accountCpaP50: null, accountCpaSampleCount: 0,
+        ...metaCalibrationMock.overrides,
       }));
     }
     getBusinessTargetPack = targetPackMock.getBusinessTargetPack;
@@ -290,6 +309,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
+  // Back to the canonical Meta basis; only a case that says otherwise removes it.
+  metaCalibrationMock.overrides = {};
   accessMock.requireBusinessAccess.mockResolvedValue({
     session: {
       sessionId: "sess_1",
@@ -600,9 +621,24 @@ describe("serve-time commercial anchor inputs", () => {
     stubUpstreams(metaLanePayload({ actionNow: [], watching: [], healthy: [], nonSales: [], archive: [], counts: { actionNow: 0, watching: 0, healthy: 0, nonSales: 0, archive: 0 } }));
   }
 
+  /*
+    RE-PINNED to the reordered ladder.
+
+    These rows asserted `target_cpa` at 24 and `operator_aov` at 44 / 2.2 = 20.
+    Both packs also carry `targetRoas: 2.2`, and with a Target ROAS the unit is
+    now the account's own Meta-attributed AOV (71, set on this suite's calibration)
+    over that ratio, so both rows land on the same canonical answer and the
+    operator-typed field is carried as lineage only.
+
+    NOTE THE COST, since it is easy to miss: because the two extra fields no
+    longer change the answer, THESE two rows no longer discriminate a pinned
+    pack from a re-read one on their own. The pinning property they exist for is
+    still proved, by the `does not mix the selected ROAS-only target pack with a
+    changed ROAS` row below, whose second read moves the ratio itself.
+  */
   it.each([
-    { name: "target CPA", pack: { targetCpa: 24 }, source: "target_cpa", unit: 24 },
-    { name: "operator AOV", pack: { operatorAovAssumption: 44 }, source: "operator_aov", unit: 20 },
+    { name: "target CPA", pack: { targetCpa: 24 }, source: "meta_derived_aov", unit: 71 / 2.2 },
+    { name: "operator AOV", pack: { operatorAovAssumption: 44 }, source: "meta_derived_aov", unit: 71 / 2.2 },
   ])("keeps the selected $name when it is removed before a hypothetical second read", async ({ pack, source, unit }) => {
     await useRealProfile();
     const selected = makeAnchorTargetPack({ targetRoas: 2.2, ...pack });
@@ -622,7 +658,7 @@ describe("serve-time commercial anchor inputs", () => {
   it.each([
     { name: "a new CPA", changed: { targetCpa: 99 } },
     { name: "a changed ROAS", changed: { targetRoas: 4.4 } },
-  ])("does not mix selected ROAS-only store evidence with $name", async ({ changed }) => {
+  ])("does not mix the selected ROAS-only target pack with $name", async ({ changed }) => {
     await useRealProfile();
     const selected = makeAnchorTargetPack({ targetRoas: 2.2 });
     targetPackMock.getBusinessTargetPack.mockResolvedValueOnce(selected)
@@ -631,13 +667,65 @@ describe("serve-time commercial anchor inputs", () => {
     const { payload } = await serve();
     const anchor = payload.system.commercialAnchor.explanation;
 
+    // The subject, unchanged: the pack is read ONCE and pinned for the request.
     expect(targetPackMock.getBusinessTargetPack).toHaveBeenCalledTimes(1);
     expect(shopifyAovMock.resolveObservedShopifyAov).toHaveBeenCalledTimes(1);
+    /*
+      RE-PINNED to the canonical rule. The rung was `observed_shopify_aov` with
+      58/2.2; the store's AOV no longer sizes a Meta action, so the unit here is
+      META's own attributed AOV over the PINNED ROAS. A leaked second read is
+      still what the case discriminates: the CPA arm would flip the source to
+      `target_cpa`, and the ROAS arm would divide by 4.4.
+    */
     expect(anchor).toMatchObject({
-      spendUnitSource: "observed_shopify_aov", missingInputs: [],
+      spendUnitSource: "meta_derived_aov", missingInputs: [],
       lineage: { targetRoas: 2.2, targetCpa: null, operatorAovAssumption: null },
     });
-    expect(anchor.spendUnit).toBeCloseTo(58 / 2.2, 8);
+    expect(anchor.spendUnit).toBeCloseTo(71 / 2.2, 8);
+    // And specifically not the store's own book.
+    expect(anchor.spendUnit).not.toBeCloseTo(58 / 2.2, 4);
+  });
+
+  it("holds by name when Meta attributed nothing, whatever the store says", async () => {
+    /*
+      THE GUARD, in both directions. Above, a Meta platform AOV with a Target
+      ROAS must still produce a unit. Here the SAME request with the Meta sample
+      removed — the store evidence still present and still 58.00 — must produce
+      a NAMED hold rather than silently falling back to the merchant's book or
+      to nothing at all.
+    */
+    metaCalibrationMock.overrides = {
+      metaAttributedAovMean90d: null,
+      metaAttributedAovPurchaseCount90d: 0,
+      metaAttributedRevenue90d: 0,
+      metaAovQuality: "unavailable",
+    };
+    await useRealProfile();
+    targetPackMock.getBusinessTargetPack.mockResolvedValue(
+      makeAnchorTargetPack({ targetRoas: 2.2 }),
+    );
+
+    const { payload } = await serve();
+    const anchor = payload.system.commercialAnchor.explanation;
+
+    expect(anchor).toMatchObject({
+      status: "blocked_missing_owner_anchor",
+      spendUnitSource: "insufficient",
+      spendUnit: null,
+      thresholdEligible: false,
+      missingInputs: ["meta_attributed_purchase_sample"],
+    });
+    // The hold is a sentence, not an empty panel.
+    expect(
+      payload.system.commercialAnchor.actions.every(
+        (action: { eligible: boolean; blockerCode: string | null; operatorCopy: string | null }) =>
+          !action.eligible
+          && action.blockerCode === "commercial_anchor_missing"
+          && Boolean(action.operatorCopy),
+      ),
+    ).toBe(true);
+    // The store's 58.00 was read and carried, and it authorised nothing.
+    expect(shopifyAovMock.resolveObservedShopifyAov).toHaveBeenCalledTimes(1);
   });
 
   it.each(["absent", "unreadable"])("pins %s targets for this request and allows a fresh next request", async (state) => {
@@ -658,10 +746,13 @@ describe("serve-time commercial anchor inputs", () => {
 
     const second = await serve();
     expect(targetPackMock.getBusinessTargetPack).toHaveBeenCalledTimes(2);
+    // RE-PINNED: the recovered pack resolves through the canonical Meta rung,
+    // not the retired store one. The subject — a pinned request does not poison
+    // the next one — is untouched.
     expect(second.payload.system.commercialAnchor.explanation).toMatchObject({
-      spendUnitSource: "observed_shopify_aov", missingInputs: [],
+      spendUnitSource: "meta_derived_aov", missingInputs: [],
       lineage: { targetRoas: 2.2 },
     });
-    expect(second.payload.system.commercialAnchor.explanation.spendUnit).toBeCloseTo(58 / 2.2, 8);
+    expect(second.payload.system.commercialAnchor.explanation.spendUnit).toBeCloseTo(71 / 2.2, 8);
   });
 });

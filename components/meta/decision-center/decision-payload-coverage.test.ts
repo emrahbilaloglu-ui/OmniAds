@@ -1270,7 +1270,7 @@ const COVERAGE: Record<string, Coverage> = {
     "The version of the candidate selection algorithm; the panel states what the selection DID - how many identities were eligible, selected and omitted, and for which reason - which is the part that changes what the operator sees.",
   ),
   "MetaDecisionsWorkspaceReadModel.queue.adCandidates.limit": N(
-    "The cap's configured size; the panel states the two numbers the cap produced against TWO eligible pre-cap counts - the read model's own and the OS presentation's derived maximum, each under a label naming which one it is - and that pair is what tells an operator the list is partial.",
+    "The cap's configured size; the panel states the two numbers the cap produced against TWO eligible pre-cap counts - the read model's own and the OS presentation's own served count, each under a label naming which one it is - and that pair is what tells an operator the list is partial.",
   ),
   "MetaDecisionsWorkspaceReadModel.queue.adCandidates.preCapCount": N(COMPACT_STATUS_OMITS_SECONDARY_DETAIL),
   "MetaDecisionsWorkspaceReadModel.queue.adCandidates.eligiblePreCapCount": W(
@@ -1368,14 +1368,80 @@ const COVERAGE: Record<string, Coverage> = {
   "MetaOsDecisionsPresentation.ads.monitorCount": N(
     "The creative group headers count the rendered rows in each state directly and state the served pre-cap total beside them; these three are the same three numbers after the cap.",
   ),
+  /*
+    D091 / Codex item 5 — held verdicts, counted apart from the lane totals.
+
+    The three lane counts above say WHERE the server put a row. These say WHAT
+    the engine concluded before authority withheld it, and a held row is
+    already inside `blockedCount` — so they are served and rendered as their
+    own fact and are added to no lane total. All three key on the one coverage
+    fact that prints the split, and the Blocked group header states the same
+    split beside its own count.
+  */
+  "MetaOsDecisionsPresentation.ads.heldCounts.scale": W(
+    S.PROVENANCE,
+    "the 'Verdicts held (unauthorized)' coverage fact, and the Blocked group header's held-verdict note",
+    "ads-held-verdicts",
+  ),
+  "MetaOsDecisionsPresentation.ads.heldCounts.cut": W(
+    S.PROVENANCE,
+    "the 'Verdicts held (unauthorized)' coverage fact, and the Blocked group header's held-verdict note",
+    "ads-held-verdicts",
+  ),
+  "MetaOsDecisionsPresentation.ads.heldCounts.refresh": W(
+    S.PROVENANCE,
+    "the 'Verdicts held (unauthorized)' coverage fact, and the Blocked group header's held-verdict note",
+    "ads-held-verdicts",
+  ),
   "MetaOsDecisionsPresentation.ads.statePreCapCounts": R(
     S.CREATIVES,
     "each group header's 'N shown · M served'",
   ),
   "MetaOsDecisionsPresentation.ads.eligiblePreCapCount": R(
     S.PROVENANCE,
-    "the coverage summary's shown-versus-eligible pair, which names it as derived, and the 'Eligible (pre-cap) · derived maximum' fact",
+    "the coverage summary's shown-versus-eligible pair, which names it as derived, and the 'Eligible (pre-cap) · served payload' fact",
     "ads-eligible-pre-cap",
+  ),
+  /*
+    D091 / Codex item 5 — the last-good fallback states BOTH runs.
+    Served on `source.degraded` and rendered as three PROVENANCE facts, so an
+    operator can read "serving the 08-21 generation because the 09-04 run
+    failed" instead of being told only one half of it.
+  */
+  "MetaDecisionSourceDegradation.reason": R(
+    S.PROVENANCE,
+    "the 'Degradation reason' source fact",
+    "degraded-reason",
+  ),
+  "MetaDecisionSourceDegradation.servedGeneration.jobRunId": R(
+    S.PROVENANCE,
+    "the 'Serving generation' source fact",
+    "degraded-served-generation",
+  ),
+  "MetaDecisionSourceDegradation.servedGeneration.asOfDate": R(
+    S.PROVENANCE,
+    "the 'Serving generation' source fact",
+    "degraded-served-generation",
+  ),
+  "MetaDecisionSourceDegradation.latestTerminalRun.jobRunId": R(
+    S.PROVENANCE,
+    "the 'Latest terminal run' source fact",
+    "degraded-latest-run",
+  ),
+  "MetaDecisionSourceDegradation.latestTerminalRun.status": R(
+    S.PROVENANCE,
+    "the 'Latest terminal run' source fact",
+    "degraded-latest-run",
+  ),
+  "MetaDecisionSourceDegradation.latestTerminalRun.asOfDate": R(
+    S.PROVENANCE,
+    "the 'Latest terminal run' source fact",
+    "degraded-latest-run",
+  ),
+  "MetaOsDecisionsPresentation.ads.pendingInventoryCount": R(
+    S.PROVENANCE,
+    "the 'ACTIVE Ads awaiting a decision' coverage fact, and — as a sentence rather than a number — the served `active_ad_inventory_pending_native_decision` limitation the Creatives scope renders as its notice",
+    "ads-pending-inventory",
   ),
   "MetaOsDecisionsPresentation.ads.omittedWithoutVerifiedAdId": R(
     S.PROVENANCE,
@@ -1410,9 +1476,21 @@ const COVERAGE: Record<string, Coverage> = {
     S.PROVENANCE,
     "the Limitations group in both scopes, the creatives notice, and the mobile posture panel",
   ),
-  "MetaOsDecisionsPresentation.limitations[].message": R(
-    S.PROVENANCE,
-    "the Limitations group in both scopes, the creatives notice, and the mobile posture panel",
+  "MetaOsDecisionsPresentation.limitations[].message": N(
+    /*
+      ROUND 8 ITEM 7. This WAS rendered — verbatim — in the Limitations group
+      and in the creatives notice, and that is the defect: the server's message
+      is written in the engine's vocabulary ("Legacy creative-grain decisions
+      remain visible for continuity but cannot authorize Ad writes"), which a
+      media buyer cannot act on. The surfaces now render a mapping of the
+      served CODE (`lib/meta/buyer-copy.ts`), and the code — which is the fact
+      the server actually asserts — still reaches both scopes and the notice.
+
+      Deliberately NOT consulted as a fallback either: doing so would put the
+      engine's sentence back on screen for exactly the codes nobody had mapped
+      yet, which is when a buyer is least able to interpret it.
+    */
+    "The engine's own wording for a limitation, superseded on screen by a buyer-language mapping of `limitations[].code` — which is the field the server actually asserts and which does still reach both scopes and the notice.",
   ),
   "MetaCampaignRoleCoverage.activeCampaigns": R(
     S.KPI,
@@ -1788,7 +1866,7 @@ const COVERAGE: Record<string, Coverage> = {
   ),
   "MetaCanonicalDecision.classification.heldAction": R(
     S.EVIDENCE,
-    "the audit block's 'Held action', shown only when an action is actually held",
+    "the audit block's 'Held verdict', shown only when an action is actually held, and translated through the SAME buyer catalog the queue row uses — this row printed the engine's raw token until Codex Round 4, which was the producer vocabulary reaching a pixel on the one surface a creative row actually opens",
     "held-action",
   ),
   "MetaCanonicalDecision.classification.legacyBuyerAction": N(
@@ -2062,27 +2140,57 @@ const COVERAGE: Record<string, Coverage> = {
     "blocker-codes",
   ),
   "MetaOsAdDecision.blockers[].label": N(RAW_PRODUCER_COPY_IS_NOT_BUYER_COPY),
-  "MetaOsAdDecision.resolution.code": R(
+  /*
+    D091 / Codex item 5 — these five keys were `MetaOsAdDecision.resolution.*`
+    until the resolution shape was extracted into its own named interface. The
+    walk keys a named interface once, under its own name, so the five entries
+    below are the SAME five leaves under their new key and carry the same five
+    classifications; nothing here was reclassified.
+
+    ONE INTERFACE, TWO POSITIONS. `MetaOsDecisionResolution` is now reached
+    twice on an Ad decision: as `resolution`, the resolution for the PUBLISHED
+    label, and as `heldResolution`, the resolution for the verdict authority
+    withheld. The walk therefore varies both at once and these claims describe
+    both. The Creatives row reads `heldResolution.code` too — through this
+    surface's buyer-copy catalog, never printed — which is why the row is not
+    named here: the code selects a sentence and the code itself reaches no
+    pixel. @see heldCreativeVerdict in meta-decision-center-exact-adapter.ts
+  */
+  "MetaOsDecisionResolution.code": R(
     S.EVIDENCE,
     "the diagnostics row 'served resolution code'",
     "served-resolution-code",
   ),
-  "MetaOsAdDecision.resolution.category": R(
+  "MetaOsDecisionResolution.category": R(
     S.EVIDENCE,
     "the 'Served resolution' line, printed only when it differs from the owner beside it",
     "served-resolution",
   ),
-  "MetaOsAdDecision.resolution.owner": R(
+  "MetaOsDecisionResolution.owner": R(
     S.EVIDENCE,
     "the 'Served resolution' line - who has to act",
     "served-resolution",
   ),
-  "MetaOsAdDecision.resolution.label": R(
+  "MetaOsDecisionResolution.label": R(
     S.EVIDENCE,
     "the 'Served resolution' line",
     "served-resolution",
   ),
-  "MetaOsAdDecision.resolution.nextStep": N(RAW_PRODUCER_COPY_IS_NOT_BUYER_COPY),
+  "MetaOsDecisionResolution.nextStep": N(RAW_PRODUCER_COPY_IS_NOT_BUYER_COPY),
+  /*
+    D091 / Codex item 5 — the verdict the engine reached and authority withheld.
+
+    A held Refresh publishes `keep`, so the row's decision label — which reads
+    `publishedLabel` — said "Keep monitoring" over an ad whose engine verdict
+    was Refresh. This leaf is the second, separate fact the row was missing,
+    and it is drawn as its own badge beside the published label rather than
+    replacing it: the published label is still the authorized outcome and is
+    still true.
+  */
+  "MetaOsAdDecision.heldAction": W(
+    S.CREATIVES,
+    "the row's 'Held verdict: …' badge, in the same buyer vocabulary an authorized verdict publishes, and the held verdict named inside the row's next-step sentence; it also reaches the creative evidence window's 'Held verdict' row and the 'Why it is held' sentence beneath it, through the same catalog, which is the surface an operator opens from a creative row",
+  ),
   "MetaOsAdDecision.creativeFormat": R(
     S.CREATIVES,
     "the three-letter kind inside the row's thumb - IMG, VID or CAT, and an em dash for anything else",
@@ -2099,7 +2207,7 @@ const COVERAGE: Record<string, Coverage> = {
   ),
   "MetaOsAdDecision.publishedLabel": R(
     S.CREATIVES,
-    "the row's tone, the refresh-pipeline count on the posture band, and the window's verdict when no canonical label was served",
+    "the row's decision label, the refresh-pipeline count on the posture band, and the window's verdict when no canonical label was served — and the row's TONE on a row with no held verdict, which is where a held row's tone comes from instead",
   ),
   "MetaOsAdDecision.engineVersion": R(
     S.EVIDENCE,
@@ -2116,9 +2224,29 @@ const COVERAGE: Record<string, Coverage> = {
     "the diagnostics' 'served grain' line",
     "served-grain",
   ),
+  /*
+    CORRECTED, not reclassified. This note named a "'Pending native evidence'
+    chip"; no such chip is built — `creativeChips` emits the lifecycle role and
+    the ROAS, and an adapter test pins that the pending row carries no
+    "Decision pending" chip. The leaf really does reach the Creatives queue,
+    through the row's ONE SENTENCE, which is where it has always been. The
+    element is named precisely now because the sentence is also where the held
+    verdict writes, and the two are ordered: an ACTIVE ad with no exact
+    Ad-grain decision has no verdict to hold, so this fact wins.
+  */
+  /*
+    RE-REGISTERED. This named the CREATIVES row sentence, and the probe now sees
+    only [INSPECTOR, EVIDENCE]. Nothing regressed: the un-decided ACTIVE ad that
+    used to carry this sentence in the queue is no longer built as a decision at
+    all — that population is served as `ads.pendingInventoryCount` plus one
+    limitation — so the only rows still carrying `decisionAvailability` are
+    real decisions, and the field reaches a surface only through the evidence
+    window. The value is a compatibility one for payloads serialized before that
+    separation, which is exactly where it should still be readable.
+  */
   "MetaOsAdDecision.decisionAvailability": R(
-    S.CREATIVES,
-    "the 'Pending native evidence' chip, and the window's served-availability line",
+    S.INSPECTOR,
+    "the window's served-availability line, which is now the field's only reach: the Creatives-row sentence it also fed belonged to the placeholder rows the producer no longer builds",
   ),
   "MetaOsInactiveAsset.id": N(
     "The OS presentation's advisory projection of rows the Archive lane already renders from the read model's own canonical envelopes, which carry the delivery statuses and the withholding reason this projection drops; rendering both would list every inactive asset twice at two different fidelities.",
@@ -2662,10 +2790,16 @@ const COVERAGE: Record<string, Coverage> = {
     "the 'Served label provenance' line's first blocker",
     "served-authority-provenance",
   ),
-  "MetaOsDecisionAuthorityProvenance.firstBlocker.explanation": R(
-    S.EVIDENCE,
-    "the 'Label held because' row, which prints an em dash rather than nothing when a tripped gate arrived without its sentence",
-    "served-first-blocker-explanation",
+  "MetaOsDecisionAuthorityProvenance.firstBlocker.explanation": N(
+    /*
+      ROUND 8 ITEM 7. The 'Why this is on hold' row still exists and still
+      fires on exactly the same condition; what it prints is now mapped from
+      `firstBlocker.code`. The server's explanation names the LAYER that
+      refused ("the account profile did not meet the evidence requirements for
+      a hard provider action"), and a buyer needs what is missing and what
+      would change it instead.
+    */
+    "The engine's own wording for a tripped authority gate, superseded on screen by a buyer-language mapping of `firstBlocker.code` in the 'Why this is on hold' row.",
   ),
   "MetaDecisionParentRef.id": R(
     S.EVIDENCE,
@@ -3146,9 +3280,29 @@ describe("Meta Decision payload · served-field coverage matrix", () => {
       leaves come from THIS branch's canonical bid action, so the merged tree
       has 759. The number is asserted, not chosen: the walk below counts it.
     */
-    expect(fields.length).toBe(759);
-    expect(new Set(fields.map((field) => field.iface)).size).toBe(62);
-    expect(fields.filter((field) => field.varies).length).toBe(707);
+    /*
+      760: `ads.pendingInventoryCount`, which separates ACTIVE inventory the
+      producer has not decided from the decision lanes it used to be counted
+      inside. It varies, so the varying total moves with it.
+    */
+    /*
+      766: the six `MetaDecisionSourceDegradation` leaves — the reason, and the
+      served/latest run identities the last-good fallback states together.
+    */
+    /*
+      770: D091 / Codex item 5 — `MetaOsAdDecision.heldAction` and the three
+      `ads.heldCounts` members. All four vary, so the varying total moves with
+      them.
+
+      The INTERFACE total moves too, 63 -> 64, without a leaf moving with it:
+      the Ad decision's resolution shape was extracted into the named
+      `MetaOsDecisionResolution`, so its five leaves are now attributed to that
+      interface instead of to `MetaOsAdDecision`, which still has leaves of its
+      own. Five keys renamed, no leaf added or lost.
+    */
+    expect(fields.length).toBe(770);
+    expect(new Set(fields.map((field) => field.iface)).size).toBe(64);
+    expect(fields.filter((field) => field.varies).length).toBe(717);
     expect(fields.some((field) => field.key.endsWith(".metrics.cpa"))).toBe(
       true,
     );
@@ -3664,19 +3818,33 @@ const ELEMENT_PROOF_BY_SURFACE: Record<string, [number, number]> = {
   ARCHIVE: [0, 10],
   BANNERS: [0, 8],
   MOBILE: [0, 1],
+  // 10 -> 11: D091 / Codex item 5 — the row's held-verdict badge, which the
+  // queue emits as a row element without a stable id to key on.
+  // 11 -> 10: `MetaOsAdDecision.decisionAvailability` moved to INSPECTOR when
+  // the placeholder rows that carried it in the queue stopped being built.
   CREATIVES: [0, 10],
-  EVIDENCE: [94, 17],
+  // 94 -> 93: `firstBlocker.explanation` is no longer rendered (Round 8 item 7).
+  EVIDENCE: [93, 17],
   HEADER: [0, 9],
   HEALTHY: [0, 10],
   // Five more claims on this panel, none of them keyed to a stable row id:
   // the provenance band is one band, not a table of rows.
-  INSPECTOR: [2, 12],
+  // 12 -> 13: it arrived here. @see decisionAvailability above.
+  INSPECTOR: [2, 13],
   INVENTORY: [0, 14],
   KPI: [0, 22],
   NONSALES: [0, 1],
   PILLS: [0, 8],
   POSTURE: [2, 0],
-  PROVENANCE: [97, 5],
+  // 97 -> 98: `ads.pendingInventoryCount` keys on the `ads-pending-inventory`
+  // coverage fact, so it is proven at element level like the rest of the panel.
+  // 98 -> 104: the six `MetaDecisionSourceDegradation` leaves, keyed on the
+  // three source facts that state the served generation, the latest terminal
+  // run and the degradation reason together.
+  // 104 -> 107: the three `ads.heldCounts` members, all keyed on the one
+  // `ads-held-verdicts` coverage fact that prints the split.
+  // 5 -> 4: `limitations[].message` is no longer rendered (Round 8 item 7).
+  PROVENANCE: [107, 4],
   WATCHING: [0, 3],
 };
 
@@ -3707,8 +3875,19 @@ const DOM_PROOF_BY_SURFACE: Record<string, [number, number]> = {
   // The provenance band put five payload leaves in this panel's DOM that had
   // never reached a screen: the evidence window's two dates, the engine write
   // time, and the two metrics whose ABSENCE the gap line now names.
-  INSPECTOR: [4, 10],
-  PROVENANCE: [0, 100],
+  // 10 -> 11: the held verdict `heldAction`, behind the Creatives scope tab
+  // rather than in the resting desktop DOM.
+  INSPECTOR: [4, 11],
+  // 100 -> 101: `ads.pendingInventoryCount`, the coverage fact that separates
+  // ACTIVE inventory awaiting a decision from the decision lanes it used to be
+  // counted inside. Like every PROVENANCE claim it sits behind the panel's own
+  // control, so it is view-model proof rather than resting DOM.
+  // 101 -> 106: the five varying `MetaDecisionSourceDegradation` leaves.
+  // 106 -> 109: the three `ads.heldCounts` members, counted apart from the
+  // lane totals and read from the provenance panel's own control.
+  // 109 -> 108: `limitations[].message` is no longer rendered, so it leaves
+  // the behind-a-control half of the provenance panel (Round 8 item 7).
+  PROVENANCE: [0, 108],
   WATCHING: [1, 2],
   // Behind a lane tab the default render never presses. This is the whole
   // demonstration: ARCHIVE's claims are real and none of them is in the DOM
@@ -3724,7 +3903,9 @@ const DOM_PROOF_BY_SURFACE: Record<string, [number, number]> = {
   // screen".
   BANNERS: [0, 8],
   MOBILE: [0, 1],
-  EVIDENCE: [0, 107],
+  // 107 -> 106: `firstBlocker.explanation` is no longer rendered, so it leaves
+  // the behind-a-control half of the evidence window (Round 8 item 7).
+  EVIDENCE: [0, 106],
   INVENTORY: [0, 14],
   // D078 R4 (correction 2): the coverage PANEL renders every one of its
   // eleven leaves as visible text in the resting desktop DOM — including
@@ -3736,13 +3917,33 @@ const DOM_PROOF_BY_SURFACE: Record<string, [number, number]> = {
 // PRE-DEPLOY AUDIT — [120, 248] -> [159, 249]. The budget panels render in
 // the default markup, so 39 of their claims are proven in the DOM rather than
 // in a view model; one more sits behind a control.
-const DOM_PROOF_TOTALS: [number, number] = [32, 304];
+// 304 -> 305 with `ads.pendingInventoryCount`, behind the provenance control.
+// 305 -> 310 with the five VARYING `MetaDecisionSourceDegradation` leaves (the
+// sixth is contract-pinned, see DOM_PROOF_PINNED_LEAVES) — all behind the same
+// control, because the provenance panel is not in the resting desktop DOM.
+// 310 -> 314 with the four VARYING held-verdict leaves (`heldAction` and the
+// three `ads.heldCounts` members). All four are behind a control rather than in
+// the resting desktop DOM: the held badge renders in the Creatives scope and the
+// counts in its group header, neither of which the default render opens.
+// 314 -> 312 with ROUND 8 ITEM 7: `limitations[].message` and
+// `firstBlocker.explanation` are no longer rendered anywhere. Both were behind
+// a control (the provenance disclosure and the evidence window), so the whole
+// delta lands on this half. Their SURFACES did not disappear — the Limitations
+// group and the 'Why this is on hold' row both still render — they now print a
+// buyer-language mapping of the served CODE instead of the engine's own
+// sentence, and `limitations[].code` / `firstBlocker.code` still prove those
+// rows.
+const DOM_PROOF_TOTALS: [number, number] = [32, 312];
 
 /** Claims on leaves the contract pins to one value, which cannot be varied. */
 // PRE-DEPLOY AUDIT — 7 -> 20. Thirteen more claims sit on leaves the budget
 // contracts pin in the TYPE (`ctaEnabled: false`, `intent: "review"`,
 // `executionState: "validated_only"`, …), which the probe cannot vary.
-const DOM_PROOF_PINNED_LEAVES = 6;
+// 6 -> 7: one of the six `MetaDecisionSourceDegradation` leaves is pinned by
+// the contract to a single value, so the probe cannot vary it and it has no DOM
+// answer either way. Counted here so the three totals still add up to the whole
+// table rather than to an unstated subset.
+const DOM_PROOF_PINNED_LEAVES = 7;
 
 /**
  * Leaves the probe varies that move NO surface, in any scenario.
@@ -3756,7 +3957,8 @@ const DOM_PROOF_PINNED_LEAVES = 6;
 // read-back plumbing, the gate verdict's internal codes, and the dry-run's
 // server-side executable flag. Each is classified with its own reason above;
 // this is their total.
-const NOWHERE_LEAVES = 371;
+// 371 -> 373 with ROUND 8 ITEM 7: the two superseded prose leaves above.
+const NOWHERE_LEAVES = 373;
 
 /**
  * Of those, the ones that DO reach the callback boundary — the served tuple
@@ -3765,7 +3967,11 @@ const NOWHERE_LEAVES = 371;
  * kept so "it travels to the boundary" is written down rather than confused
  * with a pixel.
  */
-const NOWHERE_BUT_AT_THE_BOUNDARY = 64;
+// 64 -> 65 with ROUND 8 ITEM 7: `firstBlocker.explanation` is no longer
+// rendered, but it is still handed to the callback boundary as part of the
+// served decision tuple. Reaching a callback is not rendering — which is the
+// distinction this counter exists to keep visible.
+const NOWHERE_BUT_AT_THE_BOUNDARY = 65;
 
 /** The one character every surface in this app prints for "unserved". */
 const EM_DASH = "\u2014";
@@ -4564,7 +4770,10 @@ describe("Meta Decision payload · every claim, proven against the running code"
     // Exact, for the reason the walk's own size is exact: a probe that stopped
     // probing would satisfy every "nothing changed" assertion in the file.
     // PRE-DEPLOY AUDIT: 620 -> 707, tracking the walk's own varying-leaf pin.
-    expect(outcomes.size).toBe(707);
+    // 707 -> 708 with `ads.pendingInventoryCount`; -> 713 with the six
+    // `MetaDecisionSourceDegradation` leaves; -> 717 with `heldAction` and the
+    // three `ads.heldCounts` members.
+    expect(outcomes.size).toBe(717);
     // And the baseline surfaces are not empty, or "nothing changed" would be
     // true of everything.
     for (const [surface, text] of Object.entries(baseline)) {
@@ -4802,8 +5011,20 @@ describe("Meta Decision payload · every claim, proven against the running code"
      * strongest proof available there, so the honest thing is to let the
      * ratio move and say why.
      */
-    expect(rendered.length).toBe(342);
-    expect(withElement.length).toBe(195);
+    // 342/195/147 -> 343/196/147: `ads.pendingInventoryCount` is rendered and
+    // keys on the `ads-pending-inventory` element id, so it joins the
+    // proven-at-element half. -> 349/202/147 with the six
+    // `MetaDecisionSourceDegradation` leaves, which key on three source facts.
+    // -> 353/205/148 with D091 / Codex item 5: the three `ads.heldCounts`
+    // members key on the one `ads-held-verdicts` coverage fact, and
+    // `heldAction` is a row badge on a surface that emits no keyable row id.
+    // -> 351/204/147 with ROUND 8 ITEM 7: `limitations[].message` (no element
+    // id) and `firstBlocker.explanation` (keyed on
+    // `served-first-blocker-explanation`) are no longer rendered at all, so one
+    // leaves each half. The rows themselves remain and are now proven by the
+    // CODE leaves that feed the buyer-language mapping.
+    expect(rendered.length).toBe(351);
+    expect(withElement.length).toBe(204);
     expect(withoutElement.length).toBe(147);
 
     /*
@@ -5398,13 +5619,14 @@ describe("Meta Decision payload · the named starting points", () => {
     /*
      * TWO eligible pre-cap numbers, each under a label naming WHICH it is.
      * `queue.adCandidates.eligiblePreCapCount` is what the read model measured;
-     * `os.ads.eligiblePreCapCount` is a derived maximum. The bare name belongs
-     * to the served field and must never again be worn by the derived one —
-     * that is the law this last line pins, and it is why the label had to grow
-     * a qualifier rather than being reused.
+     * `os.ads.eligiblePreCapCount` is what the presentation served, which falls
+     * back to the decisions it built when the read model counted none. The bare
+     * name belongs to the read model's field and must never again be worn by
+     * the other one — that is the law this last line pins, and it is why the
+     * label had to grow a qualifier rather than being reused.
      */
     expect(adapter).toContain('"Eligible (pre-cap) · read model"');
-    expect(adapter).toContain('"Eligible (pre-cap) · derived maximum"');
+    expect(adapter).toContain('"Eligible (pre-cap) · served payload"');
     expect(adapter).not.toContain('"Eligible (pre-cap)"');
   });
 
@@ -5833,6 +6055,7 @@ describe("Meta Decision payload · the named starting points", () => {
       "MetaLanePayload.endDate",
       "MetaLanePayload.snapshotCreatedAt",
       "MetaLanePayload.startDate",
+      "MetaOsAdDecision.heldAction",
       "MetaOsCampaignRoleExplanation.confidenceClass",
       "MetaOsCampaignRoleExplanation.confidenceScore",
       "MetaOsCampaignRoleExplanation.conflictReasons",
@@ -5843,6 +6066,9 @@ describe("Meta Decision payload · the named starting points", () => {
       "MetaOsCampaignRoleExplanation.unresolvedReason",
       "MetaOsDecisionMetrics.cpa",
       "MetaOsDecisionMetrics.ctr",
+      "MetaOsDecisionsPresentation.ads.heldCounts.cut",
+      "MetaOsDecisionsPresentation.ads.heldCounts.refresh",
+      "MetaOsDecisionsPresentation.ads.heldCounts.scale",
       "MetaOsStructureNode.lane",
       "MetaPulsePayload.dataReadiness.evidenceSource",
       "MetaPulsePayload.roas.median",

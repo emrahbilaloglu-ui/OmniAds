@@ -35,11 +35,13 @@ import type {
   MetaOsLegacyDecisionAction,
   MetaOsDecisionsPresentation,
   MetaOsStructureNode,
+  MetaOsAdDecisionHeldVerdict,
 } from "@/lib/meta/decisions-os-contract";
 
 import {
   buildMetaDecisionCenterExactViewModel,
   buildMetaStructureInventoryViewModel,
+  buyerFacingCreativeDecisionLabel,
 } from "./meta-decision-center-exact-adapter";
 
 const priority = {
@@ -1341,10 +1343,10 @@ describe("the creative queue is the served set, split by the served state", () =
     expect(rows.get("os_ad_pending")).toMatchObject({
       stateLabel: "Blocked",
       stateTone: "warning",
-      note: "This active ad is waiting for an ad-level decision.",
-      blockedNote:
-        "Decision evidence is still being prepared. — Next: Wait for the next completed ad-level decision.",
+      note: "Wait for the next completed ad-level decision.",
     });
+    expect(rows.get("os_ad_pending")?.chips).not.toContain("Decision pending");
+    expect(rows.get("os_ad_pending")?.blockedNote).toBeUndefined();
     expect(JSON.stringify(rows.get("os_ad_pending"))).not.toContain(
       "schema and producer lineage",
     );
@@ -1384,7 +1386,7 @@ describe("the creative queue is the served set, split by the served state", () =
     expect(groups.get("blocked")).toMatchObject({
       label: "Blocked",
       count: "1 of 80 decisions",
-      note: "Wait for ad-level decision",
+      note: null,
     });
     // The act group is not capped, so it states one number, not two.
     expect(groups.get("act")?.count).toBe("1 decision");
@@ -1435,10 +1437,9 @@ describe("the creative queue is the served set, split by the served state", () =
       .creativeDecisions?.[0];
 
     expect(row).toMatchObject({
-      note: "This decision needs review before any action.",
-      blockedNote:
-        "More verified evidence is required. — Next: Wait for the missing decision evidence, then review again.",
+      note: "Wait for the missing decision evidence, then review again.",
     });
+    expect(row?.blockedNote).toBeUndefined();
     const serialized = JSON.stringify(row);
     expect(serialized).not.toContain("warehouse schema");
     expect(serialized).not.toContain("producer lineage");
@@ -1482,7 +1483,16 @@ describe("an empty Creatives scope says why, when the server gave a reason", () 
    * model falls back to the legacy source, and the scope serves nothing — with
    * no way for the operator to tell that apart from "no work today".
    */
-  it("joins the served limitation and the fallback reason", () => {
+  it("serves the limitation in buyer language and keeps the producer code out of it", () => {
+    /*
+     * LAW: no backend code reaches the sentence an operator reads.
+     *
+     * This notice used to append "Source: native_account_manifest_incomplete."
+     * The reason is real and worth having — but it is a producer identifier,
+     * and the one line explaining why an account's ads are not being decided is
+     * not the place for it. It keeps its own labelled row in the diagnostics
+     * panel, asserted immediately below.
+     */
     const workspace = workspaceFixture({});
     workspace.os.source.adsSource = "legacy_creative_review_only";
     workspace.os.source.fallbackReason = "native_account_manifest_incomplete";
@@ -1493,10 +1503,60 @@ describe("an empty Creatives scope says why, when the server gave a reason", () 
       },
     ];
 
+    const viewModel = buildMetaDecisionCenterExactViewModel({ workspace });
+    expect(viewModel.creativesNotice).toBe(
+      // ROUND 8 ITEM 7: mapped from the CODE into buyer language. The server's
+      // own sentence ("Legacy creative-grain decisions … cannot authorize Ad
+      // writes") is still in the payload and is deliberately not rendered.
+      "Earlier creative-level guidance is shown for reference and cannot be applied to individual ads.",
+    );
+    expect(viewModel.creativesNotice).not.toContain("native_account_manifest");
+    // Not lost — relocated. `factValue` is scoped to the provenance describe
+    // block, so the fact is read directly here.
+    expect(
+      viewModel.sourceProvenance?.source?.find(
+        (item) => item.id === "fallback-reason",
+      )?.value,
+    ).toBe("native_account_manifest_incomplete");
+  });
+
+  it("states the un-decided ACTIVE inventory on a native-authoritative account", () => {
+    /*
+     * The condition this sentence describes best was the one it could never
+     * describe: `adsSource === "native_ad_decision"` returned early, so an
+     * account whose native producer ran and decided NOTHING for the ads it is
+     * running got no sentence at all — while the queue filled with one
+     * placeholder row per un-decided Ad. Those rows no longer exist
+     * (`decisions-os-presentation.ts` serves them as a count), so this is now
+     * the only place the fact is said.
+     */
+    const workspace = workspaceFixture({});
+    workspace.os.source.adsSource = "native_ad_decision";
+    workspace.os.source.fallbackReason = null;
+    /*
+      The fixture carries the SERVER'S OWN sentence, in the engine's vocabulary,
+      because that is what the payload actually contains — and a fixture written
+      in buyer language would make the mapping below untestable.
+    */
+    workspace.os.limitations = [
+      {
+        code: "active_ad_inventory_pending_native_decision",
+        message:
+          "60 ACTIVE Ads have no exact Ad-grain decision yet, so they are not listed as decisions.",
+      },
+    ];
+    workspace.os.ads.pendingInventoryCount = 60;
+
+    /*
+      ROUND 8 ITEM 7. The COUNT survives — it is the one quantitative fact a
+      buyer can act on — and the cause is stated as what happens next rather
+      than as a decision grain. The server's message is not consulted at all;
+      the CODE is what is mapped.
+    */
     expect(
       buildMetaDecisionCenterExactViewModel({ workspace }).creativesNotice,
     ).toBe(
-      "Legacy creative-grain decisions cannot authorize Ad writes. Source: native_account_manifest_incomplete.",
+      "60 active ads are still being evaluated. They will appear here when a decision is ready.",
     );
   });
 
@@ -1519,7 +1579,11 @@ describe("an empty Creatives scope says why, when the server gave a reason", () 
     const notice = buildMetaDecisionCenterExactViewModel({
       workspace,
     }).creativesNotice;
-    expect(notice).toContain("native decision source is not the authority");
+    // No served limitation at all: an honest short sentence, never the
+    // engine's fallback prose about a "native decision source".
+    expect(notice).toBe(
+      "Ad-level decisions are not available for this account yet.",
+    );
   });
 });
 
@@ -1717,10 +1781,17 @@ describe("archive lane grain", () => {
     // so drawing one could only ever produce a permanently dimmed control.
     expect(row).not.toHaveProperty("onResume");
     expect(row?.showResume).toBeUndefined();
+    /*
+      ROUND 11 ITEM 2. The headline was "Withheld from the live queue: …" — the
+      queue's own posture, in the queue's vocabulary. The STATUS SENTENCE after
+      it is unchanged, because it is the provider's own fact and is what makes
+      the note useful.
+    */
     expect(row?.note).toBe(
-      "Withheld from the live queue: the current campaign / ad set / ad hierarchy is not active. " +
+      "Not included in Action now because this ad is inactive. " +
         "Current status — campaign NOT_ACTIVE, ad set NOT_ACTIVE, ad NOT_ACTIVE.",
     );
+    expect(row?.note).not.toContain("Withheld");
   });
 
   it("says an unknown hierarchy status is unknown instead of rounding it to paused", () => {
@@ -1750,8 +1821,9 @@ describe("archive lane grain", () => {
     expect(row?.status).toBe("Ad · Status unknown");
     expect(row?.statusTone).toBe("neutral");
     expect(row?.note).toBe(
-      "Withheld from the live queue: current hierarchy status is unknown.",
+      "Not included in Action now because this ad's current status could not be confirmed.",
     );
+    expect(row?.note).not.toContain("Withheld");
   });
 });
 
@@ -1861,7 +1933,9 @@ describe("the served decision source is stated beside the rows, not instead of t
     // The rows are still there. The panel is additive, never a replacement.
     expect(viewModel.creativeDecisions).toHaveLength(1);
     const provenance = viewModel.sourceProvenance;
-    expect(provenance?.headline).toBe("native_ad · healthy");
+    // Two database enums joined by a middle dot were the headline of the panel
+    // a buyer opens first. Both tokens stay below as diagnostics facts.
+    expect(provenance?.headline).toBe("Ad-level decisions are up to date");
     // Paired against the eligible pre-cap, which is the population the rendered
     // list is a capped view OF. Grandmix serves 60 items against 80 eligible.
     //
@@ -2064,7 +2138,7 @@ describe("the served decision source is stated beside the rows, not instead of t
   });
 
   /**
-   * LAW: a derived maximum may not be printed under the served field's name.
+   * LAW: the presentation's own count may not be printed under the read model's name.
    *
    * `os.ads.eligiblePreCapCount` is NOT `queue.adCandidates.eligiblePreCapCount`
    * forwarded. The presentation computes
@@ -2076,15 +2150,15 @@ describe("the served decision source is stated beside the rows, not instead of t
    * The contrast is with `sourcePreCapCount`, which genuinely IS forwarded
    * (presentation:1686) and is therefore still read once and printed once.
    */
-  it("tells the served eligible pre-cap apart from the presentation's derived maximum", () => {
+  it("tells the read model's eligible pre-cap apart from the presentation's", () => {
     const workspace = grandmixShapedWorkspace();
     const readModel = workspace.decisionReadModel as unknown as Record<
       string,
       unknown
     >;
     const queue = readModel.queue as Record<string, unknown>;
-    // The divergence the max() produces: the read model counted 71 eligible,
-    // the presentation built more rows than that and raised the ceiling to 80.
+    // The divergence: the read model counted 71 eligible and the presentation
+    // served 80. They are two different fields and either can be the larger.
     (queue.adCandidates as Record<string, unknown>).eligiblePreCapCount = 71;
     workspace.os.ads.eligiblePreCapCount = 80;
 
@@ -2104,13 +2178,14 @@ describe("the served decision source is stated beside the rows, not instead of t
       "Eligible (pre-cap) · read model",
     );
     expect(labels.get("ads-eligible-pre-cap")).toBe(
-      "Eligible (pre-cap) · derived maximum",
+      "Eligible (pre-cap) · served payload",
     );
     // No label may be the bare "Eligible (pre-cap)" any more: that name belongs
     // to the served field and was worn by the derived one.
     expect([...labels.values()]).not.toContain("Eligible (pre-cap)");
-    // The summary pairs against the derived maximum — the only one of the two
-    // that is never smaller than the list beside it — and says so.
+    // The summary pairs against the count the presentation actually served,
+    // which is the pre-cap size of the population that produced the list
+    // beside it, and says it is derived.
     expect(viewModel.sourceProvenance?.coverageSummary).toBe(
       "1 shown · 80 eligible pre-cap (derived)",
     );
@@ -2153,7 +2228,7 @@ describe("the served decision source is stated beside the rows, not instead of t
 
     expect(viewModel.creativeDecisions?.length).toBeGreaterThan(0);
     expect(viewModel.sourceProvenance?.headline).toBe(
-      "legacy_creative · degraded",
+      "Ad-level decisions are not available yet",
     );
     expect(viewModel.sourceProvenance?.tone).toBe("warning");
     expect(factValue(viewModel, "source", "fallback-reason")).toBe(
@@ -2167,13 +2242,26 @@ describe("the served decision source is stated beside the rows, not instead of t
         "limitation-legacy_creative_review_only",
       ),
     ).toBe(
-      "Legacy creative-grain decisions remain visible for continuity but cannot authorize Ad writes.",
+      // Mapped from the code. The server's sentence is in the payload and is
+      // deliberately not what the diagnostics row prints.
+      "Earlier creative-level guidance is shown for reference and cannot be applied to individual ads.",
     );
-    // The joined notice still exists and is now rendered by the panel rather
-    // than by a branch that requires an empty queue.
-    expect(viewModel.creativesNotice).toContain(
+    /*
+     * The notice is rendered beside the rows rather than only under an empty
+     * queue — and it carries the buyer sentence for the served CODE, not the
+     * producer code and not the engine's own prose. The raw code is one
+     * assertion above, under the label that names it.
+     */
+    expect(viewModel.creativesNotice).toBe(
+      "Earlier creative-level guidance is shown for reference and cannot be applied to individual ads.",
+    );
+    expect(viewModel.creativesNotice).not.toContain(
       "native_account_manifest_incomplete",
     );
+    // And none of the engine's own vocabulary reaches it.
+    for (const term of ["creative-grain", "Ad writes", "Ad-grain"]) {
+      expect(viewModel.creativesNotice).not.toContain(term);
+    }
   });
 
   it("lists the suppression envelope reason by reason", () => {
@@ -2412,7 +2500,9 @@ describe("the served decision source is stated beside the rows, not instead of t
     const provenance = viewModel.structureProvenance;
     // The structure source token, not the ad authority, and the read model's
     // own status rather than a health flag derived from the ad grain.
-    expect(provenance?.headline).toBe("meta_recommendations · available");
+    expect(provenance?.headline).toBe(
+      "Campaign and ad set guidance is up to date",
+    );
     expect(structureFact(viewModel, "source", "structure-source")).toBe(
       "meta_recommendations",
     );
@@ -2566,10 +2656,14 @@ describe("the served decision source is stated beside the rows, not instead of t
     ).toEqual([
       ["limitation-count", "1"],
       [
+        // An unmapped code falls back to an honest short sentence rather than
+        // to the server's own wording — which is the case a buyer is LEAST
+        // able to interpret, so it is exactly where the raw prose must not
+        // reappear.
         "limitation-account_currency_unavailable",
-        "The account currency was not served for this window.",
+        "Some ad-level guidance is unavailable right now.",
       ],
-      ["limitation-ad-grain-elsewhere", "2 stated in the Creatives scope"],
+      ["limitation-ad-grain-elsewhere", "2 shown in Creatives"],
     ]);
 
     // The Creatives scope still states all three, unchanged.
@@ -2642,7 +2736,7 @@ describe("the served decision source is stated beside the rows, not instead of t
     // The headline still stands for the SOURCE status, unchanged: what colours
     // this panel is a claim about whether the source could be read.
     expect(viewModel.structureProvenance?.headline).toBe(
-      "meta_recommendations · unavailable",
+      "Campaign and ad set guidance is limited right now",
     );
     expect(viewModel.structureProvenance?.tone).toBe("negative");
     expect(structureFact(viewModel, "source", "read-model-status")).toBe(
@@ -3439,14 +3533,16 @@ describe("served structure inventory", () => {
  * assignment in the producer rather than an opinion:
  *
  *   `lib/meta/decisions-os-presentation.ts` writes `MetaOsAdDecision.resolution`
- *   in exactly two places. One is `resolution: decision.classification.resolution`
- *   — the canonical object forwarded verbatim, which is what the evidence
- *   window's "Served resolution" line prints. The other is the
- *   pending-inventory placeholder, synthesised for an ACTIVE ad that has NO
- *   canonical decision at all, so there is no canonical resolution for a second
- *   block to disagree with — only em dashes beside a populated line, which
- *   would read as two producers contradicting each other where one produced
- *   nothing.
+ *   in exactly ONE place: `resolution: decision.classification.resolution` —
+ *   the canonical object forwarded verbatim, which is what the evidence
+ *   window's "Served resolution" line prints.
+ *
+ * IT USED TO BE TWO. The second was the pending-inventory placeholder, which
+ * synthesised a `produce_native_ad_decision` resolution for an ACTIVE ad that
+ * had no canonical decision at all. That placeholder is gone — un-decided
+ * ACTIVE inventory is now served as `ads.pendingInventoryCount` and one
+ * limitation sentence, never as a row — so the equivalence this test protects
+ * is now total rather than total-with-an-exception.
  *
  * A second heading for one fact invites a reader to hunt for a difference the
  * assignment forbids; a fabricated disagreement is the same class of defect as
@@ -3461,17 +3557,16 @@ describe("the canonical resolution is the served resolution", () => {
     );
     const writers = presentation.match(/^\s*resolution: .*$/gm) ?? [];
 
-    // Exactly two. A THIRD writer means the OS resolution is no longer the
-    // canonical one under another name, and the classification has to be made
-    // again rather than inherited.
-    expect(writers).toHaveLength(2);
+    // Exactly one, and it is a verbatim forward. A SECOND writer means the OS
+    // resolution is no longer the canonical one under another name, and the
+    // classification has to be made again rather than inherited.
+    expect(writers).toHaveLength(1);
     expect(writers[0]?.trim()).toBe(
       "resolution: decision.classification.resolution,",
     );
-    // The second is the synthesised placeholder's object literal, which exists
-    // only on rows that carry no canonical decision.
-    expect(writers[1]?.trim()).toBe("resolution: {");
-    expect(presentation).toContain('code: "produce_native_ad_decision"');
+    // The synthesised placeholder's resolution is not merely unrendered — it is
+    // no longer produced, so its code must not appear in the producer at all.
+    expect(presentation).not.toContain('code: "produce_native_ad_decision"');
   });
 
   it("reads the canonical resolution nowhere on this surface", () => {
@@ -3531,12 +3626,28 @@ describe("commercial anchor projection (server-owned, client renders only)", () 
   });
 
   it("renders the real source, confidence and spend unit in the business currency", async () => {
+    // RE-PINNED for the reordered ladder: this fixture's pack also carries a
+    // Target ROAS, and with one the resolved source is the platform AOV rather
+    // than the Target CPA of 400. What this test measures — that the RENDERED
+    // facts are copied from the real profile rather than recomputed, and are
+    // formatted in the business currency — is unchanged.
     const panel = await realPanel({ targetPack: { targetCpa: 400 } });
+    const facts = byId(anchorFacts(panel));
+    expect(facts.get("anchor-status")?.value).toBe("eligible_meta_derived_aov");
+    expect(facts.get("anchor-source")?.value).toBe("meta_derived_aov");
+    expect(facts.get("anchor-confidence")?.value).toBe("medium");
+    expect(String(facts.get("anchor-spend-unit")?.value)).toContain("₺");
+    expect(facts.get("anchor-currency")?.value).toBe("TRY");
+  });
+
+  it("renders the Target CPA rung where it still governs: no Target ROAS", async () => {
+    const panel = await realPanel({
+      targetPack: { targetCpa: 400, targetRoas: null },
+    });
     const facts = byId(anchorFacts(panel));
     expect(facts.get("anchor-status")?.value).toBe("eligible_target_cpa");
     expect(facts.get("anchor-source")?.value).toBe("target_cpa");
     expect(facts.get("anchor-confidence")?.value).toBe("high");
-    expect(String(facts.get("anchor-spend-unit")?.value)).toContain("₺");
     expect(facts.get("anchor-currency")?.value).toBe("TRY");
   });
 
@@ -3717,5 +3828,575 @@ describe("the exact adapter forwards the budget-evidence directions", () => {
       workspace: workspaceFixture({}),
     });
     expect(model.budgetEvidence).toBeNull();
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * D091 / Codex item 5 — THE TYPED HELD VERDICT, SURFACE HALF
+ * ------------------------------------------------------------------ */
+
+/**
+ * THE DEFECT THESE PIN.
+ *
+ * A held Refresh publishes `keep`. `buyerFacingCreativeDecisionLabel` reads the
+ * published label, so the row drew "Keep monitoring" — in the positive tone —
+ * over an ad whose engine verdict was Refresh, and the row's one sentence came
+ * from the PUBLISHED row's resolution ladder, which for a held row with no
+ * `resolution` and no `blockers` bottoms out at "Review the missing evidence
+ * before taking action.". The operator was told the opposite of the engine's
+ * conclusion, in the colour of good news, with a sentence that named nothing.
+ *
+ * The producer now serves the verdict it held, typed, on the same decision:
+ * `heldAction` and the resolution for THAT verdict, plus `ads.heldCounts`
+ * counted apart from the lane totals. These pin what this surface does with
+ * all three.
+ */
+describe("the held verdict is shown as the engine's own, and counted apart", () => {
+  type HeldAd = MetaOsAdDecision & MetaOsAdDecisionHeldVerdict;
+
+  /** A held Refresh exactly as the producer serves one: `keep` published. */
+  function heldRefreshFixture(overrides: Partial<HeldAd> = {}): HeldAd {
+    return {
+      ...creativeFixture({
+        id: "os_ad_held_refresh",
+        decisionId: "decision_held_refresh",
+        adId: "ad_held_refresh",
+        adName: "Held Refresh Ad",
+        lane: "blocked",
+        rawLabel: "refresh",
+        publishedLabel: "keep",
+        blockers: [],
+        resolution: null,
+        action: actionFixture({
+          code: "confirm_commercial_target",
+          label: "Confirm Commercial Target",
+          intent: "review",
+          targetLevel: "ad",
+          providerMutation: null,
+        }),
+      }),
+      heldAction: "refresh",
+      heldResolution: {
+        code: "confirm_commercial_target",
+        category: "commercial_truth",
+        owner: "operator",
+        label: "Confirm Commercial Target",
+        nextStep:
+          "Confirm the missing or invalid target timestamp and the Refresh commercial anchor before restoring this verdict's authority.",
+      },
+      ...overrides,
+    };
+  }
+
+  function heldWorkspace(input: {
+    /*
+      `MetaOsAdDecision`, not `HeldAd`: held-ness is a property of a ROW, not of
+      the workspace. The over-correction guard below deliberately passes a row
+      carrying NO held verdict, and a workspace typed to require one could not
+      express that case at all.
+    */
+    creatives: MetaOsAdDecision[];
+    heldCounts?: { scale: number; cut: number; refresh: number } | null;
+  }): MetaDecisionsWorkspacePayload {
+    const workspace = workspaceFixture({
+      os: fullOs({ creatives: input.creatives }),
+    });
+    const ads = workspace.os.ads as unknown as Record<string, unknown>;
+    ads.actCount = input.creatives.filter((ad) => ad.lane === "act").length;
+    ads.blockedCount = input.creatives.filter(
+      (ad) => ad.lane === "blocked",
+    ).length;
+    ads.monitorCount = input.creatives.filter(
+      (ad) => ad.lane === "monitor",
+    ).length;
+    ads.statePreCapCounts = {
+      act: ads.actCount,
+      blocked: ads.blockedCount,
+      monitor: ads.monitorCount,
+    };
+    if (input.heldCounts !== undefined) ads.heldCounts = input.heldCounts;
+    return workspace;
+  }
+
+  function heldFact(
+    model: ReturnType<typeof buildMetaDecisionCenterExactViewModel>,
+  ) {
+    return model.sourceProvenance?.coverage?.find(
+      (entry) => entry.id === "ads-held-verdicts",
+    );
+  }
+
+  it("prints the engine's held Refresh beside the published Keep, not instead of it", () => {
+    const model = buildMetaDecisionCenterExactViewModel({
+      workspace: heldWorkspace({ creatives: [heldRefreshFixture()] }),
+    });
+    const row = model.creativeDecisions?.[0];
+
+    // The published label is still true and still shown: it is what authority
+    // allows. What was missing is the second fact beside it.
+    expect(row?.decisionLabel).toBe("Keep monitoring");
+    expect(row?.heldVerdictLabel).toBe("Recommendation awaiting review: Refresh creative");
+    expect(row?.heldVerdictTone).toBe("warning");
+    // And the published label stops wearing the approval colour it inherited
+    // from `keep`, which is what made a withheld verdict read as good news.
+    expect(row?.decisionTone).toBe("warning");
+  });
+
+  it("keeps the held verdict's OWN resolution instead of the generic evidence sentence", () => {
+    const model = buildMetaDecisionCenterExactViewModel({
+      workspace: heldWorkspace({ creatives: [heldRefreshFixture()] }),
+    });
+    const row = model.creativeDecisions?.[0];
+
+    expect(row?.note).toBe(
+      "Confirm the commercial target before acting. Then review this Refresh creative recommendation again.",
+    );
+    // The sentence this whole reader exists to replace.
+    expect(row?.note).not.toBe(
+      "Review the missing evidence before taking action.",
+    );
+    // And no producer prose, reason code or backend vocabulary rides along.
+    const serialized = JSON.stringify(row);
+    expect(serialized).not.toContain("confirm_commercial_target");
+    expect(serialized).not.toContain("commercial_truth");
+    expect(serialized).not.toContain("restoring this verdict's authority");
+  });
+
+  it("still names the held verdict when the resolution code has no buyer sentence", () => {
+    const model = buildMetaDecisionCenterExactViewModel({
+      workspace: heldWorkspace({
+        creatives: [
+          heldRefreshFixture({
+            heldAction: "cut",
+            heldResolution: {
+              code: "a_code_this_surface_has_no_sentence_for",
+              category: "system",
+              owner: "system",
+              label: "Unknown",
+              nextStep: "internal producer prose",
+            },
+          }),
+        ],
+      }),
+    });
+    const row = model.creativeDecisions?.[0];
+
+    expect(row?.heldVerdictLabel).toBe("Recommendation awaiting review: Reduce spend");
+    expect(row?.note).toBe(
+      "Confirm the missing information, then review this Reduce spend recommendation again.",
+    );
+    expect(JSON.stringify(row)).not.toContain(
+      "a_code_this_surface_has_no_sentence_for",
+    );
+  });
+
+  /**
+   * THE GUARD AGAINST OVER-CORRECTING THE OTHER WAY.
+   *
+   * A row the server held NOTHING on must gain no held badge and must keep the
+   * tone its published label earns. Absence of `heldAction` is not a verdict.
+   */
+  it("adds nothing to a row that carries no held verdict", () => {
+    const model = buildMetaDecisionCenterExactViewModel({
+      workspace: heldWorkspace({
+        creatives: [
+          creativeFixture({
+            lane: "monitor",
+            publishedLabel: "keep",
+            action: actionFixture({
+              code: "keep_running",
+              label: "Keep Running",
+              intent: "none",
+              targetLevel: "ad",
+              providerMutation: null,
+            }),
+          }),
+        ],
+      }),
+    });
+    const row = model.creativeDecisions?.[0];
+
+    expect(row?.decisionLabel).toBe("Keep monitoring");
+    expect(row?.heldVerdictLabel).toBeUndefined();
+    expect(row?.heldVerdictTone).toBeUndefined();
+    expect(row?.decisionTone).toBe("positive");
+    expect(row?.note).toBe("Keep this ad running and continue monitoring.");
+  });
+
+  /* ---------------------------------------------------------------- *
+   * THE SAME FACT, ONE CLICK LATER — the evidence inspector
+   * ---------------------------------------------------------------- */
+
+  /**
+   * THE DEFECT THESE PIN, WHICH THE ROW'S FIX DID NOT REACH.
+   *
+   * `creativeInspector` never read `heldAction`. It set `decisionLabel` from
+   * `buyerFacingCreativeDecisionLabel` — "Keep monitoring" for a held Refresh
+   * — and `tone` from `decisionTone(publishedLabel)`, which paints `keep`
+   * POSITIVE. So the evidence panel that opens off a held row drew exactly the
+   * pair the row had just stopped drawing: the opposite of the engine's
+   * conclusion, in the colour of good news, with no indication that any
+   * verdict was being withheld at all.
+   */
+  function heldInspector(creative: MetaOsAdDecision) {
+    return buildMetaDecisionCenterExactViewModel({
+      workspace: heldWorkspace({ creatives: [creative] }),
+      selection: {
+        kind: "creative",
+        decisionId: creative.decisionId,
+        sourceSnapshotId: creative.sourceSnapshotId,
+      },
+    }).inspector;
+  }
+
+  it("stops tinting the evidence inspector with the published label's approval colour", () => {
+    const inspector = heldInspector(heldRefreshFixture());
+
+    // `tone` tints the panel's whole frame. It read `positive` off the
+    // published `keep` — a withheld verdict wrapped in the colour of good
+    // news — until this change.
+    expect(inspector?.tone).not.toBe("positive");
+    expect(inspector?.tone).toBe("warning");
+  });
+
+  it("carries the held verdict into the evidence inspector, beside the published label", () => {
+    const inspector = heldInspector(heldRefreshFixture());
+
+    // The published label is still true and still shown here too.
+    expect(inspector?.decisionLabel).toBe("Keep monitoring");
+    expect(inspector?.heldVerdictLabel).toBe("Recommendation awaiting review: Refresh creative");
+    expect(inspector?.heldVerdictTone).toBe("warning");
+  });
+
+  it("explains the inspector's held verdict with the held resolution, not the published one", () => {
+    const creative = heldRefreshFixture();
+    const inspector = heldInspector(creative);
+
+    expect(inspector?.heldVerdictNextStep).toBe(
+      "Confirm the commercial target before acting. Then review this Refresh creative recommendation again.",
+    );
+    // Not the generic sentence, and not the PUBLISHED decision's own reason —
+    // the two things a held row was previously explained by.
+    expect(inspector?.heldVerdictNextStep).not.toBe(
+      "Review the missing evidence before taking action.",
+    );
+    expect(inspector?.heldVerdictNextStep).not.toBe(inspector?.reasons?.[0]);
+
+    // ONE READER, NOT TWO. The panel says exactly what the row says, because
+    // both call `heldCreativeVerdict`; a second mapping table keyed on the
+    // same `heldAction` is how one surface comes to contradict itself.
+    const row = buildMetaDecisionCenterExactViewModel({
+      workspace: heldWorkspace({ creatives: [creative] }),
+    }).creativeDecisions?.[0];
+    expect(inspector?.heldVerdictLabel).toBe(row?.heldVerdictLabel);
+    expect(inspector?.heldVerdictNextStep).toBe(row?.note);
+
+    // And no producer prose, reason code or backend vocabulary rides along.
+    const serialized = JSON.stringify(inspector);
+    expect(serialized).not.toContain("confirm_commercial_target");
+    expect(serialized).not.toContain("commercial_truth");
+    expect(serialized).not.toContain("restoring this verdict's authority");
+  });
+
+  it("still names the inspector's held verdict when the resolution code has no buyer sentence", () => {
+    const inspector = heldInspector(
+      heldRefreshFixture({
+        heldAction: "cut",
+        heldResolution: {
+          code: "a_code_this_surface_has_no_sentence_for",
+          category: "system",
+          owner: "system",
+          label: "Unknown",
+          nextStep: "internal producer prose",
+        },
+      }),
+    );
+
+    expect(inspector?.heldVerdictLabel).toBe("Recommendation awaiting review: Reduce spend");
+    expect(inspector?.heldVerdictNextStep).toBe(
+      "Confirm the missing information, then review this Reduce spend recommendation again.",
+    );
+    expect(JSON.stringify(inspector)).not.toContain(
+      "a_code_this_surface_has_no_sentence_for",
+    );
+  });
+
+  /**
+   * THE GUARD AGAINST OVER-CORRECTING, on the panel this time.
+   *
+   * An inspector for a row the server held nothing on must gain no held block
+   * and must keep the tone its published label earns.
+   */
+  it("adds no held block to the inspector for a row that carries no held verdict", () => {
+    const creative = creativeFixture({
+      lane: "monitor",
+      publishedLabel: "keep",
+      action: actionFixture({
+        code: "keep_running",
+        label: "Keep Running",
+        intent: "none",
+        targetLevel: "ad",
+        providerMutation: null,
+      }),
+    });
+    const inspector = heldInspector(creative);
+
+    expect(inspector?.decisionLabel).toBe("Keep monitoring");
+    expect(inspector?.tone).toBe("positive");
+    expect(inspector?.heldVerdictLabel).toBeUndefined();
+    expect(inspector?.heldVerdictTone).toBeUndefined();
+    expect(inspector?.heldVerdictNextStep).toBeUndefined();
+  });
+
+  /**
+   * A STRUCTURE ROW HAS NO HELD VERDICT TO CARRY.
+   *
+   * `heldAction` is served on ad decisions. The structure inspector must not
+   * grow a held block by sharing the view-model type with the creative one.
+   */
+  it("never grows a held block on a structure inspector", () => {
+    const recommendation = metaRec({ id: "rec_beside_a_held_ad" });
+    const node = structureNodeFixture({
+      sourceRecommendationId: recommendation.id,
+    });
+    const inspector = buildMetaDecisionCenterExactViewModel({
+      workspace: workspaceFixture({
+        actionNow: [recommendation],
+        os: fullOs({
+          nodes: [node],
+          creatives: [heldRefreshFixture()],
+        }),
+      }),
+    }).inspector;
+
+    // The structure inspector is really there — otherwise the three absences
+    // below would be true of nothing at all.
+    expect(inspector?.entityName).toBeTruthy();
+    expect(inspector?.heldVerdictLabel).toBeUndefined();
+    expect(inspector?.heldVerdictTone).toBeUndefined();
+    expect(inspector?.heldVerdictNextStep).toBeUndefined();
+  });
+
+  it("counts held verdicts as their own fact and leaves every lane total alone", () => {
+    const creatives = [heldRefreshFixture()];
+    const withHeld = buildMetaDecisionCenterExactViewModel({
+      workspace: heldWorkspace({
+        creatives,
+        heldCounts: { scale: 1, cut: 0, refresh: 2 },
+      }),
+    });
+    const withoutHeld = buildMetaDecisionCenterExactViewModel({
+      workspace: heldWorkspace({ creatives }),
+    });
+
+    expect(heldFact(withHeld)?.label).toBe("Recommendations awaiting review");
+    expect(heldFact(withHeld)?.value).toBe("3 · scale 1 · cut 0 · refresh 2");
+    // The one place on the queue itself, stated as a number beside the group
+    // total rather than inside it.
+    const blocked = withHeld.creativeGroups?.find(
+      (group) => group.id === "blocked",
+    );
+    expect(blocked?.count).toBe("1 decision");
+    /*
+      ROUND 11 ITEM 2. Was "3 held verdicts (…)". The count and the split are
+      the useful half and are kept verbatim; the noun is now the buyer's.
+    */
+    expect(blocked?.note).toBe(
+      "3 ads need more evidence before action (scale 1 · cut 0 · refresh 2), counted apart from this group's total",
+    );
+    expect(blocked?.note).not.toMatch(/verdict/i);
+
+    // AND NOT ONE LANE NUMBER MOVES. A held Refresh is already inside
+    // `blockedCount`; adding it to act, blocked or monitor would count the same
+    // row twice under two different meanings.
+    expect(withHeld.operatorSummary).toEqual(withoutHeld.operatorSummary);
+    expect(withHeld.counts).toEqual(withoutHeld.counts);
+    expect(withHeld.creativeGroups?.map((group) => group.count)).toEqual(
+      withoutHeld.creativeGroups?.map((group) => group.count),
+    );
+  });
+
+  it("says an unserved held-count block is unserved, never three measured zeros", () => {
+    const model = buildMetaDecisionCenterExactViewModel({
+      workspace: heldWorkspace({ creatives: [heldRefreshFixture()] }),
+    });
+    expect(heldFact(model)?.value).toBe("—");
+    expect(
+      model.creativeGroups?.find((group) => group.id === "blocked")?.note,
+    ).toBeNull();
+
+    // A MEASURED zero is a different fact and stays a zero.
+    const measured = buildMetaDecisionCenterExactViewModel({
+      workspace: heldWorkspace({
+        creatives: [heldRefreshFixture()],
+        heldCounts: { scale: 0, cut: 0, refresh: 0 },
+      }),
+    });
+    expect(heldFact(measured)?.value).toBe("0 · scale 0 · cut 0 · refresh 0");
+  });
+});
+
+describe("the buyer's verdict word comes from the type, never from English", () => {
+  /**
+   * CODEX ITEM 6, the client half.
+   *
+   * This mapper matched `/\b(scale|increase budget|promot)/` and six more
+   * patterns against `publishedLabel` — a TYPED `DecisionLabel`, read as prose.
+   * It is the same shape as the defect this repository already shipped: a rule
+   * keyed on English is a rule a rewrite, a translation or a copy edit silently
+   * changes, and it put a Scale chip over "Reduce spend pressure…" on 106 live
+   * rows.
+   */
+  function ad(publishedLabel: string, lane: MetaOsAdDecision["lane"] = "act") {
+    return { publishedLabel, lane } as unknown as MetaOsAdDecision;
+  }
+
+  it("maps every member of the engine's label union to exactly one word", () => {
+    // The union is `DecisionLabel` in lib/creative-decision-engine/types.ts.
+    // If a member is added there without copy here, its row lands on the
+    // lane-derived phrase and this table is where that shows up.
+    const mapped = Object.fromEntries(
+      (
+        [
+          "scale",
+          "cut",
+          "refresh",
+          "keep",
+          "test_more",
+          "diagnose",
+          "out_of_scope",
+        ] as const
+      ).map((label) => [label, buyerFacingCreativeDecisionLabel(ad(label))]),
+    );
+
+    expect(mapped).toEqual({
+      scale: "Scale",
+      cut: "Reduce spend",
+      refresh: "Refresh creative",
+      keep: "Keep monitoring",
+      test_more: "Continue testing",
+      diagnose: "Needs review",
+      out_of_scope: "Not in scope",
+    });
+    // One word per verdict: two verdicts sharing a word would make the chip
+    // unable to tell them apart. `diagnose` and an unknown label may share the
+    // lane phrase, which is why only the typed members are compared here.
+    const words = Object.values(mapped);
+    expect(new Set(words).size).toBe(words.length);
+  });
+
+  it("does not let a substring of one label reach another label's word", () => {
+    /*
+      The old regexes were partial matches, so any string CONTAINING a keyword
+      inherited that keyword's word. These are the strings that used to be
+      mis-read; each must now fall to the lane phrase rather than to a verdict.
+    */
+    for (const impostor of [
+      "scale_calibration_pending", // contained "scale"
+      "cut_candidate_withheld", // contained "cut"
+      "refresh_blocked", // contained "refresh"
+      "keep_alive_probe", // contained "keep"
+      "test_harness", // contained "test"
+      "below break-even review", // matched the old cut pattern
+      "promotion_declined", // matched the old "promot" pattern
+    ]) {
+      expect(buyerFacingCreativeDecisionLabel(ad(impostor, "act")), impostor).toBe(
+        "Action",
+      );
+    }
+  });
+
+  it("falls to the lane phrase for an unknown label, in every lane", () => {
+    expect(buyerFacingCreativeDecisionLabel(ad("brand_new_verdict", "act"))).toBe(
+      "Action",
+    );
+    expect(
+      buyerFacingCreativeDecisionLabel(ad("brand_new_verdict", "monitor")),
+    ).toBe("Watching");
+    expect(
+      buyerFacingCreativeDecisionLabel(ad("brand_new_verdict", "blocked")),
+    ).toBe("Needs review");
+  });
+
+  it("still renders the retired placeholder label a payload may still carry", () => {
+    // `not_evaluated` is no longer produced — the placeholder rows were removed
+    // — but a payload serialized before that separation must still get a
+    // sentence rather than a lane phrase.
+    expect(buyerFacingCreativeDecisionLabel(ad("not_evaluated", "blocked"))).toBe(
+      "Needs review",
+    );
+  });
+});
+
+/*
+  CODEX C22 — a held Refresh is not zero Refreshes.
+
+  The tile was labelled "Refresh pipeline" and counted only
+  `publishedLabel === "refresh"`. A HELD Refresh publishes `keep`, so an account
+  whose engine had concluded Refresh on a dozen creatives read `0` under a label
+  that implied it had concluded none. The label is now exact about what it
+  counts, and the held total travels beside it.
+*/
+describe("the refresh posture tile separates authorized from held", () => {
+  function postureFor(decisions: unknown[]) {
+    const workspace = workspaceFixture({
+      os: { ads: { items: decisions } },
+    } as never);
+    const posture = buildMetaDecisionCenterExactViewModel({
+      workspace,
+    }).creativePosture;
+    return new Map(posture?.map((slot) => [slot.id, slot]));
+  }
+
+  it("counts an authorized Refresh and names the tile for it", () => {
+    const byId = postureFor([
+      creativeFixture({ id: "os_ad_1", decisionId: "d1", publishedLabel: "refresh" }),
+      creativeFixture({ id: "os_ad_2", decisionId: "d2", publishedLabel: "keep" }),
+    ]);
+    expect(byId.get("refresh-pipeline")?.label).toBe("Refresh ready to apply");
+    expect(byId.get("refresh-pipeline")?.value).toBe("1");
+  });
+
+  it("does not report zero when every Refresh is HELD", () => {
+    const byId = postureFor([
+      creativeFixture({
+        id: "os_ad_1",
+        decisionId: "d1",
+        publishedLabel: "keep",
+        heldAction: "refresh",
+      }),
+      creativeFixture({
+        id: "os_ad_2",
+        decisionId: "d2",
+        publishedLabel: "keep",
+        heldAction: "refresh",
+      }),
+    ]);
+    // The authorized count is honestly zero — nothing was authorized — but the
+    // engine's two Refresh conclusions are stated rather than vanishing.
+    expect(byId.get("refresh-pipeline")?.value).toBe("0");
+    expect(byId.get("refresh-pipeline")?.detail).toContain("2 held");
+  });
+
+  it("never folds a held Refresh into the authorized count", () => {
+    const byId = postureFor([
+      creativeFixture({ id: "os_ad_1", decisionId: "d1", publishedLabel: "refresh" }),
+      creativeFixture({
+        id: "os_ad_2",
+        decisionId: "d2",
+        publishedLabel: "keep",
+        heldAction: "refresh",
+      }),
+    ]);
+    expect(byId.get("refresh-pipeline")?.value).toBe("1");
+    expect(byId.get("refresh-pipeline")?.detail).toContain("1 held");
+  });
+
+  it("says nothing about held rows when there are none", () => {
+    // The control: the detail line does not grow a "0 held" suffix.
+    const byId = postureFor([
+      creativeFixture({ id: "os_ad_1", decisionId: "d1", publishedLabel: "refresh" }),
+    ]);
+    expect(byId.get("refresh-pipeline")?.detail).not.toContain("held");
   });
 });

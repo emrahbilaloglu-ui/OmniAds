@@ -122,12 +122,9 @@ describe("Meta Launchpad authorized client scope", () => {
       ).not.toBeNull();
     });
 
-    // The law is about the *chosen account*, not about presentation: an id the
-    // server refused is never restored, and nothing account-scoped is read
-    // while the scope is null. Reading the assignment list itself is allowed —
-    // it is the very set `resolveProviderAccountId` authorizes against, so it
-    // cannot widen scope, and without it a multi-account business would have
-    // nothing to select and Launchpad would be a dead end (see below).
+    // An id the server refused is never restored, and nothing account-scoped is
+    // read while the scope is null. The shared topbar owns the next selection;
+    // this surface reads assignments only to explain the blocked state.
     expect(scopeMocks.fetchCreatives).not.toHaveBeenCalled();
     expect(scopeMocks.fetchDecisions).not.toHaveBeenCalled();
     // The first-load read now carries the account list too, so the proof moved
@@ -142,9 +139,9 @@ describe("Meta Launchpad authorized client scope", () => {
     expect(container.textContent).not.toContain("act_unassigned");
   });
 
-  it("offers a multi-account business its assigned accounts and requests the choice through the URL", async () => {
+  it("leaves account selection to the shared topbar on desktop and mobile", async () => {
     stubWorkspace();
-    render(
+    const { container, rerender } = render(
       <MetaLaunchpadPage
         businessId="route_business"
         businessName="Route Business"
@@ -152,28 +149,46 @@ describe("Meta Launchpad authorized client scope", () => {
       />,
     );
 
-    // Without a control here the surface says "select one assigned Meta ad
-    // account" while offering nothing to select, and the operator can only
-    // proceed by hand-editing the address bar.
-    const picker = (await screen.findByLabelText(
-      "Meta ad account for Launchpad",
-    )) as HTMLSelectElement;
     await waitFor(() => {
-      expect(Array.from(picker.options).map((option) => option.value)).toEqual([
-        "",
-        "act_1",
-        "act_2",
-      ]);
+      expect(container.textContent).toContain(
+        "Select a Meta ad account in the top bar to use Launchpad.",
+      );
+    });
+    expect(
+      screen.queryByLabelText("Meta ad account for Launchpad"),
+    ).toBeNull();
+    expect(
+      screen.getByTestId("meta-mobile-launchpad").querySelector("select"),
+    ).toBeNull();
+    expect(scopeMocks.replace).not.toHaveBeenCalled();
+
+    // A topbar choice returns as a server-authorized prop. Launchpad consumes
+    // that scope directly and still does not grow its own account control.
+    rerender(
+      <MetaLaunchpadPage
+        businessId="route_business"
+        businessName="Route Business"
+        providerAccountId="act_2"
+      />,
+    );
+    await waitFor(() => {
+      expect(
+        scopeMocks.fetchCreatives.mock.calls.some(
+          ([input]) => input.providerAccountId === "act_2",
+        ),
+      ).toBe(true);
     });
 
-    fireEvent.change(picker, { target: { value: "act_2" } });
-
-    // The client may only *request* an account. It writes the id into the URL
-    // and the server re-resolves it, so an unassigned id is still refused.
-    expect(scopeMocks.replace).toHaveBeenCalledTimes(1);
-    expect(String(scopeMocks.replace.mock.calls[0]?.[0])).toContain(
-      "providerAccountId=act_2",
-    );
+    const start = await screen.findByTestId("launchpad-start-manual");
+    fireEvent.click(start.querySelector("button")!);
+    await screen.findByTestId("launchpad-wizard");
+    expect(
+      screen.queryByLabelText("Meta ad account for Launchpad"),
+    ).toBeNull();
+    expect(scopeMocks.replace).not.toHaveBeenCalled();
+    expect(
+      screen.getByTestId("meta-mobile-launchpad").querySelector("select"),
+    ).toBeNull();
   });
 });
 

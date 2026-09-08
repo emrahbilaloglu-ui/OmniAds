@@ -158,6 +158,19 @@ behavior.
   helper RETURNS the winner including `presence`; treating an absent
   winner as absence is the caller's contract (both active callers verified
   above; seam D14 legs prove the ordering, cutoff, and account isolation).
+- **2026-09-07 (D091) — schedule carry-forward lateral, read-side.** The four
+  schedule columns are no longer projected bare from the winner. Each is
+  resolved by a correlated sub-select taking the newest row for that entity
+  whose `field_coverage_json` does NOT mark the field `degraded_not_observed`.
+  Reason: when the campaigns edge refuses `start_time`/`stop_time`, the sync
+  drops the fields and writes rows whose schedule is NULL with that explicit
+  marker — "not asked", not "absent". `lib/api/meta.ts` carries a known value
+  forward before the write, but cannot when the prior-value read itself fails
+  (`scheduleDegradation.priorStateReadFailed`), and that row would otherwise
+  win the `DISTINCT ON` and destroy a schedule the system had observed.
+  Read-side and hash-neutral by construction: `state_hash` is computed before
+  the write, so a writer-side COALESCE would put a row and its own hash out of
+  agreement. Literal table references in this file move 20 -> 28.
 
 ### 8. `scripts/creative-decision-center/native-ad-natural-wave-operational-verifier.ts` — was UNSAFE → FIXED
 
@@ -173,6 +186,21 @@ behavior.
   latest-per-entity ≤ the run's capture clock, present winners). Proof:
   seam leg D15d on real PG (full 2/2 AND delta 2/2 where run-bound would
   be 1); byte pins in the closure guard.
+
+### 2026-09-07 (D091 / Codex Round 4) — two test references added
+
+- `lib/meta/schedule-timestamp-normalization.db.test.ts` (1 reference, TEST).
+  Seeds and reads back a schedule value the provider answered with an unusable
+  string. Before the fix these reached `::timestamptz` raw, so PostgreSQL was
+  the first thing to look at them — inside `runDbTransaction` — and one bad
+  value aborted an entire account's observation. The value now becomes an
+  explicit unknown with field coverage `invalid_not_retained`, a THIRD state
+  distinct from a measured absence and from `degraded_not_observed`.
+- `lib/meta-graph-error-observability.test.ts` moves 1 -> 2 references, from the
+  Round 4 work proving a raw provider error message never leaves the Graph
+  boundary.
+
+Neither reads state content; both are test references.
 
 ## NOT-A-CONTENT-CONSUMER references (assumptions stated)
 
@@ -564,3 +592,91 @@ The fixture supplies a `meta_entity_state_history` source row to the shipped
 History read-model mapper and verifies that an observed provider-state change
 remains visible with its public attribution. It opens no database connection
 and adds no production content read.
+
+## Addendum — 2026-09-07 Meta Graph error observability (AREA R5)
+
+Two literal references, both COMMENT prose, no new query and no change to any
+existing one. The eight content-reader verdicts above are untouched.
+
+### `lib/api/meta.ts` 3 → 4 — still SAFE (content reader)
+
+The fourth literal is in the block above `META_CAMPAIGN_SCHEDULE_FIELDS`. It
+records the production measurement behind the recoverable field narrowing: with
+`start_time,stop_time` in the campaigns field list, `campaign_configs` returned
+only HTTP 400s from 2026-09-04, and `meta_entity_state_history` received no
+`campaign` row for five days. It is a statement of what the table did NOT
+receive — a motivation for the fetch change, not a read.
+
+The file's classification still rests on its two `readMetaEntityStatesAsOf`
+recovery calls (adset, campaign), both still guarded by
+`if (state.presence !== "present") continue;`. The closure guard's byte pin on
+that predicate is unchanged and still expects exactly 2.
+
+### `lib/meta-graph-error-observability.test.ts` (new file, 1) — TEST
+
+The Area 2a suite. It drives the shipped `fetchMetaCampaignConfigsReceipt` and
+`fetchMetaAdSetConfigsReceipt` against a stubbed global `fetch` and asserts what
+the pagination loop records (Graph code / subcode / `is_transient` /
+`fbtrace_id`), how many times it calls the provider, and that neither the access
+token nor the provider error body reaches the persisted receipt. Its single
+literal is prose in the comment naming the live failure the suite pins — the
+same five-day `campaign` gap. No database connection, no query, no fixture row.
+
+### Correction carried in the same slice — `fieldDegradation` misattribution
+
+`MetaPagedFieldDegradation` gained `recovered: boolean`. The flag used to be set
+the moment narrowing was ATTEMPTED and was never cleared, so a page-0 refusal
+for an unrelated permanent reason still produced
+`droppedFields: ["start_time","stop_time"]`, and `paginationReceiptContext`
+persists that object into `meta_raw_snapshots.request_context.pagination` — an
+operator chasing such a 400 would have read the schedule fields as its cause.
+`recovered` is now true only once a narrowed request comes back non-error.
+Pinned by two cases in the suite above: an unrelated permanent 400 (Graph code
+294) must report `recovered: false`, and a narrowing that succeeded on page 0
+must keep `recovered: true` when a LATER page fails. This touches the pagination
+receipt only; no state-history reader or writer is involved.
+
+## Addendum — 2026-09-08 Rounds 15–24 closure re-measurement (AREA R25)
+
+The closure guard's per-file ledger had drifted against the tree across the
+Meta release-finalization rounds: eleven files disagreed with it. This addendum
+records the **measured** current counts and what each reference actually is. The
+counts below were taken from the working tree by the guard's own predicate
+(`readFileSync(file).split("meta_entity_state_history").length - 1`), not
+estimated, and the guard now reports zero drift.
+
+**Nothing here is a new content read of `meta_entity_state_history`.** No file
+in this slice gained a query that returns entity content, so no D075 safety
+predicate changed and no byte pin moved. Six of the new literals are INDEX NAMES
+on the table, three are fixture INSERTs inside ephemeral-Postgres seams, three
+are prose, and one is a test double's routing predicate.
+
+### Existing entries whose counts grew
+
+| File | Ledger | Measured | What changed |
+|---|---|---|---|
+| `lib/meta/budget-readiness-retention.ts` | 5 | **8** | The Round 19 D086 index contract: the `idx_meta_entity_state_history_manifest_delta` CREATE plus its `buildIndexContractQuery` and `buildInvalidIndexRepairQuery` index-name arguments. DDL and catalog assertions only. |
+| `lib/meta/entity-state-history.ts` | 28 | **30** | Round 15's partial/delta manifest membership added two reads **inside the writer's own dedupe baseline** — the existing `stateSelect` winner order, used so that suppressing a duplicate write cannot change a reader's answer. Writer-internal; no reader path gained a query. |
+| `lib/migrations.ts` | 32 | **38** | The Round 15/17 delta index built with `CREATE INDEX CONCURRENTLY`: the comment recording the production size that motivated it (~6.44 GB / ~4.4M rows), the invalid-index repair query, the CREATE, the post-build contract assertion, and the relation name. |
+| `scripts/audits/d086-budget-readiness-input-pack.test.ts` | 5 | **7** | Two further D086 catalog assertions naming `idx_meta_entity_state_history_d086_latest`. Test double and expectations; the suite issues no production query. |
+| `scripts/ephemeral-postgres-d086-readiness-seam.ts` | 1 | **2** | The seam's expected-index map now names both `idx_meta_entity_state_history_d086_latest` and `idx_meta_entity_state_history_manifest_delta`. |
+
+### Files newly entering the ledger
+
+| File | Count | Class | What the literals are |
+|---|---|---|---|
+| `lib/meta/__tests__/d086-index-catalog-validity.test.ts` | 2 | TEST | Two index names in the required seven-index catalog. |
+| `lib/meta/__tests__/index-concurrency-contract.test.ts` | 4 | TEST | Two prose lines naming the table's production size, the index name in the CONCURRENT-build list, and the regex pinning the emitted `CREATE INDEX CONCURRENTLY`. |
+| `lib/meta/authority-bootstrap-lifecycle.db.test.ts` | 2 | HARNESS | One fixture `INSERT INTO meta_entity_state_history`, and a comment naming the `..._entity_identity_check` constraint that INSERT has to satisfy. |
+| `lib/meta/recent-edit-authority-receipt.db.test.ts` | 1 | HARNESS | One fixture `INSERT` establishing the state row a receipt attests. |
+| `lib/meta/recent-edit-authority.test.ts` | 1 | TEST | A test double's routing predicate (`if (text.includes(...))`) selecting which stub rows to answer with. |
+| `lib/meta/entity-signals-backfill.ts` | 1 | COMMENT-ONLY | Prose naming the table alongside `meta_entity_tombstones` when describing presence semantics. No query. |
+
+### Method and limits, stated plainly
+
+The ledger counts literal occurrences of the table name in `app/`, `components/`,
+`lib/` and `scripts/`. It is a **closure** check — it proves no reference is
+unaccounted for — not a semantic one: a count that matches does not by itself
+show a reference is D075-safe. The safety of the classified content readers rests
+on the byte-pinned presence/manifest predicates in the same guard file, and those
+were neither moved nor relaxed in this re-measurement.

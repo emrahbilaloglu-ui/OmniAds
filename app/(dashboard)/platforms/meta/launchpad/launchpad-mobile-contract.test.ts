@@ -45,6 +45,8 @@ describe("Launchpad mobile read-only contract", () => {
       "Use desktop to create campaigns. New campaigns start paused.",
     );
     expect(mobileComponent).not.toContain("<button");
+    expect(mobileComponent).not.toContain("<select");
+    expect(mobileComponent).not.toContain("Meta ad account for Launchpad");
     expect(mobileComponent).not.toContain('method: "POST"');
     expect(mobileComponent).not.toContain('method: "DELETE"');
   });

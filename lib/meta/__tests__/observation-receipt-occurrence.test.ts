@@ -19,6 +19,18 @@
  * code's current text, so the two cannot drift: whatever the unique index
  * says identifies an occurrence is what the guard is allowed to treat as
  * identity, and the write-attempt clocks stay out of it.
+ *
+ * ── ROUND 16 ────────────────────────────────────────────────────────────────
+ * The identity GREW in Round 15 and this file still described the four-column
+ * version. The partition row is reused across retries, so two DISTINCT sync
+ * attempts capturing at the same millisecond collided on the old key and
+ * `ON CONFLICT DO NOTHING` silently kept whichever committed first — possibly
+ * the attempt whose config-history apply then failed. `sync_run_id` is now part
+ * of the occurrence, with NULL collapsed to a sentinel so legacy retries keep
+ * coalescing instead of appending under NULL-distinct semantics.
+ *
+ * The rule this file enforces is unchanged: the guard may treat as identity
+ * exactly what the unique index names, and no more.
  */
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
@@ -39,20 +51,55 @@ const GUARD = SOURCE.slice(
 const FLAT = GUARD.replace(/\s+/g, " ");
 
 describe("observation receipt — the occurrence key is the database's", () => {
-  it("the unique index defines the occurrence, and names four columns", () => {
-    const index = MIGRATIONS.slice(
-      MIGRATIONS.indexOf("meta_entity_observation_receipts_occurrence"),
-    ).slice(0, 220);
-    expect(index).toContain("(partition_id, entity_type, endpoint, captured_at)");
+  it("the unique index defines the occurrence, and now names the ATTEMPT too", () => {
+    // ROUND 17: the build is CONCURRENT, so the CREATE is located by its own
+    // statement rather than by the first mention of the name (which is now the
+    // shared key constant).
+    const at = MIGRATIONS.indexOf(
+      "CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS meta_entity_observation_receipts_attempt_occurrence",
+    );
+    expect(at).toBeGreaterThan(-1);
+    const index = MIGRATIONS.slice(at, at + 400);
+    expect(index).toContain("partition_id, entity_type, endpoint, captured_at");
+    expect(index).toContain("COALESCE(sync_run_id");
     // `observed_at` is NOT identity. Stated here so the assertion below has a
     // reason rather than a preference.
     expect(index).not.toContain("observed_at");
+  });
+
+  it("the OLD four-column identity is dropped, not kept alongside", () => {
+    /*
+      Accepting either key would pass on a database where the attempt-scoped
+      uniqueness was never created — exactly the state in which two attempts
+      silently collapse into one receipt.
+    */
+    // ROUND 17: dropped CONCURRENTLY, like every other index touched on these
+    // relations.
+    const drop = MIGRATIONS.indexOf(
+      "DROP INDEX CONCURRENTLY IF EXISTS meta_entity_observation_receipts_occurrence",
+    );
+    expect(drop).toBeGreaterThan(-1);
+    /*
+      And the drop comes after the replacement has been PROVEN VALID, not merely
+      after it was requested: `buildIndexContractQuery` raises on an invalid or
+      missing index and is unswallowed, so a failed build aborts the ordered
+      step before this line is reached.
+    */
+    const proven = MIGRATIONS.indexOf(
+      'buildIndexContractQuery({\n                indexName: "meta_entity_observation_receipts_attempt_occurrence"',
+    );
+    expect(proven).toBeGreaterThan(-1);
+    expect(proven).toBeLessThan(drop);
   });
 
   it("the guard looks the row up by exactly that key", () => {
     for (const column of ["partition_id", "entity_type", "endpoint", "captured_at"]) {
       expect(GUARD, column).toContain(`${column} = `);
     }
+    // The attempt is part of the lookup too: omitting it compared this attempt
+    // against a DIFFERENT attempt's row and reported ordinary differences as a
+    // contradiction.
+    expect(FLAT).toContain("COALESCE(sync_run_id");
   });
 });
 

@@ -1,8 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  META_FIELD_COVERAGE_SCHEDULE_INVALID,
   buildMetaEntityStateHash,
   buildMetaObservationRunHash,
+  normalizeMetaEntityStateSchedule,
   normalizeMetaProviderUpdatedAt,
+  normalizeMetaScheduleTimestamp,
   persistMetaEntityObservation,
   readMetaCreativeLineageAsOf,
   readMetaEntityStatesAsOf,
@@ -516,5 +519,192 @@ describe("Meta entity state history", () => {
       }),
     ).rejects.toThrow("limit must be a positive integer");
     expect(sql).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * The schedule mapper, at the grain where the decision is actually taken.
+ *
+ * These are the pure half of the D083 Correction 3 contract: which of the three
+ * nulls a value produces, and whether the hash agrees with the row it will be
+ * stored beside. The other half — that an invalid value does NOT abort the
+ * observation, and does NOT inherit the prior value through the carry lateral —
+ * is decided by PostgreSQL and is proven in
+ * `lib/meta/schedule-timestamp-normalization.db.test.ts`.
+ */
+describe("Meta schedule timestamp normalization", () => {
+  function scheduleState(campaignStartTime: unknown) {
+    return {
+      ...stateHashInput(),
+      entityType: "campaign" as const,
+      entityId: "campaign_1",
+      campaignId: "campaign_1",
+      adsetId: null,
+      campaignStartTime: campaignStartTime as string | null,
+      campaignEndTime: null,
+      fieldCoverage: { campaignStartTime: true, campaignEndTime: false },
+    };
+  }
+
+  it("normalizes a valid provider timestamp to a canonical instant", () => {
+    expect(
+      normalizeMetaScheduleTimestamp("2026-09-07T10:00:00+0300"),
+    ).toEqual({ outcome: "normalized", value: "2026-09-07T07:00:00.000Z" });
+    // Already canonical: the same instant, unchanged.
+    expect(
+      normalizeMetaScheduleTimestamp("2026-09-07T07:00:00.000Z"),
+    ).toEqual({ outcome: "normalized", value: "2026-09-07T07:00:00.000Z" });
+  });
+
+  it("classifies every unusable provider value as an explicit unknown", () => {
+    // An invalid string. PostgreSQL answers 'invalid input syntax for type
+    // timestamp with time zone' and aborts the whole observation transaction.
+    expect(normalizeMetaScheduleTimestamp("not-a-date")).toEqual({
+      outcome: "invalid",
+      value: null,
+      reason: "unparsable",
+    });
+    // An empty string. Also a PostgreSQL error, not a null -- so it is a value
+    // that arrived and cannot be written, never a measured absence.
+    expect(normalizeMetaScheduleTimestamp("")).toEqual({
+      outcome: "invalid",
+      value: null,
+      reason: "blank",
+    });
+    expect(normalizeMetaScheduleTimestamp("   ")).toEqual({
+      outcome: "invalid",
+      value: null,
+      reason: "blank",
+    });
+    // An out-of-range date. PostgreSQL ACCEPTS the raw '99999-01-01', which is
+    // the trap: its canonical rendering is '+099998-12-31T21:00:00.000Z' and
+    // PostgreSQL refuses THAT with 'time zone displacement out of range'. So
+    // normalizing it would create the abort this function removes.
+    expect(new Date("99999-01-01").toISOString()).toBe(
+      "+099998-12-31T21:00:00.000Z",
+    );
+    expect(normalizeMetaScheduleTimestamp("99999-01-01")).toEqual({
+      outcome: "invalid",
+      value: null,
+      reason: "unrepresentable",
+    });
+  });
+
+  it("separates a null the provider omitted from one it answered badly", () => {
+    expect(normalizeMetaScheduleTimestamp(null)).toEqual({
+      outcome: "absent",
+      value: null,
+    });
+    expect(normalizeMetaScheduleTimestamp(undefined)).toEqual({
+      outcome: "absent",
+      value: null,
+    });
+    // A measured absence keeps whatever the mapper measured, and the input
+    // object comes back untouched -- the contract for the common path.
+    const measured = scheduleState(null);
+    expect(normalizeMetaEntityStateSchedule(measured)).toBe(measured);
+    expect(measured.fieldCoverage).toEqual({
+      campaignStartTime: true,
+      campaignEndTime: false,
+    });
+    // A value that arrived and cannot be written is NOT that. It produces a
+    // different state, and it must not be handed back as the caller wrote it.
+    const answered = scheduleState("not-a-date");
+    const decided = normalizeMetaEntityStateSchedule(answered);
+    expect(decided).not.toBe(answered);
+    expect(decided.campaignStartTime).toBeNull();
+    expect(answered.campaignStartTime).toBe("not-a-date");
+  });
+
+  it("keeps the three nulls distinct and never collapses them", () => {
+    // Case 3 -- asked, answered, unusable.
+    const invalid = normalizeMetaEntityStateSchedule(
+      scheduleState("not-a-date"),
+    );
+    expect(invalid.campaignStartTime).toBeNull();
+    expect(invalid.fieldCoverage.campaignStartTime).toBe(
+      META_FIELD_COVERAGE_SCHEDULE_INVALID,
+    );
+    // Case 1 -- measured absence, untouched beside it.
+    expect(invalid.fieldCoverage.campaignEndTime).toBe(false);
+    // Case 2 -- not asked. The marker lib/api/meta.ts writes when the edge
+    // refused the field survives normalization, because a null under it is
+    // ABSENT rather than invalid. If this ever became invalid_not_retained the
+    // read-side carry lateral would stop restoring the last observed schedule.
+    const degraded = normalizeMetaEntityStateSchedule({
+      ...scheduleState(null),
+      fieldCoverage: { campaignStartTime: "degraded_not_observed" },
+    });
+    expect(degraded.fieldCoverage.campaignStartTime).toBe(
+      "degraded_not_observed",
+    );
+    // ...and the three markers are three different values.
+    expect(META_FIELD_COVERAGE_SCHEDULE_INVALID).not.toBe(
+      "degraded_not_observed",
+    );
+    expect(META_FIELD_COVERAGE_SCHEDULE_INVALID).not.toBe(false);
+  });
+
+  it("is idempotent, so the hash and the persist path cannot disagree", () => {
+    const once = normalizeMetaEntityStateSchedule(scheduleState("not-a-date"));
+    const twice = normalizeMetaEntityStateSchedule(once);
+    // Second pass sees a null, calls it absent, and leaves the marker standing.
+    expect(twice).toBe(once);
+    expect(twice.fieldCoverage.campaignStartTime).toBe(
+      META_FIELD_COVERAGE_SCHEDULE_INVALID,
+    );
+    const normalized = normalizeMetaEntityStateSchedule(
+      scheduleState("2026-09-07T10:00:00+0300"),
+    );
+    expect(normalized.campaignStartTime).toBe("2026-09-07T07:00:00.000Z");
+    expect(normalizeMetaEntityStateSchedule(normalized)).toBe(normalized);
+  });
+
+  it("hashes the normalized row, not the raw provider string", () => {
+    // The row is written from the normalized state and the hash is computed
+    // from it, so the two must agree by construction. Same instant, two
+    // spellings, one hash.
+    expect(buildMetaEntityStateHash(scheduleState("2026-09-07T10:00:00+0300")))
+      .toBe(
+        buildMetaEntityStateHash(scheduleState("2026-09-07T07:00:00.000Z")),
+      );
+    // An explicit unknown is not the same state as the value it replaced, and
+    // it is not the same state as a measured absence either -- otherwise the
+    // delta writer would dedupe the unknown away against the last known value
+    // and the row would never be appended at all.
+    const known = buildMetaEntityStateHash(
+      scheduleState("2026-09-07T07:00:00.000Z"),
+    );
+    const unknown = buildMetaEntityStateHash(scheduleState("not-a-date"));
+    const absent = buildMetaEntityStateHash(scheduleState(null));
+    expect(unknown).not.toBe(known);
+    expect(unknown).not.toBe(absent);
+  });
+
+  it("moves the hash on the known -> invalid -> known transition", () => {
+    const first = buildMetaEntityStateHash(
+      scheduleState("2026-09-07T07:00:00.000Z"),
+    );
+    const broken = buildMetaEntityStateHash(scheduleState("not-a-date"));
+    const restored = buildMetaEntityStateHash(
+      scheduleState("2026-09-07T07:00:00.000Z"),
+    );
+    expect(broken).not.toBe(first);
+    // The middle state is an EXPLICIT UNKNOWN, so its hash is the hash of the
+    // row that will be stored -- null column, invalid marker -- and not the
+    // hash of the raw string it arrived as. That agreement is what makes the
+    // stored row and its stored hash describe the same values.
+    expect(broken).toBe(
+      buildMetaEntityStateHash({
+        ...scheduleState(null),
+        fieldCoverage: {
+          campaignStartTime: META_FIELD_COVERAGE_SCHEDULE_INVALID,
+          campaignEndTime: false,
+        },
+      }),
+    );
+    // Back to the same known value is back to the same state. The middle row
+    // is a real appended observation, not a permanent demotion.
+    expect(restored).toBe(first);
   });
 });

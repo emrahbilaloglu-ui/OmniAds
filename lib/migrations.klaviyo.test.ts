@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { migrationDbMockModule } from "@/lib/__tests__/pinned-migration-client-mock";
 
 vi.mock("@/lib/migration-verification", () => ({
   // This suite drives the migration statements against a fake SQL client, so
@@ -55,11 +56,7 @@ async function collectMigrationStatements(): Promise<string> {
     },
   );
 
-  vi.doMock("@/lib/db", () => ({
-    getDb: () => sql,
-    getDbWithTimeout: () => sql,
-    runDbTransaction: async (operation: () => Promise<unknown>) => operation(),
-  }));
+  vi.doMock("@/lib/db", () => migrationDbMockModule(sql));
   vi.doMock("@/lib/startup-diagnostics", () => ({
     logStartupError: vi.fn(),
     logStartupEvent: vi.fn(),

@@ -193,11 +193,14 @@ export function projectMetaCommercialAnchorPanel(input: {
       action,
       eligible,
       blockerCode,
-      // The sentence is derived from the SAME effective code as the chip.
+      // The sentence is derived from the SAME effective decision as the chip.
       // Taking it from the pre-overlay canonical explanation produced a
-      // self-contradictory row after the Cut-only stop-loss overlay changed
-      // the effective code (chip `break_even_roas_missing` beside copy that
-      // said no commercial anchor was configured).
+      // self-contradictory row whenever the Cut-only stop-loss overlay moved
+      // the effective Cut away from what the canonical anchor had decided —
+      // today an eligible Cut beside the anchor's "No commercial anchor is
+      // available"; before an explicit break-even ROAS stopped being a
+      // required Cut input, a `break_even_roas_missing` chip beside that same
+      // sentence.
       operatorCopy: eligible
         ? null
         : blockerCode

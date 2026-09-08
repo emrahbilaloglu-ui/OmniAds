@@ -1101,7 +1101,13 @@ export async function readBudgetReadiness(
       tombstoneColumns: toCount(rows[0]?.tombstone_columns),
     };
     indexCatalog = classifyIndexCatalog(
-      await db.query<{ indexname?: unknown; indexdef?: unknown }>(
+      await db.query<{
+      indexname?: unknown;
+      indexdef?: unknown;
+      indisvalid?: unknown;
+      indisready?: unknown;
+      indislive?: unknown;
+    }>(
         D086_INDEX_CATALOG_SQL,
         [D086_REQUIRED_INDEXES.map((index) => index.indexName)],
       ),

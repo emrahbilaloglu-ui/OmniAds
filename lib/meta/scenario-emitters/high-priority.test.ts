@@ -3,6 +3,10 @@ import type { MetaCampaignRow } from "@/app/api/meta/campaigns/route";
 import type { MetaAdSetData } from "@/lib/api/meta";
 import type { MetaCalibrationContext } from "@/lib/meta/recommendations";
 import type { MetaEntityDecisionSignal } from "@/lib/meta/entity-signals";
+import {
+  META_RECENT_EDIT_AUTHORITY_KEY,
+  metaRecentEditAuthorityRecord,
+} from "@/lib/meta/recent-edit-authority";
 import { LEGACY_META_CALIBRATION_THRESHOLDS } from "@/lib/meta/calibration";
 import {
   emitHighPriorityAdsetScenario,
@@ -67,6 +71,16 @@ const context: MetaCalibrationContext = {
 };
 
 const purchaseCohort = "purchase" as const;
+  /*
+    A ROAS-GOVERNED ACCOUNT WITH ITS OWN READY SAMPLE.
+
+    These fixtures carried a Target ROAS and two CPAs and NO Meta-attributed
+    AOV, which is why they never caught the substitution: with no canonical
+    unit the maturity floor fell to a CPA, and the assertions below were really
+    asserting CPA-sized behaviour on an account whose rule says the CPA governs
+    nothing. A positive Target ROAS admits exactly one unit, so the sample is
+    stated. The CPAs stay: they must be present and must change nothing.
+  */
 const commercialTargets = {
   source: "configured_targets" as const,
   targetRoas: 2.2,
@@ -76,6 +90,7 @@ const commercialTargets = {
   riskPosture: "balanced" as const,
   freshness: "fresh" as const,
   updatedAt: "2026-05-08T00:00:00.000Z",
+  metaAttributedAov: { aovMean: 180, purchaseCount: 60 },
 };
 const conservativeCommercialTargets = {
   ...commercialTargets,
@@ -267,10 +282,28 @@ function adset(overrides: Partial<MetaAdSetData> = {}): MetaAdSetData {
   } as MetaAdSetData;
 }
 
+/**
+ * ── ROUND 12 ────────────────────────────────────────────────────────────────
+ * An ordinary account: a trusted IANA zone and a config-history read that
+ * succeeded. Built through the PRODUCTION constructor so a fixture cannot drift
+ * from the shape the backfill actually writes.
+ *
+ * Note what this fixture keeps: `lastSignificantEditAt` and
+ * `daysSinceSignificantEdit` stay NULL. That is the "trusted zone, window read,
+ * no significant edit in 60 days" case, and it must go on emitting act
+ * decisions — the authority answers whether the age was KNOWABLE, never whether
+ * an edit happened to be found.
+ */
+const READY_EDIT_AUTHORITY = metaRecentEditAuthorityRecord({
+  status: "ready",
+  reason: "observed",
+  timeZone: "America/Los_Angeles",
+});
+
 function signal(
   overrides: Partial<MetaEntityDecisionSignal> = {},
 ): MetaEntityDecisionSignal {
-  return {
+  const base: MetaEntityDecisionSignal = {
     businessId: "biz_1",
     providerAccountId: "act_1",
     scopeType: "campaign",
@@ -288,6 +321,15 @@ function signal(
     sourceJson: {},
     qualityStatus: "ready",
     ...overrides,
+  };
+  return {
+    ...base,
+    // Authority FIRST, so a case that means to withhold it can still say so by
+    // passing its own key in `sourceJson`.
+    sourceJson: {
+      [META_RECENT_EDIT_AUTHORITY_KEY]: READY_EDIT_AUTHORITY,
+      ...base.sourceJson,
+    },
   };
 }
 
@@ -317,6 +359,9 @@ describe("high priority Meta scenario emitters", () => {
       context,
       cohort: purchaseCohort,
       commercialTargets,
+      // ROUND 13: B1 raises a bid cap, so it now requires the recent-edit
+      // authority and a real cooldown. An ordinary READY account supplies both.
+      signals: signal({ daysSinceSignificantEdit: 30 }),
     });
 
     expect(rec?.evidence).toEqual(
@@ -330,9 +375,16 @@ describe("high priority Meta scenario emitters", () => {
     });
   });
 
+  /*
+    ROUND 18, ITEM B5. An unknown or absent currency can no longer be formatted
+    "best effort": without a resolved ISO 4217 exponent the minor-unit amount
+    cannot be scaled at all, and a bid cap published at the wrong magnitude is
+    an executable instruction. `null` now REFUSES rather than rendering
+    "50 (Currency unavailable)".
+  */
   it.each([
     ["GBP", "£50.00"],
-    [null, "50 (Currency unavailable)"],
+    [null, null],
   ] as const)("formats capped-bid money with provider currency %s", (currency, expected) => {
     const rec = maybeB1CappedBidRaise({
       window: windowFor(
@@ -359,11 +411,19 @@ describe("high priority Meta scenario emitters", () => {
       context,
       cohort: purchaseCohort,
       commercialTargets,
+      // ROUND 13: B1 raises a bid cap, so it now requires the recent-edit
+      // authority and a real cooldown. An ordinary READY account supplies both.
+      signals: signal({ daysSinceSignificantEdit: 30 }),
     });
 
+    if (expected === null) {
+      // No resolvable exponent means no safe scaling, so the whole scenario is
+      // withheld rather than published at an unknown magnitude.
+      expect(rec).toBeNull();
+      return;
+    }
     const currentBid = rec?.evidence.find((item) => item.label === "Current bid")?.value;
     expect(currentBid).toBe(expected);
-    if (currency === null) expect(currentBid).not.toContain("$");
   });
 
   it.each([
@@ -375,6 +435,11 @@ describe("high priority Meta scenario emitters", () => {
           context,
           cohort: purchaseCohort,
           commercialTargets,
+          // ROUND 12. This omitted `signals` entirely, so the campaign carried
+          // no measured edit age at all and C1 fired anyway. A purchase-budget
+          // scale now requires the recent-edit authority, and an absent pack
+          // cannot supply one. @see lib/meta/recent-edit-authority.ts
+          signals: signal({ learningState: "OPTIMAL_LEARNING_DONE" }),
         }),
     ],
     [
@@ -385,6 +450,8 @@ describe("high priority Meta scenario emitters", () => {
             campaign({
               bidStrategyType: "cost_cap",
               bidValue: 5000,
+              // ROUND 18, ITEM B6: only a CURRENCY-format value is a bid amount.
+              bidValueFormat: "currency",
               roas: 2.4,
               dailyBudget: 50_000,
               spend: 1000,
@@ -393,6 +460,9 @@ describe("high priority Meta scenario emitters", () => {
           context,
           cohort: purchaseCohort,
           commercialTargets,
+          // ROUND 13: B1 raises a bid cap, so it now requires the recent-edit
+          // authority and a real cooldown. An ordinary READY account supplies both.
+          signals: signal({ daysSinceSignificantEdit: 30 }),
         }),
     ],
     [
@@ -527,6 +597,11 @@ describe("high priority Meta scenario emitters", () => {
           context,
           cohort: purchaseCohort,
           campaignRole: "prospecting_test",
+          // The canonical kind, TRUSTED — the only thing that may emit an
+          // actionable structural rebuild now. The campaign name and the
+          // legacy role no longer do it on their own.
+          campaignKind: "test",
+          campaignKindTrustedForAction: true,
         }),
     ],
     [
@@ -717,6 +792,71 @@ describe("high priority Meta scenario emitters", () => {
     expect(rec).toBeNull();
   });
 
+  /*
+    ── ROUND 6 ITEM 1: C1 MAY IDENTIFY A CANDIDATE, NOT AUTHORIZE A BUDGET ───
+    `maybeC1ControlledScale` returned `baseCampaignRec` directly, so a campaign
+    clearing the calibrated p75 and the configured profit floor was minted at
+    `decisionState: "act"` with a concrete budget band — on an account whose
+    Meta-attributed purchase sample might be absent or too thin to divide. That
+    is a purchase-VALUE budget increase authorized on the ratio alone.
+
+    The emitter is now routed through the shared authority, exactly as the A2
+    and A5 emitters already were, so the ROAS threshold identifies the
+    candidate and the READY sample decides whether it may act.
+  */
+  it("emits an actionable controlled scale on a READY Meta sample", () => {
+    const rec = maybeC1ControlledScale({
+      window: windowFor(campaign({ roas: 3.4, purchases: 20 })),
+      context,
+      cohort: purchaseCohort,
+      commercialTargets,
+      signals: signal({}),
+    });
+    expect(rec?.decisionState).toBe("act");
+    expect(rec).toHaveProperty("targetValue");
+  });
+
+  it.each([
+    ["missing", null, "commercial_anchor_missing"],
+    ["thin", { aovMean: 180, purchaseCount: 9 }, "commercial_anchor_sample_insufficient"],
+  ])(
+    "HOLDS the same controlled scale on a %s Meta sample",
+    (_case, metaAttributedAov, blocker) => {
+      const rec = maybeC1ControlledScale({
+        window: windowFor(campaign({ roas: 3.4, purchases: 20 })),
+        context,
+        cohort: purchaseCohort,
+        commercialTargets: { ...commercialTargets, metaAttributedAov },
+        signals: signal({}),
+      });
+      // Still emitted — the verdict and its evidence stay visible — and it
+      // authorizes nothing.
+      expect(rec).toBeTruthy();
+      expect(rec?.decisionState).toBe("watch");
+      expect(rec?.signalQuality?.hard_action_blocker).toBe(blocker);
+      expect(rec).not.toHaveProperty("targetValue");
+    },
+  );
+
+  it("does not answer a missing Meta sample with the CPAs typed beside it", () => {
+    const rec = maybeC1ControlledScale({
+      window: windowFor(campaign({ roas: 3.4, purchases: 20 })),
+      context,
+      cohort: purchaseCohort,
+      commercialTargets: {
+        ...commercialTargets,
+        metaAttributedAov: null,
+        targetCpa: 100,
+        breakEvenCpa: 140,
+      },
+      signals: signal({}),
+    });
+    expect(rec?.decisionState).toBe("watch");
+    expect(rec?.signalQuality?.hard_action_blocker).toBe(
+      "commercial_anchor_missing",
+    );
+  });
+
   it("suppresses scale during recent significant edit cooldown", () => {
     const rec = maybeC1ControlledScale({
       window: windowFor(campaign({ roas: 3.4, purchases: 20 })),
@@ -808,6 +948,10 @@ describe("high priority Meta scenario emitters", () => {
       context,
       cohort: purchaseCohort,
       commercialTargets,
+      // ROUND 12: the maturity claim under test is about DELIVERY DAYS, so the
+      // recent-edit authority is supplied rather than left absent — otherwise
+      // this would pass or fail for the wrong reason.
+      signals: signal({ learningState: "OPTIMAL_LEARNING_DONE" }),
     });
 
     expect(rec?.type).toBe("scenario_c1_controlled_scale");
@@ -1511,8 +1655,39 @@ describe("high priority Meta scenario emitters", () => {
       context,
       cohort: purchaseCohort,
       commercialTargets,
+      /*
+        ROUND 12: cohort routing is what this asserts, so the edit authority is
+        present and ready. The base fixture's `ctrDecayPct: -20` and
+        `frequencyP80: 3` are cleared with it — left in place they emit E2
+        creative refresh, which outranks C1 and would make this assert
+        precedence rather than cohort routing.
+      */
+      signals: signal({
+        learningState: "OPTIMAL_LEARNING_DONE",
+        ctrDecayPct: null,
+        frequencyP80: null,
+      }),
     });
     expect(rec?.type).toBe("scenario_c1_controlled_scale");
+  });
+
+  it("HOLDS campaign controlled scale when no signal pack was served at all", () => {
+    /*
+      ── ROUND 12: A BEHAVIOUR CHANGE, ASSERTED RATHER THAN ABSORBED ─────────
+
+      This case previously EMITTED. `recentEditCooldownActive(undefined)` is
+      false, so a campaign with no entity-signal row at all — no learning state,
+      no edit history, no timezone, nothing — passed the cooldown gate and
+      scaled. The ad-set path never behaved this way: `blocksPurchaseHardAction`
+      has always refused on `!signals`. The two paths now agree.
+    */
+    const rec = emitHighPriorityCampaignScenario({
+      window: windowFor(campaign({ roas: 3.4, purchases: 20 })),
+      context,
+      cohort: purchaseCohort,
+      commercialTargets,
+    });
+    expect(rec?.type).not.toBe("scenario_c1_controlled_scale");
   });
 
   it("allows adset fatigue in mid-funnel cohort", () => {
@@ -1556,5 +1731,85 @@ describe("high priority Meta scenario emitters", () => {
       cohort: purchaseCohort,
     });
     expect(rec?.type).toBe("scenario_k1_mixed_config_rebuild");
+  });
+});
+
+/*
+  CODEX C19 — I4 must not be emitted from campaign NAME text or from a legacy /
+  untrusted role taxonomy.
+
+  It read `${campaignRole} ${row.name}`.toLowerCase() and fired on the substring
+  "test", producing `decisionState: "act"` — an actionable instruction to
+  rebuild a campaign. "Latest Winners", "Contest — March" and "Protest Creative"
+  all contain "test"; none is a test campaign, and the operator was told to tear
+  down a live one. `campaignRole` carried the same defect, being partly
+  name-derived, and said nothing about whether the role was trusted.
+*/
+describe("I4 is emitted only from a trusted canonical test kind", () => {
+  const context = null;
+  const base = (over: Record<string, unknown>) =>
+    maybeI4TestShouldUseAbo({
+      window: windowFor(
+        campaign({
+          name: (over.name as string) ?? "Main Prospecting",
+          budgetLevel: "campaign",
+        }),
+      ),
+      context,
+      cohort: purchaseCohort,
+      ...over,
+    } as never);
+
+  it("does not fire on a MAIN campaign whose NAME contains 'test'", () => {
+    for (const name of ["Latest Winners", "Contest — March", "Protest Creative"]) {
+      expect(
+        base({ name, campaignKind: "main", campaignKindTrustedForAction: true }),
+        name,
+      ).toBeNull();
+    }
+  });
+
+  it("does not fire on an UNRESOLVED role, whatever the name says", () => {
+    expect(
+      base({
+        name: "Creative Test Campaign",
+        campaignKind: null,
+        campaignKindTrustedForAction: false,
+      }),
+    ).toBeNull();
+  });
+
+  it("does not fire on a canonical test kind that is NOT trusted for action", () => {
+    // The verdict may be true and still unproven: an untrusted role cannot
+    // carry an actionable structural rebuild.
+    expect(
+      base({
+        name: "Creative Test Campaign",
+        campaignKind: "test",
+        campaignKindTrustedForAction: false,
+      }),
+    ).toBeNull();
+  });
+
+  it("does not fire on the legacy role alone", () => {
+    expect(
+      base({
+        name: "Creative Test Campaign",
+        campaignRole: "prospecting_test",
+        campaignKind: null,
+        campaignKindTrustedForAction: false,
+      }),
+    ).toBeNull();
+  });
+
+  it("fires on a TRUSTED canonical test kind, even with an unrelated name", () => {
+    // The control: the gate is about trust and kind, not about the name at all.
+    const emitted = base({
+      name: "Main Prospecting",
+      campaignKind: "test",
+      campaignKindTrustedForAction: true,
+    });
+    expect(emitted).not.toBeNull();
+    expect(emitted?.type).toBe("scenario_i4_test_should_use_abo");
   });
 });

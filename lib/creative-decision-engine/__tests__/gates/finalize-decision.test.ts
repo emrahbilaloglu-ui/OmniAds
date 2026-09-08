@@ -197,3 +197,107 @@ describe("finalizeDecision - test cohort semantic transform", () => {
     expect(twice).toBe(once);
   });
 });
+
+describe("a label transform cannot silently drop a requested authority hold", () => {
+  /**
+   * The hold that vanished on Test campaigns, and manufactured an action.
+   *
+   * `finalizeDecision` runs `applyTestCohortRefreshOverride` FIRST — which on a
+   * `test` campaign rewrites `refresh` into `cut` — and then decided whether to
+   * honour the requested hold by comparing `authorityHold.blockedActionType`
+   * against the ALREADY-REWRITTEN label. A caller asking to withhold a Refresh
+   * (`{blockedActionType: "refresh", label: "keep"}`) therefore compared
+   * `"cut" === "refresh"`, and the hold was discarded without a trace.
+   *
+   * What reached the operator: an ad with NO ad-level fatigue verdict, one the
+   * economic Cut branch had just DECLINED, still carrying its
+   * `refresh_ad_lifecycle_evidence` blocker and `lifecycle_unavailable` badge,
+   * published at `decisionState: "act"` as an authorized Cut. Missing evidence
+   * manufactured an action — the mirror of the rule that missing evidence must
+   * not erase one.
+   *
+   * The two cases below are the SAME input with only `campaignKind` changed,
+   * which is how the defect was isolated.
+   */
+  const hold = {
+    authorityBlocker: "native_metrics_unavailable",
+    blockedActionType: "refresh",
+    label: "keep",
+    reasonPrefix: "[held: no ad-level fatigue verdict]",
+  } as const;
+
+  it("holds the Refresh on a Main campaign", () => {
+    const output = finalizeDecision(
+      contextFor({ campaignKind: "main" }),
+      "refresh",
+      "Recent decay without a lifecycle verdict.",
+      hold,
+    );
+
+    expect(output.label).toBe("keep");
+    expect(output.preAuthorityLabel).toBe("refresh");
+    expect(output.authorityBlocker).toBe("native_metrics_unavailable");
+    expect(output.blockedActionType).toBe("refresh");
+  });
+
+  it("still holds it on a Test campaign, as the Cut the transform makes it", () => {
+    const output = finalizeDecision(
+      contextFor({ campaignKind: "test" }),
+      "refresh",
+      "Recent decay without a lifecycle verdict.",
+      hold,
+    );
+
+    // The verdict is NOT published as an action.
+    expect(output.label).toBe("keep");
+    expect(output.authorityBlocker).toBe("native_metrics_unavailable");
+    // And the withheld action names what is actually withheld: on a Test
+    // campaign a Refresh IS a Cut, so the hold travels through the same
+    // rewrite the label did rather than being dropped.
+    expect(output.blockedActionType).toBe("cut");
+    expect(output.preAuthorityLabel).toBe("cut");
+  });
+
+  it("leaves a Scale hold alone, because only refresh is ever rewritten", () => {
+    // The guard against over-correcting: the transform touches `refresh` and
+    // nothing else, so a Scale hold must be identical on both campaign kinds.
+    const scaleHold = {
+      authorityBlocker: "native_metrics_unavailable",
+      blockedActionType: "scale",
+      label: "keep",
+      reasonPrefix: "[held: account benchmark missing]",
+    } as const;
+    const onMain = finalizeDecision(
+      contextFor({ campaignKind: "main" }),
+      "scale",
+      "Scale zone with no account benchmark.",
+      scaleHold,
+    );
+    const onTest = finalizeDecision(
+      contextFor({ campaignKind: "test" }),
+      "scale",
+      "Scale zone with no account benchmark.",
+      scaleHold,
+    );
+
+    for (const output of [onMain, onTest]) {
+      expect(output.label).toBe("keep");
+      expect(output.blockedActionType).toBe("scale");
+      expect(output.preAuthorityLabel).toBe("scale");
+    }
+  });
+
+  it("does not invent a hold the caller did not ask for", () => {
+    // A hold whose `blockedActionType` does not match the verdict at all is
+    // still refused — the fix moved WHICH label is compared, not whether one is.
+    const output = finalizeDecision(
+      contextFor({ campaignKind: "main" }),
+      "cut",
+      "Economic loss.",
+      hold,
+    );
+
+    expect(output.blockedActionType).toBeNull();
+    expect(output.authorityBlocker).toBeNull();
+  });
+});

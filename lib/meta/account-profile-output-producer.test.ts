@@ -150,6 +150,225 @@ describe("the retained account profile identity", () => {
       .toEqual(accountProfileRetentionIdentity(base));
   });
 
+  /*
+    ── ROUND 6 ITEM 3: ONE FIELD AT A TIME, WHILE A TARGET ROAS GOVERNS ─────
+    Everything the canonical rule calls unauthoritative must be unable to move
+    either fingerprint. Both halves are asserted on every permutation, because
+    the two doors are different: the operator's typed numbers reach
+    `input_fingerprint` through the target pack and `profileConfig`, while the
+    account's own measured CPA reaches `source_fingerprint` through the
+    calibration.
+
+    Each row changes exactly ONE field, so a failure names the field.
+  */
+  const CONFIGURED_NON_AUTHORITATIVE: Array<
+    [string, Partial<AccountProfileRetentionInputs>]
+  > = [
+    ["a typed Target CPA", { targetPack: { ...inputs().targetPack!, targetCpa: 31 } }],
+    ["a typed break-even CPA", { targetPack: { ...inputs().targetPack!, breakEvenCpa: 44 } }],
+    [
+      "an operator AOV assumption",
+      { targetPack: { ...inputs().targetPack!, operatorAovAssumption: 900 } },
+    ],
+    [
+      /*
+        ROUND 9 ITEM 2. The value moved from `T23:59:00Z` to `T02:59:00Z`, and
+        the reason is not cosmetic: `asOfDate` is `2026-09-04`, whose
+        deterministic cutoff is `2026-09-04T03:00:00.000Z`. A pack stamped
+        `T23:59:00Z` is stamped AFTER the moment this row reconstructs, so it
+        is no longer an inert re-save — it is evidence the identity is not
+        allowed to have seen, and it now correctly moves the fingerprint. The
+        post-cutoff case is asserted in its own right below.
+
+        Within the cutoff, an advancing clock is still inert, which is what
+        this row was written to hold.
+      */
+      "a re-save that only advances the row clock, within the cutoff",
+      {
+        targetPack: {
+          ...inputs().targetPack!,
+          updatedAt: "2026-09-04T02:59:00.000Z",
+        },
+      },
+    ],
+  ];
+
+  it.each(CONFIGURED_NON_AUTHORITATIVE)(
+    "does not move either fingerprint on %s",
+    (_name, over) => {
+      const base = accountProfileRetentionIdentity(inputs());
+      const changed = accountProfileRetentionIdentity(inputs(over));
+      expect(changed.inputFingerprint).toBe(base.inputFingerprint);
+      expect(changed.sourceFingerprint).toBe(base.sourceFingerprint);
+    },
+  );
+
+  /*
+    ── ROUND 9 ITEM 2: THE CUTOFF IS PART OF THE IDENTITY ────────────────────
+    `asOfDate: "2026-09-04"` widens to the deterministic cutoff
+    `2026-09-04T03:00:00.000Z` — the same rule `normalizeAsOfCutoff` applies
+    when the historical pack is read, so the identity and the reader cannot
+    disagree about which pack was in force.
+  */
+  it("MOVES the configured fingerprint when the pack is stamped after the cutoff", () => {
+    /*
+      Before Round 9 this was inert: `commercialTargetProvenanceState` asked
+      only whether `updatedAt` PARSED, so a pack saved after the day being
+      reconstructed digested as `trusted` — identical bytes to one that really
+      was in force. A retained verdict could then keep an authority grant
+      justified by evidence that did not exist when it was minted.
+    */
+    const base = accountProfileRetentionIdentity(inputs());
+    const afterCutoff = accountProfileRetentionIdentity(
+      inputs({
+        targetPack: {
+          ...inputs().targetPack!,
+          updatedAt: "2026-09-04T03:00:00.001Z",
+        },
+      }),
+    );
+    expect(afterCutoff.inputFingerprint).not.toBe(base.inputFingerprint);
+    // The MEASURED half is untouched by a configured-side clock.
+    expect(afterCutoff.sourceFingerprint).toBe(base.sourceFingerprint);
+  });
+
+  it("holds the exact 1 ms boundary in both directions", () => {
+    /*
+      The boundary itself, so a future widening has to face this line. At the
+      cutoff is IN; one millisecond past it is OUT.
+    */
+    const base = accountProfileRetentionIdentity(inputs());
+    const atCutoff = accountProfileRetentionIdentity(
+      inputs({
+        targetPack: {
+          ...inputs().targetPack!,
+          updatedAt: "2026-09-04T03:00:00.000Z",
+        },
+      }),
+    );
+    const oneMsPast = accountProfileRetentionIdentity(
+      inputs({
+        targetPack: {
+          ...inputs().targetPack!,
+          updatedAt: "2026-09-04T03:00:00.001Z",
+        },
+      }),
+    );
+    expect(atCutoff.inputFingerprint).toBe(base.inputFingerprint);
+    expect(oneMsPast.inputFingerprint).not.toBe(base.inputFingerprint);
+  });
+
+  it("does not move either fingerprint on the INERT attribution multiplier", () => {
+    /*
+      `attributionAovAdjustmentMultiplier` is accepted and pinned to 1 on every
+      rung of `resolveSpendUnit`, and never written into `SpendUnitEvidence`,
+      precisely so it cannot reach a unit, a threshold, an eligibility or a
+      verdict. `profileConfig` was digested RAW, so it entered retention
+      identity through the one door the resolver had carefully closed.
+
+      Both sides carry a profileConfig and differ ONLY in that member, so a
+      pass cannot come from the object being absent on one side.
+    */
+    const config = (
+      attributionAovAdjustmentMultiplier: number | null,
+    ): NonNullable<AccountProfileRetentionInputs["profileConfig"]> => ({
+      enginePresetLabel: null,
+      zeroConvBurnerMultiplier: null,
+      cutCandidateMultiplier: null,
+      sustainedLoserMultiplier: null,
+      hardCutMultiplier: null,
+      scalePurchaseMultiplier: null,
+      winnerMemoryMultiplier: null,
+      recentSampleMultiplier: null,
+      weakFunnelRateMultiplier: null,
+      attributionAovAdjustmentMultiplier,
+    });
+    const base = accountProfileRetentionIdentity(
+      inputs({ profileConfig: config(1) }),
+    );
+    const typed = accountProfileRetentionIdentity(
+      inputs({ profileConfig: config(1.35) }),
+    );
+    expect(typed.inputFingerprint).toBe(base.inputFingerprint);
+    expect(typed.sourceFingerprint).toBe(base.sourceFingerprint);
+
+    // The control: a knob the resolver DOES read still moves identity, so the
+    // projection is not simply discarding the whole object.
+    const otherKnob = accountProfileRetentionIdentity(
+      inputs({
+        profileConfig: { ...config(1), hardCutMultiplier: 2.5 },
+      }),
+    );
+    expect(otherKnob.inputFingerprint).not.toBe(base.inputFingerprint);
+  });
+
+  it("does not move either fingerprint on the account's own measured CPA", () => {
+    /*
+      `accountCpaP50` / `accountCpaSampleCount` were deliberately KEPT hashed
+      while `resolveSpendUnit`'s governed branch could still fall through to
+      the `account_history` rung, where the account's median CPA genuinely
+      chose the unit. That branch now answers READY-or-`insufficient`, so the
+      measured CPA chooses nothing here and must not discard a retained verdict
+      by moving `source_fingerprint`.
+    */
+    const base = accountProfileRetentionIdentity(inputs());
+    const remeasured = accountProfileRetentionIdentity(
+      inputs({
+        accountCalibration: calibration({
+          accountCpaP50: 99,
+          accountCpaSampleCount: 4,
+        }),
+      }),
+    );
+    expect(remeasured.sourceFingerprint).toBe(base.sourceFingerprint);
+    expect(remeasured.inputFingerprint).toBe(base.inputFingerprint);
+  });
+
+  it("DOES move the configured half when target provenance stops being trusted", () => {
+    /*
+      ROUND 6 ITEM 4. Removing the raw `updatedAt`/`freshness` from the digest
+      made every provenance state hash the same — and provenance changes what
+      the engine may DO: `resolveSpendUnitProfile` demotes the confidence when
+      a pack carries no trustworthy timestamp, which closes the hard-action
+      gate. An identity blind to that would retain a verdict minted while the
+      pack was trusted after its provenance became unknown.
+    */
+    const base = accountProfileRetentionIdentity(inputs());
+    for (const degraded of [
+      { ...inputs().targetPack!, freshness: "stale" as const },
+      { ...inputs().targetPack!, freshness: "unknown" as const },
+      { ...inputs().targetPack!, updatedAt: null },
+    ]) {
+      const moved = accountProfileRetentionIdentity(
+        inputs({ targetPack: degraded }),
+      );
+      expect(
+        moved.inputFingerprint,
+        JSON.stringify({
+          freshness: degraded.freshness,
+          updatedAt: degraded.updatedAt,
+        }),
+      ).not.toBe(base.inputFingerprint);
+    }
+  });
+
+  it("keeps the legacy CPA keying identity when NO Target ROAS governs", () => {
+    // The compatibility half: without a ratio the typed CPA is the anchor, so
+    // it must still move the configured fingerprint.
+    const legacyPack = {
+      ...inputs().targetPack!,
+      targetRoas: null,
+      targetCpa: 31,
+    };
+    const base = accountProfileRetentionIdentity(
+      inputs({ targetPack: legacyPack }),
+    );
+    const edited = accountProfileRetentionIdentity(
+      inputs({ targetPack: { ...legacyPack, targetCpa: 47 } }),
+    );
+    expect(edited.inputFingerprint).not.toBe(base.inputFingerprint);
+  });
+
   it("moves the CONFIGURED half when the operator's target moves", () => {
     const base = accountProfileRetentionIdentity(inputs());
     const edited = accountProfileRetentionIdentity(inputs({
@@ -160,12 +379,56 @@ describe("the retained account profile identity", () => {
     expect(edited.sourceFingerprint).toBe(base.sourceFingerprint);
   });
 
-  it("moves the MEASURED half when the store's evidence moves", () => {
+  /*
+    RE-PINNED, IN THE OPPOSITE DIRECTION. This case used to assert
+    `moved.sourceFingerprint).not.toBe(original.sourceFingerprint)` — that a
+    store-only change MOVES the measured half. It was green, specific, and it
+    pinned a defect.
+
+    `sourceFingerprint` is persisted as
+    `engine_v3_account_profile_output.source_fingerprint` and is part of that
+    table's UNIQUE key; `budget-readiness-retention.ts` compares it and answers
+    `retained_profile_source_mismatch` when it moves, discarding the retained
+    verdict. Under D091 the store's AOV chooses no rung, so it cannot change
+    the verdict — which made this the exact provenance mismatch D091 forbids: a
+    number with no authority over the decision silently invalidating it.
+  */
+  it("does NOT move the measured half when only the store's evidence moves", () => {
     const base = inputs();
-    const moved = accountProfileRetentionIdentity(inputs({
-      observedShopifyAov: { ...base.observedShopifyAov!, aovMinor: 6_100 },
-    }));
     const original = accountProfileRetentionIdentity(base);
+
+    // Three independent store-only changes: the value, the sample, and the
+    // availability status. None of them is a rung, so none may key an identity.
+    for (const store of [
+      { ...base.observedShopifyAov!, aovMinor: 6_100 },
+      { ...base.observedShopifyAov!, orderCount: 941 },
+      { ...base.observedShopifyAov!, status: "stale" as const },
+    ]) {
+      const moved = accountProfileRetentionIdentity(
+        inputs({ observedShopifyAov: store }),
+      );
+      expect(moved.sourceFingerprint).toBe(original.sourceFingerprint);
+      expect(moved.inputFingerprint).toBe(original.inputFingerprint);
+    }
+
+    // Dropping the store reading entirely is likewise not an identity change:
+    // an account that never had Shopify and one whose store went unavailable
+    // must be able to hold the same retained Meta verdict.
+    expect(
+      accountProfileRetentionIdentity(inputs({ observedShopifyAov: null }))
+        .sourceFingerprint,
+    ).toBe(original.sourceFingerprint);
+  });
+
+  /*
+    The other half of the invariant: narrowing the digest must not make it
+    inert. A Meta-side measurement that CAN move the verdict still moves it.
+  */
+  it("still moves the measured half when Meta's own attributed AOV moves", () => {
+    const original = accountProfileRetentionIdentity(inputs());
+    const moved = accountProfileRetentionIdentity(inputs({
+      accountCalibration: calibration({ metaAttributedAovMean90d: 77.5 }),
+    }));
     expect(moved.sourceFingerprint).not.toBe(original.sourceFingerprint);
     expect(moved.inputFingerprint).toBe(original.inputFingerprint);
   });

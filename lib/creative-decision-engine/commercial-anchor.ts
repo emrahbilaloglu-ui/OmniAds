@@ -27,6 +27,7 @@ import type {
   SpendUnitConfidence,
   SpendUnitSource,
 } from "./types";
+import { classifyMetaAovQuality } from "./spend-unit-resolver";
 
 export const COMMERCIAL_ANCHOR_CONTRACT_VERSION =
   "creative-decision-engine.commercial-anchor.v1" as const;
@@ -47,7 +48,14 @@ export type CommercialAnchorBlockerCode =
   | "commercial_anchor_provenance_unverified"
   /** The anchor is fine; Scale additionally needs an explicit Target ROAS. */
   | "target_roas_missing"
-  /** The anchor is fine; Cut additionally needs an explicit break-even ROAS. */
+  /**
+   * The anchor is fine; Cut has NO commercial ratio to bound a loss with.
+   *
+   * The code name predates D091 and is kept because persisted rows carry it.
+   * Its meaning narrowed: `cutAnchorEligible` is now
+   * `breakEvenAnchored || targetRoasAnchored`, so this fires only when NEITHER
+   * is present — not, as the name suggests, whenever a break-even is absent.
+   */
   | "break_even_roas_missing"
   /** The anchor is fine; Scale additionally needs a calibration sample. */
   | "scale_calibration_below_floor";
@@ -62,7 +70,22 @@ export type CommercialAnchorInputCode =
   | "commercial_target_provenance";
 
 export type CommercialAnchorStatus =
+  /**
+   * The legacy Target CPA rung. Reachable ONLY on an account with no Target
+   * ROAS, which is the one case where nothing can divide an average order
+   * value and the CPA is the only anchor there is.
+   */
   | "eligible_target_cpa"
+  /**
+   * RETIRED, like `eligible_observed_shopify_aov` below: readable, never
+   * minted.
+   *
+   * `operator_aov` only ever built `operatorAovAssumption / targetRoas`, so it
+   * needed a Target ROAS — and with one, `resolveSpendUnit` now sizes the unit
+   * from Meta's own attributed AOV over that ratio instead, holding rather than
+   * substituting when Meta has no usable AOV. No input shape reaches this rung.
+   * The member stays so persisted explanations that name it still parse.
+   */
   | "eligible_operator_aov"
   /**
    * The anchor is the STORE's own settled average order value divided by the
@@ -132,15 +155,19 @@ const BLOCKER_COPY: Record<CommercialAnchorBlockerCode, string> = {
   shadow_only:
     "This account is in shadow mode, so no hard action is offered.",
   commercial_anchor_missing:
-    "No commercial anchor is available. Set a Target ROAS in Commercial Truth — the average order value is read from your Shopify orders, so no CPA or AOV needs to be typed.",
+    "No commercial anchor is available. Set a Target ROAS in Commercial Truth; the average order value it divides is Meta's own attributed purchase value for this account, so no CPA or AOV needs to be typed — it resolves once Meta has attributed purchases here.",
   commercial_anchor_sample_insufficient:
-    "The only available anchor is a Meta-attributed average order value whose 90-day purchase sample is too small to trust. Connecting the Shopify store, or letting it accumulate orders, supplies the average order value directly; no CPA or AOV needs to be typed.",
+    "The anchor is a Meta-attributed average order value whose 90-day purchase sample is too small to trust. It resolves as this account accumulates attributed purchases; no CPA or AOV needs to be typed.",
   commercial_anchor_provenance_unverified:
     "The configured commercial target has no verifiable update timestamp, so it cannot carry threshold authority. Re-save it in Commercial Truth to stamp its provenance.",
   target_roas_missing:
     "Scale needs an explicit Target ROAS in Commercial Truth.",
+  // NOT "Cut needs an explicit break-even ROAS": since D091 a Target ROAS
+  // anchors a Cut on its own, and this code is emitted only when neither ratio
+  // is configured. Telling an operator to enter a break-even they do not need
+  // is the same defect class as naming the wrong missing input.
   break_even_roas_missing:
-    "Cut needs an explicit break-even ROAS in Commercial Truth.",
+    "Cut needs a Target ROAS or a break-even ROAS in Commercial Truth.",
   scale_calibration_below_floor:
     "Scale is withheld because the account calibration sample is below the quality floor.",
 };
@@ -254,6 +281,7 @@ function resolveStatus(input: {
   provenanceUnverified: boolean;
   spendUnitSource: SpendUnitSource;
   metaAovQuality: MetaAovQuality;
+  lineage: CommercialAnchorLineage;
 }): CommercialAnchorStatus {
   if (input.shadowOnly) return "blocked_shadow_only";
   if (input.thresholdEligible) {
@@ -268,11 +296,37 @@ function resolveStatus(input: {
   // existing target is a different (and cheaper) operator act than supplying a
   // new economic anchor.
   if (input.provenanceUnverified) return "blocked_provenance_unverified";
-  // Keyed off the resolver's OWN chosen rung. `metaAovQuality` arrives from the
-  // account calibration and can disagree with the resolution (a stored `ready`
-  // label beside a purchase count the ladder judged unusable); trusting it here
-  // let a real sample-insufficiency be reported as a missing owner anchor.
+  // Keyed off the resolver's OWN judgement, never off the stored
+  // `metaAovQuality` label, which arrives from the account calibration and can
+  // disagree with the resolution (a stored `ready` beside a purchase count the
+  // ladder judged unusable); trusting it here let a real sample-insufficiency
+  // be reported as a missing owner anchor.
   if (input.spendUnitSource === "meta_derived_aov") {
+    return "blocked_meta_aov_sample_insufficient";
+  }
+  /*
+    ROUND 6: THE SOURCE ALONE NO LONGER TELLS THIN FROM ABSENT.
+
+    `resolveSpendUnit` used to mint a low-confidence `meta_derived_aov` for a
+    thin sample under a Target ROAS; it now answers `insufficient` for every
+    non-`ready` tier, so both "a sample too small to divide" and "no Meta
+    evidence at all" arrive here with the same source. Reporting the thin case
+    as `blocked_missing_owner_anchor` would tell an operator to supply an
+    anchor they have already supplied.
+
+    So the ladder's own predicate is re-applied to the SAME two lineage facts
+    it divides by — the attributed mean and its purchase count — rather than to
+    the calibration's stored label. `classifyMetaAovQuality` is the shared
+    classifier, so this cannot describe a sample the resolver would judge
+    differently.
+  */
+  if (
+    positiveFinite(input.lineage.targetRoas) &&
+    positiveFinite(input.lineage.metaAttributedAovMean90d) &&
+    classifyMetaAovQuality(
+      input.lineage.metaAttributedAovPurchaseCount90d,
+    ) !== "unavailable"
+  ) {
     return "blocked_meta_aov_sample_insufficient";
   }
   return "blocked_missing_owner_anchor";
@@ -311,15 +365,56 @@ function resolveMissingInputs(input: {
   if (input.status === "blocked_provenance_unverified") {
     return ["commercial_target_provenance"];
   }
-  const missing: CommercialAnchorInputCode[] = [];
   const { lineage } = input;
-  if (!positiveFinite(lineage.targetCpa)) missing.push("target_cpa");
-  if (!positiveFinite(lineage.operatorAovAssumption)) {
-    missing.push("operator_aov_assumption");
+  /*
+    WITH A TARGET ROAS, the canonical spend unit is Meta's own attributed
+    purchase AOV divided by it, so the Meta purchase sample is the ONLY input
+    that is actually absent — and the only one this hold may name.
+
+    What it named before was `target_cpa` and `operator_aov_assumption`. Those
+    two are the ladder's high rungs in `resolveSpendUnit`, so listing them was
+    not meaningless; it was wrong about which absence is real. An account with a
+    Target ROAS and no Meta purchases was told to go and type a CPA or an AOV —
+    numbers this product deliberately does not require once a ROAS is set — while
+    the fact that Meta had attributed no purchases to this account, which is what
+    the resolver actually stopped on, was never mentioned at all. Both statuses
+    reachable here behave the same way for the same reason: with no usable
+    sample the ladder falls through (`blocked_missing_owner_anchor`), and with a
+    sample below the `ready` bar it stops on the sampled rung
+    (`blocked_meta_aov_sample_insufficient`). More sample is the answer to both.
+
+    `meta_attributed_purchase_sample` is not an operator field, and naming it is
+    not an instruction to type one — it is the input the engine reads
+    (`metaAttributedAovPurchaseCount90d`), and `BLOCKER_COPY` above is what says
+    to the operator that it accrues rather than gets configured.
+  */
+  if (positiveFinite(lineage.targetRoas)) {
+    return ["meta_attributed_purchase_sample"];
   }
-  // An operator AOV only becomes an anchor together with a Target ROAS, so a
-  // present AOV with an absent Target ROAS must still name the ROAS.
-  if (!positiveFinite(lineage.targetRoas)) missing.push("target_roas");
+  /*
+    WITHOUT A TARGET ROAS nothing can divide an average order value, so the
+    legacy shape is preserved: an explicitly configured Target CPA still
+    resolves an anchor on its own, and supplying the Target ROAS is the other
+    way out — it makes Meta's own attributed AOV divisible.
+
+    `operator_aov_assumption` IS NOT LISTED, and its absence is the point.
+    It stopped being a way out when `operator_aov` was retired as a rung of
+    `resolveSpendUnit`: an AOV assumption plus a Target ROAS now resolves the
+    PLATFORM AOV, not the operator's, and without a Target ROAS an AOV divides
+    by nothing at all. So on this branch it resolves nothing in either
+    direction, and an operator who typed one on the strength of this list would
+    watch the hold stay exactly where it was. A missing-input list is a list of
+    things that WOULD work; naming an input that cannot is the same defect as
+    naming the wrong cause.
+
+    The code stays in `CommercialAnchorInputCode` so a persisted hold that named
+    it still parses and still renders its sentence.
+  */
+  const missing: CommercialAnchorInputCode[] = [];
+  if (!positiveFinite(lineage.targetCpa)) missing.push("target_cpa");
+  // Reached unconditionally here, because the branch above already returned for
+  // every lineage that carries a Target ROAS.
+  missing.push("target_roas");
   if (input.status === "blocked_meta_aov_sample_insufficient") {
     missing.push("meta_attributed_purchase_sample");
   }

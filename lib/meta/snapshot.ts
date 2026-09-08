@@ -59,6 +59,7 @@ import { buildMetaEntityStateRows } from "@/lib/meta/engine-v1/state-rows";
 import type { MetaCampaignKind } from "@/lib/meta/campaign-label-types";
 import {
   applyMetaCampaignLabelGuard,
+  isContextTrustedForAction,
   type MetaCampaignContextGuardEntry,
   type MetaCampaignContextGuardMap,
   type MetaCampaignLabelKindMap,
@@ -74,6 +75,7 @@ import { decisionLabelForMetaRec } from "@/lib/meta/rec-label-mapping";
 import {
   buildMetaRecommendations,
   META_RECOMMENDATION_ENGINE_VERSION,
+  metaRecommendationNeedsRecompute,
   type MetaCalibrationContext,
   type MetaDecisionSummary,
   type MetaRecommendation,
@@ -85,10 +87,8 @@ import {
 } from "@/lib/meta/recommendations";
 import { resolveMetaFunnelCohort } from "@/lib/meta/funnel-cohort";
 import { resolveMinorUnitExponent } from "@/lib/currency/iso-4217-minor-units";
-import {
-  observedShopifyAovIsUsable,
-  resolveObservedShopifyAov,
-} from "@/lib/creative-decision-engine/shopify-aov-source";
+import { computeMetaAttributedAov } from "@/lib/creative-decision-engine/meta-aov-calculator";
+import { resolveSpendUnit } from "@/lib/creative-decision-engine/spend-unit-resolver";
 import {
   getMetaAutomationControlPlane,
 } from "@/lib/meta/automation-control-plane";
@@ -296,18 +296,36 @@ async function readCampaignContextGuardState(input: {
     for (const [campaignId, entry] of resolved) {
       const source = entry.provenance.source;
       const contextTrust = entry.contextTrust ?? "unknown";
-      context.set(campaignId, {
+      const guardEntry: MetaCampaignContextGuardEntry = {
         kind: entry.kind,
         contextTrust,
         source,
         inferenceConfidenceClass: entry.inferenceConfidenceClass,
         resolverAuthorityValidated: entry.resolverAuthorityValidated,
-      });
-      if (
-        entry.kind &&
-        contextTrust === "high" &&
-        source === "system_inferred"
-      ) {
+      };
+      context.set(campaignId, guardEntry);
+      /*
+        ONE predicate, imported — not a second, looser copy of it.
+
+        This branch used to ask only `kind && contextTrust === "high" && source
+        === "system_inferred"`, while `isContextTrustedForAction` in
+        `campaign-label-guard.ts` had been tightened to require
+        `resolverAuthorityValidated === true` and `inferenceConfidenceClass ===
+        "high"` as well. The guard's own comment names THIS function as the one
+        that copies those fields verbatim, and argues that a boundary trusting a
+        distant producer's invariant is not a boundary. The argument applies
+        here too: this map is not the guard's authority, but it sets
+        `campaignKind` for `buildCalibrationContexts` and the recommendation
+        builders, and `campaignKind` is what selects the test-cohort refresh
+        transform. An entry that said LESS than the resolver says could
+        therefore still steer a hard decision.
+
+        No live row moves: `readCampaignContextMap` mints `contextTrust:
+        "high"` only when the `system_inferred` origin and the approved
+        resolver identity both validate. What this removes is a rehydrated or
+        replayed entry unlocking a kind by omission.
+      */
+      if (entry.kind && isContextTrustedForAction(guardEntry)) {
         labels.set(campaignId, entry.kind);
       }
     }
@@ -933,16 +951,38 @@ async function attachSizedIntents(input: {
   /*
     The CPA benchmark a bid cap is measured against, in minor units.
 
-    The plan's order, and the whole point of it: an explicitly configured
-    target CPA first, then the operator's own average-order-value assumption
-    divided by the target ROAS, then the STORE's observed average order value
-    divided by the same target. ROAS stays the only required commercial target;
-    the last rung is what makes that true, because a business with only a
-    target ROAS and real Shopify sales gets a benchmark without anybody being
-    asked for a CPA or an AOV.
+    ONE ladder, and it is the engine's own. `resolveSpendUnit` is the canonical
+    resolver; this call passes it the same inputs the account decision profile
+    passes and takes the same answer, so the amount a bid cap is sized from and
+    the amount the commercial-anchor panel explains cannot be two different
+    numbers for the same account.
 
-    The store's own reader owns every refusal — a thin sample, a mixed
-    currency, an unavailable sync — and yields nothing rather than a guess.
+    WHAT THE UNIT IS. For a Meta decision the money-per-purchase quantity is
+    META'S OWN attributed purchase AOV — attributed revenue divided by
+    attributed purchases, over 90 days, for THIS provider account — divided by
+    the target ROAS.
+
+    The ladder is a TWO-CASE SPLIT, not a precedence list (D091). WITH a target
+    ROAS the platform AOV is the basis, and a configured target CPA or operator
+    AOV assumption is carried as evidence and chooses nothing. WITH NO target
+    ROAS nothing can divide an average order value, so the legacy target-CPA
+    rung is preserved exactly.
+
+    WHAT IT IS NOT, ANY MORE. The STORE's observed Shopify average order value
+    used to be the last rung here, so a business with only a target ROAS was
+    sizing Meta bid caps from revenue Meta never attributed — the merchant's
+    settled orders are a different book. That rung was retired from
+    `resolveSpendUnit` itself, and reading it here would have re-created it
+    outside the ladder. Nothing in this function reads Shopify now.
+
+    IT FAILS CLOSED. Only a unit the resolver marks `hardEligibleByDefault` may
+    size a bid cap or set the loss-budget maturity floor below — which for the
+    sampled rung means a `ready` 90-day purchase sample, and never the
+    account-history or break-even fallbacks. A missing Meta AOV therefore leaves
+    `majorSpendUnit` null: no entity is judged mature, and the bid policy refuses
+    with its own named `spend_unit_unavailable` blocker rather than substituting
+    some other book's number.
+
     Nothing here converts currencies: a benchmark in another currency is not a
     benchmark for this account. A currency with no ISO exponent gives no
     benchmark either, because a number whose scale is unknown is not a number.
@@ -950,25 +990,65 @@ async function attachSizedIntents(input: {
   const exponent = resolveMinorUnitExponent(input.accountCurrency);
   const currencyExponent =
     exponent.status === "resolved" ? exponent.exponent : null;
-  const observedAov = targets.targetCpa || targets.aovAssumption
-    ? null
-    : await resolveObservedShopifyAov({
-      businessId: input.businessId,
-      accountCurrency: input.accountCurrency,
-      currencyExponent,
-    }).catch(() => null);
-  const observedAovMajor =
-    observedAov && observedShopifyAovIsUsable(observedAov)
-    && currencyExponent !== null
-      ? observedAov.aovMinor / 10 ** currencyExponent
-      : null;
+  /*
+    READ IT WHENEVER A TARGET ROAS EXISTS, because that is when it is the basis.
 
-  const majorSpendUnit = targets.targetCpa
-    ?? (targets.aovAssumption && targets.targetRoas
-      ? targets.aovAssumption / targets.targetRoas
-      : observedAovMajor && targets.targetRoas
-        ? observedAovMajor / targets.targetRoas
-        : null);
+    This used to skip the read on any account carrying a target CPA, or an
+    operator AOV with a target ROAS — a short-circuit that was correct while
+    those were the ladder's top rungs. After D091 made the ladder a two-case
+    split it became a defect with a worse outcome than the one it saved a query
+    on: with a target ROAS the resolver now wants the platform AOV, so
+    suppressing the read left CASE 1 with nothing to divide, past the soft rungs
+    (`accountCpaP50` is null here by construction) and onto `insufficient`. An
+    account carrying BOTH a target ROAS and a legacy target CPA therefore sized
+    nothing at all — it lost the CPA anchor by design, and the Meta basis by
+    accident.
+
+    Worse, it disagreed with itself: `account-decision-profile.ts` passes
+    `metaAttributedAovMean90d` unconditionally, so the retained verdict for that
+    same account carried `meta_derived_aov` while this path carried nothing.
+    Two answers to "what is a purchase worth" for one account is the exact shape
+    that produced 117 `native_target_authority_mismatch` runs in a day.
+
+    The read is still skipped in the one case where it cannot be used: no target
+    ROAS means no divisor, and the legacy target-CPA rung answers on its own.
+  */
+  const metaAovCannotBeUsed = !targets.targetRoas;
+  const metaAttributedAov = metaAovCannotBeUsed
+    ? null
+    : await computeMetaAttributedAov({
+      businessId: input.businessId,
+      asOf: input.snapshotDate,
+      providerAccountId: input.providerAccountId,
+      db: getDb(),
+    }).catch(() => null);
+
+  const spendUnitResolution = resolveSpendUnit({
+    targetCpa: targets.targetCpa,
+    operatorAovAssumption: targets.aovAssumption ?? null,
+    metaAttributedAovMean90d: metaAttributedAov?.aovMean ?? null,
+    metaAttributedAovPurchaseCount90d: metaAttributedAov?.purchaseCount ?? 0,
+    metaAttributedRevenue90d: metaAttributedAov?.totalRevenue ?? 0,
+    targetRoas: targets.targetRoas,
+    breakEvenRoas: targets.breakEvenRoas,
+    /*
+      The account-history and break-even rungs are deliberately not offered
+      here. Neither is hard-action eligible in `resolveSpendUnit`, so a unit
+      from either would be discarded by the `hardEligibleByDefault` gate below;
+      passing them would only cost a percentile read to reach the same null.
+    */
+    accountCpaP50: null,
+    accountCpaSampleCount: 0,
+    /*
+      Neutral, and the same value `resolveAccountDecisionProfile` uses when no
+      decision-calibration profile configures one: `overrideMultiplier(1.0, …)`
+      in `lib/creative-decision-engine/account-decision-profile.ts`.
+    */
+    attributionAovAdjustmentMultiplier: 1,
+  });
+  const majorSpendUnit = spendUnitResolution.hardEligibleByDefault
+    ? spendUnitResolution.spendUnit
+    : null;
   const spendUnitMinor = currencyExponent !== null && majorSpendUnit
     ? Math.round(majorSpendUnit * 10 ** currencyExponent)
     : null;
@@ -996,14 +1076,28 @@ async function attachSizedIntents(input: {
     Maturity measured against the SAME benchmark the sizing uses.
 
     `metaLossBudgetMaturity` derives its spend threshold from a CPA baseline,
-    and for a business with only a target ROAS every configured source of one
-    is null — so maturity was never satisfied and nothing was ever sized,
-    whatever the store's sales said. Handing it the derived benchmark closes
-    that: one number, used for both the gate and the rungs.
+    and for a business with only a target ROAS every CONFIGURED source of one
+    is null — so maturity was never satisfied and nothing was ever sized.
+    Handing it the resolved benchmark closes that: one number, used for both
+    the gate and the rungs. It stays null when no hard-eligible unit resolved,
+    and `metaLossBudgetMaturity` then returns null, so an account with no Meta
+    purchase sample judges nothing mature instead of judging it against a
+    substitute.
+  */
+  /*
+    The floor is built from the SAME unit the resolver above built.
+
+    `accountCpaBaseline` still carries the resolved unit for the legacy ladder,
+    but it is only reached when the canonical rung cannot answer. Passing the
+    Meta AOV and its sample lets `metaLossBudgetMaturity` start where
+    `resolveSpendUnit` starts, so this account's maturity floor and its spend
+    unit cannot disagree about what one purchase is worth.
   */
   const lossBudget = metaLossBudgetMaturity({
     targets: input.commercialTargets,
     accountCpaBaseline: majorSpendUnit,
+    metaAttributedAovMean90d: metaAttributedAov?.aovMean ?? null,
+    metaAttributedAovPurchaseCount90d: metaAttributedAov?.purchaseCount ?? 0,
   });
   for (const campaign of input.campaigns) {
     cohortByEntityId.set(campaign.id, resolveMetaFunnelCohort({
@@ -1341,14 +1435,56 @@ async function buildSnapshotRecommendations(input: {
     (
       await readMetaBidRegimeHistorySummaries({
         businessId: input.businessId,
+        /*
+          ROUND 9 ITEM 6: the account and the cutoff this snapshot is FOR. An
+          absent account is passed as an empty string, which the reader treats
+          as an unusable scope and answers with an EMPTY map — no history rather
+          than every account's.
+        */
+        providerAccountId: input.providerAccountId ?? "",
+        capturedAtCutoff: endDate,
         entityLevel: "campaign",
         entityIds: campaignIds,
       })
     ).entries(),
   );
-  const commercialTargets = await readMetaCommercialTargets(input.businessId, {
-    asOf: endDate,
-  }).catch(() => null);
+  const commercialTargetsBase = await readMetaCommercialTargets(
+    input.businessId,
+    { asOf: endDate },
+  ).catch(() => null);
+  /*
+    ATTACH META'S OWN AOV ONCE, HERE, so every maturity floor built downstream
+    is sized from the canonical unit.
+
+    `buildMetaRecommendations`, the ad-set decisions and the scenario emitters
+    all call `metaLossBudgetMaturity` with nothing but this object. Without the
+    sample on it they fall to `breakEvenCpa ?? targetCpa ?? accountCpa`, so an
+    account carrying a Target ROAS AND a legacy Target CPA had its spend unit
+    sized from Meta's AOV while the gate deciding whether that unit may act was
+    sized from the CPA.
+
+    Read only when a Target ROAS exists, which is the same short-circuit the
+    sizing path uses: with no ratio there is nothing to divide, the legacy CPA
+    ladder answers on its own, and the account pays no query for it.
+  */
+  const commercialTargets =
+    commercialTargetsBase && commercialTargetsBase.targetRoas
+      ? {
+        ...commercialTargetsBase,
+        metaAttributedAov: await computeMetaAttributedAov({
+          businessId: input.businessId,
+          asOf: endDate,
+          providerAccountId: accountId,
+          db: getDb(),
+        })
+          .then((aov) =>
+            aov
+              ? { aovMean: aov.aovMean, purchaseCount: aov.purchaseCount }
+              : null,
+          )
+          .catch(() => null),
+      }
+      : commercialTargetsBase;
 
   const campaignRecommendations = buildMetaRecommendations({
     windows: {
@@ -1367,6 +1503,12 @@ async function buildSnapshotRecommendations(input: {
     calibrationContextByCampaignId: contexts.byCampaignId,
     entitySignalsByCampaignId,
     commercialTargets,
+    /*
+      The canonical campaign-context map, so the structural emitters can ask
+      whether a role is trusted for ACTION at emit time rather than inferring
+      one from the campaign's name (Codex C19/C20).
+    */
+    campaignContextById: campaignContextState.campaignContextById,
     language: "en",
   }).recommendations;
 
@@ -1483,7 +1625,13 @@ async function buildSnapshotRecommendations(input: {
        * was not, and it is the one an operator actually reads as "how this kind
        * of decision has worked out here".
        */
-      providerAccountId: accountId,
+      /*
+        ROUND 9 ITEM 6 makes both REQUIRED. An absent account is passed as the
+        empty string rather than null, and the helper answers "no history" for
+        it — the same fail-closed reading, now stated in the type.
+      */
+      providerAccountId: accountId ?? "",
+      endDate,
       recommendations: guardedRecommendations,
     }),
     lineage: {
@@ -1721,6 +1869,20 @@ export async function runMetaSnapshotForBusiness(
   const anomalyTargets = await readMetaCommercialTargets(businessId, {
     asOf: normalizedSnapshotDate,
   }).catch(() => null);
+  /*
+    NO ACCOUNT SCOPE HERE, SO NO CANONICAL UNIT, SO NO FLOOR.
+
+    The canonical unit is defined as READY Meta-attributed AOV for ONE account
+    at ONE cutoff over that account's Target ROAS. This read is deliberately
+    business-wide (see the note above: the resolve pass has no account
+    predicate), so there is no account whose AOV could legitimately be divided
+    here. Supplying a business-wide sample would size one account's money from
+    another's — the exact borrowing the account-scoped reads exist to prevent.
+
+    So on a ROAS-governed business this resolves to null and the detectors that
+    need a loss budget withhold. That is the rule's own answer: a missing
+    canonical unit HOLDS, and it never falls back to a CPA.
+  */
   const lossBudget = metaLossBudgetMaturity({ targets: anomalyTargets });
   const businessZone = (await getDb()`
     SELECT timezone FROM businesses WHERE id = ${businessId}::uuid LIMIT 1
@@ -2336,6 +2498,40 @@ function storedRecommendation(value: unknown): MetaRecommendation | null {
   return recommendation as MetaRecommendation;
 }
 
+/**
+ * ── ROUND 18, ITEM B8: THE READ-PATH VERSION GUARD ──────────────────────────
+ *
+ * B1 and A1 changed ARITHMETIC in v1.3.0: B1 sized a bid-cap raise with
+ * hard-coded /100 and *100 and authorised it from a ratio; A1 divided by the
+ * account CPA percentile even under a positive Target ROAS. A row persisted by
+ * the old engine carries a number computed the old way, and today's AOV being
+ * READY does not retroactively make that number right.
+ *
+ * Such a row is DOWNGRADED out of `act` on read and stripped of its proposal,
+ * so nothing can execute it, and it is marked for recompute. It is not hidden:
+ * the operator still sees the entity and the reason, which is what the
+ * watch/HOLD contract requires.
+ */
+function applyRecomputeGuard(recommendation: MetaRecommendation): MetaRecommendation {
+  if (
+    !metaRecommendationNeedsRecompute({
+      type: recommendation.type,
+      engineVersion: recommendation.engineVersion,
+    })
+  ) {
+    return recommendation;
+  }
+  return {
+    ...recommendation,
+    decisionState: "watch",
+    // No proposal survives a superseded formula.
+    targetValue: null,
+    recommendedAction:
+      "Recompute required: this recommendation was produced before the purchase-value fix.",
+    confidenceReason: "engine_version_superseded",
+  } as MetaRecommendation;
+}
+
 function hydrateRecommendation(row: SnapshotDbRow): MetaRecommendation {
   const parsedScore =
     row.confidence_score == null ? null : Number(row.confidence_score);
@@ -2351,7 +2547,7 @@ function hydrateRecommendation(row: SnapshotDbRow): MetaRecommendation {
         ? "low"
         : confidenceLabel(score);
   if (stored) {
-    return {
+    return applyRecomputeGuard({
       ...stored,
       id: row.rec_id,
       type: row.rec_type as MetaRecommendation["type"],
@@ -2383,10 +2579,10 @@ function hydrateRecommendation(row: SnapshotDbRow): MetaRecommendation {
         row.signal_quality && typeof row.signal_quality === "object"
           ? (row.signal_quality as Record<string, unknown>)
           : stored.signalQuality,
-    };
+    });
   }
 
-  return {
+  return applyRecomputeGuard({
     id: row.rec_id,
     level: row.level,
     ...(row.level === "campaign" ? { campaignId: row.scope_id } : {}),
@@ -2425,7 +2621,7 @@ function hydrateRecommendation(row: SnapshotDbRow): MetaRecommendation {
       row.signal_quality && typeof row.signal_quality === "object"
         ? (row.signal_quality as Record<string, unknown>)
         : undefined,
-  };
+  });
 }
 
 function buildSnapshotSummary(recommendations: MetaRecommendation[]): MetaDecisionSummary {
@@ -2599,13 +2795,75 @@ export async function readLatestMetaDecisionSnapshot(input: {
 
   if (rows.length === 0) return null;
   const hydratedRecommendations = rows.map(hydrateRecommendation);
-  // A historical brief must retain the target authority of the snapshot it
-  // actually selected, even if the ceiling is later. Range-picker reads keep
-  // checking current authority; their metric dates are not an as-of request.
-  const commercialTargets = await readMetaCommercialTargets(
+  /*
+    ── ROUND 10 ITEM 3: ONE CUTOFF, FROM THE SNAPSHOT ACTUALLY SERVED ────────
+
+    Three economic reads hung off three different dates:
+
+      - the Target ROAS used `snapshotCeiling ? snapshot_date : undefined`, so
+        WITHOUT a ceiling it read the CURRENT pack;
+      - the Meta AOV used `rows[0].snapshot_date`;
+      - the empirical outcomes used `input.endDate`, the request's metric-picker
+        date.
+
+    A request ending in March that resolves to a September snapshot — which is
+    what happens on every range-picker surface, because the `latest` CTE takes
+    `MAX(snapshot_date)` over all time — therefore combined today's targets,
+    September's AOV and March's outcome history into one authority decision.
+    The ratio and the average order value that divide into a spend unit came
+    from different periods, and the evidence annotating the result came from a
+    third.
+
+    `servedSnapshotCutoff` is the day of the snapshot this call is actually
+    returning, and all three now read it. With no ceiling that is the newest
+    snapshot (September in the example); with an explicit ceiling it is the
+    selected one (March). Either way the three agree, which is the only
+    property that matters here.
+
+    The previous comment argued that a range-picker read should keep checking
+    CURRENT authority because its metric dates are not an as-of request. That
+    is true of which snapshot to resolve — and false of which evidence guards
+    it: the guarded rows were produced on the snapshot's day, so the pack in
+    force on that day is what authorized them.
+  */
+  const servedSnapshotCutoff = rows[0].snapshot_date;
+  const commercialTargetsBase = await readMetaCommercialTargets(
     input.businessId,
-    snapshotCeiling ? { asOf: rows[0].snapshot_date } : undefined,
+    { asOf: servedSnapshotCutoff },
   ).catch(() => null);
+  /*
+    THE READ PATH NEEDS BOTH HALVES OF THE UNIT, JUST LIKE THE WRITE PATH.
+
+    `enforceMetaCommercialActionAuthority` now requires a READY Meta-attributed
+    purchase sample before a purchase-VALUE budget action may act, and this
+    call site supplied only the RATIOS. Every persisted `act` therefore
+    downgraded to `watch` on read — not because the account lacked evidence,
+    but because nobody looked for it.
+
+    Scoped to the SNAPSHOT'S OWN ACCOUNT AND DAY, so a historical read is
+    guarded by the evidence that day had rather than by today's. Without a
+    provider account there is no account-scoped sample to read and the guard
+    holds, which is the fail-closed direction: a business-wide average is not
+    this account's money-per-purchase.
+  */
+  const commercialTargets =
+    commercialTargetsBase && commercialTargetsBase.targetRoas && account
+      ? {
+        ...commercialTargetsBase,
+        metaAttributedAov: await computeMetaAttributedAov({
+          businessId: input.businessId,
+          asOf: servedSnapshotCutoff,
+          providerAccountId: account,
+          db: getDb(),
+        })
+          .then((aov) =>
+            aov
+              ? { aovMean: aov.aovMean, purchaseCount: aov.purchaseCount }
+              : null,
+          )
+          .catch(() => null),
+      }
+      : commercialTargetsBase;
   const commerciallyGuardedRecommendations = hydratedRecommendations.map(
     (recommendation) =>
       enforceMetaCommercialActionAuthority(
@@ -2639,7 +2897,14 @@ export async function readLatestMetaDecisionSnapshot(input: {
     // The same account this read already withholds rows by. Serving a row that
     // belongs to this account with outcome evidence pooled across every account
     // would reintroduce, in the evidence, exactly what the row filter removes.
-    providerAccountId: account,
+    providerAccountId: account ?? "",
+    /*
+      ROUND 9 ITEM 6 bounded these by a cutoff; ROUND 10 ITEM 3 makes it the
+      SAME cutoff the targets and the AOV use. It was `input.endDate` — the
+      request's metric-picker date — so a March request serving a September
+      snapshot annotated September's decisions with March's outcome history.
+    */
+    endDate: servedSnapshotCutoff,
     recommendations: guardedRecommendations,
   });
   const servedSnapshotDate = rows[0]?.snapshot_date ?? null;

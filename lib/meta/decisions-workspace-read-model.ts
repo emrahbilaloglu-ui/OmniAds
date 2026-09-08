@@ -9,6 +9,7 @@ import {
   type DecisionBadge,
   type DecisionLabel,
   type DecisionOutput,
+  type DecisionPredicateBlocker,
   type TruthSource,
 } from "@/lib/creative-decision-engine/types";
 import { hashAdDecisionIdentityManifest } from "@/lib/creative-decision-engine/data-source";
@@ -27,6 +28,7 @@ import { evaluateAccountScopedRoleAuthority } from "@/lib/meta/campaign-role-aut
 import type { MetaCreativeAssessmentPresentation } from "@/lib/meta/creative-assessment";
 import { projectCanonicalMetaDecisionPresentation } from "@/lib/meta/canonical-decision-presentation";
 import {
+  META_DECISION_SOURCE_DEGRADED_REASON,
   META_DECISIONS_AD_CANDIDATE_LANE_RESERVE,
   META_DECISIONS_AD_CANDIDATE_MAX_LIMIT,
   META_DECISIONS_AD_CANDIDATE_SELECTION_VERSION,
@@ -48,6 +50,7 @@ import {
   type MetaDecisionProvenance,
   type MetaDecisionQueueSection,
   type MetaDecisionQueueSectionKey,
+  type MetaDecisionSourceDegradation,
   type MetaDecisionSuppressionReason,
   type MetaDecisionsReadModelUnavailableCode,
   type MetaDecisionsWorkspaceReadModel,
@@ -64,6 +67,42 @@ export const NATIVE_DECISION_RUNNING_GRACE_MS =
 // budget. This is still bounded well below the workspace request deadline and
 // changes only read tolerance, never decision generation or authority.
 const NATIVE_DECISION_READ_TIMEOUT_MS = 20_000;
+
+/**
+ * The one server-produced staleness token for this path. The UI must switch on
+ * this exact code (and on the stripped per-decision authority below), never on
+ * prose: INVARIANTS forbids inferring staleness from free-form text.
+ */
+export const NATIVE_DECISION_LAST_SUCCESS_FALLBACK_REASON =
+  META_DECISION_SOURCE_DEGRADED_REASON;
+
+/** Why every decision in a degraded envelope is review-only, in one code. */
+export const NATIVE_DECISION_LAST_SUCCESS_REVIEW_ONLY_REASON =
+  "native_latest_job_failed_last_successful_generation_is_not_current" as const;
+
+/**
+ * How stale the retained generation may be before it stops being served at all.
+ *
+ * Seven days, because seven days is the width of the engine's own recent
+ * window. Every "recent" number these rows carry -- `recent7d_roas`, and the
+ * recovery-hold rule that reads it -- is aggregated as
+ * `date >= as_of_date - INTERVAL '6 days'`: seven inclusive days ending on the
+ * generation's own as-of day (lib/creative-decision-engine/jobs/lifecycle-job.ts
+ * for the Ad grain, jobs/calibration-job.ts for the account baseline it is
+ * ranked against). Once the retained generation's as-of day is more than seven
+ * days behind the serving instant, its recent window and the window a run today
+ * would read share no day at all, so its recency claim describes a period
+ * nothing else on the surface can still corroborate.
+ *
+ * Without a ceiling there was none at all: a month-old `scale` at confidence 92
+ * would keep being served with its original confidence, marked only by a code
+ * and `decisionFreshness.ageHours`. Nothing breaks when it is -- the envelope is
+ * review-only and cannot execute -- but a month-old verdict is no longer the
+ * "last good decision" this fallback was built to keep on screen. Past the
+ * ceiling the reader returns to the pre-existing behaviour and reports the true
+ * `native_latest_job_failed`.
+ */
+export const NATIVE_DECISION_LAST_SUCCESS_MAX_AGE_DAYS = 7;
 
 const SECTION_LABELS: Record<MetaDecisionQueueSectionKey, string> = {
   integrity_fires: "Integrity Fires",
@@ -163,6 +202,19 @@ export interface MetaDecisionSnapshotSourceRow {
   ctr_28d?: unknown;
   frequency_28d?: unknown;
   fatigue_status?: string | null;
+  /**
+   * `decision_output_json -> 'blockers'` from the evaluation this snapshot was
+   * published from — the engine's own predicate blockers, verbatim.
+   *
+   * The snapshot tables never had a column for them; only the evaluation row
+   * does, and `normalizeDecision` in
+   * lib/creative-decision-engine/canonical-evaluation.ts writes `blockers` (or
+   * a JSON null) into it on every evaluation. Optional because a legacy
+   * snapshot may carry no `evaluation_id`, and because absence must stay
+   * readable: it degrades to the generic held-verdict resolution, never to a
+   * fabricated one. @see toDecisionOutput
+   */
+  predicate_blockers?: unknown;
 }
 
 export interface MetaNativeDecisionSnapshotSourceRow {
@@ -222,9 +274,21 @@ export interface MetaNativeDecisionSnapshotSourceRow {
   ctr_28d?: unknown;
   frequency_28d?: unknown;
   fatigue_status?: string | null;
+  /** @see MetaDecisionSnapshotSourceRow.predicate_blockers */
+  predicate_blockers?: unknown;
 }
 
 export interface MetaNativeDecisionGenerationSourceRow {
+  /**
+   * Which job the row describes. `latest` is the newest effective terminal run
+   * -- the only run that may ever be authoritative. `last_success` rows are the
+   * successes strictly older than it whose hydration receipt FOR THIS ACCOUNT
+   * is complete and inside the age ceiling, newest first, emitted by the same
+   * statement so the reader cannot see one of the two from a newer snapshot
+   * than the other. There can be several: the reader serves the first it can
+   * prove. @see READ_NATIVE_DECISION_GENERATION_QUERY
+   */
+  selection: "latest" | "last_success";
   job_status: string;
   job_run_id: string;
   as_of_date: string;
@@ -911,6 +975,52 @@ function parseBadges(value: unknown): {
   return { badges, codes: [...new Set(codes)].sort() };
 }
 
+/**
+ * Reads the engine's persisted predicate blockers back out of the evaluation
+ * payload, verbatim and without re-deriving any of them.
+ *
+ * `observed` and `threshold` are read as the union the engine writes
+ * (`string | number | null`) because the difference between a NUMBER and a
+ * NULL is the whole signal for `scale_account_benchmark_ready`: a numeric pair
+ * is a thin mature-ad sample, a null `observed` is a missing account winner
+ * purchase P50, and `scaleReadinessBadges` in
+ * lib/creative-decision-engine/gates/ratio-zones.ts stamps the same
+ * `scale_calibration_thin` badge for both. Coercing either to a string would
+ * erase exactly the distinction the held-verdict copy is keyed on.
+ *
+ * An entry missing `predicate`, or carrying a non-scalar observed/threshold,
+ * is dropped rather than repaired: the projection's contract is that absent
+ * evidence yields the generic held-verdict resolution.
+ */
+function parsePredicateBlockers(value: unknown): DecisionPredicateBlocker[] {
+  if (!Array.isArray(value)) return [];
+  const scalar = (candidate: unknown): string | number | null =>
+    typeof candidate === "number" && Number.isFinite(candidate)
+      ? candidate
+      : typeof candidate === "string"
+        ? candidate
+        : null;
+  const blockers: DecisionPredicateBlocker[] = [];
+  for (const entry of value) {
+    if (!entry || typeof entry !== "object") continue;
+    const record = entry as Record<string, unknown>;
+    const predicate = text(record.predicate);
+    if (!predicate) continue;
+    blockers.push({
+      predicate,
+      observed: scalar(record.observed),
+      threshold: scalar(record.threshold),
+      status:
+        record.status === "passed" || record.status === "missing"
+          ? record.status
+          : "failed",
+      severity: record.severity === "info" ? "info" : "warning",
+      reason: text(record.reason) ?? "",
+    });
+  }
+  return blockers;
+}
+
 function campaignRole(input: {
   identity: MetaDecisionIdentitySourceRow;
   context: MetaDecisionCampaignContextSourceRow | null;
@@ -1282,6 +1392,23 @@ function toDecisionOutput(input: {
       finiteNumber(input.snapshot.effective_target_roas) ?? Number.NaN,
     ratioToTarget: finiteNumber(input.snapshot.ratio_to_target),
     badges: input.badges,
+    /*
+      THE ENGINE'S PREDICATE BLOCKERS, CARRIED NOT RE-DERIVED.
+
+      Without this the field was always absent on a served row, so
+      `projectCanonicalMetaDecisionPresentation` handed
+      `projectMetaDecisionSemantics` an empty array and every held-verdict
+      resolution that names WHICH readiness floor failed was unreachable
+      outside its own unit test. The blockers are not recomputed here: they are
+      the evaluation's own persisted `decision_output_json -> 'blockers'`,
+      parsed and passed through.
+
+      Absent stays absent — a snapshot whose evaluation row is missing (or whose
+      generation predates the blockers payload) keeps `blockers` undefined and
+      falls back to the generic held-verdict copy, which is less specific and
+      still true.
+    */
+    blockers: parsePredicateBlockers(input.snapshot.predicate_blockers),
     metrics: {
       spend: finiteNumber(input.snapshot.spend) ?? Number.NaN,
       purchases: finiteNumber(input.snapshot.purchases) ?? Number.NaN,
@@ -1307,15 +1434,34 @@ function toDecisionOutput(input: {
       input.snapshot.label_transform === "test_cohort_refresh_to_cut"
         ? "test_cohort_refresh_to_cut"
         : null,
+    /*
+      A PRIOR-EPOCH ROW IS READ, NEVER RECOMPUTED.
+
+      This used to synthesize `blockedActionType: "cut"` when the persisted
+      value was absent, the row came from a DIFFERENT epoch, and it carried a
+      `stop_loss_review` badge. The intent was protective — prior epochs did not
+      persist `blocked_action_type`, and an affirmative label over a stop-loss
+      row is the thing INVARIANTS forbids — but the mechanism was a
+      re-derivation of a typed current-semantics action for a row this engine
+      never produced. Codex Round 4 item 9: old rows must remain readable and
+      fail closed, and must never be silently recomputed under current
+      semantics.
+
+      Nothing is erased by dropping it. The `stop_loss_review` badge and the
+      row's own reason string both survive and stay visible, execution is
+      already barred for a foreign epoch (`engine_epoch_mismatch` /
+      `engine_version_drift`), and the answer is now identical for the same row
+      shape whatever epoch wrote it — which is what "not recomputed" means.
+
+      The current-epoch behaviour is unchanged and is pinned by
+      "does not synthesize a held Cut from a native stop-loss review badge".
+    */
     blockedActionType:
       input.snapshot.blocked_action_type === "scale" ||
       input.snapshot.blocked_action_type === "cut" ||
       input.snapshot.blocked_action_type === "refresh"
         ? input.snapshot.blocked_action_type
-        : input.snapshot.engine_version !== NATIVE_AD_ENGINE_VERSION &&
-            input.badges.some((badge) => badge.type === "stop_loss_review")
-          ? "cut"
-          : null,
+        : null,
     engineVersion: input.snapshot.engine_version,
     generatedAt: input.snapshot.computed_at,
   };
@@ -1650,6 +1796,46 @@ function attachCanonicalAdUniverse(
     configurable: false,
     writable: false,
   });
+}
+
+/**
+ * Carries the identity universe across a COPY of the read model.
+ *
+ * `structuredClone` drops non-enumerable symbol-keyed properties, and the
+ * decisions route clones the model between the reader and the presentation:
+ *
+ *     readMetaDecisionsWorkspaceReadModel        (attaches)
+ *       -> applyMetaExecutionGovernanceToReadModel  (structuredClone)
+ *       -> buildMetaOsDecisionsPresentation         (reads)
+ *
+ * So the presentation's read returned `null` on every request and it fell back
+ * to the ids the cap had SERVED. Every exact decision the cap omitted was then
+ * indistinguishable from an ACTIVE Ad no producer had decided: on an account
+ * serving 60 of 80, twenty real verdicts were reported to the operator as
+ * evidence that does not exist yet. It needs more than 60 Ads to appear at all,
+ * which is why nothing fixture-shaped caught it.
+ *
+ * WHY IT IS STILL PROCESS-LOCAL rather than an ordinary field: the wire
+ * contract deliberately serializes only the SELECTED candidates, and a full id
+ * list would be the largest thing in the payload on a big account (2,517 ads
+ * have been observed in one generation, against a 60-row cap). Composition
+ * happens in-process, so the universe never has to cross the wire — it only has
+ * to survive a copy, which is what this does.
+ */
+function carryCanonicalAdUniverse(
+  from: MetaDecisionsWorkspaceReadModel,
+  to: MetaDecisionsWorkspaceReadModel,
+) {
+  const adIds = (
+    from as MetaDecisionsWorkspaceReadModel & {
+      [META_DECISION_CANONICAL_AD_UNIVERSE]?: ReadonlySet<string>;
+    }
+  )[META_DECISION_CANONICAL_AD_UNIVERSE];
+  // Absent is a real state — a reader that attached nothing — and it must stay
+  // absent rather than becoming an empty set, which would read as "no exact
+  // candidate exists" instead of "the universe is unknown".
+  if (!adIds) return;
+  attachCanonicalAdUniverse(to, adIds);
 }
 
 function selectAdCandidates(items: MetaCanonicalDecision[], limit: number) {
@@ -2096,6 +2282,13 @@ export type MetaValidatedNativeDecisionGenerationBundle =
       snapshotRows: readonly MetaNativeDecisionSnapshotSourceRow[];
       unavailableReason: null;
       validationIssue: null;
+      /**
+       * AREA 3. Absent or null means `generation` IS the latest terminal native
+       * run and the bundle is authoritative. Non-null means the latest run
+       * failed and this is the retained last good generation: the caller MUST
+       * mark it and strip execution authority before serving it.
+       */
+      sourceDegradation?: MetaNativeDecisionSourceDegradation | null;
     }
   | {
       status: "unavailable";
@@ -2117,6 +2310,12 @@ export interface ReadValidatedMetaNativeDecisionGenerationBundleInput {
   creativeIds?: readonly string[];
   /** Optional exact-Ad serving projection. Full generation authority is still proven. */
   adIds?: readonly string[];
+  /**
+   * AREA 3 opt-in: serve the last COMPLETE successful generation, read-only and
+   * explicitly marked, when the latest terminal run FAILED. Only the Decisions
+   * workspace envelope carries that marker, so only it may ask.
+   */
+  allowLastSuccessfulGenerationFallback?: boolean;
 }
 
 function nativeSnapshotHardAction(value: string | null) {
@@ -2189,6 +2388,8 @@ export interface BuildNativeMetaDecisionsWorkspaceReadModelInput {
   providerAccountId: string;
   generation: MetaNativeDecisionGeneration;
   snapshotRows: readonly MetaNativeDecisionSnapshotSourceRow[];
+  /** AREA 3. Present only when `generation` is the retained last good one. */
+  sourceDegradation?: MetaNativeDecisionSourceDegradation | null;
   campaignContextRows?: MetaDecisionCampaignContextSourceRow[];
   eventRows?: MetaDecisionEventSourceRow[];
   outcomeRows?: MetaDecisionOutcomeSourceRow[];
@@ -2377,6 +2578,7 @@ function nativeSnapshotToInternalSnapshot(
     ctr_28d: row.ctr_28d,
     frequency_28d: row.frequency_28d,
     fatigue_status: row.fatigue_status,
+    predicate_blockers: row.predicate_blockers,
   };
 }
 
@@ -2633,6 +2835,141 @@ export function buildNativeMetaCanonicalDecisionInventory(
   };
 }
 
+/**
+ * AREA 3 -- serve the last good decision without letting it act, and without
+ * letting it look current.
+ *
+ * Three separate things have to be true at once, so all three are set here
+ * rather than left to any one consumer:
+ *
+ * 1. `source.status = "unavailable"`. This is the only age-INDEPENDENT kill for
+ *    execution. `buildMetaDecisionPipelineHealth` (lib/meta/decision-pipeline-
+ *    health.ts) treats the decision generation as present only when
+ *    `readModel.status === "available" && source.status === "available"`;
+ *    otherwise it raises `decision_generation_missing` plus
+ *    `decision_manifest_invalid`, which forces `executionReady` false. The
+ *    decision-origin execution preflight builds its `pipeline` evidence from
+ *    exactly that health over exactly this read model, so this is what stops a
+ *    provider write. Leaving the source "available" would have let a generation
+ *    inside the 12h DECISION_ORIGIN_AD_MAX_AGE_HOURS window read as healthy --
+ *    a failure ten minutes after a success would then ENABLE provider writes on
+ *    a broken pipeline, which is worse than today's outage. `authority` stays
+ *    `native_ad` because the rows really are exact-Ad rows; claiming
+ *    `legacy_creative` here would misname their provenance and would make the
+ *    surface print "ad-level decisions are withheld" over rows it is showing.
+ * 2. `source.fallbackReason` carries ONE stable server code. INVARIANTS forbids
+ *    the UI inferring staleness from free-form text, so the marker is a token
+ *    to switch on, never a sentence to parse. `decisions-os-presentation.ts`
+ *    already reports `health: "degraded"` for any non-null fallbackReason.
+ * 2b. `source.degraded` carries the two IDENTITIES that code cannot: the
+ *    retained generation being served, and the latest terminal run that failed.
+ *    A code alone cannot say "showing 2026-09-04's decisions; the 2026-09-06
+ *    run failed", and the failed run's id, status and day previously reached no
+ *    consumer at all. Both halves travel in ONE block so they cannot be paired
+ *    wrongly. @see MetaDecisionSourceDegradation
+ * 3. Every served decision loses execution authority outright --
+ *    `actionEligible: false`, `authorizedAction: null` -- independently of
+ *    freshness. The label, reason, confidence and badges are untouched:
+ *    freshness may block execution but must not erase a severe stop-loss
+ *    verdict (INVARIANTS).
+ *
+ * `reviewOnlyReason` is FILLED IN, never overwritten. It is a single slot that
+ * already answers "why is this row review-only?" for rows that had their own
+ * answer before the source degraded, and `collectMetaCanonicalDecisions`
+ * deliberately includes `queue.inactiveAssets.items` -- the Archive lane, whose
+ * rows carry `current_hierarchy_is_not_active` / `..._status_is_unknown`.
+ * `inactiveAdNote` (components/meta/decision-center/meta-decision-center-exact-
+ * adapter.ts) branches on exactly those two codes and on nothing else, so
+ * clobbering them collapsed every Archive row's explanation to a bare
+ * "Current status -- ..." for the whole degraded window. That is not a rare
+ * lane: the comment above `inactiveAdNote`'s builder records the Archive
+ * population as 83 served Ad decisions on Grandmix (act_805150454596350) and
+ * 319 on TheSwaf (act_822913786458311) -- the same two accounts this fallback
+ * exists to rescue, so a degraded window would hit it.
+ *
+ * Nothing about the degradation is lost by yielding that slot: the envelope
+ * still carries `source.status = "unavailable"` and
+ * `source.fallbackReason`, and the row still carries `actionEligible: false`,
+ * `authorizedAction: null` and `executionReadiness: "decision_not_authorized"`.
+ *
+ * `decisionFreshness` is left exactly as the builder computed it: it is the
+ * server-produced AGE of what is being served, and it stays honest whether the
+ * retained generation is ten minutes or a week old.
+ *
+ * THE SQL SWITCH IS ATOMIC; THE SERVED SURFACE IS NOT, AND THIS IS WHY.
+ * `READ_NATIVE_DECISION_GENERATION_QUERY` decides "latest, or retained" inside
+ * one statement, so no single read can mix the two. That is a property of THIS
+ * read and of nothing downstream. `app/api/meta/decisions-workspace/route.ts`
+ * caches the decision read at `ttlMs: 60_000` / `staleWhileRevalidateMs:
+ * 240_000` under `shouldCache: result.ok && result.model.status ===
+ * "available"` -- and a degraded envelope IS `status: "available"` (the rows
+ * are real; it is `source.status` that says unavailable). So a degraded
+ * envelope is cached like any other, and after the next run succeeds the
+ * surface can keep showing the retained generation for up to the TTL, and up to
+ * the stale-while-revalidate window while the refresh runs.
+ *
+ * That lag is safe, and it is safe BECAUSE of what this function did, not by
+ * luck: every cached degraded row carries `actionEligible: false`,
+ * `authorizedAction: null` and `executionReadiness: "decision_not_authorized"`,
+ * and the envelope carries `source.status: "unavailable"`, which
+ * `buildMetaDecisionPipelineHealth` turns into `executionReady: false`. Serving
+ * a stale COPY of a degraded envelope therefore cannot authorize anything that
+ * the fresh degraded envelope would not; the worst case is an operator reading
+ * yesterday's verdicts for another four minutes, with the degraded marker and
+ * both run identities still on them. The reverse crossing -- a cached HEALTHY
+ * envelope outliving a run that has since failed -- is bounded by the same
+ * window and is not new to this fallback.
+ */
+function markNativeReadModelSourceDegraded(
+  model: MetaDecisionsWorkspaceReadModel,
+  degradation: MetaNativeDecisionSourceDegradation,
+): MetaDecisionsWorkspaceReadModel {
+  model.source.status = "unavailable";
+  model.source.fallbackReason = NATIVE_DECISION_LAST_SUCCESS_FALLBACK_REASON;
+  const degraded: MetaDecisionSourceDegradation = {
+    reason: degradation.reason,
+    servedGeneration: {
+      jobRunId: degradation.generation.jobRunId,
+      asOfDate: degradation.generation.asOfDate,
+    },
+    latestTerminalRun: {
+      jobRunId: degradation.latestTerminalJobRunId,
+      status: degradation.latestTerminalJobStatus,
+      asOfDate: degradation.latestTerminalAsOfDate,
+    },
+  };
+  model.source.degraded = degraded;
+  for (const decision of collectMetaCanonicalDecisions(model)) {
+    const authority = decision.sourceAuthority;
+    if (!authority) continue;
+    authority.actionEligible = false;
+    authority.authorizedAction = null;
+    if (!authority.reviewOnlyReason) {
+      authority.reviewOnlyReason =
+        NATIVE_DECISION_LAST_SUCCESS_REVIEW_ONLY_REASON;
+    }
+    // Matches what the builder and the request-time governance hydrator both
+    // produce for an ineligible decision, so the served value does not change
+    // depending on whether governance ran.
+    authority.executionReadiness = "decision_not_authorized";
+  }
+  return model;
+}
+
+function collectMetaCanonicalDecisions(
+  model: MetaDecisionsWorkspaceReadModel,
+): Set<MetaCanonicalDecision> {
+  const decisions = new Set<MetaCanonicalDecision>();
+  for (const section of Object.values(model.queue.sections ?? {})) {
+    for (const decision of section.items) decisions.add(decision);
+  }
+  for (const decision of model.queue.adCandidates?.items ?? [])
+    decisions.add(decision);
+  for (const decision of model.queue.inactiveAssets?.items ?? [])
+    decisions.add(decision);
+  return decisions;
+}
+
 export function buildNativeMetaDecisionsWorkspaceReadModel(
   input: BuildNativeMetaDecisionsWorkspaceReadModelInput,
 ): MetaDecisionsWorkspaceReadModel {
@@ -2683,7 +3020,9 @@ export function buildNativeMetaDecisionsWorkspaceReadModel(
       providerScopeAvailable: true,
       snapshotAvailable: true,
     });
-    return empty;
+    return input.sourceDegradation
+      ? markNativeReadModelSourceDegraded(empty, input.sourceDegradation)
+      : empty;
   }
 
   const model = buildMetaDecisionsWorkspaceReadModel({
@@ -2764,7 +3103,9 @@ export function buildNativeMetaDecisionsWorkspaceReadModel(
   )
     ? { status: "available", reason: "native_immutable_action_receipt" }
     : { status: "unavailable", reason: "native_action_receipt_not_observed" };
-  return model;
+  return input.sourceDegradation
+    ? markNativeReadModelSourceDegraded(model, input.sourceDegradation)
+    : model;
 }
 
 export interface MetaDecisionExecutionGovernanceFacts {
@@ -2857,17 +3198,12 @@ export function applyMetaExecutionGovernanceToReadModel(input: {
   // The inventory may come from the short-lived server cache. Never mutate the
   // cached object with request-specific governance or clock state.
   const model = structuredClone(input.model);
+  // `structuredClone` does not copy the identity universe, and the presentation
+  // downstream needs it to tell a capped-out decision from un-decided
+  // inventory. @see carryCanonicalAdUniverse
+  carryCanonicalAdUniverse(input.model, model);
   const now = input.now ?? new Date();
-  const decisions = new Set<MetaCanonicalDecision>();
-  for (const section of Object.values(model.queue.sections ?? {})) {
-    for (const decision of section.items) decisions.add(decision);
-  }
-  for (const decision of model.queue.adCandidates?.items ?? [])
-    decisions.add(decision);
-  for (const decision of model.queue.inactiveAssets?.items ?? [])
-    decisions.add(decision);
-
-  for (const decision of decisions) {
+  for (const decision of collectMetaCanonicalDecisions(model)) {
     hydrateMetaCanonicalDecisionExecutionGovernance({
       decision,
       governance: input.governance,
@@ -2927,8 +3263,111 @@ export const READ_NATIVE_DECISION_GENERATION_QUERY = `
       WHERE run.effective_status <> 'running'
       ORDER BY run.as_of_date DESC, run.started_at DESC, run.id DESC
       LIMIT 1
+    ),
+    /* AREA 3 -- the last good generation FOR THIS ACCOUNT, selected in the
+       SAME statement. When the latest terminal run did not succeed, Grandmix,
+       IwaStore and TheSwaf lose every exact-Ad decision: the reader falls
+       through to legacy or to an empty snapshot envelope. This CTE names the
+       newest success strictly older than that run whose HYDRATION RECEIPT FOR
+       $2 IS COMPLETE, so the reader can serve it read-only, aged and
+       explicitly marked.
+
+       THE ACCOUNT PREDICATE IS THE SELECTION, NOT A FILTER APPLIED AFTER IT.
+       This CTE used to rank successes business-globally and take one, leaving
+       the account receipt to be checked afterwards in TypeScript -- so a
+       success whose receipt for THIS account was missing or incomplete
+       consumed the single candidate slot and the whole fallback went dark,
+       with an older complete generation sitting right behind it. On production
+       that is the ordinary case, not an edge: of the 283 successful runs
+       carrying a receipt for act_805150454596350 (Grandmix) in the 30 days to
+       2026-09-07, 275 carry an INCOMPLETE one -- expected_ad_count 0 against
+       2,529 hydrated rows, authoritative_for_prune false -- and only 8 are
+       complete. 979a04f6/act_904404985140555 has 1,018 successes and not one
+       complete receipt, which is a fallback that must never be offered rather
+       than one to widen. Serving a business-global success on the strength of
+       another account's receipt would also attribute another account's health
+       to this one, which is worse than serving nothing.
+
+       It is a CTE of this one query, not a second round trip, because the two
+       facts must come from one MVCC snapshot: a success landing between two
+       separate reads would let the reader serve last-success rows while the
+       marker already said the latest run was fine, or the reverse. Here the
+       CTE is empty the instant the latest run is a success, so the SQL's
+       return to latest-native is atomic. (The SERVED SURFACE can still lag it
+       by the route's cache window -- see the read model's cache note.)
+
+       ENGINE EPOCH IS FILTERED HERE, and deliberately NOT in
+       latest_effective_terminal_job. The latest terminal run is still ranked
+       across epochs (D054) so a foreign-epoch latest run is REPORTED as
+       native_latest_job_engine_mismatch instead of being silently skipped.
+       A foreign-epoch CANDIDATE has no such duty: it can never be served, and
+       letting it occupy a candidate slot is the same defect as the account
+       predicate above.
+
+       AGE CEILING IN THE SAME STATEMENT, ON THE CALLER'S CLOCK. $7 is the UTC
+       serving day the TypeScript ceiling uses and $8 is
+       NATIVE_DECISION_LAST_SUCCESS_MAX_AGE_DAYS, so SQL and TypeScript read
+       one clock rather than two. It bounds the candidate scan to the window
+       that can actually be served; the TypeScript ceiling still re-checks
+       every candidate, and is the authority when $7 is null because the
+       caller's serving instant was unreadable.
+
+       LIMIT 5 bounds the payload, not the correctness: the rows are already
+       narrowed to complete receipts for this account inside the ceiling
+       window, ordered newest first, and TypeScript takes the first one it can
+       prove. More than five means five consecutive complete candidates were
+       each rejected by the shared receipt test below, and the reader then
+       fails closed to native_latest_job_failed rather than scanning further. */
+    last_success_candidates AS (
+      SELECT candidate.*
+      FROM effective_runs candidate
+      CROSS JOIN latest_effective_terminal_job latest
+      WHERE latest.effective_status <> 'success'
+        AND candidate.effective_status = 'success'
+        AND candidate.engine_version = $6
+        AND (candidate.as_of_date, candidate.started_at, candidate.id)
+            < (latest.as_of_date, latest.started_at, latest.id)
+        AND (
+          $7::date IS NULL
+          OR candidate.as_of_date >= $7::date - $8::int
+        )
+        AND EXISTS (
+          SELECT 1
+          FROM jsonb_array_elements(
+            COALESCE(
+              candidate.error_json->'metadata'->'hydration_receipts',
+              '[]'::jsonb
+            )
+          ) receipt
+          -- The counts are compared AS TEXT under a whole-number guard on both
+          -- sides. jsonb keeps a number's written form (7.0 and 7 are distinct
+          -- text), so the guard is what makes text equality mean numeric
+          -- equality here; a receipt written as 7.0 would be skipped by this
+          -- candidate filter although exactNonNegativeInteger would accept it. That divergence is fail-closed -- it can only withhold a
+          -- candidate, never admit one the shared receipt test would refuse --
+          -- and it is unreachable today: read read-only against production on
+          -- 2026-09-07, all 4,452 receipts of this job hold JSON numbers for
+          -- both counts and a JSON boolean for authoritative_for_prune.
+          WHERE receipt->>'provider_account_id' = $2
+            AND COALESCE(receipt->>'provider_account_ref_id', '') <> ''
+            AND receipt->>'expected_ad_count' ~ '^[0-9]+$'
+            AND receipt->>'hydrated_ad_count' ~ '^[0-9]+$'
+            AND receipt->>'hydrated_ad_count' = receipt->>'expected_ad_count'
+            AND receipt->>'expected_manifest_hash' ~ '^[0-9a-f]{64}$'
+            AND receipt->>'hydrated_manifest_hash'
+                = receipt->>'expected_manifest_hash'
+            AND receipt->>'authoritative_for_prune' = 'true'
+        )
+      ORDER BY candidate.as_of_date DESC, candidate.started_at DESC,
+               candidate.id DESC
+      LIMIT 5
+    ), selected_jobs AS (
+      SELECT 'latest'::text AS selection, job.* FROM latest_effective_terminal_job job
+      UNION ALL
+      SELECT 'last_success'::text AS selection, job.* FROM last_success_candidates job
     )
     SELECT
+      job.selection,
       job.effective_status AS job_status,
       job.id::text AS job_run_id,
       job.as_of_date::text AS as_of_date,
@@ -2940,23 +3379,127 @@ export const READ_NATIVE_DECISION_GENERATION_QUERY = `
       receipt->>'hydrated_ad_count' AS hydrated_ad_count,
       receipt->>'hydrated_manifest_hash' AS hydrated_manifest_hash,
       receipt->>'authoritative_for_prune' AS authoritative_for_prune
-    FROM latest_effective_terminal_job job
+    FROM selected_jobs job
     LEFT JOIN LATERAL jsonb_array_elements(
       COALESCE(
         job.error_json->'metadata'->'hydration_receipts',
         '[]'::jsonb
       )
     ) receipt ON receipt->>'provider_account_id' = $2
+    -- The reader takes the FIRST last_success row it can prove, so candidate
+    -- order is part of the answer and a join must not be allowed to decide it.
+    ORDER BY job.selection, job.as_of_date DESC, job.started_at DESC, job.id DESC
 `;
+
+/**
+ * AREA 3 -- what the reader serves when the latest native job did not succeed.
+ *
+ * `generation` is the last COMPLETE successful exact-Ad generation for the same
+ * business/account/scope. It is evidence, never authority: the caller must mark
+ * it and strip every action from it.
+ *
+ * The `latestTerminal*` fields identify the run that FAILED, so the newest fact
+ * is never lost on the way through the reader. They are not internal any more:
+ * `markNativeReadModelSourceDegraded` copies them, together with the served
+ * generation's own id and as-of day, into the served `source.degraded` block
+ * (MetaDecisionSourceDegradation, decisions-workspace-contract.ts), so a
+ * consumer can name both halves of a degraded window without inferring either.
+ */
+export interface MetaNativeDecisionSourceDegradation {
+  reason: typeof NATIVE_DECISION_LAST_SUCCESS_FALLBACK_REASON;
+  generation: MetaNativeDecisionGeneration;
+  latestTerminalJobRunId: string;
+  latestTerminalJobStatus: string;
+  latestTerminalAsOfDate: string;
+}
+
+type NativeGenerationReceiptResolution =
+  | { generation: MetaNativeDecisionGeneration; reason: null }
+  | { generation: null; reason: string };
+
+/**
+ * Turn one selected job row into a generation, or say exactly why it cannot be
+ * one. Shared by the authoritative `latest` row and the `last_success` fallback
+ * candidate so the fallback can never clear a bar the authoritative path would
+ * not clear: same epoch test, same account-scope test, same complete-manifest
+ * test. The ONLY difference between the two is what the caller may do with the
+ * result.
+ */
+function resolveNativeGenerationReceipt(
+  row: MetaNativeDecisionGenerationSourceRow,
+  providerAccountId: string,
+): NativeGenerationReceiptResolution {
+  if (row.job_status !== "success") {
+    return {
+      generation: null,
+      reason:
+        row.job_status === "failed"
+          ? "native_latest_job_failed"
+          : row.job_status === "skipped"
+            ? "native_latest_job_skipped"
+            : "native_job_unavailable",
+    };
+  }
+  if (row.engine_version !== NATIVE_AD_ENGINE_VERSION) {
+    return { generation: null, reason: "native_latest_job_engine_mismatch" };
+  }
+  const expectedAdCount = exactNonNegativeInteger(row.expected_ad_count);
+  const hydratedAdCount = exactNonNegativeInteger(row.hydrated_ad_count);
+  const authoritative =
+    row.authoritative_for_prune === true ||
+    row.authoritative_for_prune === "true";
+  if (
+    row.provider_account_id !== providerAccountId ||
+    !row.provider_account_ref_id ||
+    expectedAdCount === null ||
+    hydratedAdCount !== expectedAdCount ||
+    !isSha256(row.expected_manifest_hash) ||
+    row.hydrated_manifest_hash !== row.expected_manifest_hash ||
+    !authoritative
+  ) {
+    return { generation: null, reason: "native_account_manifest_incomplete" };
+  }
+  return {
+    generation: {
+      jobRunId: row.job_run_id,
+      asOfDate: row.as_of_date,
+      providerAccountRefId: row.provider_account_ref_id,
+      manifestHash: row.expected_manifest_hash,
+      expectedAdCount,
+    },
+    reason: null,
+  };
+}
 
 async function readNativeGeneration(input: {
   businessId: string;
   providerAccountId: string;
   asOfDate?: string;
+  /**
+   * AREA 3 opt-in. Only the Decisions workspace envelope can carry the STALE /
+   * SOURCE DEGRADED marker and strip execution authority, so only it may ask
+   * for the last good generation. Creative Briefing and the engine-v3 evidence
+   * route reach this same function through
+   * `readMetaNativeCanonicalDecisionInventory`, never pass the flag, and must
+   * keep failing closed (D054).
+   */
+  allowLastSuccessfulGenerationFallback?: boolean;
+  /**
+   * Explicit serving instant. Only the last-success ceiling below reads it;
+   * every other decision here is a property of the rows alone.
+   */
+  generatedAt?: string;
 }): Promise<{
   generation: MetaNativeDecisionGeneration | null;
   fallbackReason: string;
+  degradation: MetaNativeDecisionSourceDegradation | null;
 }> {
+  // ONE clock for the age ceiling. The serving instant is the caller's, so the
+  // SQL candidate window and the TypeScript ceiling below cannot disagree; an
+  // unreadable instant sends null, SQL stops bounding the window, and the
+  // TypeScript ceiling refuses every candidate instead of guessing a day.
+  const now = input.generatedAt ? new Date(input.generatedAt) : new Date();
+  const servingDay = utcDayOrNull(now);
   const rows = await getDbWithTimeout(
     NATIVE_DECISION_READ_TIMEOUT_MS,
   ).query<MetaNativeDecisionGenerationSourceRow>(
@@ -2967,63 +3510,171 @@ async function readNativeGeneration(input: {
       NATIVE_AD_DECISIONS_JOB_NAME,
       input.asOfDate ?? null,
       NATIVE_DECISION_RUNNING_GRACE_MS,
+      NATIVE_AD_ENGINE_VERSION,
+      servingDay,
+      NATIVE_DECISION_LAST_SUCCESS_MAX_AGE_DAYS,
     ],
   );
-  if (rows.length > 1) {
+  // The receipt lateral join is per account, so more than one row for ONE RUN
+  // means that run claimed the same account twice, and an ambiguous receipt can
+  // never become a generation.
+  //
+  // The two selections fail SEPARATELY. A duplicate on `latest` is a fault in
+  // the authoritative answer and is fatal for every caller. A duplicate on a
+  // `last_success` candidate is a fault in THAT CANDIDATE only: it skips the
+  // run (below) and nothing else. Failing both together renamed the
+  // authoritative fault for callers that never asked for the fallback --
+  // Creative Briefing and the engine-v3 evidence route reach this function
+  // through `readMetaNativeCanonicalDecisionInventory` and would have been told
+  // "receipt cardinality invalid" about a run whose real, actionable fault was
+  // `native_latest_job_failed`. (Verified read-only against production on
+  // 2026-09-07: no run of this job carries two receipts for one account, so
+  // this is latent rather than observed.)
+  const latestRows = rows.filter((row) => row.selection === "latest");
+  const lastSuccessRows = rows.filter(
+    (row) => row.selection === "last_success",
+  );
+  if (latestRows.length > 1) {
     return {
       generation: null,
       fallbackReason: "native_account_receipt_cardinality_invalid",
+      degradation: null,
     };
   }
-  const row = rows[0];
-  if (!row)
-    return { generation: null, fallbackReason: "native_job_unavailable" };
-  if (row.job_status !== "success") {
+  const row = latestRows[0];
+  if (!row) {
     return {
       generation: null,
-      fallbackReason:
-        row.job_status === "failed"
-          ? "native_latest_job_failed"
-          : row.job_status === "skipped"
-            ? "native_latest_job_skipped"
-            : "native_job_unavailable",
+      fallbackReason: "native_job_unavailable",
+      degradation: null,
     };
   }
-  if (row.engine_version !== NATIVE_AD_ENGINE_VERSION) {
+  const latest = resolveNativeGenerationReceipt(row, input.providerAccountId);
+  if (latest.generation) {
     return {
-      generation: null,
-      fallbackReason: "native_latest_job_engine_mismatch",
+      generation: latest.generation,
+      fallbackReason: "native_generation_ready",
+      degradation: null,
     };
   }
-  const expectedAdCount = exactNonNegativeInteger(row.expected_ad_count);
-  const hydratedAdCount = exactNonNegativeInteger(row.hydrated_ad_count);
-  const authoritative =
-    row.authoritative_for_prune === true ||
-    row.authoritative_for_prune === "true";
-  if (
-    row.provider_account_id !== input.providerAccountId ||
-    !row.provider_account_ref_id ||
-    expectedAdCount === null ||
-    hydratedAdCount !== expectedAdCount ||
-    !isSha256(row.expected_manifest_hash) ||
-    row.hydrated_manifest_hash !== row.expected_manifest_hash ||
-    !authoritative
-  ) {
-    return {
-      generation: null,
-      fallbackReason: "native_account_manifest_incomplete",
-    };
-  }
+  // Serving the last good decision is offered ONLY for a failed latest run.
+  // A skipped run, a foreign epoch, or an incomplete manifest on the latest run
+  // are different faults with different repairs, and none of them is the outage
+  // this fallback exists for.
+  const degradation =
+    input.allowLastSuccessfulGenerationFallback === true &&
+    row.job_status === "failed"
+      ? lastSuccessfulGenerationDegradation({
+          row,
+          candidateRows: lastSuccessRows,
+          providerAccountId: input.providerAccountId,
+          now,
+        })
+      : null;
   return {
-    generation: {
-      jobRunId: row.job_run_id,
-      asOfDate: row.as_of_date,
-      providerAccountRefId: row.provider_account_ref_id,
-      manifestHash: row.expected_manifest_hash,
-      expectedAdCount,
-    },
-    fallbackReason: "native_generation_ready",
+    generation: null,
+    fallbackReason: latest.reason,
+    degradation,
   };
+}
+
+/**
+ * Age of an as-of DAY against a serving instant, in whole UTC days.
+ *
+ * `as_of_date` reaches this file as `job.as_of_date::text`, a Postgres `date`
+ * cast, so it is a calendar day with no time and no zone. Comparing it to an
+ * instant means comparing days, which is why both sides are truncated to a UTC
+ * day here rather than subtracting milliseconds. Returns null when either side
+ * is unreadable, so the caller fails closed instead of treating an unparsable
+ * day as age zero.
+ */
+function utcDayOrNull(now: Date): string | null {
+  return Number.isFinite(now.getTime()) ? now.toISOString().slice(0, 10) : null;
+}
+
+function asOfDateAgeInDays(asOfDate: string, now: Date): number | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(asOfDate.trim());
+  if (!match) return null;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const asOf = Date.UTC(year, month - 1, day);
+  const parsed = new Date(asOf);
+  // Date.UTC rolls 2026-02-30 forward into March instead of rejecting it.
+  if (
+    parsed.getUTCFullYear() !== year ||
+    parsed.getUTCMonth() !== month - 1 ||
+    parsed.getUTCDate() !== day
+  ) {
+    return null;
+  }
+  if (!Number.isFinite(now.getTime())) return null;
+  const today = Date.UTC(
+    now.getUTCFullYear(),
+    now.getUTCMonth(),
+    now.getUTCDate(),
+  );
+  return Math.round((today - asOf) / 86_400_000);
+}
+
+/**
+ * The last good generation FOR THIS ACCOUNT, or nothing.
+ *
+ * `candidateRows` are the query's `last_success` rows: successes strictly older
+ * than the failed latest run, already narrowed to a complete receipt for this
+ * account in this engine epoch inside the age ceiling, NEWEST FIRST. This walk
+ * takes the first one it can prove and stops.
+ *
+ * A run appears more than once only when it claimed the same account twice, and
+ * an ambiguous receipt cannot become a generation -- so that RUN is skipped and
+ * the walk continues to the next candidate. It does not kill the fallback: a
+ * later run's data fault says nothing about an earlier complete generation, and
+ * killing everything would throw away the very evidence this exists to keep on
+ * screen. The authoritative reason for the failed latest run is decided by the
+ * caller and is untouched either way.
+ */
+function lastSuccessfulGenerationDegradation(input: {
+  row: MetaNativeDecisionGenerationSourceRow;
+  candidateRows: readonly MetaNativeDecisionGenerationSourceRow[];
+  providerAccountId: string;
+  now: Date;
+}): MetaNativeDecisionSourceDegradation | null {
+  const rowsByRun = new Map<string, MetaNativeDecisionGenerationSourceRow[]>();
+  for (const candidate of input.candidateRows) {
+    const group = rowsByRun.get(candidate.job_run_id);
+    if (group) group.push(candidate);
+    else rowsByRun.set(candidate.job_run_id, [candidate]);
+  }
+  for (const group of rowsByRun.values()) {
+    if (group.length > 1) continue;
+    const resolved = resolveNativeGenerationReceipt(
+      group[0]!,
+      input.providerAccountId,
+    );
+    if (!resolved.generation) continue;
+    // @see NATIVE_DECISION_LAST_SUCCESS_MAX_AGE_DAYS. A day the reader cannot
+    // read, and a day in the future, are both refused here rather than served
+    // as age zero: neither is evidence that the retained generation is recent.
+    // The candidates arrive newest first, so a candidate past the ceiling means
+    // every later one is too; `continue` and a stop are the same answer over at
+    // most five rows, and `continue` does not depend on that ordering holding.
+    const ageDays = asOfDateAgeInDays(resolved.generation.asOfDate, input.now);
+    if (
+      ageDays === null ||
+      ageDays < 0 ||
+      ageDays > NATIVE_DECISION_LAST_SUCCESS_MAX_AGE_DAYS
+    ) {
+      continue;
+    }
+    return {
+      reason: NATIVE_DECISION_LAST_SUCCESS_FALLBACK_REASON,
+      generation: resolved.generation,
+      latestTerminalJobRunId: input.row.job_run_id,
+      latestTerminalJobStatus: input.row.job_status,
+      latestTerminalAsOfDate: input.row.as_of_date,
+    };
+  }
+  return null;
 }
 
 async function readNativeSnapshotRows(input: {
@@ -3183,7 +3834,15 @@ async function readNativeSnapshotRows(input: {
       lifecycle.creative_format AS creative_format,
       lifecycle.ctr_28d AS ctr_28d,
       lifecycle.frequency_28d AS frequency_28d,
-      lifecycle.fatigue_status AS fatigue_status
+      lifecycle.fatigue_status AS fatigue_status,
+      /* The engine's own predicate blockers. The snapshot table has no column
+         for them; the evaluation row this snapshot was published from is
+         already joined above for lineage, and normalizeDecision in
+         lib/creative-decision-engine/canonical-evaluation.ts canonicalizes
+         the blockers array into its decision_output_json. Only that one key is
+         projected, so the payload stays the blockers array and never the whole
+         decision document. This adds no join and no extra row. */
+      evaluation.decision_output_json -> 'blockers' AS predicate_blockers
     FROM engine_v3_ad_decision_snapshots_daily snapshot
     /* The engine already recorded which lifecycle row it decided from. Joining
        it back is a lineage read, not a second opinion: format, 28d CTR, 28d
@@ -3467,6 +4126,8 @@ type MetaValidatedNativeDecisionSubset =
         MetaValidatedNativeDecisionGenerationBundle,
         { status: "available" }
       >;
+      /** AREA 3. Non-null when `fullGeneration` is the retained last good one. */
+      sourceDegradation: MetaNativeDecisionSourceDegradation | null;
       unavailableReason: null;
     }
   | {
@@ -3480,15 +4141,27 @@ async function readValidatedMetaNativeDecisionSubset(
   input: ReadValidatedMetaNativeDecisionGenerationBundleInput,
 ): Promise<MetaValidatedNativeDecisionSubset> {
   const generationRead = await readNativeGeneration(input);
-  if (!generationRead.generation) {
-    return {
-      status: "unavailable",
-      fullGeneration: null,
-      bundle: null,
-      unavailableReason: generationRead.fallbackReason,
-    };
-  }
-  const fullGeneration = generationRead.generation;
+  // Same rule as the full-account reader: a degraded generation is still proven
+  // complete below (manifest ad ids, then the shared bundle validator). Only its
+  // AUTHORITY differs, and that is the caller's job to strip.
+  const fullGeneration =
+    generationRead.generation ?? generationRead.degradation?.generation;
+  // When the RETAINED generation is the one that fails to prove itself, report
+  // the failed latest run rather than the retained generation's own defect.
+  // "native_generation_lineage_or_manifest_invalid" would tell the operator the
+  // current generation is corrupt, when what actually happened is that the
+  // current run never produced one.
+  const refuse = (
+    reason: string,
+  ): Extract<MetaValidatedNativeDecisionSubset, { status: "unavailable" }> => ({
+    status: "unavailable",
+    fullGeneration: null,
+    bundle: null,
+    unavailableReason: generationRead.degradation
+      ? generationRead.fallbackReason
+      : reason,
+  });
+  if (!fullGeneration) return refuse(generationRead.fallbackReason);
   const manifestRows = await readNativeSnapshotManifestAdIds({
     businessId: input.businessId,
     providerAccountId: input.providerAccountId,
@@ -3502,12 +4175,7 @@ async function readValidatedMetaNativeDecisionSubset(
       adIds: manifestRows.map((row) => row.ad_id),
     })
   ) {
-    return {
-      status: "unavailable",
-      fullGeneration: null,
-      bundle: null,
-      unavailableReason: "native_generation_lineage_or_manifest_invalid",
-    };
+    return refuse("native_generation_lineage_or_manifest_invalid");
   }
   const storedSnapshotRows = await readNativeSnapshotRows({
     businessId: input.businessId,
@@ -3524,12 +4192,7 @@ async function readValidatedMetaNativeDecisionSubset(
       storedSnapshotRows.map((row) => row.ad_id.trim()),
     );
     if (requestedAdIds.some((adId) => !storedAdIds.has(adId))) {
-      return {
-        status: "unavailable",
-        fullGeneration: null,
-        bundle: null,
-        unavailableReason: "native_serving_subset_incomplete",
-      };
+      return refuse("native_serving_subset_incomplete");
     }
   }
   const snapshotRows = reconcileNativeSnapshotRowsWithCurrentAds({
@@ -3554,17 +4217,13 @@ async function readValidatedMetaNativeDecisionSubset(
     snapshotRows,
   });
   if (bundle.status === "unavailable") {
-    return {
-      status: "unavailable",
-      fullGeneration: null,
-      bundle: null,
-      unavailableReason: bundle.unavailableReason,
-    };
+    return refuse(bundle.unavailableReason);
   }
   return {
     status: "available",
     fullGeneration,
     bundle,
+    sourceDegradation: generationRead.degradation,
     unavailableReason: null,
   };
 }
@@ -3591,7 +4250,13 @@ export async function readValidatedMetaNativeDecisionGenerationBundle(
 ): Promise<MetaValidatedNativeDecisionGenerationBundle> {
   try {
     const generationRead = await readNativeGeneration(input);
-    if (!generationRead.generation) {
+    // The degraded generation goes through the SAME manifest/lineage validator
+    // as the authoritative one. A last good generation that cannot prove itself
+    // complete is not served at all -- it degrades to the existing fail-closed
+    // reason rather than becoming a second, weaker bar.
+    const generation =
+      generationRead.generation ?? generationRead.degradation?.generation;
+    if (!generation) {
       return unavailableNativeGenerationBundle({
         reason: generationRead.fallbackReason,
       });
@@ -3599,19 +4264,26 @@ export async function readValidatedMetaNativeDecisionGenerationBundle(
     const storedSnapshotRows = await readNativeSnapshotRows({
       businessId: input.businessId,
       providerAccountId: input.providerAccountId,
-      generation: generationRead.generation,
+      generation,
     });
     const snapshotRows = reconcileNativeSnapshotRowsWithCurrentAds({
       snapshotRows: storedSnapshotRows,
       currentAds: input.currentAds ?? [],
       sourceComplete: input.currentAdSourceComplete === true,
     });
-    return validateMetaNativeDecisionGenerationBundle({
+    const bundle = validateMetaNativeDecisionGenerationBundle({
       businessId: input.businessId,
       providerAccountId: input.providerAccountId,
-      generation: generationRead.generation,
+      generation,
       snapshotRows,
     });
+    if (!generationRead.degradation) return bundle;
+    // A retained generation that cannot prove itself reports the failed latest
+    // run, not its own validation issue: naming the retained defect would point
+    // the operator at the wrong generation. The issue stays on the bundle.
+    return bundle.status === "available"
+      ? { ...bundle, sourceDegradation: generationRead.degradation }
+      : { ...bundle, unavailableReason: generationRead.fallbackReason };
   } catch (error) {
     // This catch hid a 258-second query behind a generic "schema read failed"
     // for as long as the native path has existed. Report it so the next cause
@@ -4007,6 +4679,24 @@ async function readSnapshotRows(input: {
       recent7d_roas,
       label_transform,
       to_jsonb(annotated)->>'blocked_action_type' AS blocked_action_type,
+      /* The engine's own predicate blockers for this creative-grain row.
+
+         A correlated PRIMARY-KEY lookup rather than a join: the outer select
+         lists every column unqualified, so a join would make id, label and
+         confidence ambiguous and force a rewrite of the whole list. One index
+         hit per SERVED row (the outer WHERE has already reduced the CTE to the
+         latest day), and only the blockers key is projected, so the rest of
+         decision_output_json never leaves Postgres.
+
+         evaluation_id is read through to_jsonb for the same reason
+         blocked_action_type above is: it arrived by a tolerated ALTER, so a
+         database that predates it yields NULL here and the row simply carries
+         no blockers. */
+      (
+        SELECT evaluation.decision_output_json -> 'blockers'
+        FROM engine_v3_decision_evaluations evaluation
+        WHERE evaluation.id = (to_jsonb(annotated)->>'evaluation_id')::uuid
+      ) AS predicate_blockers,
       computed_at::text AS computed_at,
       episode_started_at::text AS episode_started_at
     FROM annotated
@@ -4603,8 +5293,18 @@ export async function readMetaDecisionsWorkspaceReadModel(input: {
   sectionLimit?: number;
   adCandidateLimit?: number;
 }): Promise<MetaDecisionsWorkspaceReadModel> {
+  // AREA 3 is opted into HERE and nowhere else: this envelope is the only one
+  // that carries the STALE / SOURCE DEGRADED marker and strips execution
+  // authority. Creative Briefing and the engine-v3 evidence route read the same
+  // native functions through readMetaNativeCanonicalDecisionInventory and keep
+  // failing closed on a failed latest run (D054).
+  const nativeReadInput = {
+    ...input,
+    allowLastSuccessfulGenerationFallback: true,
+  };
   if (input.adIds !== undefined) {
-    const subsetRead = await readValidatedMetaNativeDecisionSubset(input);
+    const subsetRead =
+      await readValidatedMetaNativeDecisionSubset(nativeReadInput);
     if (subsetRead.status === "unavailable") {
       const unavailable = buildUnavailableMetaDecisionsWorkspaceReadModel({
         businessId: input.businessId,
@@ -4629,6 +5329,7 @@ export async function readMetaDecisionsWorkspaceReadModel(input: {
       providerAccountId: input.providerAccountId,
       generation: subsetRead.bundle.generation,
       snapshotRows: [...subsetRead.bundle.snapshotRows],
+      sourceDegradation: subsetRead.sourceDegradation,
       ...ancillary,
       generatedAt: input.generatedAt,
       sectionLimit: input.sectionLimit,
@@ -4645,11 +5346,7 @@ export async function readMetaDecisionsWorkspaceReadModel(input: {
     return model;
   }
   const nativeBundle =
-    await readValidatedMetaNativeDecisionGenerationBundle(input);
-  let nativeFallbackReason =
-    nativeBundle.status === "available"
-      ? "native_generation_ready"
-      : nativeBundle.unavailableReason;
+    await readValidatedMetaNativeDecisionGenerationBundle(nativeReadInput);
   if (nativeBundle.status === "available") {
     try {
       const ancillary = await readNativeDecisionAncillaryRows({
@@ -4662,15 +5359,34 @@ export async function readMetaDecisionsWorkspaceReadModel(input: {
         providerAccountId: input.providerAccountId,
         generation: nativeBundle.generation,
         snapshotRows: nativeBundle.snapshotRows,
+        sourceDegradation: nativeBundle.sourceDegradation,
         ...ancillary,
         generatedAt: input.generatedAt,
         sectionLimit: input.sectionLimit,
         adCandidateLimit: input.adCandidateLimit,
       });
     } catch {
-      nativeFallbackReason = "native_canonical_projection_failed";
+      // Fall through to legacy. The reason is named below, once.
     }
   }
+
+  /*
+   * Why the legacy envelope is being served.
+   *
+   * A degraded native bundle never reaches this line: the branch above returns
+   * the native model with its own `sourceDegradation` marker. So `available`
+   * here can only mean the projection threw inside that `try`, and the only
+   * other way down is an unavailable bundle carrying its own reason. This was
+   * previously seeded above with
+   * `sourceDegradation?.reason ?? "native_generation_ready"` and then
+   * overwritten in the `catch`, so neither half of that expression could ever
+   * be read -- while inviting a reader to believe a degraded native marker can
+   * arrive on a legacy envelope. It cannot.
+   */
+  const nativeFallbackReason =
+    nativeBundle.status === "available"
+      ? "native_canonical_projection_failed"
+      : nativeBundle.unavailableReason;
 
   const snapshotRows = await readSnapshotRows(input);
   if (snapshotRows.length === 0) {

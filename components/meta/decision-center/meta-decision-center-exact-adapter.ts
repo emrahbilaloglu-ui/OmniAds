@@ -24,6 +24,14 @@ import type {
   MetaWatchingSegment,
 } from "@/components/meta/redesign/types";
 import type { MetaHistoryAccount } from "@/lib/meta/history-contract";
+import {
+  buyerAuthorityBlockerCopy,
+  buyerCapabilityLabel,
+  buyerLimitationCopy,
+  buyerLimitationTitle,
+  buyerSourceHeadline,
+  buyerStructureHeadline,
+} from "@/lib/meta/buyer-copy";
 import type { MetaRecommendation } from "@/lib/meta/recommendations";
 import type { MetaAutomationReadinessBlocker } from "@/lib/meta/automation-readiness";
 import type {
@@ -34,6 +42,7 @@ import type {
   MetaOsAdDecision,
   MetaOsDecisionAction,
   MetaOsDecisionLane,
+  MetaOsDecisionsPresentation,
   MetaOsStructureNode,
 } from "@/lib/meta/decisions-os-contract";
 import { canCreateBrief } from "@/lib/zero-base/creative/studio-adapters";
@@ -52,7 +61,18 @@ const CREATIVE_POSTURE_SLOTS = [
     tone: "warning",
   },
   { id: "average-frequency", label: "Avg frequency · 28d", tone: "warning" },
-  { id: "refresh-pipeline", label: "Refresh pipeline", tone: "automation" },
+  /*
+    RENAMED to what it actually counts (Codex C22). "Refresh pipeline" implied
+    every Refresh the engine reached; the number underneath counted only the
+    AUTHORIZED ones, and a held Refresh publishes `keep`, so an account whose
+    engine had concluded Refresh on a dozen creatives read zero. The held count
+    now travels in the detail line beside it.
+  */
+  /*
+    ROUND 9 ITEM 7: "authorized" is a permission model. What the tile counts is
+    the Refresh recommendations a buyer can act on right now.
+  */
+  { id: "refresh-pipeline", label: "Refresh ready to apply", tone: "automation" },
 ] as const satisfies ReadonlyArray<{
   id: string;
   label: string;
@@ -694,11 +714,28 @@ function recommendationMoney(
   });
 }
 
+/**
+ * A ROAS target to print, or null when the payload carries the ABSENCE of one.
+ *
+ * `truth_source = 'global_default'` persists a target of ZERO and serves it as
+ * a finite number, so `target === null` was false and these lines printed
+ * "vs 0.00 target" — a goal nobody set, rendered beside a real ROAS as a goal
+ * that every ad clears. It is the majority state on the current account set.
+ *
+ * `decisions-os-presentation.ts` now normalises a non-positive target to null
+ * at the source. This stays as the reader's own guard, because payloads
+ * serialized before that normalisation are still rendered by this adapter.
+ */
+function printableTargetRoas(value: number | null | undefined): number | null {
+  const target = finite(value);
+  return target === null || target <= 0 ? null : target;
+}
+
 function recommendationMoneySub(
   _recommendation: MetaRecommendation,
   node: MetaOsStructureNode | null,
 ): string {
-  const target = finite(node?.metrics.effectiveTargetRoas);
+  const target = printableTargetRoas(node?.metrics.effectiveTargetRoas);
   return target === null ? EM_DASH : `vs ${target.toFixed(2)} target`;
 }
 
@@ -894,8 +931,7 @@ const BUYER_READINESS_BLOCKER_COPY = {
   low_confidence: "Confidence is too low to act.",
   missing_campaign_label: "Campaign context needs review.",
   campaign_context_unresolved: "Campaign context needs review.",
-  campaign_context_resolver_unvalidated:
-    "Campaign context is still being verified.",
+  campaign_context_resolver_unvalidated: "Campaign role could not be confirmed.",
   missing_commercial_anchor: "A valid performance target is required.",
   missing_controlled_causal_evidence:
     "More verified outcome evidence is required.",
@@ -922,18 +958,20 @@ const BUYER_READINESS_RESOLUTION_COPY = {
     "Keep this in review until enough verified results are available.",
   unsupported_action_class:
     "Review the evidence before making any manual change in Meta.",
-  not_action_state: "Review the evidence; no change is currently authorized.",
+  not_action_state: "Review the evidence. No change can be applied right now.",
   diagnostic_or_watch_state:
-    "Review the evidence; no change is currently authorized.",
+    "Review the evidence. No change can be applied right now.",
   low_confidence: "Wait for more performance data, then review again.",
   missing_campaign_label:
     "Wait for campaign context verification, then review again.",
   campaign_context_unresolved:
     "Wait for campaign context verification, then review again.",
   campaign_context_resolver_unvalidated:
-    "Wait for campaign context verification, then review again.",
-  missing_commercial_anchor:
-    "Confirm the ROAS or break-even target before acting.",
+    "Review the campaign structure before acting.",
+  // A target ROAS alone is now sufficient — the spend unit is the account's own
+  // Meta platform AOV divided by it — so this no longer asks for a break-even
+  // the engine does not require. @see D091 in DECISION_LOG.md
+  missing_commercial_anchor: "Confirm the ROAS target before acting.",
   missing_controlled_causal_evidence:
     "Keep this in manual review until outcome evidence is verified.",
   missing_valid_treatment_receipt:
@@ -1255,12 +1293,13 @@ function needsResolutionRows(input: {
       ...(relation
         ? { lineage: relation.label, lineageRole: relation.role }
         : {}),
-      decisionLabel:
-        recommendation.decisionLabel != null
-          ? titleToken(recommendation.decisionLabel)
-          : (nonBlank(node?.assessment) ??
-            nonBlank(recommendation.decision) ??
-            EM_DASH),
+      // Use the same buyer vocabulary as the selected-row inspector. The
+      // blocked lane preserves the server's verdict, but must not expose the
+      // producer token (for example `cut`) beside an inspector that calls the
+      // same verdict "Reduce spend".
+      decisionLabel: buyerFacingStructureDecisionLabel(
+        recommendation.decisionLabel,
+      ),
       decisionTone: decisionTone(recommendation.decisionLabel),
       blocker: buyerFacingReadinessBlocker(readiness),
       blockerBuyerFacing: true,
@@ -1547,11 +1586,19 @@ function inactiveAdStatus(decision: MetaCanonicalDecision): string {
  */
 function inactiveAdNote(decision: MetaCanonicalDecision): string {
   const reason = nonBlank(decision.sourceAuthority?.reviewOnlyReason);
+  /*
+    ── ROUND 11 ITEM 2 ───────────────────────────────────────────────────────
+    "Withheld from the live queue" describes the QUEUE's behaviour toward the
+    row, in the queue's own vocabulary, and it reaches both the desktop Archive
+    and the mobile one. What a buyer needs is why this ad is not in Action now
+    and what state it is actually in — which the status list below already
+    states in provider terms.
+  */
   const headline =
     reason === "current_hierarchy_is_not_active"
-      ? "Withheld from the live queue: the current campaign / ad set / ad hierarchy is not active."
+      ? "Not included in Action now because this ad is inactive."
       : reason === "current_hierarchy_status_is_unknown"
-        ? "Withheld from the live queue: current hierarchy status is unknown."
+        ? "Not included in Action now because this ad's current status could not be confirmed."
         : null;
   const scope = decision.deliveryScope;
   const statuses = [
@@ -1860,6 +1907,7 @@ function creativePosture(
   let frequencyWeight = 0;
   let frequencyRows = 0;
   let refreshCount = 0;
+  let refreshHeldCount = 0;
   let assessedSpend = 0;
   let fatiguedSpend = 0;
   let assessedRows = 0;
@@ -1874,6 +1922,16 @@ function creativePosture(
     }
     if (decision.publishedLabel.trim().toLowerCase() === "refresh") {
       refreshCount += 1;
+    }
+    /*
+      COUNTED SEPARATELY, NEVER FOLDED IN. A held Refresh is a Refresh the
+      engine reached and authority withheld; adding it to the authorized count
+      would claim an authorization that does not exist, and leaving it out
+      entirely — which is what happened — reports the engine as having
+      concluded nothing.
+    */
+    if (decision.heldAction === "refresh") {
+      refreshHeldCount += 1;
     }
     const fatigue = decision.fatigueStatus?.trim().toLowerCase();
     if (
@@ -1912,7 +1970,9 @@ function creativePosture(
       detail:
         decisions.length === 0
           ? EM_DASH
-          : `of ${formatNumber(decisions.length)} served decisions`,
+          : refreshHeldCount > 0
+            ? `of ${formatNumber(decisions.length)} served · ${formatNumber(refreshHeldCount)} held`
+            : `of ${formatNumber(decisions.length)} served decisions`,
     },
   };
 
@@ -1947,15 +2007,12 @@ function creativeChips(decision: MetaOsAdDecision): string[] {
   const chips = [
     titleToken(decision.lifecycleRole),
     roas === null ? null : `ROAS ${roas.toFixed(2)}`,
-    decision.decisionAvailability === "pending_native_evidence"
-      ? "Decision pending"
-      : null,
   ];
   return chips.filter((value): value is string => Boolean(value));
 }
 
 function creativeMoneySub(decision: MetaOsAdDecision): string {
-  const target = finite(decision.metrics.effectiveTargetRoas);
+  const target = printableTargetRoas(decision.metrics.effectiveTargetRoas);
   const parts = [
     target === null ? null : `vs ${target.toFixed(2)} target`,
     buyerFacingCreativeScope(decision),
@@ -2100,14 +2157,14 @@ const BUYER_CREATIVE_SCOPE_COPY: Readonly<Record<string, string>> = {
   refresh_creative: "Creates a replacement brief and keeps this ad running.",
   continue_test: "Keeps this ad running for the next review.",
   watch: "Keeps this ad running for the next review.",
-  fix_delivery: "Review only; no Meta change is authorized.",
-  fix_policy: "Review only; no Meta change is authorized.",
-  await_ad_grain_evidence: "No Meta change is authorized yet.",
-  resolve_contract_state: "No Meta change is authorized yet.",
-  refresh_decision_data: "No Meta change is authorized yet.",
-  review_kill_switch: "No Meta change is authorized yet.",
-  review_engine_version: "No Meta change is authorized yet.",
-  review_execution_governance: "No Meta change is authorized yet.",
+  fix_delivery: "Review only. No Meta change can be applied here yet.",
+  fix_policy: "Review only. No Meta change can be applied here yet.",
+  await_ad_grain_evidence: "No Meta change can be applied here yet.",
+  resolve_contract_state: "No Meta change can be applied here yet.",
+  refresh_decision_data: "No Meta change can be applied here yet.",
+  review_kill_switch: "No Meta change can be applied here yet.",
+  review_engine_version: "No Meta change can be applied here yet.",
+  review_execution_governance: "No Meta change can be applied here yet.",
 };
 
 const BUYER_CREATIVE_ACTION_COPY: Readonly<Record<string, string>> = {
@@ -2192,7 +2249,7 @@ export function buyerFacingCreativeScope(
     return decision.action.intent === "execute" &&
       decision.action.providerMutation === "pause"
       ? "Runs a fresh safety check before pausing this ad."
-      : "Review only; no Meta change is authorized.";
+      : "Review only. No Meta change can be applied here yet.";
   }
   return knownBuyerCopy(BUYER_CREATIVE_SCOPE_COPY, decision.action.code);
 }
@@ -2212,21 +2269,44 @@ export function buyerFacingCreativeActionLabel(
   );
 }
 
+/**
+ * The buyer's word for a served verdict, from the TYPE and never from English.
+ *
+ * This used to match `/\b(scale|increase budget|promot)/` and six more patterns
+ * against `publishedLabel`. `publishedLabel` carries the engine's `DecisionLabel`
+ * (lib/creative-decision-engine/types.ts) — a seven-member union — so the regex
+ * was reading a typed value as prose. That is the exact shape of the defect this
+ * repository already shipped once: a rule keyed on English is a rule that a
+ * rewrite, a translation or a copy edit silently changes, and it put a Scale
+ * chip over text telling the operator to reduce spend on 106 live rows.
+ *
+ * The lookup below is exhaustive over that union. An unrecognised string — a
+ * value from a payload serialized before this union, or a producer that adds a
+ * member without adding copy — falls to the lane-derived phrase rather than to a
+ * partial match, so a NEW label can never inherit an OLD label's word by
+ * accident of spelling.
+ */
+const BUYER_CREATIVE_DECISION_LABEL: Readonly<Record<string, string>> = {
+  scale: "Scale",
+  cut: "Reduce spend",
+  refresh: "Refresh creative",
+  keep: "Keep monitoring",
+  test_more: "Continue testing",
+  diagnose: "Needs review",
+  out_of_scope: "Not in scope",
+  // Compatibility only: the placeholder the producer no longer builds, kept so
+  // a payload serialized before that separation still renders a sentence.
+  not_evaluated: "Needs review",
+};
+
 export function buyerFacingCreativeDecisionLabel(
   decision: MetaOsAdDecision,
 ): string {
-  const value = nonBlank(decision.publishedLabel)?.toLowerCase() ?? "";
-  if (/\b(scale|increase budget|promot)/.test(value)) return "Scale";
-  if (/\b(cut|below break-even)/.test(value)) {
-    return decision.lane === "blocked"
-      ? "Reduce spend · needs review"
-      : "Reduce spend";
-  }
-  if (/\brefresh/.test(value)) return "Refresh creative";
-  if (/\b(fix delivery)/.test(value)) return "Fix delivery";
-  if (/\b(fix policy)/.test(value)) return "Fix Meta policy issue";
-  if (/\b(test)/.test(value)) return "Continue testing";
-  if (/\b(keep|protect|watch)/.test(value)) return "Keep monitoring";
+  const typed = knownBuyerCopy(
+    BUYER_CREATIVE_DECISION_LABEL,
+    nonBlank(decision.publishedLabel)?.toLowerCase(),
+  );
+  if (typed) return typed;
   return decision.lane === "act"
     ? "Action"
     : decision.lane === "monitor"
@@ -2234,14 +2314,162 @@ export function buyerFacingCreativeDecisionLabel(
       : "Needs review";
 }
 
-function creativeBlockedNote(decision: MetaOsAdDecision): string | null {
-  const blockers = buyerFacingCreativeBlockers(decision);
-  const nextStep = buyerFacingCreativeResolution(decision);
-  const parts = [
-    blockers.length > 0 ? blockers.join(" · ") : null,
-    nextStep ? `Next: ${nextStep}` : null,
-  ].filter((part): part is string => Boolean(part));
-  return parts.length > 0 ? parts.join(" — ") : null;
+/* ------------------------------------------------------------------ *
+ * THE HELD VERDICT
+ * ------------------------------------------------------------------ */
+
+/**
+ * The held verdict in the SAME buyer words an authorized verdict publishes.
+ *
+ * Deliberately the vocabulary `buyerFacingCreativeDecisionLabel` already uses
+ * for `scale`, `cut` and `refresh`, so the operator reads one word list and
+ * not two: a held Cut and an authorized Cut are the same engine conclusion,
+ * and only the authority differs. The engine's own token never reaches the
+ * operator — this catalog is the whole translation.
+ */
+const BUYER_HELD_VERDICT_COPY: Readonly<
+  Record<"scale" | "cut" | "refresh", string>
+> = {
+  scale: "Scale",
+  cut: "Reduce spend",
+  refresh: "Refresh creative",
+};
+
+/**
+ * The held verdict's buyer word, for a caller holding only the action code.
+ *
+ * EXPORTED so the Creative Evidence Window reads this catalog rather than
+ * growing a second one. That window is the surface an operator actually
+ * reaches from a creative row — `onCreativeReview` in `MetaPlatformPage.tsx`
+ * answers with `setCreativeDrill`, and the decision-center inspector is gated
+ * on `activeScope === "structure"` — and it was printing the engine's raw
+ * token (`"refresh"`) where every neighbouring row prints buyer copy.
+ *
+ * `heldCreativeVerdict` stays the reader for anyone holding a whole
+ * `MetaOsAdDecision`, because it also resolves the held RESOLUTION into a
+ * sentence. This is the narrower entry point for the canonical-only envelope,
+ * which carries `classification.heldAction` and no held resolution at all.
+ */
+export function buyerHeldVerdictLabel(
+  action: "scale" | "cut" | "refresh",
+): string {
+  return BUYER_HELD_VERDICT_COPY[action];
+}
+
+export interface CreativeHeldVerdict {
+  action: "scale" | "cut" | "refresh";
+  /** The badge, distinct from the published label sitting beside it. */
+  label: string;
+  /** The next step for THE HELD VERDICT, never the generic evidence sentence. */
+  nextStep: string;
+}
+
+/**
+ * The held verdict this row reached, or null when none was served.
+ *
+ * WHY THIS EXISTS. A held Refresh publishes `keep`, so
+ * `buyerFacingCreativeDecisionLabel` reads "Keep monitoring" off
+ * `publishedLabel` — the opposite of what the engine concluded — and until
+ * this reader nothing on the queue said otherwise. The published label is
+ * still true (it is what authority allows) and is still rendered; this is the
+ * second, separate fact the row was missing.
+ *
+ * NOT GATED ON `lane`. The producer's contract is that a non-null held action
+ * always accompanies an unauthorized published label, so re-deriving that from
+ * the lane here would add a second opinion about a fact already served.
+ *
+ * THE NEXT STEP IS THE HELD RESOLUTION'S, and the reason code itself is never
+ * printed: `heldResolution.code` selects a sentence from this surface's own
+ * buyer catalog, exactly as the served resolution's code does. When the code
+ * is one this surface has no sentence for, the fallback still names the held
+ * verdict rather than falling through to "Review the missing evidence before
+ * taking action.", which is the generic sentence this whole reader exists to
+ * replace.
+ */
+export function heldCreativeVerdict(
+  decision: MetaOsAdDecision,
+): CreativeHeldVerdict | null {
+  const action = decision.heldAction ?? null;
+  if (action !== "scale" && action !== "cut" && action !== "refresh") {
+    return null;
+  }
+  const verdict = BUYER_HELD_VERDICT_COPY[action];
+  const step = knownBuyerCopy(
+    BUYER_CREATIVE_RESOLUTION_COPY,
+    decision.heldResolution?.code,
+  );
+  /*
+    ── ROUND 9 ITEM 7: PLAIN ACTION LANGUAGE, NOT THE ENGINE'S ───────────────
+
+    This emitted "Held verdict: Refresh creative" and, in the next step, "The
+    engine's Refresh creative verdict stays unauthorized until then." Three
+    internal words in one sentence, and all three render on the MAIN creative
+    row, in the structure inspector and in the creative drawer:
+
+      - "Held verdict" is an engine state, not a thing a buyer does.
+      - "engine" names the producer, which a media buyer has no relationship to.
+      - "unauthorized" is a permission model. What the buyer needs is what is
+        missing and what would change it.
+
+    The SERVER VERDICT IS UNTOUCHED — `decision.heldAction` and
+    `heldResolution.code` still say exactly what they said. Only the two strings
+    a person reads change, and they still say the same two things: the
+    recommendation exists, and it is waiting.
+  */
+  return {
+    action,
+    label: `Recommendation awaiting review: ${verdict}`,
+    nextStep: step
+      ? `${step} Then review this ${verdict} recommendation again.`
+      : `Confirm the missing information, then review this ${verdict} recommendation again.`,
+  };
+}
+
+/**
+ * The served held-verdict counts, formatted for the two places they are shown.
+ *
+ * COUNTED APART FROM THE LANE TOTALS, on purpose. `ads.actCount`,
+ * `ads.blockedCount` and `ads.monitorCount` answer "where did the server put
+ * this row"; these three answer "what did the engine conclude before authority
+ * withheld it". Adding a held Refresh into any lane total would make one of
+ * those numbers mean two things, and the row it counts is already inside
+ * `blockedCount` — so the summary below is rendered as its own fact and the
+ * lane totals are not touched.
+ *
+ * A measured zero prints as 0 and an unserved block returns null, so an older
+ * payload renders an em dash rather than three fabricated zeros.
+ */
+function heldVerdictCounts(
+  ads: MetaOsDecisionsPresentation["ads"] | undefined,
+): { total: number; fact: string; note: string } | null {
+  const counts = ads?.heldCounts ?? null;
+  if (!counts) return null;
+  const scale = finite(counts.scale);
+  const cut = finite(counts.cut);
+  const refresh = finite(counts.refresh);
+  if (scale === null || cut === null || refresh === null) return null;
+  const total = scale + cut + refresh;
+  const split = `scale ${formatNumber(scale)} · cut ${formatNumber(
+    cut,
+  )} · refresh ${formatNumber(refresh)}`;
+  return {
+    total,
+    fact: `${formatNumber(total)} · ${split}`,
+    /*
+      ── ROUND 11 ITEM 2 ─────────────────────────────────────────────────────
+      "N held verdict(s)" is an engine state on a group heading a buyer reads
+      before any row. "Held" is a permission model and "verdict" is the
+      producer's word for its own conclusion; neither tells a media buyer what
+      is true of their account or what to do about it.
+
+      The COUNT and the scale/cut/refresh split are kept — they are the useful
+      half — and the fact row beside this note still carries them under its own
+      label, so nothing is lost by saying it plainly.
+    */
+    note: `${formatNumber(total)} ${
+      total === 1 ? "ad needs" : "ads need"
+    } more evidence before action (${split}), counted apart from this group's total`,
+  };
 }
 
 function creativeRows(input: {
@@ -2265,11 +2493,15 @@ function creativeRows(input: {
      * is not the gate, because it is not the only evidence.
      *
      * This used to require an envelope, and on a real account that meant no row
-     * could open anything at all: Grandmix serves 60 ads, every one of them
-     * lane `blocked` / `pending_native_evidence`, and none of them joins a
+     * could open anything at all: Grandmix served 60 ads, every one of them
+     * lane `blocked` / `pending_native_evidence`, and none of them joined a
      * decision snapshot — so the queue rendered 60 rows whose evidence was
      * unreachable by any click, and the affordance's absence was itself
-     * unexplained. What those rows carry is real served evidence — `whyNow`,
+     * unexplained. (Those placeholder rows are no longer produced — the
+     * presentation serves that population as `ads.pendingInventoryCount` and
+     * one limitation — but the rule below still holds for every OTHER row that
+     * joins no snapshot, and for payloads serialized before that change.)
+     * What such rows carry is real served evidence — `whyNow`,
      * `blockers`, `resolution`, `assessment`, `metrics`, `lane`,
      * `decisionAvailability` — it simply lives on the SERVED decision instead
      * of in a snapshot.
@@ -2313,8 +2545,50 @@ function creativeRows(input: {
     const review = input.callbacks.onCreativeReview
       ? () => input.callbacks.onCreativeReview?.(decision, canonicalDecision)
       : null;
-    const tone = decisionTone(decision.publishedLabel);
+    const held = heldCreativeVerdict(decision);
+    /*
+     * THE PUBLISHED LABEL KEEPS ITS WORDS AND LOSES ITS APPROVAL COLOUR.
+     *
+     * `decisionTone` reads the published label, and a held Refresh publishes
+     * `keep` — which this catalog paints POSITIVE. So the row that most needed
+     * a warning drew a green "Keep monitoring", and the operator was given the
+     * engine's withheld conclusion in the colour of good news. The label itself
+     * is not rewritten (it is the true authorized outcome and is still served
+     * and still shown); only the tone stops asserting that the outcome is fine,
+     * because a withheld verdict is not.
+     */
+    const publishedTone = decisionTone(decision.publishedLabel);
+    const tone: MetaDecisionCenterExactTone = held ? "warning" : publishedTone;
     const state = creativeStateSlot(decision.lane);
+    /*
+     * A BLOCKED ROW OWES THE OPERATOR ITS OWN REASON, NOT A GENERIC ONE.
+     *
+     * Read in the order of how specific the server was, and the third rung is
+     * the one that was missing. A held row can arrive with no `resolution`
+     * object and no `blockers` while its SERVED ACTION already names the review
+     * step — `refresh_decision_data` on a stale-source row is the case in this
+     * repository's own fixture — and it fell straight past both to
+     * "Review the missing evidence before taking action.", which tells an
+     * operator nothing they did not already know from the Blocked badge.
+     *
+     * The action code is looked up in the resolution catalog on purpose: for a
+     * held row the server's action IS the next step it chose, and both catalogs
+     * answer the same question in the same vocabulary.
+     */
+    const blockedNextStep =
+      decision.lane === "blocked"
+        ? (buyerFacingCreativeResolution(decision) ??
+          buyerFacingCreativeBlockers(decision)[0] ??
+          knownBuyerCopy(
+            BUYER_CREATIVE_RESOLUTION_COPY,
+            decision.action.code,
+          ) ??
+          knownBuyerCopy(
+            BUYER_CREATIVE_ACTION_CONTEXT_COPY,
+            decision.action.code,
+          ) ??
+          "Review the missing evidence before taking action.")
+        : null;
     return {
       id: decision.id,
       name: nonBlank(decision.adName) ?? EM_DASH,
@@ -2327,12 +2601,36 @@ function creativeRows(input: {
       edgeTone: state?.id === "blocked" ? "warning" : tone,
       decisionLabel: buyerFacingCreativeDecisionLabel(decision),
       decisionTone: tone,
+      ...(held
+        ? {
+            heldVerdictLabel: held.label,
+            heldVerdictTone: "warning" as const,
+            // ROUND 9 ITEM 8: the row model carries the next step too, so the
+            // mobile surface can state the same truth as the desktop one.
+            heldVerdictNextStep: held.nextStep,
+          }
+        : {}),
       ...(state ? { stateLabel: state.label, stateTone: state.tone } : {}),
       chips: creativeChips(decision),
-      note: buyerFacingCreativeReason(decision),
-      ...(creativeBlockedNote(decision)
-        ? { blockedNote: creativeBlockedNote(decision)! }
-        : {}),
+      /*
+       * The HELD verdict's own next step outranks the published row's.
+       *
+       * The ladder below already refuses the generic sentence where it can,
+       * but it is reading the resolution that belongs to the PUBLISHED label.
+       * On a held row the specific fact is the held verdict's own resolution,
+       * and printing the published one instead is how a withheld Refresh came
+       * to be explained as "Review the missing evidence before taking action."
+       *
+       * NOTHING BELOW IS LOST FOR AN UN-DECIDED AD. A row served
+       * `decisionAvailability: "pending_native_evidence"` carries no engine
+       * verdict to hold, so `held` is null on it and its own ladder — the
+       * served `produce_native_ad_decision` resolution, then the waiting
+       * sentence — is reached exactly as before.
+       */
+      note:
+        held?.nextStep ??
+        blockedNextStep ??
+        buyerFacingCreativeReason(decision),
       sparkPath: sparkPath(input.ctrSeriesByAdId.get(decision.adId) ?? null),
       money: moneyAndRoas({
         spend: decision.metrics.spend,
@@ -2359,11 +2657,18 @@ function creativeRows(input: {
  * screen is rendering after the operator's search; `eligible pre-cap` is the
  * server's own population for that state before selection. Calling the second
  * number "served" was false: only the selected rows were actually served.
+ *
+ * A THIRD number rides the Blocked header and is kept apart from both: the
+ * served held-verdict split. It is NOT a count of this group's rows — it is
+ * what the engine concluded on the rows authority withheld — so it is written
+ * into `note`, where the header states it beside the group total rather than
+ * inside it. @see heldVerdictCounts
  */
 function creativeGroups(input: {
   decisions: readonly MetaOsAdDecision[];
   rows: readonly MetaDecisionCenterExactCreativeDecisionViewModel[];
   statePreCapCounts: Partial<Record<MetaOsDecisionLane, number>> | undefined;
+  heldNote: string | null;
 }): MetaDecisionCenterExactCreativeGroupViewModel[] {
   const rowsById = new Map(input.rows.map((row) => [row.id, row]));
   return CREATIVE_STATE_SLOTS.flatMap((slot) => {
@@ -2377,13 +2682,6 @@ function creativeGroups(input: {
       );
     if (rows.length === 0) return [];
     const eligiblePreCap = finite(input.statePreCapCounts?.[slot.id]);
-    const vocabulary = [
-      ...new Set(
-        decisions
-          .map((decision) => buyerFacingCreativeActionLabel(decision))
-          .filter((label): label is string => Boolean(label)),
-      ),
-    ];
     return [
       {
         id: slot.id,
@@ -2395,7 +2693,7 @@ function creativeGroups(input: {
             : `${formatNumber(rows.length)} of ${formatNumber(
                 eligiblePreCap,
               )} decisions`,
-        note: vocabulary.length > 0 ? vocabulary.join(" · ") : EM_DASH,
+        note: slot.id === "blocked" ? input.heldNote : null,
         rows,
       },
     ];
@@ -2546,8 +2844,17 @@ const READINESS_FACT_LABELS: Readonly<Record<string, string>> = {
   automatic_campaign_context_authority:
     "Automatic campaign-role authority is required",
   campaign_context_unresolved: "The campaign context is unresolved",
+  /*
+    ── ROUND 11 ITEM 2 ─────────────────────────────────────────────────────
+    "The automatic campaign-role resolver is awaiting independent validation"
+    names a COMPONENT and its review process. It reaches a buyer twice: as the
+    low-confidence structure row's demotion reason, and inside the inspector's
+    blocker line. Neither audience has a resolver; both have a campaign whose
+    role the system could not confirm, which is the same fact stated as a fact
+    about their account.
+  */
   campaign_context_resolver_unvalidated:
-    "The automatic campaign-role resolver is awaiting independent validation",
+    "Campaign role could not be confirmed",
   missing_commercial_anchor:
     "Commercial target or break-even evidence is missing",
   missing_controlled_causal_evidence: "Controlled causal evidence is missing",
@@ -2692,7 +2999,7 @@ function structureInspector(input: {
 }): MetaDecisionCenterExactInspectorViewModel {
   const { recommendation, node } = input;
   const action = node?.action ?? null;
-  const targetRoas = finite(node?.metrics.effectiveTargetRoas);
+  const targetRoas = printableTargetRoas(node?.metrics.effectiveTargetRoas);
   const readiness = recommendation.automationReadiness;
   const blockerParts = dedupeReadinessBlockers(
     readiness?.blockers,
@@ -2778,7 +3085,21 @@ function creativeInspector(input: {
   const blockers = buyerFacingCreativeBlockers(decision);
   const actionLabel = buyerFacingCreativeActionLabel(decision);
   const decisionLabel = buyerFacingCreativeDecisionLabel(decision);
-  const targetRoas = finite(decision.metrics.effectiveTargetRoas);
+  const targetRoas = printableTargetRoas(decision.metrics.effectiveTargetRoas);
+  /*
+   * THE HELD VERDICT TRAVELS INTO THE EVIDENCE PANEL, FROM THE ROW'S READER.
+   *
+   * The queue row already draws this (`heldVerdictLabel` in
+   * `creativeDecisionRows`) and the panel is one click from that row, so a
+   * held Refresh could be read as a green "Keep monitoring" here after being
+   * read correctly there — the same defect, one surface further in.
+   *
+   * `heldCreativeVerdict` is the ONE reader, deliberately reused rather than
+   * re-mapped: a second catalog keyed on the same `heldAction` is how the two
+   * halves of a surface come to disagree about one fact, and this review round
+   * is also about deleting duplicate mapping tables, not adding one.
+   */
+  const held = heldCreativeVerdict(decision);
   return {
     entityName: nonBlank(decision.adName) ?? EM_DASH,
     entityMeta:
@@ -2787,7 +3108,27 @@ function creativeInspector(input: {
         .filter((value): value is string => Boolean(value))
         .join(" · ") || EM_DASH,
     decisionLabel,
-    tone: decisionTone(decision.publishedLabel),
+    /*
+     * The published label keeps its words and loses its approval colour, for
+     * the same reason the row's does: `decisionTone` reads `publishedLabel`,
+     * and a held Refresh publishes `keep`, which this catalog paints POSITIVE.
+     * The panel's whole frame is tinted by this tone, so a withheld verdict
+     * would have arrived wrapped in the colour of good news.
+     */
+    tone: held ? "warning" : decisionTone(decision.publishedLabel),
+    ...(held
+      ? {
+          heldVerdictLabel: held.label,
+          heldVerdictTone: "warning" as const,
+          /*
+           * The HELD verdict's own resolution, never the generic sentence.
+           * `contractDetail` and `reasons` below still describe the PUBLISHED
+           * decision; this is the second, separate fact, and it is the one the
+           * operator has no other way to learn.
+           */
+          heldVerdictNextStep: held.nextStep,
+        }
+      : {}),
     serverVerdict: actionLabel,
     contractDetail:
       buyerFacingCreativeResolution(decision) ??
@@ -2981,33 +3322,107 @@ function inspector(input: {
  * degraded source. It is now rendered inside the source panel, which is not
  * gated on the row count. @see MetaDecisionCenterExactSourceProvenanceViewModel
  */
+/**
+ * The one source-health sentence for the Creatives scope.
+ *
+ * TWO different conditions produce it and they used to be one, which lost the
+ * second entirely:
+ *
+ *   1. The ads source is NOT the native authority. A legacy fallback is a
+ *      source-health fact and the server states it as a limitation.
+ *   2. The ads source IS the native authority, and it decided nothing for
+ *      ACTIVE inventory the account is still running. Until now this returned
+ *      early on `adsSource === "native_ad_decision"`, so the sentence was never
+ *      produced for the case it describes best — and the surface instead filled
+ *      the decision lanes with one placeholder row per un-decided Ad. Those
+ *      placeholders no longer reach a lane (`decisions-os-presentation.ts`
+ *      serves them as `ads.pendingInventoryCount` plus the
+ *      `active_ad_inventory_pending_native_decision` limitation), so this
+ *      sentence is now the only place that fact is said, and it has to be said.
+ *
+ * The server's own message is used verbatim when it sent one. The fallback is
+ * only for a payload that named no limitation at all.
+ *
+ * WHAT IT MUST NOT CARRY: the raw `source.fallbackReason`. This used to append
+ * "Source: native_account_manifest_incomplete." to the sentence — a producer
+ * code, in the one line an operator reads to find out why their ads are not
+ * being decided. The reason still reaches the surface, under its own label, in
+ * the diagnostics panel that exists for it (`sourceProvenance`, fact
+ * `fallback-reason`). It does not belong in the sentence.
+ */
 function creativesNotice(
   workspace: MetaDecisionsWorkspacePayload,
 ): string | null {
   const source = workspace.os?.source;
-  if (!source || source.adsSource === "native_ad_decision") return null;
-  const served = (workspace.os?.limitations ?? []).find(
+  if (!source) return null;
+  const limitations = workspace.os?.limitations ?? [];
+  const pendingInventory = limitations.find(
     (limitation) =>
-      limitation.code === "legacy_creative_review_only" ||
       limitation.code === "active_ad_inventory_pending_native_decision",
   );
-  const reason = nonBlank(source.fallbackReason);
-  const message =
-    nonBlank(served?.message) ??
-    "Ad-level decisions are withheld because the native decision source is not the authority for this account.";
-  return reason ? `${message} Source: ${reason}.` : message;
+  /*
+    ── ROUND 8 ITEM 7: THE SERVER'S STATE, IN THE BUYER'S WORDS ──────────────
+
+    This returned `limitation.message` VERBATIM, and those messages are written
+    in the engine's vocabulary: "Legacy creative-grain decisions remain visible
+    for continuity but cannot authorize Ad writes", "60 ACTIVE Ads have no
+    exact Ad-grain decision yet". Both are accurate; neither is actionable. A
+    buyer cannot do anything with the distinction between an Ad-grain and a
+    creative-grain decision, and "authorize Ad writes" describes a permission
+    model rather than an outcome.
+
+    The CODE is what the server actually asserts, so the code is what is
+    mapped. The message is not consulted at all — treating it as a fallback
+    would put the engine's sentence back on screen for exactly the codes nobody
+    had mapped yet, which is when a buyer is least able to interpret it.
+
+    The pending count is threaded through because it is the one quantitative
+    fact here: how much of their account is waiting.
+  */
+  const pendingCount = finite(workspace.os?.ads?.pendingInventoryCount);
+  if (source.adsSource === "native_ad_decision") {
+    // A native-authoritative account states only the inventory gap, and only
+    // when there is one.
+    return pendingInventory
+      ? buyerLimitationCopy(pendingInventory.code, pendingCount)
+      : null;
+  }
+  const served =
+    limitations.find(
+      (limitation) => limitation.code === "legacy_creative_review_only",
+    ) ?? pendingInventory;
+  const message = served
+    ? buyerLimitationCopy(served.code, pendingCount)
+    : "Ad-level decisions are not available for this account yet.";
+  // Both sentences, when both are true: older reference-only guidance and ads
+  // still being evaluated are different facts and one does not imply the other.
+  const inventory =
+    served?.code === "legacy_creative_review_only" && pendingInventory
+      ? buyerLimitationCopy(pendingInventory.code, pendingCount)
+      : null;
+  return inventory ? `${message} ${inventory}` : message;
 }
 
 /** The eight named capability states, in the order the contract declares them. */
+/*
+  The eight slots, LABELLED FOR A BUYER.
+
+  These carried the contract's own field names in title case — "Provider
+  account scope", "Classification overlay", "Promotion basis producer",
+  "Response attribution". Each named the mechanism; none said what the buyer
+  loses when the slot is unavailable, which is the only reason the row is on
+  screen. `buyerCapabilityLabel` owns the mapping so the copy lives in one
+  place and the key order here stays the contract's.
+*/
 const DECISION_CAPABILITY_SLOTS = [
-  { key: "providerAccountScope", label: "Provider account scope" },
-  { key: "stableDecisionIdentity", label: "Stable decision identity" },
-  { key: "stableEpisodeIdentity", label: "Stable episode identity" },
-  { key: "classificationOverlay", label: "Classification overlay" },
-  { key: "riskTierProducer", label: "Risk tier producer" },
-  { key: "promotionBasisProducer", label: "Promotion basis producer" },
-  { key: "responseAttribution", label: "Response attribution" },
-  { key: "providerWriteLinkage", label: "Provider write linkage" },
+  { key: "providerAccountScope", label: buyerCapabilityLabel("providerAccountScope") },
+  { key: "stableDecisionIdentity", label: buyerCapabilityLabel("stableDecisionIdentity") },
+  { key: "stableEpisodeIdentity", label: buyerCapabilityLabel("stableEpisodeIdentity") },
+  { key: "classificationOverlay", label: buyerCapabilityLabel("classificationOverlay") },
+  { key: "riskTierProducer", label: buyerCapabilityLabel("riskTierProducer") },
+  { key: "promotionBasisProducer", label: buyerCapabilityLabel("promotionBasisProducer") },
+  { key: "responseAttribution", label: buyerCapabilityLabel("responseAttribution") },
+  { key: "providerWriteLinkage", label: buyerCapabilityLabel("providerWriteLinkage") },
 ] as const satisfies ReadonlyArray<{
   key: keyof MetaDecisionsWorkspaceReadModel["capabilities"];
   label: string;
@@ -3527,21 +3942,29 @@ function commercialAnchorFacts(
   if (!panel) return [];
   const currency = panel.currency;
 
+  /*
+    ── ROUND 11 ITEM 2 ───────────────────────────────────────────────────────
+    These three LABELS read "Withheld · profile hard-action evidence" and its
+    siblings. "Withheld" is the authority model's word and "hard action" is the
+    engine's class name; together they describe the system's posture toward a
+    row rather than the buyer's account. The served COUNTS and their fact ids
+    are untouched — only the words above them change.
+  */
   const withheldFacts = [
     fact(
       "anchor-withheld-profile-evidence",
-      "Withheld · profile hard-action evidence",
+      "Not actioned · account evidence incomplete",
       formatNumber(panel.withheld.profileHardActionEvidence),
       panel.withheld.profileHardActionEvidence > 0 ? "warning" : undefined,
     ),
     fact(
       "anchor-withheld-campaign-context",
-      "Withheld · campaign role unresolved",
+      "Not actioned · campaign role unconfirmed",
       formatNumber(panel.withheld.campaignContext),
     ),
     fact(
       "anchor-withheld-recovery",
-      "Withheld · recovery unverifiable",
+      "Not actioned · recovery could not be verified",
       formatNumber(panel.withheld.recentRecoveryUnverifiable),
     ),
   ];
@@ -3746,15 +4169,16 @@ function sourceProvenance(input: {
    * "36 shown of 19" — a sentence no operator can act on. It keeps its own
    * labelled row below.
    *
-   * WHY "(derived)". `os.ads.eligiblePreCapCount` is NOT the read model's
-   * served count forwarded. The presentation computes
-   * `Math.max(queue.adCandidates.eligiblePreCapCount ?? canonicalAds.length,
-   * canonicalAds.length + pendingInventoryPreCapCount)`
-   * (lib/meta/decisions-os-presentation.ts:1679-1682), so it can EXCEED the
-   * served `queue.adCandidates.eligiblePreCapCount`. This summary keeps reading
-   * the derived maximum, because that is the number that is never smaller than
-   * the list it is paired with — but it no longer claims to be the served one.
-   * Both numbers are printed as their own facts below.
+   * WHY "(derived)". `os.ads.eligiblePreCapCount` is not always the read
+   * model's served count: the presentation falls back to the number of
+   * canonical decisions it actually built when the read model served none
+   * (`queue.adCandidates.eligiblePreCapCount ?? canonicalAds.length`, in
+   * `lib/meta/decisions-os-presentation.ts`). It no longer adds un-evaluated
+   * ACTIVE inventory on top — that population is counted separately, as
+   * `ads.pendingInventoryCount`, and is printed under its own label below —
+   * so this number and the list it is paired with now describe one population.
+   * Both eligible counts are still printed as their own facts, because they
+   * can still differ when the read model served nothing.
    */
   const eligiblePreCap = finite(ads?.eligiblePreCapCount);
   const coverageSummary =
@@ -3764,14 +4188,26 @@ function sourceProvenance(input: {
           eligiblePreCap,
         )} eligible pre-cap (derived)`;
 
+
   const { gaps: capabilityGaps, summary: capabilitySummary } =
     capabilityEnvelope(readModel?.capabilities);
 
   const generation = readSource?.generation;
+  const degradation = readSource?.degraded;
   const suppression = queue?.omittedFromQueue;
 
   return {
-    headline: [authority ?? EM_DASH, health ?? EM_DASH].join(" · "),
+    /*
+      "native_ad · healthy" was a pair of database enums shown as the headline
+      of the panel a buyer opens first. The tone below still encodes the same
+      three states; only the words change. Both raw tokens remain visible as
+      diagnostics facts under their own labels, so nothing is hidden.
+    */
+    headline: buyerSourceHeadline({
+      served: authority !== null || health !== null,
+      adLevelReady: authority === "native_ad",
+      healthy: health === "healthy",
+    }),
     tone,
     coverageSummary,
     capabilitySummary,
@@ -3800,6 +4236,36 @@ function sourceProvenance(input: {
         "Expected ads",
         generation ? servedCount(generation.expectedAdCount) : null,
       ),
+      /*
+       * BOTH RUNS, WHEN THE SURFACE IS SERVING YESTERDAY'S DECISIONS.
+       *
+       * When the latest terminal native job FAILED, the workspace serves the
+       * last complete successful generation for this same business/account,
+       * read-only and marked stale. The operator-facing half of that is one
+       * sentence in the Creatives scope; these are the identities behind it,
+       * and they belong together — "showing the 08-21 generation because the
+       * 09-04 run failed" is one fact, and either half alone invites the reader
+       * to supply the other.
+       *
+       * They were served on `source.degraded` and reached no surface at all
+       * until this panel read them. Absent when the source is healthy, which is
+       * the ordinary case: `fact` renders an em dash and claims nothing.
+       */
+      fact(
+        "degraded-served-generation",
+        "Serving generation",
+        degradation
+          ? `${degradation.servedGeneration.asOfDate} · ${degradation.servedGeneration.jobRunId}`
+          : null,
+      ),
+      fact(
+        "degraded-latest-run",
+        "Latest terminal run",
+        degradation
+          ? `${degradation.latestTerminalRun.asOfDate} · ${degradation.latestTerminalRun.status} · ${degradation.latestTerminalRun.jobRunId}`
+          : null,
+      ),
+      fact("degraded-reason", "Degradation reason", degradation?.reason),
     ],
     coverage: [
       fact("shown", "Shown here", formatNumber(input.shownCount)),
@@ -3807,21 +4273,19 @@ function sourceProvenance(input: {
        * BOTH eligible pre-cap counts, each under a label naming which it is.
        *
        * `queue.adCandidates.eligiblePreCapCount` is what the read model
-       * measured (decisions-workspace-contract.ts:456). `os.ads.eligiblePreCapCount`
-       * is a MAXIMUM the presentation derives from it and from the rows it
-       * actually built — `Math.max(served ?? canonicalAds.length,
-       * canonicalAds.length + pendingInventoryPreCapCount)`
-       * (lib/meta/decisions-os-presentation.ts:1679-1682) — so it can be
-       * strictly larger, and it was the one printed under the bare label
-       * `Eligible (pre-cap)` while the served count reached no surface at all.
+       * measured (decisions-workspace-contract.ts:456).
+       * `os.ads.eligiblePreCapCount` is what the presentation served, which is
+       * that number when the read model sent one and the count of canonical
+       * decisions it built when it did not — so it can differ, and it was the
+       * one printed under the bare label `Eligible (pre-cap)` while the served
+       * count reached no surface at all.
        *
        * THIS IS NOT THE `sourcePreCapCount` CASE. That one is forwarded
        * verbatim, so it is read once and printed once (see below); printing it
        * twice would invite a reader to look for a difference that cannot exist.
        * Here a difference CAN exist and is the whole point: an operator must be
-       * able to tell the served count from the derived one, and see the gap
-       * when the presentation had to raise the ceiling to cover rows the read
-       * model did not count as eligible.
+       * able to tell what the read model counted from what the presentation
+       * served, and see the gap when the read model counted nothing.
        *
        * When they agree — the healthy case — the panel says the same number
        * twice, which is a true statement about two fields and not a repetition
@@ -3834,8 +4298,38 @@ function sourceProvenance(input: {
       ),
       fact(
         "ads-eligible-pre-cap",
-        "Eligible (pre-cap) · derived maximum",
+        "Eligible (pre-cap) · served payload",
         servedCount(ads?.eligiblePreCapCount),
+      ),
+      /*
+       * ACTIVE inventory the producer has not decided, under its own name.
+       *
+       * It used to be added into the eligible count above, where it was
+       * indistinguishable from decisions the cap had withheld. An em dash here
+       * means the payload did not carry the field — an older serialization —
+       * which is not the same fact as a measured zero.
+       */
+      fact(
+        "ads-pending-inventory",
+        "ACTIVE Ads awaiting a decision",
+        servedCount(ads?.pendingInventoryCount),
+      ),
+      /*
+       * THE ENGINE'S OWN CONCLUSIONS ON THE ROWS AUTHORITY WITHHELD.
+       *
+       * Its own fact, next to the other served counts and never folded into
+       * one of them. The three lane totals count WHERE the server put a row;
+       * this counts WHAT the engine concluded before it was held, and a held
+       * Refresh is already inside `blockedCount` — so adding it anywhere above
+       * would count the same row twice under two different meanings.
+       *
+       * An em dash means the payload carried no held-verdict block, which is
+       * not the same fact as three measured zeros. @see heldVerdictCounts
+       */
+      fact(
+        "ads-held-verdicts",
+        "Recommendations awaiting review",
+        heldVerdictCounts(ads)?.fact ?? null,
       ),
       // `os.ads.sourcePreCapCount` is `queue.sourcePreCapCount` forwarded, so
       // it is read here once rather than printed twice under two labels.
@@ -3882,11 +4376,20 @@ function sourceProvenance(input: {
         "Served limitations",
         workspace.os ? servedCount(workspace.os.limitations?.length) : null,
       ),
+      /*
+        The diagnostics row reads as a buyer sentence too. It printed the raw
+        CODE as its label and the server's message as its value — the two most
+        internal strings in the envelope, side by side, in a panel an operator
+        opens when something looks wrong.
+      */
       ...(workspace.os?.limitations ?? []).map((limitation, index) =>
         fact(
           `limitation-${nonBlank(limitation.code) ?? index}`,
-          nonBlank(limitation.code) ?? EM_DASH,
-          limitation.message,
+          buyerLimitationTitle(limitation.code),
+          buyerLimitationCopy(
+            limitation.code,
+            finite(workspace.os?.ads?.pendingInventoryCount),
+          ),
           "warning",
         ),
       ),
@@ -4011,7 +4514,18 @@ function structureProvenance(
   const adGrainCount = servedLimitations.length - applicable.length;
 
   return {
-    headline: [structureSource ?? EM_DASH, sourceStatus ?? EM_DASH].join(" · "),
+    /*
+      Same rule, different subject. This rendered `structureSource` and the
+      read model's raw `status` token joined by a middle dot
+      ("meta_recommendations · available"). The structure scope is about
+      campaigns and ad sets, so it gets its own sentence rather than borrowing
+      the ad-level one. Both raw tokens stay as diagnostics facts below.
+    */
+    headline: buyerStructureHeadline({
+      served: structureSource !== null || sourceStatus !== null,
+      ready: sourceStatus === "available" || sourceStatus === "ok"
+        || sourceStatus === "ready",
+    }),
     tone,
     coverageSummary,
     capabilitySummary,
@@ -4083,8 +4597,11 @@ function structureProvenance(
       ...applicable.map((limitation, index) =>
         fact(
           `limitation-${nonBlank(limitation.code) ?? index}`,
-          nonBlank(limitation.code) ?? EM_DASH,
-          limitation.message,
+          buyerLimitationTitle(limitation.code),
+          buyerLimitationCopy(
+            limitation.code,
+            finite(workspace.os?.ads?.pendingInventoryCount),
+          ),
           "warning",
         ),
       ),
@@ -4098,8 +4615,8 @@ function structureProvenance(
         ? [
             fact(
               "limitation-ad-grain-elsewhere",
-              "Ad-grain limitations",
-              `${formatNumber(adGrainCount)} stated in the Creatives scope`,
+              "Ad-level notes",
+              `${formatNumber(adGrainCount)} shown in Creatives`,
             ),
           ]
         : []),
@@ -4599,6 +5116,7 @@ export function buildMetaDecisionCenterExactViewModel(
       decisions: creativeDecisions,
       rows: creativeDecisionRows,
       statePreCapCounts: workspace.os?.ads?.statePreCapCounts,
+      heldNote: heldVerdictCounts(workspace.os?.ads)?.note ?? null,
     }),
     creativeFootnote: creativeFootnote(workspace.os?.ads?.items ?? []),
     inspector: inspector({

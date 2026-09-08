@@ -694,7 +694,8 @@ async function main() {
     `latest_sync_window_end` are written by an ORDINARY recurring pass before it
     reads anything (`lib/sync/shopify-sync.ts:379-391`), so requiring the
     recorded attempt to be a success withdrew the store's coverage — and with it
-    the derived CPA benchmark — for the whole duration of a routine sync.
+    every diagnostic that reads the store's own average order value — for the
+    whole duration of a routine sync.
 
     The success paths now record the window they actually read
     (`latest_successful_sync_window_start`/`_end`), the upsert preserves it
@@ -729,11 +730,40 @@ async function main() {
   }
 
   /*
-    One store, one moment: what the row holds, what the coverage proof makes of
-    it, what the reader answers, and whether a money-per-purchase unit comes out
-    the other end. The last of those is the thing the operator actually loses
-    when coverage is withheld.
+    THE CANONICAL RULE, and what it changed about this seam.
+
+    This file used to end each case by deriving a CPA benchmark from the store's
+    own AOV — `resolveSpendUnit(...).source === "observed_shopify_aov"`, 58.00 /
+    2.2 = 2636 minor — and calling that "the thing the operator actually loses
+    when coverage is withheld". For a META decision that was the wrong book: the
+    hard-decision spend unit is META's own attributed purchase AOV divided by the
+    Target ROAS, and the store rung has been removed from `resolveSpendUnit`
+    altogether. `derivedCpaMinor` would now be null in every case here, so
+    asserting 2636 could only be satisfied by putting the rung back.
+
+    So the seam proves what is now true, and it is a STRONGER claim than the one
+    it replaces. Coverage is still exactly what this file exists to measure —
+    every verdict, status, retained span and aovMinor assertion below is
+    untouched — but its consequence has moved: losing the store's coverage costs
+    the operator a piece of CONTEXT, not the benchmark. Each moment is therefore
+    resolved twice from the same store evidence:
+
+      - `storeSizedCpaMinor` — the store's number as the ONLY possible basis.
+        Must be null everywhere, covered or not. This is the retired rung, and
+        the assertion that it is gone.
+      - `metaSizedCpaMinor` — the same request with Meta's own attributed AOV
+        present. Must be 71.00 / 2.2 = 3227 minor everywhere, covered or not:
+        the guard that retiring the store rung did not leave the resolver unable
+        to answer, and that Shopify moves no decision input in either direction.
+      - `contextualStoreAovMinor` — what `evidence.observedShopifyAov` carries
+        beside the Meta-anchored unit. This is where coverage still shows up,
+        and the only place it may.
   */
+  // A `ready` Meta sample (>= 20 purchases): 71.00 attributed per purchase.
+  const META_AOV_MAJOR = 71;
+  const META_PURCHASES = 400;
+  const TARGET_ROAS = 2.2;
+
   async function inspect(shopId: string) {
     const coverage = await readOrderSyncCoverage({
       businessId: BUSINESS_ID,
@@ -742,33 +772,46 @@ async function main() {
     if (coverage === null) fail("reader_returned_null", shopId);
     const verdict = proveShopifyOrderWindowCovered({ window: WINDOW, coverage });
     const evidence = await resolveEvidenceForStore(shopId);
-    const unit = resolveSpendUnit({
-      targetCpa: null,
-      operatorAovAssumption: null,
-      observedShopifyAov:
-        evidence.status === "observed" && evidence.aovMinor
-          ? evidence.aovMinor / 100
-          : null,
-      observedShopifyAovOrderCount: evidence.orderCount,
-      observedShopifyAovStatus: evidence.status,
-      metaAttributedAovMean90d: null,
-      metaAttributedAovPurchaseCount90d: 0,
-      metaAttributedRevenue90d: 0,
-      targetRoas: 2.2,
-      breakEvenRoas: 1.8,
-      accountCpaP50: null,
-      accountCpaSampleCount: 0,
-      attributionAovAdjustmentMultiplier: 1,
-    });
+    const storeAovMajor =
+      evidence.status === "observed" && evidence.aovMinor
+        ? evidence.aovMinor / 100
+        : null;
+    const resolveWithMetaAov = (metaAovMajor: number | null) =>
+      resolveSpendUnit({
+        targetCpa: null,
+        operatorAovAssumption: null,
+        observedShopifyAov: storeAovMajor,
+        observedShopifyAovOrderCount: evidence.orderCount,
+        observedShopifyAovStatus: evidence.status,
+        metaAttributedAovMean90d: metaAovMajor,
+        metaAttributedAovPurchaseCount90d: metaAovMajor === null ? 0 : META_PURCHASES,
+        metaAttributedRevenue90d:
+          metaAovMajor === null ? 0 : metaAovMajor * META_PURCHASES,
+        targetRoas: TARGET_ROAS,
+        breakEvenRoas: 1.8,
+        accountCpaP50: null,
+        accountCpaSampleCount: 0,
+        attributionAovAdjustmentMultiplier: 1,
+      });
+    const storeOnly = resolveWithMetaAov(null);
+    const metaAnchored = resolveWithMetaAov(META_AOV_MAJOR);
+    const minorOrNull = (unit: number | null | undefined) =>
+      unit === null || unit === undefined ? null : Math.round(unit * 100);
     return {
       recent: coverage.recent,
       retainedSpan: resolveRetainedRecentOrderSpan(coverage.recent),
       verdict,
       evidence,
-      derivedCpaMinor:
-        unit.source === "observed_shopify_aov" && unit.spendUnit !== null
-          ? Math.round(unit.spendUnit * 100)
-          : null,
+      // The store as the only basis: a hold, always.
+      storeOnlySource: storeOnly.source,
+      storeSizedCpaMinor: minorOrNull(storeOnly.spendUnit),
+      // Meta as the basis: a unit, always.
+      metaAnchoredSource: metaAnchored.source,
+      metaSizedCpaMinor: minorOrNull(metaAnchored.spendUnit),
+      // The store's number travelling as evidence beside that unit.
+      contextualStoreAovMinor: minorOrNull(
+        metaAnchored.evidence.observedShopifyAov,
+      ),
     };
   }
 
@@ -787,7 +830,9 @@ async function main() {
       + ` | verdict=${JSON.stringify(state.verdict)}`
       + ` | status=${state.evidence.status}`
       + ` | aovMinor=${JSON.stringify(state.evidence.aovMinor)}`
-      + ` | derivedCpaMinor=${JSON.stringify(state.derivedCpaMinor)}`,
+      + ` | storeSizedCpaMinor=${JSON.stringify(state.storeSizedCpaMinor)}`
+      + ` | metaSizedCpaMinor=${JSON.stringify(state.metaSizedCpaMinor)}`
+      + ` | contextualStoreAovMinor=${JSON.stringify(state.contextualStoreAovMinor)}`,
     );
   }
 
@@ -798,16 +843,47 @@ async function main() {
     expectEqual(state.verdict, { covered: true }, `${label}_covered`);
     expectEqual(state.evidence.status, "observed", `${label}_evidence_status`);
     expectEqual(state.evidence.aovMinor, SEEDED_ORDER_VALUE * 100, `${label}_aov`);
-    // $58.00 / 2.2 = $26.36. The benchmark that disappears when coverage does.
-    expectEqual(state.derivedCpaMinor, 2636, `${label}_derived_cpa`);
+    /*
+      Proven coverage buys CONTEXT and nothing else. $58.00 is carried beside
+      the unit; it never becomes one — a covered store with no Meta purchases
+      holds exactly as an uncovered one does.
+    */
+    expectEqual(
+      state.contextualStoreAovMinor,
+      SEEDED_ORDER_VALUE * 100,
+      `${label}_store_carried_as_context`,
+    );
+    expectEqual(state.storeOnlySource, "insufficient", `${label}_store_sizes_nothing`);
+    expectEqual(state.storeSizedCpaMinor, null, `${label}_no_store_derived_cpa`);
+    // $71.00 / 2.2 = $32.27: the canonical benchmark, unaffected by coverage.
+    expectEqual(state.metaAnchoredSource, "meta_derived_aov", `${label}_meta_rung`);
+    expectEqual(state.metaSizedCpaMinor, 3227, `${label}_meta_derived_cpa`);
+  }
+
+  /*
+    The other half of every pair: a moment whose coverage is REFUSED.
+
+    The store's number stops travelling as context — which is the loss coverage
+    actually causes — and the Meta-anchored benchmark is identical to the covered
+    case, because Shopify sizes and authorises nothing either way.
+  */
+  function expectWithheldEvidenceCostsNoBenchmark(
+    state: Awaited<ReturnType<typeof inspect>>,
+    label: string,
+  ) {
+    expectEqual(state.contextualStoreAovMinor, null, `${label}_no_store_context`);
+    expectEqual(state.storeSizedCpaMinor, null, `${label}_no_store_derived_cpa`);
+    expectEqual(state.metaAnchoredSource, "meta_derived_aov", `${label}_meta_rung`);
+    expectEqual(state.metaSizedCpaMinor, 3227, `${label}_meta_derived_cpa`);
   }
 
   /*
     Case H — an ORDINARY recurring pass, merely running.
 
-    Before it started the store was covered and had a CPA benchmark; the pass
-    has read nothing, changed nothing and proved nothing new, so taking the
-    benchmark away for its duration is a refusal with no evidence behind it.
+    Before it started the store was covered and its average order value was
+    readable; the pass has read nothing, changed nothing and proved nothing new,
+    so withdrawing the coverage for its duration is a refusal with no evidence
+    behind it.
   */
   await seedRetentionStore(SHOP_ORDINARY_REFRESH);
   const refreshBefore = await inspect(SHOP_ORDINARY_REFRESH);
@@ -1067,7 +1143,7 @@ async function main() {
 
     Every row that already exists when the retained columns are added holds
     NULLs, and a store whose recent span is load-bearing therefore loses its
-    observed AOV and its derived CPA benchmark the moment the release ships —
+    observed AOV the moment the release ships —
     the same refusal this whole change exists to remove, moved from "while a
     sync is running" to "until a sync runs". The migration closes it with one
     additive statement, and these cases drive THAT statement, imported from
@@ -1164,7 +1240,7 @@ async function main() {
     "predeploy_before_verdict",
   );
   expectEqual(predeployBefore.evidence.aovMinor, null, "predeploy_before_no_unit");
-  expectEqual(predeployBefore.derivedCpaMinor, null, "predeploy_before_no_cpa_benchmark");
+  expectWithheldEvidenceCostsNoBenchmark(predeployBefore, "predeploy_before");
 
   // The shipped statement, not a restatement of it.
   await getDb().query(SHOPIFY_SYNC_STATE_RETAINED_WINDOW_BACKFILL_SQL);
@@ -1202,6 +1278,7 @@ async function main() {
       `${store.shopId}_still_refused`,
     );
     expectEqual(state.evidence.aovMinor, null, `${store.shopId}_no_unit`);
+    expectWithheldEvidenceCostsNoBenchmark(state, store.shopId);
   }
 
   /*
@@ -1325,6 +1402,8 @@ async function main() {
   // that is probably covered. All nine days are still missing in all three.
   for (const state of [holeQuiet, holeRepair, holeRefresh]) {
     expectEqual(state.evidence.aovMinor, null, "hole_never_offers_a_unit");
+    // …and the hole costs no benchmark, because the store never supplied one.
+    expectWithheldEvidenceCostsNoBenchmark(state, "hole");
   }
 
   // Currency authority follows the exact order/refund event population used
@@ -1414,19 +1493,22 @@ async function main() {
     + "refused as a gap, a joined historical+recent span covered, a recent-only "
     + "store refused as an incomplete backfill, a seven-day success followed by a "
     + `${repairPolicy.recentWindowDays}-day running or failed repair refused as `
-    + "unproven, the same repair accepted once it completed, a proven window and "
-    + "its derived CPA benchmark held through an ordinary running pass, through a "
+    + "unproven, the same repair accepted once it completed, a proven window "
+    + "held through an ordinary running pass, through a "
     + `failed attempt and through a ${repairPolicy.recentWindowDays}-day repair in `
     + "flight without borrowing its span, aged out honestly once the receipt "
     + "passed the freshness ceiling, and refused for a store that never succeeded "
     + "and for a row carrying no retained bounds; the shipped deploy backfill "
-    + "restoring a pre-deploy row's proven span and its derived CPA benchmark "
+    + "restoring a pre-deploy row's proven span "
     + "while inventing nothing for a pre-deploy row whose last attempt was "
     + "running, had failed, or ended somewhere other than its own "
     + "ready_through_date, and changing nothing on a second run; and a store with "
     + "a permanent nine-day hole named a coverage gap when nothing is in flight "
     + "and unproven the moment either a repair or an ordinary refresh is, with no "
-    + "unit offered in any of the three.",
+    + "store evidence offered in any of the three; and, at every one of those "
+    + "moments, the store's own average order value sizing NOTHING while the "
+    + "canonical Meta-attributed benchmark (71.00 / 2.2 = 3227 minor) stands "
+    + "unchanged by whatever the coverage proof decided.",
   );
 }
 

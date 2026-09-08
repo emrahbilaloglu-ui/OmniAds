@@ -29,6 +29,7 @@ import {
 } from "./maturity";
 import {
   hasCanonicalRecentRecovery,
+  recentSampleMinSpendFloor,
   resolveCanonicalCutZone,
   resolveCanonicalCutZoneGeometry,
   resolveRatioZoneCutMatch,
@@ -113,6 +114,22 @@ function blocker(input: {
   };
 }
 
+/**
+ * One account-readiness floor, with the numbers that decide it.
+ *
+ * These used to be bare sentences, so the predicate blocker they became
+ * carried `observed: "<the same sentence>"` and `threshold: "ready"`. An
+ * operator looking at Grandmix's held Scale could read that the calibration
+ * was "thin" but not that it was 19 mature ads against a floor of 30, and no
+ * consumer could compare the two numbers without parsing prose.
+ */
+interface ScaleBenchmarkBlocker {
+  predicate: string;
+  observed: string | number | null;
+  threshold: string | number | null;
+  reason: string;
+}
+
 function buildNearScaleReadiness(input: {
   spend: number;
   spendThreshold: number | null;
@@ -121,7 +138,7 @@ function buildNearScaleReadiness(input: {
   recent7dRoas: number | null;
   targetRoas: number;
   comparisonLabel: string;
-  scaleBenchmarkBlockers?: readonly string[];
+  scaleBenchmarkBlockers?: readonly ScaleBenchmarkBlocker[];
   scaleFreshnessBlockers?: readonly string[];
 }): NearScaleReadiness {
   const reasons: string[] = [];
@@ -196,15 +213,15 @@ function buildNearScaleReadiness(input: {
     );
   }
 
-  for (const reason of input.scaleBenchmarkBlockers ?? []) {
-    reasons.push(reason);
+  for (const benchmark of input.scaleBenchmarkBlockers ?? []) {
+    reasons.push(benchmark.reason);
     blockers.push(
       blocker({
-        predicate: "scale_account_benchmark_ready",
-        observed: reason,
-        threshold: "ready",
+        predicate: benchmark.predicate,
+        observed: benchmark.observed,
+        threshold: benchmark.threshold,
         status: "missing",
-        reason,
+        reason: benchmark.reason,
       }),
     );
   }
@@ -229,25 +246,38 @@ function scaleRatioThreshold(profile: AccountDecisionProfile): number {
   return SCALE_RATIO_BY_PRESET[profile.preset];
 }
 
-function scaleBenchmarkBlockers(profile: AccountDecisionProfile): string[] {
-  const blockers: string[] = [];
+function scaleBenchmarkBlockers(
+  profile: AccountDecisionProfile,
+): ScaleBenchmarkBlocker[] {
+  const blockers: ScaleBenchmarkBlocker[] = [];
   const matureCount = profile.accountBaselines.matureCreativeCount;
 
   if (!profile.quality.calibrationReady) {
-    blockers.push(
-      `account scale calibration thin (${matureCount} mature creatives; need ${MIN_ACCOUNT_SCALE_CALIBRATION_SAMPLE}+)`,
-    );
+    blockers.push({
+      // Kept as the existing predicate name because
+      // `app/api/creatives/briefing/card-serialization.ts` keys its near-miss
+      // copy off it; only the observed/threshold pair becomes numeric.
+      predicate: "scale_account_benchmark_ready",
+      observed: matureCount,
+      threshold: MIN_ACCOUNT_SCALE_CALIBRATION_SAMPLE,
+      reason: `account scale calibration thin (${matureCount} mature creatives; need ${MIN_ACCOUNT_SCALE_CALIBRATION_SAMPLE}+)`,
+    });
   }
 
   if (!positiveFinite(profile.accountBaselines.winnerPurchaseP50)) {
-    blockers.push("winner purchase benchmark unavailable");
+    blockers.push({
+      predicate: "scale_account_benchmark_ready",
+      observed: null,
+      threshold: "positive winner purchase P50",
+      reason: "winner purchase benchmark unavailable",
+    });
   }
 
   return blockers;
 }
 
 function scaleReadinessBadges(
-  benchmarkBlockers: readonly string[],
+  benchmarkBlockers: readonly ScaleBenchmarkBlocker[],
 ): DecisionBadge[] {
   if (benchmarkBlockers.length === 0) {
     return [SCALE_READINESS_BLOCKED_BADGE];
@@ -448,22 +478,41 @@ function funnelAdjustedDecision(input: {
   };
 }
 
-export function shouldRefreshOnFatigue(
+/**
+ * The economic half of the Refresh predicate: a sufficiently sampled recent
+ * window whose ROAS has decayed past the account's own refresh ratio floor.
+ *
+ * Split out of `shouldRefreshOnFatigue` so the two halves can disagree. When
+ * the decay is real but no lifecycle/fatigue verdict exists for this entity,
+ * the Refresh candidate is held rather than deleted — see the
+ * `refreshLifecycleEvidenceUnavailable` branch in `ratioZonesGate`.
+ */
+export function hasRefreshDecayEvidence(
   input: CreativeInput,
   profile: AccountDecisionProfile,
+  /**
+   * The recent-sample floor to judge against when the profile's own is absent.
+   *
+   * `thresholds.recentSampleMinSpend` is derived from the spend unit, so it is
+   * null on an account with no authoritative one — and this function then
+   * answered `false`, which DELETED the Refresh verdict rather than holding
+   * it. D091 keeps the mathematical verdict and its held reason visible; an
+   * absent floor is a reason to withhold execution, not to stop computing the
+   * verdict. The repaired commercial stop-loss family supplies the floor when
+   * it has one, which is the same family the surrounding branch decides from.
+   */
+  recentSampleMinSpendOverride?: number | null,
 ): boolean {
-  if (input.fatigueStatus !== "fatigued") {
-    return false;
-  }
-
   if (input.recent7dRoas === null || input.roas === null || input.roas <= 0) {
     return false;
   }
 
+  const recentSampleMinSpend =
+    recentSampleMinSpendOverride ?? recentSampleMinSpendFloor(profile);
   if (
     input.recent7dSpend === null ||
-    profile.thresholds.recentSampleMinSpend === null ||
-    input.recent7dSpend < profile.thresholds.recentSampleMinSpend
+    recentSampleMinSpend === null ||
+    input.recent7dSpend < recentSampleMinSpend
   ) {
     return false;
   }
@@ -471,6 +520,42 @@ export function shouldRefreshOnFatigue(
   const threshold =
     profile.accountBaselines.refreshRatioP10 ?? REFRESH_RATIO_FALLBACK;
   return input.recent7dRoas / input.roas < threshold;
+}
+
+/**
+ * True when this entity has no fatigue verdict at all — not "not fatigued",
+ * but "nobody computed one". Native Meta Ads sat here permanently before the
+ * ad-level lifecycle contract existed, which made every Refresh unreachable
+ * and invisible at the same time.
+ *
+ * They sit here again, now for a stated reason rather than an omission.
+ * `NATIVE_AD_LIFECYCLE_EVIDENCE_CONTRACT` in `jobs/ad-decisions-job.ts` grants
+ * `fatigued` only on equal, disjoint, cutoff-bound 14/14 windows carrying a
+ * CTR and click-to-purchase composite. Those windows are materialized by the
+ * `ad_bands` CTE in `lib/creative-decision-engine/data-source.ts`, so an ad
+ * arriving here is missing a specific piece of `meta_ad_daily` — today, a
+ * positive `link_clicks` denominator — rather than a producer. Which piece is
+ * named on the row's `refresh_ad_lifecycle_evidence_contract` blocker. The
+ * difference from before is that the row is HELD and names what it lacks,
+ * instead of serving as an ordinary Keep.
+ */
+export function refreshLifecycleEvidenceUnavailable(
+  input: CreativeInput,
+): boolean {
+  return input.fatigueStatus === null || input.fatigueStatus === "unknown";
+}
+
+export function shouldRefreshOnFatigue(
+  input: CreativeInput,
+  profile: AccountDecisionProfile,
+  recentSampleMinSpendOverride?: number | null,
+): boolean {
+  // One decay predicate, shared with the held-candidate branch, so a confirmed
+  // Refresh and a held Refresh can never disagree about the economics.
+  return (
+    input.fatigueStatus === "fatigued" &&
+    hasRefreshDecayEvidence(input, profile, recentSampleMinSpendOverride)
+  );
 }
 
 function terminal(
@@ -656,6 +741,75 @@ export function ratioZonesGate(ctx: GateContext): GateResult {
       scaleFreshnessBlockers: freshnessBlockers,
     });
 
+    /*
+      An account-readiness floor closes EXECUTION; it does not delete the
+      verdict.
+
+      Grandmix's purchase cell reports `scale ready=false
+      scale_calibration_sample_low observed=19 required=30`, and this ad's own
+      economics (spend depth, purchase depth, recent 7d hold, fresh evidence)
+      were all satisfied. The row still terminated as a plain `keep` whose
+      `preAuthorityLabel` was `keep`, so nothing downstream ever learned that
+      the mathematics said Scale: no `blockedActionType`, no held-verdict lane,
+      no way to tell this ad apart from one that simply is not a scale
+      candidate.
+
+      Emitting the Scale verdict here and letting the authority layer withhold
+      it is the existing contract for every other hold: when the profile denies
+      Scale, `applySoftOnlyLabel` rewrites the label to `keep` and
+      `finalizeDecision` stamps `authorityBlocker:
+      profile_hard_action_ineligible` from `profileBlocksHardAuthority`. The
+      explicit hold below covers the one readiness failure the profile does not
+      encode (a missing winner purchase benchmark). Either way the served label
+      stays `keep` and no provider action is authorized.
+    */
+    const readinessIsTheOnlyBlocker =
+      benchmarkBlockers.length > 0 &&
+      freshnessBlockers.length === 0 &&
+      hasScaleSpendDepth &&
+      hasScalePurchaseDepth &&
+      recent7dRoas !== null &&
+      recent7dRoas >= ctx.effectiveTargetRoas;
+
+    if (readinessIsTheOnlyBlocker) {
+      return terminal(
+        ctx,
+        "scale",
+        `ROAS ${formatRoas(roas)} (28d) = ${formatRatioPercent(
+          ratio,
+        )}% of ${comparison} ${formatRoas(
+          ctx.effectiveTargetRoas,
+        )} with ${purchases} purchases (28d) and recent 7d holding at ${formatRoas(
+          recent7dRoas,
+        )} — scale the ad set budget; execution withheld: ${benchmarkBlockers
+          .map((benchmark) => benchmark.reason)
+          .join("; ")}.`,
+        [...fatigueBadges, ...scaleReadinessBadges(benchmarkBlockers)],
+        readiness.blockers,
+        {
+          /*
+            Not `profile_hard_action_ineligible`.
+
+            `finalizeDecision` (gates/types.ts) honours a requested hold only
+            when `profileBlocksHardAuthority` is false, i.e. only when the
+            profile's `hardActionEligibility.scale` is TRUE. And
+            `resolveHardActionEligibility` in account-decision-profile.ts makes
+            `scaleEligible` require `input.calibrationReady`, so a profile that
+            reaches this hold has a ready calibration and the residual
+            benchmark blocker is the missing account winner-purchase P50 —
+            a benchmark metric that was not computed, not a profile denial.
+            A thin calibration sample never reaches here: it denies the profile
+            first, and `applySoftOnlyLabel` stamps the honest
+            `profile_hard_action_ineligible` on that path instead.
+          */
+          authorityBlocker: "native_metrics_unavailable",
+          blockedActionType: "scale",
+          label: "keep",
+          reasonPrefix: "[scale verdict held - account readiness incomplete]",
+        },
+      );
+    }
+
     return terminal(
       ctx,
       "keep",
@@ -711,6 +865,138 @@ export function ratioZonesGate(ctx: GateContext): GateResult {
         return authorityDeniedReview;
       }
 
+      /*
+        A Refresh candidate with no lifecycle evidence is HELD, not erased —
+        but only on rows the economic Cut branch has already declined.
+
+        `shouldRefreshOnFatigue` requires `fatigueStatus === "fatigued"`. Before
+        the ad-level lifecycle contract existed, native Meta Ads always arrived
+        with `fatigueStatus: null`, so an ad whose recent 7d ROAS had decayed
+        past the account's own `refreshRatioP10` produced no Refresh candidate
+        at all — the operator saw a healthy-looking Keep. Holding it keeps the
+        recommendation visible and still authorizes nothing: the served label is
+        `keep` and `blockedActionType` is `refresh`.
+
+        Position is load-bearing. INVARIANTS.md: "The bounded P25-to-break-even
+        economic strip may cross the generic `0.85` target-band boundary.
+        Refresh keeps precedence, but target-band Keep must not terminate a
+        below-break-even row before the economic Cut/recovery/evidence branch
+        runs." The `shouldRefreshOnFatigue` branch above is exempt because it
+        publishes a HARD `refresh`; this branch publishes `keep`, so if it ran
+        before the `canonicalCutZone` test it would terminate a below-break-even
+        row and record `refresh` in `blocked_action_type`, leaving the economic
+        Cut unreachable and unrecoverable downstream. Inside this block the
+        canonical Cut zone is by construction not `expanded_economic_loss`, and
+        `authorityDeniedExpandedCutReview` above has already claimed the
+        authority-denied stop-loss rows.
+
+        Reachability is not theoretical, and it is not a thin-account edge case
+        either. `computeNativeAdLifecycleEvidence` in jobs/ad-decisions-job.ts
+        fails closed to `fatigueStatus: "unknown"` whenever the equal, disjoint
+        14/14 windows or the account-relative frequency percentile are missing.
+        The windows themselves are hydrated now, but on the current decision
+        window `meta_ad_daily.link_clicks` holds no positive value anywhere, so
+        the click-to-purchase denominator is absent in both bands and every
+        decayed native ad still arrives here — which is the point: the
+        candidate stays visible and authorizes nothing until the evidence
+        exists.
+      */
+      if (
+        hasRefreshDecayEvidence(input, profile) &&
+        refreshLifecycleEvidenceUnavailable(input) &&
+        input.recent7dRoas !== null &&
+        recentRatio !== null
+      ) {
+        /*
+          Freshness is named, not skipped.
+
+          `finalizeDecision` (gates/types.ts) applies its stale/unknown-freshness
+          path only when the FINAL label is a hard action. This branch serves
+          `keep`, so `hardLabel` is null there and that path never runs. A
+          confirmed Refresh on stale evidence is held with `source_freshness`;
+          without this, an identical held Refresh would report only the missing
+          lifecycle verdict and say nothing about the window it was measured on.
+          The decay itself is measured on that same window, so freshness is the
+          first effective blocker when it fails, and the lifecycle gap is the
+          blocker when it does not.
+        */
+        const refreshFreshnessUnknown = hasUnknownFreshness(ctx);
+        const refreshFreshnessStale = hasStaleEvidence(ctx);
+        const refreshEvidenceUnfresh =
+          refreshFreshnessUnknown || refreshFreshnessStale;
+        return terminal(
+          ctx,
+          "refresh",
+          `Recent 7d ROAS ${formatRoas(
+            input.recent7dRoas,
+          )} dropped to ${formatRatioPercent(
+            recentRatio,
+          )}% of ROAS ${formatRoas(
+            roas,
+          )} (28d) — refresh candidate; no ad-level fatigue verdict is available to confirm creative wear.`,
+          [
+            {
+              type: "lifecycle_unavailable",
+              label: "Ad-level fatigue evidence unavailable",
+              severity: "info",
+            },
+            ...(refreshFreshnessUnknown
+              ? [
+                  {
+                    type: "unknown_freshness" as const,
+                    label:
+                      "Unknown freshness: refresh the decision data before applying.",
+                    severity: "warning" as const,
+                  },
+                ]
+              : refreshFreshnessStale
+                ? [
+                    {
+                      type: "stale_evidence" as const,
+                      label: `Stale evidence: last sync ${Math.round(
+                        input.dataFreshnessHours ?? 0,
+                      )}h ago - refresh before applying.`,
+                      severity: "warning" as const,
+                    },
+                  ]
+                : []),
+          ],
+          [
+            blocker({
+              predicate: "refresh_ad_lifecycle_evidence",
+              observed: input.fatigueStatus ?? "unavailable",
+              threshold: "fatigued",
+              status: "missing",
+              reason:
+                "no ad-level fatigue verdict exists for this entity, so creative wear cannot be confirmed",
+            }),
+          ],
+          {
+            /*
+              Not `profile_hard_action_ineligible`.
+
+              `finalizeDecision` honours a requested hold only when
+              `profileBlocksHardAuthority` is false — that is, only when the
+              profile's `hardActionEligibility` ALLOWS the action. Stamping
+              profile ineligibility here therefore describes the one state that
+              cannot be true when the stamp is written, and
+              `resolutionForAuthorityBlocker` in lib/meta/decision-semantics.ts
+              routes that code to the commercial-target / hard-action-evidence
+              copy. What is actually missing is this ad's own fatigue verdict,
+              which is ad-grain evidence: `native_metrics_unavailable`.
+            */
+            authorityBlocker: refreshEvidenceUnfresh
+              ? "source_freshness"
+              : "native_metrics_unavailable",
+            blockedActionType: "refresh",
+            label: "keep",
+            reasonPrefix: refreshEvidenceUnfresh
+              ? "[refresh verdict held - fresh data required]"
+              : "[refresh verdict held - ad-level fatigue evidence required]",
+          },
+        );
+      }
+
       const targetBandReason =
         ratio < WEAK_TARGET_MAX_RATIO
           ? `[weak target] ROAS ${formatRoas(
@@ -747,6 +1033,24 @@ export function ratioZonesGate(ctx: GateContext): GateResult {
   ) {
     const stopLossThresholds = commercialStopLossThresholds(ctx);
 
+    /*
+      AN UNVERIFIABLE RECOVERY IS NOT A REFUTED ONE.
+
+      `hasCanonicalRecentRecovery` judges the recent window against
+      `thresholds.recentSampleMinSpend`, which is derived from the spend unit
+      and is therefore `null` on an account with no authoritative one. The
+      predicate then answered `false` — "recovery is NOT holding" — and the cut
+      branch below proceeded. That inverts the hold: withholding the unit must
+      not REMOVE a protective guard.
+
+      The cut branch below is already deciding from
+      `commercialStopLossThresholds`, the repaired account/currency family, so
+      recovery is weighed against the SAME family's recent floor rather than
+      against one that does not exist. When neither family has a floor the
+      predicate still answers false and the cut matches below cannot fire
+      either — `resolveRatioZoneCutMatch` reads the same thresholds — so the
+      row falls through to `test_more`, which is the honest hold.
+    */
     if (hasCanonicalRecentRecovery(ctx)) {
       return terminal(
         ctx,
@@ -821,7 +1125,8 @@ export function ratioZonesGate(ctx: GateContext): GateResult {
   }
 
   const recent7dRoas = input.recent7dRoas;
-  if (shouldRefreshOnFatigue(input, profile) && recent7dRoas !== null) {
+  if (
+    shouldRefreshOnFatigue(input, profile) && recent7dRoas !== null) {
     return terminal(
       ctx,
       "refresh",

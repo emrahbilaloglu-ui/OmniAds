@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { NATIVE_AD_CALIBRATION_CONTRACT_VERSION } from "../../jobs/ad-calibration-job";
 import { describe, expect, it, vi } from "vitest";
 
 import type { DbClient } from "@/lib/db";
@@ -30,6 +31,7 @@ import {
 import {
   buildNativeAdOptimizationContext,
   NATIVE_AD_CALIBRATION_POLICY_VERSION,
+  NATIVE_AD_SPEND_UNIT_AUTHORITY_CONTRACT_VERSION,
   resolveNativeAdCalibrationCutoff,
   resolveNativeAdCalibrationActionReadiness,
   resolveNativeAdTargetAuthority,
@@ -68,23 +70,49 @@ const TARGET_AUTHORITY: NativeAdTargetAuthorityInput = {
   recordedAt: "2026-07-01T00:00:01.000Z",
 };
 
+/*
+  RE-PINNED for the reordered spend-unit ladder.
+
+  This helper used to mint `basis: "target_cpa"` over an `unavailable` account
+  AOV evidence. The target pack it is built against carries a Target ROAS as
+  well as a legacy Target CPA, and with a Target ROAS the only lane
+  `buildNativeAdSpendUnitAuthority` has is Meta's own attributed AOV over that
+  ratio — so a stored `target_cpa` basis now matches no expected basis and
+  `nativeSpendUnitAuthorityMatchesTarget` fails it CLOSED as
+  `native_target_authority_mismatch`. That refusal is the new rule working, not
+  a defect in these fixtures.
+
+  The evidence below is therefore `ready` at a mean of 100.00 over 20 purchases,
+  which reproduces the SAME `baseSpendUnit` of 50 (100 / targetRoas 2) that the
+  Target CPA supplied, so every downstream threshold in these suites is
+  unchanged and only the provenance moved.
+*/
 function targetCpaSpendUnitAuthority(input: {
   targetAuthority: ReturnType<typeof resolveNativeAdTargetAuthority>;
   cutoff: ReturnType<typeof resolveNativeAdCalibrationCutoff>;
 }): NativeAdSpendUnitAuthority {
   const authority: NativeAdSpendUnitAuthority = {
-    contractVersion: "engine-v3-native-ad-spend-unit-authority.v1",
+    /*
+      The CURRENT contract, where this fixture hardcoded `.v1`. Under Codex A6
+      a historical authority may be parsed and hash-verified but may not
+      authorize a current decision, so a `.v1` fixture now fails closed with
+      `native_target_authority_mismatch` — correctly. This suite is about
+      native decision computation, not version transitions, so it mints what
+      the producer mints; the transition itself is exercised in
+      `ad-account-decision-profile-store.test.ts`.
+    */
+    contractVersion: NATIVE_AD_SPEND_UNIT_AUTHORITY_CONTRACT_VERSION,
     status: "ready",
-    basis: "target_cpa",
+    basis: "physical_account_purchase_aov_90d",
     businessId: BUSINESS_ID,
     providerAccountRefId: PROVIDER_ACCOUNT_REF_ID,
     providerAccountId: "act-1",
     accountCurrency: "USD",
     asOfCutoff: input.cutoff.asOfCutoff,
     targetAuthorityHash: input.targetAuthority.authorityHash,
-    baseSpendUnit: input.targetAuthority.targetCpa,
+    baseSpendUnit: 100 / input.targetAuthority.targetRoas!,
     accountAovEvidence: {
-      status: "unavailable",
+      status: "ready",
       scope: "business_provider_account_currency",
       businessId: BUSINESS_ID,
       providerAccountRefId: PROVIDER_ACCOUNT_REF_ID,
@@ -93,15 +121,15 @@ function targetCpaSpendUnitAuthority(input: {
       sampleWindowStart: input.cutoff.sampleWindowStart,
       sampleWindowEnd: input.cutoff.sampleWindowEnd,
       asOfCutoff: input.cutoff.asOfCutoff,
-      observedPurchaseCount: 0,
+      observedPurchaseCount: 20,
       requiredPurchaseCount: 20,
-      revenueBackedRowCount: 0,
-      canonicalRowCount: 0,
+      revenueBackedRowCount: 20,
+      canonicalRowCount: 20,
       contradictoryRowCount: 0,
       legacySchemaRowCount: 0,
       unsupportedSchemaRowCount: 0,
-      totalRevenue: 0,
-      meanAov: null,
+      totalRevenue: 2000,
+      meanAov: 100,
       evidenceHash: "5".repeat(64),
     },
     authorityHash: "",
@@ -187,6 +215,7 @@ function readyNativeCalibrationCell(): NativeAdCalibrationCell {
     cutoff,
   });
   const cell: NativeAdCalibrationCell = {
+    contractVersion: NATIVE_AD_CALIBRATION_CONTRACT_VERSION,
     batchId: "00000000-0000-4000-8000-000000000746",
     batchCompleteness: "complete",
     batchCellCount: 1,
@@ -1395,11 +1424,32 @@ describe("native ad decision computation", () => {
 
   it("keeps legacy creative lifecycle and ranking overlays out of resolver authority", () => {
     const profile = makeAccountDecisionProfile({ asOfDate: AS_OF });
-    const source = adInput({ adId: "ad-overlay", campaignId: "campaign-a" });
+    const base = adInput({ adId: "ad-overlay", campaignId: "campaign-a" });
+    // One creative can back many ads, so its fatigue verdict is not this ad's.
+    // The overlay is deliberately loud: a "fatigued" creative that has sailed
+    // past its peak, on an ad whose own 28d/7d bands show no decay at all.
+    const source = {
+      ...base,
+      fatigueStatus: "fatigued" as const,
+      lifecyclePosition: "past_peak_natural" as const,
+      creativeEvidence: {
+        ...base.creativeEvidence,
+        fatigueStatus: "fatigued" as const,
+        lifecyclePosition: "past_peak_natural" as const,
+        daysSincePeak: 12,
+        peakRoas30d: 6.4,
+        qualityRanking: "above_average" as const,
+        creativeFormat: "carousel" as const,
+      },
+    };
     const resolveDecision = vi.fn((resolverInput) => {
       expect(resolverInput).toMatchObject({
-        fatigueStatus: null,
-        lifecyclePosition: null,
+        // Ad-grain: no 14/14 disjoint bands were materialized for this ad, so
+        // the ad-level contract WITHHOLDS a verdict rather than inheriting the
+        // creative's. "unknown" is still not "fatigued" — which is the whole
+        // point of this test: the loud creative overlay does not bind the ad.
+        fatigueStatus: "unknown",
+        lifecyclePosition: "insufficient_history",
         daysSincePeak: null,
         peakRoas30d: null,
         qualityRanking: null,

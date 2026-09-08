@@ -57,14 +57,21 @@ const INDEX_FULL_RANK_FRAGMENTS: Record<string, readonly string[]> = {
     "business_id", "provider_account_id", "entity_type", "entity_id",
     "captured_at DESC", "created_at DESC", "id DESC",
   ],
-  meta_entity_observation_receipts_occurrence: [
+  // ROUND 16: the receipt occurrence identity now includes the sync attempt,
+  // and the ranked reads order on created_at before the random-v4 id.
+  meta_entity_observation_receipts_attempt_occurrence: [
     "partition_id", "entity_type", "endpoint", "captured_at",
+    "COALESCE(sync_run_id",
   ],
-  idx_meta_entity_observation_receipts_cohort: [
-    "partition_id", "captured_at DESC", "id DESC",
+  idx_meta_entity_observation_receipts_cohort_v2: [
+    "partition_id", "captured_at DESC", "created_at DESC", "id DESC",
   ],
-  idx_meta_entity_observation_receipts_freshness: [
-    "entity_type", "endpoint", "captured_at DESC", "id DESC",
+  idx_meta_entity_observation_receipts_freshness_v2: [
+    "entity_type", "endpoint", "captured_at DESC", "created_at DESC", "id DESC",
+  ],
+  idx_meta_entity_state_history_manifest_delta: [
+    "business_id", "provider_account_id", "entity_type", "run_completeness",
+    "entity_id", "captured_at DESC", "created_at DESC", "id DESC",
   ],
   idx_meta_entity_tombstones_d086_latest: [
     "entity_id", "captured_at DESC", "id DESC",

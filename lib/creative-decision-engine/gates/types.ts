@@ -479,11 +479,51 @@ export function finalizeDecision(
   const profileBlocksHardAuthority =
     isHardActionLabel(preAuthorityLabel) &&
     softOnly.label !== preAuthorityLabel;
+  /*
+   * A LABEL TRANSFORM MUST NOT SILENTLY DROP A REQUESTED HOLD.
+   *
+   * The gate below matched `authorityHold.blockedActionType` against the label
+   * AFTER `applyTestCohortRefreshOverride` had already rewritten it. On a Test
+   * campaign that transform turns `refresh` into `cut`, so a caller that asked
+   * to WITHHOLD a Refresh — `{blockedActionType: "refresh", label: "keep"}` —
+   * found `"cut" === "refresh"` false, and the hold was discarded in silence.
+   *
+   * The consequence was not cosmetic. Isolating campaign kind on otherwise
+   * identical input:
+   *
+   *   main  ->  label keep, preAuthority refresh, blocker native_metrics_unavailable
+   *   test  ->  label CUT,  preAuthority cut,     blocker null
+   *
+   * So an ad with NO ad-level fatigue verdict — one the economic Cut branch had
+   * just declined, still carrying the `refresh_ad_lifecycle_evidence` blocker
+   * and the `lifecycle_unavailable` badge — was published at
+   * `decisionState: "act"` as an authorized Cut. Missing evidence manufactured
+   * an action, which is the mirror of the rule that missing evidence must not
+   * erase one.
+   *
+   * The match is therefore made against the PRE-transform label, and the hold
+   * travels through the same rewrite the label did: on a Test campaign a
+   * withheld Refresh is a withheld Cut, and it stays withheld. Only `refresh`
+   * is ever rewritten, so the Scale and Cut holds are unaffected either way.
+   */
+  const transformedHold =
+    authorityHold === undefined
+      ? null
+      : transformed.labelTransform === null
+        ? authorityHold
+        : {
+            ...authorityHold,
+            blockedActionType: applyTestCohortRefreshOverride({
+              campaignKind: ctx.input.campaignKind,
+              label: authorityHold.blockedActionType,
+              reason,
+            }).label,
+          };
   const requestedAuthorityHold =
-    authorityHold !== undefined &&
+    transformedHold !== null &&
     !profileBlocksHardAuthority &&
-    preAuthorityLabel === authorityHold.blockedActionType
-      ? authorityHold
+    label === authorityHold?.blockedActionType
+      ? transformedHold
       : null;
   const authorityLabel = requestedAuthorityHold?.label ?? softOnly.label;
   const hardLabel = isHardActionLabel(authorityLabel)

@@ -20,6 +20,7 @@ import {
 } from "@/lib/creative-decision-engine/execution-safety";
 import { AD_DECISION_EVALUATION_CONTRACT_VERSION } from "@/lib/creative-decision-engine/evaluation-store";
 import {
+  NATIVE_AD_CALIBRATION_CONTRACT_VERSION,
   READ_NATIVE_AD_CALIBRATION_SOURCE_SQL,
   READ_NATIVE_AD_CALIBRATION_TRANSACTION_RECEIPT_SQL,
 } from "@/lib/creative-decision-engine/jobs/ad-calibration-job";
@@ -516,13 +517,13 @@ async function createDecisionOriginFixtures(input: {
        engine_version, policy_version, source_mode, source_provenance_json,
        expected_cell_count, generation_content_hash, input_manifest_hash,
        source_manifest_hash, cell_set_hash, completeness_status, job_run_id,
-       computed_at
+       computed_at, contract_version
      ) VALUES (
        $1::uuid, $1::text, 'meta', $2::uuid, $3, $4::date, $5::timestamptz,
        'repeatable read', $6, 'migrated-action-seam.v1',
        'current_transaction_snapshot', $7::jsonb, 1, repeat('a', 64),
        repeat('b', 64), repeat('c', 64), repeat('d', 64), 'writing',
-       $8::uuid, $5::timestamptz
+       $8::uuid, $5::timestamptz, $9
      )
      RETURNING id::text AS id`,
     [
@@ -534,6 +535,7 @@ async function createDecisionOriginFixtures(input: {
       NATIVE_AD_ENGINE_VERSION,
       JSON.stringify(provenance),
       jobRunId,
+      NATIVE_AD_CALIBRATION_CONTRACT_VERSION,
     ],
   );
   const batchId = batch.rows[0]?.id;
@@ -560,7 +562,7 @@ async function createDecisionOriginFixtures(input: {
        target_effective_at, target_recorded_at, target_authority_hash,
        source_min_date, source_max_date, source_max_updated_at,
        batch_input_manifest_hash, input_manifest_hash, source_manifest_hash,
-       job_run_id, computed_at
+       job_run_id, computed_at, contract_version
      ) VALUES (
        $1::uuid, $2::uuid, $2::text, 'meta', $3::uuid, $4, 'Europe/Istanbul',
        'TRY', 'objective_cohort_context', 'OUTCOME_SALES', 'purchase',
@@ -573,7 +575,7 @@ async function createDecisionOriginFixtures(input: {
        '2026-07-17T00:00:00Z'::timestamptz,
        '2026-07-17T00:00:00Z'::timestamptz, repeat('e', 64),
        $8::date, $8::date, $6::timestamptz, repeat('b', 64),
-       repeat('f', 64), repeat('c', 64), $9::uuid, $6::timestamptz
+       repeat('f', 64), repeat('c', 64), $9::uuid, $6::timestamptz, $10
      )
      RETURNING id::text AS id`,
     [
@@ -586,6 +588,7 @@ async function createDecisionOriginFixtures(input: {
       NATIVE_AD_ENGINE_VERSION,
       SAFE_DATE,
       jobRunId,
+      NATIVE_AD_CALIBRATION_CONTRACT_VERSION,
     ],
   );
   const calibrationRowId = calibration.rows[0]?.id;

@@ -873,7 +873,13 @@ async function main() {
     check(String(probe[0]?.[key] ?? "") === String(expectedCount),
       `${key}: the live cluster reports ${String(probe[0]?.[key])}, contract wants ${expectedCount}`);
   }
-  const catalog = await sql.query<{ indexname: string; indexdef: string }>(
+  const catalog = await sql.query<{
+    indexname: string;
+    indexdef: string;
+    indisvalid: boolean;
+    indisready: boolean;
+    indislive: boolean;
+  }>(
     D086_INDEX_CATALOG_SQL, [D086_REQUIRED_INDEXES.map((index) => index.indexName)]);
   const catalogVerdict = classifyIndexCatalog(catalog);
   check(catalogVerdict.satisfied,

@@ -249,6 +249,18 @@ describe("dashboard v2 shell", () => {
   });
 
   it("renders the design's static freshness pill and binary comparison toggle", () => {
+    /*
+      THIS CASE RENDERS "Overview body" AND MUST RENDER IT ON /overview.
+
+      It inherited the suite default, `/platforms/meta/creatives`, and asserted
+      the shell's comparison toggle from there. That was invisible until
+      `reportingWindowApplicability` learned that Creative Studio reads the
+      primary reporting window only — its comparison board compares selected
+      ROWS, not a second date range — and stopped offering the control on that
+      surface. The control is correctly absent there, so the assertion below was
+      being made on the one route where it does not hold.
+    */
+    state.pathname = "/overview";
     const html = renderToStaticMarkup(
       <QueryClientProvider client={new QueryClient()}>
         <DashboardFrame userName="Shopify App Reviewer">

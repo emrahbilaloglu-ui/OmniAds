@@ -72,7 +72,14 @@ export function historyAccountLabel(account: {
   const id = account.id.trim();
   const name = (account.name ?? "").trim();
   const providerId = id.replace(/^act_/i, "");
-  if (name && name !== id && name !== providerId) return name;
+  if (
+    name &&
+    name !== id &&
+    name !== providerId &&
+    !looksLikeOpaqueIdentifier(name)
+  ) {
+    return name;
+  }
   const suffix = providerId.slice(-4);
   return suffix ? `Meta account ••••${suffix}` : "Meta account";
 }
@@ -218,6 +225,18 @@ export function historySummaryFor(entry: MetaHistoryEntry): string | null {
   }
   if (!summary) return statusSummary(entry.status);
 
+  // These sources persist machine-owned notes rather than operator copy. Only
+  // their exact public projection is translated; an unexpected value fails
+  // closed to the row status instead of becoming visible product language.
+  if (entry.provenance.source === "engine_v3_decision_events") {
+    return statusSummary(entry.status);
+  }
+  if (entry.provenance.source === "engine_v3_decision_outcomes_daily") {
+    return /^Persisted correlational outcome for .+\.?$/i.test(summary)
+      ? "Performance outcome recorded for this recommendation."
+      : statusSummary(entry.status);
+  }
+
   const knownReason = BUYER_REASON_CODES[summary.toLowerCase()];
   if (knownReason) return knownReason;
 
@@ -300,6 +319,17 @@ export function historySummaryFor(entry: MetaHistoryEntry): string | null {
   }
   if (/^Entity state row\.?$/i.test(summary)) return null;
 
+  if (/^mixed decision context; evaluate at ad grain\.?$/i.test(summary)) {
+    return "This creative appears in multiple ads, so no single recommendation was made.";
+  }
+  if (
+    /^decision context identity unavailable; evaluate at ad grain\.?$/i.test(
+      summary,
+    )
+  ) {
+    return "The matching ad could not be identified, so no recommendation was made.";
+  }
+
   const stateEvaluation = summary.match(
     /^.+? is covered by Meta Engine v\d+ state evaluation at (\S+) ROAS on (\d+) purchases\.?$/i,
   );
@@ -347,6 +377,13 @@ export function historySummaryFor(entry: MetaHistoryEntry): string | null {
   }
 
   if (isMachineShaped(summary)) {
+    return statusSummary(entry.status);
+  }
+
+  if (
+    entry.provenance.source === "meta_decision_action_outcome_logs" &&
+    !/^(?:ROAS|CPA|Spend|Revenue|Purchases?|Performance)\b/i.test(summary)
+  ) {
     return statusSummary(entry.status);
   }
   return summary;
@@ -472,9 +509,47 @@ function fallbackAction(entry: MetaHistoryEntry): string {
   }[entry.kind];
 }
 
+function sourceSpecificAction(
+  entry: MetaHistoryEntry,
+  title: string,
+): string | null {
+  const normalized = title.replace(/\s+/g, " ").trim().toLowerCase();
+
+  if (entry.provenance.source === "engine_v3_decision_events") {
+    const labels: Record<string, string> = {
+      "decision changed": "Decision changed",
+      "operator action": "Operator action recorded",
+      "data disabled": "Decision data unavailable",
+      "manual override": "Decision changed manually",
+    };
+    return labels[normalized] ?? fallbackAction(entry);
+  }
+
+  if (entry.provenance.source === "engine_v3_decision_outcomes_daily") {
+    const outcomeWindow = title.match(/^(\d+)-day outcome$/i);
+    return outcomeWindow
+      ? `${Number(outcomeWindow[1])}-day outcome`
+      : fallbackAction(entry);
+  }
+
+  if (entry.provenance.source === "meta_decision_action_outcome_logs") {
+    if (normalized === "operator response") return "Operator response recorded";
+    if (normalized === "preflight") return "Change checked";
+    if (normalized === "execute" || normalized === "rollback") {
+      return fallbackAction(entry);
+    }
+    if (normalized === "outcome") return "Outcome recorded";
+    return fallbackAction(entry);
+  }
+
+  return null;
+}
+
 function buyerFacingAction(entry: MetaHistoryEntry): string {
   let title = entry.title.trim();
   if (!title || looksLikeOpaqueIdentifier(title)) return fallbackAction(entry);
+  const sourceAction = sourceSpecificAction(entry, title);
+  if (sourceAction) return sourceAction;
   if (containsCampaignSetupInternals(title)) return "Review campaign setup";
   title = translateResolvedCampaignRole(title, "action") ?? title;
   if (/^Persisted (?:Meta journal entry|decision)$/i.test(title)) {
@@ -485,6 +560,9 @@ function buyerFacingAction(entry: MetaHistoryEntry): string {
   }
   if (/^Keep out of sales action queue\.?$/i.test(title)) {
     return "No sales action needed";
+  }
+  if (/^Out Of Scope decision\.?$/i.test(title)) {
+    return "No recommendation";
   }
   if (/^Provider write attempted$/i.test(title)) return "Change started";
   if (/^Provider write\b/i.test(title)) return fallbackAction(entry);

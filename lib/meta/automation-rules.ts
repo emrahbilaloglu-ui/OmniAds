@@ -157,6 +157,24 @@ export interface AutomationRuleAnchorValues {
  * Project the workspace Commercial Truth pack onto the anchor set a trigger may
  * reference. A field the pack does not supply stays `null`, and a rule that
  * needs it becomes unevaluable rather than falling back to a number nobody set.
+ *
+ * A POSITIVE TARGET ROAS PROJECTS THE CPA ANCHORS TO NULL.
+ *
+ * These four values are what an operator-authored trigger compares against, and
+ * the evaluator mints a live proposal from a rule that fires. Exposing
+ * `target_cpa` / `break_even_cpa` while a Target ROAS governs let a CPA rule
+ * evaluate and mint a purchase-budget proposal on an account whose only
+ * authoritative money-per-purchase is READY Meta-attributed AOV over that
+ * ratio — the same substitution the resolver, the maturity floor, the served
+ * recommendations and the native readiness all refuse.
+ *
+ * Nulling them here is deliberately the SAME mechanism as an absent field: the
+ * rule becomes `anchor_missing` / unevaluable and no proposal is produced. It
+ * is not a silent suppression — the reason is the one the evaluator already
+ * reports for an anchor nobody set.
+ *
+ * Without a positive Target ROAS the legacy CPA anchors are preserved exactly,
+ * because there the typed CPA genuinely is the anchor.
  */
 export function anchorsFromTargetPack(
   targetPack: {
@@ -166,11 +184,17 @@ export function anchorsFromTargetPack(
     breakEvenCpa: number | null;
   } | null,
 ): AutomationRuleAnchorValues {
+  const targetRoas = finiteNumber(targetPack?.targetRoas ?? null);
+  const targetRoasGoverns = targetRoas !== null && targetRoas > 0;
   return {
-    target_roas: finiteNumber(targetPack?.targetRoas ?? null),
+    target_roas: targetRoas,
     break_even_roas: finiteNumber(targetPack?.breakEvenRoas ?? null),
-    target_cpa: finiteNumber(targetPack?.targetCpa ?? null),
-    break_even_cpa: finiteNumber(targetPack?.breakEvenCpa ?? null),
+    target_cpa: targetRoasGoverns
+      ? null
+      : finiteNumber(targetPack?.targetCpa ?? null),
+    break_even_cpa: targetRoasGoverns
+      ? null
+      : finiteNumber(targetPack?.breakEvenCpa ?? null),
   };
 }
 

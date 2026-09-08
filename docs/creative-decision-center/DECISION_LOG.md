@@ -2489,6 +2489,13 @@ The exact rollback native epoch remains
 never deployed as independent production epochs. Immutable older rows retain
 their recorded semantics and are never inferred into D064.
 
+[Superseded by D091 and the Round 4 hashing correction: the two July epochs
+above are no longer current (`v3-2026-09-07-held-verdict-authority` /
+`v3-ad-2026-09-07-held-verdict-authority-shadow`), and canonical evaluation
+moved v5 → v6 with native-Ad evaluation v7 → v8. The other four contracts named
+in this paragraph are still unchanged. This paragraph stays as the record of
+what D064 shipped.]
+
 Reason: a correct resolver is insufficient when a held Cut is shown as
 `Fresh Test`, money copy silently changes currency, or the demo page is empty.
 Those defects make a five-second media-buyer review misleading even though the
@@ -8293,3 +8300,425 @@ Scope: this changes no decision math, threshold, role resolver, route name,
 provider write path or persisted row. Historical counterfactual simulation
 keeps its dedicated replay surfaces. Rollback is the route-only date binding
 revert; it would restore the known contradiction and is not data-destructive.
+## D091 — The canonical Meta decision basis, and the seven repairs around it
+
+Status: implemented locally, uncommitted, automation OFF. No DB, provider,
+deploy or env mutation. Codex review is the gate; this entry records the
+decisions so the review has something to disagree with.
+
+### The decision that reorders the others
+
+**For a Meta decision, the canonical AOV is the META PLATFORM AOV** — Meta's own
+attributed purchase revenue over its purchase count, the
+`physical_account_purchase_aov_90d` family. Native hard-decision authority, the
+spend unit and the derived CPA benchmark are computed from it:
+
+    derived CPA benchmark = Meta platform AOV / target ROAS
+
+Shopify AOV becomes separate, explicitly-labelled contextual evidence. It may
+not enter builder/validator agreement, outrank the Meta basis, size a hard
+action on any surface, or produce a provenance mismatch. Where the Meta AOV is
+absent the authority HOLDS explicitly; it is never silently replaced by a store
+figure. And **with a configured target ROAS, a manual CPA, a manual AOV and an
+explicit break-even ROAS are not required inputs.**
+
+This supersedes the D079 ladder's ranking of a sampled Meta-attributed AOV as a
+medium-confidence last resort, and it retires `observed_shopify_aov` as a
+hard-eligible basis on BOTH the native producer path and the served Decision
+Center path. INVARIANTS.md carries the amended rules.
+
+The ladder becomes a TWO-CASE SPLIT rather than a precedence list. With a Target
+ROAS the platform AOV is the basis and a configured Target CPA or operator AOV
+assumption is carried as evidence only; with NO Target ROAS nothing can divide
+an average order value, so legacy Target CPA compatibility is preserved exactly.
+`operator_aov` therefore joins `observed_shopify_aov` as a RETIRED rung —
+readable for persisted rows, never minted again, and a persisted row naming
+either under a Target ROAS fails CLOSED. Measured: every non-null persisted
+basis in `engine_v3_ad_account_calibration_daily` is already
+`physical_account_purchase_aov_90d` (578 `.v1` ready + 63 `.v2` ready, 416
+blocked); ZERO rows name `target_cpa`, `operator_aov` or `observed_shopify_aov`,
+so nothing is stranded. Of nine `business_target_packs` rows, the eight real
+businesses all carry a Target ROAS with `target_cpa` and `aov_assumption` NULL —
+the only row that could exercise the new precedence is `DEMO_BUSINESS_ID`.
+
+CONSEQUENCE WORTH STATING PLAINLY: an account that later configures a Target CPA
+*alongside* a Target ROAS now loses the CPA anchor entirely, including on the
+stop-loss Cut path below the 20-attributed-purchase floor. No real account is in
+that shape today, so the tests are the only thing guarding it.
+
+That consequence briefly went further than intended, and the real-PostgreSQL
+economics seam is what caught it. `attachSizedIntents` in `lib/meta/snapshot.ts`
+still skipped the `computeMetaAttributedAov` read whenever a Target CPA or an
+operator AOV was configured — a short-circuit that was correct while those were
+the ladder's top rungs. After the split it left CASE 1 with nothing to divide,
+so such an account sized NOTHING at all: it lost the CPA anchor by design and
+the Meta basis by accident. It also disagreed with itself, because
+`account-decision-profile.ts` passes the Meta AOV unconditionally and the
+retained verdict for the same account carried `meta_derived_aov`. Two answers to
+"what is a purchase worth" for one account is the shape that produced the 117
+mismatch runs. The read is now skipped only where it cannot be used — no Target
+ROAS, hence no divisor — and the seam's own fixture was rebuilt on the Meta
+basis, with a Shopify permutation kept as a POSITIVE control proving the store
+changes no number, and the Meta sample as the negative one.
+
+Reason, measured read-only on 2026-09-07 (build `a2eb1b1b1`, deployed):
+
+- `engine_v3_native_ad_decisions_shadow_job` had **117 failed runs in 24 hours** —
+  Grandmix 39, IwaStore 39, TheSwaf 39 — every one
+  `native_target_authority_mismatch`. Those three accounts produced **zero**
+  decision rows that day while ten other accounts produced rows.
+- The cause was a race, not a disagreement about economics. The builder chose
+  `physical_account_purchase_aov_90d`. The validator recomputed an expected
+  basis of `observed_shopify_aov` because `observedShopifyAovIsUsable` tested
+  only status, amount and currency and **never consulted the cutoff**, while
+  `resolveObservedShopifyAov` stamps `knowledgeAsOf` from the wall clock and no
+  production caller passes a cutoff. On `act_805150454596350` the cell cutoff
+  was `03:13:19.302` and the store evidence was stamped `03:13:20.188Z` — **886
+  milliseconds later**, and three accounts went dark.
+
+Removing Shopify from the agreement makes the race unreachable by construction
+rather than patching its timing. A basis census over every `as_of_date` found
+**zero** persisted rows naming `observed_shopify_aov`, so nothing is stranded;
+the persisted `.v1`/`.v2` authorities keep recomputing their hashes unchanged
+and no backfill is proposed.
+
+### The other six repairs
+
+**Sync and storage.** A non-OK Graph response now records status, error code,
+subcode, `is_transient` and `fbtrace_id` — never the token and never the body.
+Retry and pagination are bounded. `MetaPagedFieldDegradation` gained
+`recovered: boolean`: a narrowing that did NOT fix a refusal no longer
+attributes that refusal to the caller's optional field names, which it had been
+persisting into `meta_raw_snapshots.request_context.pagination`. On a PARTIAL
+manifest, observed-present rows are delta-deduped against the baseline instead
+of rewritten, and absence or scope-exit is still never derived from a partial
+payload. A compaction/retention runbook for the 6 GiB fence is WRITTEN AND NOT
+RUN (`docs/architecture/state-history-6gib-fence-relief-runbook.md`); the fence
+was measured at 6,443,089,920 B against a 6,442,450,944 B cap, 638,976 B over.
+
+**Read model.** When the latest terminal native job has FAILED, the workspace
+serves the last complete successful exact-Ad generation for the same
+business/account/scope, read-only, carrying its age and an explicit degraded
+marker. The failure stays visible; Apply, automation and provider execution are
+definitively off; recovery returns to latest-native atomically at the SQL.
+
+*This amends D054*, precisely, in five parts:
+
+(a) A newer failed run still strips the older successful generation's
+    AUTHORITY. It no longer removes that generation from view. A newer
+    non-overlap-SKIPPED run is unchanged and still falls back to legacy
+    creative evidence.
+(b) The retained generation may be served ONLY through the Decisions workspace
+    envelope, which opts in explicitly. Creative Briefing and the engine-v3
+    evidence route reach the same readers without that opt-in and keep failing
+    closed on `native_latest_job_failed`.
+(c) When served, the envelope reports `source.status = "unavailable"` with
+    `source.authority` still `native_ad` and `source.fallbackReason =
+    "native_latest_job_failed_serving_last_successful_generation"`, and every
+    served decision carries `actionEligible: false`, `authorizedAction: null`
+    and `executionReadiness: "decision_not_authorized"` — so
+    `buildMetaDecisionPipelineHealth` refuses `executionReady` and no provider
+    write can originate from it. Label, reason, confidence and badges are
+    untouched.
+(d) The per-decision review-only reason is FILLED, never overwritten. A row
+    that already states why it is review-only keeps its own sentence: the
+    marker used to clobber it on every decision, and because the Archive note
+    branches only on `current_hierarchy_is_not_active` /
+    `current_hierarchy_status_is_unknown`, that silently deleted the Archive
+    lane's explanation on 83 rows for Grandmix and 319 for TheSwaf — the two
+    accounts this fallback exists to rescue.
+(e) The retained generation has a MAXIMUM AGE. Beyond it the pre-existing
+    behaviour returns. Seven days is the engine's own recent window — every
+    "recent" figure these rows carry is aggregated as
+    `date >= as_of_date - INTERVAL '6 days'` — so past seven days the retained
+    generation's window and a run today's window share no day at all. A null,
+    unparsable or future as-of day is refused rather than treated as fresh.
+
+D054's REASON — that a producer failure could be hidden indefinitely — is
+preserved exactly: the failure is marked, surfaced and unexecutable. What
+changed is that an operator with a working decision from yesterday is shown it,
+marked stale, instead of being shown nothing.
+
+**Verdict versus execution.** The mathematical verdict and its specific held
+reason stay visible; `autoExecuteEligible` and provider-write eligibility are a
+separate gate. `META_AUTOMATION_LIVE_WRITES`, a missing control row, the kill
+switch, the budget endpoint and episode/preflight affect Apply, auto and amount
+only — never the verdict, the reason or the operator lane.
+`CAMPAIGN_CONTEXT_AUTHORITY_RESOLVER_VERSION` is deliberately NOT armed: its
+D082 replay quality is accuracy 0.5714 with recall 0, and arming it is out of
+scope.
+
+**Scale, Refresh and target policy.** A readiness floor may close EXECUTION; it
+may not delete the operator candidate, and observed/required plus the reason
+stay visible. Grandmix's exact purchase cell — scale 19 of 30, refresh 0 of 20 —
+is the worked case. The ad-level fatigue/lifecycle evidence contract is built
+from grain-safe, PIT-safe AD evidence rather than creative-grain data; where the
+evidence does not exist a Refresh is openly held and never ready.
+
+**Directional label.** One mapper owns direction, and no prose is authority.
+`scale_for_profitability` names a DEFENSIVE verdict —
+`maybeProfitabilityRecommendation` is its only producer and returns null unless
+the campaign is below both `weakRoasThreshold` and `cutCeiling` — so it can
+never carry a Scale label. Live on 2026-09-07: **106 rows** carried
+`decision_label = 'scale'` over "Reduce spend pressure, tighten the bid or
+audience, and reallocate budget toward stronger campaigns."
+
+Three things had to change together, because each alone left a path open:
+`campaign-label-guard` inferred "scale" from set membership and wrote it into
+`decisionLabel`; `rec-presentation` carried a byte-identical second copy of the
+rule with the older precedence and wrote ITS answer back onto the same field;
+and the guard corrected only the unresolved-role branch, so the inverted chip
+would have returned the day the resolver became trusted. A promotion minted FROM
+a defensive verdict is still defensive — **67** persisted
+`promote_test_to_main` rows carry `labelTransform.fromType =
+'scale_for_profitability'` and are corrected on read.
+
+The English vocabulary test that chose Cut over Tune is GONE rather than
+extended. Across every persisted row of this type, **zero** contain "pause",
+"cut" or "stop": the branch had never fired and could not. A Cut now requires an
+explicit structured label from a builder. The 178 rows carrying
+`confidenceReason: "severe_loser_bypass"` are deliberately not read as a stop
+intent — their own `decision` field says "Watch efficiency before making larger
+cuts", and reading a stop out of a confidence-bypass flag would invent an
+authority the engine never claimed.
+
+**Presentation.** ACTIVE inventory that no producer has decided is no longer
+synthesised into a decision row. The placeholder is not merely unpublished — it
+is not BUILT: `activeInventoryAdId` is a census returning an identity or
+nothing. Those rows had consumed slots of the response cap, counted into
+`blockedCount` and `statePreCapCounts.blocked`, and inflated
+`eligiblePreCapCount` so the surface offered to fetch decisions that do not
+exist. On Grandmix the whole page was them, and the real held verdicts were
+pushed off it. The population is served as `ads.pendingInventoryCount` plus one
+limitation sentence, which the Creatives scope now renders — `creativesNotice`
+had been a declared prop that reached no pixel, computed on every render and
+discarded.
+
+A zero `effectiveTargetRoas` is served as null. `truth_source =
+'global_default'` persists a target of ZERO on **6,365 of 11,438** native rows,
+all of them zero (min 0, max 0), and the money line rendered "vs 0.00 target"
+beside a real ROAS — a goal nobody set, printed as a goal every ad clears.
+
+A "Verify pixel/CAPI" instruction is no longer produced from an absence. A
+contradiction needs two observations that disagree; a measured zero spend with
+no purchase is one observation, and its ROAS is `0 / 0`. That sentence was on
+**5,230 of 11,438** rows and every one carried `spend = 0` AND `purchases = 0`.
+
+### The producer epoch moves; the evaluation envelope does not
+
+`reason`, `blockers`, `preAuthorityLabel`, `authorityBlocker` and
+`blockedActionType` all change for identical inputs, and all five feed the
+sha256 `decisionHash` in `normalizeDecision`. INVARIANTS.md requires a new
+versioned producer/evaluation contract for exactly that, so:
+
+- `ENGINE_VERSION`: `v3-2026-07-18-decision-presentation-hardening` →
+  `v3-2026-09-07-held-verdict-authority`
+- `NATIVE_AD_ENGINE_VERSION`:
+  `v3-ad-2026-07-18-decision-presentation-hardening-shadow` →
+  `v3-ad-2026-09-07-held-verdict-authority-shadow`
+
+BOTH move because `ratioZonesGate` is shared: `jobs/decisions-job.ts` (legacy
+creative) and `jobs/ad-decisions-job.ts` (native ad) both reach it through
+`decideCreative`, and each stamps its own constant.
+
+~~`CANONICAL_EVALUATION_CONTRACT_VERSION` (`engine-v3-canonical-evaluation.v5`)
+and `AD_DECISION_EVALUATION_CONTRACT_VERSION`
+(`engine-v3-canonical-ad-evaluation.v7`) are deliberately NOT bumped.~~ Those
+version the ENVELOPE — which fields are canonicalized and how they are hashed —
+and the envelope is unchanged. What changed is what the producer decides inside
+it.
+
+**SUPERSEDED IN ROUND 4 — both WERE bumped, for a different reason.** The
+paragraph above was true when written: nothing in the basis change touched the
+envelope. The Round 4 hashing correction then did touch it.
+`normalizeSpendUnitEvidence` stopped spreading `SpendUnitEvidence` wholesale
+and now ENUMERATES the members it canonicalizes, dropping the three Shopify
+members and every `observed_shopify_aov_*` warning — so that a store-only
+change stops moving `contextHash`, and so that adding a field to
+`SpendUnitEvidence` can never again move every hash with no version key moving
+at all. Production already showed `.v7` labelling two different field lists,
+14,340 rows written without the Shopify keys and 23 with them, which is exactly
+the state a version key exists to prevent.
+
+- `CANONICAL_EVALUATION_CONTRACT_VERSION`: `engine-v3-canonical-evaluation.v5`
+  → `engine-v3-canonical-evaluation.v6`
+- `AD_DECISION_EVALUATION_CONTRACT_VERSION`:
+  `engine-v3-canonical-ad-evaluation.v7` → `engine-v3-canonical-ad-evaluation.v8`
+- Native-Ad spend-unit authority gains its own key at
+  `engine-v3-native-ad-spend-unit-authority.v3` (minted); `.v1` and `.v2`
+  remain readable and recompute under their own rules.
+
+Rows under the older keys stay readable under their own key and are never
+recomputed under current semantics. The producer/envelope SEPARATION the struck
+paragraph asserts is unchanged and still governs: an envelope key moves only
+when the encoding moves, and this one did.
+
+Old snapshots keep the epoch string they were written with. No migration:
+`lib/migrations.ts` contains no literal engine-version string, and every reader
+compares against the constant rather than parsing it, reporting
+`engine_epoch_mismatch` / `engine_version_drift` — "not current", never
+"unreadable". A row written under the old epoch is therefore never replayed
+silently under the new logic.
+
+What moved behind the epoch: a near-scale row now carries the numeric
+`scale_account_benchmark_ready` observed/threshold instead of prose; a
+scale-zone row whose only gap is the account winner benchmark publishes a HELD
+`scale`; a decayed row with no lifecycle verdict publishes a HELD `refresh`,
+above the economic strip only. `native_metrics_unavailable` is now also emitted
+by `ratioZonesGate` for those two holds — the honest code, replacing a
+hard-coded `profile_hard_action_ineligible` that named the one state which
+cannot be true when the stamp is written (`finalizeDecision` honours a
+requested hold only when the profile ALLOWS the action).
+
+### Two invariant breaches this work introduced, and closed
+
+Recorded because an adversarial review found them, not because they shipped:
+
+1. **A held Refresh erased an economic stop-loss Cut.** The new branch sat
+   inside the target-band block but BEFORE the `expanded_economic_loss` guard,
+   so it terminated a below-break-even row as `keep` with
+   `blocked_action_type: refresh` before the D063 economic Cut/recovery/evidence
+   branch could run — with the Cut then unrecoverable downstream. INVARIANTS.md
+   forbids precisely that. The branch now sits inside
+   `canonicalCutZone !== "expanded_economic_loss"`, after
+   `authorityDeniedExpandedCutReview`. The blast radius was not small:
+   `resolveNativeAdFrequencyPressureThreshold` returns null below eight sibling
+   ads, forcing `fatigueStatus: "unknown"`, which is this branch's trigger — so
+   every thin calibration cell funnelled into it.
+2. **The producer epoch was not bumped**, which is the section above.
+
+### The ad-grain lifecycle evidence contract, and why nothing is fatigued
+
+Named and versioned: `native-ad-lifecycle-evidence.v2-disjoint-14d-composite`.
+It admits equal, disjoint, directly ADJACENT 14/14 comparison windows —
+adjacency checked arithmetically, so neither an overlap nor a gap passes — takes
+its frequency percentile PROVIDER-ACCOUNT-WIDE at a floor of eight observations,
+requires a CTR + click-to-purchase composite rather than a single rate, rejects
+any band ending after the decision cutoff, and hashes the exact band inputs.
+It fails CLOSED to `fatigueStatus: "unknown"`.
+
+Three of Codex's six claims about the previous implementation did not survive
+checking, and are recorded because the corrections matter more than the claims:
+the percentile was ALREADY account-wide (a stale doc comment said "profile
+group" and the code did not); the bands were ALREADY disjoint (the old code
+differenced and refused a negative remainder rather than clamping) — they were
+merely UNEQUAL, 7 against 21; and the alleged over-promise in the doc comment
+did not exist. What was true: the windows were unequal, the two "signals" shared
+a purchase numerator so they were one observation counted twice, and there was
+no provenance.
+
+DISPOSITION: fatigued authority is NOT granted, and the reason is a production
+defect rather than a design choice. `meta_ad_daily.link_clicks` — the
+click-to-purchase denominator — has collapsed:
+
+| month | rows | NULL | positive |
+|---|---|---|---|
+| 2026-03 | 13,182 | 0 | 7,666 |
+| 2026-04 | 11,722 | 0 | 7,219 |
+| 2026-05 | 13,751 | 0 | 738 |
+| 2026-06 | 14,540 | 0 | 2,676 |
+| 2026-07 | 16,452 | 0 | 58 |
+| 2026-08 | 11,948 | 5,676 | 0 |
+| 2026-09 | 2,327 | 2,327 | 0 |
+
+All-time the column is populated (122,825 positive rows since 2024-03-19), so
+this is a live INGESTION REGRESSION, not a missing column. Until it is repaired
+no native ad can be labelled fatigued. A Refresh stays openly HELD — visible,
+`label: "keep"`, `blocked_action_type: "refresh"`, authorizing nothing — which
+is the designed fail-closed outcome and not a silent one.
+
+Blast radius today is nil: the latest native snapshot day carries zero rows with
+`label = 'refresh'` or `blocked_action_type = 'refresh'`, so no live refresh
+authority is removed. Provenance is published on held-Refresh blockers only
+(`refresh_ad_lifecycle_evidence_contract`, carrying the contract version, a hash
+prefix and the missing-evidence list); `blockers` is canonicalized by
+`normalizeDecision` and stored in `decision_output_json`, so a consumer can
+actually read it. The decay ratios remain unreachable and the comment says so.
+
+To UN-hold it, `HYDRATE_AD_DECISION_INPUTS_QUERY` in
+`lib/creative-decision-engine/data-source.ts` must materialize the 14/14 band
+pair — the shape already exists at creative grain in its own `historical_source`
+CTE — and the `link_clicks` ingestion must be repaired. Neither is in this
+change set.
+
+No second engine-version bump was taken for this: the epoch above is unreleased
+and zero production rows carry it.
+
+### Scope and rollback
+
+No schema migration is proposed and none was run. `ads.pendingInventoryCount`
+is an additive optional field, so payloads serialized before it stay readable;
+`decisionAvailability: "pending_native_evidence"` is retained as a
+compatibility value that the current producer never emits. Persisted history is
+not rewritten anywhere: the 106 inverted `decision_label` rows and the 67
+escalated promotions stay as written and are corrected on the READ.
+
+Rollback is a revert of the change set. It restores the three dark accounts,
+the inverted Scale chip, the fabricated tracking instruction and the zero
+target, and is not data-destructive.
+
+## D092 — The canonical commercial rule, and what an identity may see of it (2026-09-07)
+
+**Decision.** When a Target ROAS exists, the only authoritative spend unit for a
+Meta decision is READY Meta platform-attributed AOV divided by that Target ROAS.
+A Target CPA, a break-even CPA, an operator AOV assumption, the store's own AOV,
+their warnings, their row timestamps and any attribution AOV multiplier change
+no authoritative arithmetic, no maturity floor, no gate, no recommendation, no
+threshold, no decision identity, no generation identity and no D086 fingerprint.
+When a Target ROAS is ABSENT the legacy Target CPA compatibility path is
+preserved exactly, and there the CPA does govern and does key identity.
+
+**What was wrong.** The rule was stated for the spend unit and then contradicted
+by everything around it:
+
+- `resolveSpendUnit` multiplied Meta's attributed AOV by
+  `attributionAovAdjustmentMultiplier` on both the `meta_derived_aov` rung and
+  the `break_even_aov` stop-loss rung, so an attribution knob moved the unit,
+  the maturity floor, the thresholds and the identity.
+- `metaLossBudgetMaturity` chose `breakEvenCpa ?? targetCpa ?? accountCpa` and
+  never the canonical unit, so on an account carrying both a Target ROAS and a
+  legacy Target CPA the unit came from Meta's AOV while the gate deciding
+  whether that unit could act came from the CPA.
+- `maybeVolumeScaleRecommendation` vetoed a Scale on
+  `breakEvenCpa ?? targetCpa * 1.1`, so a typed CPA could suppress a
+  recommendation the ROAS basis had just authorized.
+- Three hash families digested the non-authoritative numbers, and dropping the
+  numbers alone would not have been enough: the target pack's `updatedAt` and
+  the native authority row's `sourceRowId` / `effectiveAt` / `recordedAt` move
+  on ANY re-save, so a CPA-only edit still moved every hash.
+
+**Consequence.** `lib/creative-decision-engine/commercial-semantic-projection.ts`
+is the single projection all three families read. Contracts moved because the
+same facts now produce different digests:
+`engine-v3-canonical-evaluation.v6 → .v7`,
+`engine-v3-canonical-ad-evaluation.v8 → .v9`,
+`engine-v3-native-ad-calibration.v3 → .v4`,
+`engine-v3-native-ad-spend-unit-authority.v3 → .v4`,
+`d086.budget-readiness-retention.v9 → .v10`, and the D086 artifact was
+regenerated through its own official generator at revision 10.
+
+**Old versions are readable, never authoritative.** `.v1`, `.v2` and `.v3`
+spend-unit authorities still parse and still hash-verify under the rules that
+minted them. They may not authorize a current decision:
+`nativeSpendUnitAuthorityMatchesTarget` refuses anything not minted by the
+current contract, and the producer re-mints on the next run. Judging an old row
+by today's ladder could either grant hard action on a retired rung or fail the
+whole native job closed with `native_target_authority_mismatch`.
+
+**Refresh provenance.** `native-ad-lifecycle-evidence.v2` hashed a receipt only
+when an admissible band pair existed, so a Refresh HELD for missing or invalid
+evidence carried `evidenceHash: null` — the outcome that most needs provenance
+had none, two holds with different causes were indistinguishable, and
+determinism could not be demonstrated. `.v3-full-receipt` hashes a full receipt
+for every outcome, held or authorized.
+
+**Impossible dates fail closed.** `Date.parse("2026-02-30T00:00:00Z")` does not
+fail; it returns midnight on 2026-03-02, and `2026-04-31` returns 2026-05-01.
+Band window dates are now round-tripped through `toISOString().slice(0, 10)` and
+must equal the string they came from, so a date that is not the day it claims to
+be is refused rather than silently redefining the window it bounds.
+
+**Rollback.** A revert of the change set restores the multiplier, the CPA-sized
+maturity floor and the CPA Scale veto, and returns every contract to its prior
+version. Persisted rows are not rewritten by either direction; they are re-minted
+by the next producer run.

@@ -263,11 +263,16 @@ interface NativeAdAccountAovEvidenceV1 {
 }
 
 interface NativeAdSpendUnitAuthorityV1 {
-  contractVersion: "engine-v3-native-ad-spend-unit-authority.v1";
+  contractVersion:
+    | "engine-v3-native-ad-spend-unit-authority.v1"
+    | "engine-v3-native-ad-spend-unit-authority.v2"
+    | "engine-v3-native-ad-spend-unit-authority.v3"
+    | "engine-v3-native-ad-spend-unit-authority.v4";
   status: "ready" | "blocked";
   basis:
     | "target_cpa"
     | "operator_aov"
+    | "observed_shopify_aov"
     | "physical_account_purchase_aov_90d"
     | null;
   businessId: string;
@@ -278,6 +283,7 @@ interface NativeAdSpendUnitAuthorityV1 {
   targetAuthorityHash: string;
   baseSpendUnit: number | null;
   accountAovEvidence: NativeAdAccountAovEvidenceV1;
+  observedShopifyAovEvidence?: ObservedShopifyAovEvidence | null;
   authorityHash: string;
 }
 
@@ -298,11 +304,79 @@ interface ExpandedEconomicCutAuthorityV1 {
 }
 ```
 
+`NativeAdSpendUnitAuthorityV1` above keeps its original interface name (it is
+what a persisted row's shape is called) but THREE versions are now READ and only
+`.v3` is minted (`NATIVE_AD_SPEND_UNIT_AUTHORITY_CONTRACT_VERSION`,
+`lib/creative-decision-engine/jobs/ad-calibration-job.ts`). An unrecognized
+version fails CLOSED — `nativeAdSpendUnitAuthorityHashContent` throws, and both
+callers that reach persisted data reject it first. `observedShopifyAovEvidence`
+is hashed under `.v2` only. `.v1` predates the source; `.v3` carries it and
+excludes it from `authorityHash`, the generation content and the cell input
+manifest. Rows are never backfilled between versions: each recomputes under its
+own key.
+
+`basis` likewise enumerates what a persisted row may NAME, not what a mint may
+choose. `operator_aov` and `observed_shopify_aov` are RETIRED bases (D091):
+readable so old rows parse, never minted, and never an expected basis — a row
+naming one now fails the validator closed. Measured on production: zero rows in
+`engine_v3_ad_account_calibration_daily`, on any `as_of_date`, carry either.
+
+**CPA AND ACCOUNT-CALIBRATION AUTHORITY IS LIMITED TO THE NO-TARGET-ROAS CASE.**
+Whenever a positive Target ROAS exists, the only authoritative money-per-purchase
+unit is READY same-provider-account, same-cutoff Meta platform-attributed AOV
+over that ratio. In that mode a Target CPA, a break-even CPA, the account's own
+measured `accountCpaP50` / `accountCpaSampleCount`, an operator AOV assumption, a
+Shopify AOV, a calibrated spend floor and an attribution multiplier may not
+authorize, threshold, size, fingerprint, hash or retain an action — and none of
+them may substitute for a missing or thin AOV. **A missing, thin, stale, future,
+malformed or unverifiable AOV HOLDS the action.** Where no positive Target ROAS
+exists the legacy CPA compatibility path applies unchanged, because there the
+typed CPA genuinely is the anchor and no ratio is being divided.
+
+Two consequences that are easy to state wrongly:
+
+- **Native Cut readiness holds OUTRIGHT, not downstream.** With a governing
+  Target ROAS and a spend-unit authority that is not READY,
+  `resolveNativeAdCalibrationActionReadiness` answers
+  `ready: false, reason: "commercial_spend_unit_authority_missing"` even when the
+  cell carries a sample-backed positive `roasRatioP25`. `calibrated_relative` is
+  reachable only on the no-Target-ROAS legacy path.
+- **Target ROAS is the RELATIVE boundary whenever it is positive.**
+  `metaRelativeCutRoasCeiling` returns the Target ROAS and falls to a configured
+  break-even only when there is no Target ROAS at all. Break-even powers the
+  separately labeled economic stop-loss path (`metaCutRoasCeiling` /
+  `metaCutRoasReviewCeiling`), which is optional in both directions: it never
+  fires without a configured break-even, and its absence never blocks a relative
+  decision.
+
+**Amended by D091 — read this before the two paragraphs below; their break-even
+requirement is superseded.** Cut authority needs a commercial target authority
+of EITHER kind, not both: `hasCommercialTargetAuthority` is
+`targetRoasAuthority || breakEvenRoasAuthority`
+(`lib/creative-decision-engine/jobs/ad-calibration-job.ts`), and the served
+equivalent is `cutAnchorEligible = targetPackAuthoritative &&
+(breakEvenAnchored || targetRoasAnchored)`
+(`lib/creative-decision-engine/account-decision-profile.ts`). An explicit
+break-even ROAS is therefore no longer a required Cut input on either path:
+nothing in the computation consumed it to reach that refusal — every spend-unit
+lane takes an explicit Target CPA whole or divides a canonical AOV by the
+Target ROAS, and the relative Cut boundary is itself a Target-ROAS ratio — so
+the requirement gated an input it never used. What break-even still does is
+unchanged: it is the only thing that defines the bounded P25-to-break-even
+economic strip (`cut-policy.hasExplicitBreakEven`), and a Target ROAS is never
+multiplied into a synthetic loss boundary in its place. Where no break-even
+exists the Cut is anchored, not widened. The refusal that remains is real: with
+NEITHER target present there is no commercial anchor at all and the action is
+blocked by name (`target_roas_authority_missing`). The block reason
+`break_even_roas_authority_missing` stays in the union unused by new rows,
+because rows minted before this rule are persisted with it and must still
+parse.
+
 A ready `commercial_stop_loss` proof is valid only for exact purchase-cell
-`cut`, requires explicit target, break-even, and spend-unit authority, and
+`cut`, requires explicit target, ~~break-even,~~ and spend-unit authority, and
 declares zero required peer samples when no usable exact-cell P25 exists. A
 ready `calibrated_relative_with_economic_stop_loss` proof has the same
-target and break-even requirements, a valid loss-budget spend unit from either
+target and ~~break-even~~ requirements, a valid loss-budget spend unit from either
 the authenticated account/currency receipt or the canonical exact-cell CPA P50
 at the retained sample floor, plus a positive exact-cell P25 backed by the
 retained Cut sample floor. It tells the canonical resolver that both the legacy
@@ -355,16 +429,184 @@ threshold, recovery, Scale, Refresh, or confidence. V1/v2 receipts remain
 readable only under their original engine epochs and must not be upgraded by
 inference.
 
-### D061-D066 Release Version Matrix
+### Release Version Matrix — CURRENT (D091, 2026-09-07)
+
+This is the matrix to read. The D061-D066 matrix beneath it is retained as the
+record of a superseded release and must not be used as a current value.
 
 | Contract surface | Release value |
 | --- | --- |
-| Canonical engine | `v3-2026-07-18-decision-presentation-hardening` |
-| Native-Ad engine | `v3-ad-2026-07-18-decision-presentation-hardening-shadow` |
+| Canonical engine | `v3-2026-09-07-held-verdict-authority` |
+| Native-Ad engine | `v3-ad-2026-09-07-held-verdict-authority-shadow` |
+| Exact native rollback epoch | `v3-ad-2026-07-15-commercial-stop-loss-shadow` |
+| Native calibration | `engine-v3-native-ad-calibration.v5` (minted); `.v3` durably recomputable; `.v1`/`.v2` offline-only and refused as superseded. See the durable-compatibility note below. |
+| Canonical evaluation | `engine-v3-canonical-evaluation.v9` |
+| Native-Ad evaluation | `engine-v3-canonical-ad-evaluation.v11` |
+| Native-Ad spend-unit authority | `engine-v3-native-ad-spend-unit-authority.v4` (minted); `.v1`, `.v2` and `.v3` readable — readable means PARSED and hash-verified, never authoritative: a historical version cannot authorize a current decision |
+| Native-Ad lifecycle evidence | `native-ad-lifecycle-evidence.v3-full-receipt` |
+| D086 retention identity | `d086.budget-readiness-retention.v12`; `.v1`–`.v11` superseded (eleven entries in `D086_SUPERSEDED_RETENTION_CONTRACTS`) — a superseded stamp is readable as HISTORY only and can never retain or authorize a current verdict |
+| Native-Ad outcome | `engine-v3-ad-decision-outcome.v3` |
+| Decisions workspace read | `meta-decisions-workspace.read.v4` |
+| Classification overlay | `meta-decisions-classification-overlay.v4` |
+| Decisions OS presentation | `meta-os-decisions.presentation.v5` |
+| Automation rule evaluation report | `automation-rule-evaluation-report.v2` — `anchors` are read from `business_target_pack_history` AS OF the evaluation cutoff, never from the current workspace snapshot |
+| D086 input-pack artifact | `d086.budget-readiness-input-pack.v13` (`r13`); `r1`–`r12` frozen and byte-recomputable, verified by the generator's own `frozenRevisions` check. `r12` is additionally pinned by the D077 release-candidate manifest at `a508d90527b441b6a82cf25537e1b5b5425203f72d22d6083cceb6bad0eb4b6b` and is recorded in `D086_REJECTED_REVISIONS` with that hash |
+| D086 pinned local-Postgres evidence | `d086-local-postgres-evidence-2026-09-02.r4.json` (`d086.capture-to-readiness-evidence.v3`), sha256 `cceb24fadf6d3814481b78b597e14b2852b1e7dafb93d92ca9c97cb5107b29dc`. It records the current SEVEN-index catalogue with `indisvalid` / `indisready` / `indislive` on every entry; the verifier refuses a short, extra, wrong-name or unusable catalogue and refuses the retired `meta_entity_observation_receipts_occurrence`, `idx_meta_entity_observation_receipts_freshness` and `idx_meta_entity_observation_receipts_cohort`. `r1`–`r3` remain frozen; `r3` is D077-pinned and is never rewritten |
+
+### Durable calibration compatibility, exactly as implemented (Round 9)
+
+Both calibration tables carry an immutable `contract_version` column. What
+actually happens, function by function:
+
+- **Writing.** `INSERT_NATIVE_AD_CALIBRATION_BATCH_SQL` and
+  `INSERT_NATIVE_AD_CALIBRATION_SQL` both write `contract_version`; the cell
+  inherits the batch's, so agreement is true by construction on every new row.
+- **Migrating.** `ALTER_NATIVE_AD_CALIBRATION_CONTRACT_VERSION_SQL` adds the
+  column with `DEFAULT 'legacy_unknown' NOT NULL` and then drops the default.
+  `ADD COLUMN … DEFAULT … NOT NULL` is metadata-only on PostgreSQL 11+ and fires
+  no row trigger, which matters because both tables raise unconditionally on
+  `UPDATE` — a backfill written as an `UPDATE` would abort the migration.
+- **Backfill value.** `legacy_unknown`, NOT `.v3` and NOT `.v4`. `git show HEAD`
+  reads `.v3`; `git log -S'engine-v3-native-ad-calibration.v4'` returns zero
+  commits, so `.v4` never wrote a row; and `.v1`, `.v2` and `.v3` each appear in
+  committed history, so existing rows could have been written by any of the
+  three and nothing on the row discriminates. Guessing would make a row
+  recompute against a formula it was not written with and fail as if corrupt.
+- **Reading.** `READ_NATIVE_AD_ACCOUNT_CALIBRATION_CELL_SQL` joins on
+  `batch.contract_version = calibration.contract_version`, and
+  `nativeCalibrationContractVersion` asserts the same agreement on the mapped
+  object. A missing stamp maps to `legacy_unknown`, never to the current value.
+- **Recomputing — and the exact boundary of what is DURABLY readable.**
+  `recomputeNativeAdCalibrationCellInputManifestHash` and
+  `computeNativeAdCalibrationCellSetHash` take the row's OWN version.
+  `nativeAdCalibrationCellInputManifestContentLegacy` reproduces the **`.v3`**
+  formula literally (five fields blanked, the row's clocks KEPT), and
+  `nativeAdCalibrationBatchGenerationContent` applies the semantic target
+  projection only from `.v5` on and omits `spendUnitAuthority` entirely for
+  `.v1`/`.v2` — the member first appears in the `.v3` blob.
+
+  **`.v1` and `.v2` are NOT durably readable, and this table no longer claims
+  they are.** Their cell manifest digested
+  `observations: observations.map(observationManifestEntry)` and
+  `targetAuthority: purchase ? … : null`, and the calibration table persists
+  neither input. `nativeAdCalibrationDurablyRecomputable` answers false for
+  both; `recomputeNativeAdCalibrationCellInputManifestHash` THROWS rather than
+  returning a `.v3`-shaped digest that would report a good historical row as
+  corrupt; and `validateCell` returns `superseded` without attempting a
+  recompute. Their formula is reproducible OFFLINE only, through the exported
+  `nativeAdCalibrationCellInputManifestContentV1V2` and the synthetic fixtures
+  in `native-ad-historical-calibration-formulas.test.ts` — which are built from
+  that implementation and are **not** captured production rows.
+- **Refusing.** `validateCell` returns `superseded` for a stamp that is not the
+  current one (after re-deriving it under its own formula, so a genuinely
+  corrupt historical row still reports `invalid`), and
+  `resolveNativeAdAccountDecisionProfile` fails closed with
+  `native_calibration_contract_superseded`.
+
+There is no `assertNativeAdCalibrationBatchIntegrity` version gate doing this
+work — that function checks a batch being WRITTEN, not a row being read, and an
+earlier revision of this table named it as the durable compatibility mechanism.
+It was not one.
+
+### Current authority vs historical record — the tables
+
+Two questions get confused constantly, and confusing them is how a stale row
+becomes an authority: **which table does a decision taken TODAY read**, and
+**which table is retained so a past decision can still be explained**. They are
+listed separately here, and every other file in this set
+(`START_HERE.md`, `INVARIANTS.md`, `GOLDEN_CASES.md`, `DATA_READINESS.md`)
+defers to this list rather than restating it.
+
+READ FOR A CURRENT DECISION — the authority for the grain named:
+
+| Table | Grain / role |
+| --- | --- |
+| `meta_account_daily`, `meta_campaign_daily`, `meta_adset_daily`, `meta_ad_daily` | Authoritative provider FACTS, owned by insights sync (D066). Admitted only as `truth_state = 'finalized' AND validation_status = 'passed' AND created_at <= cutoff AND updated_at <= cutoff` |
+| `engine_v3_ad_decision_snapshots_daily` | Native Ad-grain verdicts — the `native_ad` authority |
+| `engine_v3_decision_snapshots_daily` | Creative-grain verdicts — the `legacy_creative` fallback authority |
+| `engine_v3_ad_account_calibration_daily` | Native calibration cells, and the spend-unit authority inside `action_readiness_json` |
+| `engine_v3_account_calibration_daily` | Account calibration baselines |
+| `engine_v3_creative_lifecycle_daily` | Creative lifecycle overlay (overlay only; never a source of spend or ROAS) |
+| `engine_v3_campaign_context_daily` | Campaign role context. Trusted for ACTION only through `isContextTrustedForAction` — high trust, `system_inferred`, validated resolver identity, high inference confidence |
+| `engine_v3_account_profile_output` | D086 per-canonical-action commercial verdict |
+| `business_target_packs` | Target / break-even ROAS |
+
+RETAINED, READABLE, NEVER A CURRENT AUTHORITY:
+
+| Table / version | Why it is not current |
+| --- | --- |
+| `meta_campaign_config_history`, `meta_adset_config_history` | Their only writer records TRANSITIONS; a transition row is not a statement about today's configuration |
+| `meta_entity_state_history` | Point-in-time observations. Read AS OF a cutoff; the present-day dimension tables are consulted only in present-day mode |
+| `engine_v3_campaign_role_authority` | Retained role attestations for past decisions |
+| Spend-unit authority `.v1`, `.v2`, `.v3` | Readable means PARSED and hash-verified under each row's own rule. `.v4` is the only version that may authorize |
+| Superseded contract versions in the matrix above | Retained so a past receipt still verifies |
+| `lib/archive/v1-v2-v21/**` | Archived engines; excluded from the default vitest run |
+
+The rule that ties the two lists together: **a value read out of the second
+list may explain a decision and may never grant one.** A `campaignKind` read
+back off a persisted snapshot, a `.v3` authority row, a config-history
+transition — each is evidence about the past, and each is re-derived from the
+first list before it can move a current verdict.
+
+Each value's source of truth is its constant, never this table: `ENGINE_VERSION`
+and `NATIVE_AD_ENGINE_VERSION` in `lib/creative-decision-engine/types.ts`,
+`CANONICAL_EVALUATION_CONTRACT_VERSION` in
+`lib/creative-decision-engine/canonical-evaluation.ts`,
+`AD_DECISION_EVALUATION_CONTRACT_VERSION` in
+`lib/creative-decision-engine/evaluation-store.ts`,
+`NATIVE_AD_SPEND_UNIT_AUTHORITY_CONTRACT_VERSION` and
+`NATIVE_AD_CALIBRATION_CONTRACT_VERSION` in
+`lib/creative-decision-engine/jobs/ad-calibration-job.ts`,
+`NATIVE_AD_OPERATOR_ROLLBACK_ENGINE_VERSION` in
+`lib/creative-decision-engine/jobs/ad-operator-response-job.ts`,
+`AD_DECISION_OUTCOME_CONTRACT_VERSION` in
+`lib/creative-decision-engine/jobs/ad-decision-outcomes-job.ts`, and
+the three presentation constants in `lib/meta/decisions-workspace-contract.ts`
+and `lib/meta/decisions-os-contract.ts`.
+
+Four rows moved since the D061-D066 matrix, and they moved for two different
+reasons:
+
+- **Both engine epochs (PRODUCER).** `reason`, `blockers`, `preAuthorityLabel`,
+  `authorityBlocker` and `blockedActionType` all change for identical inputs
+  under D091, and all five feed the sha256 `decisionHash` in `normalizeDecision`.
+  Both epochs move together because `ratioZonesGate` is shared: the legacy
+  creative job and the native ad job both reach it through `decideCreative` and
+  each stamps its own constant.
+- **Canonical evaluation `.v5 → .v6` and Native-Ad evaluation `.v7 → .v8`
+  (ENVELOPE).** D091's own entry in `DECISION_LOG.md` states these were
+  deliberately NOT bumped, and that statement was true when written — the
+  envelope was unchanged then. It was bumped afterwards, for a different
+  reason: `normalizeSpendUnitEvidence` stopped spreading `SpendUnitEvidence`
+  wholesale and now ENUMERATES what it canonicalizes, dropping the three
+  Shopify members and the `observed_shopify_aov_*` warnings. Under the bare
+  spread the hashed field list was whatever the interface happened to carry, so
+  adding the Shopify members had silently moved every `contextHash` with no
+  version key moving at all — production already shows `.v7` labelling two
+  different field lists, 14,340 rows without the Shopify keys and 23 with them.
+  Rows under the older keys stay readable under their own key and are never
+  recomputed under current semantics.
+
+The `Native-Ad spend-unit authority` row is NEW here; it was never in the
+D061-D066 matrix because the authority did not carry a version key of its own
+then.
+
+### D061-D066 Release Version Matrix (HISTORICAL — superseded by the matrix above)
+
+**Do not read a current value out of this table.** It records what the
+D061-D066 release shipped. The Canonical-engine, Native-Ad-engine,
+Canonical-evaluation and Native-Ad-evaluation rows are all superseded by D091
+and by the envelope bump described above; the other rows happen to be unchanged,
+which is a fact about those contracts and not a licence to trust this table.
+
+| Contract surface | Release value (as shipped at D061-D066) |
+| --- | --- |
+| Canonical engine | ~~`v3-2026-07-18-decision-presentation-hardening`~~ |
+| Native-Ad engine | ~~`v3-ad-2026-07-18-decision-presentation-hardening-shadow`~~ |
 | Exact native rollback epoch | `v3-ad-2026-07-15-commercial-stop-loss-shadow` |
 | Native calibration | `engine-v3-native-ad-calibration.v3` |
-| Canonical evaluation | `engine-v3-canonical-evaluation.v5` |
-| Native-Ad evaluation | `engine-v3-canonical-ad-evaluation.v7` |
+| Canonical evaluation | ~~`engine-v3-canonical-evaluation.v5`~~ |
+| Native-Ad evaluation | ~~`engine-v3-canonical-ad-evaluation.v7`~~ |
 | Native-Ad outcome | `engine-v3-ad-decision-outcome.v3` |
 | Decisions workspace read | `meta-decisions-workspace.read.v4` |
 | Classification overlay | `meta-decisions-classification-overlay.v4` |
@@ -375,7 +617,9 @@ single release epoch while retaining the already-bumped v3/v5/v7 contracts
 above. D065 execution hardening and D066 fact-ownership/replay proof do not
 change resolver output or persisted decision shape, so they use that same
 release epoch without another version bump. Older immutable rows remain
-readable only under their recorded contracts.
+readable only under their recorded contracts — which is why the struck values
+above are still the correct key for rows written under them, reported as
+`engine_epoch_mismatch` / `engine_version_drift` rather than as unreadable.
 
 ## Canonical Briefing Authority And Synthetic Demo (D062, D064)
 
@@ -808,7 +1052,16 @@ non-hard Keep/Test More with the identical action-semantic tuple while only
 calibration-profile evidence changes. All three require unchanged exact
 identity/input/data health/context and no hard label, `cut_candidate`, or
 pending-transition artifact. `calibration_restatement` additionally requires
-null blocker/blocked action/authorization and no hysteresis. A reason or badge
+null blocker/blocked action/authorization and no hysteresis, OR — added by D091
+— an IDENTICAL held verdict on both sides: the same `preAuthorityLabel`,
+`blockedActionType` and `authorityBlocker`, `authorizedAction` null on both, no
+hysteresis, no `cut_candidate` and no pending artifact. A held verdict
+authorizes nothing, so a bounded numeric restatement beneath one is still
+bounded; but a hold that appears on only ONE side, or whose action or blocker
+CHANGES, is semantic drift, and a held verdict remains excluded from both
+`profile_availability_restatement` classes — those permit label TRANSITIONS
+without an action-tuple equality check, so admitting a hold there would let a
+brand-new held verdict pass as benign. A reason or badge
 difference is safe only when production reproduction proves it is the
 deterministic consequence of the calibration-only profile change. Reverse,
 hybrid, arbitrary label/reason/context, hard-action, identity, or data-health

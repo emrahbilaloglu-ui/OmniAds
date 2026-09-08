@@ -5473,6 +5473,56 @@ export function isOrdinaryNonHardProjection(
   );
 }
 
+/*
+  A held verdict is the `v3-2026-09-07-held-verdict-authority` producer shape:
+  the hard verdict is RECORDED (`preAuthorityLabel`/`blockedActionType`) and
+  WITHHELD (`authorizedAction: null`), while the served label stays soft. See
+  `ratioZonesGate` in lib/creative-decision-engine/gates/ratio-zones.ts, whose
+  scale hold sets `{ authorityBlocker: "native_metrics_unavailable",
+  blockedActionType: "scale", label: "keep" }`, and the parallel refresh hold
+  below it.
+
+  This is deliberately NOT folded into `isOrdinaryNonHardProjection`.
+
+  That predicate is shared with `knownForwardProfileAvailabilityRestatement`,
+  which permits label TRANSITIONS between the two sides (collecting Test More
+  to Keep, and the exact `native_calibration_missing` soft-only profile to an
+  ordinary result) WITHOUT any action-tuple equality check. Relaxing the shared
+  predicate to tolerate a non-null `authorityBlocker`/`blockedActionType` would
+  therefore let a `diagnose` baseline become a challenger carrying a brand-new
+  held Scale and still be reported as a benign availability restatement. That
+  is precisely the invariant this classifier exists to defend, so the shared
+  predicate keeps its `=== null` requirements and held verdicts get their own
+  pairwise class instead.
+
+  The class below is only ever consulted for BOTH sides at once, and only
+  through `sameActionCalibrationEvidenceRestatement`, which compares the full
+  `decisionActionSemanticTuple` (preAuthorityLabel, authorityBlocker, rawLabel,
+  publishedLabel, blockedActionType, authorizedAction, hysteresisSuppressed).
+  A changed held action, a changed blocker, or a hold present on only one side
+  therefore stays `semantic_drift`.
+*/
+function isHeldNonHardProjection(
+  projection: ReturnType<typeof decisionProjectionTuple>,
+) {
+  const servedSoft = new Set<DecisionLabel>(["keep", "test_more"]);
+  const heldAction = projection.blockedActionType;
+  return (
+    heldAction !== null &&
+    projection.preAuthorityLabel === heldAction &&
+    projection.authorityBlocker !== null &&
+    projection.authorizedAction === null &&
+    [projection.rawLabel, projection.publishedLabel].every(
+      (label) => label !== null && servedSoft.has(label),
+    ) &&
+    projection.hysteresisSuppressed === false &&
+    projection.badges?.every(
+      (badge) => badge.type !== "cut_candidate",
+    ) !== false &&
+    !projectionHasPendingTransitionArtifacts(projection)
+  );
+}
+
 function isNativeProfileUnavailableProjection(
   projection: ReturnType<typeof decisionProjectionTuple>,
 ) {
@@ -5813,6 +5863,34 @@ function classifySafeNonHardCalibrationRestatement(input: {
       return "profile_availability_restatement";
     }
     return null;
+  }
+  /*
+    Both sides hold the SAME hard verdict and authorize nothing.
+
+    `sameActionCalibrationEvidenceRestatement` still carries the whole burden:
+    the action-semantic tuples must hash-match (so the held action, its
+    blocker, and the served label are identical on both sides and
+    `authorizedAction` is null on both), the profile diff must be
+    calibration-only, data health must be unchanged, and both projections must
+    reproduce byte-for-byte from production. What is left underneath is the
+    same bounded numeric calibration evidence restatement the ordinary branch
+    above already admits — a mature-creative count and an account CTR
+    percentile rendered into the reason and a badge label.
+
+    Nothing here is authorized either way, so this is not a widening of what
+    the replay lets through as an ACTION: it is the same soft `keep` on both
+    sides, now carrying the withheld verdict the producer started recording.
+  */
+  if (
+    isHeldNonHardProjection(input.baseline) &&
+    isHeldNonHardProjection(input.challenger) &&
+    sameActionCalibrationEvidenceRestatement({
+      baseline: input.baseline,
+      challenger: input.challenger,
+      challengerRow: input.challengerRow,
+    })
+  ) {
+    return "calibration_restatement";
   }
   const baselineUnavailable = isNativeProfileUnavailableProjection(
     input.baseline,

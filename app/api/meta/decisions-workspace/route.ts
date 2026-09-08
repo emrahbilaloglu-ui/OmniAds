@@ -759,34 +759,44 @@ async function readServeTimeAccountCurrency(input: {
 }
 
 /**
- * Store evidence for the serve-time anchor re-resolution.
+ * Store evidence for the served profile — CONTEXTUAL, never the spend unit.
  *
- * The order is the producer's, not a new one: a configured Target CPA or an
- * operator AOV assumption sits ABOVE the store in `resolveSpendUnit`'s ladder,
- * so when either exists the store is never consulted and this reads nothing.
- * ROAS stays the only required commercial target; this is what makes that true
- * on the served panel as well as in the retained row.
+ * A Meta hard decision is sized by META's own attributed purchase AOV over the
+ * configured Target ROAS. The merchant's settled orders are a second book that
+ * answers the same question differently, so what this reads is carried BESIDE
+ * the unit (`spendUnitEvidence.observedShopifyAov`, its order count and its
+ * status) and chooses no rung: see the ladder note in
+ * `lib/creative-decision-engine/spend-unit-resolver.ts`, where the store rung
+ * was removed, and `NativeAdSpendUnitAuthorityBasis` in
+ * `lib/creative-decision-engine/jobs/ad-calibration-job.ts`, where the native
+ * hard-decision path retired the same basis. For as long as the native path
+ * had retired it and this one had not, the served panel and the native
+ * decisions sized the same account's purchases from two different numbers.
+ *
+ * The short-circuit on a configured Target CPA or operator AOV assumption is
+ * the retention producer's, unchanged (`readAccountProfileRetentionInputs` in
+ * `lib/meta/account-profile-output-producer.ts`): the served panel and the
+ * retained row must hand `resolveAccountDecisionProfile` identical inputs for
+ * the same account, and this read costs two warehouse queries that buy nothing
+ * once an owner-typed anchor already fixes the unit.
  *
  * Every refusal belongs to `resolveObservedShopifyAov` — a thin sample, a
  * mixed or foreign currency, a stale or incompletely covered orders sync. This
  * function converts no currency of its own.
  *
- * WHAT AN ACCOUNT CURRENCY OUTSIDE THE ISO MINOR-UNIT REGISTRY ACTUALLY DOES,
- * corrected here because the previous wording asserted the opposite.
- *
- * It does NOT yield `null`. `resolveMinorUnitExponent` refuses the code, this
- * passes `currencyExponent: null`, and `resolveObservedShopifyAov` records the
- * evidence with its own two-decimal fallback exponent. Because
- * `resolveSpendUnitProfile` then divides by that SAME recorded exponent, the
- * major amount round-trips unchanged and the derived unit is the store's AOV
- * over the target ROAS whichever exponent was recorded — so nothing is
- * rescaled, and the served answer equals what the retention producer resolves
- * from the identical inputs. `lib/meta/snapshot.ts` is stricter for the
- * benchmark it writes in MINOR units, where the exponent does not cancel: it
- * requires a resolved exponent and withholds without one. That difference
- * between the two paths is real and is stated rather than assumed away;
- * `app/api/meta/served-profile-account-scope.db.test.ts` pins the behaviour of
- * this one against a KES store and a KES account.
+ * AN ACCOUNT CURRENCY OUTSIDE THE ISO MINOR-UNIT REGISTRY does NOT yield
+ * `null`. `resolveMinorUnitExponent` refuses the code, this passes
+ * `currencyExponent: null`, and `resolveObservedShopifyAov` records the
+ * evidence with its own two-decimal fallback exponent. `resolveSpendUnitProfile`
+ * converts back with that SAME recorded exponent, so the reported major amount
+ * round-trips unchanged whichever exponent was recorded and equals what the
+ * retention producer records from identical inputs. `lib/meta/snapshot.ts` is
+ * stricter for the benchmark it writes in MINOR units, where the exponent does
+ * not cancel: it requires a resolved exponent and withholds without one. That
+ * difference between the two paths is real and is stated rather than assumed
+ * away. `app/api/meta/served-profile-account-scope.db.test.ts` exercises this
+ * function against a KES store and a KES account; its spend-unit assertions
+ * still name the retired store rung and are owned elsewhere.
  */
 async function resolveServeTimeObservedShopifyAov(input: {
   businessId: string;
@@ -809,7 +819,19 @@ async function resolveServeTimeObservedShopifyAov(input: {
 }
 
 /**
- * How many served rows carry a control the operator can actually press.
+ * How many served rows OFFER a control — not how many are pressable right now.
+ *
+ * The distinction is load-bearing and this heading used to blur it by saying
+ * "can actually press". `operatorApply` deliberately does NOT consult
+ * `getMetaWriteBlockState`: the write kill switch, a business STOP, an
+ * unreadable control row and the readiness tier are all excluded from it on
+ * purpose (`lib/meta/rec-presentation.ts`). So with STOP engaged this census
+ * still counts those rows, because the ROW still offers the control; what
+ * refuses is the write path, and the operator is told so by the blocking
+ * governance banner served alongside this payload rather than by these
+ * numbers. Read `executableBid`/`executablePause`/`executableResume` as "the
+ * server attached an operator control to this many rows", and read
+ * governance separately.
  *
  * The three `executable*` counters used to be read off `rec.actionKind`, and
  * `actionKind` cannot produce them. Its only two writers in the tree are
@@ -1724,32 +1746,36 @@ export async function GET(request: NextRequest) {
         dataSource,
         flags: await resolveEngineV3Flags(businessId),
         /*
-          THE STORE'S OWN AVERAGE ORDER VALUE, which this call used to omit.
+          THE STORE'S OWN AVERAGE ORDER VALUE, as contextual evidence.
 
           `resolveAccountDecisionProfile` does no IO for this input by design:
-          it takes the store evidence from its caller. Every OTHER caller
-          supplies it — the retention producer resolves it
-          (`readAccountProfileRetentionInputs` in
-          `lib/meta/account-profile-output-producer.ts`) and the snapshot's own
-          benchmark resolution does the same (the `observedAov` block in
-          `lib/meta/snapshot.ts`) — and this one did not. The effect
-          was not a missing detail: with no store evidence the ladder in
-          `resolveSpendUnit` falls straight past the `observed_shopify_aov`
-          rung to `insufficient`, so the panel served
-          `status: "blocked_missing_owner_anchor"`,
-          `missingInputs: ["target_cpa", "operator_aov_assumption"]` and three
-          `commercial_anchor_missing` blockers on an account whose RETAINED
-          `engine_v3_account_profile_output` rows carried a resolved spend unit
-          of 26.36 (58.00 Shopify AOV ÷ 2.20 target ROAS) and cut/refresh
-          eligible. Two contradictory commercial verdicts in one response, and
-          the operator-facing half was the wrong one — it asked for a Target CPA
-          and an AOV that this product's rules declare optional.
+          it takes the store evidence from its caller. Passing it keeps this
+          surface's evidence identical to what the retention producer records
+          for the same account (`readAccountProfileRetentionInputs` in
+          `lib/meta/account-profile-output-producer.ts`) and to the snapshot's
+          own benchmark resolution (the `observedAov` block in
+          `lib/meta/snapshot.ts`), so the served panel and the retained
+          `engine_v3_account_profile_output` row cannot describe one account's
+          commercial evidence differently.
 
-          The gate is the producer's, byte for byte: a configured target CPA or
-          operator AOV assumption short-circuits the read, because those rungs
-          come first in the ladder and the store is only consulted when neither
-          exists. Nothing here converts a currency, and a currency with no ISO
-          exponent yields no evidence.
+          It does NOT size the decision. The spend unit and the derived CPA
+          benchmark this panel serves come from Meta's own 90-day attributed
+          purchase AOV over the configured Target ROAS — the canonical
+          money-per-purchase quantity for a Meta decision, the same one the
+          native authority's `physical_account_purchase_aov_90d` basis divides
+          (the served rung additionally scales it by the operator's
+          `attributionAovAdjustmentMultiplier`, which the native basis does
+          not).
+
+          Sizing it from the store instead is what this call did through the
+          `observed_shopify_aov` rung until that rung was removed: for the
+          Grandmix account whose retained `engine_v3_account_profile_output`
+          rows recorded a spend unit of 26.36 (58.00 Shopify AOV ÷ 2.20 target
+          ROAS), wiring this input made the panel reproduce that number while
+          the native path for the same account sized from Meta's attributed
+          AOV — one account, two answers to "what is a purchase worth". When
+          Meta's AOV is absent the profile now holds and names the absence
+          instead of substituting the store's number.
         */
         observedShopifyAov: await resolveServeTimeObservedShopifyAov({
           businessId,
@@ -1829,6 +1855,23 @@ export async function GET(request: NextRequest) {
               // for this request, but never the next five minutes of truth.
               shouldCache: (result) =>
                 result.ok && result.model.status === "available",
+              /*
+                AND WHEN REVALIDATION SAYS THE GENERATION IS GONE, STOP SERVING
+                THE OLD ONE (Codex B17).
+
+                `shouldCache` only declined to WRITE the new reading, so the
+                previous generation's rows stayed in the store and kept being
+                served for the rest of the 240s stale window — including its
+                active-Ad universe, which is exactly the data an operator acts
+                on. A successful read whose model is no longer `available`, or
+                whose generation is not the one that was cached, is an ANSWER:
+                the cached entry is evicted and the next request loads.
+
+                A read that THROWS is left to the stale-on-error path, because
+                "we could not check" is not "we checked and it is wrong".
+              */
+              evictStaleWhen: (result) =>
+                result.ok && result.model.status !== "available",
             })
           ).value;
     decisionReadCompletedAt = performance.now();

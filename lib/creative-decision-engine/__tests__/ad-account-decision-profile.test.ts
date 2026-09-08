@@ -167,7 +167,9 @@ function buildMixedOptimizationCells() {
   }));
 }
 
-function buildP25ReadyCellsWithUnrelatedAovContradiction() {
+function buildP25ReadyCellsWithUnrelatedAovContradiction(
+  targetAuthority: NativeAdTargetAuthorityInput = AOV_ONLY_TARGET,
+) {
   const purchaseRows = Array.from({ length: 30 }, (_, index) =>
     makeSourceRow(index + 1, {
       sourceRowId: `purchase-ready-${index}`,
@@ -192,7 +194,7 @@ function buildP25ReadyCellsWithUnrelatedAovContradiction() {
     asOf: AS_OF,
     computationCutoff: "2026-07-12T03:05:00.000Z",
     sourceRows: [...purchaseRows, contradictoryValueContext],
-    targetAuthority: AOV_ONLY_TARGET,
+    targetAuthority,
   }).cells.map((cell) => ({
     ...cell,
     batchId: BATCH_ID,
@@ -424,7 +426,7 @@ describe("resolveNativeAdAccountDecisionProfile", () => {
     ]);
   });
 
-  it("preserves production P25-backed Cut readiness when another optimization context blocks account AOV", async () => {
+  it("HOLDS Cut end to end when a Target ROAS governs and account AOV is blocked", async () => {
     const cells = buildP25ReadyCellsWithUnrelatedAovContradiction();
     const exact = cells.find(
       (cell) =>
@@ -438,23 +440,51 @@ describe("resolveNativeAdAccountDecisionProfile", () => {
         status: "contradictory_purchase_truth",
       },
     });
-    expect(exact?.actionReadiness.cut).toMatchObject({
-      ready: true,
-      reason: null,
-      authorityBasis: "calibrated_relative_with_economic_stop_loss",
+    /*
+      ── ROUND 8 ITEM 4: THE WHOLE CHAIN, NOT JUST THE CELL ──────────────────
+
+      `AOV_ONLY_TARGET` carries a positive Target ROAS and this fixture's
+      account AOV is contradictory, so there is no READY Meta-attributed AOV to
+      divide by. Round 6 left the cell READY on the strength of its
+      sample-backed P25 alone and relied on a later gate to refuse the action.
+
+      Round 8 refuses at the source, and this case follows the refusal all the
+      way out: the READINESS CELL holds, the RETAINED PROFILE reports Cut
+      ineligible and names the missing spend unit as the cause, and the FINAL
+      ACTION on a row that would otherwise be cut is not a Cut. Each link is
+      asserted separately, because a chain proven only at its last link would
+      pass on a cell that had silently granted authority it did not have.
+    */
+    expect(exact?.actionReadiness.cut).toEqual({
+      ready: false,
+      reason: "commercial_spend_unit_authority_missing",
+      authorityBasis: null,
       observedSampleCount: 30,
       requiredSampleCount: 20,
     });
+    // The P25 and the account CPA are both still MEASURED on the cell — the
+    // hold is about authority, not about missing data.
+    expect(exact?.accountCalibration.roasRatioP25).toBeGreaterThan(0);
+    expect(exact?.accountCalibration.accountCpaP50).toBeGreaterThan(0);
 
     const result = await resolveWith(
       new NativeOnlyProfileDataSource(cells, AOV_ONLY_TARGET),
     );
 
+    /*
+      The profile still RESOLVES — the account has calibration and a target, so
+      refusing the whole profile would be a different and wrong answer. What it
+      does not carry is Cut authority, and the reason travels with it rather
+      than being reconstructed downstream.
+    */
     expect(result).toMatchObject({
       status: "ready",
       calibrationSource: "objective_cohort_context",
       hardActionEligibility: {
-        cut: true,
+        cut: false,
+        reasons: {
+          cut: "native_ad_calibration:commercial_spend_unit_authority_missing",
+        },
       },
     });
     expect(result.selectedCell?.key.optimizationContext).toBe(
@@ -465,10 +495,18 @@ describe("resolveNativeAdAccountDecisionProfile", () => {
     expect(
       result.profile?.commercialStopLossCanonicalHardActionEligibility,
     ).toBeNull();
+    /*
+      The strip reports the UPSTREAM refusal now, not its own.
+
+      It used to say `economic_spend_unit_authority_missing` — "Cut is open,
+      the widened economic region is not". With Cut readiness itself held, the
+      honest reason is the one the calibration cell gave, propagated verbatim
+      rather than restated: there is no Cut region to widen.
+    */
     expect(result.profile?.expandedEconomicCutAuthority).toEqual({
-      eligible: true,
-      authorityBasis: "calibrated_relative_with_economic_stop_loss",
-      reason: null,
+      eligible: false,
+      authorityBasis: null,
+      reason: "native_ad_calibration:commercial_spend_unit_authority_missing",
     });
     if (!result.profile) throw new Error("Expected a ready native profile.");
     expect(result.profile.thresholds.bottomQuartileRatio).toBeLessThan(0.5);
@@ -491,9 +529,18 @@ describe("resolveNativeAdAccountDecisionProfile", () => {
       }),
       result.profile,
     );
-    expect(expandedDecision.label).toBe("cut");
-    expect(expandedDecision.reason).toContain("[economic stop-loss]");
+    /*
+      THE FINAL ACTION. This row is a loser by every relative measure the cell
+      carries — ROAS 1 against a Target ROAS of 2 and a break-even of 1.5 — and
+      it is still not cut, because no authority exists to cut it with. The
+      economic strip is withdrawn too, which is the narrower fact Round 6
+      asserted; the point of this case now is that the broader one holds as
+      well.
+    */
+    expect(expandedDecision.label).not.toBe("cut");
+    expect(expandedDecision.reason).not.toContain("[economic stop-loss]");
   });
+
 
   it("fails closed on a missing native row without consulting any legacy calibration surface", async () => {
     const dataSource = new NativeOnlyProfileDataSource([]);
@@ -633,7 +680,16 @@ describe("resolveNativeAdAccountDecisionProfile", () => {
         refresh: false,
       },
     });
-    expect(result.profile?.spendUnitConfidence).toBe("low");
+    /*
+      ROUND 6: the THIN exact cell's own resolution now holds outright — a
+      sample too small to divide under a Target ROAS builds no unit — while the
+      repaired account/currency stop-loss unit beside it is unchanged and still
+      `meta_derived_aov` at medium confidence. That contrast is the whole point
+      of this case: the repair supplies the Cut boundary the thin cell cannot,
+      without opening Scale or Refresh.
+    */
+    expect(result.profile?.spendUnitConfidence).toBe("insufficient");
+    expect(result.profile?.spendUnit).toBeNull();
     expect(result.profile?.commercialStopLossSpendUnit).toMatchObject({
       spendUnitSource: "meta_derived_aov",
       spendUnitConfidence: "medium",
@@ -813,13 +869,26 @@ describe("resolveNativeAdAccountDecisionProfile", () => {
   });
 
   it("intersects retained authority with the exact cell per action instead of collapsing the whole profile", async () => {
-    const targetWithoutBreakEven = {
+    /*
+     * THE VEHICLE CHANGED; THE CLAIM DID NOT.
+     *
+     * This used to prove per-action intersection with a pack carrying no
+     * break-even ROAS, which refused Cut alone. Break-even is no longer a
+     * required input — a commercial ratio of EITHER kind now anchors a Cut —
+     * so that pack no longer diverges and cannot demonstrate anything.
+     *
+     * The mirror case does, and it is the more interesting one: a pack with a
+     * break-even but NO target ROAS anchors the Cut and refuses the Scale,
+     * because a Scale threshold is a ratio to a target that does not exist.
+     * One profile, three actions, two answers — which is the claim.
+     */
+    const targetWithoutTargetRoas = {
       ...FRESH_TARGET,
-      breakEvenRoas: null,
+      targetRoas: null,
     };
     const dataSource = new NativeOnlyProfileDataSource(
-      buildCells(30, {}, targetWithoutBreakEven),
-      targetWithoutBreakEven,
+      buildCells(30, {}, targetWithoutTargetRoas),
+      targetWithoutTargetRoas,
     );
 
     const result = await resolveWith(dataSource);
@@ -828,14 +897,46 @@ describe("resolveNativeAdAccountDecisionProfile", () => {
       status: "ready",
       calibrationSource: "objective_cohort_context",
       hardActionEligibility: {
-        scale: true,
-        cut: false,
+        scale: false,
+        cut: true,
         refresh: true,
       },
     });
-    expect(result.hardActionEligibility.reasons?.cut).toBe(
-      "native_ad_calibration:break_even_roas_authority_missing",
+    expect(result.hardActionEligibility.reasons?.scale).toBe(
+      "native_ad_calibration:target_roas_authority_missing",
     );
+  });
+
+  it("anchors every action on a target ROAS alone, with no break-even configured", async () => {
+    /*
+     * THE CANONICAL RULE, at the profile boundary: with a configured target
+     * ROAS, an explicit break-even ROAS is NOT a required input.
+     *
+     * This pack is genuinely ROAS-only — no target CPA, no operator AOV, no
+     * break-even — and it must anchor all three actions. It used to refuse Cut
+     * with `native_ad_calibration:break_even_roas_authority_missing`, on an
+     * input nothing in the native computation reads: every spend-unit lane
+     * either takes a Target CPA whole or divides an AOV by the Target ROAS, and
+     * the relative Cut boundary is itself a Target-ROAS ratio.
+     */
+    const roasOnly = {
+      ...FRESH_TARGET,
+      breakEvenRoas: null,
+      targetCpa: null,
+      operatorAovAssumption: null,
+    };
+    const dataSource = new NativeOnlyProfileDataSource(
+      buildCells(30, {}, roasOnly),
+      roasOnly,
+    );
+
+    const result = await resolveWith(dataSource);
+
+    expect(result).toMatchObject({
+      status: "ready",
+      hardActionEligibility: { scale: true, cut: true, refresh: true },
+    });
+    expect(result.hardActionEligibility.reasons?.cut).toBeFalsy();
   });
 
   it("rejects an uncompleted batch before any target or retained-profile read", async () => {

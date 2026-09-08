@@ -14,6 +14,33 @@ vi.mock("@/lib/db-schema-readiness", () => ({
 }));
 
 vi.mock("@/lib/provider-account-reference-store", () => ({
+  /*
+    ROUND 22, ITEM 1: the bindings view of the same store. `refIds` is what the
+    id-only helper returns; `timezones` is what the binding actually holds
+    afterwards, which writers now stamp their rows from. Mocked here as the
+    identity of what was passed, because these suites are not about the binding
+    rule -- lib/provider-account-timezone-authority.db.test.ts proves that
+    against a real PostgreSQL.
+  */
+  ensureProviderAccountReferenceBindings: vi.fn(
+    async ({
+      accounts,
+    }: {
+      accounts: Array<{ externalAccountId: string; timezone?: string | null }>;
+    }) => ({
+      refIds: new Map(
+        accounts.map(
+          (account) =>
+            [account.externalAccountId, `provider-ref-${account.externalAccountId}`] as const,
+        ),
+      ),
+      timezones: new Map(
+        accounts
+          .filter((account) => (account.timezone ?? "").trim().length > 0)
+          .map((account) => [account.externalAccountId, String(account.timezone)] as const),
+      ),
+    }),
+  ),
   ensureProviderAccountReferenceIds: vi.fn(async ({ accounts }: { accounts: Array<{ externalAccountId: string }> }) => {
     return new Map(
       accounts.map((account) => [account.externalAccountId, `provider-ref-${account.externalAccountId}`] as const),
@@ -131,6 +158,15 @@ describe("meta config snapshots", () => {
 
   it("reads previous different config diffs without globally sorting snapshot history", async () => {
     let queryText = "";
+    /*
+      ROUND 10 ITEM 4. The reader now resolves the ACCOUNT's IANA timezone
+      first, through `getDb().query(...)`, and answers with an empty map if it
+      cannot — so the mock has to serve that read for this case to reach the
+      history SQL at all. That fail-closed path is asserted in its own case.
+    */
+    (sql as unknown as { query: unknown }).query = vi.fn(async () => [
+      { timezone: "America/Los_Angeles" },
+    ]);
     sql.mockImplementation(async (strings: TemplateStringsArray) => {
       queryText = strings.join(" ");
       return [
@@ -195,9 +231,17 @@ describe("meta config snapshots", () => {
 
     const rows = await configSnapshots.readMetaBidRegimeHistorySummaries({
       businessId: "biz-1",
+      // ROUND 9 ITEM 6: account + cutoff are required; an unscoped history
+      // could raise confidence from another account or a later day.
+      providerAccountId: "act_1",
+      capturedAtCutoff: "2026-09-05",
       entityLevel: "campaign",
       entityIds: ["cmp-1"],
     });
+    // The bound is an absolute instant, never `(date + 1)` — that form is cast
+    // with the DB SESSION timezone rather than the advertiser's.
+    expect(queryText).toContain("::timestamptz");
+    expect(queryText).not.toContain("::date + 1");
 
     expect(queryText).toContain("COUNT(*)::int AS observation_count");
     expect(queryText).toContain("GROUP BY entity_id, payload->>'bidStrategyType', payload->>'bidStrategyLabel'");

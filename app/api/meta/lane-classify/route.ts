@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { isContextTrustedForAction } from "@/lib/meta/campaign-label-guard";
 import { NextRequest, NextResponse } from "next/server";
 import { requireBusinessAccess } from "@/lib/access";
 import { resolveMetaCredentials } from "@/lib/api/meta";
@@ -202,12 +203,41 @@ async function readAutomaticCampaignRoles(input: {
   const roles = new Map<string, MetaCampaignKind>();
   for (const [campaignId, entry] of contexts) {
     if (
-      entry.kind === "main" ||
-      entry.kind === "test" ||
-      entry.kind === "mixed"
+      entry.kind !== "main" &&
+      entry.kind !== "test" &&
+      entry.kind !== "mixed"
     ) {
-      roles.set(campaignId, entry.kind);
+      continue;
     }
+    /*
+      ONLY A TRUSTED ROLE ENTERS AN AUTHORITY-BEARING SHAPE (Codex C20).
+
+      This copied EVERY resolved kind into the map, and that map becomes
+      `campaignKind` on recommendations, on inventory rows and on the action
+      shape — all of which are authority-bearing. A medium-confidence,
+      resolver-unvalidated or review-only role therefore travelled as though it
+      were established fact, and downstream consumers could not tell the
+      difference because the field carries no provenance.
+
+      `isContextTrustedForAction` is the same four-fact predicate the label
+      guard and the structural emitters apply, imported rather than restated so
+      the three cannot disagree about which roles are actionable. A provisional
+      role is not lost — it stays on the context entry for PRESENTATION, where
+      it can be shown with its own reason — it simply does not become
+      authority.
+    */
+    if (
+      !isContextTrustedForAction({
+        kind: entry.kind,
+        contextTrust: entry.contextTrust ?? "unknown",
+        source: entry.provenance?.source ?? "unknown",
+        inferenceConfidenceClass: entry.inferenceConfidenceClass,
+        resolverAuthorityValidated: entry.resolverAuthorityValidated,
+      })
+    ) {
+      continue;
+    }
+    roles.set(campaignId, entry.kind);
   }
   return roles;
 }
@@ -246,19 +276,41 @@ function campaignKindForRecommendation(input: {
   return kinds.values().next().value ?? null;
 }
 
+/**
+ * The recommendation's `campaignKind`, resolved ONLY from the trusted role map.
+ *
+ * THE CANDIDATE'S OWN VALUE IS NOT AN INPUT. This read
+ * `input.rec.campaignKind ?? campaignKindForRecommendation(...)`, so a kind the
+ * candidate already carried WON — the trusted lookup was not even performed —
+ * and when the lookup did run and answered null the stale value was returned
+ * unchanged. Both halves are wrong at this boundary:
+ *
+ *   - `snapshotRecommendations` are read back from a persisted decision
+ *     snapshot, so their `campaignKind` is whatever was true when the snapshot
+ *     was written. A campaign relabelled since then, or labelled by a resolver
+ *     version this deployment does not consider authoritative, carried its old
+ *     role straight past the role map into the lane classification.
+ *   - `campaignLabelsById` is built above from `isContextTrustedForAction` —
+ *     the same four-fact predicate the label guard applies. Preferring the
+ *     candidate's field bypasses that predicate entirely, which makes the
+ *     predicate decorative on exactly the rows it was written for.
+ *
+ * So the field is destructured OUT and re-added only from the map. Null means
+ * absent, and the surface renders an unresolved role rather than a remembered
+ * one.
+ */
 function attachCampaignKindToRecommendation(input: {
   rec: MetaRecommendation;
   campaignLabelsById: MetaCampaignRoleMap;
   activeCampaignIds: string[];
 }): MetaRecommendation {
-  const campaignKind =
-    input.rec.campaignKind ??
-    campaignKindForRecommendation({
-      rec: input.rec,
-      campaignLabelsById: input.campaignLabelsById,
-      activeCampaignIds: input.activeCampaignIds,
-    });
-  return campaignKind ? { ...input.rec, campaignKind } : input.rec;
+  const campaignKind = campaignKindForRecommendation({
+    rec: input.rec,
+    campaignLabelsById: input.campaignLabelsById,
+    activeCampaignIds: input.activeCampaignIds,
+  });
+  const { campaignKind: _untrustedCampaignKind, ...withoutKind } = input.rec;
+  return campaignKind ? { ...withoutKind, campaignKind } : withoutKind;
 }
 
 function controlOwnerForEntity(input: {
@@ -680,12 +732,39 @@ function isRecentlyChanged(rec: MetaRecommendation, now = Date.now()) {
   return latest != null && now - latest < 48 * 60 * 60 * 1000;
 }
 
+/**
+ * Learning, from TYPED SIGNALS ONLY (Codex C21).
+ *
+ * This ended with
+ * `/learning|cook|thin|insufficient/i.test(`${rec.title} ${rec.summary}`)`, so
+ * lane placement was decided by the wording of buyer copy. Three things follow
+ * from that, and all three are defects:
+ *
+ *   - TRANSLATION MOVES ROWS. This very module already emits Turkish copy
+ *     ("Butce daha verimli ceplere kaymali"), and no Turkish sentence matches
+ *     these English stems — so the same decision lands in a different lane
+ *     depending on the language it was rendered in.
+ *   - COPY EDITS MOVE ROWS. Rewording a summary to read better silently
+ *     re-routes it, with no change to anything the engine decided.
+ *   - FALSE POSITIVES. "insufficient" appears in copy about insufficient
+ *     BUDGET and insufficient SPEND, neither of which is a learning state.
+ *
+ * The typed facts say it directly: the emitter's own type, the engine's
+ * `confidenceReason` code, and the provider's learning state carried on
+ * `signals`. All three are stable under translation and rewording.
+ */
 function isInLearning(rec: MetaRecommendation) {
   const reason = rec.confidenceReason ?? "";
+  const learningState = (
+    rec as MetaRecommendation & {
+      signals?: { learningState?: string | null } | null;
+    }
+  ).signals?.learningState;
   return (
     rec.type === "adset_watch_learning" ||
     reason === "thin_data_watching" ||
-    /learning|cook|thin|insufficient/i.test(`${rec.title} ${rec.summary}`)
+    learningState === "LEARNING" ||
+    learningState === "LEARNING_LIMITED"
   );
 }
 

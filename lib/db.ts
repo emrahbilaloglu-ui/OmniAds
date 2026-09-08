@@ -861,6 +861,112 @@ export async function runDbTransaction<T>(
   }
 }
 
+/**
+ * ── ROUND 18, ITEM C13: ONE PINNED BACKEND, NO TRANSACTION ──────────────────
+ *
+ * Migrations ran through the POOL. `createMigrationDb` serialises statements,
+ * but serialisation is not affinity: each `query` could be handed a different
+ * pooled backend, so `SET lock_timeout` configured one session while the DDL
+ * that was supposed to be bounded by it ran on another. The session-settings
+ * line the migration logs was, in the worst case, describing a backend that
+ * then did no work.
+ *
+ * This leases ONE client for the whole run and does NOT open a transaction:
+ * `CREATE INDEX CONCURRENTLY` is rejected inside one, so the two requirements —
+ * same session, no transaction — can only be met by pinning the client and
+ * leaving autocommit alone.
+ */
+export async function withPinnedDbClient<T>(
+  fn: (client: {
+    query: PoolClient["query"];
+    backendPid: number | null;
+  }) => Promise<T>,
+  options?: { timeoutMs?: number },
+): Promise<T> {
+  const globalStore = getGlobalStore();
+  if (!globalStore.__omniadsDbPool) {
+    const settings = resolveDbRuntimeSettings(process.env);
+    globalStore.__omniadsDbSettings = settings;
+    globalStore.__omniadsDbPool = createPool(settings);
+    logStartupEvent("db_client_initialized", buildDbStartupDetails(settings));
+  }
+  const pool = globalStore.__omniadsDbPool;
+  const client = await pool.connect();
+  try {
+    const pidRows = await client.query<{ pid: number }>(
+      "SELECT pg_backend_pid() AS pid",
+    );
+    const backendPid = Number(pidRows.rows[0]?.pid ?? Number.NaN);
+    return await fn({
+      query: client.query.bind(client) as PoolClient["query"],
+      backendPid: Number.isFinite(backendPid) ? backendPid : null,
+    });
+  } finally {
+    client.release();
+  }
+}
+
+/**
+ * ── ROUND 20, ITEM 3: A BOUNDED DDL GROUP ON THE **PINNED** SESSION ─────────
+ *
+ * The native-ad schema group is not idempotent statement-by-statement, so it
+ * genuinely needs a transaction. It used to get one from `runDbTransaction`,
+ * which leases its OWN client from the pool -- and the migration runner had
+ * already checked one out and pinned `lock_timeout` on it. So the group ran on
+ * a SECOND backend that had never seen the SET: the lock bound the runner had
+ * proved and logged did not apply to any of this DDL, and an ACCESS EXCLUSIVE
+ * lock taken here could queue behind live traffic indefinitely.
+ *
+ * This runs the transaction on the client the caller already pinned. Both the
+ * statement timeout and the lock timeout are re-pinned with SET LOCAL inside
+ * the transaction, so the bound is re-established for this group even though
+ * the session already carries one, and it is unwound automatically at COMMIT
+ * or ROLLBACK.
+ *
+ * The wrapped executor is also bound into `dbTransactionStorage`, which is what
+ * makes `getDb()` / `getDbWithTimeout()` -- and therefore every capability
+ * inspector this group calls -- read through the SAME uncommitted transaction.
+ * Without that binding an inspector would take its own pooled connection, fail
+ * to see the DDL it is verifying, and the migration would refuse work it had in
+ * fact just performed.
+ */
+export async function runPinnedDbTransaction<T>(input: {
+  client: Pick<PoolClient, "query">;
+  timeoutMs: number;
+  lockTimeoutMs: number;
+  fn: (db: DbClient) => Promise<T>;
+}): Promise<T> {
+  if (
+    !Number.isSafeInteger(input.lockTimeoutMs) ||
+    input.lockTimeoutMs <= 0
+  ) {
+    // Fail closed: an unusable bound is not a reason to run unbounded DDL.
+    throw new Error(
+      `Refusing to open a migration DDL transaction with an unusable lock_timeout: ${String(input.lockTimeoutMs)}`,
+    );
+  }
+  const settings = getCachedOrResolvedDbSettings();
+  const wrapped = createWrappedDbExecutor(
+    input.client,
+    settings,
+    input.timeoutMs,
+    { allowRetries: false },
+  );
+  await wrapped.query("BEGIN");
+  try {
+    await wrapped.query(buildLocalStatementTimeoutSql(input.timeoutMs));
+    await wrapped.query(`SET LOCAL lock_timeout = ${input.lockTimeoutMs}`);
+    const result = await dbTransactionStorage.run(wrapped, () =>
+      input.fn(wrapped),
+    );
+    await wrapped.query("COMMIT");
+    return result;
+  } catch (error) {
+    await wrapped.query("ROLLBACK").catch(() => undefined);
+    throw error;
+  }
+}
+
 export function resetDbClientCache() {
   const globalStore = getGlobalStore();
 

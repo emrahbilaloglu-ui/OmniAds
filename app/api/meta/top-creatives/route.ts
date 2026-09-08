@@ -7,7 +7,27 @@ import {
 import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 import { CreativeFormat, CreativePreviewState, normalizeCreativePreview } from "@/lib/meta-creative-preview";
 import { requireBusinessAccess } from "@/lib/access";
+import { describeMetaGraphErrorPayload } from "@/lib/meta-ad-accounts";
 import { logRuntimeDebug } from "@/lib/runtime-logging";
+
+/**
+ * What a rejected Graph call is allowed to say in a log.
+ *
+ * Both fetches below put the access token in the request URL, and Graph quotes
+ * the failing request back inside `error.message`. Logging the first 300
+ * characters of the raw body therefore put the credential into the server log.
+ * The named identifiers — status, code, subcode, is_transient, fbtrace_id —
+ * are what a support ticket needs and cannot carry one.
+ */
+function describeGraphRejection(label: string, status: number, raw: string) {
+  let payload: unknown = null;
+  try {
+    payload = JSON.parse(raw);
+  } catch {
+    payload = null;
+  }
+  return describeMetaGraphErrorPayload({ label, httpStatus: status, payload });
+}
 
 // ── Meta API types ────────────────────────────────────────────────────────────
 
@@ -164,7 +184,11 @@ async function fetchAdInsights(
       console.warn("[meta-top-creatives] insights non-ok", {
         accountId,
         status: res.status,
-        raw: raw.slice(0, 300),
+        rejection: describeGraphRejection(
+          "Meta insights request rejected",
+          res.status,
+          raw,
+        ),
       });
       return [];
     }
@@ -227,7 +251,11 @@ async function fetchAdCreativeMap(
         console.warn("[meta-top-creatives] ads non-ok", {
           accountId,
           status: res.status,
-          raw: raw.slice(0, 300),
+          rejection: describeGraphRejection(
+            "Meta ads request rejected",
+            res.status,
+            raw,
+          ),
         });
         return map;
       }

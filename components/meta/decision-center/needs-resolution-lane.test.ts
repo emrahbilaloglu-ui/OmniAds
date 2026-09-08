@@ -500,6 +500,29 @@ describe("the counters stay the server's totals", () => {
 });
 
 describe("a blocked row is drawn without an action", () => {
+  it("uses the inspector's buyer verdict on the blocked row", () => {
+    const recommendation = metaRec({
+      id: "rec_blocked_cut",
+      decisionLabel: "cut",
+    });
+    const model = buildMetaDecisionCenterExactViewModel({
+      workspace: workspace({
+        actionNow: [recommendation],
+        nodes: [node(recommendation.id, "blocked")],
+      }),
+      account: null,
+      now: Date.parse("2026-08-17T12:00:00.000Z"),
+      defaultSelectionLane: "needsres",
+    });
+
+    expect(model.needsResolutionRows?.[0]?.decisionLabel).toBe(
+      "Reduce spend",
+    );
+    expect(model.inspector?.decisionLabel).toBe(
+      model.needsResolutionRows?.[0]?.decisionLabel,
+    );
+  });
+
   it("shows the specific commercial gap instead of its generic diagnostic consequence", () => {
     const recommendation = metaRec({
       id: "rec_commercial_gap",
@@ -530,7 +553,9 @@ describe("a blocked row is drawn without an action", () => {
       blocker: "A valid performance target is required.",
       blockerCount: 2,
       blockerBuyerFacing: true,
-      resolution: "Confirm the ROAS or break-even target before acting.",
+      // A target ROAS alone anchors every action now, so the copy no longer
+      // asks for a break-even the engine does not require (D091).
+      resolution: "Confirm the ROAS target before acting.",
     });
     expect(JSON.stringify(row)).not.toContain(
       "Review the evidence; no change is currently authorized.",
@@ -574,7 +599,7 @@ describe("a blocked row is drawn without an action", () => {
     expect(row?.blockerCount).toBe(6);
     expect(row?.blockerBuyerFacing).toBe(true);
     expect(row?.resolution).toBe(
-      "Confirm the ROAS or break-even target before acting.",
+      "Confirm the ROAS target before acting.",
     );
     expect(JSON.stringify(row)).not.toMatch(/apply this change/i);
     expect(row?.staleDemotedReason).toBe(

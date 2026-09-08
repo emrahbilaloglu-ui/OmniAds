@@ -3,9 +3,47 @@ import { META_CONFIG } from "@/lib/oauth/meta-config";
 import { upsertIntegration } from "@/lib/integrations";
 import { requireBusinessAccess } from "@/lib/access";
 import { sanitizeNextPath } from "@/lib/auth-routing";
-import { fetchMetaAdAccounts, getMetaApiErrorMessage } from "@/lib/meta-ad-accounts";
+import {
+  describeMetaGraphErrorPayload,
+  fetchMetaAdAccounts,
+  getMetaApiErrorMessage,
+} from "@/lib/meta-ad-accounts";
 import { syncMetaInitial } from "@/lib/sync/meta-sync";
 import { scheduleAfterProviderConnect } from "@/lib/oauth/post-connect-schedule";
+
+/**
+ * An error whose message this route is willing to put in a redirect URL.
+ *
+ * `?error=` is rendered verbatim by
+ * `app/(dashboard)/integrations/callback/[provider]/legacy-page.tsx`, so the
+ * catch below writes straight to a browser. It used to forward whatever it
+ * caught, and the three Graph calls in this handler threw Meta's own
+ * `error.message` — free text the provider controls, observed echoing the
+ * access token back inside it. The token exchange path is the worst case: the
+ * credential is in the request Meta is complaining about.
+ */
+class MetaOAuthClientError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "MetaOAuthClientError";
+  }
+}
+
+/**
+ * OAuth error codes Meta may send back on the redirect. Both `error` and
+ * `error_description` are provider-controlled strings that were echoed into our
+ * own redirect and rendered; only a recognised short code is repeated, and the
+ * free-text description is dropped.
+ */
+const META_OAUTH_REDIRECT_ERROR_CODES = new Set([
+  "access_denied",
+  "invalid_request",
+  "invalid_scope",
+  "server_error",
+  "temporarily_unavailable",
+  "unauthorized_client",
+  "unsupported_response_type",
+]);
 
 async function exchangeMetaLongLivedToken(shortLivedToken: string) {
   const params = new URLSearchParams({
@@ -25,9 +63,12 @@ async function exchangeMetaLongLivedToken(shortLivedToken: string) {
 
   const data = await response.json().catch(() => null);
   if (!response.ok || data?.error) {
-    throw new Error(
-      data?.error?.message ||
-        `Meta long-lived token exchange failed with status ${response.status}.`
+    throw new MetaOAuthClientError(
+      describeMetaGraphErrorPayload({
+        label: "Meta long-lived token exchange failed",
+        httpStatus: response.status,
+        payload: data,
+      }),
     );
   }
 
@@ -54,13 +95,17 @@ export async function GET(request: NextRequest) {
   const code = searchParams.get("code");
   const state = searchParams.get("state");
   const error = searchParams.get("error");
-  const errorDescription = searchParams.get("error_description");
 
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
 
   // ── User denied or Meta returned an error ──────────────────
   if (error) {
-    const msg = encodeURIComponent(errorDescription || error);
+    const recognizedCode = META_OAUTH_REDIRECT_ERROR_CODES.has(error)
+      ? ` (${error})`
+      : "";
+    const msg = encodeURIComponent(
+      `Meta declined the connection${recognizedCode}.`,
+    );
     return NextResponse.redirect(
       `${baseUrl}/integrations/callback/meta?status=error&error=${msg}`,
     );
@@ -130,8 +175,12 @@ export async function GET(request: NextRequest) {
     const tokenData = await tokenRes.json();
 
     if (tokenData.error) {
-      throw new Error(
-        tokenData.error.message || "Failed to exchange authorization code.",
+      throw new MetaOAuthClientError(
+        describeMetaGraphErrorPayload({
+          label: "Failed to exchange the Meta authorization code",
+          httpStatus: tokenRes.status,
+          payload: tokenData,
+        }),
       );
     }
 
@@ -156,8 +205,12 @@ export async function GET(request: NextRequest) {
     const meData = await meRes.json();
 
     if (meData.error) {
-      throw new Error(
-        meData.error.message || "Failed to fetch Meta user profile.",
+      throw new MetaOAuthClientError(
+        describeMetaGraphErrorPayload({
+          label: "Failed to fetch the Meta user profile",
+          httpStatus: meRes.status,
+          payload: meData,
+        }),
       );
     }
 
@@ -246,8 +299,13 @@ export async function GET(request: NextRequest) {
     });
     return response;
   } catch (err: unknown) {
+    // Only messages authored here are repeated. Everything else caught by this
+    // block — the integration upsert, the scheduler, the database — was never
+    // written to be rendered in a browser either.
     const message =
-      err instanceof Error ? err.message : "Unknown error during Meta OAuth.";
+      err instanceof MetaOAuthClientError
+        ? err.message
+        : "Meta connection failed. Please try again.";
     return NextResponse.redirect(
       `${baseUrl}/integrations/callback/meta?status=error&businessId=${businessId}&error=${encodeURIComponent(
         message,

@@ -15,6 +15,23 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(),
 }));
 
+vi.mock("@/components/ui/dropdown-menu", () => ({
+  DropdownMenu: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  DropdownMenuTrigger: ({ children }: { children: React.ReactNode }) => (
+    <>{children}</>
+  ),
+  DropdownMenuContent: ({ children }: { children: React.ReactNode }) => (
+    <div>{children}</div>
+  ),
+  DropdownMenuLabel: ({ children }: { children: React.ReactNode }) => (
+    <div>{children}</div>
+  ),
+  DropdownMenuSeparator: () => <hr />,
+  DropdownMenuItem: ({ children }: { children: React.ReactNode }) => (
+    <div>{children}</div>
+  ),
+}));
+
 const CATALOGS: ProviderScopeCatalog[] = [
   {
     provider: "meta",
@@ -140,6 +157,24 @@ describe("AccountScopeControl", () => {
     expect(html).toContain('data-account-scope-state="selected"');
     expect(html).toContain('data-account-id="act_2"');
     expect(html).toContain("Vitahome");
+  });
+
+  it("renders account choices by buyer label without visible provider ids", () => {
+    const html = render({
+      id: "meta",
+      selectedAccountIds: ["act_1"],
+      assignedAccountIds: ["act_1", "act_2"],
+      selectedAccountLabel: "Grandmix",
+      mode: "portfolio",
+    });
+    const visibleText = html.replace(/<[^>]+>/g, " ");
+
+    expect(visibleText).toContain("Grandmix");
+    expect(visibleText).toContain("Vitahome");
+    expect(visibleText).not.toContain("act_1");
+    expect(visibleText).not.toContain("act_2");
+    expect(visibleText).not.toContain("TRY");
+    expect(visibleText).not.toContain("Europe/Istanbul");
   });
 
   it("renders nothing when the provider family has no catalog entry", () => {

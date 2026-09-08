@@ -137,6 +137,100 @@ describe("diagnoseGate", () => {
     );
   });
 
+  it("does not call an ad that never spent a tracking anomaly", () => {
+    /*
+     * THE LARGEST SINGLE REASON ON THE ACCOUNT SET, AND IT WAS FABRICATED.
+     *
+     * Measured read-only against production on 2026-09-07: of 11,438 rows in
+     * `engine_v3_ad_decision_snapshots_daily`, 5,230 carried the sentence
+     * "Verify pixel/CAPI purchase count, value, and ROAS aggregation before
+     * acting." ALL 5,230 of them had `spend = 0` AND `purchases = 0`.
+     *
+     * Their ROAS was `0 / 0` — undefined by arithmetic. The gate read
+     * "not a finite non-negative number" as "contradictory" and told the
+     * operator to go audit a tracking integration on the evidence that the ad
+     * had not run. A contradiction needs two observations that disagree; this
+     * has one observation, and it is zero.
+     *
+     * The row is NOT silenced. `isVerifiedNoDelivery24h` is the next gate and
+     * is the honest diagnosis for an active ad with an empty delivery window.
+     */
+    const result = diagnoseGate(
+      resolvedContext({
+        effectiveCohort: "purchase",
+        spend: 0,
+        purchases: 0,
+        purchaseValue: 0,
+        roas: null,
+        cpa: null,
+        impressions: 0,
+        linkClicks: 0,
+        ctr: null,
+        outboundClicks: null,
+        landingPageViews: null,
+        addToCart: null,
+        initiateCheckout: null,
+        thumbstop: null,
+        recent7dSpend: 0,
+        recent7dPurchases: 0,
+        recent7dRoas: null,
+        recent7dImpressions: 0,
+      }),
+    );
+
+    const reason =
+      result.kind === "terminal" ? result.output.reason : "";
+    const badges =
+      result.kind === "terminal" ? result.output.badges : [];
+    expect(reason).not.toContain("Verify pixel/CAPI");
+    expect(reason).not.toContain("contradictory purchase truth");
+    expect(badges).not.toContainEqual(
+      expect.objectContaining({ type: "tracking_anomaly" }),
+    );
+  });
+
+  it("still reports a missing ROAS when the ad actually spent", () => {
+    /*
+     * The other half of the same rule. Money left the account and no ROAS came
+     * back: that IS two observations disagreeing, and suppressing it would
+     * trade one wrong answer for the opposite one.
+     */
+    const output = terminalOutput(
+      diagnoseGate(
+        resolvedContext({
+          effectiveCohort: "purchase",
+          spend: 300,
+          purchases: 0,
+          purchaseValue: 0,
+          roas: null,
+        }),
+      ),
+    );
+
+    expect(output.reason).toContain("purchase ROAS is missing");
+    expect(output.badges).toContainEqual(
+      expect.objectContaining({ type: "tracking_anomaly" }),
+    );
+  });
+
+  it("still reports purchase value with no spend, which nothing explains", () => {
+    // Zero spend does not make every zero-spend row silent: a purchase VALUE
+    // with no spend behind it is a genuine conflict and keeps its anomaly.
+    const output = terminalOutput(
+      diagnoseGate(
+        resolvedContext({
+          effectiveCohort: "purchase",
+          spend: 0,
+          purchases: 0,
+          purchaseValue: 600,
+          roas: null,
+        }),
+      ),
+    );
+
+    expect(output.reason).toContain("contradictory purchase truth");
+  });
+
   it("preserves coherent purchase truth in both zero and positive cases", () => {
     const coherentZero = diagnoseGate(
       resolvedContext({

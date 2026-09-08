@@ -56,12 +56,33 @@
 // `runCalibrationJob`, at the scope it computed, and never at two scopes at
 // once.
 //
+// WHAT THE BENCHMARK IS MADE OF. For a Meta decision the canonical
+// money-per-purchase unit is META'S OWN attributed purchase AOV — attributed
+// revenue over attributed purchases, ninety days, for THIS provider account —
+// divided by the target ROAS. `resolveSpendUnit` is a two-case split, not a
+// precedence list: with a target ROAS that platform AOV is the only hard basis,
+// and with no target ROAS a legacy configured target CPA is preserved exactly.
+// `observed_shopify_aov` and `operator_aov` are RETIRED rungs — still members
+// of `SpendUnitSource` so persisted rows parse, and never minted again. The
+// store's own average order value is DIAGNOSTIC evidence and chooses nothing,
+// which this seam is built to prove rather than to assume.
+//
 // It re-implements NO formula. Every asserted number is either read back out of
 // the database or taken off a production return value. In particular the seam
 // never divides 58.00 by 2.20: the derived $26.36 benchmark is bound by what it
 // produces (a 10% cap raise at a 0.83 CPA ratio, and the retained verdict's own
-// spend unit) and by a negative control that removes the store's evidence and
-// shows every intent disappear.
+// spend unit) and by the two controls at the end of the file.
+//
+// THE TWO CONTROLS, AND WHY THEY POINT THE WAY THEY DO. The POSITIVE one
+// withdraws the STORE's evidence and requires every number to stand still. The
+// store's books say $36.00 and Meta's say $58.00, so a benchmark taken from the
+// store would be $16.36 and would CUT the cap to 1080; the raise to 1320
+// surviving the store's disappearance is what says the store is not the basis.
+// The NEGATIVE one moves the META-attributed purchase sample one purchase under
+// the floor `classifyMetaAovQuality` calls `ready`, leaving the attributed AOV
+// itself untouched at $58.00, and requires every intent to disappear — because
+// only a `hardEligibleByDefault` unit may size money, and the sampled rung earns
+// that only at a ready sample.
 import {
   createMetaAuthoritativeSliceVersion,
   publishMetaAuthoritativeSliceVersion,
@@ -81,6 +102,10 @@ import { BID_SIZING_POLICY_VERSION } from "@/lib/meta/bid-sizing-policy";
 import { BUDGET_SIZING_POLICY_VERSION } from "@/lib/meta/budget-sizing-policy";
 import { CAMPAIGN_CONTEXT_RESOLVER_VERSION } from "@/lib/creative-decision-engine/campaign-context/resolver";
 import { runCalibrationJob } from "@/lib/creative-decision-engine/jobs/calibration-job";
+import { MIN_ACCOUNT_SCALE_CALIBRATION_SAMPLE } from "@/lib/creative-decision-engine/config";
+import { classifyMetaAovQuality } from "@/lib/creative-decision-engine/spend-unit-resolver";
+import { computeMetaAttributedAov } from "@/lib/creative-decision-engine/meta-aov-calculator";
+import { OBSERVED_SHOPIFY_AOV_MIN_ORDERS } from "@/lib/creative-decision-engine/shopify-aov-source";
 import { WarehouseDataSource } from "@/lib/creative-decision-engine/data-source";
 import { META_BID_INTENT_CONTRACT_VERSION } from "@/lib/meta/bid-intent-contract";
 import { META_BUDGET_INTENT_CONTRACT_VERSION } from "@/lib/meta/budget-intent-contract";
@@ -98,6 +123,7 @@ import { loadBudgetCompositionSourcesForCandidate } from "@/lib/meta/budget-prop
 import {
   produceRetainedAccountProfileOutputs,
   readAccountProfileRetentionIdentity,
+  readAccountProfileRetentionInputs,
 } from "@/lib/meta/account-profile-output-producer";
 import { runMetaSnapshotForBusiness } from "@/lib/meta/snapshot";
 import {
@@ -180,6 +206,42 @@ const SCOPE_ACCOUNT_D = "act_5000000000014";
 
 /** The evidence window both the warehouse and the store fixture cover. */
 const WINDOW_DAYS = 28;
+
+/**
+ * The merchant's own settled order value. DIAGNOSTIC EVIDENCE, NOT A BASIS.
+ *
+ * Kept far away from {@link CONVERTER_ORDER_VALUE} so the two books cannot be
+ * confused for each other: see `seedShopifyStore`.
+ */
+const STORE_ORDER_VALUE = 36.0;
+
+/**
+ * What META attributed to one purchase, which IS the basis.
+ *
+ * 58.00 over the 2.20 target ROAS is the $26.36 benchmark every money figure in
+ * this seam is measured against.
+ */
+const CONVERTER_ORDER_VALUE = 58.0;
+
+/**
+ * The smallest attributed-purchase count `classifyMetaAovQuality` calls `ready`.
+ *
+ * FOUND, NOT ASSERTED. `resolveSpendUnit` marks the sampled rung
+ * `hardEligibleByDefault` only at `ready`, and `lib/meta/snapshot.ts` sizes
+ * nothing from a unit that is not — so this number is the floor the whole
+ * economics chain stands on. Probing the shipped classifier for it means the
+ * fixture cannot drift away from a constant somebody moved, and the negative
+ * control below can sit exactly one purchase under whatever it currently is.
+ */
+const META_AOV_READY_FLOOR = (() => {
+  for (let count = 1; count <= 10_000; count += 1) {
+    if (classifyMetaAovQuality(count) === "ready") return count;
+  }
+  throw new Error(
+    `${LABEL} FAILED [meta_aov_ready_floor_unfindable]: no purchase count under `
+    + "10000 is classified ready",
+  );
+})();
 
 function fail(label: string, detail?: string): never {
   throw new Error(`${LABEL} FAILED [${label}]${detail ? `: ${detail}` : ""}`);
@@ -397,11 +459,22 @@ async function seedCommercialTargets() {
   /*
     ROAS only. No target CPA, no break-even CPA, no AOV assumption.
 
-    This is the whole economics case: with all three null the store's observed
-    average order value is the ONLY source of a CPA benchmark, and it is also
-    the only `accountCpaBaseline` `metaLossBudgetMaturity` can use. That makes
-    the Shopify evidence load-bearing rather than decorative, which is what the
-    negative control at the end of this seam demonstrates.
+    This is the whole economics case, and it is the FIRST case of
+    `resolveSpendUnit`'s two-case split: a configured target ROAS makes Meta's
+    own attributed purchase AOV the one hard basis, so the Meta purchase
+    evidence seeded below is the ONLY source of a CPA benchmark and the only
+    `accountCpaBaseline` `metaLossBudgetMaturity` can use. That is what makes it
+    load-bearing rather than decorative, and it is what the two controls at the
+    end of this seam demonstrate from both sides.
+
+    The nulls are not decoration either. A target CPA beside a target ROAS no
+    longer adds a second anchor — the ladder stops reading it — and today it
+    would additionally suppress the basis this fixture rests on, because
+    `configuredUnitAvailable` in `lib/meta/snapshot.ts` skips the
+    attributed-AOV read whenever a target CPA or an operator AOV assumption is
+    configured, and CASE 1 then has no AOV to divide. That short-circuit is a
+    survival of the retired precedence and is reported with this work; nothing
+    here depends on it, because all three inputs are null.
   */
   await getDb().query(
     `INSERT INTO business_target_pack_history
@@ -468,18 +541,30 @@ async function seedShopifyStore(syncAt: string) {
     [BUSINESS, SHOP, syncAt, addDays(AS_OF, -60), AS_OF],
   );
 
-  // Thirty orders at $58.00 inside the closed window, which is the observed
-  // order floor exactly. The AOV is the ledger's own revenue / purchases.
-  for (let index = 0; index < 30; index += 1) {
+  /*
+    `OBSERVED_SHOPIFY_AOV_MIN_ORDERS` orders inside the closed window — the
+    observed-order floor exactly, so the store's evidence resolves `observed`
+    rather than `sample_thin`. The AOV is the ledger's own revenue / purchases.
+
+    STORE_ORDER_VALUE is deliberately NOT what Meta attributed. The merchant's
+    settled orders and Meta's attributed purchases are two different books, and
+    a fixture in which they carried the same number could not tell a benchmark
+    taken from the store apart from one taken from Meta. Here they are far
+    apart: 36.00 / 2.20 = 16.36 against 58.00 / 2.20 = 26.36, which is the
+    difference between a 10% CUT and a 10% RAISE on the same $12.00 cap. The
+    positive control at the end of this seam is exactly that distinction, and
+    it is only legible because these two numbers disagree.
+  */
+  for (let index = 0; index < OBSERVED_SHOPIFY_AOV_MIN_ORDERS; index += 1) {
     const day = addDays(AS_OF, -(1 + (index % 27)));
     await sql.query(
       `INSERT INTO shopify_orders
          (business_id, provider_account_id, shop_id, order_id, currency_code,
           shop_currency_code, order_created_at, order_created_date_local,
           total_price, current_total_price, original_total_price)
-       VALUES ($1, $2, $2, $3, 'USD', 'USD', $4::timestamptz, $5::date, 58.00, 58.00, 58.00)
+       VALUES ($1, $2, $2, $3, 'USD', 'USD', $4::timestamptz, $5::date, $6, $6, $6)
        ON CONFLICT DO NOTHING`,
-      [BUSINESS, SHOP, `order-${index}`, `${day}T12:00:00.000Z`, day],
+      [BUSINESS, SHOP, `order-${index}`, `${day}T12:00:00.000Z`, day, STORE_ORDER_VALUE],
     );
     await sql.query(
       `INSERT INTO shopify_sales_events
@@ -487,9 +572,10 @@ async function seedShopifyStore(syncAt: string) {
           source_id, order_id, occurred_at, occurred_date_local,
           gross_sales, net_revenue, currency_code)
        VALUES ($1, $2, $2, $3, 'order', $4, $4, $5::timestamptz, $6::date,
-               58.00, 58.00, 'USD')
+               $7, $7, 'USD')
        ON CONFLICT DO NOTHING`,
-      [BUSINESS, SHOP, `event-${index}`, `order-${index}`, `${day}T12:00:00.000Z`, day],
+      [BUSINESS, SHOP, `event-${index}`, `order-${index}`,
+        `${day}T12:00:00.000Z`, day, STORE_ORDER_VALUE],
     );
   }
 }
@@ -603,28 +689,54 @@ async function seedCampaignRole() {
 }
 
 /**
- * The converter population the account calibration is computed from.
+ * The converter population, which is TWO facts in one set of rows.
  *
- * `calibrationReady` — `matureCreativeCount >= MIN_ACCOUNT_SCALE_CALIBRATION_SAMPLE`
- * — is one of the three conditions the canonical resolver requires before it
- * will call `scale` commercially eligible, and `mature_count` in
- * `ACCOUNT_CALIBRATION_QUERY` is the count of creatives with at least one
- * purchase, positive revenue and positive spend inside ninety days. An account
- * with campaign and ad-set rows but no creative rows has a mature count of
- * zero, so its scale verdict is withheld with `scale_calibration_below_floor`
- * — a true answer about a fixture that had never described the ad level at all.
+ * FIRST, the account calibration. `calibrationReady` —
+ * `matureCreativeCount >= MIN_ACCOUNT_SCALE_CALIBRATION_SAMPLE` — is one of the
+ * three conditions the canonical resolver requires before it will call `scale`
+ * commercially eligible, and `mature_count` in `ACCOUNT_CALIBRATION_QUERY` is
+ * the count of creatives with at least one purchase, positive revenue and
+ * positive spend inside ninety days. An account with campaign and ad-set rows
+ * but no creative rows has a mature count of zero, so its scale verdict is
+ * withheld with `scale_calibration_below_floor` — a true answer about a fixture
+ * that had never described the ad level at all.
  *
- * Thirty-two, so the floor is cleared and is still the thing being cleared.
- * The rows go through the production writer, and their AOV (36.00) is
- * deliberately NOT the store's (58.00): the spend-unit resolver reaches the
- * store's number first, so the derived benchmark below stays the store's and
- * the negative control at the end of this seam still bites.
+ * SECOND, and this is what the economics chain rests on, these are also the
+ * only rows `computeMetaAttributedAov` reads: it sums `revenue` and
+ * `conversions` over `meta_creative_daily` for this account, ninety days,
+ * `objective = 'OUTCOME_SALES'`. One purchase apiece at
+ * {@link CONVERTER_ORDER_VALUE} therefore makes Meta's attributed AOV exactly
+ * 58.00 on a sample of {@link CONVERTER_CREATIVE_COUNT} purchases, and
+ * 58.00 / 2.20 is the $26.36 benchmark every money figure below is measured
+ * against.
+ *
+ * The count clears BOTH floors and is stated as such rather than as a literal:
+ * `MIN_ACCOUNT_SCALE_CALIBRATION_SAMPLE` for the calibration, and
+ * {@link META_AOV_READY_FLOOR} for a `ready` — and therefore hard-eligible —
+ * attributed AOV. Two, so that neither floor is being cleared by exactly
+ * nothing, and so the negative control at the end has somewhere to fall from.
  */
-const CONVERTER_CREATIVE_COUNT = 32;
+const CONVERTER_CREATIVE_COUNT = Math.max(
+  MIN_ACCOUNT_SCALE_CALIBRATION_SAMPLE,
+  META_AOV_READY_FLOOR,
+) + 2;
 
-async function seedCreativeFacts() {
+/**
+ * Write a slice of the converter population through the SHIPPED writer.
+ *
+ * The range is a parameter because the negative control at the end of this seam
+ * re-observes part of the same population with no purchase on it — the way a
+ * later sync would, rather than by deleting warehouse rows behind the writer's
+ * back. Every other caller writes the whole set with its purchase intact.
+ */
+async function writeConverterCreatives(input: {
+  from: number;
+  to: number;
+  revenue: number;
+  conversions: number;
+}) {
   const rows = [];
-  for (let index = 0; index < CONVERTER_CREATIVE_COUNT; index += 1) {
+  for (let index = input.from; index < input.to; index += 1) {
     rows.push({
       businessId: BUSINESS,
       providerAccountId: ACCOUNT,
@@ -646,12 +758,23 @@ async function seedCreativeFacts() {
       optimizationGoal: "OFFSITE_CONVERSIONS",
       effectiveStatus: "ACTIVE",
       ...metricRow({
-        spend: 10, revenue: 36, conversions: 1,
+        spend: 10,
+        revenue: input.revenue,
+        conversions: input.conversions,
         impressions: 400, clicks: 8, reach: 300,
       }),
     });
   }
   await upsertMetaCreativeDailyRows(rows);
+}
+
+async function seedCreativeFacts() {
+  await writeConverterCreatives({
+    from: 0,
+    to: CONVERTER_CREATIVE_COUNT,
+    revenue: CONVERTER_ORDER_VALUE,
+    conversions: 1,
+  });
 }
 
 async function seedWarehouseFacts() {
@@ -1892,6 +2015,30 @@ async function main() {
   }
   expectEqual(stallRows[0]!.severity, "high", "stall severity from the measured fall");
 
+  /*
+    THE ARITHMETIC, STATED ONCE AND NOWHERE COMPUTED.
+
+    THE BENCHMARK. Meta attributed 32 purchases and $1,856 of purchase revenue
+    to this account over the ninety-day window — an AOV of $58.00 on a sample
+    two above `META_AOV_READY_FLOOR`, so `classifyMetaAovQuality` says `ready`
+    and `resolveSpendUnit` marks the unit hard-eligible. 58.00 / 2.20 = $26.36,
+    or 2636 minor units. Not the store: the merchant's own books say $36.00 in
+    the same window, and $36.00 / 2.20 = $16.36 would put this ad set on the
+    other side of the dead band entirely.
+
+    THE RATIO. The ad set's own twenty-eight days are $2,200 over 100
+    purchases — $22.00, or 2200 minor units, and both operands are on the
+    account's own scale because `projectBidIntents` resolves the ISO exponent
+    once and hands it to the policy. q = 2200 / 2636 = 0.83.
+
+    THE RUNG. 0.83 is under `deadBand.min`, which only authorises a raise when
+    delivery is measurably constrained — and the `delivery_stall` row asserted
+    just above is that evidence. `raiseBands` puts 0.83 on the 0.9 rung at 10%,
+    and 1200 * 1.10 = 1320.
+
+    Every figure here is a fixture input or a published band of
+    `BID_SIZING_POLICY_V1`. What follows reads the producer's own answer.
+  */
   const adsetRows = await readDecisionRows(CBO_ADSET);
   const bidRow = intentFor(
     adsetRows, META_BID_INTENT_CONTRACT_VERSION, "adset_bid_intent_absent",
@@ -2033,14 +2180,18 @@ async function main() {
   expectEqual(scaleVerdict.blocker_code, null, "an eligible verdict carries no code");
   expectEqual(scaleVerdict.as_of_date, AS_OF, "the day the verdict speaks for");
   /*
-    26.36 again, and from the same place: the store's $58.00 average order value
-    over the 2.20 target ROAS. The retained verdict and the sized intent rest on
-    ONE commercial anchor, not on two that happen to agree.
+    26.36 again, and from the same place: Meta's own $58.00 attributed purchase
+    AOV over the 2.20 target ROAS. The retained verdict and the sized intent
+    rest on ONE commercial anchor, not on two that happen to agree — and they
+    reach it by two different routes, the producer through this account's
+    precomputed calibration cell and the snapshot through a live
+    `computeMetaAttributedAov` read, which is why agreeing here is worth
+    asserting. The store's own books say $36.00 and appear in neither number.
   */
   expectEqual(
     Math.round(Number(scaleVerdict.spend_unit) * 100) / 100,
     26.36,
-    "the retained spend unit is the store's AOV over the target ROAS",
+    "the retained spend unit is Meta's attributed AOV over the target ROAS",
   );
   /*
     The expectation a reader re-derives, with the retained table untouched. It
@@ -2311,15 +2462,85 @@ async function main() {
   provider.refuse();
   const beforeControlPhase = provider.calls.length;
 
-  // ── The negative control that makes $26.36 load-bearing ─────────────────
+  // ── The two controls: which book the $26.36 comes out of ────────────────
   /*
-    Age the store's sync past its 48-hour freshness bound and re-run.
+    An intent is identified by its contract version, which is exactly the
+    identity both candidate queries select on. The `state` rows keep a
+    `target_value` of their own — an entity-state payload, not a proposed
+    amount — so every claim below is stated against the contract rather than
+    against the column being null.
+  */
+  const carriesIntent = (rows: DecisionRow[], contractVersion: string) =>
+    rows.some((row) => (row.target_value as { contractVersion?: unknown } | null)
+      ?.contractVersion === contractVersion);
+  /** The cap this run proposes for the stalled ad set, or null if none. */
+  const proposedCap = async () => {
+    const row = (await readDecisionRows(CBO_ADSET)).find(
+      (candidate) => (candidate.target_value as { contractVersion?: unknown } | null)
+        ?.contractVersion === META_BID_INTENT_CONTRACT_VERSION,
+    );
+    const intent = row?.target_value as Record<string, unknown> | undefined;
+    return intent
+      ? {
+        proposedMinorUnits: intent.proposedMinorUnits,
+        percent: intent.percent,
+        direction: intent.direction,
+      }
+      : null;
+  };
+  const capRaise = {
+    proposedMinorUnits: 1320, percent: 10, direction: "increase",
+  };
 
-    With target CPA, break-even CPA and the AOV assumption all null, the store's
-    observed average order value is the ONLY CPA benchmark AND the only
-    `accountCpaBaseline`, so `metaLossBudgetMaturity` returns null and every
-    entity fails maturity. Both intents disappear together. If the numbers above
-    could be produced without the store, this is the assertion that would fail.
+  /** The budget this run proposes for the CBO campaign, or null if none. */
+  const proposedBudget = async () => {
+    const row = (await readDecisionRows(CBO_CAMPAIGN)).find(
+      (candidate) => (candidate.target_value as { contractVersion?: unknown } | null)
+        ?.contractVersion === META_BUDGET_INTENT_CONTRACT_VERSION,
+    );
+    const intent = row?.target_value as Record<string, unknown> | undefined;
+    return intent
+      ? {
+        amountMinor: intent.amountMinor,
+        percent: intent.percent,
+        direction: intent.direction,
+      }
+      : null;
+  };
+  const budgetRaise = { amountMinor: 27500, percent: 10, direction: "increase" };
+  /*
+    BOTH ARMS ARE STILL LIVE HERE, and the two executions above did not quiet
+    either of them.
+
+    That is worth stating because it looks as though they should have.
+    `meta_budget_write_journal` now carries a verified change against each
+    budget owner, and `readIntentProjectionContexts` reads the cooldown and the
+    7-day frequency off exactly those rows — but it reads them
+    `WHERE requested_at <= $3`, and that cutoff is the END of the snapshot day
+    (`${snapshotDate}T23:59:59.999Z`), which for this seam is yesterday.
+    Receipts this run stamped with `now()` are therefore outside the window the
+    guardrail asks about, `hours_since_change` stays absent, and the campaign
+    keeps proposing. So both controls below assert on the budget arm and the bid
+    arm together, and neither assertion is over-determined by a cooldown.
+
+    What DOES stop the queue producer from raising another row is the open-slot
+    predicate — both budget proposals are settled — which is why the candidate
+    counts below are stated only for the bid arm.
+  */
+
+  // ── POSITIVE CONTROL: withdrawing the STORE moves no number ─────────────
+  /*
+    Age the store's sync past `OBSERVED_SHOPIFY_AOV_MAX_SYNC_AGE_HOURS` and
+    re-run. This is the SAME lever that used to erase both intents, back when
+    `observed_shopify_aov` was a rung of `resolveSpendUnit`; the point of
+    pulling it here is that it must now change nothing at all.
+
+    It is a real withdrawal and not a no-op dressed as one. The merchant's books
+    say $36.00 against Meta's $58.00, so a benchmark that had quietly kept a
+    store rung would be $16.36, q would be 2200 / 1636 = 1.34, and the same
+    stalled ad set would come back on the `lowerBands` 1.1 rung with its cap CUT
+    to 1080. The raise standing still at 1320 is what says the store chose
+    nothing.
   */
   await getDb().query(
     `UPDATE shopify_sync_state SET latest_successful_sync_at = now() - interval '96 hours'
@@ -2327,31 +2548,116 @@ async function main() {
     [BUSINESS, SHOP],
   );
   await runMetaSnapshotForBusiness(BUSINESS, AS_OF);
-  /*
-    An intent is identified by its contract version, which is exactly the
-    identity both candidate queries select on. The `state` rows keep a
-    `target_value` of their own — an entity-state payload, not a proposed
-    amount — so the claim is stated against the contract rather than against
-    the column being null.
-  */
-  const carriesIntent = (rows: DecisionRow[], contractVersion: string) =>
-    rows.some((row) => (row.target_value as { contractVersion?: unknown } | null)
-      ?.contractVersion === contractVersion);
-  if (carriesIntent(await readDecisionRows(CBO_CAMPAIGN), META_BUDGET_INTENT_CONTRACT_VERSION)) {
-    fail("budget_intent_survived_store_removal", "the benchmark was not the store's");
-  }
-  if (carriesIntent(await readDecisionRows(CBO_ADSET), META_BID_INTENT_CONTRACT_VERSION)) {
-    fail("bid_intent_survived_store_removal", "the benchmark was not the store's");
-  }
-  // And nothing downstream can find one either. Both budget rows are settled by
-  // now, so the candidate query would exclude them on the open-slot predicate
-  // whatever the store said; the bid candidate is the one that still proves it.
   expectEqual(
-    (await listTypedBidCandidates(BUSINESS, AS_OF)).length, 0,
-    "no bid candidate without the store",
+    await proposedCap(), capRaise,
+    "the cap raise is unchanged with the store's evidence withdrawn",
+  );
+  expectEqual(
+    await proposedBudget(), budgetRaise,
+    "and so is the budget raise the same benchmark authorised",
+  );
+  const capCandidatesWithoutStore = await listTypedBidCandidates(BUSINESS, AS_OF);
+  expectEqual(
+    capCandidatesWithoutStore.map((candidate) => candidate.proposedMinorUnits),
+    [1320],
+    "and the queue producer still selects the same amount",
+  );
+  /*
+    THE STORE IS EVIDENCE, AND EVIDENCE ONLY — INCLUDING IN THE IDENTITY.
+
+    This block used to read: "It is carried into the retained profile's measured
+    identity — `accountProfileRetentionIdentity` digests its status, window,
+    order count and amount — so withdrawing it moves `source_fingerprint` and
+    the producer retains a new verdict." That was TRUE of the code and it was a
+    defect, closed under Codex Round 4 item 1.
+
+    `source_fingerprint` is persisted on `engine_v3_account_profile_output` as
+    part of that table's UNIQUE key, and `budget-readiness-retention.ts`
+    compares it and answers `retained_profile_source_mismatch` when it moves.
+    So a fact that D091 says chooses no rung — the store's AOV reaches no rung
+    of `resolveSpendUnit` at all — could still discard an unchanged Meta
+    verdict. One new order did it. The digest no longer reads it.
+
+    The assertion below is therefore INVERTED from what it was, and the
+    positive control needs a different proof that the lever was pulled, because
+    "the identity did not move" is now the expected result rather than the
+    evidence of a fixture edit that never landed.
+  */
+  await produceRetainedAccountProfileOutputs({
+    businessId: BUSINESS, providerAccountId: ACCOUNT, asOfDate: AS_OF,
+  });
+  const staleStoreIdentity = await readAccountProfileRetentionIdentity({
+    businessId: BUSINESS, providerAccountId: ACCOUNT, asOfDate: AS_OF,
+  });
+  const staleStoreVerdicts = (await getDb().query(
+    `SELECT DISTINCT spend_unit::text AS spend_unit, source_fingerprint
+       FROM engine_v3_account_profile_output
+      WHERE business_id = $1 AND provider_account_id = $2
+        AND source_fingerprint = $3`,
+    [BUSINESS, ACCOUNT, staleStoreIdentity?.sourceFingerprint ?? ""],
+  )) as Array<{ spend_unit: string | null; source_fingerprint: string }>;
+  console.log(
+    `[${LABEL}] retained verdict with the store withdrawn: `
+    + `spendUnit=${staleStoreVerdicts.map((row) => row.spend_unit).join(",")} `
+    + `source=${staleStoreIdentity?.sourceFingerprint.slice(0, 8)} `
+    + `(was ${identity!.sourceFingerprint.slice(0, 8)})`,
+  );
+  /*
+    THE LEVER REALLY WAS PULLED, proven where the withdrawal is still visible.
+
+    A positive control is worthless if the mutation it makes is invisible to the
+    system under test — "nothing changed" would otherwise be true of a fixture
+    edit that never landed. The identity moving used to be that proof; now that
+    the digest ignores the store, it cannot be, so the proof moves to the place
+    the withdrawal is genuinely observable: the producer's own INPUTS. The same
+    reader the producer runs on reports the store's evidence as unusable once
+    its sync is aged past `OBSERVED_SHOPIFY_AOV_MAX_SYNC_AGE_HOURS`, and
+    `readAccountProfileRetentionInputs` is what feeds
+    `accountProfileRetentionIdentity`, so this is the exact value the digest
+    declined to read — not a parallel re-derivation of it.
+  */
+  const withdrawnInputs = await readAccountProfileRetentionInputs({
+    businessId: BUSINESS, providerAccountId: ACCOUNT, asOfDate: AS_OF,
+  });
+  const withdrawnStore = withdrawnInputs?.observedShopifyAov ?? null;
+  if (withdrawnStore !== null && withdrawnStore.status === "observed") {
+    fail(
+      "store_withdrawal_unobserved",
+      "aging the store's sync left its evidence still `observed`, so this "
+      + "control would pass against a fixture edit that never landed "
+      + `(status=${withdrawnStore.status})`,
+    );
+  }
+
+  /*
+    AND THE FINDING, which is now two findings rather than one.
+
+    The money standing still was always the point. What is new beside it is
+    that the IDENTITY stands still too: the same withdrawal that leaves the
+    spend unit at Meta's $58.00 / 2.20 also leaves `source_fingerprint`
+    untouched, so the retained verdict is not discarded and re-minted for a
+    number that chose nothing.
+  */
+  if (staleStoreIdentity?.sourceFingerprint !== identity!.sourceFingerprint) {
+    fail(
+      "store_withdrawal_moved_identity",
+      "withdrawing the store's evidence moved the retained profile's measured "
+      + "identity, which discards an unchanged Meta verdict through "
+      + "`retained_profile_source_mismatch` — the store chooses no rung and "
+      + "must key no identity "
+      + `(${identity!.sourceFingerprint.slice(0, 8)} -> `
+      + `${staleStoreIdentity?.sourceFingerprint.slice(0, 8)})`,
+    );
+  }
+  expectEqual(
+    staleStoreVerdicts.map(
+      (row) => Math.round(Number(row.spend_unit) * 100) / 100,
+    ),
+    [26.36],
+    "the retained spend unit does not move when the store's evidence is withdrawn",
   );
 
-  // And back again, so the control is shown to be about the store rather than
+  // Back again, so the control is shown to be about the store rather than
   // about having run the snapshot twice.
   await getDb().query(
     `UPDATE shopify_sync_state SET latest_successful_sync_at = now()
@@ -2359,21 +2665,88 @@ async function main() {
     [BUSINESS, SHOP],
   );
   await runMetaSnapshotForBusiness(BUSINESS, AS_OF);
-  const restored = intentFor(
-    await readDecisionRows(CBO_ADSET),
-    META_BID_INTENT_CONTRACT_VERSION,
-    "bid_intent_did_not_return",
+  expectEqual(
+    [await proposedCap(), await proposedBudget()], [capRaise, budgetRaise],
+    "and returning the store's evidence moves nothing either",
+  );
+
+  // ── NEGATIVE CONTROL: the META sample under the ready floor ─────────────
+  /*
+    Re-observe part of the converter population with no purchase on it, through
+    the SHIPPED writer, until Meta's attributed sample is exactly one purchase
+    under `META_AOV_READY_FLOOR`. This is how a real sync would report the same
+    ads on a later pass, not a DELETE reaching behind the writer.
+
+    IT CONTROLS ON THE SAMPLE, NOT ON THE NUMBER. Every surviving row still
+    carries `CONVERTER_ORDER_VALUE`, so the attributed AOV is still exactly
+    58.00 — asserted below off `computeMetaAttributedAov` itself — and the only
+    thing that moved is how many purchases stand behind it.
+    `classifyMetaAovQuality` drops from `ready` to `low_sample`,
+    `resolveSpendUnit` stops marking the unit `hardEligibleByDefault`, and
+    `attachSizedIntents` refuses to size anything from a unit that is not: the
+    benchmark and the loss budget both go null together and every intent
+    disappears. A $26.36 anchor that could still be assembled from an unready
+    sample would fail here.
+  */
+  await writeConverterCreatives({
+    from: META_AOV_READY_FLOOR - 1,
+    to: CONVERTER_CREATIVE_COUNT,
+    revenue: 0,
+    conversions: 0,
+  });
+  const thinSample = await computeMetaAttributedAov({
+    businessId: BUSINESS, asOf: AS_OF, providerAccountId: ACCOUNT, db: getDb(),
+  });
+  console.log(
+    `[${LABEL}] Meta attributed sample under the floor: `
+    + `purchases=${thinSample.purchaseCount} aov=${thinSample.aovMean} `
+    + `quality=${classifyMetaAovQuality(thinSample.purchaseCount)} `
+    + `(ready floor ${META_AOV_READY_FLOOR})`,
   );
   expectEqual(
-    (restored.target_value as Record<string, unknown>).proposedMinorUnits,
-    1320,
-    "the same amount returns with the store's evidence",
+    thinSample.purchaseCount, META_AOV_READY_FLOOR - 1,
+    "the attributed sample sits exactly one purchase under the ready floor",
+  );
+  expectEqual(
+    thinSample.aovMean, CONVERTER_ORDER_VALUE,
+    "and the attributed average order value itself did not move",
+  );
+  expectEqual(
+    classifyMetaAovQuality(thinSample.purchaseCount), "low_sample",
+    "which the shipped classifier calls low_sample rather than ready",
+  );
+  await runMetaSnapshotForBusiness(BUSINESS, AS_OF);
+  if (carriesIntent(await readDecisionRows(CBO_ADSET), META_BID_INTENT_CONTRACT_VERSION)) {
+    fail(
+      "bid_intent_survived_unready_meta_sample",
+      "a cap was sized from a unit the resolver does not call hard-eligible",
+    );
+  }
+  if (carriesIntent(await readDecisionRows(CBO_CAMPAIGN), META_BUDGET_INTENT_CONTRACT_VERSION)) {
+    fail(
+      "budget_intent_survived_unready_meta_sample",
+      "a budget was sized from a unit the resolver does not call hard-eligible",
+    );
+  }
+  // And nothing downstream can find the cap either.
+  expectEqual(
+    (await listTypedBidCandidates(BUSINESS, AS_OF)).length, 0,
+    "no bid candidate once the Meta sample is under the floor",
+  );
+
+  // And back again: the purchases return, the sample clears the floor, and so
+  // does the same amount.
+  await seedCreativeFacts();
+  await runMetaSnapshotForBusiness(BUSINESS, AS_OF);
+  expectEqual(
+    [await proposedCap(), await proposedBudget()], [capRaise, budgetRaise],
+    "both amounts return with the Meta purchase evidence restored",
   );
 
   /*
     Exactly two provider writes across the whole run, and both of them are
     accounted for above: one operator approval and one unattended sweep, each
-    against its own entity. Every other phase — three snapshots, two
+    against its own entity. Every other phase — five snapshots, two
     projections, four execution reads and two rejections — reached the provider
     only for GETs or not at all.
   */
@@ -2384,7 +2757,7 @@ async function main() {
   /*
     And the control phase touched no ENTITY at all.
 
-    The three snapshots there reload the account context, whose own profile read
+    The four snapshots there reload the account context, whose own profile read
     is a GET against the ad account node; that is the shipped behaviour of a
     connected workspace and is not what this phase is about. What matters is
     that no campaign or ad set was read or written while the decision content
@@ -2402,15 +2775,18 @@ async function main() {
   provider.restore();
 
   console.log(
-    `[${LABEL}] PASS: the real snapshot derives its CPA benchmark from a Shopify `
-    + "store and a target ROAS alone, sizes a campaign budget 25000 -> 27500 that "
-    + "the real candidate SQL selects, sizes a cost cap 1200 -> 1320 on the "
-    + "delivery-stalled ad set and raises the queue row carrying it, retains the "
-    + "canonical commercial verdict through the real producer and raises both "
-    + "budget rows on it, refuses an absent and a superseded verdict by name, "
-    + "executes one row through operator approval and the other through the "
-    + "scheduled sweep with durable read-back receipts, loses both intents when "
-    + "the store's evidence is withdrawn, keeps one account's retained verdict "
+    `[${LABEL}] PASS: the real snapshot derives its CPA benchmark from META'S `
+    + "OWN attributed purchase AOV and a target ROAS alone, sizes a campaign "
+    + "budget 25000 -> 27500 that the real candidate SQL selects, sizes a cost "
+    + "cap 1200 -> 1320 on the delivery-stalled ad set and raises the queue row "
+    + "carrying it, retains the canonical commercial verdict through the real "
+    + "producer and raises both budget rows on it, refuses an absent and a "
+    + "superseded verdict by name, executes one row through operator approval "
+    + "and the other through the scheduled sweep with durable read-back "
+    + "receipts, holds every one of those numbers still while the Shopify "
+    + "store's evidence is withdrawn and returned, loses every intent when the "
+    + "Meta-attributed sample falls one purchase under the ready floor with the "
+    + "attributed AOV itself unchanged, keeps one account's retained verdict "
     + "byte-identical while a sibling account's samples move and the pooled "
     + "scope moves with them, holds an account with no evidence of its own by "
     + "name, keeps the day's measured identity fixed across an ordinary sync "

@@ -28,6 +28,7 @@ import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { spawn, spawnSync } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import { Client } from "pg";
 import type { DbClient } from "@/lib/db";
 import { inspectEvaluationStoreSchemaCapability } from "@/lib/creative-decision-engine/evaluation-store";
@@ -42,6 +43,7 @@ import { AD_DECISIONS_JOB_NAME } from "@/lib/creative-decision-engine/jobs/ad-de
 import { NATIVE_AD_ENGINE_VERSION } from "@/lib/creative-decision-engine/types";
 import { DECISION_ORIGIN_AD_EXECUTION_CONTRACT_VERSION } from "@/lib/creative-decision-engine/execution-safety";
 import {
+  NATIVE_DECISION_LAST_SUCCESS_MAX_AGE_DAYS,
   NATIVE_DECISION_RUNNING_GRACE_MS,
   READ_NATIVE_DECISION_GENERATION_QUERY,
 } from "@/lib/meta/decisions-workspace-read-model";
@@ -1034,13 +1036,20 @@ async function findFreeSafePort(): Promise<number> {
 
 // Without a valid LC_ALL, macOS CoreFoundation locale init makes the
 // postmaster multithreaded during startup and it refuses to boot
-// ("postmaster became multithreaded during startup").
-const PG_TOOL_ENV = { ...process.env, LC_ALL: "C" };
+// ("postmaster became multithreaded during startup"). The PostgreSQL binaries
+// never need the integration encryption key. Build this environment at call
+// time and remove the key explicitly so neither a caller's production value nor
+// this harness's throwaway value is inherited by the database server process.
+function pgToolEnv() {
+  const env: NodeJS.ProcessEnv = { ...process.env, LC_ALL: "C" };
+  delete env.INTEGRATION_TOKEN_ENCRYPTION_KEY;
+  return env;
+}
 
 function runSync(command: string, args: string[], label: string) {
   const result = spawnSync(command, args, {
     encoding: "utf8",
-    env: PG_TOOL_ENV,
+    env: pgToolEnv(),
   });
   if (result.error) {
     throw new Error(`${label} failed to spawn: ${result.error.message}`);
@@ -1411,15 +1420,21 @@ async function assertRoleAuthorityRetention(
 }
 
 /**
- * The other table the budget path reads and nothing used to write.
-
+ * The other table the budget path reads.
+ *
  * `engine_v3_account_profile_output` carries the day's commercial verdict per
- * canonical action. It was described in the D086 pack, never applied, and the
- * loader's read of it failed into `composition_sources_unavailable` — so no
- * budget candidate could be admitted at all, for a reason no surface showed.
- * The migration and the producer both exist now; this is the assertion that
- * the schema a real deploy builds actually carries every column the reader
- * names.
+ * canonical action. Its DDL lived only in the D086 pack
+ * (`lib/meta/budget-readiness-retention.ts`) and not in `lib/migrations.ts`,
+ * so a database built by the migration runner did not have it and the loader's
+ * read failed into `composition_sources_unavailable` — no budget candidate
+ * could be admitted at all, for a reason no surface showed. Both the migration
+ * and the producer exist now.
+ *
+ * WHAT THIS ASSERTS, AND WHAT IT DOES NOT. It asserts what the migration
+ * runner builds on a freshly migrated cluster, which is the whole scope of
+ * this seam. It says nothing about the state of any deployed database: this
+ * process reaches an ephemeral cluster only, and a claim about production
+ * would be a claim with no evidence behind it.
  */
 async function assertAccountProfileOutputRetention(
   client: Client,
@@ -2754,6 +2769,9 @@ async function assertNativeDecisionAttemptDurability(
     };
     const readGeneration = (asOf: string) =>
       client.query<{
+        // `latest` or `last_success` — the query returns both since D091, and
+        // which row is which is the answer, not an implementation detail.
+        selection: string;
         job_status: string;
         job_run_id: string;
         as_of_date: string;
@@ -2763,7 +2781,43 @@ async function assertNativeDecisionAttemptDurability(
         AD_DECISIONS_JOB_NAME,
         asOf,
         NATIVE_DECISION_RUNNING_GRACE_MS,
+        /*
+          THE LAST THREE ARE THE LAST-GOOD FALLBACK'S OWN BOUNDS, and the seam
+          must pass them or it tests a different statement than production runs.
+          $6 pins the engine epoch a retained generation may come from, $7 is
+          the serving day the age ceiling is measured against, and $8 is that
+          ceiling in days. This call supplied five and the statement wanted
+          eight — the seam failed with "bind message supplies 5 parameters, but
+          prepared statement requires 8", which is the honest outcome and is why
+          it is a gate.
+
+          The engine version is the CURRENT constant, matching what `insertRun`
+          writes, so the epoch filter admits these fixtures. `asOf` doubles as
+          the serving day: every run this leg inserts is dated on or near it, so
+          the ceiling never fires and this leg keeps testing what it was written
+          to test — latest-versus-retained selection, not the age bound.
+        */
+        NATIVE_AD_ENGINE_VERSION,
+        asOf,
+        NATIVE_DECISION_LAST_SUCCESS_MAX_AGE_DAYS,
       ]);
+
+    /*
+      SINCE D091 THE QUERY RETURNS TWO SELECTIONS, and `rows[0]` is no longer
+      the latest one. It orders by `job.selection` first, and `last_success`
+      sorts BEFORE `latest`, so every leg below that means "the current
+      generation" must ask for it by name rather than by position.
+    */
+    type GenerationRow = {
+      selection: string;
+      job_status: string;
+      job_run_id: string;
+      as_of_date: string;
+    };
+    const latestOf = (result: { rows: GenerationRow[] }) =>
+      result.rows.find((row) => row.selection === "latest") ?? result.rows[0];
+    const retainedOf = (result: { rows: GenerationRow[] }) =>
+      result.rows.find((row) => row.selection === "last_success") ?? null;
 
     const d1Success = await insertRun({
       asOf: "2026-07-10",
@@ -2781,14 +2835,40 @@ async function assertNativeDecisionAttemptDurability(
     });
     const historical = await readGeneration("2026-07-10");
     const current = await readGeneration("2026-07-11");
+    /*
+      D091 AMENDS D054, AND THIS LEG STATES THE AMENDMENT.
+
+      This used to require that a newer failure leave ONLY the failure — the
+      older success was expected to disappear from the answer entirely, and the
+      reader fell back to legacy creative evidence. It no longer does: the query
+      returns the failed LATEST run alongside the last successful generation
+      whose hydration receipt for THIS account is complete, so the workspace can
+      serve yesterday's decisions marked stale while still showing that today's
+      run failed.
+
+      What did NOT change, and is asserted below, is the authority: the row
+      labelled `latest` is still the FAILURE. The retained success is offered
+      under its own `last_success` selection, and every decision served from it
+      carries `actionEligible: false` / `authorizedAction: null`, so nothing it
+      contains can authorize a provider write. A newer failure still strips the
+      older generation's authority; it no longer strips the generation.
+    */
+    const historicalLatest = latestOf(historical);
+    const currentLatest = latestOf(current);
     if (
-      historical.rows[0]?.job_run_id !== d1Success ||
-      historical.rows[0]?.job_status !== "success" ||
-      current.rows[0]?.job_run_id !== d2Failure ||
-      current.rows[0]?.job_status !== "failed"
+      historicalLatest?.job_run_id !== d1Success ||
+      historicalLatest?.job_status !== "success" ||
+      currentLatest?.job_run_id !== d2Failure ||
+      currentLatest?.job_status !== "failed"
     ) {
       throw new Error(
-        "Newer native failure did not invalidate the older success.",
+        "Newer native failure is no longer the latest terminal generation.",
+      );
+    }
+    const retained = retainedOf(current);
+    if (retained !== null && retained.job_status !== "success") {
+      throw new Error(
+        "A retained last-good generation must be a success, or absent.",
       );
     }
 
@@ -2799,8 +2879,8 @@ async function assertNativeDecisionAttemptDurability(
     });
     const stale = await readGeneration("2026-07-12");
     if (
-      stale.rows[0]?.job_run_id !== staleRunning ||
-      stale.rows[0]?.job_status !== "failed"
+      latestOf(stale)?.job_run_id !== staleRunning ||
+      latestOf(stale)?.job_status !== "failed"
     ) {
       throw new Error("Stale running native attempt did not fail closed.");
     }
@@ -2822,8 +2902,8 @@ async function assertNativeDecisionAttemptDurability(
     });
     const overlapped = await readGeneration("2026-07-13");
     if (
-      overlapped.rows[0]?.job_run_id !== holder ||
-      overlapped.rows[0]?.job_status !== "success"
+      latestOf(overlapped)?.job_run_id !== holder ||
+      latestOf(overlapped)?.job_status !== "success"
     ) {
       throw new Error(
         "Overlapped advisory skip displaced its terminal holder.",
@@ -2840,8 +2920,8 @@ async function assertNativeDecisionAttemptDurability(
     });
     const isolated = await readGeneration("2026-07-14");
     if (
-      isolated.rows[0]?.job_run_id !== isolatedSkip ||
-      isolated.rows[0]?.job_status !== "skipped"
+      latestOf(isolated)?.job_run_id !== isolatedSkip ||
+      latestOf(isolated)?.job_status !== "skipped"
     ) {
       throw new Error("Unproven advisory skip did not fail authority closed.");
     }
@@ -2863,8 +2943,8 @@ async function assertNativeDecisionAttemptDurability(
     });
     const crossEpoch = await readGeneration("2026-07-15");
     if (
-      crossEpoch.rows[0]?.job_run_id !== crossEpochFailure ||
-      crossEpoch.rows[0]?.job_status !== "failed"
+      latestOf(crossEpoch)?.job_run_id !== crossEpochFailure ||
+      latestOf(crossEpoch)?.job_status !== "failed"
     ) {
       throw new Error(
         "A newer cross-epoch failure did not invalidate current authority.",
@@ -2926,6 +3006,15 @@ async function main() {
   const dataDir = path.join(tempDir, "data");
   const logFile = path.join(tempDir, "postgres.log");
   const databaseUrl = `postgresql://${EPHEMERAL_DB_USER}@127.0.0.1:${port}/${EPHEMERAL_DB_NAME}`;
+  const previousIntegrationTokenEncryptionKey =
+    process.env.INTEGRATION_TOKEN_ENCRYPTION_KEY;
+
+  // Every child shares this throwaway database. Several seam fixtures insert
+  // legacy plaintext credentials deliberately, and later idempotency checks
+  // run the real migration over those rows. Give the whole ephemeral run one
+  // private, throwaway key so that conversion is exercised without borrowing
+  // production key material and later children can still read the ciphertext.
+  process.env.INTEGRATION_TOKEN_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 
   log(`pg binaries: ${pgBinDir}`);
   log(`data dir:    ${dataDir}`);
@@ -3396,6 +3485,428 @@ async function main() {
       6,
     );
 
+    /*
+      The partial-lane delta dedupe and the narrowed lineage carry.
+
+      `lib/meta/entity-state-history-partial-delta.db.test.ts` was delivered
+      with the 2026-09-07 rewrite-storm fix and ran in NO gate: it is not in
+      package.json, no sibling seam runner spawns it, and it was absent here.
+      vitest's DEFAULT include does collect it, and `describe.skipIf(!SEAM)`
+      then reports every case as SKIPPED while the run exits 0 — the exact
+      shape `scripts/verify-database-seams.sh` calls out, "a skipped database
+      test reads exactly like a pass". Measured on this branch: as delivered,
+      `npx vitest run <file>` with the seam flag unset printed "10 skipped
+      (10)" and exited 0; against a freshly migrated ephemeral cluster the same
+      file — with the eleventh case this pass adds for the partial lane's own
+      lineage carry — reports 11 passed, 0 skipped.
+
+      A database is not optional for it. Both halves are decided by rows a
+      PREVIOUS call committed — the dedupe compares each observed entity
+      against the winner its own baseline lateral resolves, and the lineage
+      carry exists because `meta_creative_lineage_edges` FK-references state
+      rows BY RUN. A template-SQL mock would answer both questions with
+      whatever the test author typed.
+
+      AREA S4 2026-09-07 — 11 -> 16. Five cases were added and every one of
+      them needs real rows:
+
+        - the partial lane's AS-OF / TIMELINE EQUIVALENCE, run as an A/B over
+          two scopes that receive the identical complete history and differ
+          only by an interleaved partial observation. The claim is that the
+          partial run is invisible to a reader AND costs nothing, which is a
+          statement about what a previous call committed;
+        - POSITIVE RE-OBSERVATION RECENCY: two partial captures whose truth is
+          identical and whose failure receipts differ only in request identity
+          must land on ONE run whose heartbeat clocks advance. Decided by the
+          stored `semantic_hash` of a row already committed;
+        - its over-correction guard: two genuinely DIFFERENT failures must
+          still append separately;
+        - and the two writer-pressure window boundaries — a run appended
+          BEFORE the window and re-observed inside it, and a run appended
+          inside whose re-sighting lands after `until`. Both are decided by
+          `meta_entity_observation_receipts` rows the writer appended in an
+          earlier transaction, and by the run-versus-receipt clock disagreement
+          that only real coalescing produces.
+
+      Measured against a freshly migrated ephemeral cluster on this branch: 16
+      passed, 0 skipped.
+    */
+    await runChildVitest(
+      repoRoot,
+      databaseUrl,
+      path.join(
+        "lib",
+        "meta",
+        "entity-state-history-partial-delta.db.test.ts",
+      ),
+      "Meta partial-lane state-history delta dedupe DB seam check",
+      16,
+    );
+
+    /*
+      The ad-grain link-click column is PERSISTED by the authoritative sync.
+
+      `lib/api/meta.ts` wrote a literal `0` into `meta_ad_daily.link_clicks` for
+      every ad-day it has ever produced — `MetaAggregateTotals` has no
+      link-click member, so the number was typed on the provider's behalf — and
+      the correction replaced it with `null`. This file is the forward half:
+      the sync now derives the count from the insight row's own `actions` array
+      and stores it, and a re-sync that supplies nothing must still not
+      overwrite what is stored.
+
+      It needs the migrated schema, not a template mock. The distinction it
+      exists to prove is a STORAGE distinction: `link_clicks` is a nullable
+      BIGINT after the widening in `lib/migrations.ts`, and the ON CONFLICT
+      clause the writer ships is `COALESCE(EXCLUDED.link_clicks,
+      meta_ad_daily.link_clicks)` — two arguments, where the old three-argument
+      form had an unreachable third arm. Whether an absence survives that merge
+      is decided by PostgreSQL, over a row a previous statement committed.
+
+      Registered rather than left to a hand run: with the seam flag unset the
+      file gates itself on `describe.skipIf(!SEAM)`, so `npx vitest run` reports
+      every case as skipped and exits 0 — the shape
+      `scripts/verify-database-seams.sh` warns about in its own header, "a
+      skipped database test reads exactly like a pass".
+
+      Measured against a freshly migrated ephemeral cluster on this branch:
+      29 passed, 0 skipped.
+    */
+    await runChildVitest(
+      repoRoot,
+      databaseUrl,
+      path.join("lib", "meta", "ad-day-link-click-persistence.db.test.ts"),
+      "Meta ad-day link-click persistence DB seam check",
+      29,
+    );
+
+    /*
+      The REPAIR half, and its readback verifier.
+
+      Forward-only accrual is not closure: the engine's fatigue verdict needs
+      the equal, disjoint 14/14 pair, and `admitCompositeBand` in
+      `lib/creative-decision-engine/jobs/ad-decisions-job.ts` withholds with
+      `ad_<label>_window_link_clicks_unavailable` unless BOTH bands carry a
+      positive link-click total. A forward-only fix leaves the preceding band
+      as the fabricated zeros it already stored. `scripts/meta/
+      link-click-repair-backfill.ts` projects the measurement out of each row's
+      own `payload_json` — no provider call — and
+      `scripts/meta/link-click-readback-verify.ts` re-reads the result.
+
+      A database is not optional for any of it. The candidate query decides
+      ABSENT versus MEASURED ZERO in SQL (`jsonb_typeof(payload_json->'actions')
+      = 'array'` plus a `jsonb_array_elements` extraction); the write is an
+      `UPDATE ... FROM unnest(...)` whose pre-image guard is `IS NOT DISTINCT
+      FROM`, which differs from `=` exactly where it matters; and "the dry run
+      wrote nothing" is only a real claim when it is checked by re-reading the
+      table rather than by counting the statements the command chose to issue.
+
+      Measured against a freshly migrated ephemeral cluster on this branch:
+      10 passed, 0 skipped. With `ADSECUTE_EPHEMERAL_DB_SEAM` unset the same
+      file reports "10 skipped (10)" and exits 0, which is why the passing
+      COUNT is asserted and not just the exit code.
+    */
+    await runChildVitest(
+      repoRoot,
+      databaseUrl,
+      path.join("scripts", "meta", "link-click-repair-backfill.db.test.ts"),
+      "Meta link-click repair and readback DB seam check",
+      /*
+        28, up from 16. 16 was Codex B11/B12/B13/B14: a truncated execute that
+        must change zero rows, source freshness left untouched, provisional /
+        failed-validation / post-cutoff exclusion, and the two
+        readback-completeness refusals with their control.
+
+        The twelve added in Round 5 are the two repairs that could not be
+        proven without a real client:
+
+          - THE TRANSACTION BOUNDARY (3). The executor issued BEGIN / UPDATE /
+            COMMIT as separate `getDb()` calls, and a pool hands out a
+            different client per call — so a multi-batch failure left the
+            earlier batches applied. Proven with pool max > 1, a second
+            connection held for the whole run, and a mid-run read from that
+            connection that must see NOTHING after two batches; plus the
+            successful control and the refusal to write with no boundary at
+            all.
+          - THE READBACK'S ADMISSIBILITY CONTRACT (9). The verifier counted
+            every row in the window, so it certified a population decision
+            hydration will never read. Four exclusions (provisional, failed
+            validation, created-after-cutoff, updated-after-cutoff), the
+            admissible control that makes them discriminating, the two
+            requested-account cases that must not vanish from the report, the
+            baseline, and the cutoff-mismatched receipt.
+
+        The count is pinned because with `ADSECUTE_EPHEMERAL_DB_SEAM` unset this
+        file reports "skipped" and exits 0, and a skipped database test reads
+        exactly like a pass.
+
+        ROUND 6 adds nine more, all about the readback counting the SAME
+        population the engine reads: the seeded-complete control, the wholly
+        inert NULL day that must NOT block, the five one-column activity rows
+        that must (clicks / conversions / revenue alone, plus the two the old
+        impressions-or-spend predicate already caught), the composition with
+        the admissibility contract, and the empty-account behaviour under the
+        new predicate.
+      */
+      37,
+    );
+
+    /*
+      CODEX ROUND 5 ITEM 5 — a partial link-click band is UNKNOWN, including
+      when the missing day spent nothing.
+
+      `ad_band_aggregates` counted a missing link-click reading against a row
+      only when that row had positive impressions or spend. An ad-day can carry
+      clicks, conversions and revenue while its spend and impressions come back
+      zero — a late-attributed conversion, a lifetime-budget day whose spend
+      lands on the parent, a partial capture — and such a row was read as "did
+      not deliver", so its absent reading did not count, the band was admitted
+      as fully measured, and the click-to-purchase composite divided a
+      numerator that INCLUDED that row's conversions by a denominator that
+      EXCLUDED its link clicks.
+
+      Only PostgreSQL can answer whether a `COUNT(*) FILTER (...)` over a real
+      mixed band returned 1 or 0. The mapper tests in
+      `lib/creative-decision-engine/__tests__/data-source.ad-grain.test.ts` set
+      `recent14_link_clicks` by hand and cannot reach the predicate that
+      produces it.
+    */
+    await runChildVitest(
+      repoRoot,
+      databaseUrl,
+      path.join(
+        "lib",
+        "creative-decision-engine",
+        "ad-band-completeness.db.test.ts",
+      ),
+      "Native ad band link-click completeness DB seam check",
+      4,
+    );
+
+    /*
+      CODEX ROUND 4 ITEM 7 — schedule timestamps are validated before the write.
+
+      Measured on a real cluster: 'not-a-date'::timestamptz and ''::timestamptz
+      both raise, and '99999-01-01' is ACCEPTED by the cast while its ISO
+      round-trip ('+099998-12-31T21:00:00.000Z') raises "time zone displacement
+      out of range" — so NORMALIZING an out-of-range date would create the very
+      abort it was meant to prevent. It has to become an explicit unknown.
+      PostgreSQL was the first thing to look at these values, inside the
+      transaction, so one bad provider string aborted an entire account's
+      capture. Only a real database can prove the fix, which is why this is a
+      seam and not a unit test.
+    */
+    await runChildVitest(
+      repoRoot,
+      databaseUrl,
+      path.join("lib", "meta", "schedule-timestamp-normalization.db.test.ts"),
+      "Meta schedule timestamp normalization DB seam check",
+      7,
+    );
+
+    /*
+      CODEX ROUND 4 ITEM 8 — the >60-Ad canonical-universe acceptance.
+
+      The defect this catches is invisible below 61 ads and invisible to any
+      test that builds the identity universe by hand: `structuredClone` inside
+      `applyMetaExecutionGovernanceToReadModel` drops a non-enumerable
+      symbol-keyed property, and every exact decision the response cap omitted
+      was then counted as UN-DECIDED ACTIVE INVENTORY. On the 80-ad, 60-served
+      fixture this seam seeds, that was 20 real verdicts reported to the
+      operator as evidence that does not exist.
+
+      It drives the exported GET against a migrated cluster with only the live
+      Graph call stubbed, so nothing at or after the attachment point is
+      mocked. Registered because with `ADSECUTE_EPHEMERAL_DB_SEAM` unset the
+      file reports "8 skipped (8)" and exits 0 — a skipped database test reads
+      exactly like a pass. The count is measured, not chosen.
+    */
+    await runChildVitest(
+      repoRoot,
+      databaseUrl,
+      path.join(
+        "app",
+        "api",
+        "meta",
+        "decisions-workspace-sixty-ad-acceptance.db.test.ts",
+      ),
+      "Meta decisions >60-Ad canonical universe acceptance DB seam check",
+      8,
+    );
+
+    /*
+      ROUND 14. The recent-edit authority's three durable contracts: the receipt
+      is ranked status-blind and its sync attempt LEFT-joined (so a newer
+      failure cannot be stepped over), the manifest membership is reconstructed
+      from rows a writer actually committed (full and delta lanes,
+      `absent_unconfirmed` removing membership, partial/point_lookup excluded),
+      and `sync_run_id` is really persisted by the receipt INSERT. All three are
+      decided by SQL and by committed rows, so a template mock can only restate
+      what the test author typed. Registered because with
+      `ADSECUTE_EPHEMERAL_DB_SEAM` unset the file reports "9 skipped (9)" and
+      exits 0 — a skipped database test reads exactly like a pass.
+    */
+    await runChildVitest(
+      repoRoot,
+      databaseUrl,
+      path.join("lib", "meta", "recent-edit-authority-receipt.db.test.ts"),
+      "Meta recent-edit authority receipt/sync-run/manifest DB seam check",
+      16,
+    );
+
+    /*
+      ROUND 16. The bootstrap probe must ask the SAME question the recent-edit
+      authority asks. Round 15's probe used a weaker predicate, so a receipt the
+      authority refuses — errored, stale, cross-account, count-corrupt, or from
+      an attempt that finished after the cutoff — could suppress the one-shot
+      repair while every hard action stayed on HOLD. Registered because with
+      `ADSECUTE_EPHEMERAL_DB_SEAM` unset the file reports "14 skipped (14)" and
+      exits 0.
+    */
+    await runChildVitest(
+      repoRoot,
+      databaseUrl,
+      path.join("lib", "meta", "authority-bootstrap-lifecycle.db.test.ts"),
+      "Meta recent-edit authority bootstrap lifecycle DB seam check",
+      19,
+    );
+
+    /*
+      ROUND 21, ITEM 1. The lifecycle seam above drives the bootstrap's PIECES;
+      this one drives the shipped orchestration -- the real
+      `syncMetaPartitionDay`, with only the Graph fetch stubbed.
+
+      Registered as its own child because it was previously verified only by
+      hand. It is also the file whose account-calendar discriminator was
+      vacuous until Round 21: the DB binding (America/Los_Angeles) and the
+      credential profile (Europe/Istanbul) are on the same calendar date for
+      most of any real day, so "the run used the DB binding" passed whichever
+      source it had read. It now pins an instant where the two provably differ
+      and asserts the difference before relying on it.
+
+      Exactly 2 passed and 0 skipped: `runChildVitest` already refuses a
+      skipped child and requires the exact passing count.
+    */
+    await runChildVitest(
+      repoRoot,
+      databaseUrl,
+      path.join("lib", "meta", "authority-bootstrap-orchestration.db.test.ts"),
+      "Meta authority bootstrap orchestration DB seam check",
+      2,
+    );
+
+    /*
+      ROUND 22, ITEM 1. `provider_accounts.timezone` is the binding the Meta
+      partition authority resolves the provider-local day from, and ordinary
+      warehouse persistence used to overwrite it with whatever timezone the
+      credential payload or a cached account snapshot carried. The seam above
+      proves a real core sync no longer moves it; this one proves the three
+      semantics underneath: an absent binding is still POPULATED, an existing
+      one cannot be moved by an ordinary write, and an explicit fresh-profile
+      reconciliation still can.
+    */
+    await runChildVitest(
+      repoRoot,
+      databaseUrl,
+      path.join("lib", "provider-account-timezone-authority.db.test.ts"),
+      "Provider account timezone binding authority check",
+      5,
+    );
+
+    /*
+      ROUND 23. The seam above proves WHO may move a timezone binding; this one
+      proves the "fresh profile" that is allowed to is genuinely bound to the
+      grant it was fetched under.
+
+      Two real-database facts, neither of which survives inspection of code
+      shape alone: a manual refresh whose credential predates the current
+      connection generation is refused before the provider is called, and a
+      reconnect cannot commit between the commit-time compare-and-set and the
+      timezone write -- proven with two clients and a deterministic barrier
+      placed exactly in that window.
+    */
+    await runChildVitest(
+      repoRoot,
+      databaseUrl,
+      path.join("lib", "provider-account-generation-binding.db.test.ts"),
+      "Provider account generation binding check",
+      4,
+    );
+
+    /*
+      ROUND 24. The in-process refresh coalescer used to store a bare promise
+      keyed by business/provider, and a joiner absorbed its rejection -- so a
+      failed refresh was re-read and relabelled `source: "live"`,
+      `sourceHealth: "fresh"`, `trustLevel: "safe"` by the caller, and a caller
+      holding a credential from a NEWER generation adopted an older
+      generation's outcome without ever reaching the durable refusal.
+
+      Proven through the public entry points against a real database, because
+      what is at stake is what those entry points RETURN under concurrency.
+    */
+    await runChildVitest(
+      repoRoot,
+      databaseUrl,
+      path.join("lib", "provider-account-refresh-coalescing.db.test.ts"),
+      "Provider account refresh coalescing check",
+      4,
+    );
+
+    /*
+      ROUND 18, ITEM C13. `SET lock_timeout` and the DDL it bounds must be the
+      same backend: the migration ran through the POOL, so serialisation was not
+      affinity and the setting could apply to a session that then did no work.
+      Both facts here are about backends rather than code text.
+    */
+    await runChildVitest(
+      repoRoot,
+      databaseUrl,
+      path.join("lib", "meta", "migration-pinned-session.db.test.ts"),
+      "Migration pinned-session backend check",
+      4,
+    );
+
+    /*
+      ROUND 19, ITEMS C5/C6/C7. The legacy occurrence key must never be
+      recreated (it 23505s against multi-attempt receipts), every physical
+      capacity refusal must be non-overridable, and the lock bound must be
+      verified on the pinned backend against the RAW millisecond value.
+    */
+    await runChildVitest(
+      repoRoot,
+      databaseUrl,
+      path.join("lib", "meta", "migration-safety-contract.db.test.ts"),
+      "Migration safety contract DB seam check",
+      10,
+    );
+
+    /*
+      ROUND 20, ITEM 3. The pinned-session check above proves the LEASE HELPER
+      keeps one backend; it cannot see the defect this file closes, because the
+      escape happened downstream of the helper, inside `runMigrations`:
+      `runNativeAdSchemaMigrations` opened `runDbTransaction`, which leases its
+      own client, so the whole native-ad schema group ran on a second backend
+      the proven `lock_timeout` had never touched.
+
+      This drives the REAL `runMigrations` from zero against a scratch database
+      and asks PostgreSQL -- through a `ddl_command_end` event trigger, which
+      fires inside the executing backend -- which sessions ran DDL. It also
+      proves the three fail-closed aborts reach NO DDL at all.
+
+      ROUND 21, ITEM 2 added the other half of the same subject: the run must
+      also RELEASE that lease before the post-migration verifier, which brings
+      its own pooled and transactional clients. Held together they deadlocked
+      the run against itself under the supported `DB_POOL_MAX=1`. Two further
+      cases here prove a real one-connection migration completes, and that a
+      failing verifier still prevents completion.
+    */
+    await runChildVitest(
+      repoRoot,
+      databaseUrl,
+      path.join("lib", "meta", "migration-ddl-session-boundedness.db.test.ts"),
+      "Migration DDL session boundedness check",
+      6,
+    );
+
     // The null-versus-zero contract rests on a claim about the SCHEMA — that a
     // NULL column and an absent payload key are still distinguishable from a
     // measured 0 after the read. In memory that claim is unfalsifiable, so it
@@ -3475,6 +3986,12 @@ async function main() {
     }
     fs.rmSync(tempDir, { recursive: true, force: true });
     log(`temp dir removed: ${tempDir}`);
+    if (previousIntegrationTokenEncryptionKey === undefined) {
+      delete process.env.INTEGRATION_TOKEN_ENCRYPTION_KEY;
+    } else {
+      process.env.INTEGRATION_TOKEN_ENCRYPTION_KEY =
+        previousIntegrationTokenEncryptionKey;
+    }
   }
 }
 

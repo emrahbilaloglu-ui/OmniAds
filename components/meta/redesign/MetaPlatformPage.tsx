@@ -288,7 +288,16 @@ function metaNativeAdPauseBuyerFailure(
   return "We could not pause this ad. Please try again.";
 }
 
-function metaBuyerCreativeEvidenceViewModel(
+/*
+  EXPORTED for the held-verdict mount test.
+
+  This mapper is the layer that used to drop the engine's held verdict on the
+  way to the DOM — it rebuilds the adapter's view model and replaces the whole
+  authority block with one availability sentence. Testing it through the page
+  shell would mean standing up the page's entire mock surface; testing it
+  directly puts the real regression path under assertion instead.
+*/
+export function metaBuyerCreativeEvidenceViewModel(
   model: CreativeEvidenceWindowExactViewModel,
   primaryAuthority: {
     kind: "launchpad_handoff" | "native_ad_pause";
@@ -354,6 +363,14 @@ function metaBuyerCreativeEvidenceViewModel(
       : null,
     coverage,
     authority: actionAvailability,
+    /*
+      PRESERVED THROUGH THE WRAPPER (Codex C18). This function rebuilds the
+      view model and replaces `authority` with one availability sentence, which
+      is where the engine's held verdict used to be lost. These two fields are
+      buyer copy, not internal authority vocabulary, so they travel.
+    */
+    heldVerdictLabel: model.heldVerdictLabel ?? null,
+    heldVerdictNextStep: model.heldVerdictNextStep ?? null,
     actionNotice,
     diagnostics: [],
     provenance: undefined,
@@ -1374,16 +1391,6 @@ function MetaMobileEvidenceScreen({
   }
 
   const rec = item.rec;
-  const metrics = structuredMetricsForRec(rec);
-  const roasText =
-    typeof metrics?.roas === "number" && Number.isFinite(metrics.roas)
-      ? `${metrics.roas.toFixed(2)}x${typeof targetRoas === "number" && Number.isFinite(targetRoas) ? ` vs ${targetRoas.toFixed(2)}x target` : ""}`
-      : null;
-  const spendText =
-    typeof metrics?.spend === "number" && Number.isFinite(metrics.spend)
-      ? formatMoney(metrics.spend, moneyCurrency)
-      : null;
-  const metricLine = [spendText, roasText].filter(Boolean).join(" · ");
   const reason =
     inspector?.reasons
       ?.map((value) => mobileDisplay(value))
@@ -1411,7 +1418,6 @@ function MetaMobileEvidenceScreen({
             <strong>
               {mobileDecisionLine(rec, targetRoas, moneyCurrency, inspector)}
             </strong>
-            {metricLine ? <span>{metricLine}</span> : null}
           </article>
           <p className="ad-mobile-copy">{reason}</p>
           <MobileDecisionConfidence confidence={rec.confidence} />
@@ -1570,6 +1576,14 @@ function mobileQueueRowsForLane(
       stateLabel: row.stateLabel,
       stateTone: row.stateTone,
       blockedNote: row.blockedNote,
+      /*
+        ROUND 9 ITEM 8. Carried, not re-derived. The desktop creative row draws
+        exactly these two fields off the same view model; dropping them here
+        made a phone show "Keep monitoring" for a decision a desk showed as a
+        Refresh recommendation awaiting review.
+      */
+      heldVerdictLabel: row.heldVerdictLabel ?? null,
+      heldVerdictNextStep: row.heldVerdictNextStep ?? null,
       money: row.money,
       moneySub: row.moneySub,
       chips: row.chips,
@@ -1742,6 +1756,31 @@ function MetaMobileCreativeEvidenceScreen({
               {viewModel.actionNotice.text}
             </p>
           ) : null}
+          {/*
+            ── ROUND 10 ITEM 5 ────────────────────────────────────────────────
+            The pending recommendation, BEFORE the published outcome below.
+
+            The mobile QUEUE card learned to show this in Round 9, and the
+            evidence screen behind "Read evidence →" did not — so a buyer who
+            tapped through to see WHY lost the one fact they had tapped for, and
+            the screen read as a plain "Keep monitoring". The desktop drawer
+            renders exactly these two fields from the same catalog.
+
+            Ordered above the verdict on purpose: the operator needs "a Refresh
+            recommendation is waiting, here is what it needs" first, and the
+            currently safe published outcome second. Both are on screen together
+            — neither replaces the other.
+          */}
+          {viewModel.heldVerdictLabel ? (
+            <article className="ad-mobile-heat" data-mobile-evidence-held>
+              <strong>{viewModel.heldVerdictLabel}</strong>
+              {viewModel.heldVerdictNextStep ? (
+                <span data-mobile-evidence-held-next-step>
+                  {viewModel.heldVerdictNextStep}
+                </span>
+              ) : null}
+            </article>
+          ) : null}
           {isMeaningful(viewModel.verdict) || money ? (
             <article className="ad-mobile-heat">
               {isMeaningful(viewModel.verdict) ? (
@@ -1797,6 +1836,8 @@ function MetaMobileQueueRow({
   stateLabel,
   stateTone,
   blockedNote,
+  heldVerdictLabel,
+  heldVerdictNextStep,
   money,
   moneySub,
   chips,
@@ -1812,6 +1853,16 @@ function MetaMobileQueueRow({
   stateLabel?: MetaDecisionCenterExactDisplayValue;
   stateTone?: MetaDecisionCenterExactTone;
   blockedNote?: MetaDecisionCenterExactDisplayValue;
+  /**
+   * ── ROUND 9 ITEM 8 ───────────────────────────────────────────────────────
+   * The desktop row draws these two and mobile dropped them, so the SAME
+   * decision read differently on the two surfaces: desktop said a Refresh
+   * recommendation was waiting and what to do about it, mobile said only
+   * "Keep monitoring". A buyer on a phone was shown a different truth about
+   * their account, not a smaller one.
+   */
+  heldVerdictLabel?: MetaDecisionCenterExactDisplayValue | null;
+  heldVerdictNextStep?: MetaDecisionCenterExactDisplayValue | null;
   money?: MetaDecisionCenterExactDisplayValue;
   moneySub?: MetaDecisionCenterExactDisplayValue;
   chips?: readonly MetaDecisionCenterExactDisplayValue[];
@@ -1844,6 +1895,21 @@ function MetaMobileQueueRow({
         {chips && chips.length > 0 ? (
           <p data-tone="caution">
             {chips.map((chip) => mobileDisplay(chip)).join(" · ")}
+          </p>
+        ) : null}
+        {/*
+          ROUND 9 ITEM 8. The same held recommendation the desktop row draws,
+          in the same buyer language — `heldCreativeVerdict` is the one producer
+          for both, so the two surfaces cannot drift into different sentences.
+        */}
+        {heldVerdictLabel && mobileDisplay(heldVerdictLabel) !== "—" ? (
+          <p data-mobile-held-verdict="true" data-tone="caution">
+            {mobileDisplay(heldVerdictLabel)}
+          </p>
+        ) : null}
+        {heldVerdictNextStep && mobileDisplay(heldVerdictNextStep) !== "—" ? (
+          <p data-mobile-held-next-step="true" data-tone="caution">
+            {mobileDisplay(heldVerdictNextStep)}
           </p>
         ) : null}
         {/* The server's own blockers and next step, verbatim. */}
@@ -2215,6 +2281,21 @@ function MetaMobileDecisionsScreen({
                 ))}
             </nav>
           )}
+
+          {/*
+            ROUND 9 ITEM 8. The mapped pending/legacy notice, which mobile did
+            not render at all — so a phone showed an empty or partial creatives
+            lane with no explanation, while the desktop said how many ads were
+            still being evaluated. Same buyer sentence, same source
+            (`creativesNotice`), no second derivation.
+          */}
+          {scope === "creatives" &&
+          viewModel.creativesNotice &&
+          mobileDisplay(viewModel.creativesNotice) !== "—" ? (
+            <p className="ad-mobile-copy" data-mobile-creatives-notice>
+              {mobileDisplay(viewModel.creativesNotice)}
+            </p>
+          ) : null}
 
           {rows.map((row) => (
             <Fragment key={row.id}>

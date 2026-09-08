@@ -39,12 +39,25 @@
 //      inherits a sibling's Meta-attributed AOV: it holds with the resolver's
 //      own `commercial_anchor_missing`, and the sibling keeps its own anchor.
 //   4. Two accounts in different currencies do not contaminate each other: the
-//      store's USD evidence anchors the USD account and is refused for the JPY
-//      one, which then answers from its own (absent) evidence.
+//      USD account answers from its own Meta-attributed AOV and the JPY one,
+//      having none, holds instead of inheriting it.
 //   5. An account the calibration pass has not covered is served the RETENTION
 //      PATH'S OWN NAMED HOLD — `account_calibration_scope_not_materialised` —
 //      rather than a pooled borrow or an unexplained absence, and the producer
 //      refuses the same account under the same name.
+//   6. An account whose OWN Meta purchase sample is ready still resolves and
+//      still agrees with its own retained rows, so nothing below is a
+//      one-directional relaxation into a permanent hold.
+//
+// THE COMMERCIAL BASIS, RE-PINNED. Several cases here used to assert
+// `observed_shopify_aov` — the store's 58.00 over the 2.20 target ROAS, 26.36.
+// That rung has been removed from `resolveSpendUnit`: for a META decision the
+// hard-decision spend unit is META's own attributed purchase AOV for THIS
+// account divided by the target ROAS, and the merchant's settled Shopify orders
+// are a different book. Every re-pin below is therefore stricter, not looser —
+// account A now holds on its own six-purchase sample, and account C, which has
+// measured nothing at all, no longer becomes anchored on a business-level store
+// number the moment calibration covers it.
 //
 // NOTHING IS MOCKED except the process-level absence of the network: no Meta
 // connection is seeded, so `resolveMetaCredentials` answers null from the
@@ -226,6 +239,8 @@ type ServedWorkspace = {
       status: string;
       spendUnit: number | null;
       spendUnitSource: string;
+      thresholdEligible: boolean;
+      missingInputs: string[];
       lineage: Record<string, unknown>;
       actions: Record<string, AnchorAction>;
     } | null;
@@ -752,16 +767,36 @@ describe.skipIf(!RUNNABLE)(
         "scale",
       ]);
 
-      // The commercial anchor resolved from the store's own AOV — the rung the
-      // previous round made reachable — and not from a Target CPA or an
-      // operator AOV assumption this product declares optional.
+      /*
+        THE COMMERCIAL ANCHOR IS A'S OWN META-ATTRIBUTED AOV, and it is the
+        reason A holds.
+
+        RE-PINNED. This used to assert `eligible_observed_shopify_aov` /
+        `observed_shopify_aov` — the store's 58.00 over the 2.20 target ROAS,
+        26.36 — because the store rung sat in `resolveSpendUnit` at HIGH
+        confidence. It has been removed: for a Meta decision the unit is META's
+        own attributed purchase AOV, and the store's settled orders are a
+        different book. A's own attributed sample is six purchases, below the
+        `ready` bar of twenty, so the ladder holds and the panel says so by
+        name rather than sizing from Shopify.
+
+        ROUND 6: the hold is now TOTAL. A thin sample under a Target ROAS
+        builds no unit at all — it used to produce `meta_derived_aov` at 36.00
+        / 2.20 with `hardEligibleByDefault: false`, which closed the action gate
+        while leaving that number to size the maturity floor, the thresholds and
+        the canonical hash. The STATUS is unchanged and is the point of this
+        case: the panel still names A's own sample as the reason, and still
+        does not reach for the store's 58.00.
+      */
       expect(served.anchor.status).toBe("resolved");
       expect(served.anchor.explanation?.status).toBe(
-        "eligible_observed_shopify_aov",
+        "blocked_meta_aov_sample_insufficient",
       );
-      expect(served.anchor.explanation?.spendUnitSource).toBe(
-        "observed_shopify_aov",
-      );
+      expect(served.anchor.explanation?.spendUnitSource).toBe("insufficient");
+      expect(served.anchor.explanation?.spendUnit).toBeNull();
+      // And specifically not the store's 58.00 / 2.20 = 26.36, nor A's own
+      // 36.00 / 2.20 = 16.36 that the thin sample cannot authorize.
+      expect(served.anchor.explanation?.spendUnit).not.toBeCloseTo(58 / 2.2, 9);
 
       // A'S OWN MEASUREMENT, NOT THE POOLED ONE. A has six mature creatives and
       // B has thirty-two; before the fix both of these numbers were 38.
@@ -792,26 +827,35 @@ describe.skipIf(!RUNNABLE)(
         );
       }
 
-      // And the retained truth is what makes this bite: A is commercially
-      // anchored (cut and refresh) but NOT scale-eligible, because its own
-      // calibration sample is below the automation-quality floor.
+      /*
+        And the retained truth is what makes this bite. A used to be
+        commercially anchored on the store (cut and refresh eligible) and
+        blocked only on Scale by its own calibration floor. Now the commercial
+        threshold itself is unmet — A's six attributed purchases are below the
+        `ready` bar — so the anchor blocker outranks the calibration one and
+        every action is withheld under it. A's calibration is still below the
+        floor; it is simply no longer the FIRST reason.
+      */
       expect(retainedByAction.get("scale")!.eligible).toBe(false);
-      expect(retainedByAction.get("scale")!.blocker_code).toBe(
-        "scale_calibration_below_floor",
-      );
+      for (const action of ["scale", "cut", "refresh"] as const) {
+        expect(retainedByAction.get(action)!.eligible).toBe(false);
+        expect(retainedByAction.get(action)!.blocker_code).toBe(
+          "commercial_anchor_sample_insufficient",
+        );
+      }
 
       // budgetGateFacts carries the same per-action truth: an increase is a
       // scale decision and a decrease is a cut decision.
       expect(served.lineage.increase).toMatchObject({
         selectedAction: "scale",
         eligible: false,
-        code: "scale_calibration_below_floor",
+        code: "commercial_anchor_sample_insufficient",
         availability: { status: "resolved" },
       });
       expect(served.lineage.decrease).toMatchObject({
         selectedAction: "cut",
-        eligible: true,
-        code: null,
+        eligible: false,
+        code: "commercial_anchor_sample_insufficient",
         availability: { status: "resolved" },
       });
     });
@@ -856,12 +900,19 @@ describe.skipIf(!RUNNABLE)(
       expect(
         after.anchor.explanation?.lineage.metaAttributedAovPurchaseCount90d,
       ).toBe(6);
-      expect(after.anchor.explanation?.spendUnit).toBeCloseTo(26.363636, 5);
+      /*
+        ROUND 6: A's six-purchase sample builds no unit, so what is preserved
+        byte for byte is the HOLD — including the lineage numbers that say
+        whose sample it was. The claim this case makes is unchanged: B moving
+        does not move A.
+      */
+      expect(after.anchor.explanation?.spendUnit).toBeNull();
+      expect(after.anchor.explanation?.lineage.metaAttributedAovMean90d).toBe(36);
       expect(
         after.anchor.actions.find((entry) => entry.action === "scale"),
       ).toMatchObject({
         eligible: false,
-        blockerCode: "scale_calibration_below_floor",
+        blockerCode: "commercial_anchor_sample_insufficient",
       });
 
       // And A's served answer still equals A's OWN retained rows, which the
@@ -870,9 +921,9 @@ describe.skipIf(!RUNNABLE)(
       expect(
         aRows.map((row) => `${row.action}:${row.eligible}:${row.blocker_code}`),
       ).toEqual([
-        "cut:true:null",
-        "refresh:true:null",
-        "scale:false:scale_calibration_below_floor",
+        "cut:false:commercial_anchor_sample_insufficient",
+        "refresh:false:commercial_anchor_sample_insufficient",
+        "scale:false:commercial_anchor_sample_insufficient",
       ]);
     });
 
@@ -914,16 +965,21 @@ describe.skipIf(!RUNNABLE)(
       const usd = await serve(FX_BUSINESS, FX_USD);
       const jpy = await serve(FX_BUSINESS, FX_JPY);
 
-      // The USD account is anchored on the USD store.
+      /*
+        RE-PINNED to the canonical basis, and the case is unchanged in what it
+        measures. The USD account is anchored on its OWN Meta-attributed AOV —
+        36.00 over 32 attributed purchases, a `ready` sample — not on the USD
+        store's 58.00, which no longer sizes anything.
+      */
       expect(usd.anchor.explanation?.spendUnitSource).toBe(
-        "observed_shopify_aov",
+        "meta_derived_aov",
       );
-      expect(usd.anchor.explanation?.spendUnit).toBeCloseTo(26.363636, 5);
+      expect(usd.anchor.explanation?.spendUnit).toBeCloseTo(36 / 2.2, 9);
 
-      // The JPY account is not. `resolveObservedShopifyAov` refuses a currency
-      // it would have to convert, and the JPY account has no Meta-attributed
-      // purchases of its own, so it holds rather than inheriting the USD
-      // account's 26.36.
+      // The JPY account has no Meta-attributed purchases of its own, so it
+      // holds rather than inheriting the USD account's unit. (It never could
+      // have inherited the USD STORE either: `resolveObservedShopifyAov`
+      // refuses a currency it would have to convert.)
       expect(jpy.anchor.explanation?.spendUnit ?? null).toBeNull();
       expect(jpy.anchor.explanation?.spendUnitSource).toBe("insufficient");
       for (const action of jpy.anchor.actions) {
@@ -944,24 +1000,28 @@ describe.skipIf(!RUNNABLE)(
       const rows = await retained(NOEXP_BUSINESS, NOEXP_ACCOUNT);
 
       /*
-        AND THE STORE EVIDENCE IS STILL ADMITTED HERE — measured, not assumed.
+        RE-PINNED, AND THE UNKNOWN EXPONENT NOW SETTLES NOTHING ABOUT THE UNIT.
 
-        `resolveObservedShopifyAov` records a null exponent as two decimals (its
-        `const exponent =` fallback), and `resolveSpendUnitProfile` divides the
-        resulting minor amount by that SAME recorded exponent, so the round trip
-        returns the major amount unchanged and the derived unit is 58.00 / 2.20
-        either way. It is not a silent rescaling.
+        This case used to assert that a KES store's 58.00 round-tripped through
+        `resolveObservedShopifyAov`'s two-decimal fallback and still produced
+        58.00 / 2.20. That mattered while the store supplied the unit; it does
+        not any more, because the store supplies no unit at all. The account's
+        OWN Meta-attributed AOV does — 36.00 over 32 attributed purchases —
+        and Meta's aggregate is in the account's currency with no exponent
+        anywhere in its arithmetic (`computeMetaAttributedAov` divides revenue
+        by conversions), so an unregistered currency cannot rescale it.
 
-        What matters for THIS item is that the served answer and the account's
-        own retained verdict agree about it, and they do. `lib/meta/snapshot.ts`
-        applies a stricter rule for the benchmark it writes in MINOR units
-        (`currencyExponent !== null`), which is a real difference between two
-        code paths and is reported rather than papered over here.
+        What the case still pins, and what it was always for: the served answer
+        and the account's own retained verdict agree for a currency outside the
+        ISO minor-unit registry. `lib/meta/snapshot.ts` applies a stricter rule
+        for the benchmark it writes in MINOR units (`currencyExponent !== null`),
+        which is a real difference between two code paths and is reported rather
+        than papered over here.
       */
       expect(served.anchor.explanation?.spendUnitSource).toBe(
-        "observed_shopify_aov",
+        "meta_derived_aov",
       );
-      expect(served.anchor.explanation?.spendUnit).toBeCloseTo(26.363636, 5);
+      expect(served.anchor.explanation?.spendUnit).toBeCloseTo(36 / 2.2, 9);
       expect(rows.length).toBe(3);
       for (const row of rows) {
         expect(Number(row.spend_unit)).toBeCloseTo(
@@ -1008,23 +1068,26 @@ describe.skipIf(!RUNNABLE)(
       }
 
       /*
-        And the hold lifts the moment the pass covers the account — a hold, not
-        a wall.
+        And the hold lifts into a DIFFERENT hold the moment the pass covers the
+        account — the producer answers, and its answer is C's own.
 
-        What C then gets is C's OWN answer. The commercial anchor is the
-        business's store evidence, which is admissible because C is denominated
-        in the store's currency and is a BUSINESS-level commercial fact rather
-        than a sibling account's measurement; the calibration is C's own, and C
-        has measured nothing, so Scale is withheld with the resolver's own
-        `scale_calibration_below_floor` and the measured lineage is zero. B's 72
-        mature creatives reach none of it.
+        RE-PINNED, and the reversal is the point. This used to assert that C —
+        an account with zero measured purchases — became commercially anchored
+        the instant calibration covered it, on the strength of the BUSINESS's
+        store evidence, with cut and refresh eligible on a 26.36 unit derived
+        from 58.00 / 2.20. Under the canonical rule that is exactly the
+        substitution that must not happen: a Meta hard action is sized by META's
+        attributed purchases for THIS account, C has none, so C holds outright.
+
+        The subject of the case is untouched — the producer's refusal lifts, a
+        verdict is retained, and it is C's own (measured lineage zero; B's 72
+        mature creatives reach none of it). Only the verdict is stricter.
       */
       await calibrate(SCOPE_BUSINESS);
       const covered = await serve(SCOPE_BUSINESS, SCOPE_C);
       expect(covered.anchor.status).toBe("resolved");
-      expect(covered.anchor.explanation?.spendUnitSource).toBe(
-        "observed_shopify_aov",
-      );
+      expect(covered.anchor.explanation?.spendUnitSource).toBe("insufficient");
+      expect(covered.anchor.explanation?.spendUnit ?? null).toBeNull();
       expect(
         covered.anchor.explanation?.lineage.metaAttributedAovPurchaseCount90d,
       ).toBe(0);
@@ -1034,9 +1097,9 @@ describe.skipIf(!RUNNABLE)(
           (action) => `${action.action}:${action.eligible}:${action.blockerCode}`,
         ),
       ).toEqual([
-        "scale:false:scale_calibration_below_floor",
-        "cut:true:null",
-        "refresh:true:null",
+        "scale:false:commercial_anchor_missing",
+        "cut:false:commercial_anchor_missing",
+        "refresh:false:commercial_anchor_missing",
       ]);
       // And C now has a retained verdict of its own that says the same thing.
       expect(
@@ -1051,10 +1114,41 @@ describe.skipIf(!RUNNABLE)(
           (row) => `${row.action}:${row.eligible}:${row.blocker_code}`,
         ),
       ).toEqual([
-        "cut:true:null",
-        "refresh:true:null",
-        "scale:false:scale_calibration_below_floor",
+        "cut:false:commercial_anchor_missing",
+        "refresh:false:commercial_anchor_missing",
+        "scale:false:commercial_anchor_missing",
       ]);
+    });
+
+    it("still anchors an account whose own Meta sample is ready", async () => {
+      /*
+        THE GUARD AGAINST OVER-CORRECTING, on real storage.
+
+        Every re-pin above turns an `eligible_observed_shopify_aov` into a hold,
+        so this case exists to prove the served path can still say YES — and
+        through the canonical rung. P (NOSTORE_BUSINESS) has thirty-two of its
+        own attributed purchases at 44.00, no Shopify store anywhere near it,
+        and it resolves, agrees with its own retained rows, and demands nothing.
+      */
+      const served = await serve(NOSTORE_BUSINESS, NOSTORE_P);
+      const rows = await retained(NOSTORE_BUSINESS, NOSTORE_P);
+
+      expect(served.anchor.explanation?.status).toBe(
+        "eligible_meta_derived_aov",
+      );
+      expect(served.anchor.explanation?.spendUnitSource).toBe(
+        "meta_derived_aov",
+      );
+      expect(served.anchor.explanation?.thresholdEligible).toBe(true);
+      expect(served.anchor.explanation?.missingInputs).toEqual([]);
+      expect(served.anchor.explanation?.spendUnit).toBeCloseTo(44 / 2.2, 9);
+      expect(rows.length).toBe(3);
+      for (const row of rows) {
+        expect(Number(row.spend_unit)).toBeCloseTo(
+          served.anchor.explanation!.spendUnit!,
+          9,
+        );
+      }
     });
 
     it("contacted no network at all", () => {

@@ -27,6 +27,8 @@ import {
   type AccountCalibration,
   type AccountFunnelCalibration,
   type AdDecisionInput,
+  type AdDisjointBandEvidence,
+  type AdDisjointBandObservation,
   type CalibrationCampaignKind,
   type CampaignObjective,
   type CommercialTargetFreshness,
@@ -941,6 +943,29 @@ type AdDecisionHydrationRow = Record<string, unknown> & {
   recent_roas: unknown;
   spend_24h: unknown;
   impressions_24h: unknown;
+  band_cutoff_date: unknown;
+  recent14_start_date: unknown;
+  recent14_end_date: unknown;
+  recent14_row_count: unknown;
+  recent14_spend: unknown;
+  recent14_conversions: unknown;
+  recent14_revenue: unknown;
+  recent14_impressions: unknown;
+  recent14_clicks: unknown;
+  recent14_link_clicks: unknown;
+  recent14_link_clicks_measured_rows?: unknown;
+  recent14_link_clicks_missing_delivered_rows?: unknown;
+  prior14_start_date: unknown;
+  prior14_end_date: unknown;
+  prior14_row_count: unknown;
+  prior14_spend: unknown;
+  prior14_conversions: unknown;
+  prior14_revenue: unknown;
+  prior14_impressions: unknown;
+  prior14_clicks: unknown;
+  prior14_link_clicks: unknown;
+  prior14_link_clicks_measured_rows?: unknown;
+  prior14_link_clicks_missing_delivered_rows?: unknown;
   first_seen_at: unknown;
   first_spend_at: unknown;
   last_spend_date: unknown;
@@ -1245,6 +1270,31 @@ interface CalibrationReadMetadata {
   note: string | null;
   staleTierOverride?: StaleTier;
 }
+
+/**
+ * The rows a missing link-click reading counts AGAINST.
+ *
+ * A day with no delivery legitimately has no link clicks, so a NULL there is
+ * not a gap. The delivery test used to be impressions or spend alone, which
+ * silently exempted every OTHER kind of decision-bearing day: a row that
+ * recorded clicks, conversions or revenue while its spend and impressions came
+ * back zero — a late-attributed conversion, a lifetime-budget day whose spend
+ * lands on the parent, a partial capture — was treated as "did not deliver",
+ * so its NULL link-click reading did not count as missing and the band was
+ * admitted as fully measured. The composite then divided by a link-click total
+ * that was missing exactly the days that carried the outcome.
+ *
+ * Named and shared so the completeness test and any future reader of "did this
+ * ad-day do anything" cannot drift apart. A genuinely inert day — every one of
+ * these zero or NULL — is still not a gap, which is the semantics this keeps.
+ */
+export const AD_DAY_DECISION_BEARING_ACTIVITY_SQL = `(
+      COALESCE(impressions, 0) > 0
+      OR COALESCE(spend, 0) > 0
+      OR COALESCE(clicks, 0) > 0
+      OR COALESCE(conversions, 0) > 0
+      OR COALESCE(revenue, 0) > 0
+    )`;
 
 export const HYDRATE_AD_DECISION_INPUTS_QUERY = `
 /* ad-decision-hydration: native business/account/ad grain */
@@ -1655,6 +1705,119 @@ recent_24h AS (
   WHERE date = $2::date
   GROUP BY provider_account_id, ad_id
 ),
+/*
+  The equal, disjoint, directly adjacent 14/14 ad-day pair the ad-level
+  fatigue contract requires.
+
+  Mirrors the creative-grain 'last14'/'prior14' shape in
+  HYDRATE_CREATIVE_INPUTS_QUERY's historical_source CTE, at ad grain and with
+  the two extra denominators the composite needs (clicks and link_clicks).
+  Each band is its OWN SUM over meta_ad_daily; nothing is reconstructed by
+  subtracting one window from another, which is what DECISION_LOG.md D037
+  forbids.
+
+  PIT safety comes from selected_ad_days, which is already bounded to
+  ($2::date - 27 days) .. $2::date, truth_state finalized, validation_status
+  passed, and created_at/updated_at <= the decision cutoff. recent14 ends on
+  $2::date and prior14 ends 14 days earlier, so no row dated after the cutoff
+  can enter either band.
+*/
+ad_band_days AS (
+  SELECT
+    d.provider_account_id,
+    d.ad_id,
+    bands.band_key,
+    d.spend,
+    d.conversions,
+    d.revenue,
+    d.impressions,
+    d.clicks,
+    d.link_clicks
+  FROM selected_ad_days d
+  CROSS JOIN LATERAL (
+    VALUES
+      ('recent14', d.date BETWEEN ($2::date - INTERVAL '13 days') AND $2::date),
+      ('prior14', d.date BETWEEN ($2::date - INTERVAL '27 days') AND ($2::date - INTERVAL '14 days'))
+  ) AS bands(band_key, in_band)
+  WHERE bands.in_band
+),
+ad_band_aggregates AS (
+  SELECT
+    provider_account_id,
+    ad_id,
+    band_key,
+    COUNT(*)::integer AS band_row_count,
+    SUM(spend) AS spend,
+    SUM(conversions) AS conversions,
+    SUM(revenue) AS revenue,
+    SUM(impressions) AS impressions,
+    SUM(clicks) AS clicks,
+    -- DELIBERATELY NOT COALESCED, unlike metric_cumulative above.
+    --
+    -- meta_ad_daily.link_clicks is NULL when the provider supplied nothing and
+    -- a number when it was measured, INCLUDING a measured 0. PostgreSQL SUM
+    -- ignores NULLs and returns NULL only when every row in the group is NULL,
+    -- so this expression keeps exactly that distinction per band: NULL means
+    -- "no day in this window reported link clicks", 0 means "reported, and it
+    -- was zero". metric_cumulative wraps the same column in COALESCE(x, 0)
+    -- because that aggregate has to stay byte-identical to the answer it gave
+    -- when the column was NOT NULL; these band columns are new, so they carry
+    -- the honest three-valued answer instead.
+    SUM(link_clicks) AS link_clicks,
+    -- COMPLETENESS, because SUM alone cannot express it.
+    --
+    -- SUM ignores NULLs and returns NULL only when EVERY row in the group is
+    -- NULL. A band with three measured days and eleven delivered days the
+    -- provider never reported therefore returns a positive number that looks
+    -- exactly like complete coverage, and the composite divided by it as
+    -- though it were. That is partial evidence presented as measured.
+    --
+    -- A day with no delivery legitimately has no link clicks, so the missing
+    -- count is taken only over rows that actually did something. The test is
+    -- AD_DAY_DECISION_BEARING_ACTIVITY_SQL: impressions OR spend OR clicks OR
+    -- conversions OR revenue. It used to be impressions or spend alone, which
+    -- exempted a row that recorded clicks, conversions or revenue on a day
+    -- whose spend and impressions came back zero -- precisely the anomalous
+    -- rows a partial band is most likely to contain. A wholly inert day is
+    -- still not a gap.
+    COUNT(*) FILTER (WHERE link_clicks IS NOT NULL)::integer
+      AS link_clicks_measured_rows,
+    COUNT(*) FILTER (
+      WHERE link_clicks IS NULL
+        AND ${AD_DAY_DECISION_BEARING_ACTIVITY_SQL}
+    )::integer AS link_clicks_missing_delivered_rows
+  FROM ad_band_days
+  GROUP BY provider_account_id, ad_id, band_key
+),
+ad_bands AS (
+  SELECT
+    provider_account_id,
+    ad_id,
+    MAX(band_row_count) FILTER (WHERE band_key = 'recent14') AS recent14_row_count,
+    MAX(spend) FILTER (WHERE band_key = 'recent14') AS recent14_spend,
+    MAX(conversions) FILTER (WHERE band_key = 'recent14') AS recent14_conversions,
+    MAX(revenue) FILTER (WHERE band_key = 'recent14') AS recent14_revenue,
+    MAX(impressions) FILTER (WHERE band_key = 'recent14') AS recent14_impressions,
+    MAX(clicks) FILTER (WHERE band_key = 'recent14') AS recent14_clicks,
+    MAX(link_clicks) FILTER (WHERE band_key = 'recent14') AS recent14_link_clicks,
+    MAX(link_clicks_measured_rows) FILTER (WHERE band_key = 'recent14')
+      AS recent14_link_clicks_measured_rows,
+    MAX(link_clicks_missing_delivered_rows) FILTER (WHERE band_key = 'recent14')
+      AS recent14_link_clicks_missing_delivered_rows,
+    MAX(band_row_count) FILTER (WHERE band_key = 'prior14') AS prior14_row_count,
+    MAX(spend) FILTER (WHERE band_key = 'prior14') AS prior14_spend,
+    MAX(conversions) FILTER (WHERE band_key = 'prior14') AS prior14_conversions,
+    MAX(revenue) FILTER (WHERE band_key = 'prior14') AS prior14_revenue,
+    MAX(impressions) FILTER (WHERE band_key = 'prior14') AS prior14_impressions,
+    MAX(clicks) FILTER (WHERE band_key = 'prior14') AS prior14_clicks,
+    MAX(link_clicks) FILTER (WHERE band_key = 'prior14') AS prior14_link_clicks,
+    MAX(link_clicks_measured_rows) FILTER (WHERE band_key = 'prior14')
+      AS prior14_link_clicks_measured_rows,
+    MAX(link_clicks_missing_delivered_rows) FILTER (WHERE band_key = 'prior14')
+      AS prior14_link_clicks_missing_delivered_rows
+  FROM ad_band_aggregates
+  GROUP BY provider_account_id, ad_id
+),
 activity_bounds AS (
   SELECT
     d.provider_account_id,
@@ -1723,6 +1886,35 @@ SELECT
   recent.roas AS recent_roas,
   recent_24h.spend AS spend_24h,
   recent_24h.impressions AS impressions_24h,
+  /*
+    The band window boundaries are emitted by SQL, not re-derived in
+    TypeScript, so the dates a consumer reads always describe exactly the rows
+    that were summed above. A second arithmetic in the mapper could drift from
+    this one and label a 13-day sum as a 14-day band.
+  */
+  $2::date::text AS band_cutoff_date,
+  ($2::date - INTERVAL '13 days')::date::text AS recent14_start_date,
+  $2::date::text AS recent14_end_date,
+  ($2::date - INTERVAL '27 days')::date::text AS prior14_start_date,
+  ($2::date - INTERVAL '14 days')::date::text AS prior14_end_date,
+  ad_bands.recent14_row_count,
+  ad_bands.recent14_spend,
+  ad_bands.recent14_conversions,
+  ad_bands.recent14_revenue,
+  ad_bands.recent14_impressions,
+  ad_bands.recent14_clicks,
+  ad_bands.recent14_link_clicks,
+  ad_bands.recent14_link_clicks_measured_rows,
+  ad_bands.recent14_link_clicks_missing_delivered_rows,
+  ad_bands.prior14_row_count,
+  ad_bands.prior14_spend,
+  ad_bands.prior14_conversions,
+  ad_bands.prior14_revenue,
+  ad_bands.prior14_impressions,
+  ad_bands.prior14_clicks,
+  ad_bands.prior14_link_clicks,
+  ad_bands.prior14_link_clicks_measured_rows,
+  ad_bands.prior14_link_clicks_missing_delivered_rows,
   dimensions.first_seen_at,
   bounds.first_spend_at,
   bounds.last_spend_date,
@@ -1784,6 +1976,9 @@ LEFT JOIN recent
 LEFT JOIN recent_24h
   ON recent_24h.provider_account_id = cumulative.provider_account_id
  AND recent_24h.ad_id = cumulative.ad_id
+LEFT JOIN ad_bands
+  ON ad_bands.provider_account_id = cumulative.provider_account_id
+ AND ad_bands.ad_id = cumulative.ad_id
 LEFT JOIN activity_bounds bounds
   ON bounds.provider_account_id = cumulative.provider_account_id
  AND bounds.ad_id = cumulative.ad_id
@@ -4056,6 +4251,106 @@ export function isPresentDayAdDecisionAsOf(
   return asOf === today && cutoff.toISOString().slice(0, 10) === today;
 }
 
+/**
+ * One hydrated 14-day band, exactly as the `ad_bands` CTE returned it.
+ *
+ * Every numeric field stays three-valued. `null` means the warehouse reported
+ * nothing for that field across the whole window, which is not the same claim
+ * as a measured zero, and `admitCompositeBand` in
+ * `lib/creative-decision-engine/jobs/ad-decisions-job.ts` names each absence
+ * rather than coercing it. `meta_ad_daily.link_clicks` is the live case:
+ * `NULL` for a day the provider supplied nothing and a number for a measured
+ * day, including a measured `0`.
+ */
+function toAdDisjointBandObservation(input: {
+  startDate: unknown;
+  endDate: unknown;
+  spend: unknown;
+  conversions: unknown;
+  revenue: unknown;
+  impressions: unknown;
+  clicks: unknown;
+  linkClicks: unknown;
+  linkClicksMissingDeliveredRows: unknown;
+}): AdDisjointBandObservation | null {
+  const startDate = toIsoDateOrNull(input.startDate);
+  const endDate = toIsoDateOrNull(input.endDate);
+  if (startDate === null || endDate === null) return null;
+  /*
+    PARTIAL LINK-CLICK COVERAGE IS UNKNOWN, NOT MEASURED.
+
+    `SUM(link_clicks)` returns NULL only when every row in the band is NULL, so
+    a band with three measured days and eleven delivered days the provider
+    never reported came back as a positive number indistinguishable from
+    complete coverage — and the click-to-purchase composite divided by it. That
+    is a denominator built from part of a window, presented as the whole of it,
+    and it can authorize a Refresh.
+
+    The query counts the delivered rows whose link clicks are missing. Any such
+    row makes the band's link-click total UNKNOWN. A measured 0 across a fully
+    reported band is untouched and stays 0: absence and a measured zero remain
+    different answers, which is the distinction the raw column exists to keep.
+  */
+  const missingDelivered = toNumberOrNull(input.linkClicksMissingDeliveredRows);
+  const linkClicksComplete = missingDelivered !== null && missingDelivered === 0;
+  return {
+    startDate,
+    endDate,
+    spend: toNumberOrNull(input.spend),
+    purchases: toNumberOrNull(input.conversions),
+    revenue: toNumberOrNull(input.revenue),
+    impressions: toNumberOrNull(input.impressions),
+    clicks: toNumberOrNull(input.clicks),
+    linkClicks: linkClicksComplete ? toNumberOrNull(input.linkClicks) : null,
+  };
+}
+
+/**
+ * The equal, disjoint, directly adjacent 14/14 pair for one ad.
+ *
+ * Returns null only when the query produced no band window at all — an ad with
+ * no finalized, validated ad-day rows inside the cutoff-bound 28-day window.
+ * That ad also carries `performanceMetricsObserved: false`, so the contract
+ * withholds its verdict for the metric reason before it ever looks at bands.
+ *
+ * A band whose window exists but which the ad did not deliver into comes back
+ * with null sums rather than zeros: `SUM` over zero rows is NULL in
+ * PostgreSQL, and the contract reads that as "no admissible delivery in this
+ * window", never as "delivered nothing".
+ */
+function toAdBandEvidence(
+  row: AdDecisionHydrationRow,
+): AdDisjointBandEvidence | null {
+  const cutoffDate = toIsoDateOrNull(row.band_cutoff_date);
+  if (cutoffDate === null) return null;
+  const recent14 = toAdDisjointBandObservation({
+    startDate: row.recent14_start_date,
+    endDate: row.recent14_end_date,
+    spend: row.recent14_spend,
+    conversions: row.recent14_conversions,
+    revenue: row.recent14_revenue,
+    impressions: row.recent14_impressions,
+    clicks: row.recent14_clicks,
+    linkClicks: row.recent14_link_clicks,
+    linkClicksMissingDeliveredRows:
+      row.recent14_link_clicks_missing_delivered_rows,
+  });
+  const prior14 = toAdDisjointBandObservation({
+    startDate: row.prior14_start_date,
+    endDate: row.prior14_end_date,
+    spend: row.prior14_spend,
+    conversions: row.prior14_conversions,
+    revenue: row.prior14_revenue,
+    impressions: row.prior14_impressions,
+    clicks: row.prior14_clicks,
+    linkClicks: row.prior14_link_clicks,
+    linkClicksMissingDeliveredRows:
+      row.prior14_link_clicks_missing_delivered_rows,
+  });
+  if (recent14 === null || prior14 === null) return null;
+  return { cutoffDate, recent14, prior14 };
+}
+
 function adDecisionIdentityKey(input: {
   businessId: string;
   providerAccountRefId: string;
@@ -4225,6 +4520,19 @@ function mapAdDecisionHydrationRow(input: {
         eventMetricsObserved:
           metricRowCount > 0 && toBoolean(input.row.event_metrics_observed),
       },
+      /*
+        Producer evidence for the ad-level fatigue contract, not resolver
+        input: `toResolverInput` in jobs/ad-decisions-job.ts strips it before
+        `decideCreative` runs.
+
+        Withheld entirely for an ad with no finalized ad-day rows in the
+        window. Such an ad already carries `performanceMetricsObserved:
+        false`, and emitting two adjacent all-null bands for it would report
+        "this window had no delivery" where the truth is "this ad has no
+        observed metrics at all".
+      */
+      adBandEvidence:
+        metricRowCount > 0 ? toAdBandEvidence(input.row) : null,
       objective,
       contextGrain: {
         providerAccountCount: 1,

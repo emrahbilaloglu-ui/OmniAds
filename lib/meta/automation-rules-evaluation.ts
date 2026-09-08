@@ -10,7 +10,6 @@
 
 import { getDb } from "@/lib/db";
 import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
-import { getBusinessCommercialTruthSnapshot } from "@/lib/business-commercial";
 import {
   anchorsFromTargetPack,
   evaluateAutomationRules,
@@ -28,13 +27,26 @@ import type { AutomationProposalSink } from "@/lib/meta/automation-proposal-inta
 import { readMetaAutomationProposalRoasFloor } from "@/lib/meta/automation-guardrail-policy";
 import { getMetaWriteBlockState } from "@/lib/meta/automation-control-plane";
 import { fetchAssignedAccountIds } from "@/lib/meta/creatives-fetchers";
+import { computeMetaAttributedAov } from "@/lib/creative-decision-engine/meta-aov-calculator";
+import {
+  readMetaCommercialTargets,
+  resolveMetaPurchaseValueAuthority,
+} from "@/lib/meta/commercial-targets";
 import { getActiveBusinesses } from "@/lib/sync/active-businesses";
 
 /** Hard ceiling on how much history one evaluation may pull per entity. */
 const MAX_LOOKBACK_DAYS = 30;
 
 export interface AutomationRuleEvaluationReport {
-  contractVersion: "automation-rule-evaluation-report.v1";
+  /*
+    `.v2` — `anchors` are now read from the target-pack HISTORY at the
+    evaluation cutoff rather than from the workspace's current Commercial Truth
+    snapshot, and `asOfDate` is resolved before them rather than after. A report
+    under `.v1` could carry anchors from a pack saved AFTER the day it claims to
+    have evaluated, so the field means something different now and the key says
+    so.
+  */
+  contractVersion: "automation-rule-evaluation-report.v2";
   businessId: string;
   providerAccountId: string;
   asOfDate: string | null;
@@ -49,6 +61,20 @@ export interface AutomationRuleEvaluationReport {
     | "no_commercial_anchors"
     /** The operator's ROAS floor could not be read, so nothing may be proposed. */
     | "roas_floor_unreadable"
+    /**
+     * A positive Target ROAS governs and this account has no READY,
+     * same-account, same-cutoff Meta-attributed AOV, so no purchase-budget
+     * proposal may be minted from a ROAS rule.
+     */
+    | "purchase_value_authority_missing"
+    /**
+     * The historical target pack for this cutoff could not be READ — a schema
+     * that is not ready, a rejected query, an unusable cutoff. Distinct from
+     * `no_commercial_anchors`, which is the fact that a readable history holds
+     * no anchor: one is "we do not know", the other is "we know there is
+     * none", and only the second is a settled fact about the account.
+     */
+    | "commercial_targets_unreadable"
     | null;
   /** The floor this evaluation actually applied. `null` when none is committed. */
   minRoasFloor: number | null;
@@ -163,6 +189,44 @@ async function readEntityWindows(input: {
   );
 }
 
+/** No anchor was read at all, because no evaluation reached the point of reading one. */
+const NO_ANCHORS: AutomationRuleAnchorValues = {
+  target_roas: null,
+  break_even_roas: null,
+  target_cpa: null,
+  break_even_cpa: null,
+};
+
+/**
+ * The one deterministic day this evaluation is FOR.
+ *
+ * Resolved BEFORE any economic evidence is read, because everything else in
+ * this function is a point-in-time question and a question cannot be asked
+ * before its own cutoff exists. An explicit `asOfDate` wins; otherwise the
+ * newest warehouse day for this exact provider account, taken from the first
+ * level in sorted order that has one — which is the value the old inline
+ * resolution produced, preserved deliberately so this reordering changes WHEN
+ * the cutoff is known and not WHAT it is.
+ */
+async function resolveEvaluationCutoff(input: {
+  businessId: string;
+  providerAccountId: string;
+  asOfDate?: string | null;
+  levels: Array<"campaign" | "adset">;
+}): Promise<string | null> {
+  const explicit = input.asOfDate?.trim() || null;
+  if (explicit) return explicit;
+  for (const level of input.levels) {
+    const levelAsOf = await readLatestWarehouseDate({
+      businessId: input.businessId,
+      providerAccountId: input.providerAccountId,
+      level,
+    });
+    if (levelAsOf) return levelAsOf;
+  }
+  return null;
+}
+
 export async function evaluateBusinessAutomationRules(input: {
   businessId: string;
   providerAccountId: string;
@@ -172,23 +236,13 @@ export async function evaluateBusinessAutomationRules(input: {
 }): Promise<AutomationRuleEvaluationReport> {
   const rules =
     input.rules ?? (await listAutomationRules(input.businessId));
-  const snapshot = await getBusinessCommercialTruthSnapshot(input.businessId);
-  const anchors = anchorsFromTargetPack(snapshot.targetPack);
 
-  const base: Omit<
-    AutomationRuleEvaluationReport,
-    | "asOfDate"
-    | "evaluation"
-    | "recorded"
-    | "skippedReason"
-    | "minRoasFloor"
-  > = {
-    contractVersion: "automation-rule-evaluation-report.v1",
+  const base = {
+    contractVersion: "automation-rule-evaluation-report.v2",
     businessId: input.businessId,
     providerAccountId: input.providerAccountId,
-    anchors,
     ruleCount: rules.length,
-  };
+  } as const;
 
   const evaluableRules = rules.filter(
     (rule) => rule.active && rule.trigger.kind !== "quiet_hours",
@@ -196,6 +250,7 @@ export async function evaluateBusinessAutomationRules(input: {
   if (evaluableRules.length === 0) {
     return {
       ...base,
+      anchors: NO_ANCHORS,
       asOfDate: input.asOfDate ?? null,
       evaluation: null,
       recorded: [],
@@ -204,16 +259,141 @@ export async function evaluateBusinessAutomationRules(input: {
     };
   }
 
+  const levels = Array.from(
+    new Set(evaluableRules.map((rule) => rule.entityLevel)),
+  ).sort();
+
+  /*
+    ── THE CUTOFF COMES FIRST, AND EVERYTHING ECONOMIC HANGS OFF IT ──────────
+
+    This function used to open with
+    `getBusinessCommercialTruthSnapshot(businessId)` — the CURRENT workspace
+    pack — and resolve `asOfDate` roughly a hundred lines later, after the
+    authority check had already run. Three separate wall-clock reads followed
+    from that ordering and every one of them is a provenance defect:
+
+      1. The anchors a rule compared against came from the pack as it is NOW,
+         while the entity windows came from a warehouse day that may be older.
+         An operator who raised their Target ROAS this morning changed the
+         verdict for a day that closed before they typed it, and a re-run of
+         the same warehouse day produced a different answer — which is exactly
+         what `asOfDate` exists to prevent.
+      2. The Meta AOV was read `asOf: input.asOfDate ?? new Date()...`, so a
+         scheduled run with no explicit date divided a warehouse-day ratio by a
+         TODAY-shaped average order value.
+      3. The authority check was handed a synthesized pack —
+         `freshness: "fresh"` unconditionally, and `updatedAt` falling back to
+         `new Date().toISOString()`. `hasMetaHardActionAnchor` refuses a pack
+         with no trustworthy timestamp, and those two literals were what got
+         past it. A pack with no provenance at all therefore authorized
+         purchase-budget proposals by asserting the provenance it lacked.
+
+    Now: resolve the cutoff, then read the target pack AS OF that cutoff from
+    `business_target_pack_history`, then read the AOV for the SAME provider
+    account AS OF the SAME cutoff. Nothing here invents a date, a freshness or
+    a provenance, and a pack that carries none fails the authority check on its
+    own terms.
+  */
+  const asOfDate = await resolveEvaluationCutoff({
+    businessId: input.businessId,
+    providerAccountId: input.providerAccountId,
+    asOfDate: input.asOfDate,
+    levels,
+  });
+  if (!asOfDate) {
+    return {
+      ...base,
+      anchors: NO_ANCHORS,
+      asOfDate: null,
+      evaluation: null,
+      recorded: [],
+      skippedReason: "no_warehouse_history",
+      minRoasFloor: null,
+    };
+  }
+
+  /*
+    UNREADABLE IS NOT EMPTY. `readMetaCommercialTargets` reaches
+    `business_target_pack_history` through a schema-readiness assertion and a
+    query, either of which can reject. Treating a rejection as "no anchors"
+    would let a database problem read as a settled fact about the account, so
+    it gets its own reason and, like every other refusal here, records nothing.
+  */
+  const historicalTargets = await readMetaCommercialTargets(input.businessId, {
+    asOf: asOfDate,
+  }).catch(() => null);
+  if (!historicalTargets) {
+    return {
+      ...base,
+      anchors: NO_ANCHORS,
+      asOfDate,
+      evaluation: null,
+      recorded: [],
+      skippedReason: "commercial_targets_unreadable",
+      minRoasFloor: null,
+    };
+  }
+  const anchors = anchorsFromTargetPack(historicalTargets);
+
+  /*
+    A ROAS RULE STILL NEEDS THE OTHER HALF OF THE UNIT.
+
+    `anchorsFromTargetPack` projects `target_cpa` / `break_even_cpa` to null
+    while a Target ROAS governs, so a CPA rule is unevaluable and mints
+    nothing. That closes the CPA door and leaves the ROAS one open — and a rule
+    that fires on `target_roas` produces a purchase-BUDGET proposal, which the
+    canonical contract only permits when this account's own READY
+    Meta-attributed AOV divides that ratio.
+
+    The authority is resolved for the SAME provider account this evaluation is
+    scoped to, as of the SAME cutoff, against the pack that was in force on
+    that day. It fails closed three ways over: an unreadable sample, a missing
+    one and a thin one all skip the whole evaluation with a named reason rather
+    than proposing on half a unit — and so does a pack whose own provenance
+    cannot be established, because `resolveMetaPurchaseValueAuthority` refuses
+    a pack with no trustworthy timestamp and nothing here supplies one for it.
+
+    Without a positive Target ROAS nothing here applies — the legacy CPA
+    anchors are the ones the rules compare against, and no ratio is divided.
+  */
+  const targetRoasAnchor = anchors.target_roas;
+  if (typeof targetRoasAnchor === "number" && targetRoasAnchor > 0) {
+    const sample = await computeMetaAttributedAov({
+      businessId: input.businessId,
+      asOf: asOfDate,
+      providerAccountId: input.providerAccountId,
+      db: getDb(),
+    }).catch(() => null);
+    const authority = resolveMetaPurchaseValueAuthority(
+      historicalTargets,
+      sample
+        ? { aovMean: sample.aovMean, purchaseCount: sample.purchaseCount }
+        : null,
+    );
+    if (!authority.authorized) {
+      return {
+        ...base,
+        anchors,
+        asOfDate,
+        evaluation: null,
+        recorded: [],
+        skippedReason: "purchase_value_authority_missing",
+        minRoasFloor: null,
+      };
+    }
+  }
+
   const hasAnchor = Object.values(anchors).some(
     (value) => typeof value === "number" && Number.isFinite(value) && value > 0,
   );
   if (!hasAnchor) {
-    // Anchored to the Commercial Truth pack, literally: with no pack there is
-    // nothing to compare against, and inventing a threshold is the one thing
-    // this engine must never do.
+    // Anchored to the target pack in force on the cutoff, literally: with no
+    // pack there is nothing to compare against, and inventing a threshold is
+    // the one thing this engine must never do.
     return {
       ...base,
-      asOfDate: input.asOfDate ?? null,
+      anchors,
+      asOfDate,
       evaluation: null,
       recorded: [],
       skippedReason: "no_commercial_anchors",
@@ -231,7 +411,8 @@ export async function evaluateBusinessAutomationRules(input: {
   if (floorRead.status === "unreadable") {
     return {
       ...base,
-      asOfDate: input.asOfDate ?? null,
+      anchors,
+      asOfDate,
       evaluation: null,
       recorded: [],
       skippedReason: "roas_floor_unreadable",
@@ -240,9 +421,6 @@ export async function evaluateBusinessAutomationRules(input: {
   }
   const minRoasFloor = floorRead.floor;
 
-  const levels = Array.from(
-    new Set(evaluableRules.map((rule) => rule.entityLevel)),
-  ).sort();
   const lookbackDays = Math.min(
     MAX_LOOKBACK_DAYS,
     Math.max(
@@ -252,32 +430,24 @@ export async function evaluateBusinessAutomationRules(input: {
     ),
   );
 
+  // Every level reads the SAME cutoff the economic evidence above was read at.
   const entities: AutomationRuleEntityWindow[] = [];
-  let asOfDate = input.asOfDate?.trim() || null;
   for (const level of levels) {
-    const levelAsOf =
-      asOfDate ??
-      (await readLatestWarehouseDate({
-        businessId: input.businessId,
-        providerAccountId: input.providerAccountId,
-        level,
-      }));
-    if (!levelAsOf) continue;
-    asOfDate = asOfDate ?? levelAsOf;
     entities.push(
       ...(await readEntityWindows({
         businessId: input.businessId,
         providerAccountId: input.providerAccountId,
         level,
-        asOfDate: levelAsOf,
+        asOfDate,
         lookbackDays,
       })),
     );
   }
 
-  if (!asOfDate || entities.length === 0) {
+  if (entities.length === 0) {
     return {
       ...base,
+      anchors,
       asOfDate,
       evaluation: null,
       recorded: [],
@@ -302,6 +472,7 @@ export async function evaluateBusinessAutomationRules(input: {
 
   return {
     ...base,
+    anchors,
     asOfDate,
     evaluation,
     recorded,

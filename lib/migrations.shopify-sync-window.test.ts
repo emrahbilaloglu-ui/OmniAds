@@ -45,9 +45,14 @@ vi.mock("@/lib/db", () => ({
   runDbTransaction: vi.fn(async (operation: () => Promise<unknown>) =>
     operation(),
   ),
+  withPinnedDbClient: vi.fn(),
+  runPinnedDbTransaction: vi.fn(),
 }));
 
 const db = await import("@/lib/db");
+const { migrationDbMockModule } = await import(
+  "@/lib/__tests__/pinned-migration-client-mock"
+);
 
 function makeSql(failWhen: (text: string) => boolean) {
   return Object.assign(
@@ -67,8 +72,15 @@ function makeSql(failWhen: (text: string) => boolean) {
 
 async function runWith(failWhen: (text: string) => boolean) {
   const sql = makeSql(failWhen);
+  const pinned = migrationDbMockModule(sql as never);
   vi.mocked(db.getDb).mockReturnValue(sql as never);
   vi.mocked(db.getDbWithTimeout).mockReturnValue(sql as never);
+  vi.mocked(db.withPinnedDbClient).mockImplementation(
+    pinned.withPinnedDbClient as never,
+  );
+  vi.mocked(db.runPinnedDbTransaction).mockImplementation(
+    pinned.runPinnedDbTransaction as never,
+  );
   const migrations = await import("@/lib/migrations");
   return migrations.runMigrations({
     force: true,

@@ -9,6 +9,8 @@ import type { AccountFunnelCalibration, MetaAovQuality } from "./types";
 import {
   NATIVE_AD_CALIBRATION_TABLE,
   NATIVE_AD_CALIBRATION_BATCH_TABLE,
+  NATIVE_AD_SPEND_UNIT_AUTHORITY_CONTRACT_VERSION,
+  NATIVE_AD_CALIBRATION_LEGACY_UNKNOWN_CONTRACT,
   inspectNativeAdCalibrationSchemaCapability,
   isNativeAdTargetAuthorityCutoffSafe,
   READ_NATIVE_AD_TARGET_AUTHORITY_FOR_ACCOUNT_SQL,
@@ -26,6 +28,30 @@ import {
 
 type Row = Record<string, unknown>;
 
+/**
+ * The contract stamp on a persisted calibration cell, with the batch agreement
+ * enforced.
+ *
+ * A missing stamp is `legacy_unknown` rather than the current version: the
+ * column was added by an additive migration whose default is exactly that, and
+ * assuming "current" for an unstamped row is the guess this whole item exists
+ * to remove.
+ */
+function nativeCalibrationContractVersion(row: Row): string {
+  const cell = typeof row.contract_version === "string"
+    ? row.contract_version
+    : NATIVE_AD_CALIBRATION_LEGACY_UNKNOWN_CONTRACT;
+  const batch = typeof row.batch_contract_version === "string"
+    ? row.batch_contract_version
+    : cell;
+  if (cell !== batch) {
+    throw new TypeError(
+      "Native ad calibration cell and batch disagree about their contract version.",
+    );
+  }
+  return cell;
+}
+
 export interface NativeAdProfileSchemaCapability {
   ready: boolean;
   missing: string[];
@@ -33,6 +59,9 @@ export interface NativeAdProfileSchemaCapability {
 
 export const NATIVE_AD_PROFILE_REQUIRED_COLUMNS = [
   "id",
+  // ROUND 10 ITEM 1. The profile store SELECTs this stamp and refuses on it, so
+  // a database without it is not capable of serving a profile at all.
+  "contract_version",
   "batch_id",
   "business_ref_id",
   "business_id",
@@ -245,6 +274,14 @@ function mapNativeAdCalibrationCell(row: Row): NativeAdCalibrationCell {
     );
   }
   return {
+    /*
+      ROUND 9 ITEM 5. Hydrated from the durable column, never defaulted to the
+      current constant. The reader JOIN already requires the cell and its batch
+      to agree, and this asserts the same fact once more on the mapped object so
+      a future reader that loosens the JOIN cannot quietly reintroduce the
+      disagreement.
+    */
+    contractVersion: nativeCalibrationContractVersion(row),
     batchId: requiredUuid(row.batch_id, "batch_id"),
     batchCompleteness,
     batchCellCount: requiredInteger(row.batch_cell_count, "batch_cell_count"),
@@ -611,17 +648,30 @@ function nativeSpendUnitAuthority(value: unknown): NativeAdSpendUnitAuthority {
     "spendUnitAuthority.contractVersion",
   );
   /*
-    Both contract versions are read.
+    All three contract versions are read; only `.v3` is minted.
 
-    `.v2` adds `observedShopifyAovEvidence`; `.v1` rows predate the source and
-    carry no such member. Reading only one version would have made every row
-    written before or after the change unreadable, which is the migration this
-    product deliberately does not do — old snapshots stay readable and are not
-    backfilled.
+    `.v1` predates the store source and carries no `observedShopifyAovEvidence`
+    member. `.v2` carries one and HASHES it — 118 such rows are live in
+    `engine_v3_ad_account_calibration_daily` and their stored `authorityHash`
+    only recomputes if the evidence is round-tripped verbatim. `.v3` carries the
+    same evidence and excludes it from identity. Reading only the current
+    version would have made every row written before the change unreadable,
+    which is the migration this product deliberately does not do — old snapshots
+    stay readable and are not backfilled.
+
+    Anything else throws rather than being coerced into the nearest version: a
+    row whose hashing rule is unknown cannot be verified, and an unverifiable
+    authority must fail CLOSED.
   */
   if (
     contractVersion !== "engine-v3-native-ad-spend-unit-authority.v1" &&
-    contractVersion !== "engine-v3-native-ad-spend-unit-authority.v2"
+    contractVersion !== "engine-v3-native-ad-spend-unit-authority.v2" &&
+    // `.v3` joined the readable set when `.v4` was minted for the semantic
+    // projection. It PARSES and hash-verifies here; whether it may AUTHORIZE
+    // is a separate question, answered by the version gate in
+    // `nativeSpendUnitAuthorityMatchesTarget`.
+    contractVersion !== "engine-v3-native-ad-spend-unit-authority.v3" &&
+    contractVersion !== NATIVE_AD_SPEND_UNIT_AUTHORITY_CONTRACT_VERSION
   ) {
     throw new TypeError("Unsupported native spend-unit authority contract.");
   }
@@ -693,11 +743,13 @@ function nativeSpendUnitAuthority(value: unknown): NativeAdSpendUnitAuthority {
     /*
       The store observation, round-tripped verbatim.
 
-      It is part of the generation content, so the authority hash is computed
-      over it: dropping it here would make every `.v2` row fail its own hash
-      recomputation on the way back in. It is read as an opaque object because
-      its shape is owned by the source module that mints it, and re-validating
-      it field by field here would be a second, divergent definition of one
+      Required for `.v2`, which hashes it: dropping it here would make every
+      `.v2` row fail its own hash recomputation on the way back in. Under `.v3`
+      it is outside the hash, but it is still round-tripped because it is the
+      evidence an operator reads a blocked authority against — carried and
+      served, just not identity. It is read as an opaque object because its
+      shape is owned by the source module that mints it, and re-validating it
+      field by field here would be a second, divergent definition of one
       contract.
     */
     ...(object.observedShopifyAovEvidence === undefined

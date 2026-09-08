@@ -1028,8 +1028,12 @@ describe("native ad operator-response detection", () => {
       verificationLineage: null,
     });
 
+    // The digest covers `sourceEngineVersion`, which `episode()` fills from
+    // NATIVE_AD_ENGINE_VERSION, so it moves with the producer epoch. What this
+    // pin protects is the null-lineage ENCODING, not the constant: re-derived
+    // for `v3-ad-2026-09-07-held-verdict-authority-shadow`.
     expect(legacy.receiptHash).toBe(
-      "636cd618145fd9812d10f860063950fa8fafdee8e1c96947a8e08c56bb3040bb",
+      "fd7cb20610cdd4f085c51f4e2d5c0657e30fce1146b8290a0558adfa2589bf38",
     );
 
     const result = detectAdOperatorResponse({

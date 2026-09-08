@@ -118,6 +118,23 @@ const {
   syncMetaAccountBreakdownWarehouseDay,
   syncMetaAccountCoreWarehouseDay,
 } = await import("@/lib/api/meta");
+const { classifyMetaSyncFailure } = await import(
+  "@/lib/sync/meta-error-classification"
+);
+const { durableMetaFailureMessage } = await import("@/lib/sync/meta-sync");
+const runtimeLogging = await import("@/lib/runtime-logging");
+
+/**
+ * A `Response` with the JSON body and status a stubbed Graph call answers with.
+ * Local to this file so the refusal fixtures below read as bodies, not as
+ * Response plumbing.
+ */
+function jsonResponseFor(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "content-type": "application/json" },
+  });
+}
 
 describe("Meta pagination receipts", () => {
   beforeEach(() => {
@@ -789,6 +806,14 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
       accountId: "act_1",
       day: accountToday,
       partitionId: "partition-1",
+      /*
+        ── ROUND 15, DEFECT 6 ───────────────────────────────────────────────
+        The real `meta_sync_runs.id` for the attempt, as `processMetaPartition`
+        supplies it. Distinct from `partitionId` (reused across retries) and
+        from the observation `runId` (coalesced content), so the assertion
+        below cannot pass by accident on either of those.
+      */
+      syncRunId: "11111111-2222-4333-8444-555555555555",
       workerId: "worker-1",
       leaseEpoch: 11,
       attemptCount: 1,
@@ -836,10 +861,34 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
     // entities, and absence reads as deletion to anything downstream.
     expect(currentConfigCall.campaignReceipt.complete).toBe(true);
     expect(currentConfigCall.adsetReceipt.complete).toBe(true);
-    const campaignObservationCall = vi
+    /*
+      ── ROUND 15, DEFECT 6: THE ATTEMPT REACHES BOTH RECEIPTS ──────────────
+
+      Round 14 threaded `syncRunId` from `processMetaPartition` down to the
+      receipt, and proved the column exists with a seeded reader test — which
+      cannot see whether the shipped core-sync actually passes the value. This
+      drives the real `syncMetaAccountCoreWarehouseDay` and reads the argument
+      the real writer was called with, for CAMPAIGN and ADSET, which are the two
+      endpoints the recent-edit authority reads.
+    */
+    const observationCalls = vi
       .mocked(entityStateHistory.persistMetaEntityObservation)
-      .mock.calls.map(([call]) => call)
-      .find((call) => call.entityType === "campaign");
+      .mock.calls.map(([call]) => call);
+    for (const entityType of ["campaign", "adset"] as const) {
+      const call = observationCalls.find((one) => one.entityType === entityType);
+      expect(call, `${entityType} observation must be persisted`).toBeTruthy();
+      expect(call!.captureReceipt?.syncRunId, entityType).toBe(
+        "11111111-2222-4333-8444-555555555555",
+      );
+      // And it is not silently the partition or the observation run instead.
+      expect(call!.captureReceipt?.syncRunId, entityType).not.toBe(
+        call!.captureReceipt?.partitionId,
+      );
+    }
+
+    const campaignObservationCall = observationCalls.find(
+      (call) => call.entityType === "campaign",
+    );
     expect(campaignObservationCall).toMatchObject({
       entityType: "campaign",
       completeness: "complete",
@@ -3042,7 +3091,247 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
     // fabrication as the sync path, through a read surface.
     expect(configSnapshots.appendMetaConfigSnapshots).not.toHaveBeenCalled();
   });
+  /*
+    ── THE BULK WALK REFUSES LIKE THE RECEIPT WALK ───────────────────────────
+    `fetchMetaPagedJson` — the only page fetcher the bulk core and breakdown
+    syncs use — threw `new Error(json.error?.message ?? ...)` on BOTH refusal
+    paths. Two things were wrong with that and both are asserted here.
+
+    STRUCTURE. `classifyMetaSyncFailure` branches on errorCode / errorSubcode /
+    isTransient / httpStatus. A plain Error carries none of them, so an expired
+    token, a rate limit and a bug in this file all reached the partition
+    failure path indistinguishable from one another.
+
+    SANITISATION. The thrown message was Meta's own prose, and Graph error
+    messages quote the request — including, on these edges, the access token in
+    the query string. `lib/sync/meta-sync.ts` wrote that message into
+    `meta_sync_partitions.last_error` and `meta_sync_runs.error_message`.
+
+    The bodies below therefore carry BOTH a secret and prose, and the
+    assertions require the thrown message to contain neither.
+  */
+  const LEAKY_GRAPH_PROSE =
+    "Unsupported get request for /act_1/insights?access_token=EAAG-SECRET-TOKEN-VALUE; the customer 'Acme Widgets Ltd' cannot be queried";
+  const SECRET_IN_PROSE = "EAAG-SECRET-TOKEN-VALUE";
+
+  function leakyGraphErrorBody() {
+    return {
+      error: {
+        message: LEAKY_GRAPH_PROSE,
+        type: "OAuthException",
+        code: 190,
+        error_subcode: 463,
+        is_transient: false,
+        fbtrace_id: "BuLkTrAcE0001",
+      },
+    };
+  }
+
+  async function expectStructuredSanitizedRefusal(run: () => Promise<unknown>) {
+    const error = await run().then(
+      () => null,
+      (thrown: unknown) => thrown,
+    );
+    expect(error).toBeInstanceOf(Error);
+    const failure = error as Error & Record<string, unknown>;
+    // Structured: the classifier can now branch on the provider's own identity.
+    expect(failure.name).toBe("MetaGraphRequestError");
+    expect(failure.errorCode).toBe(190);
+    expect(failure.errorSubcode).toBe(463);
+    expect(failure.isTransient).toBe(false);
+    expect(failure.fbtraceId).toBe("BuLkTrAcE0001");
+    // Sanitized: no provider prose, and above all no credential.
+    expect(failure.message).not.toContain(SECRET_IN_PROSE);
+    expect(failure.message).not.toContain("Acme Widgets Ltd");
+    expect(failure.message).not.toContain("Unsupported get request");
+    expect(failure.message).toContain("code=190");
+    // And the durable record built from it carries neither.
+    const durable = durableMetaFailureMessage(failure);
+    expect(durable).not.toContain(SECRET_IN_PROSE);
+    expect(durable).not.toContain("Acme Widgets Ltd");
+    expect(durable).toContain("code=190");
+    expect(durable).toContain("subcode=463");
+    return failure;
+  }
+
+  it("sanitizes a provider-chosen fbtrace_id in BOTH the warning and the durable record", async () => {
+    /*
+      ROUND 6 ITEM 6. `fbtrace_id` is the only free-form string this module
+      keeps out of an error body, and it was accepted with `String(...).trim()`
+      — so a value carrying a credential, a newline that splits a log line, or
+      the `:`/`=` delimiters the failure messages use as structure travelled
+      into the `bulk_page_rejected` warning, onto `MetaGraphRequestError`, and
+      from there into `meta_sync_partitions.last_error`.
+
+      The warning is CAPTURED here rather than assumed, because it is the
+      boundary an operator actually reads.
+    */
+    const warnings: Array<{ event: string; details: unknown }> = [];
+    const warnSpy = vi
+      .spyOn(runtimeLogging, "logRuntimeWarn")
+      .mockImplementation((_scope, event, details) => {
+        warnings.push({ event, details });
+      });
+
+    vi.mocked(warehouse.getMetaSyncCheckpoint).mockResolvedValue(null);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        if (url.includes("level=account") || url.includes("/campaigns") || url.includes("/adsets")) {
+          return jsonResponseFor({ data: [] }, 200);
+        }
+        return jsonResponseFor(
+          {
+            error: {
+              message: "Unsupported get request",
+              code: 190,
+              error_subcode: 463,
+              is_transient: false,
+              fbtrace_id:
+                "AbCd?access_token=EAAG-SECRET-TOKEN-VALUE\nfbtrace=SPOOFED",
+            },
+          },
+          400,
+        );
+      }),
+    );
+
+    const failure = await syncMetaAccountCoreWarehouseDay({
+      credentials: {
+        businessId: "biz-1",
+        accessToken: "token-1",
+        accountIds: ["act_1"],
+        currency: "USD",
+        accountProfiles: {
+          act_1: { currency: "USD", timezone: "UTC", name: "Account 1" },
+        },
+      },
+      accountId: "act_1",
+      day: "2026-04-03",
+      partitionId: "partition-bulk-fbtrace",
+      workerId: "worker-1",
+      leaseEpoch: 1,
+      attemptCount: 1,
+      leaseMinutes: 15,
+    }).then(
+      () => null,
+      (thrown: unknown) => thrown as Error & Record<string, unknown>,
+    );
+
+    // Parsed away: nothing unsafe was ever constructed.
+    expect(failure!.fbtraceId).toBeNull();
+
+    const rejected = warnings.find((entry) => entry.event === "bulk_page_rejected");
+    expect(rejected, "the rejection warning must be emitted").toBeTruthy();
+    const details = rejected!.details as Record<string, unknown>;
+    expect(details.fbtraceId).toBeNull();
+    // The identifiers an operator can act on survive.
+    expect(details).toMatchObject({ httpStatus: 400, errorCode: 190, errorSubcode: 463 });
+    const serializedWarning = JSON.stringify(warnings);
+    expect(serializedWarning).not.toContain("EAAG-SECRET-TOKEN-VALUE");
+    expect(serializedWarning).not.toContain("SPOOFED");
+
+    const durable = durableMetaFailureMessage(failure);
+    expect(durable).toContain("fbtrace=none");
+    expect(durable).not.toContain("EAAG-SECRET-TOKEN-VALUE");
+    expect(durable).not.toContain("SPOOFED");
+    expect(durable.split("\n")).toHaveLength(1);
+
+    warnSpy.mockRestore();
+  });
+
+  it("refuses an HTTP 400 ad-insights page as a structured, sanitized failure", async () => {
+    vi.mocked(warehouse.getMetaSyncCheckpoint).mockResolvedValue(null);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        if (url.includes("level=account") || url.includes("/campaigns") || url.includes("/adsets")) {
+          return jsonResponseFor({ data: [] }, 200);
+        }
+        return jsonResponseFor(leakyGraphErrorBody(), 400);
+      }),
+    );
+
+    const failure = await expectStructuredSanitizedRefusal(() =>
+      syncMetaAccountCoreWarehouseDay({
+        credentials: {
+          businessId: "biz-1",
+          accessToken: "token-1",
+          accountIds: ["act_1"],
+          currency: "USD",
+          accountProfiles: {
+            act_1: { currency: "USD", timezone: "UTC", name: "Account 1" },
+          },
+        },
+        accountId: "act_1",
+        day: "2026-04-03",
+        partitionId: "partition-bulk-http-400",
+        workerId: "worker-1",
+        leaseEpoch: 1,
+        attemptCount: 1,
+        leaseMinutes: 15,
+      }),
+    );
+    expect(failure.httpStatus).toBe(400);
+    expect(failure.termination).toBe("http_failure");
+    /*
+      And the classifier reaches its verdict off the structured identity rather
+      than off prose: code 190 with subcode 463 is a token that expired, not a
+      generic auth failure and not the `unknown` a plain Error produced.
+    */
+    expect(classifyMetaSyncFailure({ error: failure }).errorClass).toBe(
+      "invalid_token",
+    );
+  });
+
+  it("refuses an HTTP 200 ad-insights page that carries a Graph error envelope", async () => {
+    /*
+      The status says success. Left unclassified this walked past the refusal,
+      read `data` as an empty page, ended the walk on a missing `paging.next`,
+      and finished the day having written ad-days built from zero provider rows
+      — reported as a success. An empty page and a refused page are opposite
+      facts; only one of them may terminate a capture.
+    */
+    vi.mocked(warehouse.getMetaSyncCheckpoint).mockResolvedValue(null);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        if (url.includes("level=account") || url.includes("/campaigns") || url.includes("/adsets")) {
+          return jsonResponseFor({ data: [] }, 200);
+        }
+        return jsonResponseFor(leakyGraphErrorBody(), 200);
+      }),
+    );
+
+    const failure = await expectStructuredSanitizedRefusal(() =>
+      syncMetaAccountCoreWarehouseDay({
+        credentials: {
+          businessId: "biz-1",
+          accessToken: "token-1",
+          accountIds: ["act_1"],
+          currency: "USD",
+          accountProfiles: {
+            act_1: { currency: "USD", timezone: "UTC", name: "Account 1" },
+          },
+        },
+        accountId: "act_1",
+        day: "2026-04-03",
+        partitionId: "partition-bulk-2xx-envelope",
+        workerId: "worker-1",
+        leaseEpoch: 1,
+        attemptCount: 1,
+        leaseMinutes: 15,
+      }),
+    );
+    // The status recorded IS 200, and the termination says why that is still a
+    // refusal — the distinction an operator needs to read the failure.
+    expect(failure.httpStatus).toBe(200);
+    expect(failure.termination).toBe("error_envelope");
+    // Nothing was written from the refusal.
+    expect(warehouse.upsertMetaAdDailyRows).not.toHaveBeenCalled();
+  });
 });
+
 
 describe("syncMetaAccountBreakdownWarehouseDay", () => {
   beforeEach(() => {
@@ -3476,5 +3765,72 @@ describe("syncMetaAccountBreakdownWarehouseDay", () => {
     )!;
     expect(measuredZero.reach).toBe(0);
     expect(measuredZero.frequency).toBeNull();
+  });
+
+  it("refuses a breakdown page the same way the core walk does", async () => {
+    /*
+      SAME FUNCTION, SO THE TWO WALKS CANNOT DRIFT. The breakdown pagination
+      calls `fetchMetaPagedJson` too, and the defect was in that function — so
+      a fix proven only on the core walk would be a fix proven on half the
+      callers. Both refusal shapes are driven here.
+    */
+    for (const [label, status] of [
+      ["http_failure", 400],
+      ["error_envelope", 200],
+    ] as const) {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () =>
+          jsonResponseFor(
+            {
+              error: {
+                message:
+                  "Unsupported get request for /act_1/insights?access_token=EAAG-SECRET-TOKEN-VALUE",
+                code: 190,
+                error_subcode: 463,
+                is_transient: false,
+                fbtrace_id: "BuLkTrAcE0001",
+              },
+            },
+            status,
+          ),
+        ),
+      );
+
+      const error = await syncMetaAccountBreakdownWarehouseDay({
+        credentials: {
+          businessId: "biz-1",
+          accessToken: "token-1",
+          accountIds: ["act_1"],
+          currency: "USD",
+          accountProfiles: {
+            act_1: { currency: "USD", timezone: "UTC", name: "Account 1" },
+          },
+        },
+        accountId: "act_1",
+        day: "2026-04-03",
+        partitionId: `partition-breakdown-${label}`,
+        workerId: "worker-1",
+        leaseEpoch: 1,
+        attemptCount: 1,
+        breakdowns: "country",
+        endpointName: "breakdown_country",
+        positiveSpendAdIds: [],
+        leaseMinutes: 15,
+      }).then(
+        () => null,
+        (thrown: unknown) => thrown as Error & Record<string, unknown>,
+      );
+
+      expect(error, `${label} must refuse`).not.toBeNull();
+      expect(error!.name).toBe("MetaGraphRequestError");
+      expect(error!.termination).toBe(label);
+      expect(error!.httpStatus).toBe(status);
+      expect(error!.errorCode).toBe(190);
+      expect(error!.message).not.toContain("EAAG-SECRET-TOKEN-VALUE");
+      expect(durableMetaFailureMessage(error)).not.toContain(
+        "EAAG-SECRET-TOKEN-VALUE",
+      );
+    }
   });
 });

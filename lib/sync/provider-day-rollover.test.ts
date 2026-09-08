@@ -13,6 +13,33 @@ vi.mock("@/lib/provider-platform-date", () => ({
 }));
 
 vi.mock("@/lib/provider-account-reference-store", () => ({
+  /*
+    ROUND 22, ITEM 1: the bindings view of the same store. `refIds` is what the
+    id-only helper returns; `timezones` is what the binding actually holds
+    afterwards, which writers now stamp their rows from. Mocked here as the
+    identity of what was passed, because these suites are not about the binding
+    rule -- lib/provider-account-timezone-authority.db.test.ts proves that
+    against a real PostgreSQL.
+  */
+  ensureProviderAccountReferenceBindings: vi.fn(
+    async ({
+      accounts,
+    }: {
+      accounts: Array<{ externalAccountId: string; timezone?: string | null }>;
+    }) => ({
+      refIds: new Map(
+        accounts.map(
+          (account) =>
+            [account.externalAccountId, `provider-ref-${account.externalAccountId}`] as const,
+        ),
+      ),
+      timezones: new Map(
+        accounts
+          .filter((account) => (account.timezone ?? "").trim().length > 0)
+          .map((account) => [account.externalAccountId, String(account.timezone)] as const),
+      ),
+    }),
+  ),
   ensureProviderAccountReferenceIds: vi.fn(async ({ accounts }: { accounts: Array<{ externalAccountId: string }> }) => {
     return new Map(
       accounts.map((account) => [account.externalAccountId, `${account.externalAccountId}-ref`] as const),

@@ -1145,20 +1145,94 @@ describe("Decisions deep-link compatibility matrix", () => {
     expect(noticeText(dom)).not.toContain("scope=budgets");
   });
 
+  /*
+    ── ROUND 10 ITEM 5: THE MOBILE CLICK-THROUGH ────────────────────────────
+    Round 9 put the pending recommendation on the mobile QUEUE card. The
+    evidence screen behind "Read evidence →" did not render it, so a buyer who
+    tapped through to find out WHY lost the one fact they tapped for and the
+    screen read as a plain "Keep monitoring".
+
+    Driven as a real mount and a real click, because the defect was that a
+    rendered surface omitted a field the view model already carried — which a
+    view-model assertion cannot see.
+  */
+  it("carries the pending recommendation from the mobile card into the evidence screen", async () => {
+    /*
+      The OS ad-decision envelope is what the creatives lane reads, and
+      `heldAction` / `heldResolution` are its fields — the canonical envelope
+      is the structure half and carries neither.
+    */
+    state.canonicalCreatives = [];
+    state.workspaceData = {
+      ...(workspacePayload() as Record<string, unknown>),
+      os: osPresentation([
+        pendingOsDecision({
+          heldAction: "refresh",
+          heldResolution: { code: "commercial_target_missing" },
+        } as never),
+      ]),
+    } as never;
+    // A held recommendation lands in the blocked lane, which the mobile
+    // creatives tabs call "Needs Resolution".
+    state.search = "providerAccountId=act_1&scope=creatives&lane=needsres";
+    const dom = render();
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    // The queue card states it (Round 9).
+    const card = dom.querySelector("[data-mobile-held-verdict]");
+    expect(card?.textContent).toContain(
+      "Recommendation awaiting review: Refresh creative",
+    );
+
+    // Tap through.
+    const open = Array.from(
+      dom.querySelectorAll<HTMLButtonElement>("button"),
+    ).find((button) => button.textContent?.includes("Read evidence"));
+    expect(open, "the mobile card must offer Read evidence").toBeTruthy();
+    await act(async () => {
+      open!.click();
+      await Promise.resolve();
+    });
+
+    const evidence = dom.querySelector(
+      '[data-testid="meta-mobile-creative-evidence"]',
+    );
+    expect(evidence, "the evidence screen must open").not.toBeNull();
+    const text = evidence?.textContent ?? "";
+    // The pending recommendation, its next step, and the currently safe
+    // published outcome — all three on screen together.
+    expect(text).toContain("Recommendation awaiting review: Refresh creative");
+    expect(text).toContain("review this Refresh creative recommendation again");
+    expect(
+      dom.querySelector("[data-mobile-evidence-held-next-step]"),
+    ).not.toBeNull();
+  });
+
   // entity: the restored half. `?entity=<recId>` opens that recommendation's
   // evidence when the workspace served it.
-  it("restores entity=<id> by opening the named recommendation", async () => {
+  it("restores entity=<id> and shows its mobile metrics once", async () => {
     state.workspaceData = workspacePayload({
-      actionNow: [metaRec({ id: "rec_entity" })],
+      actionNow: [
+        metaRec({
+          id: "rec_entity",
+          metrics: { spend: 321, roas: 2.25 },
+        }),
+      ],
     });
     state.search = "entity=rec_entity";
     const dom = render();
     await act(async () => {
       await Promise.resolve();
     });
-    expect(
-      dom.querySelector('[data-testid="meta-mobile-evidence"]'),
-    ).not.toBeNull();
+    const mobileEvidence = dom.querySelector(
+      '[data-testid="meta-mobile-evidence"]',
+    );
+    expect(mobileEvidence).not.toBeNull();
+    const evidenceText = mobileEvidence?.textContent ?? "";
+    expect((evidenceText.match(/321/g) ?? []).length).toBe(1);
+    expect((evidenceText.match(/2\.25x/g) ?? []).length).toBe(1);
     expect(noticeText(dom)).toBe("");
   });
 

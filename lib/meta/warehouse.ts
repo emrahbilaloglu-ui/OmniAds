@@ -6,6 +6,7 @@ import { META_PRODUCT_CORE_COVERAGE_SCOPES } from "@/lib/meta/core-config";
 import { getDb, getDbWithTimeout, runDbTransaction } from "@/lib/db";
 import { assertDbSchemaReady } from "@/lib/db-schema-readiness";
 import {
+  ensureProviderAccountReferenceBindings,
   ensureProviderAccountReferenceIds,
   resolveBusinessReferenceIds,
 } from "@/lib/provider-account-reference-store";
@@ -736,6 +737,24 @@ function buildSqlValueTuple(
   return `(${refs.join(",")})`;
 }
 
+/**
+ * ── ROUND 22, ITEM 1: ROWS ARE STAMPED FROM THE BINDING, NOT FROM THE PAYLOAD ─
+ *
+ * `row.accountTimezone` arrives from `lib/api/meta.ts` as
+ * `profile?.timezone ?? "UTC"` -- the CREDENTIAL payload. Persisting that value
+ * had two consequences, and the second is the one that mattered:
+ *
+ *   1. every daily row carried the payload's calendar rather than the
+ *      account's bound one, and
+ *   2. the same value was handed to the provider-account upsert, whose
+ *      `COALESCE(EXCLUDED.timezone, existing)` then MOVED the binding to match.
+ *
+ * (2) is fixed in `lib/provider-account-reference-store.ts`, which now
+ * preserves an existing non-null binding. (1) is fixed here: the bindings call
+ * returns what the binding actually holds afterwards, and every writer stamps
+ * its rows from that. `row.accountTimezone` remains the fallback for a genuinely
+ * new account, which is the case that populates the binding in the first place.
+ */
 async function resolveMetaChunkReferenceContext(
   rows: Array<{
     businessId: string;
@@ -745,18 +764,35 @@ async function resolveMetaChunkReferenceContext(
     accountTimezone?: string | null;
   }>,
 ) {
+  const bindings = await ensureProviderAccountReferenceBindings({
+    provider: "meta",
+    accounts: rows.map((row) => ({
+      externalAccountId: row.providerAccountId,
+      accountName: row.accountName ?? null,
+      currency: row.accountCurrency ?? null,
+      timezone: row.accountTimezone ?? null,
+    })),
+    // Ordinary warehouse persistence. It may CREATE a binding and must never
+    // move one; see the store for why the default is spelled out here.
+    timezoneAuthority: "preserve",
+  });
   return {
     businessRefIds: await resolveBusinessReferenceIds(rows.map((row) => row.businessId)),
-    providerAccountRefIds: await ensureProviderAccountReferenceIds({
-      provider: "meta",
-      accounts: rows.map((row) => ({
-        externalAccountId: row.providerAccountId,
-        accountName: row.accountName ?? null,
-        currency: row.accountCurrency ?? null,
-        timezone: row.accountTimezone ?? null,
-      })),
-    }),
+    providerAccountRefIds: bindings.refIds,
+    boundAccountTimezones: bindings.timezones,
   };
+}
+
+/** The bound calendar for this row, falling back to the row's own only when no binding exists yet. */
+function boundAccountTimezone(
+  context: { boundAccountTimezones: Map<string, string> },
+  row: { providerAccountId: string; accountTimezone?: string | null },
+) {
+  return (
+    context.boundAccountTimezones.get(row.providerAccountId) ??
+    row.accountTimezone ??
+    null
+  );
 }
 
 async function resolveMetaRecordReferenceContext(input: {
@@ -771,6 +807,7 @@ async function resolveMetaRecordReferenceContext(input: {
     businessRefId: context.businessRefIds.get(input.businessId) ?? null,
     providerAccountRefId:
       context.providerAccountRefIds.get(input.providerAccountId) ?? null,
+    boundAccountTimezone: boundAccountTimezone(context, input),
   };
 }
 
@@ -934,7 +971,7 @@ export async function upsertMetaAuthoritativeDayState(
       ${normalizeDate(input.day)},
       ${input.surface},
       ${input.state},
-      ${input.accountTimezone},
+      ${refs.boundAccountTimezone ?? input.accountTimezone},
       ${input.activePartitionId ?? null},
       ${input.lastRunId ?? null},
       ${input.lastManifestId ?? null},
@@ -1625,7 +1662,7 @@ export async function createMetaAuthoritativeSourceManifest(
       ${refs.providerAccountRefId},
       ${normalizeDate(input.day)},
       ${input.surface},
-      ${input.accountTimezone},
+      ${refs.boundAccountTimezone ?? input.accountTimezone},
       ${input.sourceKind},
       ${input.sourceWindowKind},
       ${input.runId ?? null},
@@ -6318,7 +6355,7 @@ export async function persistMetaRawSnapshot(input: MetaRawSnapshotRecord) {
         NULL,
         ${normalizeDate(input.startDate)},
         ${normalizeDate(input.endDate)},
-        ${input.accountTimezone},
+        ${refs.boundAccountTimezone ?? input.accountTimezone},
         ${input.accountCurrency},
         ${JSON.stringify(input.payloadJson)}::jsonb,
         ${input.payloadHash},
@@ -8060,15 +8097,10 @@ export async function upsertMetaAccountDailyRows(
     const businessRefIds = await resolveBusinessReferenceIds(
       chunk.map((row) => row.businessId),
     );
-    const providerAccountRefIds = await ensureProviderAccountReferenceIds({
-      provider: "meta",
-      accounts: chunk.map((row) => ({
-        externalAccountId: row.providerAccountId,
-        accountName: row.accountName,
-        currency: row.accountCurrency,
-        timezone: row.accountTimezone,
-      })),
-    });
+    // ROUND 22, ITEM 1: same contract as every other chunk writer -- the
+    // binding may be created here, never moved, and the row is stamped from it.
+    const referenceContext = await resolveMetaChunkReferenceContext(chunk);
+    const providerAccountRefIds = referenceContext.providerAccountRefIds;
     const values: unknown[] = [];
     const placeholders = chunk
       .map((row, index) => {
@@ -8080,7 +8112,7 @@ export async function upsertMetaAccountDailyRows(
           providerAccountRefIds.get(row.providerAccountId) ?? null,
           normalizeDate(row.date),
           row.accountName,
-          row.accountTimezone,
+          boundAccountTimezone(referenceContext, row),
           row.accountCurrency,
           row.spend,
           row.impressions,
@@ -8287,7 +8319,7 @@ export async function upsertMetaCampaignDailyRows(
           row.isCustomEventTypeMixed ?? false,
           row.isBidStrategyMixed,
           row.isBidValueMixed,
-          row.accountTimezone,
+          boundAccountTimezone(referenceContext, row),
           row.accountCurrency,
           row.spend,
           row.impressions,
@@ -8555,7 +8587,7 @@ export async function upsertMetaAdSetDailyRows(
           row.isOptimizationGoalMixed,
           row.isBidStrategyMixed,
           row.isBidValueMixed,
-          row.accountTimezone,
+          boundAccountTimezone(referenceContext, row),
           row.accountCurrency,
           row.spend,
           row.impressions,
@@ -9204,7 +9236,7 @@ export async function upsertMetaBreakdownDailyRows(rows: MetaBreakdownDailyRow[]
         row.breakdownType,
         row.breakdownKey,
         row.breakdownLabel,
-        row.accountTimezone,
+        boundAccountTimezone(referenceContext, row),
         row.accountCurrency,
         row.spend,
         row.impressions,
@@ -10009,7 +10041,7 @@ export async function upsertMetaAdDailyRows(
           row.ctaType ?? null,
           row.objectStoryId ?? null,
           row.effectiveObjectStoryId ?? null,
-          row.accountTimezone,
+          boundAccountTimezone(referenceContext, row),
           row.accountCurrency,
           row.spend,
           row.impressions,
@@ -10273,7 +10305,7 @@ export async function upsertMetaCreativeDailyRows(rows: MetaCreativeDailyRow[]) 
           row.effectiveObjectStoryId ?? null,
           row.thumbnailUrl,
           row.assetType,
-          row.accountTimezone,
+          boundAccountTimezone(referenceContext, row),
           row.accountCurrency,
           row.spend,
           row.impressions,

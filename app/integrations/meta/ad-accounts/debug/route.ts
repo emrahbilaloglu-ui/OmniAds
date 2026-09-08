@@ -40,6 +40,16 @@ export async function GET(request: NextRequest) {
   }
 
   const result = await fetchMetaAdAccounts(integration.access_token);
+  /*
+    Diagnostics, not a mirror of the provider response.
+
+    This handler used to return `result.body` and `result.rawBody` verbatim.
+    Both carried Meta's `error.message`, which is free text the provider
+    controls and has been observed echoing the access token back inside it, and
+    `rawBody` carried the entire response. `rawBody` no longer exists, and
+    `result.body.error` is now a `MetaSafeGraphError` this repository authored:
+    a locally-written sentence plus the four named Graph identifiers.
+  */
   return NextResponse.json({
     businessId,
     integration: {
@@ -52,9 +62,18 @@ export async function GET(request: NextRequest) {
     meta: {
       status: result.status,
       ok: result.ok,
-      body: result.body,
-      raw: result.rawBody,
+      error: result.body?.error ?? null,
+      graph_error: result.graphError ?? null,
       normalized_count: result.normalized.length,
+      business_discovery: result.businessDiscovery
+        ? {
+            status: result.businessDiscovery.status,
+            ok: result.businessDiscovery.ok,
+            business_count: result.businessDiscovery.businessCount,
+            account_count: result.businessDiscovery.accountCount,
+            errors: result.businessDiscovery.errors,
+          }
+        : null,
     },
   });
 }

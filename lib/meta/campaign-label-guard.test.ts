@@ -10,6 +10,16 @@ import {
 import type { MetaCampaignLabel } from "@/lib/meta/campaign-labels";
 import type { MetaRecommendation } from "@/lib/meta/recommendations";
 
+/**
+ * A FULLY provenanced high-trust entry, which is the only kind that authorizes.
+ *
+ * `inferenceConfidenceClass` and `resolverAuthorityValidated` are spelled out
+ * because `isContextTrustedForAction` now requires all three facts to be
+ * present and to agree — a high `contextTrust` on its own is a claim the
+ * resolver has not backed, and the guard no longer takes it. This helper used
+ * to omit both fields, which is what made these tests pass while the boundary
+ * was open.
+ */
 function automaticRoles(
   ...entries: Array<[campaignId: string, kind: MetaCampaignLabel["kind"]]>
 ) {
@@ -20,6 +30,8 @@ function automaticRoles(
         kind,
         contextTrust: "high" as const,
         source: "system_inferred" as const,
+        inferenceConfidenceClass: "high" as const,
+        resolverAuthorityValidated: true,
       },
     ]),
   );
@@ -108,7 +120,14 @@ describe("applyMetaCampaignLabelGuard", () => {
     expect(result.unlabeledCampaignIds).toEqual(["cmp-1"]);
     expect(guarded).toMatchObject({
       kind: "state",
-      decisionLabel: "diagnose",
+      // RE-PINNED (D091 / INVARIANTS "Automatic-context uncertainty must ...
+      // preserve the mathematical Scale/Cut/Refresh verdict as review-only").
+      // This asserted `diagnose`, which is what the collapse looked like from
+      // inside: the hold overwrote the engine's conclusion, so a held Scale and
+      // a held Cut left this branch indistinguishable. The hold itself is
+      // unchanged and is re-asserted below — state row, watch, capped
+      // confidence, read-only tier.
+      decisionLabel: "scale",
       decisionState: "watch",
       confidence: "low",
       confidenceReason: META_AUTOMATIC_CONTEXT_REVIEW_REASON,
@@ -120,6 +139,7 @@ describe("applyMetaCampaignLabelGuard", () => {
       confidence_cap: META_AUTOMATIC_CONTEXT_REVIEW_REASON,
       campaign_context_action_authority: "review_only",
       blocked_action_type: "scale_for_volume",
+      blocked_decision_label: "scale",
     });
     expect(guarded.automationReadiness).toMatchObject({
       tier: "read_only",
@@ -176,11 +196,53 @@ describe("applyMetaCampaignLabelGuard", () => {
     for (const guarded of result.recommendations) {
       expect(guarded).toMatchObject({
         kind: "state",
-        decisionLabel: "diagnose",
+        // RE-PINNED with the assertion above: the builder's own `switch`
+        // verdict survives the hold instead of being replaced by `diagnose`.
+        decisionLabel: "switch",
         decisionState: "watch",
         confidenceReason: META_AUTOMATIC_CONTEXT_REVIEW_REASON,
       });
     }
+  });
+
+  it("never invents an affirmative verdict for a hard action the canonical mapper has no case for", () => {
+    /*
+      The other direction of the same repair. Preserving the verdict must not
+      become STAMPING one: `decisionLabelForMetaRec` ends in a fallback that
+      answers `keep` for a type it has no case for, and `budget_allocation` is
+      the only member of the guard's HARD_ACTION_TYPES in that position. A held
+      budget reallocation labelled "keep" would read as "performance is stable
+      enough to keep running" in the Decision Center's blocked lane
+      (`buyerFacingStructureReason`), which is an affirmative soft label on a
+      blocked row.
+    */
+    const result = applyMetaCampaignLabelGuard({
+      recommendations: [
+        rec({
+          id: "budget",
+          level: "account",
+          campaignId: undefined,
+          type: "budget_allocation",
+          decisionLabel: undefined,
+        }),
+      ],
+      campaignLabelsById: buildMetaCampaignLabelKindMap([]),
+      activeCampaignIds: ["cmp-1"],
+    });
+    const guarded = result.recommendations[0]!;
+
+    expect(result.downgradedCount).toBe(1);
+    expect(guarded.decisionLabel).not.toBe("keep");
+    expect(guarded.decisionLabel).not.toBe("scale");
+    expect(guarded.signalQuality).toMatchObject({
+      blocked_action_type: "budget_allocation",
+      blocked_decision_label: null,
+    });
+    expect(guarded).toMatchObject({
+      kind: "state",
+      decisionState: "watch",
+      confidenceReason: META_AUTOMATIC_CONTEXT_REVIEW_REASON,
+    });
   });
 
   it("allows diagnostics, refreshes, rebuilds, state rows, and anomalies without labels", () => {

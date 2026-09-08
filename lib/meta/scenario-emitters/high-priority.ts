@@ -1,4 +1,5 @@
 import type { MetaCampaignRow } from "@/app/api/meta/campaigns/route";
+import type { MetaCampaignKind } from "@/lib/meta/campaign-label-types";
 import { formatMoney } from "@/components/creatives/money";
 import type { MetaAdSetData } from "@/lib/api/meta";
 import {
@@ -8,13 +9,20 @@ import {
   type MetaRecommendation,
 } from "@/lib/meta/recommendations";
 import { LEGACY_META_CALIBRATION_THRESHOLDS } from "@/lib/meta/calibration";
+import {
+  applyPercentToMinorUnits,
+  resolveMinorUnitExponent,
+} from "@/lib/currency/iso-4217-minor-units";
 import type { MetaBidRegime, MetaCampaignRole } from "@/lib/meta/types";
 import type { MetaEntityDecisionSignal } from "@/lib/meta/entity-signals";
+import { metaRecentEditAuthorityReady } from "@/lib/meta/recent-edit-authority";
 import type { MetaFunnelCohort } from "@/lib/meta/funnel-cohort";
 import {
   metaCutRoasReviewCeiling,
   metaLossBudgetMaturity,
   metaScaleRoasFloor,
+  normalizeMetaCommercialTargets,
+  resolveMetaPurchaseValueAuthority,
   type MetaCommercialTargets,
 } from "@/lib/meta/commercial-targets";
 import { enforceMetaCommercialActionAuthority } from "@/lib/meta/commercial-action-authority";
@@ -60,6 +68,17 @@ export interface CampaignScenarioInput {
   bidRegime?: MetaBidRegime;
   signals?: MetaEntityDecisionSignal | null;
   commercialTargets?: MetaCommercialTargets | null;
+  /**
+   * The canonical campaign kind, and whether it is trusted for ACTION.
+   *
+   * `campaignRole` above is a legacy taxonomy that is partly name-derived
+   * (`inferCampaignRole` regexes campaign names), so it cannot authorize an
+   * actionable structural rebuild. This pair can: `kind` is the resolver's own
+   * answer and `trustedForAction` is the four-fact predicate
+   * `isContextTrustedForAction` applies.
+   */
+  campaignKind?: MetaCampaignKind | null;
+  campaignKindTrustedForAction?: boolean;
 }
 
 export interface AdsetScenarioInput {
@@ -163,10 +182,30 @@ function historyAgeDays(window: CampaignScenarioWindow) {
   }, 0);
 }
 
+/**
+ * ── ROUND 19, ITEM B3: BUDGETS ARE MINOR UNITS, AND /100 IS NOT A CONVERSION ─
+ *
+ * This divided EVERY provider budget by 100. `spend` arrives in major units, so
+ * `budgetUtilization` compared major-unit spend against a budget that was only
+ * correct for two-decimal currencies:
+ *
+ *   JPY (exponent 0): a 50,000-yen daily budget read as 500, so utilization came
+ *   out 100x too HIGH — B1's `< 0.95` gate refused every Japanese account.
+ *   KWD (exponent 3): a 50.000-dinar budget read as 500 instead of 50, so
+ *   utilization came out 10x too LOW and A1's weekly-conversion floor was
+ *   overstated by the same factor.
+ *
+ * The exponent is resolved from the ISO 4217 registry, which refuses an unknown
+ * or retired code rather than assuming two decimals — so an unresolvable
+ * currency yields `null` and every caller already treats that as "no budget".
+ */
 function budgetAmount(row: MetaCampaignRow) {
   const providerMinorAmount =
     row.dailyBudget ?? (row.lifetimeBudget ? row.lifetimeBudget / 30 : null);
-  return providerMinorAmount == null ? null : providerMinorAmount / 100;
+  if (providerMinorAmount == null) return null;
+  const exponent = resolveMinorUnitExponent(row.currency);
+  if (exponent.status !== "resolved") return null;
+  return providerMinorAmount / 10 ** exponent.exponent;
 }
 
 function budgetUtilization(row: MetaCampaignRow | undefined, windowDays: number) {
@@ -213,6 +252,28 @@ function signalQuality(signals: MetaEntityDecisionSignal | null | undefined, con
 
 function recentEditCooldownActive(signals: MetaEntityDecisionSignal | null | undefined) {
   return signals?.daysSinceSignificantEdit != null && signals.daysSinceSignificantEdit < 7;
+}
+
+/**
+ * ── ROUND 12 ────────────────────────────────────────────────────────────────
+ * Is this entity's edit age unknowable, as opposed to simply old?
+ *
+ * DELIBERATELY SEPARATE FROM `recentEditCooldownActive`, and the separation is
+ * the point. That predicate answers "is a cooldown running", and folding an
+ * unknown age into it would make `maybeC2RecentEditCooldown` announce a
+ * cooldown for an entity whose edits were never read — inventing a fact rather
+ * than withholding one, and turning a missing timezone into a false statement
+ * on the operator's screen.
+ *
+ * This one answers "may an ACT decision rely on the edit age at all", and it is
+ * applied ONLY at the `act`-emitting call sites. The watch and test emitters
+ * keep firing: they exist to describe an account whose evidence is incomplete,
+ * and silencing them would replace a held action with no explanation at all.
+ */
+function recentEditAuthorityUnavailable(
+  signals: MetaEntityDecisionSignal | null | undefined,
+) {
+  return !metaRecentEditAuthorityReady(signals);
 }
 
 function sourceRecord(
@@ -498,13 +559,39 @@ export function maybeC1ControlledScale(input: CampaignScenarioInput): MetaRecomm
   const scaleFloor = metaScaleRoasFloor(input.commercialTargets);
   if (!roas || !sampleReady(input.context, "roas_28d")) return null;
   if (!scaleFloor) return null;
+  /*
+    ROUND 12. maybeC1ControlledScale emits decisionState "act", so it is a
+    purchase-budget hard action and may not be decided on an edit age nobody
+    measured. An entity with no resolvable provider account, no trusted IANA
+    timezone, or a failed config-history read carries a null day count that the
+    cooldown test above passes; this holds it instead. A trusted zone whose
+    history simply contains no significant edit is READY and still emits.
+  */
+  if (recentEditAuthorityUnavailable(input.signals)) return null;
   if (recentEditCooldownActive(input.signals)) return null;
   const scaleThreshold = Math.max(roas.p75, scaleFloor);
   if (historyAgeDays(input.window) < 28 || row.roas < scaleThreshold || row.purchases < 8) return null;
   const budget = budgetAmount(row);
   if (!budget) return null;
   const conf = confidence({ level: "campaign", context: input.context, metricValue: row.roas, threshold: scaleThreshold });
-  return baseCampaignRec({
+  /*
+    THE ROAS THRESHOLD IDENTIFIES THE CANDIDATE; IT DOES NOT AUTHORIZE THE
+    BUDGET.
+
+    This returned `baseCampaignRec` directly, so a campaign clearing the
+    calibrated p75 and the configured profit floor was minted at
+    `decisionState: "act"` with a concrete budget band — on an account whose
+    Meta-attributed purchase sample might be absent or too thin to divide.
+    That is a purchase-VALUE budget increase authorized on the ratio alone,
+    which is the substitution the canonical rule forbids: with a positive
+    Target ROAS the unit is READY Meta AOV over that ratio, and its absence is
+    an absence.
+
+    Routed through the shared authority, exactly as the A2 and A5 emitters
+    below already are, so the emitter cannot mint an authority the boundary
+    would strip and the operator sees the named hold rather than a silent one.
+  */
+  return enforceMetaCommercialActionAuthority(baseCampaignRec({
     row,
     type: "scenario_c1_controlled_scale",
     lens: "volume",
@@ -527,7 +614,74 @@ export function maybeC1ControlledScale(input: CampaignScenarioInput): MetaRecomm
     bidRegime: input.bidRegime,
     cohort: input.cohort,
     signals: input.signals,
+  }), input.commercialTargets);
+}
+
+
+/**
+ * ── ROUND 19, ITEM B4: A HOLD THE OPERATOR CAN SEE ──────────────────────────
+ *
+ * B1 and A1 returned `null` when the purchase-value unit was unavailable, which
+ * removes the entity from the queue entirely: the operator learns nothing, and
+ * an account whose Meta AOV went thin looks identical to one with no finding at
+ * all. A refusal is a decision and must be visible as one.
+ *
+ * Emitted at `decisionState: "watch"` with NO `targetValue` and no proposed
+ * action, so nothing downstream can execute it, and the blocker is named.
+ */
+function purchaseValueHold(input: {
+  row: MetaCampaignRow;
+  type: MetaRecommendation["type"];
+  lens: MetaRecommendation["lens"];
+  blocker: string;
+  title: string;
+  why: string;
+  scenarioInput: CampaignScenarioInput;
+}): MetaRecommendation {
+  const rec = baseCampaignRec({
+    row: input.row,
+    type: input.type,
+    lens: input.lens,
+    priority: "medium",
+    /*
+      Confidence is computed from the same helper every other emitter uses, so
+      a hold carries a real statistical result rather than a synthetic zero the
+      downstream confidence bands would have to special-case.
+    */
+    confidenceScore: confidence({
+      level: "campaign",
+      context: input.scenarioInput.context,
+      metricValue: input.row.roas,
+      threshold: input.row.roas,
+    }),
+    decisionState: "watch",
+    title: input.title,
+    why: input.why,
+    summary:
+      "The account's purchase value cannot be established, so no spend change is proposed.",
+    recommendedAction:
+      "Review the Meta-attributed purchase sample and the ROAS target. No spend change is proposed from this recommendation.",
+    expectedImpact: "None until the purchase value unit is available.",
+    evidence: [
+      { label: "Purchase value unit", value: "unavailable", tone: "warning" },
+      { label: "Blocker", value: input.blocker, tone: "warning" },
+      ...commercialTargetEvidence(input.scenarioInput.commercialTargets, input.row.currency),
+    ],
+    campaignRole: input.scenarioInput.campaignRole,
+    bidRegime: input.scenarioInput.bidRegime,
+    cohort: input.scenarioInput.cohort,
+    signals: input.scenarioInput.signals,
   });
+  // NO proposal survives a missing unit, whatever the base builder attached.
+  const { proposedAction: _proposedAction, targetValue: _targetValue, ...held } = rec;
+  return {
+    ...held,
+    signalQuality: {
+      ...(rec.signalQuality ?? {}),
+      hard_action_authority: "blocked",
+      hard_action_blocker: input.blocker,
+    },
+  } as MetaRecommendation;
 }
 
 export function maybeB1CappedBidRaise(input: CampaignScenarioInput): MetaRecommendation | null {
@@ -537,13 +691,132 @@ export function maybeB1CappedBidRaise(input: CampaignScenarioInput): MetaRecomme
   const scaleFloor = metaScaleRoasFloor(input.commercialTargets);
   if (!roas || !sampleReady(input.context, "roas_28d")) return null;
   if (!scaleFloor) return null;
-  if (!["cost_cap", "bid_cap", "target_roas", "minimum_roas", "manual_bid"].includes(String(row.bidStrategyType))) return null;
+  /*
+    ── ROUND 18, ITEM B6: ONLY REAL CURRENCY BID STRATEGIES ─────────────────
+
+    `target_roas` and `minimum_roas` carry a RATIO in `bidValue`, not money.
+    Accepting them here meant a ratio like 2.5 was read as a minor-unit amount,
+    scaled by 10%, and published as a bid cap of 2.75 units — a nonsense
+    instruction the operator could execute. Only the cap families whose value is
+    an amount are eligible, and the format must say so.
+  */
+  if (!["cost_cap", "bid_cap", "manual_bid"].includes(String(row.bidStrategyType))) {
+    return null;
+  }
+  if (row.bidValueFormat !== "currency") return null;
+  /*
+    ── ROUND 13, DEFECT 4 ────────────────────────────────────────────────────
+    B1 raises a BID CAP -- a provider mutation on a purchase campaign, emitted
+    at decisionState "act" -- and it carried NO recent-edit check of any kind.
+    Not a weakened one: none. A campaign whose bid cap was changed yesterday
+    could be told to change it again today, and a campaign whose edit history
+    was never observed at all could be told to change it on no evidence.
+
+    Both halves are required, in this order: the authority says whether the
+    edit age is KNOWABLE, and the cooldown says whether a known age is too
+    recent to act on. Neither implies the other.
+  */
+  if (recentEditAuthorityUnavailable(input.signals)) return null;
+  if (recentEditCooldownActive(input.signals)) return null;
+  /*
+    ── ROUND 20, ITEM 2: ELIGIBILITY FIRST, AUTHORITY SECOND ────────────────
+
+    The purchase-value authority used to be consulted BEFORE the budget, bid,
+    ROAS-threshold, delivery and utilization gates below. On an account whose
+    Meta-attributed AOV is missing or thin, that meant every campaign this
+    emitter merely LOOKED at produced a B1 "bid headroom cannot be sized"
+    hold -- including campaigns with no bid, no budget, ROAS under the
+    threshold, no delivery window, or a cap already fully utilised.
+
+    None of those are B1 candidates, so the hold was false. Worse, it was not
+    merely noise: it occupied the slot the precedence chain would otherwise
+    have given to C1, A1 or J1, so the operator saw a bid-cap complaint in
+    place of the controlled-scale or math-floor finding that actually applied.
+
+    Every AOV-INDEPENDENT gate therefore runs first, and only a campaign that
+    would otherwise have produced a real B1 recommendation can reach the
+    authority check and become a visible watch.
+  */
   const budget = budgetAmount(row);
   const bid = row.bidValue ?? row.manualBidAmount;
   const threshold = Math.max(roas.p50, scaleFloor);
   if (!budget || !bid || row.roas < threshold || !deliveryWindow) return null;
   const utilization = budgetUtilization(deliveryWindow, 30);
   if (utilization == null || utilization >= 0.95) return null;
+  /*
+    ── ROUND 18, ITEM B5: NO /100 OR *100 ANYWHERE ──────────────────────────
+
+    The bid arrived in minor units and was divided by 100 for display and the
+    canonical unit was multiplied by 100 to compare — both hard-coded to a
+    two-decimal currency. JPY has no minor unit at all (a 1000-yen cap became
+    "10.00") and KWD has three (a 1.500-dinar cap became "150.00"), so the
+    comparison against the purchase-value unit was wrong by a factor of 10 or
+    100 on those accounts.
+
+    The exponent is resolved from the ISO 4217 registry, which REFUSES an
+    unknown or retired code rather than assuming two decimals.
+  */
+  const exponent = resolveMinorUnitExponent(row.currency);
+  if (exponent.status !== "resolved") return null;
+  const scale = 10 ** exponent.exponent;
+  if (!Number.isSafeInteger(bid) || bid <= 0) return null;
+  /*
+    NOW the commercial authority, on an otherwise-valid B1 candidate: a real
+    currency cap strategy, a budget, a positive integer bid, ROAS above the
+    calibrated line, delivery evidence and utilization headroom. What such a
+    campaign may still lack is a purchase VALUE to size the raise against, and
+    that IS this emitter's finding -- a visible hold, not a silent drop.
+  */
+  /*
+    ── ROUND 17: B1 IS A COMMERCIAL PURCHASE ACTION ─────────────────────────
+
+    Raising a bid cap raises what the account is willing to PAY for a purchase,
+    so it is a purchase-budget action in every sense that matters — and it was
+    authorised by a ratio alone: ROAS above the calibrated p50 and the scale
+    floor. Neither of those is a value. An account whose Meta-attributed AOV is
+    missing, thin, or from a different account/cutoff could raise its cap on a
+    percentile comparison with nothing underneath it.
+
+    The shared authority is the same one the ad-set path uses: with a positive
+    Target ROAS the only admissible unit is READY same-account, same-cutoff
+    Meta-attributed AOV over that ratio. A refusal is a HOLD here, not a
+    downgrade to a weaker anchor — Target CPA, operator AOV and Shopify AOV stay
+    inert exactly as the commercial rule requires.
+  */
+  const purchaseValue = resolveMetaPurchaseValueAuthority(input.commercialTargets);
+  if (!purchaseValue.authorized) {
+    // ROUND 19, ITEM B4: visible, not silent.
+    return purchaseValueHold({
+      row,
+      type: "scenario_b1_capped_winner_bid_raise",
+      lens: "volume",
+      blocker: purchaseValue.blocker,
+      title: `${row.name}: bid headroom cannot be sized`,
+      why: "A capped winner needs bid room, but the account's purchase value unit (Meta-attributed AOV over Target ROAS) is missing or too thin to divide, so no cap can be proposed.",
+      scenarioInput: input,
+    });
+  }
+  /*
+    THE PROPOSAL IS CONSTRAINED BY THE CANONICAL UNIT, not merely permitted by
+    a ratio. The unit is what one purchase may cost at the configured Target
+    ROAS; a bid cap above it is an instruction to overpay, so the band is
+    clipped to it rather than applied blind.
+  */
+  const raised = applyPercentToMinorUnits(bid, 10, "increase");
+  if (raised.status !== "ok") return null;
+  const unitMinor = Math.round(purchaseValue.unit * scale);
+  if (!Number.isSafeInteger(unitMinor) || unitMinor <= 0) return null;
+  const proposedMinor = Math.min(raised.minorUnits, unitMinor);
+  // A cap already at or above the canonical unit has no headroom to buy: the
+  // action would be a no-op or an overpay, so there is nothing to propose.
+  if (proposedMinor <= bid) return null;
+  const constrainedBid = {
+    current: bid,
+    proposed: proposedMinor,
+    range: { low: proposedMinor, high: proposedMinor },
+    currency: exponent.currency,
+    minorUnitExponent: exponent.exponent,
+  };
   const conf = confidence({ level: "campaign", context: input.context, metricValue: row.roas, threshold });
   return baseCampaignRec({
     row,
@@ -562,12 +835,19 @@ export function maybeB1CappedBidRaise(input: CampaignScenarioInput): MetaRecomme
       { label: "ROAS p50", value: fmtRoas(roas.p50), tone: "neutral" },
       {
         label: "Current bid",
-        value: formatMoney(bid / 100, row.currency, null),
+        /*
+          ROUND 18: scaled by the RESOLVED exponent, never by a hard-coded 100.
+          `formatMoney` still supplies the currency symbol the operator reads;
+          what changed is that the major-unit amount handed to it is correct for
+          JPY (exponent 0) and KWD (exponent 3), not only for two-decimal
+          currencies.
+        */
+        value: formatMoney(bid / scale, exponent.currency, null),
         tone: "neutral",
       },
       ...commercialTargetEvidence(input.commercialTargets, row.currency),
     ],
-    targetValue: { bid: targetBand(bid, 0.1) },
+    targetValue: { bid: constrainedBid },
     campaignRole: input.campaignRole,
     bidRegime: input.bidRegime,
     cohort: input.cohort,
@@ -821,6 +1101,15 @@ export function maybeA2StructuralRebuild(input: CampaignScenarioInput): MetaReco
   const cutCeiling = metaCutRoasReviewCeiling(input.commercialTargets);
   if (!roas || !sampleReady(input.context, "roas_28d")) return null;
   if (!cutCeiling) return null;
+  /*
+    ROUND 12. maybeA2StructuralRebuild emits decisionState "act", so it is a
+    purchase-budget hard action and may not be decided on an edit age nobody
+    measured. An entity with no resolvable provider account, no trusted IANA
+    timezone, or a failed config-history read carries a null day count that the
+    cooldown test above passes; this holds it instead. A trusted zone whose
+    history simply contains no significant edit is READY and still emits.
+  */
+  if (recentEditAuthorityUnavailable(input.signals)) return null;
   if (recentEditCooldownActive(input.signals) || trackingQualityIssue(input.signals)) return null;
   const maturity = metaLossBudgetMaturity({
     targets: input.commercialTargets,
@@ -1018,6 +1307,15 @@ export function maybeA5PostLearningUnderperformer(input: CampaignScenarioInput):
   if (input.signals?.learningState !== "OPTIMAL_LEARNING_DONE") return null;
   const learningExit = learningExitEvidence(input.signals);
   if (!learningExit) return null;
+  /*
+    ROUND 12. maybeA5PostLearningUnderperformer emits decisionState "act at confidence >= 0.7", so it is a
+    purchase-budget hard action and may not be decided on an edit age nobody
+    measured. An entity with no resolvable provider account, no trusted IANA
+    timezone, or a failed config-history read carries a null day count that the
+    cooldown test above passes; this holds it instead. A trusted zone whose
+    history simply contains no significant edit is READY and still emits.
+  */
+  if (recentEditAuthorityUnavailable(input.signals)) return null;
   if (recentEditCooldownActive(input.signals) || trackingQualityIssue(input.signals)) return null;
   const roas = metric(input.context, "roas_28d");
   const cpa = metric(input.context, "cpa_28d");
@@ -1342,8 +1640,30 @@ export function maybeK1MixedConfig(input: CampaignScenarioInput): MetaRecommenda
 
 export function maybeI4TestShouldUseAbo(input: CampaignScenarioInput): MetaRecommendation | null {
   const row = input.window.selected;
-  const roleText = `${input.campaignRole ?? ""} ${row.name}`.toLowerCase();
-  if (!roleText.includes("test") || row.budgetLevel !== "campaign") return null;
+  /*
+    ONLY A TRUSTED CANONICAL `test` KIND MAY EMIT THIS (Codex C19).
+
+    This read `${input.campaignRole ?? ""} ${row.name}`.toLowerCase() and fired
+    on the substring "test". Two ways that is wrong, and both produce an
+    ACTIONABLE `decisionState: "act"` telling an operator to rebuild a
+    campaign:
+
+      - CAMPAIGN NAME TEXT. "Latest Winners", "Contest — March", "Protest
+        Creative" all contain "test". None of them is a test campaign, and the
+        operator is told to tear down a live one.
+      - LEGACY / UNTRUSTED ROLE. `campaignRole` is partly name-derived
+        (`inferCampaignRole` regexes names), so it carries the same defect one
+        layer up, and it says nothing about whether the role was TRUSTED.
+
+    The canonical kind is the resolver's own answer, and
+    `campaignKindTrustedForAction` is the four-fact predicate that decides
+    whether it may bear authority. An unresolved or medium-trust `test` holds:
+    the structural verdict is not published as an action on a role nobody has
+    proven.
+  */
+  if (input.campaignKind !== "test") return null;
+  if (input.campaignKindTrustedForAction !== true) return null;
+  if (row.budgetLevel !== "campaign") return null;
   const roas = metric(input.context, "roas_28d");
   const conf = confidence({ level: "campaign", context: input.context, metricValue: row.roas, threshold: roas?.p50 ?? (row.roas || 1) });
   return baseCampaignRec({
@@ -1371,11 +1691,76 @@ export function maybeI4TestShouldUseAbo(input: CampaignScenarioInput): MetaRecom
 
 export function maybeA1MathFloor(input: CampaignScenarioInput): MetaRecommendation | null {
   const row = input.window.selected;
-  const cpa = metric(input.context, "cpa_28d");
   const budget = budgetAmount(row);
-  if (!cpa || !budget || historyAgeDays(input.window) < 7) return null;
+  /*
+    ── ROUND 18, ITEM B7: CPA IS NOT A PRECONDITION UNDER A TARGET ROAS ─────
+    The `cpa_28d` lookup used to gate the whole scenario, so an account governed
+    by a Target ROAS with a perfectly READY Meta AOV was silently skipped
+    whenever its CPA percentile happened to be absent — a value it is not
+    allowed to use. The lookup now lives in the legacy branch that actually
+    consumes it.
+  */
+  if (!budget || historyAgeDays(input.window) < 7) return null;
   if (!input.signals?.learningState || input.signals.learningState === "OPTIMAL_LEARNING_DONE") return null;
-  const possibleWeeklyConversions = budget * 7 / Math.max(cpa.p50, 1);
+  /*
+    ── ROUND 13, DEFECT 4 ────────────────────────────────────────────────────
+    A1 proposes changing the OPTIMIZATION EVENT, which resets learning outright
+    -- the most disruptive change in this file -- at decisionState "act", and it
+    too carried no recent-edit check. Proposing an event change on a campaign
+    that was reconfigured two days ago compounds the very learning reset it is
+    trying to escape, and proposing one where the edit history was never
+    observed does it blind.
+  */
+  if (recentEditAuthorityUnavailable(input.signals)) return null;
+  if (recentEditCooldownActive(input.signals)) return null;
+  /*
+    ── ROUND 17: THE LEARNING FLOOR IS SIZED FROM THE CANONICAL UNIT ────────
+
+    A1 asks "can this budget fund 50 conversions a week?" — a question about
+    what a conversion COSTS. It answered with `cpa_28d.p50`, the account's
+    observed cost percentile, even on accounts governed by a positive Target
+    ROAS. That is the substitution the commercial rule forbids: under a Target
+    ROAS the only admissible unit is READY same-account, same-cutoff
+    Meta-attributed AOV over that ratio, and an account CPA is descriptive, not
+    authoritative. Two accounts with identical targets and AOV could get
+    different verdicts because their observed CPA percentiles differed.
+
+    So: with a positive Target ROAS the divisor is the canonical unit and a
+    missing or thin sample is a HOLD. Without one, the legacy CPA percentile is
+    preserved exactly — it remains the compatibility path, not a fallback the
+    Target ROAS case may drop into.
+  */
+  const targetRoas = normalizeMetaCommercialTargets(input.commercialTargets).targetRoas;
+  const governedByTargetRoas =
+    typeof targetRoas === "number" && Number.isFinite(targetRoas) && targetRoas > 0;
+  let conversionCost: number;
+  if (governedByTargetRoas) {
+    const purchaseValue = resolveMetaPurchaseValueAuthority(input.commercialTargets);
+    // HOLD rather than fall back: the account has told us how it measures
+    // value, and we cannot measure it. CPA is never consulted on this branch.
+    // ROUND 19, ITEM B4: the hold is VISIBLE rather than a silent null.
+    if (!purchaseValue.authorized) {
+      return purchaseValueHold({
+        row,
+        type: "scenario_a1_math_floor_unmet",
+        lens: "structure",
+        blocker: purchaseValue.blocker,
+        title: `${row.name}: learning floor cannot be sized`,
+        why: "Whether this budget can fund the learning floor depends on what a purchase is worth, and the account's purchase value unit (Meta-attributed AOV over Target ROAS) is missing or too thin to divide.",
+        scenarioInput: input,
+      });
+    }
+    conversionCost = purchaseValue.unit;
+  } else {
+    // LEGACY COMPATIBILITY ONLY. Without a Target ROAS the account has not told
+    // us how it measures value, and the observed CPA percentile is the anchor
+    // exactly as it always was — including being REQUIRED here.
+    const cpa = metric(input.context, "cpa_28d");
+    if (!cpa) return null;
+    conversionCost = cpa.p50;
+  }
+  if (!Number.isFinite(conversionCost) || conversionCost <= 0) return null;
+  const possibleWeeklyConversions = (budget * 7) / conversionCost;
   if (possibleWeeklyConversions >= 50) return null;
   const conf = confidence({ level: "campaign", context: input.context, metricValue: row.roas, threshold: metric(input.context, "roas_28d")?.p50 ?? (row.roas || 1) });
   return baseCampaignRec({
@@ -1386,13 +1771,26 @@ export function maybeA1MathFloor(input: CampaignScenarioInput): MetaRecommendati
     confidenceScore: conf,
     decisionState: "act",
     title: `${row.name}: learning math floor is unreachable`,
-    why: `Weekly budget can fund about ${r2(possibleWeeklyConversions)} conversions at calibrated CPA p50, below the 50-conversion learning target.`,
+    why: `Weekly budget can fund about ${r2(possibleWeeklyConversions)} conversions at ${
+      governedByTargetRoas
+        ? "the account's purchase value unit"
+        : "calibrated CPA p50"
+    }, below the 50-conversion learning target.`,
     summary: "Waiting will not solve a budget-to-signal math problem.",
     recommendedAction: "Switch to an upper-funnel optimization event or rebuild with warmer/lower-cost signal before waiting.",
     expectedImpact: "Moves the campaign toward enough signal density to learn.",
     evidence: [
       { label: "Possible weekly conversions", value: String(r2(possibleWeeklyConversions)), tone: "warning" },
-      { label: "CPA p50", value: formatMoney(cpa.p50, row.currency, null), tone: "neutral" },
+      {
+        // Named for what it IS, and explained truthfully: printing "CPA p50"
+        // while dividing by the canonical unit would attribute the verdict to a
+        // number that did not produce it.
+        label: governedByTargetRoas
+          ? "Purchase value unit (Meta AOV / Target ROAS)"
+          : "CPA p50 (no Target ROAS configured)",
+        value: formatMoney(conversionCost, row.currency, null),
+        tone: "neutral",
+      },
       { label: "Daily budget", value: formatMoney(budget, row.currency, null), tone: "neutral" },
     ],
     targetValue: { current_event: row.optimizationGoal, proposed_event: "ADD_TO_CART_OR_INITIATE_CHECKOUT" },

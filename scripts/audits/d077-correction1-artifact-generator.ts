@@ -18,6 +18,7 @@ import { createHash } from "node:crypto";
 import { execSync } from "node:child_process";
 import { readFileSync, writeFileSync, existsSync, statSync } from "node:fs";
 import { buildWholeShellProof } from "@/scripts/audits/d077-whole-shell-proof";
+import { captureD077SourceIdentity } from "@/scripts/audits/d077-source-identity";
 import {
   CODEX_FALLBACK_PNPM_PATH,
   COREPACK_TRACKED_PATHS,
@@ -994,12 +995,22 @@ function phase2() {
   const porcelain = execSync("git status --porcelain", { encoding: "utf8" })
     .split("\n")
     .filter(Boolean).length;
-  const head = execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim();
-  const [behindOriginMain, aheadOfOriginMain] = execFileSync(
-    "git",
-    ["rev-list", "--left-right", "--count", `origin/main...${head}`],
-    { encoding: "utf8" },
-  ).trim().split(/\s+/).map(Number);
+  /*
+    Read the remote identity once, then use that exact observation for both the
+    divergence calculation and the serialized field. Using the symbolic ref in
+    one place while writing RELEASE_BASE_SHA in the other produced an impossible
+    manifest: originMain named the historical base even though the stored 0/0
+    divergence had been measured against the current origin/main.
+
+    RELEASE_BASE_SHA remains `baseMain`; it is the historical boundary of the
+    cumulative release diff, not a present-tense remote observation.
+  */
+  const { head, originMain, remoteDivergence } = captureD077SourceIdentity(
+    (args) =>
+      execFileSync("git", [...args], {
+        encoding: "utf8",
+      }).trim(),
+  );
   const manifest = {
     contract: "adsecute.d077.release-candidate-manifest.v3",
     generatedAtUtc: new Date().toISOString(),
@@ -1007,8 +1018,8 @@ function phase2() {
     supersededBranchLabel: SUPERSEDED_BRANCH_LABEL,
     head,
     baseMain: RELEASE_BASE_SHA,
-    originMain: RELEASE_BASE_SHA,
-    remoteDivergence: { aheadOfOriginMain, behindOriginMain },
+    originMain,
+    remoteDivergence,
     selfExclusion: `this manifest's own path (${MANIFEST_PATH}) is EXCLUDED from its entry list: a manifest cannot recursively pin its own final bytes; its external SHA-256 is reported in the final response and by Codex's own hashing`,
     gitPorcelainEntryCount: porcelain,
     releaseDiffEntryCountIncludingSelf: entries.length + 1,

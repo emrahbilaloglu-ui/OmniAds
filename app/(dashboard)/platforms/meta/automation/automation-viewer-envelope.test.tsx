@@ -20,9 +20,9 @@
  *    it and the screen went back to promising "every outcome lands in the
  *    ledger with a receipt" with nothing behind the sentence.
  *
- * 3. THE APPROVED EXCEPTION. The account selector and the Retry controls are
- *    allowed to exist, but ONLY in a multi-account unresolved state and in an
- *    unavailable/error state. The canonical happy path draws neither.
+ * 3. RECOVERY. Account selection belongs to the shared topbar. Automation
+ *    keeps only its read Retry on unavailable/error states, including the
+ *    compact mobile recovery.
  */
 import { readFileSync } from "node:fs";
 import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
@@ -849,7 +849,7 @@ describe("Automation ledger completeness after a reload", () => {
   });
 });
 
-describe("Automation account selector and Retry, the approved exception", () => {
+describe("Automation shared account path and local Retry", () => {
   it("draws neither on the canonical resolved screen", async () => {
     wireServer();
     const { container } = render(
@@ -867,13 +867,13 @@ describe("Automation account selector and Retry, the approved exception", () => 
       ).not.toBeNull();
     });
 
-    expect(container.querySelector("select")).toBeNull();
+    expect(container.querySelector("[data-control='account-picker']")).toBeNull();
     expect(container.querySelector("[data-control='retry-read']")).toBeNull();
     expect(container.querySelector("[data-control='retry-queue']")).toBeNull();
     expect(container.querySelector("[data-field='read-error']")).toBeNull();
   });
 
-  it("draws both where several assigned accounts leave the scope unresolved", async () => {
+  it("keeps only Retry where several accounts leave scope unresolved", async () => {
     mocks.fetchAccounts.mockResolvedValue([
       { id: "act_1", name: "One" },
       { id: "act_2", name: "Two" },
@@ -888,11 +888,12 @@ describe("Automation account selector and Retry, the approved exception", () => 
     );
 
     await waitFor(() => {
-      expect(container.querySelector("select")).not.toBeNull();
+      expect(mocks.fetchAccounts).toHaveBeenCalled();
     });
+    expect(container.querySelector("[data-control='account-picker']")).toBeNull();
     expect(
-      container.querySelector("[data-control='retry-read']"),
-    ).not.toBeNull();
+      container.querySelectorAll("[data-control='retry-read']"),
+    ).toHaveLength(2);
     expect(
       container
         .querySelector("[data-field='read-error']")
@@ -921,8 +922,6 @@ describe("Automation account selector and Retry, the approved exception", () => 
     expect(
       container.querySelector("[data-control='retry-queue']"),
     ).not.toBeNull();
-    // A failure, not a picker: the account resolved, so nothing here is a
-    // choice the operator can make.
-    expect(container.querySelector("select")).toBeNull();
+    expect(container.querySelector("[data-control='account-picker']")).toBeNull();
   });
 });

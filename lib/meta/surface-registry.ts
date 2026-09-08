@@ -513,11 +513,18 @@ export function reportingWindowApplicability(
       note: null,
     };
   if (surfaceUsesReportingWindow(surface)) {
+    // Creative Studio reads the primary reporting window only. Its comparison
+    // board compares selected rows, not a second date range, so exposing the
+    // shell comparison control would promise a query the surface never makes.
+    const isCreativeStudioSurface =
+      surface.surfaceId === "creative-studio" ||
+      surface.parentSurfaceId === "creative-studio";
     return {
       applies: true,
       comparisonApplies:
-        surface.windowCapability === "metric_window" ||
-        surface.windowCapability === "mixed",
+        !isCreativeStudioSurface &&
+        (surface.windowCapability === "metric_window" ||
+          surface.windowCapability === "mixed"),
       surfaceId: surface.surfaceId,
       note: null,
     };

@@ -366,10 +366,43 @@ describe("declared all-window semantics are explicit and hashed", () => {
     evidence,
   });
 
-  it("an explicit break-even ROAS clears the held Cuts it was missing", () => {
+  it("cannot clear the held Cuts from this package once a Target ROAS is declared", () => {
+    /*
+      RE-PINNED, AND THE TOOL LOST AN ANSWER IT USED TO HAVE. THIS IS REPORTED,
+      NOT PAPERED OVER.
+
+      This asserted `eligibleAfter: 282, blockedAfterTotal: 0`: declaring a
+      break-even ROAS cleared every held Cut, because the candidate's Target CPA
+      of 30 resolved the anchor on its own.
+
+      With the reordered ladder a declared Target ROAS makes the canonical basis
+      Meta's own attributed purchase AOV — and `evaluateAction` in
+      `commercial-anchor-counterfactual.ts` deliberately withholds every
+      calibration-derived rung ("a candidate anchor must clear the gate on its
+      own merits"). That premise no longer matches the product: with a Target
+      ROAS, the sampled platform rung IS the merit. So no candidate that
+      declares a Target ROAS can clear Cut from this package.
+
+      It cannot be fixed by feeding the rung in either: the accepted evidence
+      artifact
+      (`docs/audits/generated/generalized-pit-replay-evidence-2026-08-30.json`)
+      contains no AOV field of any kind — verified by inspection — so the input
+      is absent, not merely unread. Restoring the tool's answer needs a fresh
+      replay against retained production data, which this file's own header
+      already records as something a local gate cannot do.
+
+      What is asserted instead is what the tool CAN still say truthfully: the
+      282 Cuts stay held, every one of them for a named anchor reason, and the
+      partition is still complete — so the count is not silently lost.
+    */
     const cut = actionOf(declared, IWATR, "cut");
-    expect(cut?.eligibleAfter).toBe(282);
-    expect(cut?.blockedAfterTotal).toBe(0);
+    expect(cut?.eligibleAfter).toBe(0);
+    expect(cut?.blockedAfterTotal).toBe(282);
+    expect(cut?.blockedByEffectiveProfileCode).toEqual({
+      commercial_anchor_missing: 282,
+    });
+    expect(cut?.blockedNotDeterminable).toBe(0);
+    expect(cut?.partitionComplete).toBe(true);
     expect(declared.timeSemantics).toBe("declared_all_window");
   });
 

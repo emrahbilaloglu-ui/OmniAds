@@ -1,4 +1,8 @@
 import type { MetaBreakdownsResponse } from "@/app/api/meta/breakdowns/route";
+import {
+  isContextTrustedForAction,
+  type MetaCampaignContextGuardMap,
+} from "@/lib/meta/campaign-label-guard";
 import type { MetaCampaignRow } from "@/app/api/meta/campaigns/route";
 import type { AppLanguage } from "@/lib/i18n";
 import { formatMoney } from "@/components/creatives/money";
@@ -44,7 +48,8 @@ import {
   type MetaFunnelCohort,
 } from "@/lib/meta/funnel-cohort";
 import {
-  metaCutRoasReviewCeiling,
+  metaCanonicalSpendUnit,
+  metaRelativeCutRoasCeiling,
   metaLossBudgetMaturity,
   metaScaleRoasFloor,
   type MetaCommercialTargets,
@@ -409,8 +414,49 @@ export interface MetaRecommendationsResponse {
   analysisSource?: MetaRecommendationAnalysisSource;
 }
 
+/*
+  ── ROUND 18, ITEM B8 ───────────────────────────────────────────────────────
+  Bumped because B1 and A1 changed ARITHMETIC, not presentation. Before this
+  version B1 sized a bid-cap raise with hard-coded /100 and *100 (wrong for
+  every currency whose minor unit is not two decimals) and authorised it from a
+  ratio; A1 divided by the account CPA percentile even under a positive Target
+  ROAS. A persisted `act` from that arithmetic is not made correct by today's
+  AOV being READY — the number it published was computed the old way.
+
+  `metaRecommendationNeedsRecompute` refuses to serve those rows as actionable.
+*/
 export const META_RECOMMENDATION_ENGINE_VERSION =
-  "v1.2.0-target-age-advisory";
+  "v1.3.0-b1-a1-canonical-unit";
+
+/**
+ * Scenario types whose ARITHMETIC changed in v1.3.0.
+ *
+ * Narrow on purpose: a blanket version gate would downgrade every persisted
+ * recommendation on deploy, which is a different and larger outage than the one
+ * being fixed.
+ */
+export const META_V130_RECOMPUTE_REQUIRED_TYPES: readonly string[] = Object.freeze([
+  "scenario_b1_capped_winner_bid_raise",
+  "scenario_a1_math_floor_unmet",
+]);
+
+/**
+ * Must this persisted recommendation be recomputed before it may act?
+ *
+ * True for a B1/A1 row stamped with an engine version older than the one that
+ * fixed their arithmetic. The read path downgrades such a row out of `act`
+ * rather than serving a proposal produced by the superseded formula.
+ */
+export function metaRecommendationNeedsRecompute(input: {
+  type?: string | null;
+  engineVersion?: string | null;
+}): boolean {
+  const type = String(input.type ?? "").trim();
+  if (!META_V130_RECOMPUTE_REQUIRED_TYPES.includes(type)) return false;
+  const version = String(input.engineVersion ?? "").trim();
+  // An absent or unrecognised stamp is not evidence the row is current.
+  return version !== META_RECOMMENDATION_ENGINE_VERSION;
+}
 
 export interface MetaCalibrationContext {
   thresholds: MetaCalibrationThresholds;
@@ -2972,18 +3018,43 @@ function maybeVolumeScaleRecommendation(
   const scaleRoasThreshold = calibrationContext
     ? Math.max(roasThresholds.p75, scaleFloor)
     : Math.max(peerRoas * 0.95, scaleFloor);
-  const cpaCeiling = calibrationContext
-    ? cpaThresholds.p75
-    : peerCpa > 0
-      ? peerCpa * 1.1
-      : Number.POSITIVE_INFINITY;
-  const commercialCpaCeiling =
-    commercialTargets?.breakEvenCpa ?? (commercialTargets?.targetCpa ? commercialTargets.targetCpa * 1.1 : null);
+  /*
+    THE COST-PER-PURCHASE CEILING IS THE CANONICAL UNIT, AND ONLY THAT.
+
+    Everything above this line has already established that a positive Target
+    ROAS governs: `metaScaleRoasFloor` returns null without one and this
+    function returned. So there is no legacy branch to preserve here, and two
+    CPA-shaped vetoes have been removed rather than reordered.
+
+    - The commercial ceiling read `breakEvenCpa ?? targetCpa * 1.1`. A typed
+      CPA could veto a Scale the ROAS basis had just authorized, and when the
+      Meta AOV was absent the veto silently became the CPA rather than a hold.
+    - The calibrated ceiling read the account's own `cpa_28d` p75 (or a peer
+      CPA + 10% without calibration). That is the account's measured
+      cost-per-purchase distribution deciding a purchase-VALUE budget increase
+      on an account whose Target ROAS says only ready Meta AOV may answer — the
+      same class of number, measured instead of typed.
+
+    What remains is the relative ROAS gate (`scaleRoasThreshold`, unchanged)
+    and the AUTHORITY itself. The canonical unit's job here is to exist: a
+    Target ROAS with a ready Meta-attributed AOV is what makes a purchase-value
+    budget increase decidable at all, and its absence is a hold, so no Scale is
+    produced.
+
+    It is deliberately NOT re-used as an entity-level CPA ceiling. The unit is
+    an ACCOUNT allowance — the account's own attributed AOV over its Target
+    ROAS — while `core.cpa` is one campaign's measured cost per purchase. A
+    campaign whose own basket is larger than the account average carries a
+    higher CPA at the SAME ROAS, so comparing the two would refuse to scale
+    exactly the campaigns that clear the target most comfortably. The ratio
+    gate above is the AOV-independent test, and it is the one that answers
+    "is this campaign meeting the commercial target".
+  */
+  const canonicalUnit = metaCanonicalSpendUnit(commercialTargets);
+  if (canonicalUnit === null) return null;
   if (row.status !== "ACTIVE") return null;
   if (core.purchases < 10) return null;
   if (core.roas < scaleRoasThreshold) return null;
-  if (Number.isFinite(cpaCeiling) && core.cpa > cpaCeiling) return null;
-  if (commercialCpaCeiling && core.cpa > commercialCpaCeiling) return null;
 
   const support = buildHistoricalSupport(
     window,
@@ -3049,21 +3120,55 @@ function maybeProfitabilityRecommendation(
   const core = buildWeightedCampaignSnapshot(window);
   const roasThresholds = thresholdMetric(calibrationContext, "roas_28d");
   const cpaThresholds = thresholdMetric(calibrationContext, "cpa_28d");
-  const cutCeiling = metaCutRoasReviewCeiling(commercialTargets);
+  /*
+    THE CEILING IS THE TARGET ROAS WHENEVER THERE IS ONE.
+
+    This read `metaCutRoasReviewCeiling`, which returns break-even ROAS alone
+    and returned early without one — so break-even was a SECOND mandatory user
+    target for the campaign profitability path.
+
+    `metaRelativeCutRoasCeiling` returns the TARGET ROAS whenever it is
+    positive, and falls to a configured break-even only when no Target ROAS
+    exists. An earlier revision of this comment claimed the reverse preference;
+    that was the pre-Round 8 `breakEvenRoas ?? targetRoas` order, which let a
+    break-even edit move a boundary that is supposed to track the configured
+    operating target. Break-even keeps its own, separately labeled economic
+    stop-loss consumers (`metaCutRoasCeiling` / `metaCutRoasReviewCeiling`) and
+    is never required here.
+  */
+  const cutCeiling = metaRelativeCutRoasCeiling(commercialTargets);
   if (!cutCeiling) return null;
   const totalSelectedSpend = selectedRows.reduce((sum, campaign) => sum + campaign.spend, 0);
   const totalSelectedPurchases = selectedRows.reduce((sum, campaign) => sum + campaign.purchases, 0);
-  const accountCpaBaseline =
-    cpaThresholds.p50 > 0
+  /*
+    THE ACCOUNT CPA IS NOT A SUBSTITUTE MATURITY WHILE A TARGET ROAS GOVERNS.
+
+    `accountCpaBaseline` was the calibrated `cpa_28d` p50, or the selection's
+    own spend-over-purchases when that was absent. `metaLossBudgetMaturity`
+    ignores it under a positive Target ROAS, so passing it there is already
+    inert — but computing and passing it read as though it were a fallback, and
+    it IS the fallback in the no-Target-ROAS compatibility case. It is
+    therefore passed only in that case, and named as such.
+  */
+  const targetRoasGoverns = Number(commercialTargets?.targetRoas ?? 0) > 0;
+  const legacyAccountCpaBaseline = targetRoasGoverns
+    ? null
+    : cpaThresholds.p50 > 0
       ? cpaThresholds.p50
       : totalSelectedPurchases > 0
         ? totalSelectedSpend / totalSelectedPurchases
         : null;
   const maturity = metaLossBudgetMaturity({
     targets: commercialTargets,
-    accountCpaBaseline,
+    accountCpaBaseline: legacyAccountCpaBaseline,
     calibratedHardCutSpend: hardCutSpend(calibrationContext),
   });
+  /*
+    HOLD ON A MISSING OR THIN SAMPLE. `metaLossBudgetMaturity` answers null
+    under a governing Target ROAS for exactly one reason — no READY Meta AOV —
+    and this early return is what turns that into no recommendation rather than
+    a spend action sized from something else.
+  */
   if (!maturity || core.spend < maturity.spendThreshold) return null;
   const weakRoasThreshold = calibrationContext
     ? roasThresholds.p25
@@ -3344,6 +3449,17 @@ export interface MetaRecommendationsBuildInput {
   calibrationContextByCampaignId?: Record<string, MetaCalibrationContext | null | undefined>;
   entitySignalsByCampaignId?: Record<string, MetaEntityDecisionSignal | null | undefined>;
   commercialTargets?: MetaCommercialTargets | null;
+  /**
+   * The canonical campaign-context map, so an emitter can ask whether a role
+   * is trusted for ACTION at emit time.
+   *
+   * Without it the structural emitters had only `campaignRole` — a legacy
+   * taxonomy that `inferCampaignRole` partly derives from campaign NAMES — and
+   * the campaign name itself. Neither can authorize an actionable rebuild, and
+   * the label guard that would demote the row runs later, over recommendations
+   * that have already been emitted as `act`.
+   */
+  campaignContextById?: MetaCampaignContextGuardMap | null;
   language?: AppLanguage;
 }
 
@@ -3522,6 +3638,8 @@ function buildMetaRecommendationsInternal(
       laneSignals: taxonomyContext.laneSignals,
     });
     const bidRegime = inferBidRegime(null, campaignWindow.selected);
+    const campaignContextEntry =
+      input.campaignContextById?.get(campaignWindow.selected.id) ?? null;
     const scenario = emitHighPriorityCampaignScenario({
       window: campaignWindow,
       context: calibrationContext,
@@ -3530,6 +3648,19 @@ function buildMetaRecommendationsInternal(
       bidRegime,
       signals: input.entitySignalsByCampaignId?.[campaignWindow.selected.id] ?? null,
       commercialTargets: input.commercialTargets ?? null,
+      /*
+        THE CANONICAL KIND, AND WHETHER IT MAY BEAR AUTHORITY (Codex C19/C20).
+
+        `isContextTrustedForAction` is the same four-fact predicate the label
+        guard applies, imported rather than restated so an emitter and the
+        guard cannot disagree about which roles are actionable. A provisional
+        role still travels for PRESENTATION via `campaignRole`; only this pair
+        may gate an actionable structural verdict.
+      */
+      campaignKind: campaignContextEntry?.kind ?? null,
+      campaignKindTrustedForAction: isContextTrustedForAction(
+        campaignContextEntry,
+      ),
     });
     if (scenario) recommendations.push(scenario);
 

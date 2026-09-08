@@ -3,6 +3,8 @@ import { gzipSync } from "node:zlib";
 import { readFileSync } from "node:fs";
 import * as db from "@/lib/db";
 import {
+  NATIVE_DECISION_LAST_SUCCESS_MAX_AGE_DAYS,
+  READ_NATIVE_DECISION_GENERATION_QUERY,
   buildNativeMetaCanonicalDecisionInventory,
   buildNativeMetaDecisionsWorkspaceReadModel,
   applyMetaExecutionGovernanceToCanonicalDecisions,
@@ -27,6 +29,12 @@ import { projectMetaDecisionSemantics } from "@/lib/meta/decision-semantics";
 import { NATIVE_AD_ENGINE_VERSION } from "@/lib/creative-decision-engine/types";
 import { projectCanonicalNativeAdDecisionToBriefing } from "@/app/api/creatives/briefing/canonical-projection";
 import { buildMetaOsDecisionsPresentation } from "@/lib/meta/decisions-os-presentation";
+import {
+  buildMetaDecisionPipelineHealth,
+  META_DECISION_PIPELINE_HEALTH_CONTRACT_VERSION,
+  META_DECISION_SYNC_ACTIVITY_MAX_AGE_MINUTES,
+  type MetaDecisionPipelineOperationalHealth,
+} from "@/lib/meta/decision-pipeline-health";
 import { isCampaignContextResolverAuthorityValidated } from "@/lib/creative-decision-engine/campaign-context/source";
 
 vi.mock("@/lib/db", () => {
@@ -302,6 +310,30 @@ function identity(
   };
 }
 
+/**
+ * The body of one named CTE of the generation query, so an assertion can say
+ * WHICH selection a predicate belongs to.
+ *
+ * A substring test over the whole statement cannot tell "the latest run is
+ * ranked across engine epochs" from "the last-success candidate is not", and
+ * those are opposite requirements that live in the same string. The scan is
+ * depth-aware because the candidate CTE contains a parenthesised EXISTS
+ * subquery, so the first `)` is not the end of the body.
+ */
+function cteBody(sql: string, name: string): string {
+  const opened = sql.indexOf(`${name} AS (`);
+  if (opened < 0) throw new Error(`No CTE named ${name} in the query.`);
+  let depth = 0;
+  for (let index = opened + name.length + 3; index < sql.length; index += 1) {
+    if (sql[index] === "(") depth += 1;
+    else if (sql[index] === ")") {
+      depth -= 1;
+      if (depth === 0) return sql.slice(opened, index + 1);
+    }
+  }
+  throw new Error(`CTE ${name} is not closed.`);
+}
+
 function context(
   overrides: Partial<MetaDecisionCampaignContextSourceRow> = {},
 ): MetaDecisionCampaignContextSourceRow {
@@ -375,7 +407,10 @@ function nativeSnapshot(
 
 function nativeModel(
   rows: MetaNativeDecisionSnapshotSourceRow[],
-  options: { adCandidateLimit?: number } = {},
+  options: {
+    adCandidateLimit?: number;
+    campaignContextRows?: MetaDecisionCampaignContextSourceRow[];
+  } = {},
 ) {
   const adIds = rows.map((row) => row.ad_id);
   return buildNativeMetaDecisionsWorkspaceReadModel({
@@ -394,7 +429,7 @@ function nativeModel(
       expectedAdCount: rows.length,
     },
     snapshotRows: rows,
-    campaignContextRows: [context()],
+    campaignContextRows: options.campaignContextRows ?? [context()],
     eventSourceAvailable: false,
     outcomeSourceAvailable: false,
     responseSourceAvailable: false,
@@ -414,6 +449,7 @@ function nativeGeneration(
     adIds: [row.ad_id],
   });
   return {
+    selection: "latest",
     job_status: "success",
     job_run_id: row.job_run_id,
     as_of_date: row.as_of_date,
@@ -441,6 +477,7 @@ function nativeGenerationForRows(
     adIds: rows.map((row) => row.ad_id),
   });
   return {
+    selection: "latest",
     job_status: "success",
     job_run_id: first.job_run_id,
     as_of_date: first.as_of_date,
@@ -474,14 +511,82 @@ function nativeBuildGeneration(
   };
 }
 
+/**
+ * A pipeline whose OPERATIONAL half is clean, so anything the health gate
+ * refuses below comes from the decision generation and not from sync,
+ * warehouse, or admission evidence.
+ */
+function healthyOperationalPipeline(): MetaDecisionPipelineOperationalHealth {
+  return {
+    contractVersion: META_DECISION_PIPELINE_HEALTH_CONTRACT_VERSION,
+    evaluatedAt: "2026-07-12T12:00:00.000Z",
+    overall: "healthy",
+    executionReady: true,
+    blockers: [],
+    syncActivity: {
+      status: "fresh",
+      latestAt: "2026-07-12T11:50:00.000Z",
+      ageMinutes: 10,
+      maxAgeMinutes: META_DECISION_SYNC_ACTIVITY_MAX_AGE_MINUTES,
+      latestJobStatus: "success",
+      latestRunStatus: "success",
+      reason: null,
+    },
+    warehouse: {
+      status: "fresh",
+      latestFinalizedDate: "2026-07-11",
+      expectedFinalizedDate: "2026-07-11",
+      lagDays: 0,
+      accountTimeZone: "UTC",
+      reason: null,
+    },
+    admission: {
+      status: "fresh",
+      allowed: true,
+      reason: "within_budget",
+      offender: null,
+      evaluatedAt: "2026-07-12T12:00:00.000Z",
+    },
+  };
+}
+
+/**
+ * A persisted automatic campaign-context row, in the DB shape
+ * `readMetaDecisionCampaignContextRows` reads. Defaults resolve `cmp_1` as an
+ * authoritative Main campaign, which is what makes a served `cut` verdict
+ * action-eligible through the mocked read path instead of blocked on
+ * unresolved context.
+ */
+function campaignContextDbRow(overrides: Record<string, unknown> = {}) {
+  return {
+    campaign_id: "cmp_1",
+    inferred_kind: "main",
+    confidence_class: "high",
+    confidence_score: 0.92,
+    signal_scores_json: null,
+    evidence_json: null,
+    conflict_reasons_json: null,
+    context_updated_at: "2026-07-11T10:00:00.000Z",
+    context_as_of_date: "2026-07-11",
+    resolver_version: "campaign-context-v2-account-scoped",
+    kind_source: "system_inferred",
+    ...overrides,
+  };
+}
+
 function workspaceReadQuery(input: {
   generationRows?: unknown[];
   nativeRows?: MetaNativeDecisionSnapshotSourceRow[];
   legacyRows?: MetaDecisionSnapshotSourceRow[];
+  /** Defaults to none, which is what an unresolved campaign looks like. */
+  campaignContextRows?: unknown[];
 }) {
   return vi.fn(async (sql: string, params?: unknown[]) => {
     if (sql.includes("WITH candidate_runs AS")) {
       return input.generationRows ?? [];
+    }
+    if (sql.includes("FROM engine_v3_campaign_context_daily")) {
+      return input.campaignContextRows ?? [];
     }
     if (sql.includes("native-ad-serving-manifest")) {
       return (input.nativeRows ?? []).map((row) => ({ ad_id: row.ad_id }));
@@ -759,7 +864,27 @@ describe("Meta Decisions workspace canonical read model", () => {
     ).toBe("governance_unavailable");
   });
 
-  it("keeps a native Main Scale visible as monitor-only briefing evidence", () => {
+  /*
+   * A Main-campaign Scale is an ACT verdict, and briefing still does not put it
+   * in Action Now. Those are two separate facts and this case holds both.
+   *
+   * D016 and GC-055 make the first one: `scale` answers "is this creative a
+   * winner?", and the campaign kind only chooses WHICH execution move the CTA
+   * offers -- "Scale budget" for a Main campaign, "Promote to main" for a Test
+   * one. GC-055's expected primary decision is Scale. This case used to assert
+   * `decisionState: "monitor"`, which came from `projectMetaDecisionSemantics`
+   * admitting `scale` as an act only for `test` and `mixed` roles: it demoted
+   * the winners in exactly the campaigns that carry the budget, with no
+   * blocker, no held verdict and no reason an operator could read.
+   *
+   * The second fact is `canonicalLane` (app/api/creatives/briefing/canonical-
+   * projection.ts): only an action-eligible Cut at `live_preflight_required`
+   * reaches the `action` lane, because Cut is the one exact-Ad route with a
+   * provider-validated execution handoff. So the winner stays in `watching`
+   * while carrying full server-side authority -- verdict and execution are
+   * separate, which is the property this case now pins.
+   */
+  it("serves a native Main Scale as an act verdict that briefing keeps out of Action Now", () => {
     const model = nativeModel([
       nativeSnapshot("120000000000000007", {
         label: "scale",
@@ -775,22 +900,22 @@ describe("Meta Decisions workspace canonical read model", () => {
 
     expect(decision?.classification).toMatchObject({
       lifecycleRole: { value: "main" },
-      decisionState: "monitor",
+      decisionState: "act",
       buyerAction: "scale",
       heldAction: null,
     });
     expect(decision?.sourceAuthority).toMatchObject({
-      actionEligible: false,
-      reviewOnlyReason: "served_decision_is_not_actionable",
-      authorizedAction: null,
+      actionEligible: true,
+      reviewOnlyReason: null,
+      authorizedAction: "scale",
     });
     expect(
       projectCanonicalNativeAdDecisionToBriefing({ decision: decision! }),
     ).toMatchObject({
       lane: "watching",
       card: {
-        sourceDecisionActionEligible: false,
-        sourceDecisionAuthorizedAction: null,
+        sourceDecisionActionEligible: true,
+        sourceDecisionAuthorizedAction: "scale",
       },
     });
   });
@@ -1769,19 +1894,35 @@ describe("Meta Decisions workspace canonical read model", () => {
       ],
       currency: "USD",
     });
-    expect(os.ads.eligiblePreCapCount).toBe(361);
+    /*
+     * The decision counts describe DECISIONS, and the one ACTIVE Ad that no
+     * producer has decided (`truePendingAdId`) is not one.
+     *
+     * This used to expect 361 and `blocked: 81` -- the 360 canonical decisions
+     * plus that Ad. `buildMetaOsDecisionsPresentation` no longer folds
+     * un-evaluated provider inventory into either number: it competed with real
+     * verdicts for the response cap, made `blocked` a mixture of withheld
+     * verdicts and un-evaluated rows, and inflated the count that drives the
+     * surface's "load more" affordance. It is served instead as its own
+     * `pendingInventoryCount` beside the
+     * `active_ad_inventory_pending_native_decision` limitation, so no row in
+     * `items` carries `pending_native_evidence` any more.
+     */
+    expect(os.ads.eligiblePreCapCount).toBe(360);
     expect(os.ads.statePreCapCounts).toEqual({
       act: 200,
-      blocked: 81,
+      blocked: 80,
       monitor: 80,
     });
+    expect(os.ads.pendingInventoryCount).toBe(1);
     expect(
-      os.ads.items
-        .filter(
-          (item) => item.decisionAvailability === "pending_native_evidence",
-        )
-        .map((item) => item.adId),
-    ).toEqual([truePendingAdId]);
+      os.ads.items.filter(
+        (item) => item.decisionAvailability === "pending_native_evidence",
+      ),
+    ).toEqual([]);
+    expect(os.ads.items.some((item) => item.adId === truePendingAdId)).toBe(
+      false,
+    );
     expect(
       new Set(firstItems.map((item) => item.classification.decisionState)),
     ).toEqual(new Set(["act", "blocked", "monitor"]));
@@ -1888,6 +2029,65 @@ describe("Meta Decisions workspace canonical read model", () => {
       actionEligible: false,
       authorizedAction: null,
     });
+  });
+
+  it("does not synthesize a held Cut for a NON-NATIVE-EPOCH stop-loss row", () => {
+    /*
+      CODEX ROUND 4, ITEM 9 — an old row is read, never recomputed.
+
+      `toDecisionOutput` used to reconstruct `blockedActionType: "cut"` whenever
+      the persisted value was absent, the row's `engine_version` differed from
+      the current native epoch, AND it carried a `stop_loss_review` badge. Prior
+      epochs did not persist `blocked_action_type`, so the reconstruction was
+      protective in intent — but it minted a typed CURRENT-semantics held action
+      for a row this engine never produced, which is what item 9 forbids.
+
+      THIS PATH IS THE ONE THAT WAS REACHABLE. A native bundle refuses a
+      foreign-epoch row wholesale ("Native ad generation lineage or manifest is
+      incomplete"), so the branch never fired there. The legacy snapshot path
+      has no such gate and its rows carry `engine_version: "v3-test"` — never
+      equal to the native epoch — so EVERY legacy row with a stop-loss badge and
+      no persisted `blocked_action_type` was being given a synthesized Cut.
+
+      Nothing is erased by removing it: the badge survives, and the row keeps
+      its own version key.
+    */
+    const model = buildMetaDecisionsWorkspaceReadModel({
+      businessId: "biz_1",
+      providerAccountId: "act_1",
+      snapshotRows: [
+        snapshot("legacy_stop_loss", {
+          label: "keep",
+          blocked_action_type: null,
+          badges: [
+            {
+              type: "stop_loss_review",
+              label: "Below break-even - automatic Cut authority unavailable",
+              severity: "warning",
+            },
+          ],
+        }),
+      ],
+      identityRows: [identity("legacy_stop_loss")],
+      campaignContextRows: [],
+    });
+
+    const item = model.queue.sections.creative_rotation.items[0]!;
+    /*
+      `classification.heldAction` is the typed, observable consequence: the
+      legacy `sourceDecision` envelope carries no `blockedActionType` field at
+      all, so the synthesized value could only ever surface through the
+      classification the presentation projects from it.
+    */
+    expect(item.classification.heldAction ?? null).toBeNull();
+    expect(item.classification.buyerLabel ?? "").not.toMatch(/Cut · Held/i);
+
+    // NOTHING IS ERASED: the evidence the synthesis was protecting survives on
+    // its own terms, which is why removing the synthesis is safe.
+    // `sourceDecision.badges` is a string[] of codes, not badge objects.
+    expect(item.sourceDecision.badges).toContain("stop_loss_review");
+    // And the row keeps its ORIGINAL version key, unrestamped.
+    expect(item.sourceDecision.engineVersion).toBe("v3-test");
   });
 
   it("does not synthesize a held Cut from a native stop-loss review badge", () => {
@@ -2259,6 +2459,7 @@ describe("Meta Decisions workspace canonical read model", () => {
       if (sql.includes("WITH candidate_runs AS")) {
         return [
           {
+            selection: "latest",
             job_status: "success",
             job_run_id: "native-run",
             as_of_date: "2026-07-12",
@@ -2340,6 +2541,1168 @@ describe("Meta Decisions workspace canonical read model", () => {
     },
   );
 
+  /*
+   * AREA 3 -- the last good decision survives a failed latest native job.
+   *
+   * Shape taken from production on 2026-09-07, where Grandmix
+   * (act_805150454596350), IwaStore (act_1087566732415606) and TheSwaf
+   * (act_822913786458311) all had a FAILED newest terminal run for as-of
+   * 2026-09-07 over a COMPLETE success for 2026-09-06 -- TheSwaf's success
+   * carried 768 hydrated ads against a 768-ad expected manifest. Before this
+   * fallback the reader dropped all three accounts to legacy/unavailable and
+   * the operator lost every exact-Ad decision.
+   */
+  function failedLatestNativeJob(
+    overrides: Partial<MetaNativeDecisionGenerationSourceRow> = {},
+  ): MetaNativeDecisionGenerationSourceRow {
+    return {
+      selection: "latest",
+      job_status: "failed",
+      job_run_id: "20000000-0000-4000-8000-000000000902",
+      as_of_date: "2026-07-13",
+      engine_version: NATIVE_AD_ENGINE_VERSION,
+      // A failed run writes no per-account hydration receipt, so the query's
+      // LEFT JOIN LATERAL leaves every receipt column NULL. Verified against
+      // the three live accounts above.
+      provider_account_ref_id: null,
+      provider_account_id: null,
+      expected_ad_count: null,
+      expected_manifest_hash: null,
+      hydrated_ad_count: null,
+      hydrated_manifest_hash: null,
+      authoritative_for_prune: null,
+      ...overrides,
+    };
+  }
+
+  it("serves the last successful exact-Ad generation, marked and read-only, when the latest native job failed", async () => {
+    const rows = [
+      nativeSnapshot("120000000000000901"),
+      nativeSnapshot("120000000000000902"),
+    ];
+    const query = workspaceReadQuery({
+      generationRows: [
+        failedLatestNativeJob(),
+        nativeGenerationForRows(rows, { selection: "last_success" }),
+      ],
+      nativeRows: rows,
+      // These rows must be action-eligible BEFORE the degradation, or the
+      // stripped authority below proves nothing: without a resolved campaign
+      // context every one of them is already review-only for
+      // `served_decision_is_not_actionable`.
+      campaignContextRows: [campaignContextDbRow()],
+    });
+    vi.mocked(db.getDb).mockReturnValue({ query } as never);
+
+    const model = await readMetaDecisionsWorkspaceReadModel({
+      businessId: "biz_1",
+      providerAccountId: "act_1",
+      adIds: rows.map((row) => row.ad_id),
+      generatedAt: "2026-07-13T12:00:00.000Z",
+    });
+    const snapshotCall = query.mock.calls.find(([sql]) =>
+      String(sql).includes(
+        "FROM engine_v3_ad_decision_snapshots_daily snapshot",
+      ),
+    );
+
+    expect(model.status).toBe("available");
+    expect(model.source).toMatchObject({
+      // Not "available": that is the age-independent kill for execution
+      // authority, asserted through the real pipeline-health gate below.
+      status: "unavailable",
+      authority: "native_ad",
+      table: "engine_v3_ad_decision_snapshots_daily",
+      snapshotAsOf: "2026-07-12",
+      computedAt: "2026-07-12T05:00:00.000Z",
+      fallbackReason:
+        "native_latest_job_failed_serving_last_successful_generation",
+      generation: {
+        jobRunId: "20000000-0000-4000-8000-000000000001",
+        expectedAdCount: 2,
+      },
+    });
+    // The snapshot read is pinned to the retained success, never to the failed
+    // run, so one response can never mix two generations.
+    expect(snapshotCall?.[1]?.[2]).toBe("20000000-0000-4000-8000-000000000001");
+    expect(snapshotCall?.[1]?.[3]).toBe("2026-07-12");
+
+    const items = model.queue.adCandidates?.items ?? [];
+    expect(items).toHaveLength(2);
+    for (const item of items) {
+      expect(item.sourceAuthority).toMatchObject({
+        status: "native_exact",
+        actionEligible: false,
+        authorizedAction: null,
+        reviewOnlyReason:
+          "native_latest_job_failed_last_successful_generation_is_not_current",
+        executionReadiness: "decision_not_authorized",
+        // The served AGE, produced by the server, not inferred from prose.
+        decisionFreshness: { status: "stale", ageHours: 31, maxAgeHours: 12 },
+      });
+      expect(item.sourceDecision.label).toBe("cut");
+    }
+  });
+
+  it("strips execution authority from a degraded generation that is still inside the freshness window", () => {
+    const rows = [nativeSnapshot("120000000000000903")];
+    const build = (degraded: boolean) =>
+      buildNativeMetaDecisionsWorkspaceReadModel({
+        businessId: "biz_1",
+        providerAccountId: "act_1",
+        generation: nativeBuildGeneration(rows),
+        snapshotRows: rows,
+        campaignContextRows: [context()],
+        sourceDegradation: degraded
+          ? {
+              reason:
+                "native_latest_job_failed_serving_last_successful_generation",
+              generation: nativeBuildGeneration(rows),
+              latestTerminalJobRunId: "20000000-0000-4000-8000-000000000902",
+              latestTerminalJobStatus: "failed",
+              latestTerminalAsOfDate: "2026-07-12",
+            }
+          : null,
+        generatedAt: "2026-07-12T12:00:00.000Z",
+      });
+
+    // Same rows, same instant, seven hours old: freshness alone would leave
+    // this decision fully action-eligible.
+    expect(
+      build(false).queue.adCandidates?.items[0]?.sourceAuthority,
+    ).toMatchObject({
+      actionEligible: true,
+      authorizedAction: "cut",
+      reviewOnlyReason: null,
+      decisionFreshness: { status: "fresh", ageHours: 7 },
+    });
+    const degraded = build(true);
+    expect(
+      degraded.queue.adCandidates?.items[0]?.sourceAuthority,
+    ).toMatchObject({
+      actionEligible: false,
+      authorizedAction: null,
+      reviewOnlyReason:
+        "native_latest_job_failed_last_successful_generation_is_not_current",
+      executionReadiness: "decision_not_authorized",
+      // Still fresh, and still forbidden: the source is degraded, not the age.
+      decisionFreshness: { status: "fresh", ageHours: 7 },
+    });
+    // Freshness may block execution, but it must not erase the verdict.
+    expect(degraded.queue.adCandidates?.items[0]?.sourceDecision).toMatchObject(
+      { label: "cut", confidence: 88 },
+    );
+  });
+
+  /*
+   * The degraded marker FILLS an empty review-only slot; it never takes one
+   * that is already spoken for.
+   *
+   * `collectMetaCanonicalDecisions` deliberately walks
+   * `queue.inactiveAssets.items` as well as the live lanes, and every Archive
+   * row already carries its own `current_hierarchy_is_not_active` /
+   * `current_hierarchy_status_is_unknown`. `inactiveAdNote`
+   * (components/meta/decision-center/meta-decision-center-exact-adapter.ts)
+   * branches on exactly those two codes and on nothing else, so overwriting
+   * them collapsed every Archive row's explanation to a bare
+   * "Current status — …" for the whole degraded window. That lane is recorded
+   * there as 83 served Ad decisions on Grandmix (act_805150454596350) and 319
+   * on TheSwaf (act_822913786458311) -- the two accounts this fallback exists
+   * to rescue.
+   */
+  it("fills the degraded review-only reason without taking the Archive lane's own", () => {
+    const rows = [
+      nativeSnapshot("120000000000000910"),
+      nativeSnapshot("120000000000000911", { campaign_status: "PAUSED" }),
+    ];
+    const degraded = buildNativeMetaDecisionsWorkspaceReadModel({
+      businessId: "biz_1",
+      providerAccountId: "act_1",
+      generation: nativeBuildGeneration(rows),
+      snapshotRows: rows,
+      campaignContextRows: [context()],
+      sourceDegradation: {
+        reason: "native_latest_job_failed_serving_last_successful_generation",
+        generation: nativeBuildGeneration(rows),
+        latestTerminalJobRunId: "20000000-0000-4000-8000-000000000902",
+        latestTerminalJobStatus: "failed",
+        latestTerminalAsOfDate: "2026-07-12",
+      },
+      generatedAt: "2026-07-12T12:00:00.000Z",
+    });
+
+    // The live row had no reason of its own, so the degraded code takes the
+    // slot and says why the row cannot act.
+    expect(
+      degraded.queue.adCandidates?.items[0]?.sourceAuthority,
+    ).toMatchObject({
+      actionEligible: false,
+      authorizedAction: null,
+      reviewOnlyReason:
+        "native_latest_job_failed_last_successful_generation_is_not_current",
+      executionReadiness: "decision_not_authorized",
+    });
+    expect(degraded.queue.inactiveAssets?.items).toHaveLength(1);
+    expect(
+      degraded.queue.inactiveAssets?.items[0]?.sourceAuthority,
+    ).toMatchObject({
+      // The Archive row's own explanation survives the degraded window …
+      reviewOnlyReason: "current_hierarchy_is_not_active",
+      // … and it still loses every scrap of execution authority.
+      actionEligible: false,
+      authorizedAction: null,
+      executionReadiness: "decision_not_authorized",
+    });
+    // The degradation itself is stated on the envelope, so yielding the row's
+    // slot loses nothing an operator or the execution gate can read.
+    expect(degraded.source).toMatchObject({
+      status: "unavailable",
+      fallbackReason:
+        "native_latest_job_failed_serving_last_successful_generation",
+    });
+  });
+
+  it("refuses provider execution through the shared pipeline-health gate while the source is degraded", () => {
+    const rows = [nativeSnapshot("120000000000000904")];
+    const degradedModel = buildNativeMetaDecisionsWorkspaceReadModel({
+      businessId: "biz_1",
+      providerAccountId: "act_1",
+      generation: nativeBuildGeneration(rows),
+      snapshotRows: rows,
+      campaignContextRows: [context()],
+      sourceDegradation: {
+        reason: "native_latest_job_failed_serving_last_successful_generation",
+        generation: nativeBuildGeneration(rows),
+        latestTerminalJobRunId: "20000000-0000-4000-8000-000000000902",
+        latestTerminalJobStatus: "failed",
+        latestTerminalAsOfDate: "2026-07-12",
+      },
+      generatedAt: "2026-07-12T12:00:00.000Z",
+    });
+
+    // runDecisionOriginAdExecutionPreflight builds its `pipeline` evidence from
+    // exactly this function over exactly this read model
+    // (lib/meta/decision-origin-action-preflight.ts), so this is the gate that
+    // decides whether Apply and automation may reach the provider at all.
+    const health = buildMetaDecisionPipelineHealth({
+      operational: healthyOperationalPipeline(),
+      decisionReadModel: degradedModel,
+      now: new Date("2026-07-12T12:00:00.000Z"),
+    });
+
+    expect(health.executionReady).toBe(false);
+    expect(health.blockers).toContain("decision_generation_missing");
+    expect(health.blockers).toContain("decision_manifest_invalid");
+    expect(health.manifest.reason).toBe(
+      "native_latest_job_failed_serving_last_successful_generation",
+    );
+
+    // The same rows without the degradation clear the same gate, so the refusal
+    // above is the degradation and not the fixture.
+    expect(
+      buildMetaDecisionPipelineHealth({
+        operational: healthyOperationalPipeline(),
+        decisionReadModel: buildNativeMetaDecisionsWorkspaceReadModel({
+          businessId: "biz_1",
+          providerAccountId: "act_1",
+          generation: nativeBuildGeneration(rows),
+          snapshotRows: rows,
+          campaignContextRows: [context()],
+          generatedAt: "2026-07-12T12:00:00.000Z",
+        }),
+        now: new Date("2026-07-12T12:00:00.000Z"),
+      }).executionReady,
+    ).toBe(true);
+  });
+
+  it("returns to latest-native atomically as soon as a new success is the latest terminal run", async () => {
+    const retained = [nativeSnapshot("120000000000000905")];
+    const recovered = [
+      nativeSnapshot("120000000000000905", {
+        snapshot_id: "00000000-0000-4000-8000-000000000905",
+        job_run_id: "20000000-0000-4000-8000-000000000905",
+        as_of_date: "2026-07-13",
+        computed_at: "2026-07-13T05:00:00.000Z",
+      }),
+    ];
+    const read = async (
+      generationRows: MetaNativeDecisionGenerationSourceRow[],
+      nativeRows: MetaNativeDecisionSnapshotSourceRow[],
+    ) => {
+      const query = workspaceReadQuery({ generationRows, nativeRows });
+      vi.mocked(db.getDb).mockReturnValue({ query } as never);
+      const model = await readMetaDecisionsWorkspaceReadModel({
+        businessId: "biz_1",
+        providerAccountId: "act_1",
+        adIds: nativeRows.map((row) => row.ad_id),
+        generatedAt: "2026-07-13T12:00:00.000Z",
+      });
+      const snapshotCall = query.mock.calls.find(([sql]) =>
+        String(sql).includes(
+          "FROM engine_v3_ad_decision_snapshots_daily snapshot",
+        ),
+      );
+      return { model, jobRunIdRead: snapshotCall?.[1]?.[2] };
+    };
+
+    const degraded = await read(
+      [
+        failedLatestNativeJob(),
+        nativeGenerationForRows(retained, { selection: "last_success" }),
+      ],
+      retained,
+    );
+    // The recovery run is now the latest terminal run, so the query's
+    // last_success CTE selects nothing: there is no request in which one half
+    // of the answer comes from the retained generation and the other from the
+    // new one.
+    const returned = await read(
+      [
+        nativeGenerationForRows(recovered, {
+          selection: "latest",
+          job_run_id: recovered[0]!.job_run_id,
+        }),
+      ],
+      recovered,
+    );
+
+    expect(degraded.model.source).toMatchObject({
+      status: "unavailable",
+      fallbackReason:
+        "native_latest_job_failed_serving_last_successful_generation",
+      snapshotAsOf: "2026-07-12",
+    });
+    expect(degraded.jobRunIdRead).toBe(retained[0]!.job_run_id);
+
+    expect(returned.model.source).toMatchObject({
+      status: "available",
+      authority: "native_ad",
+      fallbackReason: null,
+      snapshotAsOf: "2026-07-13",
+      generation: { jobRunId: recovered[0]!.job_run_id },
+    });
+    expect(returned.jobRunIdRead).toBe(recovered[0]!.job_run_id);
+    // No residue of the degraded envelope survives the return. (This row is
+    // still review-only for its own reason -- the mocked read serves no
+    // campaign context -- which is exactly why the assertion names the code it
+    // must not be rather than asserting null.)
+    expect(
+      returned.model.queue.adCandidates?.items[0]?.sourceAuthority
+        ?.reviewOnlyReason,
+    ).not.toBe(
+      "native_latest_job_failed_last_successful_generation_is_not_current",
+    );
+  });
+
+  it("keeps the last-success fallback out of the skipped, foreign-epoch and unprovable paths", async () => {
+    const rows = [nativeSnapshot("120000000000000906")];
+    const lastSuccess = nativeGenerationForRows(rows, {
+      selection: "last_success",
+    });
+    const cases = [
+      {
+        latest: failedLatestNativeJob({ job_status: "skipped" }),
+        lastSuccess,
+        nativeRows: rows,
+        expected: "native_latest_job_skipped",
+      },
+      {
+        latest: failedLatestNativeJob(),
+        lastSuccess: {
+          ...lastSuccess,
+          engine_version: "v3-prior-native-epoch",
+        },
+        nativeRows: rows,
+        expected: "native_latest_job_failed",
+      },
+      {
+        // The retained generation claims two ads and only one is persisted, so
+        // it cannot be proven complete. The reason names the FAILED LATEST RUN,
+        // not the retained generation's own defect: pointing the operator at a
+        // corrupt manifest would name the wrong generation entirely.
+        latest: failedLatestNativeJob(),
+        lastSuccess: nativeGenerationForRows(
+          [...rows, nativeSnapshot("120000000000000908")],
+          { selection: "last_success" },
+        ),
+        nativeRows: rows,
+        expected: "native_latest_job_failed",
+      },
+    ];
+
+    for (const testCase of cases) {
+      const query = workspaceReadQuery({
+        generationRows: [testCase.latest, testCase.lastSuccess],
+        nativeRows: testCase.nativeRows,
+      });
+      vi.mocked(db.getDb).mockReturnValue({ query } as never);
+
+      const model = await readMetaDecisionsWorkspaceReadModel({
+        businessId: "biz_1",
+        providerAccountId: "act_1",
+        generatedAt: "2026-07-13T12:00:00.000Z",
+      });
+
+      expect(model.source).toMatchObject({
+        authority: "legacy_creative",
+        fallbackReason: testCase.expected,
+      });
+    }
+  });
+
+  /*
+   * The retained generation has a MAXIMUM AGE.
+   *
+   * Nothing used to bound how old the last success could be, so a run that had
+   * been failing for a month kept serving that month-old generation with its
+   * original label and confidence, marked only by a code and
+   * `decisionFreshness.ageHours`. `NATIVE_DECISION_LAST_SUCCESS_MAX_AGE_DAYS`
+   * is seven days -- the width of the engine's own recent window -- and past it
+   * the reader returns to the pre-existing behaviour and reports the true
+   * `native_latest_job_failed`.
+   *
+   * Both arms use the same rows and the same failed latest run; only the
+   * serving instant moves, so the boundary is the only thing under test.
+   */
+  it("stops serving the retained generation past the last-success age ceiling", async () => {
+    // Retained generation as-of 2026-07-12; the failed latest run is 2026-07-20.
+    const rows = [nativeSnapshot("120000000000000912")];
+    const readAt = async (generatedAt: string) => {
+      const query = workspaceReadQuery({
+        generationRows: [
+          failedLatestNativeJob({ as_of_date: "2026-07-20" }),
+          nativeGenerationForRows(rows, { selection: "last_success" }),
+        ],
+        nativeRows: rows,
+      });
+      vi.mocked(db.getDb).mockReturnValue({ query } as never);
+      return readMetaDecisionsWorkspaceReadModel({
+        businessId: "biz_1",
+        providerAccountId: "act_1",
+        generatedAt,
+      });
+    };
+
+    // Exactly seven days old: still the last good decision, still served.
+    expect((await readAt("2026-07-19T23:00:00.000Z")).source).toMatchObject({
+      status: "unavailable",
+      authority: "native_ad",
+      snapshotAsOf: "2026-07-12",
+      fallbackReason:
+        "native_latest_job_failed_serving_last_successful_generation",
+    });
+    // One day further and it is no longer offered at all.
+    expect((await readAt("2026-07-20T00:00:00.000Z")).source).toMatchObject({
+      authority: "legacy_creative",
+      fallbackReason: "native_latest_job_failed",
+    });
+  });
+
+  /*
+   * A defect in the FALLBACK CANDIDATE may kill the candidate. It may not
+   * rename the authoritative fault.
+   *
+   * The receipt lateral join is per account, so two rows for one selection mean
+   * that run claimed the same account twice. Failing both selections together
+   * meant a duplicated `last_success` receipt reported
+   * `native_account_receipt_cardinality_invalid` to EVERY caller -- including
+   * Creative Briefing and engine-v3, which never opted into the fallback and
+   * whose real, actionable fault was that the latest run failed. (Production
+   * carries no duplicate receipts today, so this was latent.)
+   */
+  it("lets a duplicated retained receipt kill only the fallback, not the reported fault", async () => {
+    const rows = [nativeSnapshot("120000000000000913")];
+    const lastSuccess = nativeGenerationForRows(rows, {
+      selection: "last_success",
+    });
+    vi.mocked(db.getDb).mockReturnValue({
+      query: workspaceReadQuery({
+        generationRows: [
+          failedLatestNativeJob(),
+          lastSuccess,
+          { ...lastSuccess },
+        ],
+        nativeRows: rows,
+      }),
+    } as never);
+
+    // The readers that never asked for the fallback hear the true fault.
+    await expect(
+      readValidatedMetaNativeDecisionGenerationBundle({
+        businessId: "biz_1",
+        providerAccountId: "act_1",
+      }),
+    ).resolves.toMatchObject({
+      status: "unavailable",
+      unavailableReason: "native_latest_job_failed",
+    });
+    // The workspace, which did ask, simply has no candidate to serve.
+    expect(
+      (
+        await readMetaDecisionsWorkspaceReadModel({
+          businessId: "biz_1",
+          providerAccountId: "act_1",
+          generatedAt: "2026-07-13T12:00:00.000Z",
+        })
+      ).source,
+    ).toMatchObject({
+      authority: "legacy_creative",
+      fallbackReason: "native_latest_job_failed",
+    });
+
+    // A duplicated LATEST receipt is a defect in the authoritative answer
+    // itself, and still stops every caller.
+    vi.mocked(db.getDb).mockReturnValue({
+      query: workspaceReadQuery({
+        generationRows: [
+          failedLatestNativeJob(),
+          failedLatestNativeJob({
+            job_run_id: "20000000-0000-4000-8000-000000000903",
+          }),
+        ],
+        nativeRows: rows,
+      }),
+    } as never);
+    await expect(
+      readValidatedMetaNativeDecisionGenerationBundle({
+        businessId: "biz_1",
+        providerAccountId: "act_1",
+      }),
+    ).resolves.toMatchObject({
+      status: "unavailable",
+      unavailableReason: "native_account_receipt_cardinality_invalid",
+    });
+  });
+
+  it("keeps the canonical inventory readers failing closed on a failed latest job", async () => {
+    const rows = [nativeSnapshot("120000000000000907")];
+    const query = workspaceReadQuery({
+      generationRows: [
+        failedLatestNativeJob(),
+        nativeGenerationForRows(rows, { selection: "last_success" }),
+      ],
+      nativeRows: rows,
+    });
+    vi.mocked(db.getDb).mockReturnValue({ query } as never);
+
+    // Creative Briefing and the engine-v3 evidence route serve this inventory
+    // directly, with no envelope that could carry the degraded marker. They
+    // must keep refusing rather than inherit the workspace's fallback.
+    const inventory = await readMetaNativeCanonicalDecisionInventory({
+      businessId: "biz_1",
+      providerAccountId: "act_1",
+    });
+    const bundle = await readValidatedMetaNativeDecisionGenerationBundle({
+      businessId: "biz_1",
+      providerAccountId: "act_1",
+    });
+
+    expect(inventory).toMatchObject({
+      status: "unavailable",
+      unavailableReason: "native_latest_job_failed",
+    });
+    expect(bundle).toMatchObject({
+      status: "unavailable",
+      unavailableReason: "native_latest_job_failed",
+    });
+  });
+
+  /*
+   * THE RETAINED GENERATION IS SELECTED BY THIS ACCOUNT'S RECEIPT, IN SQL.
+   *
+   * The candidate CTE used to rank successes business-globally and take one,
+   * leaving the account receipt to be checked afterwards in TypeScript. On
+   * production that is not an edge case: read read-only against prod on
+   * 2026-09-07, of the 283 successful runs carrying a receipt for
+   * act_805150454596350 (Grandmix) in the previous 30 days, 275 carry an
+   * INCOMPLETE receipt for it (expected_ad_count 0 against 2,529 hydrated rows,
+   * authoritative_for_prune false) and 8 are complete -- so the business-global
+   * pick landed on an unusable receipt roughly 97% of the time and the whole
+   * fallback went dark with a complete generation sitting right behind it.
+   * 979a04f6/act_904404985140555 has 1,018 successes and not one complete
+   * receipt for it, which is a fallback that must never be offered at all.
+   *
+   * The predicate has to be in SQL because only SQL sees the runs that did not
+   * win; this asserts WHICH selection each predicate belongs to, because the
+   * two requirements are opposite and live in one string.
+   */
+  it("selects the retained generation by this account's own complete receipt", () => {
+    const candidate = cteBody(
+      READ_NATIVE_DECISION_GENERATION_QUERY,
+      "last_success_candidates",
+    );
+    const latest = cteBody(
+      READ_NATIVE_DECISION_GENERATION_QUERY,
+      "latest_effective_terminal_job",
+    );
+
+    // The candidate is scoped to a receipt for THIS account ($2) that is
+    // complete on every field the shared receipt test reads.
+    expect(candidate).toContain("receipt->>'provider_account_id' = $2");
+    expect(candidate).toContain(
+      "COALESCE(receipt->>'provider_account_ref_id', '') <> ''",
+    );
+    expect(candidate).toContain(
+      "receipt->>'hydrated_ad_count' = receipt->>'expected_ad_count'",
+    );
+    expect(candidate).toContain(
+      "receipt->>'hydrated_manifest_hash'\n                = receipt->>'expected_manifest_hash'",
+    );
+    expect(candidate).toContain("receipt->>'authoritative_for_prune' = 'true'");
+    // …in this engine epoch, inside the age ceiling, newest first.
+    expect(candidate).toContain("candidate.engine_version = $6");
+    expect(candidate).toContain("candidate.as_of_date >= $7::date - $8::int");
+    expect(candidate).toContain("ORDER BY candidate.as_of_date DESC");
+
+    // The AUTHORITATIVE selection stays business-global and cross-epoch: it is
+    // the newest terminal run whatever its epoch or receipt, so a broken latest
+    // run is REPORTED rather than skipped over in SQL. Narrowing this CTE the
+    // same way would hide the fault the operator has to fix.
+    expect(latest).not.toContain("receipt");
+    expect(latest).not.toContain("engine_version");
+    expect(latest).not.toContain("$6");
+
+    // Candidate order is part of the answer, so the outer join must not decide
+    // it. @see lastSuccessfulGenerationDegradation
+    expect(READ_NATIVE_DECISION_GENERATION_QUERY).toContain(
+      "ORDER BY job.selection, job.as_of_date DESC, job.started_at DESC, job.id DESC",
+    );
+    // The business-global CTE this replaced is gone, not shadowed.
+    expect(READ_NATIVE_DECISION_GENERATION_QUERY).not.toContain(
+      "last_successful_terminal_job",
+    );
+  });
+
+  /*
+   * A DEFECTIVE NEWEST CANDIDATE DOES NOT CONSUME THE SLOT.
+   *
+   * Two arms, both of which the query can really return. A run that claimed
+   * this account TWICE arrives as two rows for one job_run_id and is ambiguous;
+   * a run whose receipt for this account is incomplete is filtered in SQL and
+   * refused again by the shared receipt test, which is the defence-in-depth
+   * half. Either way the walk must move to the next candidate rather than treat
+   * the fallback as spent -- a later run's data fault says nothing about an
+   * earlier complete generation.
+   */
+  it("walks past a defective newest candidate to the newest provable one", async () => {
+    const retained = [nativeSnapshot("120000000000000920")];
+    const newerBroken = (
+      overrides: Partial<MetaNativeDecisionGenerationSourceRow>,
+    ) =>
+      nativeGenerationForRows(retained, {
+        selection: "last_success",
+        job_run_id: "20000000-0000-4000-8000-000000000921",
+        as_of_date: "2026-07-12",
+        ...overrides,
+      });
+    const provable = nativeGenerationForRows(retained, {
+      selection: "last_success",
+    });
+    const readWith = async (
+      generationRows: MetaNativeDecisionGenerationSourceRow[],
+    ) => {
+      vi.mocked(db.getDb).mockReturnValue({
+        query: workspaceReadQuery({ generationRows, nativeRows: retained }),
+      } as never);
+      return readMetaDecisionsWorkspaceReadModel({
+        businessId: "biz_1",
+        providerAccountId: "act_1",
+        generatedAt: "2026-07-13T12:00:00.000Z",
+      });
+    };
+
+    const duplicated = newerBroken({});
+    const afterAmbiguous = await readWith([
+      failedLatestNativeJob(),
+      duplicated,
+      { ...duplicated },
+      provable,
+    ]);
+    // Production's exact incomplete shape: 0 expected against every row
+    // hydrated, not authoritative for prune.
+    const afterIncomplete = await readWith([
+      failedLatestNativeJob(),
+      newerBroken({ expected_ad_count: 0, authoritative_for_prune: false }),
+      provable,
+    ]);
+
+    for (const model of [afterAmbiguous, afterIncomplete]) {
+      expect(model.source).toMatchObject({
+        status: "unavailable",
+        authority: "native_ad",
+        fallbackReason:
+          "native_latest_job_failed_serving_last_successful_generation",
+        // Served from the PROVABLE candidate, never from the defective one.
+        generation: { jobRunId: provable.job_run_id },
+      });
+      expect(model.source.degraded?.servedGeneration.jobRunId).toBe(
+        provable.job_run_id,
+      );
+      expect(model.source.degraded?.servedGeneration.jobRunId).not.toBe(
+        "20000000-0000-4000-8000-000000000921",
+      );
+    }
+
+    // The guard against over-correcting: walking past a defect must not become
+    // walking past the ABSENCE of a provable candidate. With the defective row
+    // alone there is nothing to serve and the true fault is reported.
+    const noneProvable = await readWith([
+      failedLatestNativeJob(),
+      duplicated,
+      { ...duplicated },
+    ]);
+    expect(noneProvable.source).toMatchObject({
+      authority: "legacy_creative",
+      fallbackReason: "native_latest_job_failed",
+    });
+    expect(noneProvable.source.degraded).toBeUndefined();
+  });
+
+  /*
+   * EVERY FIELD OF THE RECEIPT TEST STILL KILLS THE FALLBACK ON ITS OWN.
+   *
+   * The candidate now clears an account/epoch/completeness predicate in SQL
+   * before TypeScript sees it. That is a narrowing, and a narrowing is only
+   * safe if the shared receipt test still refuses each defect by itself: a
+   * retained generation must never clear a bar the authoritative path would not.
+   */
+  it.each([
+    ["a foreign account id", { provider_account_id: "act_other" }],
+    ["a missing account ref", { provider_account_ref_id: null }],
+    ["an unparsable expected count", { expected_ad_count: "many" }],
+    ["a hydration shortfall", { hydrated_ad_count: 0 }],
+    ["a non-sha expected hash", { expected_manifest_hash: "nope" }],
+    ["a manifest hash mismatch", { hydrated_manifest_hash: "c".repeat(64) }],
+    ["a non-authoritative receipt", { authoritative_for_prune: false }],
+  ] as const)(
+    "refuses a retained generation with %s",
+    async (_kind, overrides) => {
+      const rows = [nativeSnapshot("120000000000000922")];
+      vi.mocked(db.getDb).mockReturnValue({
+        query: workspaceReadQuery({
+          generationRows: [
+            failedLatestNativeJob(),
+            nativeGenerationForRows(rows, {
+              selection: "last_success",
+              ...overrides,
+            }),
+          ],
+          nativeRows: rows,
+        }),
+      } as never);
+
+      const model = await readMetaDecisionsWorkspaceReadModel({
+        businessId: "biz_1",
+        providerAccountId: "act_1",
+        generatedAt: "2026-07-13T12:00:00.000Z",
+      });
+
+      expect(model.source).toMatchObject({
+        authority: "legacy_creative",
+        fallbackReason: "native_latest_job_failed",
+      });
+      expect(model.source.degraded).toBeUndefined();
+    },
+  );
+
+  /*
+   * BOTH IDENTITIES REACH THE PUBLIC CONTRACT, TOGETHER.
+   *
+   * `source.fallbackReason` says a degraded window is open and nothing more.
+   * Naming the failed run -- "showing 2026-07-12's decisions; the 2026-07-13
+   * run failed" -- needed the failed run's id, status and day, and until
+   * `source.degraded` existed they reached no consumer at all. The two halves
+   * travel in one block so a reader cannot pair a served generation with a
+   * failed run it never sat behind.
+   */
+  it("serves the retained generation and the failed run as one public block", async () => {
+    const retained = [nativeSnapshot("120000000000000923")];
+    const failed = failedLatestNativeJob({
+      job_run_id: "20000000-0000-4000-8000-000000000924",
+      as_of_date: "2026-07-13",
+    });
+    vi.mocked(db.getDb).mockReturnValue({
+      query: workspaceReadQuery({
+        generationRows: [
+          failed,
+          nativeGenerationForRows(retained, { selection: "last_success" }),
+        ],
+        nativeRows: retained,
+      }),
+    } as never);
+
+    const model = await readMetaDecisionsWorkspaceReadModel({
+      businessId: "biz_1",
+      providerAccountId: "act_1",
+      generatedAt: "2026-07-13T12:00:00.000Z",
+    });
+
+    expect(model.source.degraded).toEqual({
+      reason: "native_latest_job_failed_serving_last_successful_generation",
+      servedGeneration: {
+        jobRunId: retained[0]!.job_run_id,
+        asOfDate: "2026-07-12",
+      },
+      latestTerminalRun: {
+        jobRunId: "20000000-0000-4000-8000-000000000924",
+        status: "failed",
+        asOfDate: "2026-07-13",
+      },
+    });
+    // The block agrees with the fields that already carried the served half, so
+    // adding it created no second, disagreeing answer.
+    expect(model.source.degraded?.servedGeneration.jobRunId).toBe(
+      model.source.generation?.jobRunId,
+    );
+    expect(model.source.degraded?.servedGeneration.asOfDate).toBe(
+      model.source.snapshotAsOf,
+    );
+    // …and it names a DIFFERENT run from the one being served, which is the
+    // whole point of carrying both.
+    expect(model.source.degraded?.latestTerminalRun.jobRunId).not.toBe(
+      model.source.degraded?.servedGeneration.jobRunId,
+    );
+
+    // ADDITIVE: an undegraded envelope carries no such block, so a payload
+    // serialized before this block existed reads exactly as it did -- absent
+    // means "not degraded", which is what every stored payload already meant.
+    const healthy = buildNativeMetaDecisionsWorkspaceReadModel({
+      businessId: "biz_1",
+      providerAccountId: "act_1",
+      generation: nativeBuildGeneration(retained),
+      snapshotRows: retained,
+      campaignContextRows: [context()],
+      generatedAt: "2026-07-12T12:00:00.000Z",
+    });
+    expect(healthy.source.degraded).toBeUndefined();
+    expect("degraded" in healthy.source).toBe(false);
+    expect(
+      JSON.parse(JSON.stringify(healthy)).source.fallbackReason,
+    ).toBeNull();
+  });
+
+  /*
+   * AN ANCIENT RETAINED GENERATION IS NOT SOFTENED FOR ANYONE.
+   *
+   * Past NATIVE_DECISION_LAST_SUCCESS_MAX_AGE_DAYS the workspace returns to the
+   * pre-existing behaviour, and the readers that never opted in must still hear
+   * the AUTHORITATIVE fault. A ceiling that renamed `native_latest_job_failed`
+   * into an age code for Creative Briefing and engine-v3 would have moved the
+   * fallback's failure into paths that never asked for the fallback.
+   */
+  it("keeps every reader on the authoritative fault past the age ceiling", async () => {
+    const rows = [nativeSnapshot("120000000000000925")];
+    vi.mocked(db.getDb).mockReturnValue({
+      query: workspaceReadQuery({
+        generationRows: [
+          failedLatestNativeJob({ as_of_date: "2026-07-30" }),
+          nativeGenerationForRows(rows, { selection: "last_success" }),
+        ],
+        nativeRows: rows,
+      }),
+    } as never);
+    const ancient = { generatedAt: "2026-07-30T12:00:00.000Z" };
+
+    // Eighteen days past the retained as-of day, well beyond the seven-day
+    // ceiling.
+    const model = await readMetaDecisionsWorkspaceReadModel({
+      businessId: "biz_1",
+      providerAccountId: "act_1",
+      ...ancient,
+    });
+    const inventory = await readMetaNativeCanonicalDecisionInventory({
+      businessId: "biz_1",
+      providerAccountId: "act_1",
+      ...ancient,
+    });
+    const bundle = await readValidatedMetaNativeDecisionGenerationBundle({
+      businessId: "biz_1",
+      providerAccountId: "act_1",
+      ...ancient,
+    });
+
+    expect(model.source).toMatchObject({
+      authority: "legacy_creative",
+      fallbackReason: "native_latest_job_failed",
+    });
+    expect(model.source.degraded).toBeUndefined();
+    expect(inventory).toMatchObject({
+      status: "unavailable",
+      unavailableReason: "native_latest_job_failed",
+    });
+    expect(bundle).toMatchObject({
+      status: "unavailable",
+      unavailableReason: "native_latest_job_failed",
+    });
+  });
+
+  /*
+   * ADS DELETED SINCE THE RETAINED GENERATION.
+   *
+   * A retained generation is days old, so some of the Ads it decided may no
+   * longer exist. The generation still has to prove itself against the manifest
+   * it was WRITTEN with, and it can, because reconciliation RELABELS rows and
+   * never drops them: the departed Ad keeps its identity, loses its status to
+   * NOT_ACTIVE and lands in the Archive lane with its own explanation, so the
+   * ad-id set the manifest hash was taken over is unchanged. Dropping it
+   * instead would break the very proof that lets the generation be served, and
+   * the whole degraded window would collapse to
+   * native_generation_lineage_or_manifest_invalid -- naming a corrupt
+   * generation for what is really an ordinary deletion.
+   */
+  it("keeps a degraded envelope provable when inventory has left since the retained generation", async () => {
+    const retained = [
+      nativeSnapshot("120000000000000926"),
+      nativeSnapshot("120000000000000927"),
+    ];
+    vi.mocked(db.getDb).mockReturnValue({
+      query: workspaceReadQuery({
+        generationRows: [
+          failedLatestNativeJob(),
+          nativeGenerationForRows(retained, { selection: "last_success" }),
+        ],
+        nativeRows: retained,
+      }),
+    } as never);
+
+    const model = await readMetaDecisionsWorkspaceReadModel({
+      businessId: "biz_1",
+      providerAccountId: "act_1",
+      generatedAt: "2026-07-13T12:00:00.000Z",
+      currentAdSourceComplete: true,
+      // The second Ad of the retained generation no longer exists.
+      currentAds: [
+        {
+          providerAccountId: "act_1",
+          adId: retained[0]!.ad_id,
+          adName: retained[0]!.ad_name,
+          campaignId: "cmp_1",
+          adsetId: "adset_1",
+          creativeId: retained[0]!.creative_id,
+          configuredStatus: "ACTIVE",
+          effectiveStatus: "ACTIVE",
+          providerUpdatedAt: null,
+          fetchedAt: "2026-07-13T09:00:00.000Z",
+        },
+      ],
+    });
+
+    // The generation is still the retained one and still proves itself: a
+    // departed Ad is not a corrupt manifest.
+    expect(model.source).toMatchObject({
+      status: "unavailable",
+      authority: "native_ad",
+      fallbackReason:
+        "native_latest_job_failed_serving_last_successful_generation",
+    });
+    expect(model.source.fallbackReason).not.toBe(
+      "native_generation_lineage_or_manifest_invalid",
+    );
+    // The mechanism, named: both decided Ads still travel, so the manifest the
+    // generation was written with is still the manifest being proven.
+    expect(model.source.generation?.expectedAdCount).toBe(2);
+    expect(
+      [
+        ...(model.queue.adCandidates?.items ?? []),
+        ...(model.queue.inactiveAssets?.items ?? []),
+      ].map((item) => item.parentChain.ad?.id),
+    ).toEqual(retained.map((row) => row.ad_id));
+    const archived = model.queue.inactiveAssets?.items ?? [];
+    expect(archived.map((item) => item.parentChain.ad?.id)).toEqual([
+      retained[1]!.ad_id,
+    ]);
+    // The Archive row keeps its OWN reason; the degraded code does not take it.
+    expect(archived[0]?.sourceAuthority).toMatchObject({
+      reviewOnlyReason: "current_hierarchy_is_not_active",
+      actionEligible: false,
+      authorizedAction: null,
+      executionReadiness: "decision_not_authorized",
+    });
+    // Every surviving row is review-only for the degraded reason.
+    for (const item of model.queue.adCandidates?.items ?? []) {
+      expect(item.sourceAuthority).toMatchObject({
+        actionEligible: false,
+        authorizedAction: null,
+        executionReadiness: "decision_not_authorized",
+      });
+    }
+  });
+
+  /*
+   * A STALE FALLBACK CLOSES EXECUTION *AND* CTA AUTHORITY, END TO END.
+   *
+   * The row-level strip and the pipeline-health refusal are each pinned above.
+   * Neither one is what the operator sees: the Decision OS payload decides the
+   * CTA, and it does so from `sourceAuthority.actionEligible` and
+   * `executionReadiness` (`adAction`, decisions-os-presentation.ts). This runs
+   * the real serve-time governance hydrator, the real health gate and the real
+   * presentation over one degraded envelope, and the control arm proves the
+   * same fixture would otherwise hand the operator an executable Cut.
+   */
+  it("closes execution and CTA authority end to end while the source is degraded", () => {
+    const rows = [nativeSnapshot("120000000000000928")];
+    const build = (degraded: boolean) =>
+      applyMetaExecutionGovernanceToReadModel({
+        model: buildNativeMetaDecisionsWorkspaceReadModel({
+          businessId: "biz_1",
+          providerAccountId: "act_1",
+          generation: nativeBuildGeneration(rows),
+          snapshotRows: rows,
+          campaignContextRows: [context()],
+          sourceDegradation: degraded
+            ? {
+                reason:
+                  "native_latest_job_failed_serving_last_successful_generation",
+                generation: nativeBuildGeneration(rows),
+                latestTerminalJobRunId: "20000000-0000-4000-8000-000000000929",
+                latestTerminalJobStatus: "failed",
+                latestTerminalAsOfDate: "2026-07-12",
+              }
+            : null,
+          generatedAt: "2026-07-12T12:00:00.000Z",
+        }),
+        governance: {
+          verified: true,
+          controlsConfigured: true,
+          writeBlocked: false,
+          blockReason: null,
+        },
+        pipeline: { verified: true, executionReady: true },
+        now: new Date("2026-07-12T12:00:00.000Z"),
+      });
+    const present = (model: ReturnType<typeof build>) =>
+      buildMetaOsDecisionsPresentation({
+        actionNow: [],
+        watching: [],
+        nonSales: [],
+        decisionReadModel: model,
+        currency: "USD",
+        pipelineHealth: buildMetaDecisionPipelineHealth({
+          operational: healthyOperationalPipeline(),
+          decisionReadModel: model,
+          now: new Date("2026-07-12T12:00:00.000Z"),
+        }),
+        generatedAt: "2026-07-12T12:00:00.000Z",
+      });
+
+    // CONTROL: the same rows, the same instant, the same governance. The CTA is
+    // a real provider write, so everything the degraded arm refuses below is
+    // refused by the degradation and not by the fixture.
+    const healthy = present(build(false));
+    expect(healthy.source.health).toBe("healthy");
+    expect(healthy.ads.items).not.toHaveLength(0);
+    for (const item of healthy.ads.items) {
+      expect(item.action).toMatchObject({
+        code: "cut",
+        intent: "execute",
+        providerMutation: "pause",
+      });
+    }
+
+    const degraded = present(build(true));
+    expect(degraded.source).toMatchObject({
+      health: "degraded",
+      fallbackReason:
+        "native_latest_job_failed_serving_last_successful_generation",
+    });
+    expect(degraded.ads.items).toHaveLength(healthy.ads.items.length);
+    for (const item of degraded.ads.items) {
+      // The verdict survives -- freshness may block execution but must not
+      // erase a severe stop-loss verdict …
+      expect(item.action.code).toBe("cut");
+      // … and no CTA on it can reach the provider.
+      expect(item.action.intent).toBe("review");
+      expect(item.action.providerMutation).toBeNull();
+    }
+  });
+
+  /*
+   * WHAT THE ATOMIC SQL SWITCH DOES AND DOES NOT BUY.
+   *
+   * `READ_NATIVE_DECISION_GENERATION_QUERY` decides "latest, or retained" in
+   * one statement, so no single read mixes the two. That is a property of the
+   * READ. The route caches the decision read for 60s with a 240s
+   * stale-while-revalidate under `shouldCache: result.ok && result.model.status
+   * === "available"` -- and a degraded envelope IS `status: "available"`,
+   * because the rows are real; it is `source.status` that says unavailable. So
+   * the degraded envelope is cached like any other and the SERVED SURFACE can
+   * lag the switch by that window in both directions.
+   *
+   * The claim this pins is therefore not "the switch is end-to-end atomic". It
+   * is that a cached degraded envelope is SELF-DESCRIBING and INERT: it names
+   * both runs, it authorizes nothing, and it cannot be mistaken for the current
+   * generation by any consumer that reads the contract rather than the clock.
+   */
+  it("caches a degraded envelope as an available model that still authorizes nothing", async () => {
+    const routeSource = readFileSync(
+      "app/api/meta/decisions-workspace/route.ts",
+      "utf8",
+    );
+    expect(routeSource).toContain(
+      "shouldCache: (result) =>\n                result.ok && result.model.status === \"available\"",
+    );
+    expect(routeSource).toContain("ttlMs: 60_000");
+    expect(routeSource).toContain("staleWhileRevalidateMs: 240_000");
+
+    const rows = [nativeSnapshot("120000000000000930")];
+    vi.mocked(db.getDb).mockReturnValue({
+      query: workspaceReadQuery({
+        generationRows: [
+          failedLatestNativeJob(),
+          nativeGenerationForRows(rows, { selection: "last_success" }),
+        ],
+        nativeRows: rows,
+      }),
+    } as never);
+    const model = await readMetaDecisionsWorkspaceReadModel({
+      businessId: "biz_1",
+      providerAccountId: "act_1",
+      generatedAt: "2026-07-13T12:00:00.000Z",
+    });
+
+    // This is the byte the route's shouldCache reads: a degraded envelope is
+    // cacheable, and saying otherwise here would be wishing the lag away.
+    expect(model.status).toBe("available");
+    expect(model.source.status).toBe("unavailable");
+
+    // A cache entry is a serialized copy, so everything the lag can serve must
+    // survive JSON.
+    const cached = JSON.parse(
+      JSON.stringify(model),
+    ) as typeof model;
+    // Named, not merely equal: `toEqual` over two absent blocks would pass by
+    // agreeing that neither exists, which is the state this exists to forbid.
+    expect(cached.source.degraded).toEqual({
+      reason: "native_latest_job_failed_serving_last_successful_generation",
+      servedGeneration: { jobRunId: rows[0]!.job_run_id, asOfDate: "2026-07-12" },
+      latestTerminalRun: {
+        jobRunId: "20000000-0000-4000-8000-000000000902",
+        status: "failed",
+        asOfDate: "2026-07-13",
+      },
+    });
+    expect(cached.source.degraded).toEqual(model.source.degraded);
+    expect(cached.source.fallbackReason).toBe(
+      "native_latest_job_failed_serving_last_successful_generation",
+    );
+    // Re-run the health gate over the CACHED copy at a later instant, as a
+    // request served from the cache would: still no execution.
+    const health = buildMetaDecisionPipelineHealth({
+      operational: healthyOperationalPipeline(),
+      decisionReadModel: cached,
+      now: new Date("2026-07-13T12:04:00.000Z"),
+    });
+    expect(health.executionReady).toBe(false);
+    expect(health.blockers).toContain("decision_generation_missing");
+    for (const item of cached.queue.adCandidates?.items ?? []) {
+      expect(item.sourceAuthority).toMatchObject({
+        actionEligible: false,
+        authorizedAction: null,
+        executionReadiness: "decision_not_authorized",
+      });
+    }
+  });
+
   it("fails closed when the newest successful generation belongs to another engine epoch", async () => {
     const row = nativeSnapshot("120000000000000023");
     const query = workspaceReadQuery({
@@ -2372,13 +3735,35 @@ describe("Meta Decisions workspace canonical read model", () => {
       authority: "legacy_creative",
       fallbackReason: "native_latest_job_engine_mismatch",
     });
-    expect(String(generationCall?.[0])).not.toContain("run.engine_version =");
+    /*
+     * RE-PINNED: the epoch filter is now in the query, and the CTE it is NOT in
+     * is the point.
+     *
+     * `latest_effective_terminal_job` still ranks across epochs, which is what
+     * makes the assertion above possible: a foreign-epoch latest run is
+     * REPORTED as `native_latest_job_engine_mismatch` rather than skipped over
+     * in SQL and silently replaced by an older same-epoch run. The last-success
+     * CANDIDATE CTE does filter by epoch, because a foreign-epoch candidate can
+     * never be served and must not occupy a candidate slot. Both halves are
+     * asserted, so over-correcting in either direction fails here.
+     */
+    const sql = String(generationCall?.[0]);
+    expect(cteBody(sql, "latest_effective_terminal_job")).not.toContain(
+      "engine_version",
+    );
+    expect(cteBody(sql, "last_success_candidates")).toContain(
+      "candidate.engine_version = $6",
+    );
     expect(generationCall?.[1]).toEqual([
       "biz_1",
       "act_1",
       expect.any(String),
       null,
       expect.any(Number),
+      NATIVE_AD_ENGINE_VERSION,
+      // The serving day the age ceiling is measured against, and the ceiling.
+      expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+      NATIVE_DECISION_LAST_SUCCESS_MAX_AGE_DAYS,
     ]);
     expect(
       query.mock.calls.some(([sql]) =>
@@ -2481,6 +3866,12 @@ describe("Meta Decisions workspace canonical read model", () => {
       "engine_v3_native_ad_decisions_shadow_job",
       "2026-07-10",
       120_000,
+      NATIVE_AD_ENGINE_VERSION,
+      // The as-of BOUND ($4) and the last-success age ceiling's serving day
+      // ($7) are different clocks on purpose: $4 bounds which runs may be
+      // considered at all, $7 measures how old the retained one is right now.
+      expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+      NATIVE_DECISION_LAST_SUCCESS_MAX_AGE_DAYS,
     ]);
     expect(String(legacyCall?.[0])).toContain(
       "snapshot.as_of_date <= COALESCE(\n          $3::date",
@@ -2570,6 +3961,7 @@ describe("Meta Decisions workspace canonical read model", () => {
       if (sql.includes("WITH candidate_runs AS")) {
         return [
           {
+            selection: "latest",
             job_status: "success",
             job_run_id: row.job_run_id,
             as_of_date: row.as_of_date,
@@ -3166,5 +4558,264 @@ describe("D081 C4 — exact kind_source at the real reader boundary", () => {
     expect(uses).toHaveLength(2);
     expect(source).not.toMatch(/source:\s*\n?\s*mode === "automatic"/);
     expect(source).not.toContain('text(row.kind_source) === "system_inferred"');
+  });
+});
+
+/*
+ * THE ENGINE'S PREDICATE BLOCKERS MUST REACH THE SERVED ROW.
+ *
+ * `projectMetaDecisionSemantics` grew three held-verdict resolutions that name
+ * WHICH readiness floor failed, all keyed on the engine's
+ * `DecisionOutput.blockers`. The only production caller of that projector —
+ * `projectCanonicalMetaDecisionPresentation` — did not pass the field, and
+ * neither snapshot row type surfaced it, so on every served row the argument
+ * was `[]` and all three were dead code reachable only from their own unit
+ * tests: a false green. The blockers were persisted the whole time, in the
+ * evaluation's `decision_output_json`.
+ *
+ * These cases drive the REAL read model from a source row, so they fail if any
+ * link of persisted row -> `toDecisionOutput` -> presentation -> projector is
+ * cut. Asserting the projector directly would not: it is the seam that was
+ * broken, not the projector.
+ */
+describe("served held-verdict resolutions carry the engine's predicate blockers", () => {
+  const heldScaleRow = (
+    adId: string,
+    overrides: Partial<MetaNativeDecisionSnapshotSourceRow>,
+  ) =>
+    nativeSnapshot(adId, {
+      // A held verdict publishes the soft label and withholds the hard one.
+      label: "keep",
+      raw_label: "keep",
+      pre_authority_label: "scale",
+      blocked_action_type: "scale",
+      authorized_action: null,
+      badges: [
+        {
+          type: "scale_readiness_blocked",
+          label: "Scale readiness blocked",
+          severity: "info",
+        },
+        {
+          type: "scale_calibration_thin",
+          label: "Scale calibration thin",
+          severity: "info",
+        },
+      ],
+      ...overrides,
+    });
+
+  it("names the thin calibration sample instead of the generic hard-action evidence copy", () => {
+    /*
+      GC-051 shape from `scaleBenchmarkBlockers` in
+      lib/creative-decision-engine/gates/ratio-zones.ts: the mature-ad sample is
+      below its floor, and BOTH observed and threshold are numeric. The badge
+      cannot carry this — `scaleReadinessBadges` stamps `scale_calibration_thin`
+      for the missing-benchmark case too, which is why the row below carries the
+      same badges as the next test and only the numbers differ.
+    */
+    const model = nativeModel([
+      heldScaleRow("120000000000000911", {
+        authority_blocker: "profile_hard_action_ineligible",
+        predicate_blockers: [
+          {
+            predicate: "scale_account_benchmark_ready",
+            observed: 19,
+            threshold: 30,
+            status: "missing",
+            severity: "warning",
+            reason:
+              "account scale calibration thin (19 mature creatives; need 30+)",
+          },
+        ],
+      }),
+    ]);
+
+    const item = model.queue.adCandidates?.items[0];
+    expect(item?.classification.heldAction).toBe("scale");
+    expect(item?.classification.resolution).toMatchObject({
+      code: "complete_hard_action_evidence",
+      owner: "system",
+      label: "Scale Held — Calibration Sample Thin",
+    });
+    // The generic sentence this beats, which the served row used to get.
+    expect(item?.classification.resolution?.label).not.toBe(
+      "Complete Hard-Action Evidence",
+    );
+    expect(item?.classification.resolution?.nextStep).toContain(
+      "only the account winner-calibration sample is below its floor",
+    );
+  });
+
+  it("names the missing winner benchmark instead of asking integration to re-sync a current feed", () => {
+    /*
+      GC-052 shape: the SAME predicate name, with `observed: null` because the
+      account has no winner purchase P50 at all. The engine holds it under
+      `native_metrics_unavailable`, whose generic reading is "Refresh Decision
+      Data" — owner `integration`, "restore a fresh, complete evidence window"
+      — pointed at a feed that is already current.
+    */
+    const model = nativeModel([
+      heldScaleRow("120000000000000912", {
+        authority_blocker: "native_metrics_unavailable",
+        predicate_blockers: [
+          {
+            predicate: "scale_account_benchmark_ready",
+            observed: null,
+            threshold: "positive winner purchase P50",
+            status: "missing",
+            severity: "warning",
+            reason: "winner purchase benchmark unavailable",
+          },
+        ],
+      }),
+    ]);
+
+    const item = model.queue.adCandidates?.items[0];
+    expect(item?.classification.heldAction).toBe("scale");
+    expect(item?.classification.resolution).toMatchObject({
+      code: "complete_hard_action_evidence",
+      category: "system",
+      owner: "system",
+      label: "Scale Held — Winner Benchmark Missing",
+    });
+    expect(item?.classification.resolution?.code).not.toBe(
+      "refresh_decision_data",
+    );
+    expect(item?.classification.resolution?.owner).not.toBe("integration");
+  });
+
+  it("serves a Test-cohort held Refresh under its fatigue-evidence gap, not as a data repair", () => {
+    /*
+      THE COHORT REWRITE, END TO END.
+
+      `finalizeDecision` in lib/creative-decision-engine/gates/types.ts rewrites
+      a held Refresh's `blockedActionType` to "cut" on a Test campaign, so the
+      served row's held action is "cut" while its blocker is still
+      `refresh_ad_lifecycle_evidence`. The resolution branch used to require
+      `heldAction === "refresh"`, so exactly this row — the one the branch was
+      written for — fell through to `refresh_decision_data`: owner
+      `integration`, told to restore a fresh evidence window before applying a
+      Cut, while nothing about the window is stale.
+    */
+    const model = nativeModel(
+      [
+        nativeSnapshot("120000000000000913", {
+          label: "keep",
+          raw_label: "keep",
+          pre_authority_label: "cut",
+          label_transform: "test_cohort_refresh_to_cut",
+          authority_blocker: "native_metrics_unavailable",
+          blocked_action_type: "cut",
+          authorized_action: null,
+          badges: [
+            {
+              type: "lifecycle_unavailable",
+              label: "Ad-level fatigue evidence unavailable",
+              severity: "info",
+            },
+          ],
+          predicate_blockers: [
+            {
+              predicate: "refresh_ad_lifecycle_evidence",
+              observed: "unavailable",
+              threshold: "fatigued",
+              status: "missing",
+              severity: "warning",
+              reason:
+                "no ad-level fatigue verdict exists for this entity, so creative wear cannot be confirmed",
+            },
+          ],
+        }),
+      ],
+      { campaignContextRows: [context({ kind: "test" })] },
+    );
+
+    const item = model.queue.adCandidates?.items[0];
+    // The cohort rewrite is visible: the held action really is a Cut.
+    expect(item?.classification.heldAction).toBe("cut");
+    expect(item?.classification.resolution).toMatchObject({
+      code: "complete_hard_action_evidence",
+      category: "system",
+      owner: "system",
+      // Named from the held action, so it matches the chip the operator sees.
+      label: "Cut Held — Ad Fatigue Evidence Missing",
+    });
+    expect(item?.classification.resolution?.nextStep).toContain(
+      "no ad-level fatigue verdict exists to confirm creative wear",
+    );
+    // The wrong answer this replaces, in full.
+    expect(item?.classification.resolution?.code).not.toBe(
+      "refresh_decision_data",
+    );
+    expect(item?.classification.resolution?.owner).not.toBe("integration");
+    expect(item?.classification.resolution?.nextStep).not.toContain(
+      "Restore a fresh, complete evidence window",
+    );
+  });
+
+  it("falls back to the generic held-verdict copy when the row carries no blockers", () => {
+    // Absence must stay honest. A snapshot whose evaluation row is missing (or
+    // whose generation predates the blockers payload) gets the less specific
+    // sentence, never a fabricated floor.
+    const model = nativeModel([
+      heldScaleRow("120000000000000914", {
+        authority_blocker: "profile_hard_action_ineligible",
+        predicate_blockers: null,
+      }),
+    ]);
+
+    const item = model.queue.adCandidates?.items[0];
+    expect(item?.classification.resolution).toMatchObject({
+      code: "complete_hard_action_evidence",
+      label: "Complete Hard-Action Evidence",
+    });
+  });
+
+  it("projects the persisted blockers in both snapshot reads", async () => {
+    // The column is the whole seam: if a query stops selecting it, every case
+    // above still passes (they build source rows directly) while the served
+    // row silently loses its specific resolution again.
+    const rows = [nativeSnapshot("120000000000000911")];
+    const nativeQuery = workspaceReadQuery({
+      generationRows: [nativeGenerationForRows(rows)],
+      nativeRows: rows,
+    });
+    vi.mocked(db.getDb).mockReturnValue({ query: nativeQuery } as never);
+    await readMetaDecisionsWorkspaceReadModel({
+      businessId: "biz_1",
+      providerAccountId: "act_1",
+      adIds: rows.map((row) => row.ad_id),
+      generatedAt: "2026-07-13T12:00:00.000Z",
+    });
+
+    // No native generation at all, so the reader falls back to the legacy
+    // creative-grain query.
+    const legacyQuery = workspaceReadQuery({});
+    vi.mocked(db.getDb).mockReturnValue({ query: legacyQuery } as never);
+    await readMetaDecisionsWorkspaceReadModel({
+      businessId: "biz_1",
+      providerAccountId: "act_1",
+      generatedAt: "2026-07-13T12:00:00.000Z",
+    });
+
+    const nativeSql = String(
+      nativeQuery.mock.calls.find(
+        ([sql]) =>
+          String(sql).includes(
+            "FROM engine_v3_ad_decision_snapshots_daily snapshot",
+          ) && String(sql).includes("AS lineage_valid"),
+      )?.[0],
+    );
+    const legacySql = String(
+      legacyQuery.mock.calls.find(([sql]) =>
+        String(sql).includes("scoped_history"),
+      )?.[0],
+    );
+    expect(nativeSql).toContain(
+      "evaluation.decision_output_json -> 'blockers' AS predicate_blockers",
+    );
+    expect(legacySql).toContain("AS predicate_blockers");
+    expect(legacySql).toContain("FROM engine_v3_decision_evaluations evaluation");
   });
 });

@@ -27,6 +27,14 @@ vi.mock("@/lib/meta/adsets-source", () => ({
   getMetaAdSetsForRange: vi.fn(),
 }));
 
+vi.mock("@/lib/creative-decision-engine/campaign-context/source", async (
+  importOriginal,
+) => {
+  const actual = await importOriginal<
+    typeof import("@/lib/creative-decision-engine/campaign-context/source")
+  >();
+  return { ...actual, readCampaignContextMap: vi.fn(async () => new Map()) };
+});
 vi.mock("@/lib/meta/request-model-store", () => ({
   readPreviousDifferentMetaAdSetConfigHistoryDiffs: vi.fn(async () => new Map()),
   readPreviousDifferentMetaCampaignConfigHistoryDiffs: vi.fn(async () => new Map()),
@@ -39,6 +47,15 @@ const snapshot = await import("@/lib/meta/snapshot");
 const campaigns = await import("@/lib/meta/campaigns-source");
 const adsets = await import("@/lib/meta/adsets-source");
 const { GET } = await import("@/app/api/meta/lane-classify/route");
+const contextSource = await import(
+  "@/lib/creative-decision-engine/campaign-context/source"
+);
+const { CAMPAIGN_CONTEXT_RESOLVER_VERSION } = await import(
+  "@/lib/creative-decision-engine/campaign-context/resolver"
+);
+const { buildMetaOsDecisionsPresentation } = await import(
+  "@/lib/meta/decisions-os-presentation"
+);
 
 function mockSql(rows: Array<Record<string, unknown>> = []) {
   vi.mocked(db.getDb).mockReturnValue(
@@ -51,6 +68,253 @@ function mockSql(rows: Array<Record<string, unknown>> = []) {
     }) as never,
   );
 }
+
+/*
+  ── ROUND 6 AUDIT ITEM 6: THE CHAIN ENDS AT THE ROUTE ───────────────────────
+  `campaign-kind-runtime-chain.test.ts` proves a stale persisted `campaignKind`
+  is dropped by the snapshot read and cannot reach the presentation shape. What
+  it does NOT drive is THIS route, which is the second authority boundary:
+  `attachCampaignKindToRecommendation` used to read
+  `input.rec.campaignKind ?? campaignKindForRecommendation(...)`, so a kind the
+  snapshot payload carried won without the trusted role map being consulted at
+  all.
+
+  These cases drive the real exported GET. The snapshot payload carries a stale
+  kind, `readCampaignContextMap` answers with each refused context state in
+  turn, and the served row must carry no `campaignKind` and no structure-review
+  action label. The trusted control at the end returns it.
+*/
+describe("GET /api/meta/lane-classify — a stale campaignKind cannot survive the route", () => {
+  const CAMPAIGN = "cmp_1";
+
+  const contextRow = (over: Record<string, unknown> = {}) =>
+    new Map([
+      [
+        CAMPAIGN,
+        {
+          kind: "main",
+          contextTrust: "high",
+          confidenceClass: "high",
+          inferenceConfidenceClass: "high",
+          resolverAuthorityValidated: true,
+          source: "system_inferred",
+          resolverVersion: CAMPAIGN_CONTEXT_RESOLVER_VERSION,
+          provenance: {
+            mode: "automatic",
+            source: "system_inferred",
+            campaignId: CAMPAIGN,
+            kind: "main",
+            contextTrust: "high",
+          },
+          ...over,
+        },
+      ],
+    ]) as never;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.unstubAllGlobals();
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    vi.mocked(access.requireBusinessAccess).mockResolvedValue({
+      session: {} as never,
+      membership: { businessId: "biz_1" } as never,
+    });
+    vi.mocked(apiMeta.resolveMetaCredentials).mockResolvedValue(null);
+    mockSql([]);
+    vi.mocked(adsets.getMetaAdSetsForRange).mockResolvedValue({
+      status: "ok",
+      rows: [],
+      evidenceSource: "live",
+    } as never);
+    vi.mocked(campaigns.getMetaCampaignsForRange).mockResolvedValue({
+      status: "ok",
+      rows: [
+        {
+          id: CAMPAIGN,
+          name: "ASC Prospecting",
+          status: "ACTIVE",
+          spend: 800,
+          purchases: 9,
+          roas: 2.8,
+          cpa: 31,
+          optimizationGoal: "Purchase",
+          dailyBudget: 100,
+          lifetimeBudget: null,
+        },
+      ],
+      evidenceSource: "live",
+    } as never);
+  });
+
+  /**
+   * The row the route actually serves, plus the structure-inventory entry for
+   * the same campaign — both are authority-bearing and both are built from the
+   * role map, so a stale kind that survived either one would reach an operator.
+   */
+  const serve = async () => {
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/meta/lane-classify?businessId=biz_1&window=28d",
+      ),
+    );
+    expect(response.status).toBe(200);
+    const payload = (await response.json()) as {
+      actionNow?: Array<Record<string, unknown>>;
+      watching?: Array<Record<string, unknown>>;
+      structureInventory?: Array<Record<string, unknown>>;
+    };
+    const rec = [...(payload.actionNow ?? []), ...(payload.watching ?? [])].find(
+      (row) => row.campaignId === CAMPAIGN,
+    );
+    const inventory = (payload.structureInventory ?? []).find(
+      (row) => row.id === CAMPAIGN && row.level === "campaign",
+    );
+    return { rec, inventory };
+  };
+
+  /**
+   * The label an operator actually reads, produced by the same presentation
+   * builder the decisions workspace calls — fed with the ROUTE'S OWN output.
+   *
+   * This is what extends the chain past the snapshot proof: it is no longer a
+   * hand-built recommendation being presented, it is the object this GET
+   * serialized. A stale `mixed` that survived the route would render here as
+   * "Review Structure", telling an operator to restructure a campaign whose
+   * role the resolver refused to state.
+   */
+  const servedActionLabel = (rec: unknown): string | null => {
+    const served = buildMetaOsDecisionsPresentation({
+      actionNow: [rec],
+      watching: [],
+      nonSales: [],
+      decisionReadModel: {
+        source: { snapshotAsOf: null, engineVersion: null },
+        queue: { sections: {} },
+        structure: { entities: [] },
+      },
+      currency: "USD",
+      generatedAt: "2026-09-03T00:00:00.000Z",
+    } as never);
+    const node = served.structure?.groups?.[0]?.campaign ?? null;
+    return (node?.action?.label as string | undefined) ?? null;
+  };
+
+  const staleSnapshot = (staleKind: string) => {
+    vi.mocked(snapshot.readMetaDecisionSnapshotForRange).mockResolvedValue({
+      status: "ok",
+      businessId: "biz_1",
+      startDate: "2026-04-10",
+      endDate: "2026-05-07",
+      snapshotDate: "2026-05-06",
+      snapshotCreatedAt: "2026-05-06T03:10:00.000Z",
+      sourceModel: "snapshot_persistent",
+      summary: {
+        title: "Snapshot",
+        summary: "Snapshot",
+        primaryLens: "structure",
+        confidence: "high",
+        recommendationCount: 1,
+      },
+      recommendations: [
+        metaRec({
+          id: "rec_stale_kind",
+          campaignId: CAMPAIGN,
+          decisionState: "act",
+          /*
+            `scale_for_volume`, not the fixture's default
+            `rebuild_with_constraints`: the rebuild shape wins the action label
+            outright, which would make the label assertions below vacuous. On a
+            scale row the structure-review shape is genuinely reachable, so the
+            label is decided by `campaignKind` and nothing else.
+          */
+          type: "scale_for_volume",
+          lens: "volume",
+          // THE STALE VALUE, as a persisted payload carries it.
+          campaignKind: staleKind as never,
+        }),
+      ],
+    } as never);
+  };
+
+  /*
+    The five ways `isContextTrustedForAction` refuses, plus the absent row.
+    Each override targets the exact field the predicate reads — the route takes
+    `source` from `entry.provenance`, not from the entry itself, so overriding
+    the entry's own `source` would leave the entry trusted and the case would
+    prove nothing.
+  */
+  const REFUSED: Array<[string, Record<string, unknown> | null]> = [
+    ["no context row at all", null],
+    ["medium inference confidence", { inferenceConfidenceClass: "medium" }],
+    ["an unvalidated resolver identity", { resolverAuthorityValidated: false }],
+    [
+      "a resolver that reported no identity",
+      { resolverAuthorityValidated: undefined },
+    ],
+    ["medium context trust", { contextTrust: "medium" }],
+    [
+      "an operator override as the provenance",
+      {
+        provenance: {
+          mode: "manual",
+          source: "user_override",
+          campaignId: CAMPAIGN,
+          kind: "main",
+          contextTrust: "high",
+        },
+      },
+    ],
+  ];
+
+  for (const staleKind of ["mixed", "test", "main"]) {
+    it.each(REFUSED)(
+      `serves no campaignKind for a stale "${staleKind}" under %s`,
+      async (_name, over) => {
+        staleSnapshot(staleKind);
+        vi.mocked(contextSource.readCampaignContextMap).mockResolvedValue(
+          over === null ? (new Map() as never) : contextRow(over),
+        );
+
+        const { rec, inventory } = await serve();
+        expect(rec, "the row itself must still be served").toBeTruthy();
+        expect(rec?.campaignKind).toBeUndefined();
+        // The inventory entry is built from the same map and must agree.
+        expect(inventory, "the inventory entry must still be served").toBeTruthy();
+        expect(inventory?.campaignKind ?? null).toBeNull();
+        /*
+          And the label an operator reads is not the structure-review one. The
+          `toBeTruthy` guard first: a builder that produced no node at all would
+          satisfy `not.toBe` while proving nothing.
+        */
+        expect(servedActionLabel(rec)).toBeTruthy();
+        expect(servedActionLabel(rec)).not.toBe("Review Structure");
+      },
+    );
+  }
+
+  it("returns a TRUSTED canonical mixed, which is what makes the refusals discriminating", async () => {
+    staleSnapshot("main");
+    vi.mocked(contextSource.readCampaignContextMap).mockResolvedValue(
+      contextRow({
+        kind: "mixed",
+        provenance: {
+          mode: "automatic",
+          source: "system_inferred",
+          campaignId: CAMPAIGN,
+          kind: "mixed",
+          contextTrust: "high",
+        },
+      }),
+    );
+
+    const { rec, inventory } = await serve();
+    // The trusted map result wins over the stale stored "main"...
+    expect(rec?.campaignKind).toBe("mixed");
+    expect(inventory?.campaignKind).toBe("mixed");
+    // ...and only then does the structure-review label appear.
+    expect(servedActionLabel(rec)).toBe("Review Structure");
+  });
+});
 
 describe("GET /api/meta/lane-classify", () => {
   beforeEach(() => {
@@ -1927,5 +2191,111 @@ describe("the live status probe caches the big accounts too", () => {
       reader,
       "the cache key must still name the business and the exact id set",
     ).toContain("${businessId}:${uniqueIds.length}:${scopeDigest}");
+  });
+});
+
+/*
+  CODEX C21 — lane placement must not be decided by buyer copy.
+
+  `isInLearning` ended with
+  `/learning|cook|thin|insufficient/i.test(`${rec.title} ${rec.summary}`)`, so a
+  row's lane depended on the wording of its own prose. This module already emits
+  Turkish copy, and no Turkish sentence matches those English stems — so the same
+  decision landed in a different lane depending on the language it was rendered
+  in, and rewording a summary silently re-routed it.
+
+  Segments carry `key` and `count`, not the rows themselves, so these assert on
+  the segment KEY a row produces. An earlier draft asserted on a non-existent
+  `items` array and passed vacuously.
+*/
+describe("learning routing is invariant under copy", () => {
+  async function segmentKeysFor(recs: unknown[]) {
+    vi.mocked(snapshot.readMetaDecisionSnapshotForRange).mockResolvedValue({
+      status: "ok",
+      businessId: "biz_1",
+      startDate: "2026-04-10",
+      endDate: "2026-05-07",
+      snapshotDate: "2026-05-06",
+      snapshotCreatedAt: "2026-05-06T03:10:00.000Z",
+      sourceModel: "snapshot_persistent",
+      summary: {
+        title: "Snapshot",
+        summary: "Snapshot",
+        primaryLens: "structure",
+        confidence: "high",
+        recommendationCount: recs.length,
+      },
+      recommendations: recs,
+    } as never);
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/meta/lane-classify?businessId=biz_1&window=28d",
+      ),
+    );
+    const payload = await response.json();
+    return (payload.watchingSegments ?? []).map(
+      (segment: { key: string; count: number }) => `${segment.key}:${segment.count}`,
+    );
+  }
+
+  const PROSE = {
+    title: "Still learning: thin data while the ad cooks",
+    summary: "Insufficient signal so far.",
+  };
+  const NEUTRAL_TURKISH = {
+    title: "Butce en guclu scale adaylarina kaydirilabilir",
+    summary: "Veri toplaniyor.",
+  };
+
+  it("does not route a row into learning because its COPY says so", async () => {
+    const keys = await segmentKeysFor([
+      metaRec({
+        id: "rec_prose",
+        confidenceScore: 0.42,
+        decisionState: "watch",
+        ...PROSE,
+      }),
+    ]);
+    // Every stem the old regex matched is in the copy, and no typed learning
+    // signal is on the row: it must land somewhere else.
+    expect(keys).not.toContain("learning:1");
+    expect(keys).toContain("insufficient_signal:1");
+  });
+
+  it("routes a row into learning from the TYPED signal, whatever the copy says", async () => {
+    const keys = await segmentKeysFor([
+      metaRec({
+        id: "rec_typed",
+        confidenceScore: 0.42,
+        decisionState: "watch",
+        ...NEUTRAL_TURKISH,
+        confidenceReason: "thin_data_watching",
+      }),
+    ]);
+    expect(keys).toContain("learning:1");
+  });
+
+  it("places the same typed row identically whatever its copy is", async () => {
+    const withEnglish = await segmentKeysFor([
+      metaRec({
+        id: "rec_same",
+        confidenceScore: 0.42,
+        decisionState: "watch",
+        ...PROSE,
+        confidenceReason: "thin_data_watching",
+      }),
+    ]);
+    const withTurkish = await segmentKeysFor([
+      metaRec({
+        id: "rec_same",
+        confidenceScore: 0.42,
+        decisionState: "watch",
+        ...NEUTRAL_TURKISH,
+        confidenceReason: "thin_data_watching",
+      }),
+    ]);
+    expect(withTurkish).toEqual(withEnglish);
+    // And not vacuously: the row really did land in a segment.
+    expect(withEnglish).toContain("learning:1");
   });
 });

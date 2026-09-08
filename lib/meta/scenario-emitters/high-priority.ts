@@ -10,6 +10,10 @@ import {
 } from "@/lib/meta/recommendations";
 import { LEGACY_META_CALIBRATION_THRESHOLDS } from "@/lib/meta/calibration";
 import {
+  META_CONFIDENCE_ACT_THRESHOLD,
+  metaConfidenceBucket,
+} from "@/lib/meta/confidence-thresholds";
+import {
   applyPercentToMinorUnits,
   resolveMinorUnitExponent,
 } from "@/lib/currency/iso-4217-minor-units";
@@ -140,6 +144,11 @@ function confidence(input: {
     minRequiredSample: minRequiredSample(input.context),
     severeLoser: input.severeLoser,
   });
+}
+
+function holdConfidence(input: ReturnType<typeof confidence>) {
+  const score = Math.min(input.score, META_CONFIDENCE_ACT_THRESHOLD - 0.01);
+  return { ...input, score, label: metaConfidenceBucket(score) };
 }
 
 function historyAgeDays(window: CampaignScenarioWindow) {
@@ -646,15 +655,18 @@ function purchaseValueHold(input: {
     priority: "medium",
     /*
       Confidence is computed from the same helper every other emitter uses, so
-      a hold carries a real statistical result rather than a synthetic zero the
-      downstream confidence bands would have to special-case.
+      a hold carries a real statistical result rather than a synthetic zero.
+      Missing purchase-value authority cannot carry an action-grade confidence
+      label, so the shared hold path caps the result below that policy boundary.
     */
-    confidenceScore: confidence({
-      level: "campaign",
-      context: input.scenarioInput.context,
-      metricValue: input.row.roas,
-      threshold: input.row.roas,
-    }),
+    confidenceScore: holdConfidence(
+      confidence({
+        level: "campaign",
+        context: input.scenarioInput.context,
+        metricValue: input.row.roas,
+        threshold: input.row.roas,
+      }),
+    ),
     decisionState: "watch",
     title: input.title,
     why: input.why,

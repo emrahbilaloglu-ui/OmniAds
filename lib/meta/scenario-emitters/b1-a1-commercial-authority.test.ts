@@ -26,6 +26,7 @@
 import { describe, expect, it } from "vitest";
 
 import { LEGACY_META_CALIBRATION_THRESHOLDS } from "@/lib/meta/calibration";
+import { META_CONFIDENCE_ACT_THRESHOLD } from "@/lib/meta/confidence-thresholds";
 import type { MetaCalibrationContext } from "@/lib/meta/recommendations";
 import {
   META_RECENT_EDIT_AUTHORITY_KEY,
@@ -233,6 +234,8 @@ describe("B1 bid-cap raise is authorised by a value, not by a ratio", () => {
     expect(rec?.targetValue ?? null).toBeNull();
     expect((rec as { proposedAction?: unknown }).proposedAction ?? null).toBeNull();
     expect(rec?.signalQuality?.hard_action_authority).toBe("blocked");
+    expect(rec?.confidence).not.toBe("high");
+    expect(rec?.confidenceScore).toBeLessThan(META_CONFIDENCE_ACT_THRESHOLD);
   });
 
   it("does NOT accept Target CPA as a substitute when the AOV is missing", () => {
@@ -301,6 +304,8 @@ describe("A1 learning floor is sized from the canonical unit", () => {
     expect(rec?.decisionState).toBe("watch");
     expect(rec?.targetValue ?? null).toBeNull();
     expect(rec?.signalQuality?.hard_action_authority).toBe("blocked");
+    expect(rec?.confidence).not.toBe("high");
+    expect(rec?.confidenceScore).toBeLessThan(META_CONFIDENCE_ACT_THRESHOLD);
   });
 
   it("PRESERVES the legacy CPA path when no Target ROAS governs", () => {

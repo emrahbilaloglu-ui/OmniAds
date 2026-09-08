@@ -1295,6 +1295,53 @@ export const AD_DAY_DECISION_BEARING_ACTIVITY_SQL = `(
       OR COALESCE(revenue, 0) > 0
     )`;
 
+/**
+ * The ad-day link-click value that has enough row-local provenance to enter a
+ * lifecycle band.
+ *
+ * `meta_ad_daily.link_clicks` used to be `NOT NULL DEFAULT 0`, and the old
+ * writer supplied a literal zero when Meta supplied no actions breakdown. The
+ * nullable migration deliberately preserved those historical zeros, so the
+ * column alone cannot prove that a stored zero was measured. The verbatim
+ * provider payload can: an `actions` array with no `link_click` entry is Meta's
+ * measured-zero encoding, while one exact zero entry is also accepted by the
+ * strict forward parser. A missing, malformed, duplicate, or contradictory
+ * entry leaves the zero unknown. Positive stored values are not affected by
+ * the legacy default/fabrication and remain measurements.
+ *
+ * Kept as one shared SQL expression because the decision hydration query and
+ * the operational readback verifier must classify the same row identically.
+ */
+export const AD_DAY_AUTHORITATIVE_LINK_CLICKS_SQL = `(CASE
+      WHEN link_clicks > 0 THEN link_clicks
+      WHEN link_clicks = 0
+        AND jsonb_typeof(payload_json->'actions') = 'array'
+        AND (
+          SELECT CASE
+            WHEN COUNT(*) = 0 THEN TRUE
+            WHEN COUNT(*) = 1
+              THEN COALESCE(
+                BOOL_AND(
+                  jsonb_typeof(action->'value') = 'string'
+                  AND COALESCE(action->>'value', '') ~ '^0+$'
+                ),
+                FALSE
+              )
+            ELSE FALSE
+          END
+          FROM jsonb_array_elements(
+            CASE
+              WHEN jsonb_typeof(payload_json->'actions') = 'array'
+                THEN payload_json->'actions'
+              ELSE '[]'::jsonb
+            END
+          ) AS action
+          WHERE action->>'action_type' = 'link_click'
+        )
+      THEN 0
+      ELSE NULL
+    END)`;
+
 export const HYDRATE_AD_DECISION_INPUTS_QUERY = `
 /* ad-decision-hydration: native business/account/ad grain */
 WITH assigned_accounts AS (
@@ -1731,7 +1778,7 @@ ad_band_days AS (
     d.revenue,
     d.impressions,
     d.clicks,
-    d.link_clicks
+    ${AD_DAY_AUTHORITATIVE_LINK_CLICKS_SQL} AS link_clicks
   FROM selected_ad_days d
   CROSS JOIN LATERAL (
     VALUES
@@ -1753,15 +1800,12 @@ ad_band_aggregates AS (
     SUM(clicks) AS clicks,
     -- DELIBERATELY NOT COALESCED, unlike metric_cumulative above.
     --
-    -- meta_ad_daily.link_clicks is NULL when the provider supplied nothing and
-    -- a number when it was measured, INCLUDING a measured 0. PostgreSQL SUM
-    -- ignores NULLs and returns NULL only when every row in the group is NULL,
-    -- so this expression keeps exactly that distinction per band: NULL means
-    -- "no day in this window reported link clicks", 0 means "reported, and it
-    -- was zero". metric_cumulative wraps the same column in COALESCE(x, 0)
-    -- because that aggregate has to stay byte-identical to the answer it gave
-    -- when the column was NOT NULL; these band columns are new, so they carry
-    -- the honest three-valued answer instead.
+    -- ad_band_days.link_clicks has already excluded every legacy stored zero
+    -- that lacks matching row-local payload provenance. PostgreSQL SUM ignores
+    -- those NULLs and returns NULL only when every row in the group is unknown,
+    -- so this expression preserves measured positive/zero versus unknown.
+    -- metric_cumulative intentionally keeps its compatibility coalesce; only
+    -- these new decision-authority bands apply the stronger provenance rule.
     SUM(link_clicks) AS link_clicks,
     -- COMPLETENESS, because SUM alone cannot express it.
     --

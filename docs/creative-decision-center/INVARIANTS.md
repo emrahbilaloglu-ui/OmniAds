@@ -292,6 +292,12 @@ scope, engine epoch)`. Nullable `creative_id` is grouping evidence only and
   `asOf` hydration must never import a dimension-only ad from current state.
 - Optional Meta event metrics remain null when no source payload key was
   observed. Source absence must not be converted to a measured zero.
+- A legacy stored `meta_ad_daily.link_clicks = 0` is not lifecycle evidence by
+  itself. On a decision-bearing day it may enter a 14-day band only when that
+  row's provider payload proves the same measured zero; an absent, malformed,
+  duplicate, or contradictory actions payload makes the denominator unknown
+  until repaired or authoritatively re-synced. Hydration and operational
+  readback must apply the same classifier.
 - Creative/Ads `scale` and `cut` hard eligibility follow the same action-specific
   ROAS anchors. A valid target CPA may size evidence but cannot authorize either
   ROAS action by itself.

@@ -18,6 +18,7 @@ vi.mock("@/lib/db", () => ({
 }));
 
 import {
+  AD_DAY_AUTHORITATIVE_LINK_CLICKS_SQL,
   HYDRATE_AD_DECISION_INPUTS_QUERY,
   READ_AD_HYDRATION_COMPLETENESS_RECEIPTS_QUERY,
   READ_AD_ENTITY_STATE_AS_OF_QUERY,
@@ -1318,20 +1319,21 @@ describe("native ad 14/14 band hydration", () => {
     ).not.toContain("refresh_ad_lifecycle_evidence");
   });
 
-  it("keeps the same ad HELD when its link-click denominator is absent", async () => {
+  it("keeps the same ad HELD when a legacy zero makes its positive band partial", async () => {
     /*
       The negative direction on the same population, changing one fact.
       Read-only inspection of the live warehouse on 2026-09-07 found
-      `meta_ad_daily.link_clicks` with no positive value anywhere in the
-      current 28-day window (2,461 measured rows, every one exactly 0, plus
-      7,885 NULL), so this is the branch production takes today — and the
-      verdict is withheld, not converted into a healthy Keep.
+      A legacy stored zero without row-local payload provenance is projected as
+      NULL by the SQL classifier. Newer positive days can still leave a
+      positive SUM, so the missing-row counter is the fact that prevents that
+      partial denominator from authorizing Refresh.
     */
     const inputs = await hydrate(
       bandPopulation(
         decayedAdRow({
-          recent14_link_clicks: null,
-          prior14_link_clicks: null,
+          recent14_link_clicks: "600",
+          recent14_link_clicks_measured_rows: 13,
+          recent14_link_clicks_missing_delivered_rows: 1,
         }),
       ),
     );
@@ -1346,7 +1348,7 @@ describe("native ad 14/14 band hydration", () => {
     expect(evidence.missingEvidence).toContain(
       "ad_recent14_window_link_clicks_unavailable",
     );
-    expect(evidence.missingEvidence).toContain(
+    expect(evidence.missingEvidence).not.toContain(
       "ad_prior14_window_link_clicks_unavailable",
     );
     expect(evidence.fatigueStatus).toBe("unknown");
@@ -1695,6 +1697,22 @@ describe("native ad hydration SQL contract", () => {
     // having changed that one.
     expect(HYDRATE_AD_DECISION_INPUTS_QUERY).toContain(
       "SUM(COALESCE(link_clicks, 0)) AS link_clicks",
+    );
+    const bandDaysBlock = HYDRATE_AD_DECISION_INPUTS_QUERY.slice(
+      HYDRATE_AD_DECISION_INPUTS_QUERY.indexOf("ad_band_days AS ("),
+      HYDRATE_AD_DECISION_INPUTS_QUERY.indexOf("ad_band_aggregates AS ("),
+    );
+    expect(bandDaysBlock).toContain(
+      `${AD_DAY_AUTHORITATIVE_LINK_CLICKS_SQL} AS link_clicks`,
+    );
+    expect(AD_DAY_AUTHORITATIVE_LINK_CLICKS_SQL).toContain(
+      "jsonb_typeof(payload_json->'actions') = 'array'",
+    );
+    expect(AD_DAY_AUTHORITATIVE_LINK_CLICKS_SQL).toContain(
+      "WHEN COUNT(*) = 0 THEN TRUE",
+    );
+    expect(AD_DAY_AUTHORITATIVE_LINK_CLICKS_SQL).toContain(
+      "ELSE '[]'::jsonb",
     );
   });
 });

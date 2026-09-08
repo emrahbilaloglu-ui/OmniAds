@@ -312,6 +312,10 @@ describe.runIf(SEAM)("link-click repair against real PostgreSQL", () => {
     expect(recent.incompleteReasons).toContain("2_absent_rows_repairable_from_stored_payload");
     expect(recent.incompleteReasons).toContain("1_absent_rows_need_provider_resync");
     expect(recent.incompleteReasons).toContain("1_rows_still_store_a_fabricated_zero");
+    // The decision-side pair uses the same row-local provenance rule: ad-D's
+    // legacy stored zeros are withheld while its payload still proves positive
+    // link clicks, rather than being counted as a complete zero denominator.
+    expect(accountA.adsBlockedByAbsence).toBe(4);
   });
 
   it("writes only the rows the stored payload authorizes", async () => {
@@ -410,6 +414,9 @@ describe.runIf(SEAM)("link-click repair against real PostgreSQL", () => {
     const recentB = accountB.bands.find((band) => band.band === "recent14")!;
     expect(recentB.rowsSuspectUnprovableZero).toBe(1);
     expect(recentB.incompleteReasons).toEqual(["1_rows_store_an_uncorroborated_zero"]);
+    // A legacy zero can remain in storage for audit compatibility, but it no
+    // longer becomes decision evidence merely because the column is non-null.
+    expect(accountB.adsBlockedByAbsence).toBe(1);
     expect(verdict.allBandsComplete).toBe(false);
   });
 
@@ -1087,6 +1094,7 @@ interface ActivityRow {
   clicks?: number;
   conversions?: number;
   revenue?: number;
+  payloadJson?: Record<string, unknown>;
 }
 
 async function insertActivityRow(row: ActivityRow) {
@@ -1099,16 +1107,16 @@ async function insertActivityRow(row: ActivityRow) {
         truth_state, validation_status, created_at, updated_at)
      VALUES ($1, $2, $3::date, 'camp_lcact', 'adset_lcact', $4,
              'UTC', 'USD', $5, $6, $7, 0, $8, $9, 0, $10::bigint,
-             jsonb_build_object('ad_id', $4::text, 'actions',
-               jsonb_build_array(jsonb_build_object('action_type', 'link_click', 'value', '9'))),
-             'finalized', 'passed', $11::timestamptz, $11::timestamptz)
+             $11::jsonb,
+             'finalized', 'passed', $12::timestamptz, $12::timestamptz)
      ON CONFLICT (business_id, provider_account_id, date, ad_id) DO UPDATE SET
        spend = EXCLUDED.spend,
        impressions = EXCLUDED.impressions,
        clicks = EXCLUDED.clicks,
        conversions = EXCLUDED.conversions,
        revenue = EXCLUDED.revenue,
-       link_clicks = EXCLUDED.link_clicks`,
+       link_clicks = EXCLUDED.link_clicks,
+       payload_json = EXCLUDED.payload_json`,
     [
       ACT_BUSINESS_ID,
       ACT_ACCOUNT,
@@ -1120,6 +1128,14 @@ async function insertActivityRow(row: ActivityRow) {
       row.conversions ?? 0,
       row.revenue ?? 0,
       row.linkClicks,
+      JSON.stringify(
+        row.payloadJson ?? {
+          ad_id: row.adId,
+          actions: row.linkClicks === null
+            ? [{ action_type: "link_click", value: "9" }]
+            : [{ action_type: "link_click", value: String(row.linkClicks) }],
+        },
+      ),
       SEEDED_ROW_CLOCK,
     ],
   );
@@ -1159,11 +1175,90 @@ describe.runIf(SEAM)("link-click readback uses the decision-bearing activity pre
     await sql.query(`DELETE FROM meta_ad_daily WHERE business_id = $1`, [ACT_BUSINESS_ID]);
   });
 
-  it("reports the seeded pair as complete before any extra row", async () => {
+  it("accepts proven rows and rejects every decision-bearing legacy-zero shape", async () => {
     const verdict = await runLinkClickReadbackVerify({ db: db(), options: actOptions() });
     expect(verdict.allBandsComplete).toBe(true);
     expect(verdict.totals.adsWithUsableBandPair).toBe(1);
     expect(verdict.totals.rowsStillAbsent).toBe(0);
+
+    const sql = getDb();
+    const cases = [
+      {
+        name: "missing actions",
+        payloadJson: { ad_id: "ad-ACT" },
+        reason: "1_rows_store_an_uncorroborated_zero",
+      },
+      {
+        name: "contradictory positive",
+        payloadJson: {
+          ad_id: "ad-ACT",
+          actions: [{ action_type: "link_click", value: "7" }],
+        },
+        reason: "1_rows_still_store_a_fabricated_zero",
+      },
+      {
+        name: "duplicate zeros",
+        payloadJson: {
+          ad_id: "ad-ACT",
+          actions: [
+            { action_type: "link_click", value: "0" },
+            { action_type: "link_click", value: "0" },
+          ],
+        },
+        reason: "1_rows_store_zero_with_invalid_provenance",
+      },
+      {
+        name: "JSON numeric zero",
+        payloadJson: {
+          ad_id: "ad-ACT",
+          actions: [{ action_type: "link_click", value: 0 }],
+        },
+        reason: "1_rows_store_zero_with_invalid_provenance",
+      },
+      {
+        name: "malformed zero",
+        payloadJson: {
+          ad_id: "ad-ACT",
+          actions: [{ action_type: "link_click", value: "0x" }],
+        },
+        reason: "1_rows_store_zero_with_invalid_provenance",
+      },
+      {
+        name: "non-array actions",
+        payloadJson: {
+          ad_id: "ad-ACT",
+          actions: { action_type: "link_click", value: "0" },
+        },
+        reason: "1_rows_store_an_uncorroborated_zero",
+      },
+    ] as const;
+
+    for (const testCase of cases) {
+      await insertActivityRow({
+        date: "2026-08-26",
+        adId: "ad-ACT",
+        linkClicks: 0,
+        spend: 10,
+        payloadJson: testCase.payloadJson,
+      });
+      const blocked = await runLinkClickReadbackVerify({
+        db: db(),
+        options: actOptions(),
+      });
+      expect(blocked.totals.rowsUnverifiedZero, testCase.name).toBe(1);
+      expect(blocked.accounts[0]!.adsBlockedByAbsence, testCase.name).toBe(1);
+      expect(blocked.allBandsComplete, testCase.name).toBe(false);
+      const recent = blocked.accounts[0]!.bands.find(
+        (band) => band.band === "recent14",
+      )!;
+      expect(recent.incompleteReasons, testCase.name).toContain(testCase.reason);
+      await sql.query(
+        `DELETE FROM meta_ad_daily
+          WHERE business_id = $1 AND ad_id = 'ad-ACT'
+            AND date = '2026-08-26'::date`,
+        [ACT_BUSINESS_ID],
+      );
+    }
   });
 
   it("does NOT let a wholly inert NULL day block completion or the usable pair", async () => {
@@ -1178,6 +1273,22 @@ describe.runIf(SEAM)("link-click readback uses the decision-bearing activity pre
     expect(verdict.totals.rowsStillAbsent).toBe(0);
     expect(verdict.totals.adsWithUsableBandPair).toBe(1);
     expect(verdict.allBandsComplete).toBe(true);
+
+    // A legacy zero with no row-local proof is also harmless when the row is
+    // wholly inert: neither hydration nor readback uses it as decision input.
+    await insertActivityRow({
+      date: "2026-08-26",
+      adId: "ad-ACT",
+      linkClicks: 0,
+      payloadJson: { ad_id: "ad-ACT" },
+    });
+    const inertLegacyZero = await runLinkClickReadbackVerify({
+      db: db(),
+      options: actOptions(),
+    });
+    expect(inertLegacyZero.totals.rowsUnverifiedZero).toBe(0);
+    expect(inertLegacyZero.totals.adsWithUsableBandPair).toBe(1);
+    expect(inertLegacyZero.allBandsComplete).toBe(true);
   });
 
   it.each([

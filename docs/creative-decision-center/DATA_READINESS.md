@@ -453,6 +453,18 @@ Repairing it is out of scope here and is the single highest-value follow-up for
 Refresh: it is the one input standing between a held Refresh and an authorized
 one.
 
+### D095 legacy-zero admission boundary
+
+Forward ingestion and the bounded stored-payload repair can now distinguish a
+measured zero from an unsupplied value, but the nullable migration deliberately
+did not rewrite old zeros. Those historical rows remain mixed evidence. Native
+14-day lifecycle bands therefore admit a stored zero only when the same row's
+`payload_json.actions` proves the measured-zero encoding. An uncorroborated or
+contradicted zero counts as unavailable on a decision-bearing day, and both the
+decision hydration query and the readback verifier use the same classifier.
+This permits repaired/current evidence to produce Refresh while preventing the
+untouched legacy population from granting it.
+
 ## Meta-attributed AOV readiness governs the commercial anchor (D092)
 
 The canonical spend unit needs BOTH halves: the ratio from the business target

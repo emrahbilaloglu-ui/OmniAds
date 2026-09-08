@@ -8767,3 +8767,31 @@ boolean and cannot enter logs, receipts, or durable failure text.
 ends and permits transient or unrelated provider failures to be misattributed
 to optional fields. It changes no database schema, persisted decision, or Meta
 write authority.
+
+## D095 — Legacy link-click zeros require row-local provenance (2026-09-08)
+
+**Decision.** A stored `meta_ad_daily.link_clicks = 0` may enter a native-Ad
+14-day lifecycle band only when the same row's verbatim `payload_json.actions`
+proves Meta's measured-zero encoding: an actions array with no `link_click`
+entry, or one exact zero entry accepted by the strict ingestion parser. A zero
+with no actions array, a malformed or duplicate entry, or a payload that says a
+positive count is UNKNOWN until the bounded repair or an authoritative re-sync
+resolves it. A decision-bearing unknown makes the whole band denominator
+unavailable and therefore cannot authorize Refresh.
+
+**Reason.** The nullable migration correctly preserved historical data, but the
+old `NOT NULL DEFAULT 0` writer had fabricated zeros whenever Meta supplied no
+actions breakdown. Testing only `link_clicks IS NULL` therefore treated those
+legacy values as measured and could divide conversions from the whole window by
+clicks from only part of it. The hydration query and the readback verifier now
+share one SQL classifier so release evidence cannot call a pair usable when the
+decision producer will hold it.
+
+**Versioning.** This closes a review finding inside the still-unreleased D091
+native producer epoch. No production row carries that epoch, so its candidate
+version is amended in place rather than minting a second never-shipped epoch.
+The evaluation envelope and lifecycle receipt shape are unchanged.
+
+**Rollback.** Reverting this change can re-authorize Refresh from an
+uncorroborated legacy denominator. It writes no database row and changes no
+provider authority directly.

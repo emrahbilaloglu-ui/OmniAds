@@ -731,6 +731,9 @@ contract. At AD grain:
 | bands equal but overlapping, or with a gap | rejected — directly adjacent required |
 | a band ending AFTER the decision cutoff | ignored (PIT safety) |
 | click-to-purchase denominator absent | withheld — this is production's current state, and it is why nothing is fatigued |
+| stored link-click zero, no row-local actions array | legacy zero is unproven; the decision-bearing day makes the band denominator unavailable and Refresh remains held |
+| stored link-click zero, actions array has no `link_click` entry | measured zero is preserved; other proven positive days may still make the band denominator positive |
+| stored link-click zero, payload carries a positive/malformed/duplicate `link_click` entry | contradiction/unreadable provenance; band denominator withheld until repair or authoritative re-sync |
 | account-wide frequency observations: 7 | no percentile; a null percentile is not the same fact as missing evidence |
 | account-wide frequency observations: 8 | percentile available |
 | recent14 IMPROVING against prior14 | never `fatigued`, whatever else decays |

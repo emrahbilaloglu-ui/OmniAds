@@ -464,8 +464,8 @@ export interface LinkClickRepairClassification {
 export function classifyAdDayLinkClick(input: {
   storedLinkClicks: number | null;
   actionsPresent: boolean;
-  /** Raw `value` strings of every `link_click` entry in the actions array. */
-  linkClickValues: string[];
+  /** Raw string values of each entry; non-string JSON values arrive as null. */
+  linkClickValues: unknown[];
   skipMeasuredZero?: boolean;
 }): LinkClickRepairClassification {
   const stored = input.storedLinkClicks;
@@ -645,7 +645,10 @@ export const LINK_CLICK_REPAIR_PAGE_SQL = `
       CASE
         WHEN jsonb_typeof(d.payload_json->'actions') = 'array'
         THEN ARRAY(
-          SELECT a->>'value'
+          SELECT CASE
+            WHEN jsonb_typeof(a->'value') = 'string' THEN a->>'value'
+            ELSE NULL
+          END
           FROM jsonb_array_elements(d.payload_json->'actions') AS a
           WHERE a->>'action_type' = 'link_click'
         )
@@ -683,7 +686,7 @@ interface PageRow {
   ad_id: string;
   stored_link_clicks: string | null;
   actions_present: boolean;
-  link_click_values: string[];
+  link_click_values: unknown[];
 }
 
 export interface LinkClickRepairBandReport {

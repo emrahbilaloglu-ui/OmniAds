@@ -1,20 +1,20 @@
 {
- "manifestHash": "8caec14604f3e271cf76ad1534f11a3ccfcc58b351abb921397ea2e6a2a52d0a",
+ "manifestHash": "84a02bbfeacfd4cfa67847d67f1bebc13ff21e84cf521c092cb2af03929f8ab5",
  "hashAlgorithm": "sha256",
  "hashBasis": "sha256 over UTF-8 bytes of JSON.stringify(artifact, null, 1) of the artifact WITHOUT its embedded hash fields (the artifact object before {<hashField>, hashAlgorithm, hashBasis} are prepended)",
  "contract": "adsecute.d077.release-candidate-manifest.v3",
- "generatedAtUtc": "2026-09-08T18:29:21.061Z",
+ "generatedAtUtc": "2026-09-08T19:32:23.728Z",
  "branch": "codex/meta-release-finalization",
  "supersededBranchLabel": "codex/meta-disabled-readiness-20260829",
- "head": "f47ff52490de2136cf35dfc062102677fc1c5a0f",
+ "head": "45400cdb243d312c9cf9a33b131c71f50230d6a5",
  "baseMain": "babf158e150fd33057117b39b175da044ac62d2e",
  "originMain": "a2eb1b1b1dae9e69ffe470c39ada19731a570224",
  "remoteDivergence": {
-  "aheadOfOriginMain": 6,
+  "aheadOfOriginMain": 7,
   "behindOriginMain": 0
  },
  "selfExclusion": "this manifest's own path (docs/audits/generated/d077-release-candidate-manifest-2026-08-30.json) is EXCLUDED from its entry list: a manifest cannot recursively pin its own final bytes; its external SHA-256 is reported in the final response and by Codex's own hashing",
- "gitPorcelainEntryCount": 18,
+ "gitPorcelainEntryCount": 15,
  "releaseDiffEntryCountIncludingSelf": 1054,
  "expandedOnDiskCandidateFileCountIncludingSelf": 1054,
  "pinnedNonSelfFileCount": 1053,
@@ -2015,13 +2015,13 @@
    "path": "docs/audits/generated/d077-correction1-verification-ledger-2026-08-30.json",
    "git": "A",
    "class": "generated_evidence",
-   "sha256": "d4ad12f42f6f7d2206632bce18c99f5ee0c18bb712a5e6b41a1ba08f53816066"
+   "sha256": "4f19402bd200921de36fb44295d5ab76c58e51547828de1bd1cd9437169ee8a4"
   },
   {
    "path": "docs/audits/generated/d077-database-recovery-approval-packet-2026-08-30.json",
    "git": "A",
    "class": "generated_evidence",
-   "sha256": "aed6dad90dc338915b83a5abb59ae886feada5a08564d089c6894d7dbb1e1165"
+   "sha256": "306aa5ba6a320ddf1f86674d6fc1fe23442dc5ab8b6a16c62e486cd95fb2ff54"
   },
   {
    "path": "docs/audits/generated/d077-production-recovery-readonly-evidence-2026-08-30.json",
@@ -2033,7 +2033,7 @@
    "path": "docs/audits/generated/d077-release-deploy-approval-packet-2026-08-30.json",
    "git": "A",
    "class": "generated_evidence",
-   "sha256": "320f9b9663df2ba787241c1376e2738a13a4d47f714571b9f92ddd344795b14d"
+   "sha256": "5d97f6da014c8135d2c027a697b45f30e38715d97236df2291a173d4dd8f058c"
   },
   {
    "path": "docs/audits/generated/d078-hard-action-recompute-2026-08-30.json",
@@ -2411,13 +2411,13 @@
    "path": "docs/creative-decision-center/DATA_READINESS.md",
    "git": "M",
    "class": "docs",
-   "sha256": "33b287b4c722e1a079a16774781391075ce9b17160ab300aa63062b19e546cf7"
+   "sha256": "34d6b907787eaa4490e71c945b6adc89b903477b239d8ac6314529814573d97f"
   },
   {
    "path": "docs/creative-decision-center/DECISION_LOG.md",
    "git": "M",
    "class": "docs",
-   "sha256": "2e6b8b5bf641e98075ed2e447e3c35373741d45d6f51e5e166e85609d5aea51e"
+   "sha256": "440146971d030cbd6e8aed142b5eb4365265a906c3222c76de7a88b4a8d939ea"
   },
   {
    "path": "docs/creative-decision-center/generated/h11b-context-lifecycle-bundle-2026-07-13-to-2026-08-22.json",
@@ -2441,7 +2441,7 @@
    "path": "docs/creative-decision-center/GOLDEN_CASES.md",
    "git": "M",
    "class": "docs",
-   "sha256": "700565bf719dc9239053ebefcfcc6f320603b294f9dad5b9c0149d2a31b39f82"
+   "sha256": "ec0ca7e1a7fb04e3469820556c0314173fff4ccda0ecc46457575b926d27545d"
   },
   {
    "path": "docs/creative-decision-center/H11_CAMPAIGN_CONTEXT_V2_POSTHOC_REGRESSION_2025-12-01_TO_2026-07-05.md",
@@ -2459,7 +2459,7 @@
    "path": "docs/creative-decision-center/INVARIANTS.md",
    "git": "M",
    "class": "docs",
-   "sha256": "b39d353592ccc5cf7d77f570308590a4c5ee70f4cd89bbea40a04bdbc4f149a0"
+   "sha256": "7b8c6c9745a5f3754349a1b3f8d7ed2dee7297c82ab5303cf54c62f34de4fadc"
   },
   {
    "path": "docs/creative-decision-center/NATIVE_AD_ACCOUNT_AOV_AUTHORITY_2026-07-16.md",
@@ -2705,7 +2705,7 @@
    "path": "lib/creative-decision-engine/__tests__/data-source.ad-grain.test.ts",
    "git": "M",
    "class": "tests_only",
-   "sha256": "bcfe8a02eedc7595c18f8e018099c7a4c7604584bd45016a6280b8f0eaa702b4"
+   "sha256": "c2479caeab0b682a7cc173937dda8ec41707daf8b2b6682b691c1028581cdaa1"
   },
   {
    "path": "lib/creative-decision-engine/__tests__/engine.test.ts",
@@ -2885,7 +2885,7 @@
    "path": "lib/creative-decision-engine/ad-band-completeness.db.test.ts",
    "git": "A",
    "class": "tests_only",
-   "sha256": "05f603323bb0c41fd02affc6a52caaef450776b83787b3ce2d44e43c9fd23286"
+   "sha256": "f22119274fbac3854c827e3bf62e07c7d68e00657b6b74e24d5f3c2353793079"
   },
   {
    "path": "lib/creative-decision-engine/ad-operator-response-detection.ts",
@@ -2963,7 +2963,7 @@
    "path": "lib/creative-decision-engine/data-source.ts",
    "git": "M",
    "class": "runtime",
-   "sha256": "ba523f38d8c8241b3b29b849d0d75c96836c5f59f632e93f7ed3ab0c97935f13"
+   "sha256": "705b6667ec297bb9c7e88b32ba5afc2d96a4970e6db9a9f7a563edf2aeddb60f"
   },
   {
    "path": "lib/creative-decision-engine/evaluation-store.ts",
@@ -6251,25 +6251,25 @@
    "path": "scripts/meta/link-click-readback-verify.ts",
    "git": "A",
    "class": "script_ops_non_request_path",
-   "sha256": "9ed9371a78595db37ccd8a056bb51b6b786789383819d31b0a00319b79d1cf02"
+   "sha256": "790cdab4733fadd8f0451945a7869f071030b137615108b9ab360c3653c10ea7"
   },
   {
    "path": "scripts/meta/link-click-repair-backfill.db.test.ts",
    "git": "A",
    "class": "tests_only",
-   "sha256": "0e3630546143620803428ab9a97b17e34bdbc41b5a017b8414d42b565f72204f"
+   "sha256": "4d99bd29410dc614bf456754cf6b13dde91b6d9656fd5a7befbd1db0909ff247"
   },
   {
    "path": "scripts/meta/link-click-repair-backfill.test.ts",
    "git": "A",
    "class": "tests_only",
-   "sha256": "9a6fb36757ab47435b8afc0c1d9dec5717d967008377fec63247354b5449ad56"
+   "sha256": "10e7b8e1b3fdb0e7d31e435aa12bbbdc0670d595f5023eace31bd817dd3218b7"
   },
   {
    "path": "scripts/meta/link-click-repair-backfill.ts",
    "git": "A",
    "class": "script_ops_non_request_path",
-   "sha256": "bde11be441fac6fea567d968934cde249a55d16c84bffa3fee0e1c288bc846b1"
+   "sha256": "95e2fb41e270a3032a74ccb5de1490690ac23c5f9f7973b02c8c8f02c508d2e6"
   },
   {
    "path": "scripts/native-proposal-lifecycle-fixtures.ts",

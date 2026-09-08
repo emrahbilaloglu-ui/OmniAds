@@ -8,36 +8,33 @@
  * here is re-read from `meta_ad_daily` after the fact.
  *
  * ── What "complete enough" means, exactly ────────────────────────────────────
- * `admitCompositeBand` in `lib/creative-decision-engine/jobs/ad-decisions-job.ts`
- * rejects a band with `ad_<label>_window_link_clicks_unavailable` unless
- * `finitePositive(band.linkClicks)`, and it needs BOTH bands, so an ad is
- * usable only when the recent band and the directly preceding band each carry a
- * positive link-click total. On top of that this verifier refuses to call a
- * band complete while it still holds:
+ * Native-Ad hydration first derives an AUTHORITATIVE row value. A stored
+ * positive count remains measured. A stored zero is measured only when the
+ * same row's `payload_json.actions` corroborates Meta's zero encoding: the
+ * array omits `link_click`, or it contains exactly one string value that the
+ * strict parser reads as zero. A missing, malformed, duplicate, non-string, or
+ * positive contradiction makes that stored zero unknown.
  *
- *   - an ABSENT day (`link_clicks IS NULL`). Every aggregate that reads this
- *     column coalesces NULL to 0 (see the null-safety note in
- *     `lib/creative-decision-engine/data-source.ts` and the `SUM(COALESCE(...))`
- *     aggregates there), so one absent day silently understates the band rather
- *     than announcing itself;
- *   - a row still stored 0 whose own `payload_json` proves a positive count.
- *     That is the fabricated zero the repair exists to correct, and its presence
- *     means the repair did not run, ran with `--skip-measured-zero`, or was
- *     truncated;
- *   - a row stored 0 with no `actions` array at all. The only production writer
- *     of this column wrote a literal 0 for every ad-day until the correction, so
- *     a 0 with nothing to corroborate it is an unfalsifiable fabrication, not a
- *     measurement. It is counted and it blocks completeness; it is NOT
- *     overwritten, because erasing a value we cannot disprove is its own
- *     decision and not this command's.
+ * Unknown link clicks block a band only on a DECISION-BEARING day — a day with
+ * impressions, spend, clicks, conversions, or revenue. A wholly inert row is
+ * still in the storage census but does not create a denominator gap. Finally,
+ * `admitCompositeBand` requires a positive authoritative total in BOTH the
+ * recent band and the directly preceding band. This verifier uses the same
+ * authoritative-value and decision-bearing SQL expressions, and separately
+ * reports:
+ *
+ *   - storage NULLs on decision-bearing days (`rowsStillAbsent`), split into
+ *     rows with no stored actions payload and rows the repair can inspect;
+ *   - stored zeros the shared classifier refuses (`rowsUnverifiedZero`), with
+ *     the no-actions and positive-contradiction subsets named separately;
+ *   - ads whose two authoritative band totals are both complete and positive.
  *
  * ── Rows the repair cannot close ─────────────────────────────────────────────
  * A row whose `payload_json` carries no `actions` array holds no link-click
  * measurement anywhere in the database. `rowsUnmeasurableFromStorage` names
- * those; closing them needs a re-sync of those days through the authoritative
- * sync path, not a storage repair. Reporting them as "still absent" without
- * that distinction would send an operator back to re-run a repair that can
- * never touch them.
+ * storage-NULL rows in that state; closing them needs a re-sync through the
+ * authoritative sync path. `rowsSuspectUnprovableZero` names the corresponding
+ * legacy stored-zero state. Neither can be repaired from the stored payload.
  *
  * Read-only. This command issues SELECTs and nothing else.
  *
@@ -49,7 +46,10 @@
 import { readFileSync } from "node:fs";
 
 import { configureOperationalScriptRuntime } from "../_operational-runtime";
-import { AD_DAY_DECISION_BEARING_ACTIVITY_SQL } from "@/lib/creative-decision-engine/data-source";
+import {
+  AD_DAY_AUTHORITATIVE_LINK_CLICKS_SQL,
+  AD_DAY_DECISION_BEARING_ACTIVITY_SQL,
+} from "@/lib/creative-decision-engine/data-source";
 
 import {
   LINK_CLICK_REPAIR_BOUNDS,
@@ -208,7 +208,8 @@ export const LINK_CLICK_VERIFY_BAND_SQL = `
       SELECT
         d.provider_account_id,
         d.date,
-        d.link_clicks,
+        d.link_clicks AS stored_link_clicks,
+        ${AD_DAY_AUTHORITATIVE_LINK_CLICKS_SQL} AS link_clicks,
         /*
           THE SAME PREDICATE HYDRATION USES, IMPORTED RATHER THAN RESTATED.
 
@@ -226,12 +227,24 @@ export const LINK_CLICK_VERIFY_BAND_SQL = `
         CASE
           WHEN jsonb_typeof(d.payload_json->'actions') = 'array'
           THEN (
-            SELECT a->>'value'
+            SELECT COUNT(*)
+            FROM jsonb_array_elements(d.payload_json->'actions') AS a
+            WHERE a->>'action_type' = 'link_click'
+          )
+          ELSE 0
+        END AS payload_link_click_entry_count,
+        CASE
+          WHEN jsonb_typeof(d.payload_json->'actions') = 'array'
+          THEN (
+            SELECT CASE
+              WHEN jsonb_typeof(a->'value') = 'string' THEN a->>'value'
+              ELSE NULL
+            END
             FROM jsonb_array_elements(d.payload_json->'actions') AS a
             WHERE a->>'action_type' = 'link_click'
             LIMIT 1
           )
-        END AS payload_link_click
+        END AS payload_link_click_string_value
       FROM meta_ad_daily AS d
       WHERE d.business_id = $1
         AND d.date BETWEEN $2::date AND $3::date
@@ -257,22 +270,39 @@ export const LINK_CLICK_VERIFY_BAND_SQL = `
       provider_account_id,
       band,
       count(*)::text AS rows_expected,
-      count(*) FILTER (WHERE link_clicks IS NOT NULL)::text AS rows_present,
+      count(*) FILTER (WHERE stored_link_clicks IS NOT NULL)::text AS rows_present,
       -- ABSENT means "absent on a day the decision reads". An inert NULL row
       -- is counted in rows_expected and blocks nothing, exactly as hydration
       -- treats it.
-      count(*) FILTER (WHERE link_clicks IS NULL AND decision_bearing)::text
+      count(*) FILTER (WHERE stored_link_clicks IS NULL AND decision_bearing)::text
         AS rows_absent,
       count(*) FILTER (
-        WHERE link_clicks IS NULL AND decision_bearing AND NOT actions_present
+        WHERE stored_link_clicks IS NULL
+          AND decision_bearing
+          AND NOT actions_present
       )::text AS rows_unmeasurable,
-      count(*) FILTER (WHERE link_clicks = 0 AND NOT actions_present)::text
+      count(*) FILTER (
+        WHERE stored_link_clicks = 0
+          AND link_clicks IS NULL
+          AND decision_bearing
+      )::text AS rows_unverified_zero,
+      count(*) FILTER (
+        WHERE stored_link_clicks = 0
+          AND decision_bearing
+          AND NOT actions_present
+      )::text
         AS rows_suspect_unprovable_zero,
       count(*) FILTER (
-        WHERE link_clicks = 0
+        WHERE stored_link_clicks = 0
+          AND decision_bearing
           AND actions_present
-          AND payload_link_click ~ '^[0-9]+$'
-          AND payload_link_click::bigint > 0
+          AND payload_link_click_entry_count = 1
+          AND CASE
+            WHEN payload_link_click_string_value ~ '^[0-9]+$'
+              THEN payload_link_click_string_value::numeric
+                BETWEEN 1 AND 9007199254740991
+            ELSE FALSE
+          END
       )::text AS rows_fabricated_zero_remaining,
       COALESCE(SUM(link_clicks), 0)::text AS link_clicks_total
     FROM banded
@@ -287,7 +317,7 @@ export const LINK_CLICK_VERIFY_AD_PAIR_SQL = `
         d.provider_account_id,
         d.ad_id,
         d.date,
-        d.link_clicks,
+        ${AD_DAY_AUTHORITATIVE_LINK_CLICKS_SQL} AS link_clicks,
         -- Same shared predicate as the band statement above, for the same
         -- reason: an inert NULL day must not make an ad's band pair unusable
         -- when hydration would admit it.
@@ -359,12 +389,19 @@ export interface LinkClickVerifyBandReadback {
   startDate: string;
   endDate: string;
   rowsExpected: number;
+  /** Rows with a non-null stored value; this storage count is not an authority count. */
   rowsPresent: number;
+  /** Storage-NULL rows on decision-bearing days. */
   rowsStillAbsent: number;
-  /** Absent rows the stored payload cannot repair; these need a provider re-sync. */
+  /** Storage-NULL/no-actions rows that need a provider re-sync. */
   rowsUnmeasurableFromStorage: number;
+  /** Decision-bearing stored zeros the shared authority classifier refuses. */
+  rowsUnverifiedZero: number;
+  /** No-actions subset of `rowsUnverifiedZero`. */
   rowsSuspectUnprovableZero: number;
+  /** Strict positive-payload subset of `rowsUnverifiedZero`. */
   rowsFabricatedZeroRemaining: number;
+  /** Sum of authoritative row values; unknown rows do not contribute. */
   linkClicksTotal: number;
   /** From the repair receipt when one is supplied, else null. */
   rowsPlannedByRepair: number | null;
@@ -397,6 +434,7 @@ export interface LinkClickVerifyResult {
     rowsPresent: number;
     rowsStillAbsent: number;
     rowsUnmeasurableFromStorage: number;
+    rowsUnverifiedZero: number;
     rowsSuspectUnprovableZero: number;
     rowsFabricatedZeroRemaining: number;
     rowsWrittenByRepair: number | null;
@@ -412,6 +450,7 @@ interface BandRow {
   rows_present: string;
   rows_absent: string;
   rows_unmeasurable: string;
+  rows_unverified_zero: string;
   rows_suspect_unprovable_zero: string;
   rows_fabricated_zero_remaining: string;
   link_clicks_total: string;
@@ -457,9 +496,27 @@ export function receiptClaimFor(
 export function bandIncompleteReasons(input: {
   rowsStillAbsent: number;
   rowsUnmeasurableFromStorage: number;
+  rowsUnverifiedZero: number;
   rowsSuspectUnprovableZero: number;
   rowsFabricatedZeroRemaining: number;
 }): string[] {
+  const counts = Object.values(input);
+  if (counts.some((count) => !Number.isSafeInteger(count) || count < 0)) {
+    throw new Error("link_click_verify_inconsistent_reason_counts: nonnegative safe integers required");
+  }
+  if (input.rowsUnmeasurableFromStorage > input.rowsStillAbsent) {
+    throw new Error(
+      "link_click_verify_inconsistent_reason_counts: unmeasurable rows exceed absent rows",
+    );
+  }
+  const classifiedUnverifiedZeros =
+    input.rowsSuspectUnprovableZero + input.rowsFabricatedZeroRemaining;
+  if (classifiedUnverifiedZeros > input.rowsUnverifiedZero) {
+    throw new Error(
+      "link_click_verify_inconsistent_reason_counts: zero-reason subsets exceed unverified zeros",
+    );
+  }
+
   const reasons: string[] = [];
   const repairable = input.rowsStillAbsent - input.rowsUnmeasurableFromStorage;
   if (repairable > 0) {
@@ -478,6 +535,13 @@ export function bandIncompleteReasons(input: {
   if (input.rowsSuspectUnprovableZero > 0) {
     reasons.push(
       `${input.rowsSuspectUnprovableZero}_rows_store_an_uncorroborated_zero`,
+    );
+  }
+  const invalidZeroProvenance =
+    input.rowsUnverifiedZero - classifiedUnverifiedZeros;
+  if (invalidZeroProvenance > 0) {
+    reasons.push(
+      `${invalidZeroProvenance}_rows_store_zero_with_invalid_provenance`,
     );
   }
   return reasons;
@@ -563,6 +627,9 @@ export async function runLinkClickReadbackVerify(input: {
       const rowsUnmeasurableFromStorage = row
         ? requireCount(row.rows_unmeasurable, "rows_unmeasurable")
         : 0;
+      const rowsUnverifiedZero = row
+        ? requireCount(row.rows_unverified_zero, "rows_unverified_zero")
+        : 0;
       const rowsSuspectUnprovableZero = row
         ? requireCount(row.rows_suspect_unprovable_zero, "rows_suspect_unprovable_zero")
         : 0;
@@ -579,6 +646,7 @@ export async function runLinkClickReadbackVerify(input: {
       const incompleteReasons = bandIncompleteReasons({
         rowsStillAbsent,
         rowsUnmeasurableFromStorage,
+        rowsUnverifiedZero,
         rowsSuspectUnprovableZero,
         rowsFabricatedZeroRemaining,
       });
@@ -594,6 +662,7 @@ export async function runLinkClickReadbackVerify(input: {
         rowsPresent,
         rowsStillAbsent,
         rowsUnmeasurableFromStorage,
+        rowsUnverifiedZero,
         rowsSuspectUnprovableZero,
         rowsFabricatedZeroRemaining,
         linkClicksTotal,
@@ -660,6 +729,7 @@ export async function runLinkClickReadbackVerify(input: {
       rowsPresent: sum((band) => band.rowsPresent),
       rowsStillAbsent: sum((band) => band.rowsStillAbsent),
       rowsUnmeasurableFromStorage: sum((band) => band.rowsUnmeasurableFromStorage),
+      rowsUnverifiedZero: sum((band) => band.rowsUnverifiedZero),
       rowsSuspectUnprovableZero: sum((band) => band.rowsSuspectUnprovableZero),
       rowsFabricatedZeroRemaining: sum((band) => band.rowsFabricatedZeroRemaining),
       rowsWrittenByRepair,

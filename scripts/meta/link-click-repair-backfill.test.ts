@@ -457,7 +457,18 @@ describe("ABSENT and MEASURED ZERO are decided by the payload, never by a defaul
   });
 
   it("refuses a value it cannot read as a non-negative integer", () => {
-    for (const values of [["12.5"], ["-3"], ["abc"], [""], ["9007199254740993"], ["1", "2"]]) {
+    for (const values of [
+      ["12.5"],
+      ["-3"],
+      ["abc"],
+      [""],
+      ["9007199254740993"],
+      ["1", "2"],
+      [0],
+      [null],
+      [true],
+      [{}],
+    ]) {
       expect(
         classifyAdDayLinkClick({
           storedLinkClicks: null,

@@ -1945,7 +1945,7 @@ export async function persistMetaEntityObservation(
         -- complete A reuses A, while complete A -> complete B -> complete A
         -- still records both real state transitions.
         AND completeness = ${input.completeness}
-      ORDER BY observed_at DESC, id DESC
+      ORDER BY observed_at DESC, captured_at DESC, created_at DESC, id DESC
       LIMIT 1
       FOR UPDATE
     `;
@@ -2880,7 +2880,9 @@ function stateSelect(
           Read-side and hash-neutral ON PURPOSE: state_hash is computed before
           the write, so a writer-side COALESCE would put the row and its hash
           out of agreement. Here the stored row is untouched and only the
-          resolved value is carried.
+          resolved value is carried. The carried fact is capped at the selected
+          row's captured_at, so later knowledge is never published with that
+          row's earlier provenance.
         */
         LEFT JOIN LATERAL (
           SELECT
@@ -2891,6 +2893,7 @@ function stateSelect(
                 AND prior.entity_type = state.entity_type
                 AND prior.entity_id = state.entity_id
                 AND prior.observed_at <= state.observed_at
+                AND prior.captured_at <= state.captured_at
                 AND prior.field_coverage_json ->> 'campaignStartTime'
                       IS DISTINCT FROM 'degraded_not_observed'
               ORDER BY prior.observed_at DESC, prior.captured_at DESC,
@@ -2903,6 +2906,7 @@ function stateSelect(
                 AND prior.entity_type = state.entity_type
                 AND prior.entity_id = state.entity_id
                 AND prior.observed_at <= state.observed_at
+                AND prior.captured_at <= state.captured_at
                 AND prior.field_coverage_json ->> 'campaignEndTime'
                       IS DISTINCT FROM 'degraded_not_observed'
               ORDER BY prior.observed_at DESC, prior.captured_at DESC,
@@ -2915,6 +2919,7 @@ function stateSelect(
                 AND prior.entity_type = state.entity_type
                 AND prior.entity_id = state.entity_id
                 AND prior.observed_at <= state.observed_at
+                AND prior.captured_at <= state.captured_at
                 AND prior.field_coverage_json ->> 'adsetStartTime'
                       IS DISTINCT FROM 'degraded_not_observed'
               ORDER BY prior.observed_at DESC, prior.captured_at DESC,
@@ -2927,6 +2932,7 @@ function stateSelect(
                 AND prior.entity_type = state.entity_type
                 AND prior.entity_id = state.entity_id
                 AND prior.observed_at <= state.observed_at
+                AND prior.captured_at <= state.captured_at
                 AND prior.field_coverage_json ->> 'adsetEndTime'
                       IS DISTINCT FROM 'degraded_not_observed'
               ORDER BY prior.observed_at DESC, prior.captured_at DESC,
@@ -2988,7 +2994,9 @@ function stateSelect(
           Read-side and hash-neutral ON PURPOSE: state_hash is computed before
           the write, so a writer-side COALESCE would put the row and its hash
           out of agreement. Here the stored row is untouched and only the
-          resolved value is carried.
+          resolved value is carried. The carried fact is capped at the selected
+          row's captured_at, so later knowledge is never published with that
+          row's earlier provenance.
         */
         LEFT JOIN LATERAL (
           SELECT
@@ -2999,6 +3007,7 @@ function stateSelect(
                 AND prior.entity_type = state.entity_type
                 AND prior.entity_id = state.entity_id
                 AND prior.observed_at <= state.observed_at
+                AND prior.captured_at <= state.captured_at
                 AND prior.field_coverage_json ->> 'campaignStartTime'
                       IS DISTINCT FROM 'degraded_not_observed'
               ORDER BY prior.observed_at DESC, prior.captured_at DESC,
@@ -3011,6 +3020,7 @@ function stateSelect(
                 AND prior.entity_type = state.entity_type
                 AND prior.entity_id = state.entity_id
                 AND prior.observed_at <= state.observed_at
+                AND prior.captured_at <= state.captured_at
                 AND prior.field_coverage_json ->> 'campaignEndTime'
                       IS DISTINCT FROM 'degraded_not_observed'
               ORDER BY prior.observed_at DESC, prior.captured_at DESC,
@@ -3023,6 +3033,7 @@ function stateSelect(
                 AND prior.entity_type = state.entity_type
                 AND prior.entity_id = state.entity_id
                 AND prior.observed_at <= state.observed_at
+                AND prior.captured_at <= state.captured_at
                 AND prior.field_coverage_json ->> 'adsetStartTime'
                       IS DISTINCT FROM 'degraded_not_observed'
               ORDER BY prior.observed_at DESC, prior.captured_at DESC,
@@ -3035,6 +3046,7 @@ function stateSelect(
                 AND prior.entity_type = state.entity_type
                 AND prior.entity_id = state.entity_id
                 AND prior.observed_at <= state.observed_at
+                AND prior.captured_at <= state.captured_at
                 AND prior.field_coverage_json ->> 'adsetEndTime'
                       IS DISTINCT FROM 'degraded_not_observed'
               ORDER BY prior.observed_at DESC, prior.captured_at DESC,
@@ -3885,9 +3897,9 @@ export interface MetaManifestMembership {
  *   delta           the run records only what changed, so membership is the
  *                   deterministic latest row per entity across the same
  *                   business / account / entity type / ENDPOINT, restricted to
- *                   the COMPLETE lane and to rows captured at or before the
- *                   selected run's own immutable payload clock, keeping only
- *                   those whose winning row is `present`;
+ *                   the COMPLETE lane and to rows observed and captured at or
+ *                   before the selected run's own immutable clocks, keeping
+ *                   only those whose winning row is `present`;
  *   partial and point_lookup rows never enter delta reconstruction;
  *   `absent_unconfirmed` removes membership rather than granting it;
  *   an `explicit_deleted` / `explicit_not_found` tombstone recorded AFTER the
@@ -3896,9 +3908,10 @@ export interface MetaManifestMembership {
  * COALESCED RECEIPTS. `persistMetaEntityObservation` advances a heartbeat on an
  * existing run when the semantic truth is unchanged, so the receipt's
  * occurrence clock and the run's payload clock are different facts. The delta
- * window is bounded by the RUN's immutable `captured_at` (the payload capture),
- * never by the receipt's occurrence clock, which is exactly the distinction the
- * `_d086_payload` index exists to serve.
+ * window is bounded by the RUN's immutable clocks, never by the receipt's
+ * occurrence clock. The selected run's `observed_at` excludes later-observed
+ * truth captured before an out-of-order replay, while its `captured_at` excludes
+ * knowledge that had not landed yet.
  */
 export async function readMetaCompleteManifestMembershipForReceipt(input: {
   businessId: string;
@@ -4049,14 +4062,16 @@ export async function readMetaCompleteManifestMembershipForReceipt(input: {
             AND scope_run.provider_account_id = ${providerAccountId}
             AND scope_run.entity_type = ${entityType}
         )
-        -- Bounded by the selected run IMMUTABLE payload clock, not by the
-        -- receipt occurrence clock: a coalesced receipt shares a payload it did
-        -- not itself capture.
+        -- Reconstruct the same predecessor the writer used: BOTH immutable run
+        -- clocks, observed_at first. A later-observed live manifest may have
+        -- been captured before an out-of-order historical replay; admitting it
+        -- here can swap member identities while preserving row_count.
+        AND state.observed_at <= ${run.observed_at}::timestamptz
         AND state.captured_at <= ${run.captured_at}::timestamptz
         AND state.observed_at < ${knowledge}::timestamptz
         AND state.captured_at < ${knowledge}::timestamptz
-      ORDER BY state.entity_id, state.captured_at DESC, state.created_at DESC,
-               state.id DESC
+      ORDER BY state.entity_id, state.observed_at DESC, state.captured_at DESC,
+               state.created_at DESC, state.id DESC
     ) latest
     -- absent_unconfirmed REMOVES membership. It means the capture did not see
     -- the entity and cannot say why, which is the opposite of evidence.

@@ -3528,7 +3528,7 @@ async function main() {
           earlier transaction, and by the run-versus-receipt clock disagreement
           that only real coalescing produces.
 
-      Measured against a freshly migrated ephemeral cluster on this branch: 16
+      Measured against a freshly migrated ephemeral cluster on this branch: 17
       passed, 0 skipped.
     */
     await runChildVitest(
@@ -3540,7 +3540,7 @@ async function main() {
         "entity-state-history-partial-delta.db.test.ts",
       ),
       "Meta partial-lane state-history delta dedupe DB seam check",
-      16,
+      17,
     );
 
     /*
@@ -3700,7 +3700,7 @@ async function main() {
       databaseUrl,
       path.join("lib", "meta", "schedule-timestamp-normalization.db.test.ts"),
       "Meta schedule timestamp normalization DB seam check",
-      7,
+      8,
     );
 
     /*
@@ -3750,7 +3750,7 @@ async function main() {
       databaseUrl,
       path.join("lib", "meta", "recent-edit-authority-receipt.db.test.ts"),
       "Meta recent-edit authority receipt/sync-run/manifest DB seam check",
-      16,
+      17,
     );
 
     /*

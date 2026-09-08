@@ -202,6 +202,14 @@ behavior.
 
 Neither reads state content; both are test references.
 
+### 2026-09-09 — same-observed coalescing-order test reference
+
+- `lib/meta/entity-state-history-partial-delta.db.test.ts` moves 4 -> 5
+  references. The added reference is the real-PostgreSQL readback for an
+  equal-`observed_at` A -> B -> A transition with increasing capture clocks.
+  It proves coalescing selects the latest captured run deterministically; it is
+  a test reference and adds no production consumer.
+
 ## NOT-A-CONTENT-CONSUMER references (assumptions stated)
 
 - `lib/migrations.ts` — DDL (additive columns, CHECKs, indexes).

@@ -76,6 +76,7 @@ const RANGE_ENDPOINT = "campaign_configs_schedule_out_of_range";
 const TRANSITION_ENDPOINT = "adset_configs_schedule_transition";
 const THREE_NULLS_ENDPOINT = "campaign_configs_schedule_three_nulls";
 const HASH_ENDPOINT = "campaign_configs_schedule_hash_agreement";
+const CAPTURE_CUTOFF_ENDPOINT = "configs_schedule_capture_cutoff";
 
 let businessId = "";
 
@@ -146,6 +147,7 @@ function adsetState(input: {
   entityId: string;
   observedAt: string;
   startTime?: unknown;
+  endTime?: unknown;
   coverage?: Record<string, unknown>;
 }): MetaEntityObservationStateInput {
   return {
@@ -165,7 +167,7 @@ function adsetState(input: {
     adsetLifetimeBudgetRaw: "250000",
     budgetCurrency: "USD",
     adsetStartTime: (input.startTime ?? null) as string | null,
-    adsetEndTime: null,
+    adsetEndTime: (input.endTime ?? null) as string | null,
     presence: "present",
     fieldCoverage: input.coverage ?? { adsetStartTime: true },
     providerUpdatedAt: "2026-08-10T00:00:00.000Z",
@@ -177,6 +179,7 @@ function completeObservation(input: {
   entityType: "campaign" | "adset";
   endpoint: string;
   observedAt: string;
+  capturedAt?: string;
   states: MetaEntityObservationStateInput[];
 }) {
   return {
@@ -185,7 +188,7 @@ function completeObservation(input: {
     entityType: input.entityType,
     endpoint: input.endpoint,
     observedAt: input.observedAt,
-    capturedAt: input.observedAt,
+    capturedAt: input.capturedAt ?? input.observedAt,
     completeness: "complete" as const,
     pageCount: 1,
     providerRowCount: input.states.length,
@@ -541,6 +544,175 @@ describe.skipIf(!SEAM)(
       // is a demotion to unknown rather than a row that vanished.
       expect(invalid!.entityId).toBe("campaign_three_nulls");
       expect(invalid!.configuredStatus).toBe("ACTIVE");
+    });
+
+    it("does not carry schedule knowledge captured after the selected state", async () => {
+      const selectedObservedAt = "2026-09-12T00:00:00.000Z";
+      const selectedCapturedAt = "2026-09-12T01:00:00.000Z";
+      const futureCapturedAt = "2026-09-12T12:00:00.000Z";
+      const cutoff = "2026-09-13T00:00:00.000Z";
+      const campaignId = "campaign_capture_cutoff";
+      const adsetId = "adset_capture_cutoff";
+      const knownCampaignStart = "2026-09-18T00:00:00.000Z";
+      const knownCampaignEnd = "2026-09-28T00:00:00.000Z";
+      const knownAdsetStart = "2026-09-19T00:00:00.000Z";
+      const knownAdsetEnd = "2026-09-27T00:00:00.000Z";
+
+      // A fact that was genuinely known before the selected state remains
+      // eligible for carry-forward. This makes the case reject both temporal
+      // leakage and an implementation that simply disables the lateral carry.
+      await persistMetaEntityObservation(
+        completeObservation({
+          entityType: "campaign",
+          endpoint: CAPTURE_CUTOFF_ENDPOINT,
+          observedAt: "2026-09-10T00:00:00.000Z",
+          states: [
+            campaignState({
+              entityId: campaignId,
+              observedAt: "2026-09-10T00:00:00.000Z",
+              startTime: knownCampaignStart,
+              endTime: knownCampaignEnd,
+            }),
+          ],
+        }),
+      );
+      await persistMetaEntityObservation(
+        completeObservation({
+          entityType: "adset",
+          endpoint: CAPTURE_CUTOFF_ENDPOINT,
+          observedAt: "2026-09-10T00:00:00.000Z",
+          states: [
+            adsetState({
+              entityId: adsetId,
+              observedAt: "2026-09-10T00:00:00.000Z",
+              startTime: knownAdsetStart,
+              endTime: knownAdsetEnd,
+              coverage: {
+                adsetStartTime: true,
+                adsetEndTime: true,
+              },
+            }),
+          ],
+        }),
+      );
+
+      // These degraded rows are the states that an as-of read is allowed to
+      // select. They deliberately contain no schedule because that request
+      // did not ask the provider for one.
+      await persistMetaEntityObservation(
+        completeObservation({
+          entityType: "campaign",
+          endpoint: CAPTURE_CUTOFF_ENDPOINT,
+          observedAt: selectedObservedAt,
+          capturedAt: selectedCapturedAt,
+          states: [
+            campaignState({
+              entityId: campaignId,
+              observedAt: selectedObservedAt,
+              coverage: {
+                campaignStartTime: "degraded_not_observed",
+                campaignEndTime: "degraded_not_observed",
+              },
+            }),
+          ],
+        }),
+      );
+      await persistMetaEntityObservation(
+        completeObservation({
+          entityType: "adset",
+          endpoint: CAPTURE_CUTOFF_ENDPOINT,
+          observedAt: selectedObservedAt,
+          capturedAt: selectedCapturedAt,
+          states: [
+            adsetState({
+              entityId: adsetId,
+              observedAt: selectedObservedAt,
+              coverage: {
+                adsetStartTime: "degraded_not_observed",
+                adsetEndTime: "degraded_not_observed",
+              },
+            }),
+          ],
+        }),
+      );
+
+      // This provider fact claims an older observation time, but it did not
+      // enter our knowledge until after the selected rows were captured. The
+      // lateral must not attach later knowledge to their earlier provenance,
+      // even when the reader's broader query cutoff would admit that row.
+      await persistMetaEntityObservation(
+        completeObservation({
+          entityType: "campaign",
+          endpoint: CAPTURE_CUTOFF_ENDPOINT,
+          observedAt: "2026-09-11T00:00:00.000Z",
+          capturedAt: futureCapturedAt,
+          states: [
+            campaignState({
+              entityId: campaignId,
+              observedAt: "2026-09-11T00:00:00.000Z",
+              startTime: "2026-09-20T00:00:00.000Z",
+              endTime: "2026-09-30T00:00:00.000Z",
+            }),
+          ],
+        }),
+      );
+      await persistMetaEntityObservation(
+        completeObservation({
+          entityType: "adset",
+          endpoint: CAPTURE_CUTOFF_ENDPOINT,
+          observedAt: "2026-09-11T00:00:00.000Z",
+          capturedAt: futureCapturedAt,
+          states: [
+            adsetState({
+              entityId: adsetId,
+              observedAt: "2026-09-11T00:00:00.000Z",
+              startTime: "2026-09-21T00:00:00.000Z",
+              endTime: "2026-09-29T00:00:00.000Z",
+              coverage: {
+                adsetStartTime: true,
+                adsetEndTime: true,
+              },
+            }),
+          ],
+        }),
+      );
+
+      // Exercise both stateSelect SQL arms for both schedule pairs. Without
+      // the capture bound, all eight assertions below receive the later
+      // captured values; without carry-forward, they receive null.
+      const filteredCampaign = await readCampaign(campaignId, cutoff);
+      const filteredAdset = await readAdset(adsetId, cutoff);
+      const allCampaigns = await readMetaEntityStatesAsOf({
+        businessId,
+        providerAccountId: ACCOUNT_ID,
+        entityType: "campaign",
+        cutoff,
+      });
+      const allAdsets = await readMetaEntityStatesAsOf({
+        businessId,
+        providerAccountId: ACCOUNT_ID,
+        entityType: "adset",
+        cutoff,
+      });
+      const unfilteredCampaign = allCampaigns.find(
+        (row) => row.entityId === campaignId,
+      );
+      const unfilteredAdset = allAdsets.find((row) => row.entityId === adsetId);
+      const instant = (value: string | null | undefined) =>
+        value ? new Date(value).toISOString() : value;
+
+      expect(instant(filteredCampaign?.campaignStartTime)).toBe(knownCampaignStart);
+      expect(instant(filteredCampaign?.campaignEndTime)).toBe(knownCampaignEnd);
+      expect(instant(filteredAdset?.adsetStartTime)).toBe(knownAdsetStart);
+      expect(instant(filteredAdset?.adsetEndTime)).toBe(knownAdsetEnd);
+      expect(instant(unfilteredCampaign?.campaignStartTime)).toBe(
+        knownCampaignStart,
+      );
+      expect(instant(unfilteredCampaign?.campaignEndTime)).toBe(
+        knownCampaignEnd,
+      );
+      expect(instant(unfilteredAdset?.adsetStartTime)).toBe(knownAdsetStart);
+      expect(instant(unfilteredAdset?.adsetEndTime)).toBe(knownAdsetEnd);
     });
 
     it("appends the invalid row and comes back on the known -> invalid -> known transition", async () => {

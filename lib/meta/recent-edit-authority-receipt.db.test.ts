@@ -616,6 +616,71 @@ describe.skipIf(!SEAM)("ROUND 15 — manifest integrity and attempt identity", (
     expect([...membership.presentEntityIds].sort()).toEqual(["as_o_1", "as_o_2"]);
   });
 
+  it("keeps a historical delta manifest's identities when later truth was captured first", async () => {
+    const { persistMetaEntityObservation } = await import(
+      "@/lib/meta/entity-state-history"
+    );
+    const ep = `adset_configs_observation_order_${RUN_SUFFIX}`;
+    const A = `as_order_a_${RUN_SUFFIX}`;
+    const B = `as_order_b_${RUN_SUFFIX}`;
+    const C = `as_order_c_${RUN_SUFFIX}`;
+    const observation = (input: {
+      observedAt: string;
+      capturedAt: string;
+      entityIds: readonly string[];
+    }) =>
+      persistMetaEntityObservation({
+        businessId,
+        providerAccountId: ACCOUNT_ID,
+        entityType: "adset",
+        endpoint: ep,
+        observedAt: input.observedAt,
+        capturedAt: input.capturedAt,
+        completeness: "complete",
+        pageCount: 1,
+        providerRowCount: input.entityIds.length,
+        states: input.entityIds.map((entityId) =>
+          adsetState({ entityId, status: "ACTIVE", observedAt: input.observedAt }),
+        ),
+      });
+
+    const base = await observation({
+      observedAt: "2026-09-05T08:00:00.000Z",
+      capturedAt: "2026-09-05T08:00:01.000Z",
+      entityIds: [A, B],
+    });
+    const laterLive = await observation({
+      observedAt: "2026-09-05T10:00:00.000Z",
+      capturedAt: "2026-09-05T10:00:01.000Z",
+      entityIds: [A, C],
+    });
+    const historical = await observation({
+      observedAt: "2026-09-05T09:00:00.000Z",
+      capturedAt: "2026-09-05T11:00:00.000Z",
+      entityIds: [A, B],
+    });
+
+    expect(base.manifestKind).toBe("full");
+    expect(laterLive.manifestKind).toBe("delta");
+    expect(historical.manifestKind).toBe("delta");
+    expect(historical.stateCount).toBe(0);
+
+    const membership = await readMetaCompleteManifestMembershipForReceipt({
+      businessId,
+      providerAccountId: ACCOUNT_ID,
+      entityType: "adset",
+      endpoint: ep,
+      observationRunId: historical.runId,
+      expectedProviderRowCount: 2,
+      receiptCapturedAt: "2026-09-05T11:00:00.000Z",
+      knowledgeEndExclusive: KNOWLEDGE,
+      entityIds: [A, B, C],
+    });
+    expect(membership.ok).toBe(true);
+    expect(membership.manifestCount).toBe(2);
+    expect([...membership.presentEntityIds].sort()).toEqual([A, B].sort());
+  });
+
   it("refuses when the RECEIPT and the RUN disagree about the scope size", async () => {
     const ep = `adset_configs_pair_${RUN_SUFFIX}`;
     const obs = await observationRun({

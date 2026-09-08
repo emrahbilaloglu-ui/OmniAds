@@ -78,6 +78,8 @@ const RECENCY_ENDPOINT = "adset_configs_partial_recency";
 const WINDOW_COALESCED_ENDPOINT = "adset_configs_window_coalesced";
 const WINDOW_CROSSING_ENDPOINT = "adset_configs_window_crossing";
 const WINDOW_AFTER_UNTIL_ENDPOINT = "adset_configs_window_after_until";
+const SAME_OBSERVED_TRANSITION_ENDPOINT =
+  "adset_configs_same_observed_transition";
 
 let businessId = "";
 
@@ -1242,6 +1244,105 @@ describe.skipIf(!SEAM)(
       expect(rows).toHaveLength(2);
       for (const row of rows) {
         expect(new Date(row.observed_at).toISOString()).toBe(FIRST_OBSERVED);
+      }
+    });
+
+    it("uses capture order before coalescing a same-observed A -> B -> A transition", async () => {
+      const sql = getDb();
+      const entityId = "rc_same_observed_aba";
+      const observedAt = "2026-12-02T02:00:00.000Z";
+      const firstCapturedAt = "2026-12-02T02:00:01.000Z";
+      const secondCapturedAt = "2026-12-02T02:00:02.000Z";
+      const thirdCapturedAt = "2026-12-02T02:00:03.000Z";
+      const firstRunId = "ffffffff-ffff-4fff-8fff-ffffffffff01";
+      const secondRunId = "00000000-0000-4000-8000-000000000002";
+      const thirdRunId = "11111111-1111-4111-8111-111111111103";
+
+      try {
+        /*
+          Make the pre-fix failure deterministic. With equal observed_at, its
+          `ORDER BY observed_at DESC, id DESC` chose the first A because this
+          UUID sorts above B's UUID. The third A then looked unchanged and
+          coalesced into cap1, suppressing the real B -> A transition. Random
+          UUIDs would turn this into a coin-flip regression.
+        */
+        await sql`ALTER TABLE meta_entity_observation_runs
+          ALTER COLUMN id SET DEFAULT 'ffffffff-ffff-4fff-8fff-ffffffffff01'::uuid`;
+        const first = await persistMetaEntityObservation(
+          adsetObservation({
+            endpoint: SAME_OBSERVED_TRANSITION_ENDPOINT,
+            completeness: "complete",
+            observedAt,
+            capturedAt: firstCapturedAt,
+            entities: [{ id: entityId, status: "ACTIVE" }],
+          }),
+        );
+
+        await sql`ALTER TABLE meta_entity_observation_runs
+          ALTER COLUMN id SET DEFAULT '00000000-0000-4000-8000-000000000002'::uuid`;
+        const second = await persistMetaEntityObservation(
+          adsetObservation({
+            endpoint: SAME_OBSERVED_TRANSITION_ENDPOINT,
+            completeness: "complete",
+            observedAt,
+            capturedAt: secondCapturedAt,
+            entities: [{ id: entityId, status: "PAUSED" }],
+          }),
+        );
+
+        await sql`ALTER TABLE meta_entity_observation_runs
+          ALTER COLUMN id SET DEFAULT '11111111-1111-4111-8111-111111111103'::uuid`;
+        const third = await persistMetaEntityObservation(
+          adsetObservation({
+            endpoint: SAME_OBSERVED_TRANSITION_ENDPOINT,
+            completeness: "complete",
+            observedAt,
+            capturedAt: thirdCapturedAt,
+            entities: [{ id: entityId, status: "ACTIVE" }],
+          }),
+        );
+
+        const timeline = await sql<{
+          run_id: string;
+          captured_at: string;
+          configured_status: string | null;
+        }>`
+          SELECT observation.id::text AS run_id,
+                 observation.captured_at::text AS captured_at,
+                 state.configured_status
+          FROM meta_entity_observation_runs observation
+          JOIN meta_entity_state_history state ON state.run_id = observation.id
+          WHERE observation.business_id = ${businessId}
+            AND observation.provider_account_id = ${ACCOUNT_ID}
+            AND observation.entity_type = 'adset'
+            AND observation.endpoint = ${SAME_OBSERVED_TRANSITION_ENDPOINT}
+            AND state.entity_id = ${entityId}
+          ORDER BY observation.captured_at, observation.created_at, observation.id
+        `;
+
+        expect(first.runId).toBe(firstRunId);
+        expect(second.runId).toBe(secondRunId);
+        expect(third.runId).toBe(thirdRunId);
+        expect(first.coalesced).toBe(false);
+        expect(second.coalesced).toBe(false);
+        expect(third.coalesced).toBe(false);
+        expect(third.semanticHash).toBe(first.semanticHash);
+        expect(second.semanticHash).not.toBe(first.semanticHash);
+        expect(third.stateCount).toBe(1);
+        expect(
+          timeline.map((row) => ({
+            runId: row.run_id,
+            capturedAt: new Date(row.captured_at).toISOString(),
+            status: row.configured_status,
+          })),
+        ).toEqual([
+          { runId: firstRunId, capturedAt: firstCapturedAt, status: "ACTIVE" },
+          { runId: secondRunId, capturedAt: secondCapturedAt, status: "PAUSED" },
+          { runId: thirdRunId, capturedAt: thirdCapturedAt, status: "ACTIVE" },
+        ]);
+      } finally {
+        await sql`ALTER TABLE meta_entity_observation_runs
+          ALTER COLUMN id SET DEFAULT gen_random_uuid()`;
       }
     });
 

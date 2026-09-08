@@ -185,7 +185,9 @@ const STATE_HISTORY_REFERENCE_LEDGER: ReadonlyArray<{
     against. It is a test fixture reading what the writer stored; no production
     path uses it.
   */
-  { file: "lib/meta/entity-state-history-partial-delta.db.test.ts", category: "test", count: 4 },
+  // 4 -> 5: exact same-observed coalescing order is proven by a real-PG
+  // transition readback; the added literal belongs only to that test query.
+  { file: "lib/meta/entity-state-history-partial-delta.db.test.ts", category: "test", count: 5 },
   /*
     Codex Round 4 item 7. Names the table to seed and read back a schedule the
     provider answered with an unusable value: PostgreSQL used to be the first

@@ -15,14 +15,16 @@ const priorObservedStates = vi.hoisted(() => ({
   rows: [] as unknown[],
   throws: false,
   calls: 0,
+  inputs: [] as unknown[],
 }));
 vi.mock("@/lib/meta/entity-state-history", async (importOriginal) => {
   const actual =
     await importOriginal<typeof import("@/lib/meta/entity-state-history")>();
   return {
     ...actual,
-    readMetaEntityStatesAsOf: vi.fn(async () => {
+    readMetaEntityStatesAsOf: vi.fn(async (input: unknown) => {
       priorObservedStates.calls += 1;
+      priorObservedStates.inputs.push(input);
       if (priorObservedStates.throws) throw new Error("state read unavailable");
       return priorObservedStates.rows;
     }),
@@ -121,6 +123,7 @@ beforeEach(() => {
   priorObservedStates.rows = [];
   priorObservedStates.throws = false;
   priorObservedStates.calls = 0;
+  priorObservedStates.inputs = [];
   // The loop now warns on every rejected page. Capture it rather than letting
   // it print, and assert on what it carries.
   warnCalls.length = 0;
@@ -708,6 +711,57 @@ describe("degraded campaign schedule capture", () => {
         lifetimeBudgetUnknownCount: 0,
       },
     });
+  });
+
+  it("bounds the prior-state read to the observation capture instant", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-12T01:00:00.000Z"));
+    try {
+      const fetchMock = vi.fn(async (request: RequestInfo | URL) => {
+        const fields =
+          new URL(String(request)).searchParams.get("fields") ?? "";
+        if (fields.includes("stop_time")) {
+          return jsonResponse(permanentGraphErrorBody("stop_time"), 400);
+        }
+        return jsonResponse({ data: [LIFETIME_BUDGET_CAMPAIGN] });
+      });
+      vi.stubGlobal("fetch", fetchMock);
+      const receipt = await fetchMetaCampaignConfigsReceipt(
+        "act_1",
+        ACCESS_TOKEN,
+      );
+      let mapperCapturedAt = "";
+      const observation = await buildMetaStatusConfigObservation({
+        credentials: CREDENTIALS,
+        accountId: "act_1",
+        entityType: "campaign",
+        endpoint: "campaign_configs",
+        receipt,
+        sourceSnapshotId: null,
+        partitionId: PARTITION_ID,
+        mapRow: ({ row, responseObservedAt, capturedAt, degradedFields }) => {
+          mapperCapturedAt = capturedAt;
+          // Simulate work and a concurrent capture after this observation's
+          // immutable capture instant has already been chosen.
+          vi.setSystemTime(new Date("2026-09-12T01:05:00.000Z"));
+          return mapCampaignObservationState({
+            credentials: CREDENTIALS,
+            accountId: "act_1",
+            row,
+            responseObservedAt,
+            capturedAt,
+            degradedFields,
+          });
+        },
+      });
+      const readInput = priorObservedStates.inputs[0] as { cutoff: string };
+
+      expect(observation.capturedAt).toBe(mapperCapturedAt);
+      expect(readInput.cutoff).toBe(observation.capturedAt);
+      expect(readInput.cutoff).toBe("2026-09-12T01:00:00.000Z");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("does not resurrect a schedule from a row the provider had stopped returning", async () => {

@@ -2123,6 +2123,7 @@ async function carryForwardDegradedSchedule(input: {
   entityType: Exclude<MetaEntityType, "creative">;
   droppedFields: readonly string[];
   states: MetaEntityObservationStateInput[];
+  capturedAt: string;
 }): Promise<MetaScheduleDegradationReceipt | null> {
   const schedule =
     input.entityType === "campaign" || input.entityType === "adset"
@@ -2150,7 +2151,7 @@ async function carryForwardDegradedSchedule(input: {
     providerAccountId: input.providerAccountId,
     entityType: input.entityType,
     entityIds: input.states.map((state) => state.entityId),
-    cutoff: new Date(),
+    cutoff: input.capturedAt,
   }).catch(() => {
     priorStateReadFailed = true;
     return [];
@@ -2293,6 +2294,7 @@ export async function buildMetaStatusConfigObservation<TItem>(input: {
           entityType: input.entityType,
           droppedFields: degradedFields,
           states,
+          capturedAt,
         })
       : null;
   if (scheduleDegradation) {

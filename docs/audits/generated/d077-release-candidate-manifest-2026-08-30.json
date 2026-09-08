@@ -1,26 +1,26 @@
 {
- "manifestHash": "6ae54848db5c6bf6bb5acbcc3f221c17bd2d55a0420ebaac0c1600bb6bc8291a",
+ "manifestHash": "a10003eff4f024359c37c235c5438f35c3271d5bca744fac054c32561c91d5ed",
  "hashAlgorithm": "sha256",
  "hashBasis": "sha256 over UTF-8 bytes of JSON.stringify(artifact, null, 1) of the artifact WITHOUT its embedded hash fields (the artifact object before {<hashField>, hashAlgorithm, hashBasis} are prepended)",
  "contract": "adsecute.d077.release-candidate-manifest.v3",
- "generatedAtUtc": "2026-09-08T22:06:44.498Z",
+ "generatedAtUtc": "2026-09-08T22:22:18.515Z",
  "branch": "codex/meta-release-finalization",
  "supersededBranchLabel": "codex/meta-disabled-readiness-20260829",
- "head": "1be609680f83f75f9bb33183ac5046e6ebc86c1c",
+ "head": "da986b4949f07010f49a45f31b10ada11d24e908",
  "baseMain": "babf158e150fd33057117b39b175da044ac62d2e",
  "originMain": "a2eb1b1b1dae9e69ffe470c39ada19731a570224",
  "remoteDivergence": {
-  "aheadOfOriginMain": 12,
+  "aheadOfOriginMain": 13,
   "behindOriginMain": 0
  },
  "selfExclusion": "this manifest's own path (docs/audits/generated/d077-release-candidate-manifest-2026-08-30.json) is EXCLUDED from its entry list: a manifest cannot recursively pin its own final bytes; its external SHA-256 is reported in the final response and by Codex's own hashing",
- "gitPorcelainEntryCount": 12,
- "releaseDiffEntryCountIncludingSelf": 1056,
- "expandedOnDiskCandidateFileCountIncludingSelf": 1056,
- "pinnedNonSelfFileCount": 1055,
+ "gitPorcelainEntryCount": 5,
+ "releaseDiffEntryCountIncludingSelf": 1057,
+ "expandedOnDiskCandidateFileCountIncludingSelf": 1057,
+ "pinnedNonSelfFileCount": 1056,
  "historicalContext": "pre-task freeze was 217 porcelain entries / 265 files — historical context only, NOT the final tree",
  "classCounts": {
-  "tests_only": 495,
+  "tests_only": 496,
   "runtime": 337,
   "runtime_deletion": 2,
   "deploy_config": 1,
@@ -2015,13 +2015,13 @@
    "path": "docs/audits/generated/d077-correction1-verification-ledger-2026-08-30.json",
    "git": "A",
    "class": "generated_evidence",
-   "sha256": "74801447587cddfb5b7bae29cf306c4a4b21ee0ecc56b5918d6a038c9cf7ad74"
+   "sha256": "e9b4b163b0805c37709188514a734e0b7ddc8af5780655e0eb94e574e03b39fe"
   },
   {
    "path": "docs/audits/generated/d077-database-recovery-approval-packet-2026-08-30.json",
    "git": "A",
    "class": "generated_evidence",
-   "sha256": "f5894f8fa806329b4be27a2b1ed9831ba488883368bb914ca869730dce805676"
+   "sha256": "a63e768c2c11ab8e52058198a15c68adfff494bff77df89348a8bb0cec49b522"
   },
   {
    "path": "docs/audits/generated/d077-production-recovery-readonly-evidence-2026-08-30.json",
@@ -2033,7 +2033,7 @@
    "path": "docs/audits/generated/d077-release-deploy-approval-packet-2026-08-30.json",
    "git": "A",
    "class": "generated_evidence",
-   "sha256": "29e777999810029d512d4e7b947b3a735448a6bad7e0583947c4c8ba80501b2a"
+   "sha256": "7b37340444e61a0c493fd1596f8b4b08050fce3e7e1f0c2b7c64a2588c7d5ec3"
   },
   {
    "path": "docs/audits/generated/d078-hard-action-recompute-2026-08-30.json",
@@ -5504,10 +5504,16 @@
    "sha256": "5b0cc5fe5cb7b16a2a863a3629340baae5c2c7571a040904d75ff472d3d783f0"
   },
   {
+   "path": "lib/sync/meta-sync.test.ts",
+   "git": "M",
+   "class": "tests_only",
+   "sha256": "b778bd376b5b3fb0d4553bb2a25f805dd49d22e60b12894b1889ed3b49e97c5f"
+  },
+  {
    "path": "lib/sync/meta-sync.ts",
    "git": "M",
    "class": "runtime",
-   "sha256": "86bb7934359214294e9e09b49774b4f6b48b7a91eedbfba6e0d43da695a35b26"
+   "sha256": "db7ac57f6f0df25b887b4c987acca9c33855388c0edf17d5107284118f9f8671"
   },
   {
    "path": "lib/sync/provider-day-rollover.test.ts",

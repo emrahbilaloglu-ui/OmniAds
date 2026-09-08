@@ -102,7 +102,7 @@ import {
 } from "@/lib/meta/history";
 import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
 import {
-  ensureProviderAccountReferenceIds,
+  ensureProviderAccountReferenceBindings,
   resolveBusinessReferenceIds,
 } from "@/lib/provider-account-reference-store";
 import {
@@ -773,6 +773,19 @@ function getTodayIsoForTimeZoneServer(timeZone: string): string {
   const month = parts.find((part) => part.type === "month")?.value ?? "01";
   const day = parts.find((part) => part.type === "day")?.value ?? "01";
   return `${year}-${month}-${day}`;
+}
+
+export function buildMetaD1AccountTargetDates(input: {
+  providerAccountIds: string[];
+  boundAccountTimezones: ReadonlyMap<string, string>;
+}) {
+  return new Map(
+    input.providerAccountIds.map((providerAccountId) => {
+      const timezone = input.boundAccountTimezones.get(providerAccountId) ?? "UTC";
+      const today = getTodayIsoForTimeZoneServer(timezone);
+      return [providerAccountId, addUtcDays(today, -1)] as const;
+    }),
+  );
 }
 
 function toIsoDate(date: Date) {
@@ -5236,21 +5249,21 @@ export async function recoverMetaD1FinalizePartitions(input: {
     (await resolveBusinessReferenceIds([input.businessId])).get(input.businessId) ??
     null;
   const credentials = await resolveMetaCredentials(input.businessId).catch(() => null);
-  const providerAccountRefIds = await ensureProviderAccountReferenceIds({
+  const providerAccountBindings = await ensureProviderAccountReferenceBindings({
     provider: "meta",
     accounts: (credentials?.accountIds ?? []).map((providerAccountId) => ({
       externalAccountId: providerAccountId,
       timezone: credentials?.accountProfiles?.[providerAccountId]?.timezone ?? null,
     })),
   });
-  const accountTargetDates = new Map(
-    (credentials?.accountIds ?? []).map((providerAccountId) => {
-      const timezone =
-        credentials?.accountProfiles?.[providerAccountId]?.timezone ?? "UTC";
-      const today = getTodayIsoForTimeZoneServer(timezone);
-      return [providerAccountId, addUtcDays(today, -1)] as const;
-    }),
-  );
+  const providerAccountRefIds = providerAccountBindings.refIds;
+  const accountTargetDates = buildMetaD1AccountTargetDates({
+    providerAccountIds: credentials?.accountIds ?? [],
+    // The binding returned by the preserve-mode upsert is the calendar
+    // authority. The credential profile may be stale or absent and must not
+    // reclassify a legitimate provider-local D-1 partition.
+    boundAccountTimezones: providerAccountBindings.timezones,
+  });
   const targetDates = Array.from(new Set(accountTargetDates.values())).sort();
   const targetDate = targetDates[0] ?? addUtcDays(new Date().toISOString().slice(0, 10), -1);
   const verification = await getMetaPublishedVerificationSummary({

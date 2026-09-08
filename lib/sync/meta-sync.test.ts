@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  buildMetaD1AccountTargetDates,
   buildMetaDailyCoverageLookup,
   buildMetaFairnessLeasePlan,
   buildMetaFollowupLeasePlan,
@@ -504,6 +505,24 @@ describe("syncMetaRepairRange trigger source precedence", () => {
 });
 
 describe("recoverMetaD1FinalizePartitions partition updates", () => {
+  it("derives D-1 from the preserved account binding rather than a transient profile", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-09T00:30:00.000Z"));
+
+    try {
+      const accountTargetDates = buildMetaD1AccountTargetDates({
+        providerAccountIds: ["act_1"],
+        // At this instant UTC is September 9, while Los Angeles is September 8.
+        // The preserved binding therefore makes the legitimate D-1 September 7.
+        boundAccountTimezones: new Map([["act_1", "America/Los_Angeles"]]),
+      });
+
+      expect(accountTargetDates.get("act_1")).toBe("2026-09-07");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("does not reference run.finished_at from partition-only UPDATE statements", () => {
     const source = readFileSync(
       new URL("./meta-sync.ts", import.meta.url),

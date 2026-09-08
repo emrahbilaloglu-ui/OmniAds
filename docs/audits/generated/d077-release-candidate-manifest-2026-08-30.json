@@ -1,26 +1,26 @@
 {
- "manifestHash": "b97eedd0cb2d05126344cba41cd82951d60fc066af35b6e03a6417433b7d0706",
+ "manifestHash": "c6383edd8d442c0da3d9381e582dcb262da9a8e6bacfd368f4fa6d8ef93054a4",
  "hashAlgorithm": "sha256",
  "hashBasis": "sha256 over UTF-8 bytes of JSON.stringify(artifact, null, 1) of the artifact WITHOUT its embedded hash fields (the artifact object before {<hashField>, hashAlgorithm, hashBasis} are prepended)",
  "contract": "adsecute.d077.release-candidate-manifest.v3",
- "generatedAtUtc": "2026-09-08T15:17:54.729Z",
+ "generatedAtUtc": "2026-09-08T16:08:28.967Z",
  "branch": "codex/meta-release-finalization",
  "supersededBranchLabel": "codex/meta-disabled-readiness-20260829",
- "head": "e277552acfdd00eb4d2d3d97897fceb2da87af2a",
+ "head": "91b5e7ec325699533532dfa3ab12c212fa255954",
  "baseMain": "babf158e150fd33057117b39b175da044ac62d2e",
  "originMain": "a2eb1b1b1dae9e69ffe470c39ada19731a570224",
  "remoteDivergence": {
-  "aheadOfOriginMain": 2,
+  "aheadOfOriginMain": 3,
   "behindOriginMain": 0
  },
  "selfExclusion": "this manifest's own path (docs/audits/generated/d077-release-candidate-manifest-2026-08-30.json) is EXCLUDED from its entry list: a manifest cannot recursively pin its own final bytes; its external SHA-256 is reported in the final response and by Codex's own hashing",
- "gitPorcelainEntryCount": 4,
- "releaseDiffEntryCountIncludingSelf": 1049,
- "expandedOnDiskCandidateFileCountIncludingSelf": 1049,
- "pinnedNonSelfFileCount": 1048,
+ "gitPorcelainEntryCount": 9,
+ "releaseDiffEntryCountIncludingSelf": 1050,
+ "expandedOnDiskCandidateFileCountIncludingSelf": 1050,
+ "pinnedNonSelfFileCount": 1049,
  "historicalContext": "pre-task freeze was 217 porcelain entries / 265 files — historical context only, NOT the final tree",
  "classCounts": {
-  "tests_only": 491,
+  "tests_only": 492,
   "runtime": 334,
   "runtime_deletion": 2,
   "deploy_config": 1,
@@ -2009,7 +2009,7 @@
    "path": "docs/audits/generated/d077-release-deploy-approval-packet-2026-08-30.json",
    "git": "A",
    "class": "generated_evidence",
-   "sha256": "e237f9cd0940901616ec867eafbcde6025111812717e2761b7cdc7509b3ec759"
+   "sha256": "82cf1d99eba1ec46047032ca8e7ca4f199b7b69ac3090eefd1dc8fcd6e7b2850"
   },
   {
    "path": "docs/audits/generated/d078-hard-action-recompute-2026-08-30.json",
@@ -2393,7 +2393,7 @@
    "path": "docs/creative-decision-center/DECISION_LOG.md",
    "git": "M",
    "class": "docs",
-   "sha256": "450dfea811689a7dab3fd06645c2a0543d58aa00fa6f82a65c9f40cbfa0179bc"
+   "sha256": "8bc993c200707b87a98c9337e3b6bc20e1caef3ddd8a9d9b85d2d34da3c52e49"
   },
   {
    "path": "docs/creative-decision-center/generated/h11b-context-lifecycle-bundle-2026-07-13-to-2026-08-22.json",
@@ -2435,7 +2435,7 @@
    "path": "docs/creative-decision-center/INVARIANTS.md",
    "git": "M",
    "class": "docs",
-   "sha256": "82727cad456bd9605e4694966029f766db34598dfc891a0c793e12d3ecb9c889"
+   "sha256": "9f6f6bf3ee66b857af7a3168b26fcd9cecf1214f70de1ae7d4102d27e4d2fa53"
   },
   {
    "path": "docs/creative-decision-center/NATIVE_AD_ACCOUNT_AOV_AUTHORITY_2026-07-16.md",
@@ -2603,7 +2603,7 @@
    "path": "lib/creative-decision-engine/__tests__/account-decision-profile.test.ts",
    "git": "M",
    "class": "tests_only",
-   "sha256": "253d76186cb0baf45cbd57bef53ca354581fb58a2604cf2ce88cae507d7cf3af"
+   "sha256": "8ee9a7f8d3ab875b805a8b0a19a48d058a460a45a65de8a194315c1253106036"
   },
   {
    "path": "lib/creative-decision-engine/__tests__/ad-account-decision-profile-store.test.ts",
@@ -2843,7 +2843,7 @@
    "path": "lib/creative-decision-engine/account-decision-profile.ts",
    "git": "M",
    "class": "runtime",
-   "sha256": "3399b93e316e3aadcf637f719c05b3f04977705ad557efeef42a26ade7091fbe"
+   "sha256": "afa3e2e1a2fdc0203491c7d43386fe533b9c1517652b71702c3e6b98e8fcfa27"
   },
   {
    "path": "lib/creative-decision-engine/ad-account-decision-profile-store.ts",
@@ -2939,7 +2939,7 @@
    "path": "lib/creative-decision-engine/data-source.ts",
    "git": "M",
    "class": "runtime",
-   "sha256": "1cd9704697a1366a57c065f4f77ae7613a288bd18888e3b692e233205a129dc4"
+   "sha256": "ba523f38d8c8241b3b29b849d0d75c96836c5f59f632e93f7ed3ab0c97935f13"
   },
   {
    "path": "lib/creative-decision-engine/evaluation-store.ts",
@@ -3044,10 +3044,16 @@
    "sha256": "1be9b5a45fbc04f895ca23d2689364119d01207bbbeed5aed6db2c3dce4a936c"
   },
   {
+   "path": "lib/creative-decision-engine/meta-aov-calculator.test.ts",
+   "git": "??",
+   "class": "tests_only",
+   "sha256": "8af59e5c67a3d5b77dcbb19b60f1aba28a6be5fd428592cc0eea075b952d4323"
+  },
+  {
    "path": "lib/creative-decision-engine/meta-aov-calculator.ts",
    "git": "M",
    "class": "runtime",
-   "sha256": "6262e38eadd65b6fcd953498da594f07c4cc270a1595937aa1a3ebda5ce3647e"
+   "sha256": "73aeb9cb1144bfa79d3bc03e9b0c14fce3a82d476291e891bb75fab2b57d495b"
   },
   {
    "path": "lib/creative-decision-engine/native-projection-retry.test.ts",
@@ -6101,7 +6107,7 @@
    "path": "scripts/ephemeral-postgres-economics-bid-chain-seam-child.ts",
    "git": "A",
    "class": "script_ops_non_request_path",
-   "sha256": "2e2e204e945fce0e2f0042a9552a9e19beb33c24ec96f579d19370ad5c188dcf"
+   "sha256": "65cbf2e1477c90e63cc400398524dce0aa3d275a742683a8b1c04a5a408f7dcd"
   },
   {
    "path": "scripts/ephemeral-postgres-entity-state-history-seam-child.ts",

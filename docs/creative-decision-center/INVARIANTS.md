@@ -1078,6 +1078,17 @@ projected out of `spendUnitEvidence`, of `accountBaselines` /
 positive Target ROAS the `account_history` rung is reachable, the CPA genuinely
 chooses the unit, and every one of those digests is unchanged.
 
+**Meta AOV authority is proven by the strict physical-account read, not inferred
+from a scalar stored on a legacy calibration row.** The source is
+`meta_ad_daily`, bound to one business and one physical provider account. Every
+admitted fact is `FINALIZED`/`PASSED`, uses the current canonical metric schema
+and one source account currency, and has non-null `created_at`, `updated_at` and
+`finalized_at` at or before the knowledge cutoff. A date-only `asOf` widens to
+`T03:00:00.000Z`; an explicit timestamp is used exactly. With a Target ROAS,
+the strict result authoritatively overrides the calibration payload, and a
+legacy `metaAttributedAov*` scalar is never a fallback. If the strict proof is
+missing or refused, the result is the total hold above.
+
 **Native readiness holds outright for SCALE, CUT and REFRESH (Round 8, widened
 in Round 10).** With a governing Target ROAS and a spend-unit authority that is
 not READY, the calibration cell answers `ready: false` with

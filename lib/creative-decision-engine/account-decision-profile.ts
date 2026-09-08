@@ -788,7 +788,23 @@ export async function resolveAccountDecisionProfile(input: {
     funnelCalibrationByKindPromise,
   ]);
 
+  /*
+    A Target ROAS makes the cutoff-safe physical-account read authoritative.
+
+    Calibration rows still carry the older creative-day AOV projection for
+    persisted compatibility. That projection has no finalized/validation or
+    knowledge-cutoff clocks, so its presence must never suppress this read or
+    survive as a fallback in the ROAS-governed case. A failed/empty live read is
+    therefore an authoritative absence and HOLDS; it is not permission to reuse
+    the legacy value. With no positive Target ROAS, the old fallback behaviour
+    remains available to the non-ROAS diagnostic/CPA path.
+  */
+  const targetRoasRequiresAuthoritativeMetaAov =
+    typeof targetPack?.targetRoas === "number" &&
+    Number.isFinite(targetPack.targetRoas) &&
+    targetPack.targetRoas > 0;
   const needsLiveMetaAov =
+    targetRoasRequiresAuthoritativeMetaAov ||
     accountCalibration.metaAttributedAovMean90d === null ||
     accountCalibration.metaAttributedAovPurchaseCount90d === 0;
   const liveMetaAov = needsLiveMetaAov
@@ -801,18 +817,22 @@ export async function resolveAccountDecisionProfile(input: {
         .catch(() => null)
     : null;
 
-  const metaAttributedAovMean90d =
-    accountCalibration.metaAttributedAovMean90d ?? liveMetaAov?.aovMean ?? null;
-  const metaAttributedAovPurchaseCount90d =
-    accountCalibration.metaAttributedAovPurchaseCount90d ||
-    liveMetaAov?.purchaseCount ||
-    0;
-  const metaAttributedRevenue90d =
-    accountCalibration.metaAttributedRevenue90d ||
-    liveMetaAov?.totalRevenue ||
-    0;
-  const metaAovQuality =
-    accountCalibration.metaAovQuality !== "unavailable"
+  const metaAttributedAovMean90d = targetRoasRequiresAuthoritativeMetaAov
+    ? liveMetaAov?.aovMean ?? null
+    : accountCalibration.metaAttributedAovMean90d ?? liveMetaAov?.aovMean ?? null;
+  const metaAttributedAovPurchaseCount90d = targetRoasRequiresAuthoritativeMetaAov
+    ? liveMetaAov?.purchaseCount ?? 0
+    : accountCalibration.metaAttributedAovPurchaseCount90d ||
+      liveMetaAov?.purchaseCount ||
+      0;
+  const metaAttributedRevenue90d = targetRoasRequiresAuthoritativeMetaAov
+    ? liveMetaAov?.totalRevenue ?? 0
+    : accountCalibration.metaAttributedRevenue90d ||
+      liveMetaAov?.totalRevenue ||
+      0;
+  const metaAovQuality = targetRoasRequiresAuthoritativeMetaAov
+    ? classifyMetaAovQuality(metaAttributedAovPurchaseCount90d)
+    : accountCalibration.metaAovQuality !== "unavailable"
       ? accountCalibration.metaAovQuality
       : classifyMetaAovQuality(metaAttributedAovPurchaseCount90d);
 
@@ -829,10 +849,18 @@ export async function resolveAccountDecisionProfile(input: {
       >((acc, campaignKind) => {
         const calibration = accountBaselinesByKind[campaignKind];
         acc[campaignKind] = calibration
-          ? withAovFallback({
-              calibration,
-              fallback: accountBaselinesWithAov,
-            })
+          ? targetRoasRequiresAuthoritativeMetaAov
+            ? {
+                ...calibration,
+                metaAttributedAovMean90d,
+                metaAttributedAovPurchaseCount90d,
+                metaAttributedRevenue90d,
+                metaAovQuality,
+              }
+            : withAovFallback({
+                calibration,
+                fallback: accountBaselinesWithAov,
+              })
           : null;
         return acc;
       }, emptyByKind<AccountCalibration>())

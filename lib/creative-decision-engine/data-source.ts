@@ -233,12 +233,11 @@ export interface CreativeDecisionDataSource {
   }): Promise<DecisionCalibrationProfileConfig | null>;
 
   /**
-   * Live Meta-attributed AOV fallback for first-run calibration gaps.
+   * Cutoff-safe Meta-attributed AOV authority for one physical ad account.
    *
-   * `providerAccountId` narrows it to one ad account's own purchases. This is
-   * the rung the spend-unit resolver reaches when an account has no configured
-   * unit and no store evidence, so an unscoped read here is exactly how an
-   * account with no purchases of its own acquires a sibling's benchmark.
+   * A blank `providerAccountId` cannot establish account-local authority and
+   * therefore returns an empty sample. Under Target ROAS this read owns the
+   * profile value even when a legacy calibration row already contains AOV.
    */
   getMetaAttributedAov(input: {
     businessId: string;
@@ -6574,13 +6573,11 @@ export class WarehouseDataSource
     providerAccountId?: string | null;
   }): Promise<MetaAttributedAovResult> {
     /*
-      ONE reader, with the account as a parameter.
+      ONE strict reader, with the account as a required authority input.
 
-      The account filter lives in `computeMetaAttributedAov` itself rather than
-      in a scoped copy of its window kept here: identical window, identical
-      `OUTCOME_SALES` predicate, identical arithmetic and one extra predicate is
-      exactly the shape that drifts, because nothing would make the two agree.
-      `null` there means the business, exactly as it does here.
+      Account binding, finalized/validated canonical facts and the historical
+      knowledge cutoff all live in `computeMetaAttributedAov` rather than in a
+      scoped copy kept here. Blank account scope fails closed to an empty sample.
     */
     return computeMetaAttributedAov({
       businessId: input.businessId,
@@ -6598,14 +6595,11 @@ export class WarehouseDataSource
  *
  * WHY IT EXISTS. `resolveAccountDecisionProfile` performs its own measured
  * reads — the account calibration, its kind-segmented variants, the funnel pack
- * and, when the calibration carries no attributed AOV, a live Meta-attributed
- * one. Every one of those defaults to the business (the precomputed
- * `scope_id '*'` row, and a runtime aggregate over every account the business
- * owns), so a caller that resolves the profile FOR one account against a plain
- * `WarehouseDataSource` gets an answer computed from all of them: a sibling
- * account's samples set this account's percentiles and calibration readiness,
- * and an account with no purchases of its own is handed a sibling's average
- * order value.
+ * and the strict Meta-attributed AOV authority. Calibration lookups default to
+ * the business (`scope_id '*'`), so a caller that resolves the profile FOR one
+ * account against a plain `WarehouseDataSource` can still get percentiles and
+ * readiness computed from sibling accounts. Pinning the source also ensures the
+ * strict AOV reader receives the physical provider account it must prove.
  *
  * The retention producer already avoids that by pinning the account into the
  * source it hands the resolver (`PinnedInputDataSource` in

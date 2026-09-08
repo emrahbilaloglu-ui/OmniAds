@@ -8722,3 +8722,22 @@ be is refused rather than silently redefining the window it bounds.
 maturity floor and the CPA Scale veto, and returns every contract to its prior
 version. Persisted rows are not rewritten by either direction; they are re-minted
 by the next producer run.
+
+## D093 — Strict Meta AOV owns profile authority (2026-09-08)
+
+**Decision.** A Meta-attributed AOV may authorize a Target-ROAS decision only
+when the strict reader proves it from `meta_ad_daily` for one exact business and
+physical provider account. Every admitted fact must be `FINALIZED`/`PASSED`, use
+the current canonical metric schema and one source account currency, and carry
+non-null `created_at`, `updated_at` and `finalized_at` no later than the
+knowledge cutoff. A date-only `asOf` widens to `T03:00:00.000Z`; an explicit
+timestamp remains that exact instant. A later SCD0 revision is excluded from an
+earlier cutoff rather than reconstructed or trusted.
+
+**Profile consequence.** With a Target ROAS, the strict result is the
+authoritative override for the canonical and campaign-kind profiles. A
+`metaAttributedAov*` value retained in legacy account calibration is historical
+evidence only: it never supplies a fallback, never preserves a READY state when
+the strict read refuses, and never grants hard eligibility by sample count
+alone. Missing, thin or unverifiable strict evidence therefore produces the
+D092 total hold. The no-Target-ROAS Target-CPA compatibility case is unchanged.

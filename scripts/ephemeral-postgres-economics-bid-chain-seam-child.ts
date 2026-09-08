@@ -86,6 +86,7 @@
 import {
   createMetaAuthoritativeSliceVersion,
   publishMetaAuthoritativeSliceVersion,
+  upsertMetaAdDailyRows,
   upsertMetaAdSetDailyRows,
   upsertMetaCampaignDailyRows,
   upsertMetaCreativeDailyRows,
@@ -103,7 +104,10 @@ import { BUDGET_SIZING_POLICY_VERSION } from "@/lib/meta/budget-sizing-policy";
 import { CAMPAIGN_CONTEXT_RESOLVER_VERSION } from "@/lib/creative-decision-engine/campaign-context/resolver";
 import { runCalibrationJob } from "@/lib/creative-decision-engine/jobs/calibration-job";
 import { MIN_ACCOUNT_SCALE_CALIBRATION_SAMPLE } from "@/lib/creative-decision-engine/config";
-import { classifyMetaAovQuality } from "@/lib/creative-decision-engine/spend-unit-resolver";
+import {
+  classifyMetaAovQuality,
+  resolveSpendUnit,
+} from "@/lib/creative-decision-engine/spend-unit-resolver";
 import { computeMetaAttributedAov } from "@/lib/creative-decision-engine/meta-aov-calculator";
 import { OBSERVED_SHOPIFY_AOV_MIN_ORDERS } from "@/lib/creative-decision-engine/shopify-aov-source";
 import { WarehouseDataSource } from "@/lib/creative-decision-engine/data-source";
@@ -140,7 +144,11 @@ import { runClaimedProposalExecution } from "@/lib/meta/budget-execution-lifecyc
 import { buildMetaBudgetWriteContextForProposal } from "@/lib/meta/budget-proposal-write-context";
 import { runMetaBudgetAutomationSweepIfDue } from "@/lib/meta/budget-automation-scheduled";
 import { composeBudgetExecutionCandidate } from "@/lib/meta/budget-execution-composition";
-import type { MetaAdSetDailyRow, MetaCampaignDailyRow } from "@/lib/meta/warehouse-types";
+import type {
+  MetaAdDailyRow,
+  MetaAdSetDailyRow,
+  MetaCampaignDailyRow,
+} from "@/lib/meta/warehouse-types";
 
 const LABEL = "economics-bid-chain-seam";
 
@@ -701,10 +709,10 @@ async function seedCampaignRole() {
  * withheld with `scale_calibration_below_floor` — a true answer about a fixture
  * that had never described the ad level at all.
  *
- * SECOND, and this is what the economics chain rests on, these are also the
- * only rows `computeMetaAttributedAov` reads: it sums `revenue` and
- * `conversions` over `meta_creative_daily` for this account, ninety days,
- * `objective = 'OUTCOME_SALES'`. One purchase apiece at
+ * SECOND, and this is what the economics chain rests on, every creative is
+ * paired with the canonical finalized/passed `meta_ad_daily` fact that
+ * `computeMetaAttributedAov` reads for this exact account at the historical
+ * producer cutoff. One purchase apiece at
  * {@link CONVERTER_ORDER_VALUE} therefore makes Meta's attributed AOV exactly
  * 58.00 on a sample of {@link CONVERTER_CREATIVE_COUNT} purchases, and
  * 58.00 / 2.20 is the $26.36 benchmark every money figure below is measured
@@ -736,7 +744,17 @@ async function writeConverterCreatives(input: {
   conversions: number;
 }) {
   const rows = [];
+  const adRows: MetaAdDailyRow[] = [];
   for (let index = input.from; index < input.to; index += 1) {
+    const adId = `50000000003${String(index).padStart(2, "0")}`;
+    const metrics = metricRow({
+      spend: 10,
+      revenue: input.revenue,
+      conversions: input.conversions,
+      impressions: 400,
+      clicks: 8,
+      reach: 300,
+    });
     rows.push({
       businessId: BUSINESS,
       providerAccountId: ACCOUNT,
@@ -746,7 +764,7 @@ async function writeConverterCreatives(input: {
       date: AS_OF,
       campaignId: CBO_CAMPAIGN,
       adsetId: CBO_ADSET,
-      adId: `50000000003${String(index).padStart(2, "0")}`,
+      adId,
       creativeId: `50000000004${String(index).padStart(2, "0")}`,
       creativeName: `Converter ${index}`,
       headline: null,
@@ -757,15 +775,203 @@ async function writeConverterCreatives(input: {
       objective: "OUTCOME_SALES",
       optimizationGoal: "OFFSITE_CONVERSIONS",
       effectiveStatus: "ACTIVE",
-      ...metricRow({
-        spend: 10,
-        revenue: input.revenue,
-        conversions: input.conversions,
-        impressions: 400, clicks: 8, reach: 300,
-      }),
+      ...metrics,
+    });
+    adRows.push({
+      businessId: BUSINESS,
+      providerAccountId: ACCOUNT,
+      date: AS_OF,
+      campaignId: CBO_CAMPAIGN,
+      adsetId: CBO_ADSET,
+      adId,
+      adNameCurrent: `Converter ${index}`,
+      adNameHistorical: `Converter ${index}`,
+      adStatus: "ACTIVE",
+      accountTimezone: "UTC",
+      accountCurrency: "USD",
+      sourceSnapshotId: null,
+      truthState: "finalized",
+      validationStatus: "passed",
+      finalizedAt: `${AS_OF}T02:00:00.000Z`,
+      ...metrics,
     });
   }
   await upsertMetaCreativeDailyRows(rows);
+  await upsertMetaAdDailyRows(adRows, { writeMode: "authoritative_fact" });
+  if (adRows.length > 0) {
+    await getDb().query(
+      `UPDATE meta_ad_daily
+          SET created_at = $4::timestamptz,
+              updated_at = $4::timestamptz,
+              finalized_at = $4::timestamptz
+        WHERE business_id = $1
+          AND provider_account_id = $2
+          AND date = $3::date
+          AND ad_id = ANY($5::text[])`,
+      [
+        BUSINESS,
+        ACCOUNT,
+        AS_OF,
+        `${AS_OF}T02:00:00.000Z`,
+        adRows.map((row) => row.adId),
+      ],
+    );
+  }
+}
+
+async function seedAovAuthorityPoisonFacts() {
+  const base: Omit<MetaAdDailyRow, "adId" | "truthState" | "validationStatus" | "finalizedAt"> = {
+    businessId: BUSINESS,
+    providerAccountId: ACCOUNT,
+    date: AS_OF,
+    campaignId: CBO_CAMPAIGN,
+    adsetId: CBO_ADSET,
+    adNameCurrent: "AOV authority poison",
+    adNameHistorical: "AOV authority poison",
+    adStatus: "ACTIVE",
+    accountTimezone: "UTC",
+    accountCurrency: "USD",
+    sourceSnapshotId: null,
+    ...metricRow({
+      spend: 10,
+      revenue: 20_000,
+      conversions: 20,
+      impressions: 400,
+      clicks: 8,
+      reach: 300,
+    }),
+  };
+  const provisionalAdId = "5000000000398";
+  const failedValidationAdId = "5000000000397";
+  const futureRevisionAdId = "5000000000399";
+  await upsertMetaAdDailyRows(
+    [
+      {
+        ...base,
+        adId: provisionalAdId,
+        truthState: "provisional",
+        validationStatus: "pending",
+        finalizedAt: null,
+      },
+      {
+        ...base,
+        adId: failedValidationAdId,
+        truthState: "finalized",
+        validationStatus: "failed",
+        finalizedAt: `${AS_OF}T02:00:00.000Z`,
+      },
+      {
+        ...base,
+        adId: futureRevisionAdId,
+        truthState: "finalized",
+        validationStatus: "passed",
+        finalizedAt: `${AS_OF}T04:00:00.000Z`,
+      },
+    ],
+    { writeMode: "authoritative_fact" },
+  );
+  await getDb().query(
+    `UPDATE meta_ad_daily
+        SET created_at = CASE ad_id
+              WHEN $6 THEN $8::timestamptz
+              ELSE $7::timestamptz
+            END,
+            updated_at = CASE ad_id
+              WHEN $6 THEN $8::timestamptz
+              ELSE $7::timestamptz
+            END
+      WHERE business_id = $1
+        AND provider_account_id = $2
+        AND date = $3::date
+        AND ad_id IN ($4, $5, $6)`,
+    [
+      BUSINESS,
+      ACCOUNT,
+      AS_OF,
+      provisionalAdId,
+      failedValidationAdId,
+      futureRevisionAdId,
+      `${AS_OF}T02:00:00.000Z`,
+      `${AS_OF}T04:00:00.000Z`,
+    ],
+  );
+}
+
+async function verifyAovHistoricalAuthority() {
+  await writeConverterCreatives({
+    from: 0,
+    to: META_AOV_READY_FLOOR - 1,
+    revenue: CONVERTER_ORDER_VALUE,
+    conversions: 1,
+  });
+  await seedAovAuthorityPoisonFacts();
+
+  const belowFloor = await computeMetaAttributedAov({
+    businessId: BUSINESS,
+    asOf: AS_OF,
+    providerAccountId: ACCOUNT,
+    db: getDb(),
+  });
+  expectEqual(
+    belowFloor.purchaseCount,
+    META_AOV_READY_FLOOR - 1,
+    "provisional, failed-validation, and post-cutoff purchase poison cannot make the historical AOV sample ready",
+  );
+  expectEqual(
+    belowFloor.aovMean,
+    CONVERTER_ORDER_VALUE,
+    "provisional, failed-validation, and post-cutoff revenue cannot move the historical AOV",
+  );
+  const heldUnit = resolveSpendUnit({
+    targetCpa: 999,
+    operatorAovAssumption: 999,
+    metaAttributedAovMean90d: belowFloor.aovMean,
+    metaAttributedAovPurchaseCount90d: belowFloor.purchaseCount,
+    metaAttributedRevenue90d: belowFloor.totalRevenue,
+    targetRoas: 2.2,
+    breakEvenRoas: 1.8,
+    accountCpaP50: 999,
+    accountCpaSampleCount: 99,
+  });
+  expectEqual(
+    heldUnit.hardEligibleByDefault,
+    false,
+    "nineteen cutoff-safe purchases HOLD despite CPA and operator fallbacks",
+  );
+
+  await writeConverterCreatives({
+    from: META_AOV_READY_FLOOR - 1,
+    to: CONVERTER_CREATIVE_COUNT,
+    revenue: CONVERTER_ORDER_VALUE,
+    conversions: 1,
+  });
+  const ready = await computeMetaAttributedAov({
+    businessId: BUSINESS,
+    asOf: AS_OF,
+    providerAccountId: ACCOUNT,
+    db: getDb(),
+  });
+  expectEqual(
+    ready.purchaseCount,
+    CONVERTER_CREATIVE_COUNT,
+    "the twentieth cutoff-safe finalized purchase crosses the AOV readiness floor",
+  );
+  expectEqual(ready.aovMean, CONVERTER_ORDER_VALUE, "ready AOV positive control");
+  expectEqual(
+    resolveSpendUnit({
+      targetCpa: 999,
+      operatorAovAssumption: 999,
+      metaAttributedAovMean90d: ready.aovMean,
+      metaAttributedAovPurchaseCount90d: ready.purchaseCount,
+      metaAttributedRevenue90d: ready.totalRevenue,
+      targetRoas: 2.2,
+      breakEvenRoas: 1.8,
+      accountCpaP50: 999,
+      accountCpaSampleCount: 99,
+    }).hardEligibleByDefault,
+    true,
+    "the twentieth cutoff-safe finalized purchase grants the Meta-derived unit",
+  );
 }
 
 async function seedCreativeFacts() {
@@ -1245,11 +1451,22 @@ async function seedAccountScopeCreatives(input: {
   offset: number;
   spend: number;
   revenue: number;
+  cutoffSafe?: boolean;
 }) {
   const digits = input.account.replace(/\D/g, "");
   const rows = [];
+  const adRows: MetaAdDailyRow[] = [];
   for (let index = 0; index < input.count; index += 1) {
     const ordinal = input.offset + index;
+    const adId = `${digits}3${String(ordinal).padStart(3, "0")}`;
+    const metrics = metricRow({
+      spend: input.spend,
+      revenue: input.revenue,
+      conversions: 1,
+      impressions: 400,
+      clicks: 8,
+      reach: 300,
+    });
     rows.push({
       businessId: SCOPE_BUSINESS,
       providerAccountId: input.account,
@@ -1259,7 +1476,7 @@ async function seedAccountScopeCreatives(input: {
       date: AS_OF,
       campaignId: `${digits}01`,
       adsetId: `${digits}02`,
-      adId: `${digits}3${String(ordinal).padStart(3, "0")}`,
+      adId,
       creativeId: `${digits}4${String(ordinal).padStart(3, "0")}`,
       creativeName: `Converter ${ordinal}`,
       headline: null,
@@ -1270,13 +1487,51 @@ async function seedAccountScopeCreatives(input: {
       objective: "OUTCOME_SALES",
       optimizationGoal: "OFFSITE_CONVERSIONS",
       effectiveStatus: "ACTIVE",
-      ...metricRow({
-        spend: input.spend, revenue: input.revenue, conversions: 1,
-        impressions: 400, clicks: 8, reach: 300,
-      }),
+      ...metrics,
+    });
+    adRows.push({
+      businessId: SCOPE_BUSINESS,
+      providerAccountId: input.account,
+      date: AS_OF,
+      campaignId: `${digits}01`,
+      adsetId: `${digits}02`,
+      adId,
+      adNameCurrent: `Converter ${ordinal}`,
+      adNameHistorical: `Converter ${ordinal}`,
+      adStatus: "ACTIVE",
+      accountTimezone: "UTC",
+      accountCurrency: "USD",
+      sourceSnapshotId: null,
+      truthState: "finalized",
+      validationStatus: "passed",
+      finalizedAt:
+        input.cutoffSafe === false
+          ? new Date().toISOString()
+          : `${AS_OF}T02:00:00.000Z`,
+      ...metrics,
     });
   }
   await upsertMetaCreativeDailyRows(rows);
+  await upsertMetaAdDailyRows(adRows, { writeMode: "authoritative_fact" });
+  if (adRows.length > 0 && input.cutoffSafe !== false) {
+    await getDb().query(
+      `UPDATE meta_ad_daily
+          SET created_at = $4::timestamptz,
+              updated_at = $4::timestamptz,
+              finalized_at = $4::timestamptz
+        WHERE business_id = $1
+          AND provider_account_id = $2
+          AND date = $3::date
+          AND ad_id = ANY($5::text[])`,
+      [
+        SCOPE_BUSINESS,
+        input.account,
+        AS_OF,
+        `${AS_OF}T02:00:00.000Z`,
+        adRows.map((row) => row.adId),
+      ],
+    );
+  }
 }
 
 /** The retained verdict for one account, read straight back out. */
@@ -1584,7 +1839,12 @@ async function assertAccountScopeIsolation() {
     as the pooled read has always been.
   */
   await seedAccountScopeCreatives({
-    account: SCOPE_ACCOUNT_A, count: 1, offset: 900, spend: 10, revenue: 36,
+    account: SCOPE_ACCOUNT_A,
+    count: 1,
+    offset: 900,
+    spend: 10,
+    revenue: 36,
+    cutoffSafe: false,
   });
   const identityAfterSync = await readAccountProfileRetentionIdentity({
     businessId: SCOPE_BUSINESS, providerAccountId: SCOPE_ACCOUNT_A, asOfDate: AS_OF,
@@ -1909,7 +2169,7 @@ async function main() {
   await seedAutomationControls();
   await seedCampaignRole();
   await seedWarehouseFacts();
-  await seedCreativeFacts();
+  await verifyAovHistoricalAuthority();
   await publishSlices();
   await seedBudgetState();
 

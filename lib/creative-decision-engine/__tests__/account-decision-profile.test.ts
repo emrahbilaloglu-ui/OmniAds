@@ -43,6 +43,13 @@ class ProfileDataSource implements CreativeDecisionDataSource {
       CalibrationCampaignKind,
       AccountFunnelCalibration | null
     > | null = null,
+    private readonly liveMetaAov: {
+      aovMean: number | null;
+      purchaseCount: number;
+      totalRevenue: number;
+      windowStart: string;
+      windowEnd: string;
+    } | null = null,
   ) {}
 
   async getCreativeInput(): Promise<CreativeInput | null> {
@@ -114,7 +121,7 @@ class ProfileDataSource implements CreativeDecisionDataSource {
   }
 
   async getMetaAttributedAov() {
-    return {
+    return this.liveMetaAov ?? {
       aovMean: this.calibration.metaAttributedAovMean90d,
       purchaseCount: this.calibration.metaAttributedAovPurchaseCount90d,
       totalRevenue: this.calibration.metaAttributedRevenue90d,
@@ -305,6 +312,96 @@ describe("resolveAccountDecisionProfile", () => {
       cut: true,
     });
     expect(profile.spendUnitSource).toBe("meta_derived_aov");
+  });
+
+  it("lets cutoff-safe account AOV override a populated legacy calibration under Target ROAS", async () => {
+    const unsafeLegacy = makeAccountCalibration({
+      metaAttributedAovMean90d: 999,
+      metaAttributedAovPurchaseCount90d: 99,
+      metaAttributedRevenue90d: 98_901,
+      metaAovQuality: "ready",
+    });
+    const unsafeLegacyByKind = {
+      all: { ...unsafeLegacy, campaignKind: "all" as const },
+      main: { ...unsafeLegacy, campaignKind: "main" as const },
+      test: null,
+      mixed: null,
+    };
+    const liveMetaAov = {
+      aovMean: 58,
+      purchaseCount: 20,
+      totalRevenue: 1_160,
+      windowStart: "2026-02-05",
+      windowEnd: "2026-05-04",
+    };
+    const profile = await resolveAccountDecisionProfile({
+      businessId: "00000000-0000-4000-8000-000000000501",
+      asOf: CUTOFF_PACK_ASOF,
+      dataSource: new ProfileDataSource(
+        packAt("2026-05-04T03:00:00.000Z"),
+        unsafeLegacy,
+        null,
+        { calibration: null, matureCreativeCount: null },
+        unsafeLegacyByKind,
+        null,
+        liveMetaAov,
+      ),
+      flags: makeFlags({ shadowOnly: false }),
+    });
+
+    expect(profile.spendUnitSource).toBe("meta_derived_aov");
+    expect(profile.spendUnit).toBeCloseTo(58 / 2.2, 10);
+    expect(profile.spendUnit).not.toBeCloseTo(999 / 2.2, 10);
+    expect(profile.hardActionEligibility.scale).toBe(true);
+    expect(profile.hardActionEligibilityByKind?.main?.scale).toBe(true);
+  });
+
+  it("treats an empty cutoff-safe account AOV as HOLD instead of reviving legacy calibration", async () => {
+    const unsafeLegacy = makeAccountCalibration({
+      metaAttributedAovMean90d: 999,
+      metaAttributedAovPurchaseCount90d: 99,
+      metaAttributedRevenue90d: 98_901,
+      metaAovQuality: "ready",
+    });
+    const unsafeLegacyByKind = {
+      all: { ...unsafeLegacy, campaignKind: "all" as const },
+      main: { ...unsafeLegacy, campaignKind: "main" as const },
+      test: null,
+      mixed: null,
+    };
+    const profile = await resolveAccountDecisionProfile({
+      businessId: "00000000-0000-4000-8000-000000000501",
+      asOf: CUTOFF_PACK_ASOF,
+      dataSource: new ProfileDataSource(
+        packAt("2026-05-04T03:00:00.000Z"),
+        unsafeLegacy,
+        null,
+        { calibration: null, matureCreativeCount: null },
+        unsafeLegacyByKind,
+        null,
+        {
+          aovMean: null,
+          purchaseCount: 0,
+          totalRevenue: 0,
+          windowStart: "2026-02-05",
+          windowEnd: "2026-05-04",
+        },
+      ),
+      flags: makeFlags({ shadowOnly: false }),
+    });
+
+    expect(profile.spendUnitSource).toBe("insufficient");
+    expect(profile.spendUnit).toBeNull();
+    expect(profile.hardActionEligibility).toMatchObject({
+      scale: false,
+      cut: false,
+      refresh: false,
+    });
+    expect(profile.hardActionEligibilityByKind?.main).toMatchObject({
+      scale: false,
+      cut: false,
+      refresh: false,
+    });
   });
 
   it("makes EVERY hard action ineligible one millisecond after the cutoff", async () => {

@@ -352,7 +352,15 @@ async function fetchMetaGraphCollection<TItem>(
         body = null;
       }
 
-      const failed = !response.ok || Boolean(body?.error);
+      // A successful HTTP status is not a successful collection read unless
+      // the provider supplied the collection itself. Treat invalid JSON,
+      // missing `data`, `data: null`, and every other non-array value as a
+      // local failure before any caller can persist an empty/partial account
+      // set or reconcile assignments from it.
+      const malformedCollection =
+        response.ok && !body?.error && !Array.isArray(body?.data);
+      const failed =
+        !response.ok || Boolean(body?.error) || malformedCollection;
       if (failed) {
         const identity = readMetaGraphErrorIdentity(body?.error);
         const transient = isTransientGraphFailure(response.status, identity);
@@ -379,25 +387,33 @@ async function fetchMetaGraphCollection<TItem>(
 
       if (page === 0) {
         resultStatus = response.status;
-        resultOk = response.ok && !body?.error;
+        resultOk = response.ok && !body?.error && !malformedCollection;
         resultBody = null;
       }
 
       if (failed) {
         stoppedOnError = true;
         pageFailed = true;
-        resultGraphError = readMetaGraphErrorIdentity(body?.error);
+        resultGraphError = malformedCollection
+          ? null
+          : readMetaGraphErrorIdentity(body?.error);
         if (page > 0) {
           resultStatus = response.status;
           resultOk = false;
         }
-        resultBody = { error: toSafeGraphError(response.status, resultGraphError) };
+        resultBody = {
+          error: malformedCollection
+            ? localGraphError(
+                `Meta Graph collection returned status ${response.status} without a data array.`,
+              )
+            : toSafeGraphError(response.status, resultGraphError),
+        };
         break;
       }
 
-      if (Array.isArray(body?.data)) {
-        data.push(...body.data);
-      }
+      // The malformed case returned through the failure branch above, so this
+      // narrowing is guaranteed rather than an optional best effort.
+      data.push(...body!.data!);
       const candidateNext =
         typeof body?.paging?.next === "string" ? body.paging.next : null;
       if (candidateNext !== null && visitedUrls.has(candidateNext)) {

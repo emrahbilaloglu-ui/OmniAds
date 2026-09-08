@@ -1,20 +1,20 @@
 {
- "manifestHash": "80ea3f2e9dc160647ae679c5ebf5154c2572191efade0da1c130b83e9cee8616",
+ "manifestHash": "8d7c803b9a14f7c12522470f3b2e27ee96b425487e61a4fc37763e980d137e53",
  "hashAlgorithm": "sha256",
  "hashBasis": "sha256 over UTF-8 bytes of JSON.stringify(artifact, null, 1) of the artifact WITHOUT its embedded hash fields (the artifact object before {<hashField>, hashAlgorithm, hashBasis} are prepended)",
  "contract": "adsecute.d077.release-candidate-manifest.v3",
- "generatedAtUtc": "2026-09-08T16:53:27.531Z",
+ "generatedAtUtc": "2026-09-08T17:22:37.957Z",
  "branch": "codex/meta-release-finalization",
  "supersededBranchLabel": "codex/meta-disabled-readiness-20260829",
- "head": "d561a591ae9a617027615d7095c40b22244a4f24",
+ "head": "98d4dd1207034f014eefb7c1fe43acd423255687",
  "baseMain": "babf158e150fd33057117b39b175da044ac62d2e",
  "originMain": "a2eb1b1b1dae9e69ffe470c39ada19731a570224",
  "remoteDivergence": {
-  "aheadOfOriginMain": 4,
+  "aheadOfOriginMain": 5,
   "behindOriginMain": 0
  },
  "selfExclusion": "this manifest's own path (docs/audits/generated/d077-release-candidate-manifest-2026-08-30.json) is EXCLUDED from its entry list: a manifest cannot recursively pin its own final bytes; its external SHA-256 is reported in the final response and by Codex's own hashing",
- "gitPorcelainEntryCount": 14,
+ "gitPorcelainEntryCount": 6,
  "releaseDiffEntryCountIncludingSelf": 1050,
  "expandedOnDiskCandidateFileCountIncludingSelf": 1050,
  "pinnedNonSelfFileCount": 1049,
@@ -761,13 +761,13 @@
    "path": "app/api/meta/recommendations/route.test.ts",
    "git": "M",
    "class": "tests_only",
-   "sha256": "eae9afe9c21a557bd496c108882cfa5c0dc09076dd255ca57674f736456a0c2f"
+   "sha256": "3c6fdf25decd80a1f4e5d4965a7cebef23ff8c52f5259f41cdf0641011f28f0a"
   },
   {
    "path": "app/api/meta/recommendations/route.ts",
    "git": "M",
    "class": "runtime",
-   "sha256": "80d4a6907204a983c392ea8b3da77c144ea4e4a1140bff08c02c2369a8f7f86c"
+   "sha256": "cf671874cfbd5bd5ae716e562eb2b1559619329d8cf2eac430f02a532358d23c"
   },
   {
    "path": "app/api/meta/serve-availability-decision-census.test.ts",
@@ -1367,13 +1367,13 @@
    "path": "components/layout/v2/account-scope-control.test.tsx",
    "git": "M",
    "class": "tests_only",
-   "sha256": "f0d9e7252fc5923bbef2c15a2aa15d792d529c838fd83eb33f79aab753fe9739"
+   "sha256": "434582f50af16535b6df62f2c07f690ce8e7ebfed2ebafbb5034df1674bcd3bc"
   },
   {
    "path": "components/layout/v2/account-scope-control.tsx",
    "git": "M",
    "class": "runtime",
-   "sha256": "f1df5ba7c6ef456ce5cb68ca1c5274190588bbc1ee2a56f0271beb41b9e3060d"
+   "sha256": "5c9a54a7ff1e6f8d1f9a583e1173873207805f786fcf36a039cd7f994c68c3e0"
   },
   {
    "path": "components/layout/v2/app-rail.tsx",
@@ -3263,13 +3263,13 @@
    "path": "lib/meta-ad-accounts.test.ts",
    "git": "M",
    "class": "tests_only",
-   "sha256": "541d0cf2a4dd8ffe7085b92b5af43a611b138522c0f86cf68bcc2cc9ab972974"
+   "sha256": "bd351c2b67fe0310063922c1d519941ac8808473455558f12728091ad2895aaa"
   },
   {
    "path": "lib/meta-ad-accounts.ts",
    "git": "M",
    "class": "runtime",
-   "sha256": "7602059a95da913dfc923e5b4112a82835938da319e2b6ac5ba7440610e5946c"
+   "sha256": "209ae1726c0054efe952a75db423ab4a840a7e1e41f6f142827e90ba67e68eb6"
   },
   {
    "path": "lib/meta-graph-error-observability.test.ts",

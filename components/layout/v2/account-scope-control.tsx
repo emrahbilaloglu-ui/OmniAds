@@ -237,6 +237,9 @@ export function AccountScopeControl({
               <span className="block truncate text-sm font-medium">
                 {account.label}
               </span>
+              <span className="block truncate text-xs text-muted-foreground">
+                ID {account.id}
+              </span>
             </span>
             {account.id === selectedId ? (
               <span className="adv-pill-dot bg-[var(--adv-accent)]" />

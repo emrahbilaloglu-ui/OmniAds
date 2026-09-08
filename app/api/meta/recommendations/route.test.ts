@@ -661,6 +661,57 @@ describe("the live route supplies an account- and cutoff-scoped Meta AOV", () =>
     );
   });
 
+  it.each([
+    ["act_123", "123", "act_123"],
+    ["123", "act_123", "123"],
+  ])(
+    "matches assigned Meta account %s to request %s and keeps catalog spelling %s",
+    async (assignedAccountId, requestedAccountId, expectedAccountId) => {
+      vi.mocked(
+        assignmentsModule.getProviderAccountAssignments,
+      ).mockResolvedValue({ account_ids: [assignedAccountId] } as never);
+
+      const response = await persisted(
+        `&live=1&providerAccountId=${requestedAccountId}`,
+      );
+
+      expect(response.status).toBe(200);
+      const campaignCalls = vi.mocked(
+        campaignsSource.getMetaCampaignsForRange,
+      ).mock.calls;
+      expect(campaignCalls).toHaveLength(8);
+      for (const [args] of campaignCalls) {
+        expect(args).toMatchObject({ accountId: expectedAccountId });
+      }
+      expect(breakdownsSource.getMetaBreakdownsForRange).toHaveBeenCalledWith(
+        expect.objectContaining({ providerAccountId: expectedAccountId }),
+      );
+      expect(aovModule.computeMetaAttributedAov).toHaveBeenCalledWith(
+        expect.objectContaining({ providerAccountId: expectedAccountId }),
+      );
+      expect(
+        empiricalModule.attachMetaEmpiricalOutcomeSummariesFromLogs,
+      ).toHaveBeenCalledWith(
+        expect.objectContaining({ providerAccountId: expectedAccountId }),
+      );
+    },
+  );
+
+  it("still rejects an unassigned account after equivalent-spelling matching", async () => {
+    vi.mocked(assignmentsModule.getProviderAccountAssignments).mockResolvedValue({
+      account_ids: ["act_123"],
+    } as never);
+
+    const response = await persisted("&live=1&providerAccountId=124");
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({
+      error: "meta_account_not_assigned",
+    });
+    expect(campaignsSource.getMetaCampaignsForRange).not.toHaveBeenCalled();
+    expect(breakdownsSource.getMetaBreakdownsForRange).not.toHaveBeenCalled();
+  });
+
   it("refuses an account this business has not selected", async () => {
     vi.mocked(assignmentsModule.getProviderAccountAssignments).mockResolvedValue({
       account_ids: ["act_1", "act_2"],

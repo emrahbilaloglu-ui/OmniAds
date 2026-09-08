@@ -20,9 +20,101 @@ function jsonResponse(body: unknown, status = 200) {
   });
 }
 
+function rawResponse(body: string, status = 200) {
+  return new Response(body, {
+    status,
+    headers: { "content-type": "application/json" },
+  });
+}
+
 describe("fetchMetaAdAccounts", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+  });
+
+  it.each([
+    { label: "an empty object", response: () => jsonResponse({}) },
+    { label: "a null data field", response: () => jsonResponse({ data: null }) },
+    { label: "invalid JSON", response: () => rawResponse("{not-json") },
+  ])("fails closed when a 2xx collection returns $label", async ({ response }) => {
+    const fetchMock = vi.fn(async () => response());
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await fetchMetaAdAccounts("token");
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({
+      status: 200,
+      ok: false,
+      normalized: [],
+      graphError: null,
+    });
+    expect(result.body?.error).toEqual({
+      message: "Meta Graph collection returned status 200 without a data array.",
+      code: null,
+      error_subcode: null,
+      is_transient: null,
+      fbtrace_id: null,
+      authored_by: "adsecute",
+    });
+  });
+
+  it("accepts a valid 2xx collection data array", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/v25.0/me/adaccounts") {
+        return jsonResponse({
+          data: [{ id: "act_direct", name: "Direct Account" }],
+        });
+      }
+      if (url.pathname === "/v25.0/me/businesses") {
+        return jsonResponse({ data: [] });
+      }
+      return jsonResponse({ error: { message: "unexpected path" } }, 404);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await fetchMetaAdAccounts("token");
+
+    expect(result.ok).toBe(true);
+    expect(result.body).toBeNull();
+    expect(result.normalized).toEqual([
+      expect.objectContaining({ id: "act_direct", name: "Direct Account" }),
+    ]);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("fails the aggregate when a later business-account collection is malformed", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/v25.0/me/adaccounts") {
+        return jsonResponse({
+          data: [{ id: "act_direct", name: "Direct Account" }],
+        });
+      }
+      if (url.pathname === "/v25.0/me/businesses") {
+        return jsonResponse({ data: [{ id: "biz_1", name: "Business 1" }] });
+      }
+      if (url.pathname === "/v25.0/biz_1/owned_ad_accounts") {
+        return jsonResponse({});
+      }
+      return jsonResponse({ data: [] });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await fetchMetaAdAccounts("token");
+
+    expect(result.ok).toBe(false);
+    expect(result.normalized.map((account) => account.id)).toEqual([
+      "act_direct",
+    ]);
+    expect(result.businessDiscovery?.errors).toEqual([
+      expect.objectContaining({
+        businessId: "biz_1",
+        edge: "owned_ad_accounts",
+        message: "Meta owned_ad_accounts discovery failed (status 200)",
+      }),
+    ]);
   });
 
   it("merges direct, business-owned, and business-client Meta ad accounts", async () => {

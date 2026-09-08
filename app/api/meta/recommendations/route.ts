@@ -24,6 +24,7 @@ import { computeMetaAttributedAov } from "@/lib/creative-decision-engine/meta-ao
 import { getDb } from "@/lib/db";
 import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
 import { attachMetaEmpiricalOutcomeSummariesFromLogs } from "@/lib/meta/empirical-outcome-integration";
+import { sameMetaAccount } from "@/lib/meta/provider-account-param";
 
 // Intentional exception: recommendations keep snapshot-backed historical
 // config regime analysis across multi-window history. This is not a normal
@@ -299,7 +300,10 @@ export async function GET(request: NextRequest) {
   const assignedAccountIds = metaAccountAssignments?.account_ids ?? [];
   let providerAccountId: string;
   if (requestedProviderAccountId) {
-    if (!assignedAccountIds.includes(requestedProviderAccountId)) {
+    const assignedAccountId = assignedAccountIds.find((candidate) =>
+      sameMetaAccount(candidate, requestedProviderAccountId),
+    );
+    if (!assignedAccountId) {
       return NextResponse.json(
         {
           error: "meta_account_not_assigned",
@@ -309,7 +313,10 @@ export async function GET(request: NextRequest) {
         { status: 400 },
       );
     }
-    providerAccountId = requestedProviderAccountId;
+    // Keep the assignment catalog's spelling. Meta returns both `act_123` and
+    // `123`, but downstream cache keys and scoped reads must agree on the id
+    // this business actually selected.
+    providerAccountId = assignedAccountId;
   } else if (assignedAccountIds.length === 1) {
     providerAccountId = assignedAccountIds[0]!;
   } else {

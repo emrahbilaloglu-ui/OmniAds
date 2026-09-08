@@ -764,6 +764,21 @@ scope, engine epoch)`. Nullable `creative_id` is grouping evidence only and
   the dropped field names on a request that failed anyway attributes the
   provider's refusal to fields it never objected to, and that record is
   persisted into `meta_raw_snapshots.request_context.pagination`.
+- Optional-field narrowing is allowed only on the first page after a
+  non-transient Graph code `100` refusal whose field-specific message names one
+  of the caller-declared optional fields. HTTP 429/5xx, known Graph throttle
+  codes, unrelated permanent refusals, and code `100` errors naming a required
+  field keep the original request shape and cannot mint field-degradation
+  evidence. Provider prose may be inspected in memory for this boolean test but
+  is never logged, returned, or persisted.
+- Meta account choice must remain expressible on every mounted shell. Canonical
+  `/c/**` routes use the shared topbar and do not render a duplicate selector;
+  legacy `/platforms/**` Automation and Launchpad mounts render a local selector
+  only when their assigned-account catalog is readable. A switch clears stale
+  account-bound URL state. Automation then requires a server re-resolution;
+  legacy Launchpad may choose only from the assignment catalog returned by its
+  authorized workspace read. Missing, empty, or failed catalogs never render a
+  false disabled choice.
 - A windowed diagnostic must not sum lifetime counters. An occurrence count
   scoped to a window is derived from the immutable per-capture receipts, and any
   field that remains lifetime says so in its own name.

@@ -57,11 +57,10 @@ import { classifyMetaSyncFailure } from "@/lib/sync/meta-error-classification";
 const ACCESS_TOKEN = "test-access-token";
 
 /** The body Meta returns when a field is not readable on the addressed node. */
-function permanentGraphErrorBody() {
+function permanentGraphErrorBody(fieldName = "example_field") {
   return {
     error: {
-      message:
-        "(#100) Tried accessing nonexisting field (example_field) on node type (Campaign)",
+      message: `(#100) Tried accessing nonexisting field (${fieldName}) on node type (Campaign)`,
       type: "OAuthException",
       code: 100,
       error_subcode: 33,
@@ -276,7 +275,7 @@ describe("campaign config schedule fields", () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const fields = campaignFieldsOf(input);
       if (fields.includes("stop_time")) {
-        return jsonResponse(permanentGraphErrorBody(), 400);
+        return jsonResponse(permanentGraphErrorBody("stop_time"), 400);
       }
       return jsonResponse({ data: [{ id: "campaign-1", name: "Prospecting" }] });
     });
@@ -328,43 +327,50 @@ describe("campaign config schedule fields", () => {
     expect(campaignFieldsOf(fetchMock.mock.calls[0]![0])).toContain("stop_time");
   });
 
-  it("does not blame the schedule fields for a refusal the narrowing did not fix", async () => {
-    // Every page 0 refused for a reason that has nothing to do with the field
-    // list. The loop still narrows once — it cannot know in advance — but the
-    // narrowed request is refused too.
-    //
-    // The whole receipt is persisted into
-    // meta_raw_snapshots.request_context.pagination by
-    // paginationReceiptContext, so before `recovered` existed this run stored
-    // `droppedFields: ["start_time","stop_time"]` on a snapshot where Meta
-    // refused nothing of the kind, and the next operator chasing this 400 read
-    // the schedule fields as its cause.
-    const fetchMock = vi.fn(async (_input: RequestInfo | URL) =>
-      jsonResponse(unrelatedPermanentGraphErrorBody(), 400),
-    );
+  it("does not narrow after an unrelated permanent refusal", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse(unrelatedPermanentGraphErrorBody(), 400),
+      )
+      // A second response would succeed, which used to let a coincidental
+      // recovery falsely blame the schedule fields for the permission error.
+      .mockResolvedValueOnce(
+        jsonResponse({ data: [{ id: "campaign-1" }] }, 200),
+      );
     vi.stubGlobal("fetch", fetchMock);
 
     const receipt = await fetchMetaCampaignConfigsReceipt("act_1", ACCESS_TOKEN);
 
     expect(receipt.complete).toBe(false);
     expect(receipt.termination).toBe("http_failure");
-    // Narrowing was attempted exactly once: the original request, then the
-    // narrowed one. Neither is retried, because 294 is permanent.
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(campaignFieldsOf(fetchMock.mock.calls[1]![0])).not.toContain(
-      "stop_time",
-    );
-
-    // The attempt is still on the record — it explains the second provider
-    // call — but it is explicitly marked as having failed, so nothing reads it
-    // as "Meta refuses start_time and stop_time".
-    expect(receipt.fieldDegradation?.recovered).toBe(false);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(receipt.fieldDegradation).toBeNull();
     expect(receipt.failure).toMatchObject({
       httpStatus: 400,
       errorCode: 294,
       errorSubcode: 1487390,
       fbtraceId: "PeRmIsSiOnErR001",
     });
+  });
+
+  it("does not narrow when code 100 names a required field", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse(permanentGraphErrorBody("objective"), 400),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({ data: [{ id: "campaign-1" }] }, 200),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const receipt = await fetchMetaCampaignConfigsReceipt("act_1", ACCESS_TOKEN);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(receipt.complete).toBe(false);
+    expect(receipt.fieldDegradation).toBeNull();
+    expect(receipt.failure).toMatchObject({ errorCode: 100, httpStatus: 400 });
   });
 
   it("marks the narrowing recovered even when a LATER page fails", async () => {
@@ -378,7 +384,7 @@ describe("campaign config schedule fields", () => {
         return jsonResponse(permanentGraphErrorBody(), 400);
       }
       if (campaignFieldsOf(input).includes("stop_time")) {
-        return jsonResponse(permanentGraphErrorBody(), 400);
+        return jsonResponse(permanentGraphErrorBody("stop_time"), 400);
       }
       const next = new URL(url.toString());
       next.searchParams.set("cursor_page", "1");
@@ -426,7 +432,7 @@ describe("HTTP 2xx carrying a Graph error envelope", () => {
   it("does not call a narrowing recovered when the narrowed request is refused on a 200", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       if (campaignFieldsOf(input).includes("stop_time")) {
-        return jsonResponse(permanentGraphErrorBody(), 400);
+        return jsonResponse(permanentGraphErrorBody("stop_time"), 400);
       }
       // The narrowed request. Refused too — just not with a status that says so.
       return jsonResponse(unrelatedPermanentGraphErrorBody(), 200);
@@ -462,7 +468,7 @@ describe("HTTP 2xx carrying a Graph error envelope", () => {
     const fetchMock = vi.fn(async () =>
       jsonResponse({
         data: [{ id: "campaign-1", name: "Prospecting" }],
-        ...permanentGraphErrorBody(),
+        ...permanentGraphErrorBody("stop_time"),
       }),
     );
     vi.stubGlobal("fetch", fetchMock);
@@ -505,7 +511,7 @@ describe("HTTP 2xx carrying a Graph error envelope", () => {
     // has to keep behaving identically.
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       if (campaignFieldsOf(input).includes("stop_time")) {
-        return jsonResponse(permanentGraphErrorBody(), 400);
+        return jsonResponse(permanentGraphErrorBody("stop_time"), 400);
       }
       return jsonResponse({ data: [{ id: "campaign-1", name: "Prospecting" }] });
     });
@@ -585,7 +591,7 @@ describe("degraded campaign schedule capture", () => {
       const fields =
         new URL(String(request)).searchParams.get("fields") ?? "";
       if (input.refuseScheduleFields && fields.includes("stop_time")) {
-        return jsonResponse(permanentGraphErrorBody(), 400);
+        return jsonResponse(permanentGraphErrorBody("stop_time"), 400);
       }
       return jsonResponse({ data: input.rows });
     });

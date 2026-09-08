@@ -519,6 +519,34 @@
   padding: 13px 16px;
 }
 
+/* The legacy shell's unresolved-scope account control. Canonical `/c/**`
+   routes do not mount it because their shared topbar owns account selection. */
+.accountPicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid #e4e8f0;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 4px 8px;
+  color: #0e1526;
+  font-size: 12px;
+}
+
+.accountPicker select {
+  max-width: 220px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  outline: none;
+}
+
+.accountPicker select:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
 /* Confirmation-queue row — canonical source lines 1115–1129. */
 .proposalRow {
   display: flex;
@@ -1387,6 +1415,18 @@
   .proposalExpiry {
     min-width: 0;
     overflow-wrap: anywhere;
+  }
+
+  .mobileReadRecovery .accountPicker {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  .mobileReadRecovery .accountPicker select {
+    width: 100%;
+    max-width: none;
   }
 
   /* A populated ledger keeps its horizontal table. An empty or unread ledger

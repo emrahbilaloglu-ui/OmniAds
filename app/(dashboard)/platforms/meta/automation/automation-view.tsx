@@ -26,6 +26,8 @@ import {
   type AutomationRuleDraftInput,
 } from "@/lib/meta/automation-rules-client";
 import { fetchMetaHistoryAccounts } from "@/lib/meta/history-client";
+import type { MetaHistoryAccount } from "@/lib/meta/history-contract";
+import { accountSwitchQuery } from "@/lib/dashboard/account-scope-url";
 import { MANUAL_CONFIRMATION } from "@/lib/zero-base/meta/dispatch-contract";
 import { useAppStore } from "@/store/app-store";
 
@@ -88,6 +90,12 @@ export interface MetaAutomationPageProps {
   businessId?: string;
   /** `null` is an intentional unresolved scope and must not silently select an account. */
   providerAccountId?: string | null;
+  /**
+   * The legacy dashboard shell has no shared provider-account control. Its
+   * route opts into the local recovery picker; canonical `/c/**` routes leave
+   * this unset because their topbar owns account selection.
+   */
+  accountSelection?: "shared" | "local";
   initialPayload?: AutomationPayload | null;
   /**
    * The server's answer to "may this viewer write here". Absent means no server
@@ -1053,6 +1061,49 @@ function AutomationRuleComposer({
 }
 
 /**
+ * The account choice offered by the legacy dashboard shell when scope is
+ * unresolved. Selecting an option only writes a request into the URL; the
+ * server resolves that id against the business's assignments on the next
+ * render before any account-scoped read or write can run.
+ */
+function AutomationAccountPicker({
+  accounts,
+  loading,
+  onSelect,
+}: {
+  accounts: MetaHistoryAccount[];
+  loading: boolean;
+  onSelect: (providerAccountId: string) => void;
+}) {
+  return (
+    <label className={styles.accountPicker} data-control="account-picker">
+      <span>Meta ad account</span>
+      <select
+        aria-label="Meta ad account for Automation"
+        value=""
+        disabled={loading || accounts.length === 0}
+        onChange={(event) => onSelect(event.currentTarget.value)}
+      >
+        <option value="">
+          {loading
+            ? "Loading accounts"
+            : accounts.length === 0
+              ? "No assigned account"
+              : "Select account"}
+        </option>
+        {accounts.map((account) => (
+          <option key={account.id} value={account.id}>
+            {account.name?.trim() ||
+              `Meta account ${compactMetaAccountId(account.id) ?? ""}`.trim()}
+            {account.currency ? ` · ${account.currency}` : ""}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+/**
  * Which pane a shared control is being drawn into.
  *
  * Not a permission. Authority is decided by `viewer`, by `resolveStopCeremony`
@@ -1074,6 +1125,9 @@ export function MetaAutomationView({
   onRulesChanged,
   readError = null,
   onRetryRead,
+  providerAccounts = [],
+  providerAccountsLoading = false,
+  onSelectProviderAccount,
   ledgerCompleteness = null,
   viewer = AUTOMATION_VIEWER_NOT_ESTABLISHED,
   stopEngageRefusalReason = null,
@@ -1113,6 +1167,14 @@ export function MetaAutomationView({
   readError?: string | null;
   /** Re-runs the same read. Absent on a server render, where nothing can retry. */
   onRetryRead?: () => void;
+  /** Assigned accounts used only by the legacy shell's unresolved-scope picker. */
+  providerAccounts?: MetaHistoryAccount[];
+  providerAccountsLoading?: boolean;
+  /**
+   * Requests an account through the URL. Absent on canonical routes, where the
+   * shared topbar owns selection and this view must not draw a duplicate.
+   */
+  onSelectProviderAccount?: (providerAccountId: string) => void;
   /**
    * Whether the LAST decision this session recorded actually reached the
    * ledger. `null` means no decision has been made in this session — which is
@@ -1837,7 +1899,21 @@ export function MetaAutomationView({
                 data-field="read-error"
                 data-reason={readFailure}
               >
-                <span>{readFailureMessage(readFailure)}</span>
+                <span>
+                  {readFailure === "provider_account_scope_unresolved" &&
+                  onSelectProviderAccount
+                    ? "Choose a Meta ad account below to see its automation status."
+                    : readFailureMessage(readFailure)}
+                </span>
+                {readFailure === "provider_account_scope_unresolved" &&
+                onSelectProviderAccount &&
+                !providerAccountId ? (
+                  <AutomationAccountPicker
+                    accounts={providerAccounts}
+                    loading={providerAccountsLoading}
+                    onSelect={onSelectProviderAccount}
+                  />
+                ) : null}
                 <button
                   type="button"
                   className={styles.readRetry}
@@ -2074,7 +2150,21 @@ export function MetaAutomationView({
             data-field="read-error"
             data-reason={readFailure}
           >
-            <p role="status">{readFailureMessage(readFailure)}</p>
+            <p role="status">
+              {readFailure === "provider_account_scope_unresolved" &&
+              onSelectProviderAccount
+                ? "Choose a Meta ad account below to see its automation status."
+                : readFailureMessage(readFailure)}
+            </p>
+            {readFailure === "provider_account_scope_unresolved" &&
+            onSelectProviderAccount &&
+            !providerAccountId ? (
+              <AutomationAccountPicker
+                accounts={providerAccounts}
+                loading={providerAccountsLoading}
+                onSelect={onSelectProviderAccount}
+              />
+            ) : null}
             <button
               type="button"
               className={styles.readRetry}
@@ -2994,6 +3084,7 @@ export function StateHistoryRecoverySection({
 export default function MetaAutomationPage({
   businessId: authorizedBusinessId,
   providerAccountId: authorizedProviderAccountId,
+  accountSelection = "shared",
   initialPayload = null,
   viewer = AUTOMATION_VIEWER_NOT_ESTABLISHED,
   stopEngageRefusalReason = null,
@@ -3034,6 +3125,10 @@ export default function MetaAutomationPage({
    * the unresolved scope in the failure notice the screen already draws.
    */
   const [scopeFailure, setScopeFailure] = useState<string | null>(null);
+  const [providerAccounts, setProviderAccounts] = useState<
+    MetaHistoryAccount[]
+  >([]);
+  const [providerAccountsLoading, setProviderAccountsLoading] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const [queue, setQueue] = useState<ProposalQueueRead>(UNAVAILABLE_QUEUE);
   const [pendingProposalId, setPendingProposalId] = useState<string | null>(
@@ -3074,6 +3169,23 @@ export default function MetaAutomationPage({
   // failure state on this screen calls it directly. Before this the handler was
   // registered and never reachable, because nothing in the app mounts the bar.
   const retryRead = useCallback(() => setRefreshKey((value) => value + 1), []);
+
+  const selectProviderAccount = useCallback(
+    (nextProviderAccountId: string) => {
+      if (!nextProviderAccountId) return;
+      const next = accountSwitchQuery(
+        searchParams.toString(),
+        nextProviderAccountId,
+      );
+      const query = next.toString();
+      const pathname =
+        typeof window !== "undefined"
+          ? window.location.pathname
+          : "/platforms/meta/automation";
+      router.replace(query ? `${pathname}?${query}` : pathname);
+    },
+    [router, searchParams],
+  );
 
   // The scope failure is a read failure too: it is the reason no read ran.
   const surfacedReadFailure = readError ?? scopeFailure;
@@ -3132,15 +3244,19 @@ export default function MetaAutomationPage({
       // not a loading state.
       setScopeFailure(authorized ? null : "provider_account_scope_unresolved");
       if (authorized || !businessId) {
+        setProviderAccounts([]);
+        setProviderAccountsLoading(false);
         return;
       }
       // The shared topbar owns account selection. This read only distinguishes
       // an unassigned workspace from a temporarily unavailable assignment
       // catalog so the recovery message remains truthful.
       const scopeController = new AbortController();
+      setProviderAccountsLoading(true);
       fetchMetaHistoryAccounts({ businessId, signal: scopeController.signal })
         .then((accounts) => {
           if (scopeController.signal.aborted) return;
+          setProviderAccounts(accounts);
           if (accounts.length === 0) {
             setScopeFailure("provider_account_none_assigned");
           }
@@ -3148,12 +3264,20 @@ export default function MetaAutomationPage({
         .catch(() => {
           if (scopeController.signal.aborted) return;
           // A failed assignment read is not "no accounts".
+          setProviderAccounts([]);
           setScopeFailure("provider_account_scope_unavailable");
+        })
+        .finally(() => {
+          if (!scopeController.signal.aborted) {
+            setProviderAccountsLoading(false);
+          }
         });
       return () => scopeController.abort();
     }
     if (!businessId) {
       setProviderAccountId(null);
+      setProviderAccounts([]);
+      setProviderAccountsLoading(false);
       setScopeFailure(null);
       return;
     }
@@ -3161,9 +3285,11 @@ export default function MetaAutomationPage({
     const controller = new AbortController();
     setProviderAccountId(null);
     setScopeFailure(null);
+    setProviderAccountsLoading(true);
     fetchMetaHistoryAccounts({ businessId, signal: controller.signal })
       .then((accounts) => {
         if (controller.signal.aborted) return;
+        setProviderAccounts(accounts);
         const requested = requestedProviderAccountId
           ? accounts.find(
               (account) => account.id === requestedProviderAccountId,
@@ -3188,9 +3314,13 @@ export default function MetaAutomationPage({
       .catch(() => {
         if (controller.signal.aborted) return;
         setProviderAccountId(null);
+        setProviderAccounts([]);
         // A failed assignment read is not "no accounts". Saying so would turn
         // a read failure into a claim about the workspace.
         setScopeFailure("provider_account_scope_unavailable");
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setProviderAccountsLoading(false);
       });
     return () => controller.abort();
   }, [
@@ -3388,6 +3518,15 @@ export default function MetaAutomationPage({
       onRulesChanged={setPayload}
       readError={surfacedReadFailure}
       onRetryRead={retryRead}
+      providerAccounts={
+        accountSelection === "local" ? providerAccounts : undefined
+      }
+      providerAccountsLoading={
+        accountSelection === "local" ? providerAccountsLoading : undefined
+      }
+      onSelectProviderAccount={
+        accountSelection === "local" ? selectProviderAccount : undefined
+      }
       ledgerCompleteness={sessionLedgerCompleteness}
       viewer={viewer}
       stopEngageRefusalReason={stopEngageRefusalReason}

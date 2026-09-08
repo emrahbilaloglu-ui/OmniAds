@@ -140,6 +140,7 @@ describe("legacy Meta automation page (canonical route body)", () => {
     });
     expect(element.props.businessId).toBe(BUSINESS_ID);
     expect(element.props.providerAccountId).toBe("act_resolved");
+    expect(element.props.accountSelection).toBe("local");
     expect(element.props.stateHistoryReadiness).toEqual(READINESS_FIXTURE);
     expect(readinessMocks.readBudgetWriteSurfaceReadiness).toHaveBeenCalledWith({
       businessId: BUSINESS_ID,

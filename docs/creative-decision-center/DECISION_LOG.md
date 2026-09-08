@@ -8741,3 +8741,29 @@ evidence only: it never supplies a fallback, never preserves a READY state when
 the strict read refuses, and never grants hard eligibility by sample count
 alone. Missing, thin or unverifiable strict evidence therefore produces the
 D092 total hold. The no-Target-ROAS Target-CPA compatibility case is unchanged.
+
+## D094 — Legacy scope recovery and field-specific Meta degradation (2026-09-08)
+
+**Decision.** Every served Meta shell must offer a real path to select one of
+several assigned ad accounts. Canonical `/c/**` routes retain the single shared
+topbar selector. The legacy `/platforms/**` Automation and Launchpad bodies use
+a local selector only when their assignment catalog was read successfully; the
+selector is available on desktop and mobile, disappears after Automation's
+server-authorized scope resolves, and remains available in legacy Launchpad so
+an account missing currency does not trap the operator. Empty or unavailable
+catalogs state that result and render no inert choice. Account changes preserve
+the evidence window but remove stale row, handoff, draft, filter, and entity
+state before any new account-scoped read.
+
+**Provider-read consequence.** Optional schedule fields may be removed only
+after Meta returns a non-transient Graph code `100` error in the exact
+nonexisting-field shape and names a field the caller declared optional. A 429,
+5xx, known Graph throttle, unrelated permanent rejection, or code `100` naming
+a required field never changes the request shape and never creates a
+field-degradation receipt. The provider message is reduced to this in-memory
+boolean and cannot enter logs, receipts, or durable failure text.
+
+**Rollback.** Reverting this change restores the two legacy multi-account dead
+ends and permits transient or unrelated provider failures to be misattributed
+to optional fields. It changes no database schema, persisted decision, or Meta
+write authority.

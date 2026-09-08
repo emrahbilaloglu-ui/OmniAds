@@ -1273,23 +1273,48 @@ function isMetaTransientPageFailure(input: {
   ) {
     return true;
   }
-  // A 429 that carries neither a Graph code nor `is_transient` falls through
-  // to this test and is classified PERMANENT — one attempt, then give up.
-  //
-  // That is an ASSUMPTION about this provider, not a property of HTTP. It rests
-  // on a census, not on documentation: `SELECT provider_http_status, count(*)
-  // FROM meta_raw_snapshots GROUP BY 1` on production, read 2026-09-07, returns
-  // 200 (571,036), 400 (1,721), 500 (365), 502 (5), 503 (2) and no 429 row at
-  // all — Meta signals throttling to this client as a 400 with a code, which
-  // the set above already catches. The first bare 429 this client ever receives
-  // would be abandoned after one attempt; that is the failure to expect if the
-  // census ever stops being zero.
-  //
-  // This is a READ path, and the write boundary does not share the assumption:
-  // docs/creative-decision-center/INVARIANTS.md lists HTTP 429 among the
-  // ambiguous external action results that keep a duplicate-create claim
-  // retry-blocking rather than resolving it.
-  return (input.httpStatus ?? 0) >= 500;
+  // HTTP supplies the fallback classification when the Graph body carries no
+  // verdict or known code. A bare 429 is still a throttle, and a 5xx is still a
+  // provider outage; neither can prove that the request shape is unsupported.
+  const httpStatus = input.httpStatus ?? 0;
+  return httpStatus === 429 || httpStatus >= 500;
+}
+
+/**
+ * Whether Graph positively named one of the caller's optional fields as
+ * unreadable on this edge.
+ *
+ * Code 100 alone is too broad: Meta also uses it for invalid creatives,
+ * missing promoted objects and unsupported node requests. The message is read
+ * only to produce this boolean and never leaves the fetch loop. Matching both
+ * Meta's field-specific shape and the exact optional field keeps provider
+ * prose and credentials out of receipts and logs while preventing unrelated
+ * permanent refusals from entering the narrowing path.
+ */
+function isMetaOptionalFieldShapeRejection(
+  rawBody: string,
+  optionalFields: readonly string[],
+) {
+  if (optionalFields.length === 0) return false;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(rawBody);
+  } catch {
+    return false;
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return false;
+  }
+  const error = (parsed as { error?: unknown }).error;
+  if (!error || typeof error !== "object" || Array.isArray(error)) return false;
+  const record = error as Record<string, unknown>;
+  if (readOptionalGraphErrorNumber(record.code) !== 100) return false;
+  if (typeof record.message !== "string") return false;
+  const match = record.message.match(
+    /\bTried accessing nonexisting field \(([A-Za-z][A-Za-z0-9_]*)\) on node type \([^)]+\)/i,
+  );
+  const refusedField = match?.[1];
+  return Boolean(refusedField && optionalFields.includes(refusedField));
 }
 
 export interface MetaPaginationFailure {
@@ -1710,11 +1735,15 @@ export async function fetchMetaPagedCollectionReceipt<TItem>(
           attempts: attempt,
         };
 
-        // Only the first page, and only once: a rejection before any row has
-        // been read is a rejection of the request SHAPE, and the caller has
-        // named which part of that shape it can do without.
+        // Only a permanent, field-specific first-page rejection, and only
+        // once. Transient failures can clear on the next request regardless of
+        // its field list, while unrelated permanent failures say nothing about
+        // these optional fields.
         const narrowed: MetaNarrowedFieldRequest | null =
-          pageCount === 0 && !fieldDegradation
+          !transient &&
+          pageCount === 0 &&
+          !fieldDegradation &&
+          isMetaOptionalFieldShapeRejection(rawBody, optionalFields)
             ? withoutOptionalMetaFields(currentUrl, optionalFields)
             : null;
         if (narrowed) {

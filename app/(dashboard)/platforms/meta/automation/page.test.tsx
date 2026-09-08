@@ -1778,7 +1778,10 @@ describe("Dashboard v2 exact Automation presentation", () => {
     expect(narrowCss).not.toContain(
       '.ledgerCard[data-ledger-state="ready"] .ledgerTable',
     );
-    expect(css).not.toContain(".accountPicker");
+    // Canonical renders receive no legacy selector callback, so the picker is
+    // absent from the actual mobile pane even though the shared stylesheet
+    // carries the fallback mount's styles.
+    expect(mobile).not.toContain('data-control="account-picker"');
     expect(css).toContain("@media (min-width: 1024px)");
   });
 });

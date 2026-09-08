@@ -29,7 +29,7 @@ describe("Launchpad mobile read-only contract", () => {
     expect(mobileBlock).toMatch(/\.mobileSurface\s*\{[^}]*display:\s*block;/);
   });
 
-  it("renders no write control inside the mobile-only component", () => {
+  it("allows the legacy read-scope selector but no mobile write control", () => {
     const source = readFileSync(
       "app/(dashboard)/platforms/meta/launchpad/legacy-page.tsx",
       "utf8",
@@ -45,8 +45,10 @@ describe("Launchpad mobile read-only contract", () => {
       "Use desktop to create campaigns. New campaigns start paused.",
     );
     expect(mobileComponent).not.toContain("<button");
-    expect(mobileComponent).not.toContain("<select");
-    expect(mobileComponent).not.toContain("Meta ad account for Launchpad");
+    expect(mobileComponent).toContain("<select");
+    expect(mobileComponent).toContain(
+      'aria-label="Meta ad account for Launchpad mobile"',
+    );
     expect(mobileComponent).not.toContain('method: "POST"');
     expect(mobileComponent).not.toContain('method: "DELETE"');
   });

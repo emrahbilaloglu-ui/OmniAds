@@ -242,6 +242,7 @@ describe("Meta pagination receipts", () => {
 
     const receipt = await fetchMetaPagedCollectionReceipt<{ id: string }>(
       "https://graph.facebook.com/v25.0/page-1",
+      { maxAttemptsPerPage: 1 },
     );
 
     expect(receipt).toMatchObject({
@@ -260,7 +261,8 @@ describe("Meta pagination receipts", () => {
         jsonResponseFor(
           {
             error: {
-              message: "Unsupported field",
+              message:
+                "(#100) Tried accessing nonexisting field (optional_metric) on node type (Campaign)",
               code: 100,
             },
           },
@@ -300,7 +302,8 @@ describe("Meta pagination receipts", () => {
         jsonResponseFor(
           {
             error: {
-              message: "Unsupported field",
+              message:
+                "(#100) Tried accessing nonexisting field (optional_metric) on node type (Campaign)",
               code: 100,
             },
           },
@@ -330,6 +333,65 @@ describe("Meta pagination receipts", () => {
       },
     });
   });
+
+  it.each([
+    {
+      label: "an HTTP 503",
+      status: 503,
+      body: { error: { message: "Service temporarily unavailable" } },
+      errorCode: null,
+    },
+    {
+      label: "a bare HTTP 429",
+      status: 429,
+      body: { error: { message: "Too many calls" } },
+      errorCode: null,
+    },
+    {
+      label: "Graph throttling code 613",
+      status: 400,
+      body: { error: { message: "Calls are rate limited", code: 613 } },
+      errorCode: 613,
+    },
+  ])(
+    "does not narrow optional fields after exhausting $label retries",
+    async ({ status, body, errorCode }) => {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(jsonResponseFor(body, status))
+        .mockResolvedValueOnce(jsonResponseFor(body, status))
+        // Before the guard, this response made the narrowed third request look
+        // like proof that the optional field caused the first two refusals.
+        .mockResolvedValueOnce(
+          jsonResponseFor({ data: [{ id: "campaign-1" }] }, 200),
+        );
+      vi.stubGlobal("fetch", fetchMock);
+
+      const receipt = await fetchMetaPagedCollectionReceipt<{ id: string }>(
+        "https://graph.facebook.com/v25.0/campaigns?fields=id,optional_metric&access_token=secret",
+        {
+          maxAttemptsPerPage: 2,
+          retryBaseDelayMs: 0,
+          optionalFields: ["optional_metric"],
+        },
+      );
+
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      for (const [request] of fetchMock.mock.calls) {
+        expect(new URL(String(request)).searchParams.get("fields")).toBe(
+          "id,optional_metric",
+        );
+      }
+      expect(receipt).toMatchObject({
+        rows: [],
+        pageCount: 0,
+        complete: false,
+        termination: "http_failure",
+        failure: { httpStatus: status, errorCode, attempts: 2 },
+        fieldDegradation: null,
+      });
+    },
+  );
 });
 
 describe("syncMetaAccountCoreWarehouseDay", () => {

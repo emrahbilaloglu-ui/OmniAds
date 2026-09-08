@@ -155,6 +155,7 @@ export default async function LegacyMetaAutomationPage(
     <AutomationView
       businessId={authorizedBusinessId}
       providerAccountId={authorizedProviderAccountId}
+      accountSelection="local"
       viewer={viewer}
       stateHistoryReadiness={stateHistoryReadiness}
       budgetWriteReadiness={budgetWriteReadiness}

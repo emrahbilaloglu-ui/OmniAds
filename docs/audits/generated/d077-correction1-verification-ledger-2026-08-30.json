@@ -1,9 +1,9 @@
 {
- "ledgerHash": "2a4cd21e34ea7dff21cddf5759ec011b2fa3da83e3fc1467a18edc29ba691b9b",
+ "ledgerHash": "b6c52b443ca5a4572dafad44369f5e88891c3052fd6fefbb71f642bab1450b68",
  "hashAlgorithm": "sha256",
  "hashBasis": "sha256 over UTF-8 bytes of JSON.stringify(artifact, null, 1) of the artifact WITHOUT its embedded hash fields (the artifact object before {<hashField>, hashAlgorithm, hashBasis} are prepended)",
  "contract": "adsecute.d077.correction2-verification-ledger.v2",
- "generatedAtUtc": "2026-09-08T20:06:58.432Z",
+ "generatedAtUtc": "2026-09-08T20:59:25.037Z",
  "runtimeVersions": {
   "node": "v24.4.1",
   "npm": "11.4.2",
@@ -177,7 +177,7 @@
  },
  "packagingRuntimeVersions": {
   "actor": "codex",
-  "observedAtUtc": "2026-09-08T20:06:57.934Z",
+  "observedAtUtc": "2026-09-08T20:59:24.537Z",
   "node": "v24.4.1",
   "npm": "11.4.2",
   "pnpm": "11.19.0",
@@ -203,7 +203,7 @@
      "stderr": "",
      "spawnErrorCode": null,
      "spawnErrorMessage": null,
-     "observedAtUtc": "2026-09-08T20:06:57.385Z"
+     "observedAtUtc": "2026-09-08T20:59:23.983Z"
     },
     "resolution": "resolved",
     "resolvedPath": "/Users/harmelek/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/pnpm",
@@ -219,12 +219,12 @@
      "stderr": "",
      "spawnErrorCode": null,
      "spawnErrorMessage": null,
-     "observedAtUtc": "2026-09-08T20:06:57.694Z"
+     "observedAtUtc": "2026-09-08T20:59:24.293Z"
     },
     "reportedVersion": "11.19.0",
     "resultClass": "version_reported",
     "observationKind": "present_tense",
-    "observedAtUtc": "2026-09-08T20:06:57.694Z",
+    "observedAtUtc": "2026-09-08T20:59:24.293Z",
     "observationTimeCertainty": "exact",
     "cacheSafeReadOnly": true
    },
@@ -246,7 +246,7 @@
      "stderr": "",
      "spawnErrorCode": null,
      "spawnErrorMessage": null,
-     "observedAtUtc": "2026-09-08T20:06:57.700Z"
+     "observedAtUtc": "2026-09-08T20:59:24.300Z"
     },
     "resolution": "resolved",
     "resolvedPath": "/usr/local/bin/corepack",
@@ -262,12 +262,12 @@
      "stderr": "",
      "spawnErrorCode": null,
      "spawnErrorMessage": null,
-     "observedAtUtc": "2026-09-08T20:06:57.744Z"
+     "observedAtUtc": "2026-09-08T20:59:24.344Z"
     },
     "reportedVersion": "0.34.2",
     "resultClass": "version_reported",
     "observationKind": "present_tense",
-    "observedAtUtc": "2026-09-08T20:06:57.744Z",
+    "observedAtUtc": "2026-09-08T20:59:24.344Z",
     "observationTimeCertainty": "exact",
     "cacheSafeReadOnly": true
    },
@@ -281,7 +281,7 @@
      "exists": true,
      "observationErrorCode": null,
      "observationErrorMessage": null,
-     "observedAtUtc": "2026-09-08T20:06:57.744Z"
+     "observedAtUtc": "2026-09-08T20:59:24.344Z"
     },
     "resolution": "resolved",
     "resolvedPath": "/Users/harmelek/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/pnpm",
@@ -297,12 +297,12 @@
      "stderr": "",
      "spawnErrorCode": null,
      "spawnErrorMessage": null,
-     "observedAtUtc": "2026-09-08T20:06:57.932Z"
+     "observedAtUtc": "2026-09-08T20:59:24.533Z"
     },
     "reportedVersion": "11.19.0",
     "resultClass": "version_reported",
     "observationKind": "present_tense",
-    "observedAtUtc": "2026-09-08T20:06:57.932Z",
+    "observedAtUtc": "2026-09-08T20:59:24.533Z",
     "observationTimeCertainty": "exact",
     "cacheSafeReadOnly": true
    },

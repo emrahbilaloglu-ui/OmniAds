@@ -2275,6 +2275,71 @@ describe("learning routing is invariant under copy", () => {
     expect(keys).toContain("learning:1");
   });
 
+  it.each([
+    ["scenario_a3_learning_on_pace_wait", "LEARNING"],
+    ["scenario_a4_learning_limited_persistent", "LEARNING_LIMITED"],
+  ] as const)(
+    "routes %s from persisted signalQuality.learning_state=%s into learning",
+    async (type, learningState) => {
+      const keys = await segmentKeysFor([
+        metaRec({
+          id: `rec_${learningState.toLowerCase()}`,
+          type,
+          confidenceScore: 0.42,
+          confidenceReason: null,
+          decisionState: "watch",
+          ...NEUTRAL_TURKISH,
+          signalQuality: {
+            quality_status: "ready",
+            learning_state: learningState,
+          },
+        }),
+      ]);
+      expect(keys).toContain("learning:1");
+      expect(keys).not.toContain("insufficient_signal:1");
+    },
+  );
+
+  it("does not treat a completed persisted state or the obsolete top-level shape as learning", async () => {
+    const keys = await segmentKeysFor([
+      {
+        ...metaRec({
+          id: "rec_learning_done",
+          type: "scenario_a5_post_learning_underperformer",
+          confidenceScore: 0.42,
+          confidenceReason: null,
+          decisionState: "watch",
+          ...NEUTRAL_TURKISH,
+          signalQuality: {
+            quality_status: "ready",
+            learning_state: "OPTIMAL_LEARNING_DONE",
+          },
+        }),
+        signals: { learningState: "LEARNING" },
+      },
+    ]);
+    expect(keys).not.toContain("learning:1");
+    expect(keys).toContain("insufficient_signal:1");
+  });
+
+  it("ignores malformed persisted learning-state values", async () => {
+    const keys = await segmentKeysFor([
+      metaRec({
+        id: "rec_learning_malformed",
+        confidenceScore: 0.42,
+        confidenceReason: null,
+        decisionState: "watch",
+        ...NEUTRAL_TURKISH,
+        signalQuality: {
+          quality_status: "ready",
+          learning_state: { value: "LEARNING" },
+        },
+      }),
+    ]);
+    expect(keys).not.toContain("learning:1");
+    expect(keys).toContain("insufficient_signal:1");
+  });
+
   it("places the same typed row identically whatever its copy is", async () => {
     const withEnglish = await segmentKeysFor([
       metaRec({

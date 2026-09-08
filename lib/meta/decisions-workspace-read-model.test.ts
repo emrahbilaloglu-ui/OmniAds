@@ -25,6 +25,7 @@ import {
   type MetaNativeDecisionSnapshotSourceRow,
 } from "@/lib/meta/decisions-workspace-read-model";
 import { hashAdDecisionIdentityManifest } from "@/lib/creative-decision-engine/data-source";
+import { STALE_CONFIDENCE_CAP } from "@/lib/creative-decision-engine/config-values";
 import { projectMetaDecisionSemantics } from "@/lib/meta/decision-semantics";
 import { NATIVE_AD_ENGINE_VERSION } from "@/lib/creative-decision-engine/types";
 import { projectCanonicalNativeAdDecisionToBriefing } from "@/app/api/creatives/briefing/canonical-projection";
@@ -2644,7 +2645,7 @@ describe("Meta Decisions workspace canonical read model", () => {
     }
   });
 
-  it("strips execution authority from a degraded generation that is still inside the freshness window", () => {
+  it("caps confidence and strips execution authority from a degraded generation inside the freshness window", () => {
     const rows = [nativeSnapshot("120000000000000903")];
     const build = (degraded: boolean) =>
       buildNativeMetaDecisionsWorkspaceReadModel({
@@ -2668,13 +2669,17 @@ describe("Meta Decisions workspace canonical read model", () => {
 
     // Same rows, same instant, seven hours old: freshness alone would leave
     // this decision fully action-eligible.
-    expect(
-      build(false).queue.adCandidates?.items[0]?.sourceAuthority,
-    ).toMatchObject({
+    const healthy = build(false).queue.adCandidates?.items[0];
+    expect(healthy?.sourceAuthority).toMatchObject({
       actionEligible: true,
       authorizedAction: "cut",
       reviewOnlyReason: null,
       decisionFreshness: { status: "fresh", ageHours: 7 },
+    });
+    expect(healthy?.sourceDecision).toMatchObject({
+      label: "cut",
+      confidence: 88,
+      confidenceBand: "high",
     });
     const degraded = build(true);
     expect(
@@ -2688,10 +2693,54 @@ describe("Meta Decisions workspace canonical read model", () => {
       // Still fresh, and still forbidden: the source is degraded, not the age.
       decisionFreshness: { status: "fresh", ageHours: 7 },
     });
-    // Freshness may block execution, but it must not erase the verdict.
+    // Source degradation may not erase the verdict, but it must cap both
+    // representations of confidence even while the decision clock is fresh.
     expect(degraded.queue.adCandidates?.items[0]?.sourceDecision).toMatchObject(
-      { label: "cut", confidence: 88 },
+      {
+        label: "cut",
+        confidence: STALE_CONFIDENCE_CAP,
+        confidenceBand: "medium",
+      },
     );
+  });
+
+  it("does not raise confidence that was already below the degraded-source cap", () => {
+    const rows = [
+      nativeSnapshot("120000000000000931", { confidence: 55 }),
+      nativeSnapshot("120000000000000932", { confidence: 25 }),
+    ];
+    const degraded = buildNativeMetaDecisionsWorkspaceReadModel({
+      businessId: "biz_1",
+      providerAccountId: "act_1",
+      generation: nativeBuildGeneration(rows),
+      snapshotRows: rows,
+      campaignContextRows: [context()],
+      sourceDegradation: {
+        reason: "native_latest_job_failed_serving_last_successful_generation",
+        generation: nativeBuildGeneration(rows),
+        latestTerminalJobRunId: "20000000-0000-4000-8000-000000000902",
+        latestTerminalJobStatus: "failed",
+        latestTerminalAsOfDate: "2026-07-12",
+      },
+      generatedAt: "2026-07-12T12:00:00.000Z",
+    });
+    const byAdId = new Map(
+      (degraded.queue.adCandidates?.items ?? []).map((decision) => [
+        decision.parentChain.ad?.id,
+        decision.sourceDecision,
+      ]),
+    );
+
+    expect(byAdId.get(rows[0]!.ad_id)).toMatchObject({
+      label: "cut",
+      confidence: 55,
+      confidenceBand: "medium",
+    });
+    expect(byAdId.get(rows[1]!.ad_id)).toMatchObject({
+      label: "cut",
+      confidence: 25,
+      confidenceBand: "low",
+    });
   });
 
   /*
@@ -4708,6 +4757,7 @@ describe("served held-verdict resolutions carry the engine's predicate blockers"
           authority_blocker: "native_metrics_unavailable",
           blocked_action_type: "cut",
           authorized_action: null,
+          confidence: 65,
           badges: [
             {
               type: "lifecycle_unavailable",
@@ -4734,6 +4784,8 @@ describe("served held-verdict resolutions carry the engine's predicate blockers"
     const item = model.queue.adCandidates?.items[0];
     // The cohort rewrite is visible: the held action really is a Cut.
     expect(item?.classification.heldAction).toBe("cut");
+    expect(item?.sourceDecision.confidence).toBe(65);
+    expect(item?.sourceDecision.confidenceBand).toBe("medium");
     expect(item?.classification.resolution).toMatchObject({
       code: "complete_hard_action_evidence",
       category: "system",

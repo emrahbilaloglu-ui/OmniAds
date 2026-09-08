@@ -8418,8 +8418,10 @@ definitively off; recovery returns to latest-native atomically at the SQL.
     served decision carries `actionEligible: false`, `authorizedAction: null`
     and `executionReadiness: "decision_not_authorized"` — so
     `buildMetaDecisionPipelineHealth` refuses `executionReady` and no provider
-    write can originate from it. Label, reason, confidence and badges are
-    untouched.
+    write can originate from it. Label, reason and badges are untouched. The
+    numeric confidence is capped at the canonical stale-evidence ceiling of 65
+    and a `high` confidence band becomes `medium`; an already-lower score or
+    band is never raised.
 (d) The per-decision review-only reason is FILLED, never overwritten. A row
     that already states why it is review-only keeps its own sentence: the
     marker used to clobber it on every decision, and because the Archive note
@@ -8453,7 +8455,11 @@ may not delete the operator candidate, and observed/required plus the reason
 stay visible. Grandmix's exact purchase cell — scale 19 of 30, refresh 0 of 20 —
 is the worked case. The ad-level fatigue/lifecycle evidence contract is built
 from grain-safe, PIT-safe AD evidence rather than creative-grain data; where the
-evidence does not exist a Refresh is openly held and never ready.
+evidence does not exist a Refresh is openly held and never ready. That held
+Refresh is capped at confidence 65, including the Test-cohort Refresh-to-Cut
+presentation transform. The cap is tied to the held Refresh request rather than
+the generic `lifecycle_unavailable` badge, so an independently proven economic
+Cut does not lose confidence merely because lifecycle data is unavailable.
 
 **Directional label.** One mapper owns direction, and no prose is authority.
 `scale_for_profitability` names a DEFENSIVE verdict —

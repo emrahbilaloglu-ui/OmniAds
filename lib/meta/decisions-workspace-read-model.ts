@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { CREATIVE_DECISION_CENTER_ADAPTER_VERSION } from "@/lib/creative-decision-center/adapter";
 import { CREATIVE_DECISION_CENTER_V3_BRIDGE_VERSION } from "@/lib/creative-decision-center/v3-bridge";
+import { STALE_CONFIDENCE_CAP } from "@/lib/creative-decision-engine/config-values";
 import {
   DECISION_BADGE_DISPLAY,
   DECISION_AUTHORITY_BLOCKERS,
@@ -2869,9 +2870,10 @@ export function buildNativeMetaCanonicalDecisionInventory(
  *    wrongly. @see MetaDecisionSourceDegradation
  * 3. Every served decision loses execution authority outright --
  *    `actionEligible: false`, `authorizedAction: null` -- independently of
- *    freshness. The label, reason, confidence and badges are untouched:
- *    freshness may block execution but must not erase a severe stop-loss
- *    verdict (INVARIANTS).
+ *    freshness. The label, reason and badges are untouched so a severe
+ *    stop-loss verdict remains visible, while the numeric confidence and its
+ *    categorical band are capped by the engine's canonical stale-evidence
+ *    ceiling (INVARIANTS).
  *
  * `reviewOnlyReason` is FILLED IN, never overwritten. It is a single slot that
  * already answers "why is this row review-only?" for rows that had their own
@@ -2940,6 +2942,13 @@ function markNativeReadModelSourceDegraded(
   };
   model.source.degraded = degraded;
   for (const decision of collectMetaCanonicalDecisions(model)) {
+    decision.sourceDecision.confidence = Math.min(
+      decision.sourceDecision.confidence,
+      STALE_CONFIDENCE_CAP,
+    );
+    if (decision.sourceDecision.confidenceBand === "high") {
+      decision.sourceDecision.confidenceBand = "medium";
+    }
     const authority = decision.sourceAuthority;
     if (!authority) continue;
     authority.actionEligible = false;

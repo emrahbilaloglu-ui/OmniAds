@@ -14,6 +14,7 @@ import {
 import { computeFunnelDiagnosis } from "../funnel";
 import { applyTestCohortRefreshOverride } from "../test-cohort-semantic";
 import {
+  LIFECYCLE_HELD_REFRESH_CONFIDENCE_CAP,
   STALE_CONFIDENCE_CAP,
   STALE_SOURCE_UPDATED_AT_HOURS,
 } from "../config-values";
@@ -97,11 +98,18 @@ export function formatAccountCurrencySpend(
 
 function confidenceCapForBadges(
   badges: readonly DecisionBadge[],
+  lifecycleRefreshHeld: boolean,
 ): number | null {
-  return hasDecisionBadge(badges, "stale_evidence") ||
+  const caps = [
+    hasDecisionBadge(badges, "stale_evidence") ||
     hasDecisionBadge(badges, "unknown_freshness")
-    ? STALE_CONFIDENCE_CAP
-    : null;
+      ? STALE_CONFIDENCE_CAP
+      : null,
+    lifecycleRefreshHeld && hasDecisionBadge(badges, "lifecycle_unavailable")
+      ? LIFECYCLE_HELD_REFRESH_CONFIDENCE_CAP
+      : null,
+  ].filter((cap): cap is number => cap !== null);
+  return caps.length === 0 ? null : Math.min(...caps);
 }
 
 function capConfidence(confidence: number, cap: number | null): number {
@@ -597,7 +605,10 @@ export function finalizeDecision(
     reason: finalReason,
     confidence: capConfidence(
       clampConfidence(ctx.confidenceBase, confidenceDeltas),
-      confidenceCapForBadges(finalBadges),
+      confidenceCapForBadges(
+        finalBadges,
+        label === "refresh" && authorityHold?.blockedActionType === "refresh",
+      ),
     ),
     badges: finalBadges,
     preAuthorityLabel,

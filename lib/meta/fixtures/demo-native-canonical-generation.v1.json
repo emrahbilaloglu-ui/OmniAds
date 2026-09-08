@@ -147,10 +147,10 @@
       "buyerAction": null,
       "buyerLabel": "Cut · Held",
       "campaignId": "m-c2",
-      "confidence": 75,
+      "confidence": 65,
       "creativeId": "m-cr-5",
       "currency": "USD",
-      "decisionHash": "dad721ba4454003d59564f315e2eab580cc78f3ad1f230055f09e53b1aa7e8a2",
+      "decisionHash": "281e5f7fa53a0789eb15d286fbb36a421b719ca8636871b17873fbe1d8db8ef4",
       "decisionState": "blocked",
       "effectiveTargetRoas": 2.5,
       "executionAction": null,
@@ -263,7 +263,7 @@
     }
   ],
   "jobRunId": "demo-synthetic-native-ad-generation-v1",
-  "manifestHash": "67d4d7347768e62f8975d54e7c096ed1db0d522907a01d22dcd54509035d439e",
+  "manifestHash": "03b2d09ffc154e1b39f3b671a5844fe4cf1c026cfb35fe0718d8a3c583a86a2d",
   "providerAccountId": "act_210009998877",
   "providerAccountRefId": "demo-synthetic-provider-account-ref-urbantrail-dtc",
   "sourceInputHash": "93b17dfd7627504a34b39bf8cf701fbb981857c86489deccaa7359cfc7cb20ae"

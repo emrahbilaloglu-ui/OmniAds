@@ -18,6 +18,7 @@ import {
   META_RECOMMENDATION_ENGINE_VERSION,
   type MetaRecommendation,
 } from "@/lib/meta/recommendations";
+import type { MetaLearningState } from "@/lib/meta/entity-signals";
 import type {
   MetaLanePayload,
   MetaStructureInventoryEntity,
@@ -732,6 +733,20 @@ function isRecentlyChanged(rec: MetaRecommendation, now = Date.now()) {
   return latest != null && now - latest < 48 * 60 * 60 * 1000;
 }
 
+function persistedLearningState(
+  rec: Pick<MetaRecommendation, "signalQuality">,
+): MetaLearningState | null {
+  const value = rec.signalQuality?.learning_state;
+  if (
+    value === "LEARNING" ||
+    value === "LEARNING_LIMITED" ||
+    value === "OPTIMAL_LEARNING_DONE"
+  ) {
+    return value;
+  }
+  return null;
+}
+
 /**
  * Learning, from TYPED SIGNALS ONLY (Codex C21).
  *
@@ -750,16 +765,13 @@ function isRecentlyChanged(rec: MetaRecommendation, now = Date.now()) {
  *     BUDGET and insufficient SPEND, neither of which is a learning state.
  *
  * The typed facts say it directly: the emitter's own type, the engine's
- * `confidenceReason` code, and the provider's learning state carried on
- * `signals`. All three are stable under translation and rewording.
+ * `confidenceReason` code, and the provider's learning state persisted on
+ * `signalQuality.learning_state`. All three are stable under translation and
+ * rewording.
  */
 function isInLearning(rec: MetaRecommendation) {
   const reason = rec.confidenceReason ?? "";
-  const learningState = (
-    rec as MetaRecommendation & {
-      signals?: { learningState?: string | null } | null;
-    }
-  ).signals?.learningState;
+  const learningState = persistedLearningState(rec);
   return (
     rec.type === "adset_watch_learning" ||
     reason === "thin_data_watching" ||

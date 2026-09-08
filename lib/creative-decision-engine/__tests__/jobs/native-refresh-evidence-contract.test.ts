@@ -1,12 +1,14 @@
 import { describe, expect, it } from "vitest";
 
 import type { CampaignContextLabelMap } from "../../campaign-context/source";
+import { LIFECYCLE_HELD_REFRESH_CONFIDENCE_CAP } from "../../config-values";
 import {
   NATIVE_AD_LIFECYCLE_EVIDENCE_CONTRACT,
   computeNativeAdDecisions,
   computeNativeAdLifecycleEvidence,
   resolveNativeAdFrequencyPressureThreshold,
   resolveNativeAdFrequencyPressureThresholdsByAccount,
+  toNativeSnapshotPayload,
 } from "../../jobs/ad-decisions-job";
 import type {
   AccountDecisionProfile,
@@ -264,7 +266,7 @@ function profile(): AccountDecisionProfile {
   });
 }
 
-function runNative(adInputs: AdDecisionInput[]): AdDecisionOutput[] {
+function runNativeComputations(adInputs: AdDecisionInput[]) {
   return computeNativeAdDecisions({
     businessId: BUSINESS_ID,
     profile: profile(),
@@ -273,7 +275,13 @@ function runNative(adInputs: AdDecisionInput[]): AdDecisionOutput[] {
     campaignContextMode: "automatic",
     campaignContextById: campaignContext(["campaign-main"]),
     previousLabels: new Map(),
-  }).map((computation) => computation.decision);
+  });
+}
+
+function runNative(adInputs: AdDecisionInput[]): AdDecisionOutput[] {
+  return runNativeComputations(adInputs).map(
+    (computation) => computation.decision,
+  );
 }
 
 /** Eight comparable ads, so the account-relative percentile exists at all. */
@@ -834,7 +842,7 @@ describe("native Ad lifecycle evidence contract", () => {
       "account_relative_frequency_threshold_unavailable",
     );
 
-    const [decision] = runNative([
+    const [computation] = runNativeComputations([
       adInput(
         decayedAd({
           // Sits inside the target band (ROAS 1.9 against a 2.0 target) so the
@@ -847,12 +855,16 @@ describe("native Ad lifecycle evidence contract", () => {
         }),
       ),
     ]);
-    if (!decision) throw new Error("Expected one native Ad decision.");
+    if (!computation) throw new Error("Expected one native Ad decision.");
+    const decision = computation.decision;
 
     // Execution shut, verdict kept.
     expect(decision.label).toBe("keep");
     expect(decision.preAuthorityLabel).toBe("refresh");
     expect(decision.blockedActionType).toBe("refresh");
+    expect(decision.confidence).toBe(
+      LIFECYCLE_HELD_REFRESH_CONFIDENCE_CAP,
+    );
     expect(decision.blockers).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -862,6 +874,30 @@ describe("native Ad lifecycle evidence contract", () => {
         }),
       ]),
     );
+
+    const decisionProfile = profile();
+    const persisted = toNativeSnapshotPayload({
+      businessId: BUSINESS_ID,
+      asOf: AS_OF,
+      jobRunId: "00000000-0000-4000-8000-0000000009b2",
+      scope: decisionProfile.scope,
+      computation,
+      stored: {
+        evaluationId: "00000000-0000-4000-8000-0000000009b3",
+        providerAccountRefId: PROVIDER_ACCOUNT_REF_ID,
+        providerAccountId: computation.input.providerAccountId,
+        decisionEntityId: computation.input.decisionEntityId,
+        inputHash: "1".repeat(64),
+        decisionHash: "2".repeat(64),
+      },
+      calibrationRowId: "00000000-0000-4000-8000-0000000009b4",
+      hardActionEligibility: decisionProfile.hardActionEligibility,
+      computedAt: `${AS_OF}T03:00:00.000Z`,
+    });
+    expect(persisted.confidence).toBe(
+      LIFECYCLE_HELD_REFRESH_CONFIDENCE_CAP,
+    );
+    expect(persisted.authorized_action).toBeNull();
   });
 
   it("publishes the withholding contract and its specific gaps on a held Refresh", () => {

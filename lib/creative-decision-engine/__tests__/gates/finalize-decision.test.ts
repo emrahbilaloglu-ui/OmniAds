@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { LIFECYCLE_HELD_REFRESH_CONFIDENCE_CAP } from "../../config-values";
 import {
   enforceHardActionEligibility,
   finalizeDecision,
@@ -170,6 +171,19 @@ describe("finalizeDecision - test cohort semantic transform", () => {
     expect(output.blockedActionType).toBe("cut");
   });
 
+  it("does not cap an economic Cut merely because lifecycle data is unavailable", () => {
+    const output = finalizeDecision(
+      contextFor({ campaignKind: "main", gate: { confidenceBase: 95 } }),
+      "cut",
+      "economic stop-loss evidence supports pausing",
+    );
+
+    expect(output.badges.map((badge) => badge.type)).toContain(
+      "lifecycle_unavailable",
+    );
+    expect(output.confidence).toBe(95);
+  });
+
   it("enforces profile authority idempotently and preserves the first blocker", () => {
     const eligible = finalizeDecision(
       contextFor({ campaignKind: "main" }),
@@ -228,7 +242,19 @@ describe("a label transform cannot silently drop a requested authority hold", ()
 
   it("holds the Refresh on a Main campaign", () => {
     const output = finalizeDecision(
-      contextFor({ campaignKind: "main" }),
+      contextFor({
+        campaignKind: "main",
+        gate: {
+          confidenceBase: 95,
+          badges: [
+            {
+              type: "lifecycle_unavailable",
+              label: "Ad-level fatigue evidence unavailable",
+              severity: "info",
+            },
+          ],
+        },
+      }),
       "refresh",
       "Recent decay without a lifecycle verdict.",
       hold,
@@ -238,11 +264,24 @@ describe("a label transform cannot silently drop a requested authority hold", ()
     expect(output.preAuthorityLabel).toBe("refresh");
     expect(output.authorityBlocker).toBe("native_metrics_unavailable");
     expect(output.blockedActionType).toBe("refresh");
+    expect(output.confidence).toBe(LIFECYCLE_HELD_REFRESH_CONFIDENCE_CAP);
   });
 
   it("still holds it on a Test campaign, as the Cut the transform makes it", () => {
     const output = finalizeDecision(
-      contextFor({ campaignKind: "test" }),
+      contextFor({
+        campaignKind: "test",
+        gate: {
+          confidenceBase: 95,
+          badges: [
+            {
+              type: "lifecycle_unavailable",
+              label: "Ad-level fatigue evidence unavailable",
+              severity: "info",
+            },
+          ],
+        },
+      }),
       "refresh",
       "Recent decay without a lifecycle verdict.",
       hold,
@@ -256,6 +295,38 @@ describe("a label transform cannot silently drop a requested authority hold", ()
     // rewrite the label did rather than being dropped.
     expect(output.blockedActionType).toBe("cut");
     expect(output.preAuthorityLabel).toBe("cut");
+    expect(output.confidence).toBe(LIFECYCLE_HELD_REFRESH_CONFIDENCE_CAP);
+  });
+
+  it("caps a lifecycle-held Refresh when profile authority is also unavailable", () => {
+    const output = finalizeDecision(
+      contextFor({
+        campaignKind: "main",
+        hardActionEligibility: {
+          scale: true,
+          cut: true,
+          refresh: false,
+          reason: "refresh profile authority unavailable",
+        },
+        gate: {
+          confidenceBase: 95,
+          badges: [
+            {
+              type: "lifecycle_unavailable",
+              label: "Ad-level fatigue evidence unavailable",
+              severity: "info",
+            },
+          ],
+        },
+      }),
+      "refresh",
+      "Recent decay without a lifecycle verdict.",
+      hold,
+    );
+
+    expect(output.authorityBlocker).toBe("profile_hard_action_ineligible");
+    expect(output.blockedActionType).toBe("refresh");
+    expect(output.confidence).toBe(LIFECYCLE_HELD_REFRESH_CONFIDENCE_CAP);
   });
 
   it("leaves a Scale hold alone, because only refresh is ever rewritten", () => {

@@ -56,7 +56,7 @@ async function collectMigrationStatements(): Promise<string> {
     },
   );
 
-  vi.doMock("@/lib/db", () => migrationDbMockModule(sql));
+  vi.doMock("@/lib/db", () => migrationDbMockModule(sql, { catalog: "small" }));
   vi.doMock("@/lib/startup-diagnostics", () => ({
     logStartupError: vi.fn(),
     logStartupEvent: vi.fn(),

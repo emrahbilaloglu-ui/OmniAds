@@ -297,12 +297,18 @@ describe("an approved queue row carries its cap through to the write", () => {
     });
   });
 
-  it("stamps the claim inside the handler's last pre-provider hook", async () => {
+  it("stamps durable intent before observing the provider POST", async () => {
     const order: string[] = [];
     vi.mocked(writes.updateAdsetBidAmount).mockImplementationOnce(
       async (_ctx, writeInput) => {
         order.push("write-entered");
         await writeInput.beforeMutationAttempt?.();
+        // Intent alone does not prove a POST. Model the adapter's separate
+        // synchronous observation at the simulated request boundary; the real
+        // final-GET ordering is covered by bid-amount-precondition.test.ts.
+        expect(writeInput.onProviderMutationAttempt).toEqual(expect.any(Function));
+        writeInput.onProviderMutationAttempt?.();
+        order.push("provider-attempt-observed");
         order.push("provider-post");
         return {
           ok: true,
@@ -333,7 +339,9 @@ describe("an approved queue row carries its cap through to the write", () => {
 
     expect(result.ok).toBe(true);
     expect(result.receipt.providerMutationAttempted).toBe(true);
-    expect(order).toEqual(["write-entered", "claim-marked", "provider-post"]);
+    expect(order).toEqual([
+      "write-entered", "claim-marked", "provider-attempt-observed", "provider-post",
+    ]);
   });
 
   it("reports a posture-forced rehearsal as a non-attempt and never stamps dispatch", async () => {

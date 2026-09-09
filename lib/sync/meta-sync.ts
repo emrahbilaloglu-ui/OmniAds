@@ -2536,6 +2536,12 @@ async function syncMetaPartitionDay(input: {
     day: normalizedDay,
     referenceToday,
   });
+  // A queued today job may outlive its provider-local day. In legacy mode,
+  // complete raw coverage does not prove its intraday capture was finalized.
+  // Admit it so core can establish/resume the durable finalized generation.
+  const delayedTodayFinalization =
+    truthState === "finalized" && normalizedDay < referenceToday &&
+    (input.source === "today" || input.source === "today_observe");
   const shouldSyncBreakdowns = shouldSyncMetaBreakdownsForDay({
     day: normalizedDay,
     referenceToday,
@@ -2618,7 +2624,7 @@ async function syncMetaPartitionDay(input: {
     productCoreEligible &&
     // A provisional day changes intraday. Raw coverage proves that it has
     // been captured, never that its spend and conversions are still current.
-    (sourceTodayWindow || forceAuthoritativeRefetch || !coverageState.productCoreComplete)
+    (sourceTodayWindow || delayedTodayFinalization || forceAuthoritativeRefetch || !coverageState.productCoreComplete)
   ) {
     const bulkResult = await captureMetaPartitionStage({
       businessId: input.businessId,

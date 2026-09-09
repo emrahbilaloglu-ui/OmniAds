@@ -76,8 +76,8 @@ const { migrationDbMockModule } = await import(
  * the pooled readers, the pinned lease, and the transaction the native-ad group
  * opens ON that lease.
  */
-function wirePinnedDb(sql: unknown) {
-  const module = migrationDbMockModule(sql as never);
+function wirePinnedDb(sql: unknown, options: { catalog?: "small" } = { catalog: "small" }) {
+  const module = migrationDbMockModule(sql as never, options);
   vi.mocked(db.getDb).mockReturnValue(sql as never);
   vi.mocked(db.getDbWithTimeout).mockReturnValue(sql as never);
   vi.mocked(db.withPinnedDbClient).mockImplementation(
@@ -101,6 +101,7 @@ describe("runMigrations", () => {
     process.env.ENABLE_RUNTIME_MIGRATIONS = "true";
     delete process.env.DB_DROP_LEGACY_CORE_TABLES;
     delete process.env.DB_ENABLE_LEGACY_CORE_COMPAT_TABLES;
+    delete process.env.ADSECUTE_META_HISTORY_SCHEMA_MAINTENANCE;
   });
 
   it("uses the explicit timeout override DB client when provided", async () => {
@@ -158,6 +159,14 @@ describe("runMigrations", () => {
         force: true,
         timeoutMs: 120_000,
       }),
+    );
+    expect(startupDiagnostics.logStartupEvent).toHaveBeenCalledWith(
+      "migration_relation_budget_measured",
+      expect.objectContaining({ phase: "before_build", relation_bytes: "8192", index_bytes: "0", index_valid: false }),
+    );
+    expect(startupDiagnostics.logStartupEvent).toHaveBeenCalledWith(
+      "migration_relation_budget_measured",
+      expect.objectContaining({ phase: "after_build", relation_bytes: "16384", index_bytes: "8192", index_valid: true }),
     );
     expect(queries.join("\n")).toContain("provider_connections");
     expect(queries.join("\n")).toContain("integration_credentials");
@@ -240,12 +249,38 @@ describe("runMigrations", () => {
     expectDropColumnQuery(queries.join("\n"), "meta_adset_daily", "manual_bid_amount");
   });
 
+  it.each([
+    { label: "missing catalog response", result: [], fixture: false },
+    { label: "malformed bigint", result: [{ relation_bytes: "not-a-size", index_valid: false }], fixture: true },
+    { label: "boolean coercion", result: [{ relation_bytes: false, index_valid: false }], fixture: true },
+    { label: "relation at the SOURCE ceiling", result: [{ relation_bytes: "6442450944", index_valid: false }], fixture: true },
+    { label: "null SQL response", result: null, fixture: true },
+    { label: "wrong SQL response shape", result: { rows: [{ relation_bytes: "8192", index_valid: true }] }, fixture: true },
+  ])("keeps production measurement refusal with the SQL mock: $label", async ({ result, fixture }) => {
+    const sql = Object.assign(vi.fn(async () => []), {
+      query: vi.fn(async (text: string) =>
+        text.includes("AS index_valid") &&
+          text.includes("pg_total_relation_size('meta_entity_state_history'::regclass)")
+          ? result
+          : [],
+      ),
+    });
+    // Omitted catalog remains unknown. A caller's explicit malformed/oversized
+    // response must survive even when the small-catalog fallback is enabled.
+    wirePinnedDb(sql, fixture ? { catalog: "small" } : {});
+    const migrations = await import("@/lib/migrations");
+    await expect(migrations.runMigrations({ force: true, verifyNativeSchemaCapabilities: false }))
+      .rejects.toThrow("migration_relation_budget_refused:before_build");
+    expect(sql.query.mock.calls.some(([text]) => text.includes("CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_meta_entity_state_history_manifest_delta")))
+      .toBe(false);
+  });
+
   it("settles at one absolute deadline and does not overlap a delayed prior run", async () => {
     const sql = Object.assign(
       vi.fn(async () => []),
       { query: vi.fn(async () => []) },
     );
-    const module = migrationDbMockModule(sql as never);
+    const module = migrationDbMockModule(sql as never, { catalog: "small" });
     let releaseStart!: () => void;
     const delayedStart = new Promise<void>((resolve) => {
       releaseStart = resolve;

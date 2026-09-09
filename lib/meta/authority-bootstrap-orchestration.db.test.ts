@@ -363,6 +363,7 @@ const linkedReceipts = async () => {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
 });
 
 /*
@@ -824,7 +825,9 @@ describe.skipIf(!SEAM)("the bootstrap lifecycle through syncMetaPartitionDay", (
     expect(after).toEqual(expect.arrayContaining(before));
   });
 
-  it("refetches a delayed H4 today capture after midnight and resumes only the new finalized generation", async () => {
+  it.each([true, false])("refetches a delayed H4 today capture after midnight and resumes only the new finalized generation (V2=%s)", async (v2Enabled) => {
+    vi.stubEnv("META_AUTHORITATIVE_FINALIZATION_V2", String(v2Enabled));
+    await seedCompleteCoverage();
     const legacyCheckpointId = await upsertMetaSyncCheckpoint({
       partitionId, businessId, providerAccountId: ACCOUNT, checkpointScope: "core_ad_insights",
       runId: partitionId, phase: "finalize", status: "succeeded", pageIndex: 1,
@@ -847,6 +850,7 @@ describe.skipIf(!SEAM)("the bootstrap lifecycle through syncMetaPartitionDay", (
     const oldEvidence = await rawCaptureEvidence();
     expect(oldEvidence.some((row) => row.run_id === partitionId)).toBe(true);
     expect(oldEvidence.some((row) => row.run_id === current?.runId)).toBe(true);
+    const bootstrapAttemptsBeforeRollover = await ledgerRows();
 
     const afterMidnight = new Date(SEAM_INSTANT.getTime() + 24 * 60 * 60 * 1000);
     stubGraph(() => { throw new Error("seam_delayed_finalization_interrupted"); });
@@ -867,6 +871,13 @@ describe.skipIf(!SEAM)("the bootstrap lifecycle through syncMetaPartitionDay", (
     const result = await runPartitionDay(retryId, { evaluationNow: afterMidnight, source: "today_observe" });
     await finishSyncRun(retryId);
     expect(result).toMatchObject({ truthState: "finalized" });
+    expect(result.referenceToday).toBe(calendarDateIn("America/Los_Angeles", afterMidnight));
+    expect(result.referenceToday).not.toBe(LA_TODAY);
+    if (!v2Enabled) {
+      // Raw coverage was already complete before this finalized capture. The
+      // outer gate must admit rollover independently of missing daily rows.
+      expect(result.beforeCoverage.productCoreComplete).toBe(true);
+    }
     expect(await coreCheckpoint()).toMatchObject({ runId: finalizedCapture?.runId, phase: "finalize", status: "succeeded" });
     const coreCalls = calls.filter((url) => {
       const parsed = new URL(url);
@@ -883,5 +894,17 @@ describe.skipIf(!SEAM)("the bootstrap lifecycle through syncMetaPartitionDay", (
     expect(Number(daily?.spend)).toBe(0);
     expect(daily?.truth_state).toBe("finalized");
     expect(daily?.source_run_id).toBe(finalizedCapture?.runId);
+    expect(await ledgerRows()).toBe(bootstrapAttemptsBeforeRollover);
+    if (!v2Enabled) {
+      // Existing closed-day coverage semantics for other sources stay intact.
+      await seedCompleteCoverage();
+      const noCalls = stubGraph(() => { throw new Error("unrelated_closed_day_refetch"); });
+      const closedId = await newSyncRun();
+      const closed = await runPartitionDay(closedId, { evaluationNow: afterMidnight, source: "historical" });
+      await finishSyncRun(closedId);
+      expect(closed.beforeCoverage.productCoreComplete).toBe(true);
+      expect(noCalls).toHaveLength(0);
+      expect(await coreCheckpoint()).toMatchObject({ runId: finalizedCapture?.runId, status: "succeeded" });
+    }
   });
 });

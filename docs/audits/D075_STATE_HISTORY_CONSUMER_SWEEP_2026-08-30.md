@@ -704,3 +704,16 @@ The additional query runs on the migration's pinned client before and after
 index work. Its relation/index measurements are migration admission evidence,
 not a new entity-content consumer. The retained complete-lane, presence,
 as-of winner and manifest-kind predicates therefore require no relaxation.
+
+## Addendum — 2026-09-09 migration catalog test fixtures
+
+The H5 CI follow-up adds two **TEST** entries to the exact-count ledger:
+
+| File | Literal count | Classification and evidence |
+|---|---|---|
+| `lib/__tests__/pinned-migration-client-mock.ts` | **9** | SQL-string routing for explicit small-catalog fixtures: the relation-size/index-validity query, exact manifest-delta CREATE/DROP statements, and whitelisted capacity lookups. It returns synthetic catalog rows only inside opted-in tests and opens no database connection. |
+| `lib/migrations.test.ts` | **2** | A SQL mock predicate supplies malformed or over-budget measurements; an assertion verifies that the real migration refuses before index creation. Neither reads production entity content. |
+
+The closure scan and content-reader safety predicates remain unchanged. Missing
+or malformed measurements still refuse production migration admission; the
+test fixture supplies a small catalog only when explicitly requested.

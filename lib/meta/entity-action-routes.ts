@@ -49,6 +49,8 @@ type RouteParams = { params: Promise<Record<string, string | undefined>> };
 type EntityActionExecutionHooks = {
   /** Additional durable boundary required by a queue-owned write. */
   beforeMutationAttempt?: () => Promise<void>;
+  /** Synchronous observation of an issued provider POST, separate from intent. */
+  onProviderMutationAttempt?: () => void;
 };
 
 interface EntityActionBody {
@@ -1120,10 +1122,19 @@ export async function handleMetaAdsetBidAction(
               rehearsalAtEntry: prepared.posture.rehearsal,
             })();
             await executionHooks.beforeMutationAttempt?.();
+          },
+          onProviderMutationAttempt: () => {
             providerMutationBoundaryReached = true;
+            executionHooks.onProviderMutationAttempt?.();
           },
         }),
     });
+    // Retain actual adapter evidence before terminal logging can throw. The
+    // durable intent hook precedes a final GET and cannot prove a POST happened.
+    providerMutationBoundaryReached ||= !dryRun && !result.ok && (
+      result.mutationAttempt != null
+      || result.providerMutationAttempted === true
+    );
     if (!result.ok) {
       await completeFailure({ logId: log.id, startedAt, result });
       return NextResponse.json(
@@ -1138,6 +1149,8 @@ export async function handleMetaAdsetBidAction(
             logId: log.id,
           }),
           mutationAttempt: result.mutationAttempt ?? null,
+          providerMutationAttempted: providerMutationBoundaryReached,
+          dryRun,
           retryAllowed:
             isProviderOutcomeAmbiguous(result) ||
             hasSuccessfulMetaProviderMutationAttempt(result)
@@ -1164,6 +1177,7 @@ export async function handleMetaAdsetBidAction(
       adsetId: prepared.target.entityId,
       bidAmountMinor: result.verifiedBidAmount,
       dryRun: result.dryRun === true,
+      providerMutationAttempted: providerMutationBoundaryReached,
       wouldHaveWritten: result.wouldHaveWritten ?? null,
       /*
         The terminal answer, which this handler used to omit.
@@ -1200,6 +1214,7 @@ export async function handleMetaAdsetBidAction(
         message,
       },
       providerWriteAttempted: providerMutationBoundaryReached,
+      providerMutationAttempted: providerMutationBoundaryReached,
       dryRun,
       ...(providerMutationBoundaryReached ? {
         providerOutcome: "outcome_ambiguous",

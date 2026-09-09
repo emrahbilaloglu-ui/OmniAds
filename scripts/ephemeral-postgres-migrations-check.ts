@@ -3805,7 +3805,7 @@ async function main() {
       source it had read. It now pins an instant where the two provably differ
       and asserts the difference before relying on it.
 
-      Exactly 8 passed and 0 skipped: `runChildVitest` already refuses a
+      Exactly 9 passed and 0 skipped: `runChildVitest` already refuses a
       skipped child and requires the exact passing count.
     */
     await runChildVitest(
@@ -3813,7 +3813,7 @@ async function main() {
       databaseUrl,
       path.join("lib", "meta", "authority-bootstrap-orchestration.db.test.ts"),
       "Meta authority bootstrap orchestration DB seam check",
-      8,
+      9,
     );
 
     /*

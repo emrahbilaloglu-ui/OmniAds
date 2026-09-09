@@ -440,8 +440,8 @@ export async function executeMetaAutomationProposal(input: {
             };
           }
         }
-        bidMutationBoundaryReached = true;
       },
+      onProviderMutationAttempt: () => { bidMutationBoundaryReached = true; },
     });
     const bidPayload = (await bidResponse.json().catch(() => null)) as unknown;
     const bidPayloadRecord = bidPayload !== null
@@ -462,12 +462,14 @@ export async function executeMetaAutomationProposal(input: {
     const actualDryRun = input.dryRunOnly || bidPayloadRecord?.dryRun === true;
     const providerMutationAttempted = actualDryRun
       ? false
-      : bidMutationBoundaryReached || ambiguous
-        || bidPayloadRecord?.ok === true
-        || (
-          bidPayloadRecord?.mutationAttempt !== null
-          && bidPayloadRecord?.mutationAttempt !== undefined
-        );
+      : typeof bidPayloadRecord?.providerMutationAttempted === "boolean"
+        ? bidPayloadRecord.providerMutationAttempted
+        : bidMutationBoundaryReached || ambiguous
+          || bidPayloadRecord?.ok === true
+          || (
+            bidPayloadRecord?.mutationAttempt !== null
+            && bidPayloadRecord?.mutationAttempt !== undefined
+          );
     return {
       ok: bidResponse.status < 400
         && (bidPayload as { ok?: boolean } | null)?.ok === true,

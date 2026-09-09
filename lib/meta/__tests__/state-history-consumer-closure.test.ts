@@ -100,6 +100,10 @@ const STATE_HISTORY_REFERENCE_LEDGER: ReadonlyArray<{
   // labels. It reads no entity content and changes no D075 winner predicate.
   { file: "lib/migrations.ts", category: "ddl", count: 50 },
   { file: "lib/meta/__tests__/migration-relation-budget.test.ts", category: "test", count: 3 },
+  // Explicit small-catalog SQL mocks and migration refusal controls; no
+  // production connection or entity-content reader.
+  { file: "lib/__tests__/pinned-migration-client-mock.ts", category: "test", count: 9 },
+  { file: "lib/migrations.test.ts", category: "test", count: 2 },
   /*
     D086 correction 7. Readiness stopped reading transition-only config history
     and reads the observation state history the real capture path writes. Its

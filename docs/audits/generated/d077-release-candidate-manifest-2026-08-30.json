@@ -1,20 +1,20 @@
 {
- "manifestHash": "2aefc8b317e36c2deba669ca50b419d91a207474d52904732ddfcd9fb5fc7f45",
+ "manifestHash": "ade8ea4b17230a9c45530f34382319715365582bf5a741ee81e7188062cffc1e",
  "hashAlgorithm": "sha256",
  "hashBasis": "sha256 over UTF-8 bytes of JSON.stringify(artifact, null, 1) of the artifact WITHOUT its embedded hash fields (the artifact object before {<hashField>, hashAlgorithm, hashBasis} are prepended)",
  "contract": "adsecute.d077.release-candidate-manifest.v3",
- "generatedAtUtc": "2026-09-09T12:41:40.715Z",
+ "generatedAtUtc": "2026-09-09T13:25:50.117Z",
  "branch": "codex/meta-release-finalization",
  "supersededBranchLabel": "codex/meta-disabled-readiness-20260829",
- "head": "5b861ad6a567743f4d880e61302f538b398a5ee3",
+ "head": "dd83c3e4aeb595a118d14c2bc21ec0cebf277537",
  "baseMain": "babf158e150fd33057117b39b175da044ac62d2e",
  "originMain": "a2eb1b1b1dae9e69ffe470c39ada19731a570224",
  "remoteDivergence": {
-  "aheadOfOriginMain": 19,
+  "aheadOfOriginMain": 20,
   "behindOriginMain": 0
  },
  "selfExclusion": "this manifest's own path (docs/audits/generated/d077-release-candidate-manifest-2026-08-30.json) is EXCLUDED from its entry list: a manifest cannot recursively pin its own final bytes; its external SHA-256 is reported in the final response and by Codex's own hashing",
- "gitPorcelainEntryCount": 116,
+ "gitPorcelainEntryCount": 22,
  "releaseDiffEntryCountIncludingSelf": 1090,
  "expandedOnDiskCandidateFileCountIncludingSelf": 1090,
  "pinnedNonSelfFileCount": 1089,
@@ -57,7 +57,7 @@
   },
   {
    "path": ".github/scripts/meta-history-migration-env.test.ts",
-   "git": "??",
+   "git": "A",
    "class": "tests_only",
    "sha256": "576610c0f299923859ce4b16bcbf9233997f03bc25833cd1aa7a5da4dfe2520b"
   },
@@ -105,7 +105,7 @@
   },
   {
    "path": ".github/workflows/promotion-post-deploy-evidence.test.ts",
-   "git": "??",
+   "git": "A",
    "class": "tests_only",
    "sha256": "cef7a2b5163b467725b0f46b830cb05c801e8ab62125f8733befd1c9d6981f9f"
   },
@@ -867,7 +867,7 @@
   },
   {
    "path": "app/api/oauth/sign-with-facebook/return-path.test.ts",
-   "git": "??",
+   "git": "A",
    "class": "tests_only",
    "sha256": "8e0cb1d3ab815762a6afd0eb55b67993426a13e37dd3ca478bb044d3202f3131"
   },
@@ -1803,7 +1803,7 @@
   },
   {
    "path": "docs/architecture/meta-receipt-additive-rollback.md",
-   "git": "??",
+   "git": "A",
    "class": "docs",
    "sha256": "c8fd06f60f54a608b3fa77046674ccb571aeb65c3db26eb18e460efb3e58058e"
   },
@@ -1835,7 +1835,7 @@
    "path": "docs/audits/D075_STATE_HISTORY_CONSUMER_SWEEP_2026-08-30.md",
    "git": "A",
    "class": "docs",
-   "sha256": "4e2ffd3e72c4d756ac879609666ec83f5b522ae8212f4f621c0cfb5d9bf0e519"
+   "sha256": "85e8534fd9f63b060dfeab1e62280927c101eb2357d3d15b60d27955e45d4882"
   },
   {
    "path": "docs/audits/D077_PRODUCTION_RECOVERY_PREFLIGHT_2026-08-30.md",
@@ -2075,13 +2075,13 @@
    "path": "docs/audits/generated/d077-correction1-verification-ledger-2026-08-30.json",
    "git": "A",
    "class": "generated_evidence",
-   "sha256": "2025b00a7ce31b482782400d9bbd7800030d4323b879a116ed417a7a52ef742d"
+   "sha256": "2b0dc6d95f4b070c0f20def12bb9bd2ae48c8114424ac286a16f9556117b08cb"
   },
   {
    "path": "docs/audits/generated/d077-database-recovery-approval-packet-2026-08-30.json",
    "git": "A",
    "class": "generated_evidence",
-   "sha256": "5693a601b571e503905913bdcee10f3f14688f2acecd83ba2b4a3861d9c93d18"
+   "sha256": "5e0687ef1c333aef557320a3b6defa499353521df165322e59db44e185c24b4c"
   },
   {
    "path": "docs/audits/generated/d077-production-recovery-readonly-evidence-2026-08-30.json",
@@ -2093,7 +2093,7 @@
    "path": "docs/audits/generated/d077-release-deploy-approval-packet-2026-08-30.json",
    "git": "A",
    "class": "generated_evidence",
-   "sha256": "ff13d268c2cfc2900ca117a13caa5a5ae6e3087c86f758cf87f1da37e8e38aa2"
+   "sha256": "986df25e82fc0db6aacd5882f662a5fc4043b69c7428ef93e3e526d5d1b417fc"
   },
   {
    "path": "docs/audits/generated/d078-hard-action-recompute-2026-08-30.json",
@@ -2313,7 +2313,7 @@
   },
   {
    "path": "docs/audits/generated/d086-budget-readiness-input-pack-2026-09-02.r15.json",
-   "git": "??",
+   "git": "A",
    "class": "generated_evidence",
    "sha256": "8a9c9508d4ba862358c9a0ecb8d66486b4483f72270a6b3d4fe9c373b9db3e07"
   },
@@ -2397,7 +2397,7 @@
   },
   {
    "path": "docs/audits/generated/d086-local-postgres-evidence-2026-09-02.r5.json",
-   "git": "??",
+   "git": "A",
    "class": "generated_evidence",
    "sha256": "d5b1fa580937df653390e5ef193b094a504e9f8324ddf75b480f6a8648143d2e"
   },
@@ -2633,7 +2633,7 @@
    "path": "lib/__tests__/pinned-migration-client-mock.ts",
    "git": "A",
    "class": "tests_only",
-   "sha256": "82ae86bfb716a5747a8b68e07a4a7a179bd5aba520e5629f2b55981995ab141e"
+   "sha256": "0f97ee1342c50c8ff6d66346b9492902ad443ad4106b3bcdf58d022565efb17c"
   },
   {
    "path": "lib/api/meta-link-click-source.test.ts",
@@ -3471,7 +3471,7 @@
   },
   {
    "path": "lib/meta/__tests__/migration-relation-budget.test.ts",
-   "git": "??",
+   "git": "A",
    "class": "tests_only",
    "sha256": "cc8d31b4032454e38fb5b7b85698382ff587e7aa516945fb941488e8e6dded32"
   },
@@ -3527,7 +3527,7 @@
    "path": "lib/meta/__tests__/state-history-consumer-closure.test.ts",
    "git": "A",
    "class": "tests_only",
-   "sha256": "7f9b20e0abf84dba97655e412a6ec9b3c9e5d23e31adadfd9891f5ba8ad4bcf6"
+   "sha256": "c194b55032990152080ce04fec08ce49bc532505dd9043b115c3139ab0364b17"
   },
   {
    "path": "lib/meta/account-context.test.ts",
@@ -3629,7 +3629,7 @@
    "path": "lib/meta/ads-write.ts",
    "git": "M",
    "class": "runtime",
-   "sha256": "1d65ec201f1208d6ae44e7fc59affc8f7843719e41288213a0445a61f7e20d59"
+   "sha256": "1ec9ebbfbd4e1528d2ce7daf1df6c4fe981f6137daea938bcd12eb181170d4bb"
   },
   {
    "path": "lib/meta/adset-decisions.test.ts",
@@ -3677,7 +3677,7 @@
    "path": "lib/meta/authority-bootstrap-orchestration.db.test.ts",
    "git": "A",
    "class": "tests_only",
-   "sha256": "4c6f02d0e78d094694c053aa4c32837c58be9fa07d3659918faaaf1c90c6de4e"
+   "sha256": "e178873e5e5c9838dc68898191cda544bedf6215661220abb54cb98a0043817d"
   },
   {
    "path": "lib/meta/authority-bootstrap-timezone.test.ts",
@@ -3761,7 +3761,7 @@
    "path": "lib/meta/automation-proposal-execution.ts",
    "git": "M",
    "class": "runtime",
-   "sha256": "f95eb9018abb1f6a4c57b87cff4ae7e06639df47ef6e165a640d3a7df28ea477"
+   "sha256": "76d673458545f5ea0efcadf1542712a42f968fb258c65dd6faad1e39c7421444"
   },
   {
    "path": "lib/meta/automation-proposal-reconcile-slot.db.test.ts",
@@ -3845,13 +3845,13 @@
    "path": "lib/meta/bid-amount-precondition-wiring.test.ts",
    "git": "A",
    "class": "tests_only",
-   "sha256": "72f755aa6c972bca218521bad54022431748b8172cd56aeb1833defa55d71ecd"
+   "sha256": "69c5d6cd10d93bc0ebadf825d0646eba12a94f8de3a78c6405cbf50120f4f787"
   },
   {
    "path": "lib/meta/bid-amount-precondition.test.ts",
    "git": "A",
    "class": "tests_only",
-   "sha256": "ccdf7f520475f1891edef5607bbab7af5b721176a941eeef26e638e088cd5ed1"
+   "sha256": "acb772fe784d1aa5be506d10d2ba60028167d12acf63c16f61a18b9ff7dadb31"
   },
   {
    "path": "lib/meta/bid-card-apply-reachability.test.ts",
@@ -4667,13 +4667,13 @@
    "path": "lib/meta/entity-action-bid-strategy-binding.test.ts",
    "git": "A",
    "class": "tests_only",
-   "sha256": "6e4922d028c5c7b722b7e1478f88d84ec55d8482848f51c471cc8ef57ea008f9"
+   "sha256": "59e8c21d11e5a6a9b6417cf8cb7838e3ceaae229a1679c42d20839bb5e844334"
   },
   {
    "path": "lib/meta/entity-action-routes.ts",
    "git": "M",
    "class": "runtime",
-   "sha256": "4118440047990e31a921b40c8328e0c3e0e3d5fc39246d114b06b8322513d0b0"
+   "sha256": "62016d44c30be9a8df3ace88e18540bac22b78f1e7f0231edfb2882a2f62a0cc"
   },
   {
    "path": "lib/meta/entity-signals-backfill.sql-scope.test.ts",
@@ -5001,7 +5001,7 @@
   },
   {
    "path": "lib/meta/observation-receipt-schema.ts",
-   "git": "??",
+   "git": "A",
    "class": "runtime",
    "sha256": "c9b026b37b6520f0ddc300410b04257ebdf489799bb65f231d15d906639d1d3e"
   },
@@ -5465,43 +5465,43 @@
    "path": "lib/migrations.engine-v3.test.ts",
    "git": "M",
    "class": "tests_only",
-   "sha256": "6be84dc0143abc13c808ce22b62cd3cb47fbf10679a73e948620397c076641a3"
+   "sha256": "6cc69f7b527bc1ebf583ebf3844f0cb22bf45ded7c972d5e8d6ee721ec17e641"
   },
   {
    "path": "lib/migrations.google-ads-search-intelligence.test.ts",
    "git": "M",
    "class": "tests_only",
-   "sha256": "3c16985d0d8dc316acf7e162090c20dd1e476e82563b061b0e3329db55d03b26"
+   "sha256": "a973d58323628f3bef7495e0f2165f43f4c676a073cfa49aa4e01114c9cd432f"
   },
   {
    "path": "lib/migrations.klaviyo.test.ts",
    "git": "M",
    "class": "tests_only",
-   "sha256": "55ac2f7f227c68e066909fa9213ac300be2eda7f2772c17fd3767ccaedcdb782"
+   "sha256": "260cc150aa5a3d80eca6cf5981177ffa7b501c8f66c30648ad0cbb0a860378a8"
   },
   {
    "path": "lib/migrations.meta-decision-outcomes.test.ts",
    "git": "M",
    "class": "tests_only",
-   "sha256": "9b0154c38593fb6f19209e7becbc1f67c422c4741a2e2747f94635133816e60d"
+   "sha256": "758fbaf113479ab09cfc6199cc9300209ab30ac9d8a032d1257eda6a73cf31f9"
   },
   {
    "path": "lib/migrations.meta-retention.test.ts",
    "git": "M",
    "class": "tests_only",
-   "sha256": "1f278a5d5ed0ea69fd98b39c97b2fbdfadcc9114eb2a16f6babf0bfc97e2ce12"
+   "sha256": "a52f64863aeed26f8f9761b117f8676ac902b1b57520e999901dc01d9c7c5f3b"
   },
   {
    "path": "lib/migrations.shopify-sync-window.test.ts",
    "git": "A",
    "class": "tests_only",
-   "sha256": "6190049b538cd4827e27efdad4769e722f7705901c981f516cac74e633b140d7"
+   "sha256": "3b8feae49a7bb66dfc409d41c51683d8a8522fbccb3b824badee02b624de4151"
   },
   {
    "path": "lib/migrations.test.ts",
    "git": "M",
    "class": "tests_only",
-   "sha256": "934b02a617a90427056d8e7e00367b9d99af9eca951876f99851f34e8a22bd82"
+   "sha256": "f41c0b338b26908bda2868ef1752c397c5f0626929294a38605af62308cadbb7"
   },
   {
    "path": "lib/migrations.ts",
@@ -5693,7 +5693,7 @@
    "path": "lib/sync/meta-sync.ts",
    "git": "M",
    "class": "runtime",
-   "sha256": "e0c918c96f3a5e7d7006e5d5568f9cbfd7cdec04e8afe5e0b7e776a126ce2739"
+   "sha256": "d7f79a69b0e5069e873201d321f8a262f7db05f7280cf4d77651154ebd9e632d"
   },
   {
    "path": "lib/sync/provider-day-rollover.test.ts",
@@ -5721,7 +5721,7 @@
   },
   {
    "path": "lib/test-utils/shared-ephemeral-database.ts",
-   "git": "??",
+   "git": "A",
    "class": "runtime",
    "sha256": "d30105befeb46be342b5fc26a445349bba176bace8b098796bf6510facb2e012"
   },
@@ -6389,7 +6389,7 @@
    "path": "scripts/ephemeral-postgres-migrations-check.ts",
    "git": "M",
    "class": "script_ops_non_request_path",
-   "sha256": "dace9b12b772a32048d59fb5c114e3167cebbfea21ac5badde0126ef84080973"
+   "sha256": "7df96a702fd8e3a09926adaf3242394802e4a69a8e822b825f1d6d4ab15d23ed"
   },
   {
    "path": "scripts/ephemeral-postgres-native-ad-decision-seam.ts",

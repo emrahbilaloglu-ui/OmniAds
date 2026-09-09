@@ -20,11 +20,17 @@
  * by this, which is asserted rather than assumed.
  */
 import { NextRequest, NextResponse } from "next/server";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/access", () => ({ requireBusinessAccess: vi.fn() }));
 vi.mock("@/lib/db", () => ({ getDb: vi.fn() }));
 vi.mock("@/lib/integrations", () => ({ getIntegration: vi.fn() }));
+vi.mock("@/lib/meta/automation-control-plane", () => ({
+  getMetaWriteBlockState: vi.fn(async () => ({ blocked: false })),
+}));
+vi.mock("@/lib/provider-write-authority", () => ({
+  assertProviderWriteAuthorityUnchanged: vi.fn(async () => ({ ok: true })),
+}));
 
 vi.mock("@/lib/meta/automation-write-guard", () => ({
   // Unblocked and NOT rehearsing: these cases are about what a real provider
@@ -57,8 +63,8 @@ vi.mock("@/lib/meta/ads-action-log", () => ({
   hasRecentPendingMetaAdsAction: vi.fn(async () => false),
 }));
 
-vi.mock("@/lib/meta/ads-write", () => ({
-  hasSuccessfulMetaProviderMutationAttempt: vi.fn(() => false),
+vi.mock("@/lib/meta/ads-write", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/meta/ads-write")>(),
   pauseCampaign: vi.fn(),
   resumeCampaign: vi.fn(),
   pauseAdset: vi.fn(),
@@ -260,6 +266,7 @@ describe("an approved queue row carries its check through to the write", () => {
   it.each(["verified", "failed"])("preserves the dispatch when a %s write cannot terminalize its log", async (outcome) => {
     vi.mocked(writes.updateAdsetBidAmount).mockImplementationOnce(async (_ctx, input) => {
       await input.beforeMutationAttempt?.();
+      input.onProviderMutationAttempt?.();
       return (outcome === "verified"
         ? { ok: true, verifiedBidAmount: 1320, responsePayload: { success: true }, verificationPayload: { bid_amount: 1320 } }
         : { ok: false, error: { code: "provider_error", message: "Provider refused" }, httpStatus: 400 }) as never;
@@ -351,5 +358,190 @@ describe("an approved queue row carries its check through to the write", () => {
     expect(bidWriteInput()).toMatchObject({
       expectedBidStrategy: "LOWEST_COST_WITH_BID_CAP",
     });
+  });
+});
+
+describe("the real bid provider boundary survives the handler and proposal receipt", () => {
+  const actualWrites = vi.importActual<typeof import("@/lib/meta/ads-write")>("@/lib/meta/ads-write");
+  let observedAttempts = vi.fn();
+  let order: string[] = [];
+
+  function providerState(amount: number, strategy = "COST_CAP") {
+    return new Response(JSON.stringify({
+      id: ADSET, account_id: "1", bid_amount: amount,
+      bid_strategy: strategy, status: "ACTIVE", effective_status: "ACTIVE",
+    }), { status: 200 });
+  }
+
+  function providerError(status = 400) {
+    return new Response(JSON.stringify({ error: { code: 100, message: "Provider refused" } }), { status });
+  }
+
+  function accepted() {
+    return new Response(JSON.stringify({ success: true }), { status: 200 });
+  }
+
+  function methods() {
+    return vi.mocked(fetch).mock.calls.map(([, request]) => request?.method);
+  }
+
+  function execute(input: { dryRun?: boolean; markAllowed?: boolean } = {}) {
+    const markDispatchStarted = vi.fn(async () => {
+      order.push("durable intent");
+      return input.markAllowed !== false;
+    });
+    return {
+      markDispatchStarted,
+      result: executeMetaAutomationProposal({
+        request: new NextRequest(`http://localhost/api/meta/automation/proposals?businessId=${BUSINESS_ID}`, { method: "POST" }),
+        businessId: "biz_1", proposal: bidProposal(), dryRunOnly: input.dryRun === true,
+        readBidBaseline: providerHasCurrentCap, markDispatchStarted,
+      }),
+    };
+  }
+
+  beforeEach(async () => {
+    vi.stubGlobal("fetch", vi.fn());
+    vi.stubEnv("META_ADS_WRITE_KILL_SWITCH", "false");
+    observedAttempts = vi.fn();
+    order = [];
+    const actual = await actualWrites;
+    // Only the external boundaries remain mocked. This wrapper records the
+    // callback from the real adapter and forwards it to the real route.
+    vi.mocked(writes.updateAdsetBidAmount).mockImplementation((ctx, input) =>
+      actual.updateAdsetBidAmount(ctx, {
+        ...input,
+        onProviderMutationAttempt: () => {
+          observedAttempts();
+          order.push("actual attempt");
+          input.onProviderMutationAttempt?.();
+        },
+      }));
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+  });
+
+  it.each(["cap drift", "strategy drift", "GET rejection", "GET transport"])(
+    "does not turn durable intent into a POST when the final read has %s",
+    async (failure) => {
+      if (failure === "GET transport") vi.mocked(fetch).mockRejectedValueOnce(new Error("connection reset"));
+      else vi.mocked(fetch).mockResolvedValueOnce(failure === "cap drift"
+        ? providerState(1500)
+        : failure === "strategy drift" ? providerState(1200, "LOWEST_COST_WITH_BID_CAP")
+          : providerError(500));
+      const attempt = execute();
+      const result = await attempt.result;
+      expect(attempt.markDispatchStarted).toHaveBeenCalledOnce();
+      expect(methods()).toEqual(["GET"]);
+      expect(observedAttempts).not.toHaveBeenCalled();
+      expect(result.ok).toBe(false);
+      expect(result.receipt.providerMutationAttempted).toBe(false);
+      expect(result.receipt.ambiguous).not.toBe(true);
+      expect(result.receipt.response).toMatchObject({
+        metaHttpStatus: 409, providerMutationAttempted: false,
+        providerOutcome: "definite_failure", mutationAttempt: null,
+      });
+    },
+  );
+
+  it("preserves a known no-POST refusal when terminal failure logging also fails", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(providerState(1500));
+    vi.mocked(actionLog.completeMetaAdsActionLog).mockRejectedValue(new Error("terminal log unavailable"));
+    const result = await execute().result;
+    expect(methods()).toEqual(["GET"]);
+    expect(observedAttempts).not.toHaveBeenCalled();
+    expect(result.receipt).toMatchObject({ httpStatus: 500, providerMutationAttempted: false });
+    expect(result.receipt.ambiguous).not.toBe(true);
+    expect(result.receipt.response).toMatchObject({ providerMutationAttempted: false, providerWriteAttempted: false });
+    expect(vi.mocked(actionLog.completeMetaAdsActionLog).mock.calls.every(([input]) => input.status === "failure")).toBe(true);
+  });
+
+  it("does not reach the final GET or POST after a refused durable claim", async () => {
+    const attempt = execute({ markAllowed: false });
+    const result = await attempt.result;
+    expect(attempt.markDispatchStarted).toHaveBeenCalledOnce();
+    expect(fetch).not.toHaveBeenCalled();
+    expect(observedAttempts).not.toHaveBeenCalled();
+    expect(result.receipt.providerMutationAttempted).toBe(false);
+    expect(result.receipt.ambiguous).not.toBe(true);
+  });
+
+  it("records an actual rejected POST separately from a pre-POST refusal", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(providerState(1200)).mockResolvedValueOnce(providerError());
+    const result = await execute().result;
+    expect(methods()).toEqual(["GET", "POST"]);
+    expect(observedAttempts).toHaveBeenCalledOnce();
+    expect(result.receipt.providerMutationAttempted).toBe(true);
+    expect(result.receipt.ambiguous).not.toBe(true);
+    expect(result.receipt.response).toMatchObject({
+      providerMutationAttempted: true, providerOutcome: "definite_failure",
+      mutationAttempt: { attemptCount: 1, providerResponseSuccessful: false, automaticRetryAttempted: false },
+    });
+  });
+
+  it("keeps an unacknowledged POST ambiguous and forbids a retry", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(providerState(1200)).mockRejectedValueOnce(new Error("POST connection reset"));
+    const result = await execute().result;
+    expect(methods()).toEqual(["GET", "POST"]);
+    expect(observedAttempts).toHaveBeenCalledOnce();
+    expect(result.receipt).toMatchObject({ providerMutationAttempted: true, ambiguous: true });
+    expect(result.receipt.response).toMatchObject({
+      providerOutcome: "outcome_ambiguous", retryAllowed: false,
+      mutationAttempt: { attemptCount: 1, automaticRetryAttempted: false },
+    });
+  });
+
+  it.each(["readback failure", "readback mismatch"])("keeps accepted POST evidence after %s and forbids a retry", async (failure) => {
+    vi.mocked(fetch).mockResolvedValueOnce(providerState(1200)).mockResolvedValueOnce(accepted())
+      .mockResolvedValueOnce(failure === "readback failure" ? providerError(500) : providerState(1500));
+    const result = await execute().result;
+    expect(methods()).toEqual(["GET", "POST", "GET"]);
+    expect(observedAttempts).toHaveBeenCalledOnce();
+    expect(result.ok).toBe(false);
+    expect(result.receipt.providerMutationAttempted).toBe(true);
+    expect(result.receipt.response).toMatchObject({
+      providerMutationAttempted: true, retryAllowed: false,
+      mutationAttempt: { attemptCount: 1, providerResponseSuccessful: true, automaticRetryAttempted: false },
+    });
+  });
+
+  it.each(["accepted", "rejected"])("retains no-retry ambiguity after an %s POST loses terminal logging", async (outcome) => {
+    vi.mocked(fetch).mockResolvedValueOnce(providerState(1200))
+      .mockResolvedValueOnce(outcome === "accepted" ? accepted() : providerError());
+    if (outcome === "accepted") vi.mocked(fetch).mockResolvedValueOnce(providerState(1320));
+    vi.mocked(actionLog.completeMetaAdsActionLog).mockRejectedValue(new Error("terminal log unavailable"));
+    const result = await execute().result;
+    expect(methods()).toEqual(outcome === "accepted" ? ["GET", "POST", "GET"] : ["GET", "POST"]);
+    expect(observedAttempts).toHaveBeenCalledOnce();
+    expect(result.receipt).toMatchObject({ providerMutationAttempted: true, ambiguous: true });
+    expect(result.receipt.response).toMatchObject({ providerOutcome: "outcome_ambiguous", retryAllowed: false });
+  });
+
+  it("keeps the durable claim before the final GET and observes only the single real POST", async () => {
+    let gets = 0;
+    vi.mocked(fetch).mockImplementation(async (_url, request) => {
+      const method = request?.method ?? "GET";
+      order.push(method);
+      return method === "POST" ? accepted() : providerState(++gets === 1 ? 1200 : 1320);
+    });
+    const result = await execute().result;
+    expect(result.ok).toBe(true);
+    expect(result.receipt.providerMutationAttempted).toBe(true);
+    expect(observedAttempts).toHaveBeenCalledOnce();
+    expect(order).toEqual(["durable intent", "GET", "actual attempt", "POST", "GET"]);
+  });
+
+  it("rehearses without a durable dispatch claim or actual POST observation", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(providerState(1200));
+    const attempt = execute({ dryRun: true });
+    const result = await attempt.result;
+    expect(result.ok).toBe(true);
+    expect(attempt.markDispatchStarted).not.toHaveBeenCalled();
+    expect(methods()).toEqual(["GET"]);
+    expect(observedAttempts).not.toHaveBeenCalled();
+    expect(result.receipt).toMatchObject({ providerMutationAttempted: false, dryRun: true });
   });
 });

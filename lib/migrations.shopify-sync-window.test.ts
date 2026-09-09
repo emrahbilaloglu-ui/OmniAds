@@ -72,7 +72,7 @@ function makeSql(failWhen: (text: string) => boolean) {
 
 async function runWith(failWhen: (text: string) => boolean) {
   const sql = makeSql(failWhen);
-  const pinned = migrationDbMockModule(sql as never);
+  const pinned = migrationDbMockModule(sql as never, { catalog: "small" });
   vi.mocked(db.getDb).mockReturnValue(sql as never);
   vi.mocked(db.getDbWithTimeout).mockReturnValue(sql as never);
   vi.mocked(db.withPinnedDbClient).mockImplementation(

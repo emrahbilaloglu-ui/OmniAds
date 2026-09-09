@@ -119,7 +119,7 @@ async function collectMigrationQueries() {
   const queries: string[] = [];
   const sql = createSqlMock(queries);
 
-  vi.doMock("@/lib/db", () => migrationDbMockModule(sql));
+  vi.doMock("@/lib/db", () => migrationDbMockModule(sql, { catalog: "small" }));
   vi.doMock("@/lib/startup-diagnostics", () => ({
     logStartupError: vi.fn(),
     logStartupEvent: vi.fn(),

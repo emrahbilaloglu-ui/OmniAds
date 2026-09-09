@@ -907,6 +907,8 @@ async function metaFetch(input: {
   fields?: string;
   redirect?: "follow" | "error";
   timeoutMs?: number;
+  /** Synchronous observation of the actual POST call, never an awaited gate. */
+  onProviderMutationAttempt?: () => void;
 }): Promise<{
   response: Response | null;
   payload: Record<string, unknown> | null;
@@ -916,7 +918,7 @@ async function metaFetch(input: {
   if (input.fields) url.searchParams.set("fields", input.fields);
 
   try {
-    const response = await fetch(url.toString(), {
+    const request: RequestInit = {
       method: input.method,
       body: input.body,
       cache: "no-store",
@@ -931,7 +933,17 @@ async function metaFetch(input: {
           ),
         ),
       ),
-    });
+    };
+    const requestUrl = url.toString();
+    if (input.method === "POST") {
+      try {
+        input.onProviderMutationAttempt?.();
+      } catch {
+        // An observer must not become another provider gate or a retry path.
+        // The adapter's actual mutationAttempt receipt remains authoritative.
+      }
+    }
+    const response = await fetch(requestUrl, request);
     const payload = await readResponseJson(response);
     return { response, payload, error: null };
   } catch (error) {
@@ -963,6 +975,8 @@ async function metaFetchWriteOnce(input: {
   method: "POST";
   body?: URLSearchParams;
   beforeMutationAttempt?: () => Promise<void>;
+  /** Runs synchronously at fetch(POST), after every awaited precondition. */
+  onProviderMutationAttempt?: () => void;
   /**
    * The last awaited operation before the provider request is constructed and
    * sent. Budget writes use this for their provider-side compare-and-set read:
@@ -2868,6 +2882,8 @@ export async function updateAdsetBidAmount(
     expectedCurrentBidAmountMinor?: number | null;
     /** See `MetaEntityStatusWriteOptions`: the pre-POST authority boundary. */
     beforeMutationAttempt?: () => Promise<void>;
+    /** Observe the actual POST separately from the earlier durable intent. */
+    onProviderMutationAttempt?: () => void;
   },
 ): Promise<MetaAdsetBidWriteSuccess | MetaAdsWriteFailure> {
   if (isMetaAdsWriteKillSwitchEngaged()) return killSwitchFailure();
@@ -2925,6 +2941,7 @@ export async function updateAdsetBidAmount(
     method: "POST",
     body,
     beforeMutationAttempt: input.beforeMutationAttempt,
+    onProviderMutationAttempt: input.onProviderMutationAttempt,
     /*
       THE LAST WORD BEFORE THE POST — about the CAP.
 
@@ -2961,26 +2978,9 @@ export async function updateAdsetBidAmount(
       beforeProviderMutation: async () => {
         const live = await readMetaAdsetBidState(ctx, input.adsetId);
         const refuse = (error: MetaAdsWriteError): never => {
-          /*
-            Nothing was written, and the shape says so DEFINITELY rather than
-            ambiguously.
-
-            What actually carries that, named precisely: `providerOutcome:
-            "definite_failure"` together with the ABSENCE of `mutationAttempt`.
-            `failureLogStatus` (entity-action-routes.ts) reads `error.code`,
-            `hasSuccessfulMetaProviderMutationAttempt` — which reads
-            `mutationAttempt` — and `providerOutcome`; the scheduled runtime's
-            `isAmbiguous` reads `error.code` and `providerOutcome`. Neither
-            reads `providerMutationAttempted`, and an earlier draft of this
-            comment claimed all three did.
-
-            `providerMutationAttempted: false` is still set, and is still
-            correct: it is the same shape `updateEntityBudget`'s compare-and-set
-            returns, and its real readers are elsewhere (`ads-action-routes.ts`,
-            `budget-write-execution.ts`, the bulk ad-status route) rather than
-            on this path. The point of the field here is consistency, not the
-            classification — the classification comes from the two above.
-          */
+          // The durable intent hook may have run, but the POST observer has
+          // not. Preserve this explicit refusal through the handler and queue
+          // receipt; no mutationAttempt exists because no write was issued.
           preconditionFailure = {
             ok: false,
             httpStatus: 409,

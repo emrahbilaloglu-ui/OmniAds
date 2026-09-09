@@ -447,9 +447,17 @@ export function buildMetaAdsetRecommendations(
     const purchaseValueAuthority = resolveMetaPurchaseValueAuthority(
       input.commercialTargets,
     );
-    const targetRoasGoverns =
-      metaScaleRoasFloor(input.commercialTargets) !== null &&
-      Number(input.commercialTargets?.targetRoas ?? 0) > 0;
+    /*
+      GOVERNANCE IS DETERMINED BY THE TARGET'S PRESENCE, NOT ITS AUTHORITY.
+
+      `metaScaleRoasFloor` deliberately returns null when target provenance is
+      unknown. Using it to decide whether Target ROAS governs made that refusal
+      look like "no Target ROAS": the Cut path then reopened the legacy CPA /
+      calibrated-spend ladder. An untrusted ratio must close that fallback,
+      just like a trusted ratio with a missing or thin Meta AOV does.
+    */
+    const targetRoas = Number(input.commercialTargets?.targetRoas ?? 0);
+    const targetRoasGoverns = Number.isFinite(targetRoas) && targetRoas > 0;
     const scaleThreshold = scaleFloor ? (context ? Math.max(roas.p75, scaleFloor) : Math.max(roas.p75, scaleFloor)) : null;
     const weakThreshold = context ? roas.p25 : Math.max(roas.p25, 1.5);
     const currency =
@@ -562,7 +570,9 @@ export function buildMetaAdsetRecommendations(
         second mandatory user target.
       */
       const relativeCutSpendFloor = targetRoasGoverns
-        ? (maturity?.spendThreshold ?? null)
+        ? purchaseValueAuthority.authorized
+          ? (maturity?.spendThreshold ?? null)
+          : null
         : (maturity?.spendThreshold ??
           context?.thresholds.hardCutSpend ??
           LEGACY_META_CALIBRATION_THRESHOLDS.hardCutSpend);

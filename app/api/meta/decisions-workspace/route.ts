@@ -1721,19 +1721,27 @@ export async function GET(request: NextRequest) {
         Read the target pack once and pin it on this request-local source, so
         the store-evidence gate and profile resolver use the same input.
 
-        The wrapper is built on `readProviderAccountId` — the parameter the
-        measured readers are to be called with — and not on the population's own
-        id. They differ in exactly one state: the business's warehouse rows all
-        belong to this account, so the pooled precomputed row IS this account's
-        measurement and is read unwrapped. A business-wide request has no
-        account to scope to and keeps the pooled reading it has always had.
+        The full wrapper is built on `readProviderAccountId` — the parameter the
+        calibration readers are to be called with. It differs from the
+        population's own id in exactly one state: the business's warehouse rows
+        all belong to this account, so the pooled precomputed calibration row IS
+        this account's measurement and remains pooled. Strict Meta AOV cannot
+        use a null physical binding, so that state gets the AOV-only wrapper
+        with the proven account id. A business-wide request has no account to
+        scope to and keeps the pooled reading it has always had.
       */
       const dataSource = measurement.readProviderAccountId
         ? new AccountScopedDataSource(
             warehouse,
             measurement.readProviderAccountId,
           )
-        : warehouse;
+        : measurement.providerAccountId
+          ? new AccountScopedDataSource(
+              warehouse,
+              measurement.providerAccountId,
+              "meta_aov_only",
+            )
+          : warehouse;
       const targetPack = await dataSource
         .getBusinessTargetPack({ businessId, asOf: decisionAsOfDate })
         .catch(() => null);
@@ -1801,8 +1809,12 @@ export async function GET(request: NextRequest) {
   // scoped to it and the store evidence is only admissible in the AD ACCOUNT'S
   // currency, so two accounts of one business legitimately resolve different
   // anchors. Keying without it would have served the first account's answer to
-  // the second. The version is `v5` because the cached value's shape changed
-  // again — `measurement` gained `basis` and `readProviderAccountId`, a
+  // the second. The version is `v6`: `v5` introduced the current measurement
+  // shape, while `v6` changes the sole-account bootstrap semantics by keeping
+  // its calibration pooled but binding strict Meta AOV to the proven physical
+  // account. A warm `v5` entry would otherwise preserve the earlier AOV hold
+  // across a module reload. In `v5`, `measurement` gained `basis` and
+  // `readProviderAccountId`, a
   // business-wide request now carries a labelled summary where it used to carry
   // `null`, and a named account can no longer answer `business_pooled` at all —
   // so a `v4` entry left in a warm process (the store hangs off `globalThis`
@@ -1817,7 +1829,7 @@ export async function GET(request: NextRequest) {
     process.env.VITEST === "true" || process.env.NODE_ENV === "test"
       ? loadCommercialAnchorProfile()
       : getCachedValue({
-          key: `meta-decisions-anchor-profile-v5:${businessId}:${providerAccountId ?? "none"}:${decisionAsOfDate}`,
+          key: `meta-decisions-anchor-profile-v6:${businessId}:${providerAccountId ?? "none"}:${decisionAsOfDate}`,
           ttlMs: 60_000,
           staleWhileRevalidateMs: 240_000,
           loader: loadCommercialAnchorProfile,

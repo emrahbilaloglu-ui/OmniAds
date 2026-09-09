@@ -15,6 +15,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  ACCOUNT_PROFILE_OUTPUT_PRODUCER_CONTRACT,
   accountProfileMeasuredScopeHold,
   accountProfileRetentionIdentity,
   businessPooledMeasurementScope,
@@ -26,6 +27,12 @@ import type { AccountCalibration } from "@/lib/creative-decision-engine/types";
 
 const BIZ = "d0000000-0000-4000-8000-000000000501";
 const ACCOUNT = "act_5000000000001";
+
+it("mints the pinned strict-AOV producer contract", () => {
+  expect(ACCOUNT_PROFILE_OUTPUT_PRODUCER_CONTRACT).toBe(
+    "meta.account-profile-output-producer.v2",
+  );
+});
 
 const calibration = (over: Partial<AccountCalibration> = {}): AccountCalibration => ({
   businessId: BIZ,
@@ -87,6 +94,17 @@ const inputs = (
   } as AccountProfileRetentionInputs["flags"],
   accountCalibration: calibration(),
   funnelCalibration: { campaignKind: "all", byFormat: {} },
+  // Deliberately differs from the legacy creative-day calibration AOV above.
+  strictMetaAov: {
+    status: "resolved",
+    value: {
+      aovMean: 58,
+      purchaseCount: 32,
+      totalRevenue: 1856,
+      windowStart: "2026-06-07",
+      windowEnd: "2026-09-04",
+    },
+  },
   observedShopifyAov: {
     contract: "meta.observed-shopify-aov.v1",
     status: "observed",
@@ -424,13 +442,35 @@ describe("the retained account profile identity", () => {
     The other half of the invariant: narrowing the digest must not make it
     inert. A Meta-side measurement that CAN move the verdict still moves it.
   */
-  it("still moves the measured half when Meta's own attributed AOV moves", () => {
+  it("moves the measured half when the canonical strict Meta AOV moves", () => {
     const original = accountProfileRetentionIdentity(inputs());
     const moved = accountProfileRetentionIdentity(inputs({
-      accountCalibration: calibration({ metaAttributedAovMean90d: 77.5 }),
+      strictMetaAov: {
+        status: "resolved",
+        value: {
+          aovMean: 77.5,
+          purchaseCount: 32,
+          totalRevenue: 2480,
+          windowStart: "2026-06-07",
+          windowEnd: "2026-09-04",
+        },
+      },
     }));
     expect(moved.sourceFingerprint).not.toBe(original.sourceFingerprint);
     expect(moved.inputFingerprint).toBe(original.inputFingerprint);
+  });
+
+  it("does not move identity when only legacy calibration AOV changes under Target ROAS", () => {
+    const original = accountProfileRetentionIdentity(inputs());
+    const moved = accountProfileRetentionIdentity(inputs({
+      accountCalibration: calibration({
+        metaAttributedAovMean90d: 777,
+        metaAttributedAovPurchaseCount90d: 3,
+        metaAttributedRevenue90d: 2331,
+        metaAovQuality: "unstable",
+      }),
+    }));
+    expect(moved).toEqual(original);
   });
 
   it("moves the MEASURED half when the calibration sample moves", () => {
@@ -440,6 +480,49 @@ describe("the retained account profile identity", () => {
     }));
     expect(moved.sourceFingerprint).not.toBe(original.sourceFingerprint);
     expect(moved.inputFingerprint).toBe(original.inputFingerprint);
+  });
+
+  it("preserves no-ROAS legacy AOV identity and its strict fallback", () => {
+    const noRoas = { ...inputs().targetPack!, targetRoas: null, targetCpa: 31 };
+    const legacy = accountProfileRetentionIdentity(inputs({
+      targetPack: noRoas,
+      strictMetaAov: { status: "not_read" },
+    }));
+    const legacyMoved = accountProfileRetentionIdentity(inputs({
+      targetPack: noRoas,
+      strictMetaAov: { status: "not_read" },
+      accountCalibration: calibration({
+        metaAttributedAovMean90d: 41,
+        metaAttributedRevenue90d: 1312,
+      }),
+    }));
+    expect(legacyMoved.sourceFingerprint).not.toBe(legacy.sourceFingerprint);
+
+    const withoutLegacy = calibration({
+      metaAttributedAovMean90d: null,
+      metaAttributedAovPurchaseCount90d: 0,
+      metaAttributedRevenue90d: 0,
+      metaAovQuality: "unavailable",
+    });
+    const fallback = accountProfileRetentionIdentity(inputs({
+      targetPack: noRoas,
+      accountCalibration: withoutLegacy,
+    }));
+    const fallbackMoved = accountProfileRetentionIdentity(inputs({
+      targetPack: noRoas,
+      accountCalibration: withoutLegacy,
+      strictMetaAov: {
+        status: "resolved",
+        value: {
+          aovMean: 64,
+          purchaseCount: 19,
+          totalRevenue: 1216,
+          windowStart: "2026-06-07",
+          windowEnd: "2026-09-04",
+        },
+      },
+    }));
+    expect(fallbackMoved.sourceFingerprint).not.toBe(fallback.sourceFingerprint);
   });
 
   it("is scoped to one account and one day", () => {

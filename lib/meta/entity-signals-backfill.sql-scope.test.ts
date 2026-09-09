@@ -102,8 +102,9 @@ describe("the config-history read", () => {
       expect(call.text).not.toContain("::date - INTERVAL");
       expect(call.text).not.toContain("::date + INTERVAL");
       // The bounds are the ADVERTISER's day, bound as instants.
-      const [, , , accounts, starts, ends] = call.params as [
-        string, string[], string, string[], string[], string[],
+      expect(call.params).toHaveLength(5);
+      const [, , accounts, starts, ends] = call.params as [
+        string, string[], string[], string[], string[],
       ];
       expect(accounts).toEqual(["act_1"]);
       // 2026-09-05 ends at 07:00Z in Los Angeles (PDT), not at UTC midnight.
@@ -125,7 +126,7 @@ describe("the config-history read", () => {
 
     const history = configHistoryCalls(calls);
     expect(history.length).toBeGreaterThan(0);
-    const ends = (history[0]!.params as unknown[])[5] as string[];
+    const ends = (history[0]!.params as unknown[])[4] as string[];
     expect(ends[0]).toBe("2026-09-05T21:00:00.000Z");
   });
 

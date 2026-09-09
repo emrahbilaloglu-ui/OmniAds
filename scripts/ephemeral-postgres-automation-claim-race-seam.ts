@@ -56,6 +56,7 @@ const GATE_DB = "automation_claim_gate_seam";
 const LABEL = "[automation-claim-race-seam]";
 const RACE_TEST = "lib/meta/automation-proposal-claim-race.db.test.ts";
 const RECONCILE_TEST = "lib/meta/automation-proposal-reconcile-slot.db.test.ts";
+const PRODUCER_SLOT_TEST = "lib/meta/proposal-producer-open-slot.db.test.ts";
 
 function log(message: string) {
   console.log(`${LABEL} ${message}`);
@@ -689,6 +690,17 @@ async function main() {
     log(
       "PASS: a reconcile row holds the slot, and a post-dispatch settle failure " +
         "is held for reconciliation with the receipt durable and re-dispatch refused.",
+    );
+
+    await runChild(
+      "npx",
+      ["vitest", "run", PRODUCER_SLOT_TEST],
+      reconcileUrl,
+      "budget + bid producer open-slot arbitration (real Postgres)",
+    );
+    log(
+      "PASS: budget and bid projection inserts preserve one open slot under " +
+        "pending, claimed, reconcile, idempotent refresh, and concurrent contention.",
     );
 
     // ── 5. the deploy gate, observed REFUSING ────────────────────────────

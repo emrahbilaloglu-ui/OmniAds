@@ -13,7 +13,7 @@ const BUSINESS = "11111111-1111-4111-8111-111111111111";
 function rec(overrides: Partial<MetaRecommendation> = {}): MetaRecommendation {
   return {
     id: "r1", level: "adset", adsetId: "set_1", campaignId: "camp_1",
-    type: "bid_value_guidance", decisionLabel: "tune",
+    type: "scenario_b1_capped_winner_bid_raise", decisionLabel: "tune",
     lens: "efficiency", priority: "high", confidence: "high",
     decisionState: "act", decision: "", title: "", why: "", summary: "",
     ...overrides,
@@ -48,6 +48,7 @@ function project(input: {
     // $10.00 CPA benchmark against a $12.00 cap: q = 0.84, delivery
     // constrained, so the policy's 10% raise band applies.
     spendUnitMinor: input.spendUnitMinor === undefined ? 1000 : input.spendUnitMinor,
+    bidActionAuthority: true,
     accountCurrency: "USD",
     policy: {
       budgetMinHoursBetweenChanges: 24,
@@ -110,6 +111,34 @@ describe("a sized bid becomes an amount the card can apply", () => {
 });
 
 describe("nothing is proposed without a reason to propose it", () => {
+  it("refuses to type an act row without bid action authority", () => {
+    const original = rec();
+    const result = projectBidIntents({
+      recommendations: [original],
+      businessId: BUSINESS,
+      providerAccountId: "act_1",
+      spendUnitMinor: 1000,
+      bidActionAuthority: false,
+      accountCurrency: "USD",
+      policy: {
+        budgetMinHoursBetweenChanges: 24,
+        budgetMaxChangesPer7d: 3,
+        bidSizingPolicyVersion: BID_SIZING_POLICY_VERSION,
+      },
+      contextByAdsetId: new Map([["set_1", context()]]),
+      budgetChangedAdsetIds: new Set(),
+      originDate: "2026-09-05",
+      effectiveAsOf: "2026-09-04",
+      knowledgeAsOf: "2026-09-05T03:12:00.000Z",
+      evidenceWindow: { from: "2026-08-09", to: "2026-09-05" },
+    });
+
+    expect(result.sized).toBe(0);
+    expect(result.recommendations[0]).toBe(original);
+    expect(result.recommendations[0]?.targetValue).toBeUndefined();
+    expect(result.withheldByCode).toEqual({ commercial_target_unknown: 1 });
+  });
+
   it("withholds on a lowest-cost ad set, which owns no writable cap", () => {
     const result = project({ context: context({ bidStrategyType: "lowest_cost" }) });
     expect(result.sized).toBe(0);
@@ -146,6 +175,40 @@ describe("nothing is proposed without a reason to propose it", () => {
     expect(result.recommendations).toEqual(rows);
   });
 
+  it("never gives watch, test, or missing-state rows a typed bid intent", () => {
+    const rows = [
+      rec({ id: "watch", decisionState: "watch" }),
+      rec({ id: "test", decisionState: "test" }),
+      rec({ id: "legacy", decisionState: undefined } as never),
+    ];
+    const result = project({ recommendations: rows });
+
+    expect(result.sized).toBe(0);
+    expect(result.withheldByCode).toEqual({});
+    expect(result.recommendations).toHaveLength(rows.length);
+    result.recommendations.forEach((row, index) => {
+      expect(row).toBe(rows[index]);
+      expect(row.targetValue).toBeUndefined();
+    });
+  });
+
+  it("does not turn unrelated actionable recommendations into bid changes", () => {
+    const rows = [
+      rec({ id: "cut", type: "adset_cut_spend" }),
+      rec({ id: "fatigue", type: "scenario_e1_frequency_fatigue" }),
+      rec({ id: "ratio", type: "bid_value_guidance" }),
+      rec({ id: "structure", type: "scenario_k1_mixed_config_rebuild" }),
+    ];
+    const result = project({ recommendations: rows });
+
+    expect(result.sized).toBe(0);
+    expect(result.withheldByCode).toEqual({ bid_action_semantic_missing: 4 });
+    result.recommendations.forEach((row, index) => {
+      expect(row).toBe(rows[index]);
+      expect(row.targetValue).toBeUndefined();
+    });
+  });
+
   it("withholds when the sizing policy version is not bound", () => {
     // An unstamped business proposes nothing: a build that changed the bands
     // must not silently start proposing different amounts.
@@ -154,6 +217,7 @@ describe("nothing is proposed without a reason to propose it", () => {
       businessId: BUSINESS,
       providerAccountId: "act_1",
       spendUnitMinor: 1000,
+      bidActionAuthority: true,
       accountCurrency: "USD",
       policy: {
         budgetMinHoursBetweenChanges: 24,
@@ -178,6 +242,7 @@ describe("nothing is proposed without a reason to propose it", () => {
       businessId: BUSINESS,
       providerAccountId: "act_1",
       spendUnitMinor: 1000,
+      bidActionAuthority: true,
       accountCurrency: null,
       policy: {
         budgetMinHoursBetweenChanges: 24,

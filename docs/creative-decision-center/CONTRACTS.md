@@ -444,13 +444,13 @@ record of a superseded release and must not be used as a current value.
 | Native-Ad evaluation | `engine-v3-canonical-ad-evaluation.v11` |
 | Native-Ad spend-unit authority | `engine-v3-native-ad-spend-unit-authority.v4` (minted); `.v1`, `.v2` and `.v3` readable — readable means PARSED and hash-verified, never authoritative: a historical version cannot authorize a current decision |
 | Native-Ad lifecycle evidence | `native-ad-lifecycle-evidence.v3-full-receipt` |
-| D086 retention identity | `d086.budget-readiness-retention.v12`; `.v1`–`.v11` superseded (eleven entries in `D086_SUPERSEDED_RETENTION_CONTRACTS`) — a superseded stamp is readable as HISTORY only and can never retain or authorize a current verdict |
+| D086 retention identity | `d086.budget-readiness-retention.v13`; `.v1`–`.v12` superseded (twelve entries in `D086_SUPERSEDED_RETENTION_CONTRACTS`) — a superseded stamp is readable as HISTORY only and can never retain or authorize a current verdict |
 | Native-Ad outcome | `engine-v3-ad-decision-outcome.v3` |
 | Decisions workspace read | `meta-decisions-workspace.read.v4` |
 | Classification overlay | `meta-decisions-classification-overlay.v4` |
 | Decisions OS presentation | `meta-os-decisions.presentation.v5` |
 | Automation rule evaluation report | `automation-rule-evaluation-report.v2` — `anchors` are read from `business_target_pack_history` AS OF the evaluation cutoff, never from the current workspace snapshot |
-| D086 input-pack artifact | `d086.budget-readiness-input-pack.v13` (`r13`); `r1`–`r12` frozen and byte-recomputable, verified by the generator's own `frozenRevisions` check. `r12` is additionally pinned by the D077 release-candidate manifest at `a508d90527b441b6a82cf25537e1b5b5425203f72d22d6083cceb6bad0eb4b6b` and is recorded in `D086_REJECTED_REVISIONS` with that hash |
+| D086 input-pack artifact | `d086.budget-readiness-input-pack.v14` (`r14`); `r1`–`r13` frozen and byte-recomputable, verified by the generator's own `frozenRevisions` check. `r13` is pinned in `D086_REJECTED_REVISIONS` at `5432828f7213b3540f995136239a25c2acd5e0af6108262822c85aa73d009ce0`; `r12` remains additionally pinned by the D077 release-candidate manifest at `a508d90527b441b6a82cf25537e1b5b5425203f72d22d6083cceb6bad0eb4b6b` |
 | D086 pinned local-Postgres evidence | `d086-local-postgres-evidence-2026-09-02.r4.json` (`d086.capture-to-readiness-evidence.v3`), sha256 `cceb24fadf6d3814481b78b597e14b2852b1e7dafb93d92ca9c97cb5107b29dc`. It records the current SEVEN-index catalogue with `indisvalid` / `indisready` / `indislive` on every entry; the verifier refuses a short, extra, wrong-name or unusable catalogue and refuses the retired `meta_entity_observation_receipts_occurrence`, `idx_meta_entity_observation_receipts_freshness` and `idx_meta_entity_observation_receipts_cohort`. `r1`–`r3` remain frozen; `r3` is D077-pinned and is never rewritten |
 
 ### Durable calibration compatibility, exactly as implemented (Round 9)

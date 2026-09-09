@@ -11,7 +11,7 @@ import type {
   MetaCalibrationThresholds,
   MetaMetricPercentiles,
 } from "@/lib/meta/calibration";
-import { executableBidIntentMinorUnits } from "@/lib/meta/bid-intent-contract";
+import { executableMetaRecommendationBidAmount } from "@/lib/meta/bid-intent-contract";
 import { LEGACY_META_CALIBRATION_THRESHOLDS } from "@/lib/meta/calibration";
 import { formatBidStrategyLabel } from "@/lib/meta/configuration";
 import type { MetaBidRegimeHistorySummary } from "@/lib/meta/config-snapshots";
@@ -146,6 +146,7 @@ export type MetaRecommendationType =
   | "bid_value_guidance"
   | "budget_allocation"
   | "scale_for_volume"
+  | "scale_for_volume_budget_increase"
   | "scale_for_profitability"
   | "seasonal_regime_shift"
   | "historical_bid_regime_fit"
@@ -810,6 +811,7 @@ function localizeMetaRecommendation(recommendation: MetaRecommendation, language
         evidence: localizedEvidence,
         timeframeContext: localizedTimeframe,
       };
+    case "scale_for_volume_budget_increase":
     case "scale_for_volume":
       return {
         ...recommendation,
@@ -1149,23 +1151,41 @@ function campaignAgeDays(row: MetaCampaignRow) {
 export function proposedActionForRecommendation(
   recommendation: MetaRecommendation,
 ): MetaRecommendationProposedAction | undefined {
-  if (recommendation.proposedAction) return recommendation.proposedAction;
-  /*
-    Ad-set grain, because a bid amount lives on an ad set and a campaign-grain
-    bid has no endpoint. The second half used to test
-    `type === "bid_value_guidance"` — a condition NO producer can satisfy: the
-    only emitter of that type builds a campaign recommendation, and the bid
-    projection attaches its intent to whichever ad-set recommendation is
-    present. So every real ad set carrying a validated cap raise served
-    `operatorApply: null`, and the decision card offered nothing while the
-    confirmation queue offered the same amount one surface away.
+  if (recommendation.proposedAction) {
+    if (recommendation.proposedAction.kind !== "apply_bid") {
+      return recommendation.proposedAction;
+    }
+    /*
+      A stored action is evidence, not a bypass around today's authority.
 
-    The authority is the intent, not the label above it. See
-    `executableBidIntentMinorUnits`, which asks the same question the queue's
-    own candidate SQL asks.
+      Snapshot evidence persists the whole recommendation, including an older
+      `proposedAction`. Returning that field before checking its typed intent
+      left every previously mis-projected Cut/Refresh bid executable after the
+      projector itself was fixed. A bid survives only when the structured
+      recommendation semantics, intent direction, and both minor-unit fields
+      still agree.
+    */
+    const amount = executableMetaRecommendationBidAmount({
+      recommendationType: recommendation.type,
+      targetValue: recommendation.targetValue,
+    });
+    return amount !== null
+      && amount === recommendation.proposedAction.bidAmountMinor
+      ? recommendation.proposedAction
+      : undefined;
+  }
+  /*
+    A bid amount lives on an ad set and a campaign-grain bid has no endpoint.
+    The typed payload proves the number; the recommendation type proves that
+    bid amount is the requested lever. Both are required by
+    `executableMetaRecommendationBidAmount`, so an old Cut, Refresh, structural,
+    or Target-ROAS row cannot gain Apply merely by carrying a valid number.
   */
   if (recommendation.level !== "adset") return undefined;
-  const bidAmountMinor = executableBidIntentMinorUnits(recommendation.targetValue);
+  const bidAmountMinor = executableMetaRecommendationBidAmount({
+    recommendationType: recommendation.type,
+    targetValue: recommendation.targetValue,
+  });
   return bidAmountMinor ? { kind: "apply_bid", bidAmountMinor } : undefined;
 }
 
@@ -1201,7 +1221,14 @@ export function restampProposedActions(
 ): MetaRecommendation[] {
   return recommendations.map((recommendation) => {
     const proposedAction = proposedActionForRecommendation(recommendation);
-    return proposedAction ? { ...recommendation, proposedAction } : recommendation;
+    if (proposedAction) return { ...recommendation, proposedAction };
+    // Remove a stale persisted bid stamp that the stricter semantic check just
+    // rejected. Other actions retain their existing compatibility behaviour.
+    if (recommendation.proposedAction?.kind === "apply_bid") {
+      const { proposedAction: _staleBid, ...withoutStaleBid } = recommendation;
+      return withoutStaleBid as MetaRecommendation;
+    }
+    return recommendation;
   });
 }
 
@@ -3058,7 +3085,17 @@ function maybeVolumeScaleRecommendation(
 
   const support = buildHistoricalSupport(
     window,
-    (historical) => historical.roas >= Math.max(peerRoas * 0.9, 2) && historical.purchases >= Math.max(10, row.purchases * 0.6)
+    /*
+      Each row here is an INDEPENDENT delta segment, while `row.purchases` is
+      the cumulative selected-window total. Requiring every disjoint segment
+      to carry 60% of that total made an act decision mathematically
+      unreachable as soon as two segments existed. Ten purchases per segment
+      preserves the conversion-depth floor without comparing a part to most
+      of the whole.
+    */
+    (historical) =>
+      historical.roas >= Math.max(peerRoas * 0.9, 2)
+      && historical.purchases >= 10,
   );
   const seasonality = seasonalitySignal(window);
   const decision = conservativeDecision(support.supportCount, support.total, seasonality.flag);
@@ -3068,7 +3105,10 @@ function maybeVolumeScaleRecommendation(
     level: "campaign",
     campaignId: row.id,
     campaignName: row.name,
-    type: "scale_for_volume",
+    type:
+      row.bidStrategyType === "lowest_cost"
+        ? "scale_for_volume_budget_increase"
+        : "scale_for_volume",
     lens: "volume",
     priority: "high",
     confidence: decision.confidence,

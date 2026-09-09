@@ -15,10 +15,13 @@
  * `dryRunOnly` guardrail and no release gate. Posture therefore cannot reach
  * the recommendation, and dispatch stays the only thing it can move.
  *
- * The target value below is not invented for the test. It is the shape
- * `projectBidIntents` persists (`lib/meta/bid-intent-projection.ts`) and the
- * exact amounts the harness fixture produced: a cost cap of 1200 minor USD
- * raised 10% to 1320 on ad set 9000000000201.
+ * The target value below is the forward-compatible shape
+ * `projectBidIntents` persists (`lib/meta/bid-intent-projection.ts`): a cost
+ * cap of 1200 minor USD raised 10% to 1320 on ad set 9000000000201. B1 is the
+ * only recommendation vocabulary that authorises that bid-amount direction;
+ * its current production emitter is campaign-grain, so this ad-set row pins
+ * the presentation contract rather than claiming present-day production
+ * reachability.
  */
 import { describe, expect, it } from "vitest";
 
@@ -50,8 +53,8 @@ const PERSISTED_BID_INTENT = {
 
 function cappedAdsetRecommendation(): MetaRecommendation {
   return {
-    id: "scenario_e1_frequency_fatigue-9000000000201",
-    type: "scenario_e1_frequency_fatigue",
+    id: "scenario_b1_capped_winner_bid_raise-9000000000201",
+    type: "scenario_b1_capped_winner_bid_raise",
     kind: "recommendation",
     level: "adset",
     campaignId: "9000000000101",

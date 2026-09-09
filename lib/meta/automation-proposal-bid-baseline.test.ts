@@ -53,7 +53,7 @@ function envelope(overrides: { bidStrategyType?: string } = {}) {
     currencyExponent: 2,
     intentKey: "meta.bid-intent.v1:abc",
     recId: "rec_1",
-    recType: "bid_amount",
+    recType: "scenario_b1_capped_winner_bid_raise",
     snapshotDate: "2026-09-04",
     engineVersion: "meta-v3",
     decisionAt: "2026-09-04T03:00:00.000Z",
@@ -74,7 +74,7 @@ function proposal(
     scopeType: "adset",
     scopeId: ADSET,
     recId: "rec_1",
-    recType: "bid_amount",
+    recType: "scenario_b1_capped_winner_bid_raise",
     snapshotDate: "2026-09-04",
     engineVersion: "meta-v3",
     decisionLabel: "tune",
@@ -306,6 +306,25 @@ describe("an approved bid is re-proved against the live cap", () => {
 
     expect(result.receipt.withheld).toBe("bid_envelope_absent");
     expect(readBidBaseline).not.toHaveBeenCalled();
+  });
+
+  it("revokes a legacy row whose recommendation never authorised a bid", async () => {
+    const readBidBaseline = providerHas({
+      bidAmountMinor: 1200,
+      bidStrategy: "COST_CAP",
+    });
+
+    const result = await executeMetaAutomationProposal({
+      request: operatorRequest(),
+      businessId: BUSINESS_ID,
+      proposal: proposal({ recType: "adset_cut_spend" }),
+      dryRunOnly: false,
+      readBidBaseline,
+    });
+
+    expect(result.receipt.withheld).toBe("bid_semantic_authority_absent");
+    expect(readBidBaseline).not.toHaveBeenCalled();
+    expect(entityRoutes.handleMetaAdsetBidAction).not.toHaveBeenCalled();
   });
 });
 

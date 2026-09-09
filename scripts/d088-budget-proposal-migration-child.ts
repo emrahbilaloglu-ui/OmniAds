@@ -218,29 +218,122 @@ async function main() {
     + "migrated schema, converging on one row with the account filled in");
 
 
-  const insert = async (action: string, envelope: unknown) => sql.query<{ id: string }>(
+  const { buildBudgetProposalEnvelope } =
+    await import("@/lib/meta/budget-proposal-runtime");
+  const { META_BUDGET_INTENT_CONTRACT_VERSION } =
+    await import("@/lib/meta/budget-intent-contract");
+
+  const seedBudgetDecision = async (input: {
+    providerAccountId: string;
+    scopeId: string;
+    recId: string;
+    recType: "scenario_c1_controlled_scale";
+    amountMinor: number;
+    engineVersion: string;
+  }) => sql.query(
+    `INSERT INTO meta_decision_snapshots_daily (
+       scope_type, scope_id, business_id, provider_account_id, snapshot_date,
+       rec_id, rec_type, level, decision_state, evidence, recommended_action,
+       target_value, reasoning, engine_version, kind, decision_label
+     ) VALUES (
+       'campaign', $1, $2, $3, '2026-08-30'::date,
+       $4, $5, 'campaign', 'act', '{}'::jsonb,
+       'Increase the campaign budget.', $6::jsonb,
+       'Typed budget intent seeded by the D088 seam.', $7,
+       'recommendation', 'scale'
+     )`,
+    [
+      input.scopeId,
+      BIZ,
+      input.providerAccountId,
+      input.recId,
+      input.recType,
+      JSON.stringify({
+        contractVersion: META_BUDGET_INTENT_CONTRACT_VERSION,
+        direction: "increase",
+        amountMinor: String(input.amountMinor),
+      }),
+      input.engineVersion,
+    ],
+  );
+
+  const insert = async (input: {
+    proposalId: string;
+    action: string;
+    recType: string;
+    envelope: unknown;
+  }) => sql.query<{ id: string }>(
     // The engine_decision lineage the existing constraint requires: this seam
     // proves the ACTION widening, not a way around any other rule.
     `INSERT INTO meta_automation_proposals
-       (business_id, provider_account_id, origin, decision_key, scope_type, scope_id,
+       (id, business_id, provider_account_id, origin, decision_key, scope_type, scope_id,
         rec_id, rec_type, engine_version, decision_label,
         snapshot_date, proposed_action, action_label, primary_caption, reason,
         expires_at, budget_envelope_json)
-     VALUES ($1, 'act_1', 'engine_decision', $2, 'campaign', 'c_100',
-             'rec_1', 'campaign', 'v3', 'scale',
+     VALUES ($6::uuid, $1, 'act_1', 'engine_decision', $2, 'campaign', 'c_100',
+             'rec_1', $7, 'v3', 'scale',
              '2026-08-30', $3, $4,
              'Approve & apply', 'seam', now() + interval '1 day', $5::jsonb)
      RETURNING id::text AS id`,
-    [BIZ, `campaign:c_100:${action}`, action, action, envelope === null ? null : JSON.stringify(envelope)]);
+    [
+      BIZ,
+      `campaign:c_100:${input.action}`,
+      input.action,
+      input.action,
+      input.envelope === null ? null : JSON.stringify(input.envelope),
+      input.proposalId,
+      input.recType,
+    ]);
 
   // A LEGACY proposal, exactly as it was written before this slice.
-  const legacy = await insert("pause", null);
+  const legacy = await insert({
+    proposalId: "77777777-7777-4777-8777-777777777777",
+    action: "pause",
+    recType: "campaign",
+    envelope: null,
+  });
   require_(legacy.length === 1, "a legacy pause proposal could not be inserted");
 
-  // A BUDGET proposal, which the old constraint would have refused.
-  const budget = await insert("budget", {
-    entityId: "c_100", budgetField: "daily_budget", intendedAmountMinor: 300000,
-    fingerprint: "a".repeat(64),
+  // A BUDGET proposal, which the old constraint would have refused. The claim
+  // below now re-checks the canonical decision and the complete envelope, so
+  // this fixture carries the same authority a production proposal does.
+  const scheduledProposalId = "88888888-8888-4888-8888-888888888888";
+  const scheduledRecType = "scenario_c1_controlled_scale" as const;
+  await seedBudgetDecision({
+    providerAccountId: "act_1",
+    scopeId: "c_100",
+    recId: "rec_1",
+    recType: scheduledRecType,
+    amountMinor: 300000,
+    engineVersion: "v3",
+  });
+  const scheduledEnvelope = buildBudgetProposalEnvelope({
+    proposalId: scheduledProposalId,
+    businessId: BIZ,
+    providerAccountId: "act_1",
+    ownerGrain: "campaign",
+    entityId: "c_100",
+    parentCampaignId: null,
+    budgetField: "daily_budget",
+    ownerMode: "campaign_budget_optimization",
+    currentAmountMinor: 250000,
+    intendedAmountMinor: 300000,
+    currency: "TRY",
+    currencyExponent: 2,
+    currencyRegistryVersion: "iso4217.minor-units.2026-09-01",
+    intentVerb: "increase_budget",
+    recId: "rec_1",
+    recType: scheduledRecType,
+    snapshotDate: "2026-08-30",
+    engineVersion: "v3",
+    decisionHash: "a".repeat(64),
+    decisionAt: "2026-08-30T00:00:00.000Z",
+  });
+  const budget = await insert({
+    proposalId: scheduledProposalId,
+    action: "budget",
+    recType: scheduledRecType,
+    envelope: scheduledEnvelope,
   });
   require_(budget.length === 1, "a budget proposal could not be inserted");
 
@@ -259,15 +352,23 @@ async function main() {
         now: new Date(),
       })
     : { status: "activation_changed" as const };
-  require_(scheduledClaim.status === "claimed",
+  const scheduledClaimSucceeded = scheduledClaim.status === "claimed";
+  require_(scheduledClaimSucceeded,
     `scheduled claim did not preserve the exact activation tuple (${scheduledClaim.status})`);
-  note("scheduled_claim_authority",
-    "control row + active admin membership share-locked before the cap and claim");
+  if (scheduledClaimSucceeded) {
+    note("scheduled_claim_authority",
+      "control row + active admin membership share-locked before the cap and claim");
+  }
 
   // ...and a budget proposal WITHOUT its envelope must be refused.
   let refused = "";
   try {
-    await insert("budget", null);
+    await insert({
+      proposalId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      action: "budget",
+      recType: "invalid_envelope_fixture",
+      envelope: null,
+    });
   } catch (error) {
     refused = error instanceof Error ? error.message : String(error);
   }
@@ -293,7 +394,6 @@ async function main() {
     two of them would fail here rather than in a unit test that only ever saw
     one link.
   */
-  const { buildBudgetProposalEnvelope } = await import("@/lib/meta/budget-proposal-runtime");
   const { insertBudgetProposalRow } = await import("@/lib/meta/budget-proposal-producer");
   const { readMetaAutomationProposal, claimMetaAutomationProposal } =
     await import("@/lib/meta/automation-proposals");
@@ -302,6 +402,14 @@ async function main() {
 
   // The REAL row id, reserved before the envelope is fingerprinted.
   const reservedId = "99999999-9999-4999-8999-999999999999";
+  await seedBudgetDecision({
+    providerAccountId: "act_2",
+    scopeId: "c_500",
+    recId: "rec_500",
+    recType: "scenario_c1_controlled_scale",
+    amountMinor: 300000,
+    engineVersion: "v3",
+  });
   const envelope = buildBudgetProposalEnvelope({
     proposalId: reservedId,
     businessId: BIZ, providerAccountId: "act_2",
@@ -312,7 +420,7 @@ async function main() {
     currencyRegistryVersion: "iso4217.minor-units.2026-09-01",
     intentVerb: "increase_budget",
 
-    recId: "rec_500", recType: "campaign", snapshotDate: "2026-08-30",
+    recId: "rec_500", recType: "scenario_c1_controlled_scale", snapshotDate: "2026-08-30",
     engineVersion: "v3", decisionHash: "e".repeat(64),
     decisionAt: "2026-08-30T00:00:00.000Z",
   });
@@ -321,7 +429,7 @@ async function main() {
     proposalId: reservedId,
     candidate: {
       businessId: BIZ, scopeType: "campaign", scopeId: "c_500", providerAccountId: "act_2",
-      recId: "rec_500", recType: "campaign", snapshotDate: "2026-08-30",
+      recId: "rec_500", recType: "scenario_c1_controlled_scale", snapshotDate: "2026-08-30",
       engineVersion: "v3", decisionLabel: "scale",
       recommendedAction: "increase_budget", targetAmountMinor: 300000,
       reasoning: "typed budget intent", entityLabel: "Prospecting", evidence: {},
@@ -335,60 +443,85 @@ async function main() {
   require_(producedId === reservedId,
     `the insert used ${producedId}, not the reserved ${reservedId}`);
 
-  const readProposal = await readMetaAutomationProposal({
-    businessId: BIZ, providerAccountId: "act_2", proposalId: producedId!,
-  });
-  require_(readProposal?.proposedAction === "budget",
+  const readProposal = producedId
+    ? await readMetaAutomationProposal({
+        businessId: BIZ, providerAccountId: "act_2", proposalId: producedId,
+      })
+    : null;
+  const actionReadBack = readProposal?.proposedAction === "budget";
+  const fingerprintReadBack =
+    readProposal?.budgetEnvelope?.fingerprint === envelope.fingerprint;
+  const rowIdentityReadBack =
+    readProposal?.budgetEnvelope?.proposalId === producedId;
+  require_(actionReadBack,
     "the produced row did not read back as a budget proposal");
-  require_(readProposal?.budgetEnvelope?.fingerprint === envelope.fingerprint,
+  require_(fingerprintReadBack,
     "the stored envelope did not re-fingerprint on read");
-  require_(readProposal?.budgetEnvelope?.proposalId === producedId,
+  require_(rowIdentityReadBack,
     "the stored envelope is not bound to its own row id");
-  note("lifecycle_read",
-    `produced ${producedId}, envelope bound to the same id, fingerprint `
-    + `${readProposal?.budgetEnvelope?.fingerprint?.slice(0, 12)}`);
+  const lifecycleReadSucceeded =
+    actionReadBack && fingerprintReadBack && rowIdentityReadBack;
+  if (readProposal && lifecycleReadSucceeded) {
+    note("lifecycle_read",
+      `produced ${producedId}, envelope bound to the same id, fingerprint `
+      + `${readProposal.budgetEnvelope!.fingerprint.slice(0, 12)}`);
 
-  const claim = await claimMetaAutomationProposal({
-    businessId: BIZ, providerAccountId: "act_2", proposalId: producedId!,
-    claimedBy: OWNER,
-  });
-  require_(claim.status === "claimed", `the claim did not succeed (${claim.status})`);
-  const claimToken = claim.status === "claimed" ? claim.claimToken : null;
+    const claim = await claimMetaAutomationProposal({
+      businessId: BIZ,
+      providerAccountId: "act_2",
+      proposalId: readProposal.id,
+      claimedBy: OWNER,
+    });
+    const claimSucceeded = claim.status === "claimed";
+    require_(claimSucceeded, `the claim did not succeed (${claim.status})`);
 
-  // The runtime, with readers that report the real closed gates.
-  let providerCalls = 0;
-  const runtime = createBudgetProposalServerRuntime({
-    readGates: async () => ({ releaseGateOpen: false, autoExecutionEnabled: false }),
-    loadCompositionSources: async () => null,
-    writeDeps: async () => {
-      providerCalls += 1;
-      throw new Error("must not build write deps under closed gates");
-    },
-  });
-  const outcome = await runtime({
-    proposal: readProposal!, dryRunOnly: true, claimToken,
-    authorization: {
-      kind: "manual", explicitConfirmation: true, operatorUserId: OWNER,
-    },
-  });
-  require_(outcome.ok === false, "the runtime claimed success under closed gates");
-  require_(providerCalls === 0, "the runtime built provider deps under closed gates");
-  note("lifecycle_runtime",
-    `claim ${claimToken?.slice(0, 8)} -> runtime withheld ${outcome.receipt.withheld}, `
-    + `${providerCalls} provider deps built`);
+    if (claimSucceeded) {
+      const claimToken = claim.claimToken;
+      // The runtime, with readers that report the real closed gates.
+      let providerCalls = 0;
+      const runtime = createBudgetProposalServerRuntime({
+        readGates: async () => ({ releaseGateOpen: false, autoExecutionEnabled: false }),
+        loadCompositionSources: async () => null,
+        writeDeps: async () => {
+          providerCalls += 1;
+          throw new Error("must not build write deps under closed gates");
+        },
+      });
+      const outcome = await runtime({
+        proposal: readProposal, dryRunOnly: true, claimToken,
+        authorization: {
+          kind: "manual", explicitConfirmation: true, operatorUserId: OWNER,
+        },
+      });
+      const runtimeWithheld = outcome.ok === false;
+      const providerStayedClosed = providerCalls === 0;
+      require_(runtimeWithheld, "the runtime claimed success under closed gates");
+      require_(providerStayedClosed, "the runtime built provider deps under closed gates");
+      if (runtimeWithheld && providerStayedClosed) {
+        note("lifecycle_runtime",
+          `claim ${claimToken.slice(0, 8)} -> runtime withheld ${outcome.receipt.withheld}, `
+          + `${providerCalls} provider deps built`);
+      }
 
-  // A tampered envelope must NOT read back.
-  await sql.query(
-    `UPDATE meta_automation_proposals
-        SET budget_envelope_json = jsonb_set(budget_envelope_json,
-              '{intendedAmountMinor}', '999999'::jsonb)
-      WHERE id = $1::uuid`, [producedId]);
-  const tampered = await readMetaAutomationProposal({
-    businessId: BIZ, providerAccountId: "act_2", proposalId: producedId!,
-  });
-  require_(tampered?.budgetEnvelope === null,
-    "a tampered envelope still read back as valid");
-  note("lifecycle_tamper", "an edited envelope no longer re-fingerprints and reads as null");
+      // A tampered envelope must NOT read back.
+      await sql.query(
+        `UPDATE meta_automation_proposals
+            SET budget_envelope_json = jsonb_set(budget_envelope_json,
+                  '{intendedAmountMinor}', '999999'::jsonb)
+          WHERE id = $1::uuid`, [readProposal.id]);
+      const tampered = await readMetaAutomationProposal({
+        businessId: BIZ,
+        providerAccountId: "act_2",
+        proposalId: readProposal.id,
+      });
+      const tamperRejected = tampered?.budgetEnvelope === null;
+      require_(tamperRejected, "a tampered envelope still read back as valid");
+      if (tamperRejected) {
+        note("lifecycle_tamper",
+          "an edited envelope no longer re-fingerprints and reads as null");
+      }
+    }
+  }
 
   return version;
 }

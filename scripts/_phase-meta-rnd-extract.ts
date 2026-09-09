@@ -404,6 +404,7 @@ function decisionLabelFromRecType(recType: string): string {
   if (
     recType === "adset_scale_budget" ||
     recType === "scale_for_volume" ||
+    recType === "scale_for_volume_budget_increase" ||
     recType === "scale_for_profitability" ||
     recType === "winner_promotion_flow"
   )

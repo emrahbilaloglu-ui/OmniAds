@@ -268,6 +268,7 @@ beforeEach(() => {
       dispatchedAt: new Date().toISOString(),
       endpoint: "/api/meta/adsets/23848/pause",
       withheld: null,
+      providerMutationAttempted: true,
     },
   });
 });
@@ -557,7 +558,7 @@ describe("what an approval records", () => {
     // opposite situation and needs its own words: the handler WAS entered, its
     // answer IS known, and no write left the building.
     expect(row.payload).toMatchObject({
-      providerDispatchStarted: true,
+      providerDispatchStarted: false,
       providerOutcomeKnown: true,
       providerWriteVerified: false,
     });
@@ -696,8 +697,9 @@ describe("what an approval records", () => {
       return true;
     });
     vi.mocked(execution.executeMetaAutomationProposal).mockImplementation(
-      async () => {
+      async (executionInput) => {
         order.push("execute");
+        expect(await executionInput.markDispatchStarted?.()).toBe(true);
         return {
           ok: true,
           receipt: {
@@ -708,6 +710,7 @@ describe("what an approval records", () => {
             endpoint: "/api/meta/adsets/23848/pause",
             withheld: null,
             receiptKey: CLAIM_TOKEN,
+            providerMutationAttempted: true,
           },
         };
       },
@@ -715,34 +718,525 @@ describe("what an approval records", () => {
 
     await POST(post(APPROVE));
 
-    expect(order).toEqual(["claim", "dispatch-marked", "execute"]);
+    expect(order).toEqual(["claim", "execute", "dispatch-marked"]);
     expect(
       vi.mocked(store.settleMetaAutomationProposal).mock.calls[0][0],
     ).toMatchObject({ status: "approved", claimToken: CLAIM_TOKEN });
   });
 
-  // `dispatch_started_at` is the only durable evidence that a write MIGHT
-  // exist. If it cannot be stamped, the claim is not ours and dispatching
-  // anyway would be the unclaimed provider write this path forbids.
+  it("executes the refreshed row returned by the claim, never the pre-claim copy", async () => {
+    const preClaim = proposal({
+      proposedAction: "bid",
+      recType: "scenario_b1_capped_winner_bid_raise",
+      actionLabel: "Raise cap to 13.20",
+      bidEnvelope: { proposedMinorUnits: 1320 } as never,
+    });
+    const claimedVersion = proposal({
+      status: "claimed",
+      claimToken: CLAIM_TOKEN,
+      proposedAction: "bid",
+      recType: "scenario_b1_capped_winner_bid_raise",
+      actionLabel: "Raise cap to 14.40",
+      reason: "The refreshed decision uses the newer baseline.",
+      bidEnvelope: { proposedMinorUnits: 1440 } as never,
+      updatedAt: new Date().toISOString(),
+    });
+    vi.mocked(store.readMetaAutomationProposal).mockResolvedValue(preClaim);
+    vi.mocked(store.claimMetaAutomationProposal).mockResolvedValue({
+      status: "claimed",
+      proposal: claimedVersion,
+      claimToken: CLAIM_TOKEN,
+    });
+    vi.mocked(execution.executeMetaAutomationProposal).mockResolvedValueOnce({
+      ok: true,
+      receipt: {
+        httpStatus: 200,
+        response: { ok: true },
+        dryRun: false,
+        dispatchedAt: new Date().toISOString(),
+        endpoint: "/api/meta/adsets/23848/apply-bid",
+        withheld: null,
+        receiptKey: CLAIM_TOKEN,
+        providerMutationAttempted: true,
+      },
+    });
+
+    await POST(post(APPROVE));
+
+    expect(
+      vi.mocked(execution.executeMetaAutomationProposal).mock.calls[0]![0].proposal,
+    ).toBe(claimedVersion);
+    expect(
+      vi.mocked(controlPlane.writeActivityLedgerRow).mock.calls[0]![0].message,
+    ).toContain("Raise cap to 14.40");
+    expect(
+      vi.mocked(controlPlane.writeActivityLedgerRow).mock.calls[0]![0].message,
+    ).not.toContain("Raise cap to 13.20");
+  });
+
+  it("lets a bid executor stamp this claim only at its pre-provider boundary", async () => {
+    const claimedBid = proposal({
+      status: "claimed",
+      claimToken: CLAIM_TOKEN,
+      proposedAction: "bid",
+      recType: "scenario_b1_capped_winner_bid_raise",
+      bidEnvelope: { proposedMinorUnits: 1320 } as never,
+    });
+    vi.mocked(store.claimMetaAutomationProposal).mockResolvedValue({
+      status: "claimed",
+      proposal: claimedBid,
+      claimToken: CLAIM_TOKEN,
+    });
+    vi.mocked(execution.executeMetaAutomationProposal).mockImplementationOnce(
+      async (executionInput) => {
+        expect(store.markMetaAutomationProposalDispatchStarted).not.toHaveBeenCalled();
+        expect(await executionInput.markDispatchStarted?.()).toBe(true);
+        return {
+          ok: true,
+          receipt: {
+            httpStatus: 200,
+            response: { ok: true },
+            dryRun: false,
+            dispatchedAt: new Date().toISOString(),
+            endpoint: "/api/meta/adsets/23848/apply-bid",
+            withheld: null,
+            receiptKey: CLAIM_TOKEN,
+            providerMutationAttempted: true,
+          },
+        };
+      },
+    );
+
+    await POST(post(APPROVE));
+
+    expect(store.markMetaAutomationProposalDispatchStarted).toHaveBeenCalledWith({
+      businessId: BUSINESS_ID,
+      proposalId: PROPOSAL_ID,
+      claimToken: CLAIM_TOKEN,
+    });
+  });
+
+  it("holds a structured ambiguous bid result for reconciliation", async () => {
+    const claimedBid = proposal({
+      status: "claimed",
+      claimToken: CLAIM_TOKEN,
+      proposedAction: "bid",
+      recType: "scenario_b1_capped_winner_bid_raise",
+      bidEnvelope: { proposedMinorUnits: 1320 } as never,
+    });
+    vi.mocked(store.claimMetaAutomationProposal).mockResolvedValue({
+      status: "claimed",
+      proposal: claimedBid,
+      claimToken: CLAIM_TOKEN,
+    });
+    vi.mocked(execution.executeMetaAutomationProposal).mockImplementationOnce(
+      async (executionInput) => {
+        expect(await executionInput.markDispatchStarted?.()).toBe(true);
+        return {
+          ok: false,
+          receipt: {
+            httpStatus: 502,
+            response: {
+              ok: false,
+              providerOutcome: "outcome_ambiguous",
+              error: { code: "provider_outcome_ambiguous" },
+            },
+            dryRun: false,
+            dispatchedAt: new Date().toISOString(),
+            endpoint: "/api/meta/adsets/23848/apply-bid",
+            withheld: null,
+            receiptKey: CLAIM_TOKEN,
+            providerMutationAttempted: true,
+            ambiguous: true,
+          },
+        };
+      },
+    );
+
+    const response = await POST(post(APPROVE));
+    const body = await response.json();
+
+    expect(response.status).toBe(502);
+    expect(body.error.code).toBe("proposal_outcome_unknown");
+    expect(store.settleMetaAutomationProposal).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "reconcile", claimToken: CLAIM_TOKEN }),
+    );
+    expect(reconciliation.appendMetaAutomationReconciliationReceipt)
+      .toHaveBeenCalledTimes(1);
+    expect(reconciliation.appendMetaAutomationReconciliationReceipt)
+      .toHaveBeenCalledWith(expect.objectContaining({
+        reason: "dispatch_no_answer",
+      }));
+  });
+
+  it("records a bid refusal before its provider boundary as a definite non-dispatch", async () => {
+    const claimedBid = proposal({
+      status: "claimed",
+      claimToken: CLAIM_TOKEN,
+      proposedAction: "bid",
+      recType: "scenario_b1_capped_winner_bid_raise",
+      bidEnvelope: { proposedMinorUnits: 1320 } as never,
+    });
+    vi.mocked(store.claimMetaAutomationProposal).mockResolvedValue({
+      status: "claimed",
+      proposal: claimedBid,
+      claimToken: CLAIM_TOKEN,
+    });
+    vi.mocked(execution.executeMetaAutomationProposal).mockResolvedValueOnce({
+      ok: false,
+      receipt: {
+        httpStatus: 422,
+        response: null,
+        dryRun: false,
+        dispatchedAt: new Date().toISOString(),
+        endpoint: null,
+        withheld: "bid_baseline_changed",
+        receiptKey: CLAIM_TOKEN,
+        providerMutationAttempted: false,
+      },
+    });
+
+    const response = await POST(post(APPROVE));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(store.settleMetaAutomationProposal).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "failed", claimToken: CLAIM_TOKEN }),
+    );
+    expect(body.providerDispatchIntentMarked).toBe(false);
+    expect(body.providerDispatchStarted).toBe(false);
+    expect(body.providerOutcomeKnown).toBe(true);
+    expect(store.markMetaAutomationProposalDispatchStarted).not.toHaveBeenCalled();
+    expect(reconciliation.appendMetaAutomationReconciliationReceipt)
+      .not.toHaveBeenCalled();
+  });
+
+  it("reports a shared bid lifecycle ledger failure without retrying the write", async () => {
+    const claimedBid = proposal({
+      status: "claimed",
+      claimToken: CLAIM_TOKEN,
+      proposedAction: "bid",
+      recType: "scenario_b1_capped_winner_bid_raise",
+      bidEnvelope: { proposedMinorUnits: 1320 } as never,
+    });
+    vi.mocked(store.claimMetaAutomationProposal).mockResolvedValue({
+      status: "claimed",
+      proposal: claimedBid,
+      claimToken: CLAIM_TOKEN,
+    });
+    vi.mocked(execution.executeMetaAutomationProposal).mockImplementationOnce(
+      async (executionInput) => {
+        expect(await executionInput.markDispatchStarted?.()).toBe(true);
+        return {
+          ok: true,
+          receipt: {
+            httpStatus: 200,
+            response: { ok: true },
+            dryRun: false,
+            dispatchedAt: new Date().toISOString(),
+            endpoint: "/api/meta/adsets/23848/apply-bid",
+            withheld: null,
+            receiptKey: CLAIM_TOKEN,
+            providerMutationAttempted: true,
+          },
+        };
+      },
+    );
+    vi.mocked(controlPlane.writeActivityLedgerRow).mockRejectedValueOnce(
+      new Error("ledger unavailable"),
+    );
+
+    const response = await POST(post(APPROVE));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.proposalStatus).toBe("approved");
+    expect(body.providerWriteVerified).toBe(true);
+    expect(body.ledgerCompleteness).toBe("unavailable");
+    expect(body.ledgerErrorCode).toBe("activity_ledger_write_failed");
+    expect(execution.executeMetaAutomationProposal).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not invent a reconciliation hold when a pre-provider bid refusal cannot settle", async () => {
+    const claimedBid = proposal({
+      status: "claimed",
+      claimToken: CLAIM_TOKEN,
+      proposedAction: "bid",
+      recType: "scenario_b1_capped_winner_bid_raise",
+      bidEnvelope: { proposedMinorUnits: 1320 } as never,
+    });
+    vi.mocked(store.claimMetaAutomationProposal).mockResolvedValue({
+      status: "claimed",
+      proposal: claimedBid,
+      claimToken: CLAIM_TOKEN,
+    });
+    vi.mocked(execution.executeMetaAutomationProposal).mockResolvedValueOnce({
+      ok: false,
+      receipt: {
+        httpStatus: 422,
+        response: null,
+        dryRun: false,
+        dispatchedAt: new Date().toISOString(),
+        endpoint: null,
+        withheld: "bid_baseline_changed",
+        receiptKey: CLAIM_TOKEN,
+        providerMutationAttempted: false,
+      },
+    });
+    vi.mocked(store.settleMetaAutomationProposal).mockResolvedValueOnce(null);
+
+    const response = await POST(post(APPROVE));
+    const body = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(body.error.code).toBe("proposal_claim_lost");
+    expect(body.reconciliation.required).toBe(false);
+    expect(body.providerDispatchStarted).toBe(false);
+    expect(store.forceMetaAutomationProposalReconcile).not.toHaveBeenCalled();
+    expect(reconciliation.appendMetaAutomationReconciliationReceipt)
+      .not.toHaveBeenCalled();
+  });
+
+  // The executor may enter in order to reach its guarded handler, but the
+  // provider call is vetoed at the exact boundary when the claim cannot be
+  // stamped.
   it("does not dispatch when the dispatch marker cannot be stamped", async () => {
     vi.mocked(
       store.markMetaAutomationProposalDispatchStarted,
     ).mockResolvedValue(false);
+    vi.mocked(execution.executeMetaAutomationProposal).mockImplementationOnce(
+      async (executionInput) => {
+        expect(await executionInput.markDispatchStarted?.()).toBe(false);
+        return {
+          ok: false,
+          receipt: {
+            httpStatus: 409,
+            response: { ok: false, error: { code: "proposal_claim_lost" } },
+            dryRun: false,
+            dispatchedAt: new Date().toISOString(),
+            endpoint: "/api/meta/adsets/23848/pause",
+            withheld: null,
+            receiptKey: CLAIM_TOKEN,
+            providerMutationAttempted: false,
+          },
+        };
+      },
+    );
 
     const response = await POST(post(APPROVE));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.providerDispatchStarted).toBe(false);
+    expect(body.providerWriteVerified).toBe(false);
+    expect(store.settleMetaAutomationProposal).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "failed", claimToken: CLAIM_TOKEN }),
+    );
+    expect(execution.executeMetaAutomationProposal).toHaveBeenCalledTimes(1);
+  });
+
+  it("records a launch refusal before its provider boundary as a definite non-dispatch", async () => {
+    const claimedLaunch = proposal({
+      status: "claimed",
+      claimToken: CLAIM_TOKEN,
+      proposedAction: "launch",
+      scopeType: "campaign",
+      scopeId: "launch-intent-1",
+      decisionKey: "launch:launch-intent-1",
+      launchIntentId: "33333333-3333-4333-8333-333333333333",
+    });
+    vi.mocked(store.claimMetaAutomationProposal).mockResolvedValue({
+      status: "claimed",
+      proposal: claimedLaunch,
+      claimToken: CLAIM_TOKEN,
+    });
+    vi.mocked(execution.executeMetaAutomationProposal).mockResolvedValueOnce({
+      ok: false,
+      receipt: {
+        httpStatus: 409,
+        response: { ok: false, error: { code: "creative_brief_not_reviewed" } },
+        dryRun: false,
+        dispatchedAt: new Date().toISOString(),
+        endpoint: "/api/launchpad/meta/launch",
+        withheld: null,
+        receiptKey: CLAIM_TOKEN,
+        providerMutationAttempted: false,
+      },
+    });
+
+    const response = await POST(post(APPROVE));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(store.settleMetaAutomationProposal).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "failed", claimToken: CLAIM_TOKEN }),
+    );
+    expect(body.providerDispatchStarted).toBe(false);
+    expect(body.providerOutcomeKnown).toBe(true);
+    expect(body.providerWriteVerified).toBe(false);
+    expect(store.markMetaAutomationProposalDispatchStarted).not.toHaveBeenCalled();
+    expect(controlPlane.writeActivityLedgerRow).toHaveBeenCalledWith(
+      expect.objectContaining({
+        resultStatus: "failed",
+        payload: expect.objectContaining({ providerDispatchStarted: false }),
+      }),
+    );
+  });
+
+  it("does not call a launch marker veto dispatched or applied", async () => {
+    const claimedLaunch = proposal({
+      status: "claimed",
+      claimToken: CLAIM_TOKEN,
+      proposedAction: "launch",
+      scopeType: "campaign",
+      scopeId: "launch-intent-1",
+      decisionKey: "launch:launch-intent-1",
+      launchIntentId: "33333333-3333-4333-8333-333333333333",
+    });
+    vi.mocked(store.claimMetaAutomationProposal).mockResolvedValue({
+      status: "claimed",
+      proposal: claimedLaunch,
+      claimToken: CLAIM_TOKEN,
+    });
+    vi.mocked(store.markMetaAutomationProposalDispatchStarted).mockResolvedValue(false);
+    vi.mocked(execution.executeMetaAutomationProposal).mockImplementationOnce(
+      async (executionInput) => {
+        expect(await executionInput.markDispatchStarted?.()).toBe(false);
+        return {
+          ok: false,
+          receipt: {
+            httpStatus: 409,
+            response: { ok: false, error: { code: "dispatch_marker_unavailable" } },
+            dryRun: false,
+            dispatchedAt: new Date().toISOString(),
+            endpoint: "/api/launchpad/meta/launch",
+            withheld: null,
+            receiptKey: CLAIM_TOKEN,
+            providerMutationAttempted: false,
+          },
+        };
+      },
+    );
+
+    const body = await (await POST(post(APPROVE))).json();
+
+    expect(store.settleMetaAutomationProposal).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "failed", claimToken: CLAIM_TOKEN }),
+    );
+    expect(body.providerDispatchStarted).toBe(false);
+    expect(body.providerWriteVerified).toBe(false);
+    expect(controlPlane.writeActivityLedgerRow).toHaveBeenCalledWith(
+      expect.objectContaining({ resultStatus: "failed" }),
+    );
+    expect(reconciliation.appendMetaAutomationReconciliationReceipt)
+      .not.toHaveBeenCalled();
+  });
+
+  it("lets an exact activation non-attempt override its earlier durable marker", async () => {
+    const claimedActivation = proposal({
+      status: "claimed",
+      claimToken: CLAIM_TOKEN,
+      proposedAction: "resume",
+      scopeType: "campaign",
+      scopeId: "campaign_1",
+      decisionKey: "activate:launch-intent-1",
+      launchIntentId: "33333333-3333-4333-8333-333333333333",
+    });
+    vi.mocked(store.claimMetaAutomationProposal).mockResolvedValue({
+      status: "claimed",
+      proposal: claimedActivation,
+      claimToken: CLAIM_TOKEN,
+    });
+    vi.mocked(execution.executeMetaAutomationProposal).mockImplementationOnce(
+      async (executionInput) => {
+        expect(await executionInput.markDispatchStarted?.()).toBe(true);
+        return {
+          ok: false,
+          receipt: {
+            httpStatus: 409,
+            response: { ok: false, blockedReason: "activation_approval_revoked" },
+            dryRun: false,
+            dispatchedAt: new Date().toISOString(),
+            endpoint: "/api/launchpad/meta/intents/launch-intent-1/activate",
+            withheld: null,
+            receiptKey: CLAIM_TOKEN,
+            providerMutationAttempted: false,
+          },
+        };
+      },
+    );
+
+    const body = await (await POST(post(APPROVE))).json();
+
+    expect(store.markMetaAutomationProposalDispatchStarted).toHaveBeenCalledTimes(1);
+    expect(body.providerDispatchStarted).toBe(false);
+    expect(body.providerWriteVerified).toBe(false);
+    expect(reconciliation.appendMetaAutomationReconciliationReceipt)
+      .not.toHaveBeenCalled();
+  });
+
+  it("does not invent reconciliation when a non-dispatched launch refusal cannot settle", async () => {
+    const claimedLaunch = proposal({
+      status: "claimed",
+      claimToken: CLAIM_TOKEN,
+      proposedAction: "launch",
+      scopeType: "campaign",
+      scopeId: "launch-intent-1",
+      decisionKey: "launch:launch-intent-1",
+      launchIntentId: "33333333-3333-4333-8333-333333333333",
+    });
+    vi.mocked(store.claimMetaAutomationProposal).mockResolvedValue({
+      status: "claimed",
+      proposal: claimedLaunch,
+      claimToken: CLAIM_TOKEN,
+    });
+    vi.mocked(execution.executeMetaAutomationProposal).mockResolvedValueOnce({
+      ok: false,
+      receipt: {
+        httpStatus: 409,
+        response: { ok: false, error: { code: "creative_brief_not_reviewed" } },
+        dryRun: false,
+        dispatchedAt: new Date().toISOString(),
+        endpoint: "/api/launchpad/meta/launch",
+        withheld: null,
+        receiptKey: CLAIM_TOKEN,
+        providerMutationAttempted: false,
+      },
+    });
+    vi.mocked(store.settleMetaAutomationProposal).mockRejectedValueOnce(
+      new Error("could not serialize access due to concurrent update"),
+    );
+
+    const response = await POST(post(APPROVE));
+    const body = await response.json();
 
     expect(response.status).toBe(409);
-    expect((await response.json()).error.code).toBe("proposal_claim_conflict");
-    expect(execution.executeMetaAutomationProposal).not.toHaveBeenCalled();
+    expect(body.error.code).toBe("proposal_claim_lost");
+    expect(body.reconciliation.required).toBe(false);
+    expect(body.providerDispatchStarted).toBe(false);
+    expect(store.forceMetaAutomationProposalReconcile).not.toHaveBeenCalled();
+    expect(reconciliation.appendMetaAutomationReconciliationReceipt)
+      .not.toHaveBeenCalled();
   });
 
   // A dispatch that produced no answer is not a failure and not a success. It
   // must never render as PAUSED, and it must not be requeued for a second try
   // by anything automatic.
   it("holds an unanswered dispatch for reconciliation instead of calling it applied", async () => {
-    vi.mocked(execution.executeMetaAutomationProposal).mockRejectedValue(
-      new Error("socket hang up"),
-    );
+    vi.mocked(execution.executeMetaAutomationProposal).mockResolvedValue({
+      ok: false,
+      receipt: {
+        httpStatus: 502,
+        response: { ok: false, error: { code: "provider_outcome_ambiguous" } },
+        dryRun: false,
+        dispatchedAt: new Date().toISOString(),
+        endpoint: "/api/meta/adsets/23848/pause",
+        withheld: null,
+        receiptKey: CLAIM_TOKEN,
+        providerMutationAttempted: true,
+        ambiguous: true,
+      },
+    });
 
     const response = await POST(post(APPROVE));
     const body = await response.json();
@@ -850,9 +1344,20 @@ describe("what an approval records", () => {
   // says `reconcile`, and the append-only outbox carries the attempt's receipt
   // keyed by its claim token.
   it("appends an unanswered dispatch to the reconciliation outbox", async () => {
-    vi.mocked(execution.executeMetaAutomationProposal).mockRejectedValue(
-      new Error("socket hang up"),
-    );
+    vi.mocked(execution.executeMetaAutomationProposal).mockResolvedValue({
+      ok: false,
+      receipt: {
+        httpStatus: 502,
+        response: { ok: false, error: { code: "provider_outcome_ambiguous" } },
+        dryRun: false,
+        dispatchedAt: new Date().toISOString(),
+        endpoint: "/api/meta/adsets/23848/pause",
+        withheld: null,
+        receiptKey: CLAIM_TOKEN,
+        providerMutationAttempted: true,
+        ambiguous: true,
+      },
+    });
 
     const body = await (await POST(post(APPROVE))).json();
 

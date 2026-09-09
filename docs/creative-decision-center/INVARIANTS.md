@@ -1091,7 +1091,7 @@ Target ROAS does (Round 8).** Under a governing Target ROAS the account's own
 measured `accountCpaP50` / `accountCpaSampleCount` are OBSERVED evidence and
 choose nothing: not the unit, not a threshold, not an eligibility, and — since
 `engine-v3-canonical-evaluation.v9`, `engine-v3-native-ad-calibration.v5` and
-`d086.budget-readiness-retention.v12` — not an identity either. They are
+`d086.budget-readiness-retention.v13` — not an identity either. They are
 projected out of `spendUnitEvidence`, of `accountBaselines` /
 `accountBaselinesByKind`, of the native cell manifest and of the D086
 `source_fingerprint` through one shared projection

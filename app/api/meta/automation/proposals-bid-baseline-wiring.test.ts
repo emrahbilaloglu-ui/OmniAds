@@ -58,7 +58,7 @@ describe("the confirmation queue supplies the bid baseline reader", () => {
     // The compare-and-set withholds ahead of the handler, so stamping a
     // dispatch first would leave a row reading as though a provider write may
     // have been attempted when nothing was sent.
-    expect(ROUTE).toContain('|| input.proposal.proposedAction === "bid"');
+    expect(ROUTE).toContain('|| claimedProposal.proposedAction === "bid"');
   });
 
   it("reaches the write client only through the sanctioned module", () => {

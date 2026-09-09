@@ -8752,6 +8752,14 @@ the strict read refuses, and never grants hard eligibility by sample count
 alone. Missing, thin or unverifiable strict evidence therefore produces the
 D092 total hold. The no-Target-ROAS Target-CPA compatibility case is unchanged.
 
+**D092 retention amendment.** The retained-profile reader captures that strict
+physical-account AOV exactly once and pins its resolved, failed or unused state
+into the resolver. `d086.budget-readiness-retention.v13` hashes the effective
+mean, purchase count, revenue and derived quality the resolver actually uses.
+Under Target ROAS, a canonical AOV change therefore moves
+`source_fingerprint`, while a legacy calibration-AOV-only change does not;
+without Target ROAS the legacy-first/live-fallback identity remains intact.
+
 ## D094 — Legacy scope recovery and field-specific Meta degradation (2026-09-08)
 
 **Decision.** Every served Meta shell must offer a real path to select one of

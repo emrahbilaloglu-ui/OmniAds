@@ -57,6 +57,7 @@ const access = await import("@/lib/access");
 const integrations = await import("@/lib/integrations");
 const actionLog = await import("@/lib/meta/ads-action-log");
 const adsWrite = await import("@/lib/meta/ads-write");
+const adActionRoutes = await import("@/lib/meta/ads-action-routes");
 const decisionPreflight = await import(
   "@/lib/meta/decision-origin-action-preflight"
 );
@@ -910,6 +911,34 @@ describe("POST /api/meta/ads/[adId]/pause", () => {
     );
   });
 
+  it("runs a queue-owned marker from the ad write's provider boundary", async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(jsonResponse(exactProviderAdState("ACTIVE")))
+      .mockResolvedValueOnce(jsonResponse({ success: true }))
+      .mockResolvedValueOnce(jsonResponse(exactProviderAdState("PAUSED")));
+    const marker = vi.fn(async () => undefined);
+
+    const response = await adActionRoutes.handleMetaAdStatusAction(
+      request({ businessId: BUSINESS_ID }),
+      params(),
+      "pause",
+      { beforeMutationAttempt: marker },
+    );
+
+    expect(response.status).toBe(200);
+    expect(marker).toHaveBeenCalledTimes(1);
+    expect(marker.mock.invocationCallOrder[0]).toBeLessThan(
+      vi.mocked(
+        actionLog.appendManualMetaAdStatusMutationAttemptStarted,
+      ).mock.invocationCallOrder[0]!,
+    );
+    expect(
+      vi.mocked(
+        actionLog.appendManualMetaAdStatusMutationAttemptStarted,
+      ).mock.invocationCallOrder[0],
+    ).toBeLessThan(vi.mocked(fetch).mock.invocationCallOrder[1]!);
+  });
+
   it("terminalizes an attempt-start persistence failure after the read but before any provider POST", async () => {
     vi.mocked(
       actionLog.appendManualMetaAdStatusMutationAttemptStarted,
@@ -1225,6 +1254,64 @@ describe("POST /api/meta/ads/[adId]/pause", () => {
       }),
     );
     expect(actionLog.completeMetaAdsActionLog).not.toHaveBeenCalled();
+  });
+
+  it("runs the queue-owned marker at the native decision provider boundary", async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(jsonResponse(exactProviderAdState("ACTIVE")))
+      .mockResolvedValueOnce(jsonResponse({ success: true }))
+      .mockResolvedValueOnce(jsonResponse(exactProviderAdState("PAUSED")));
+    const marker = vi.fn(async () => undefined);
+
+    const response = await adActionRoutes.handleMetaAdStatusAction(
+      request(decisionOriginPauseBody()),
+      params(),
+      "pause",
+      { beforeMutationAttempt: marker },
+    );
+
+    expect(response.status).toBe(200);
+    expect(marker).toHaveBeenCalledTimes(1);
+    expect(marker.mock.invocationCallOrder[0]).toBeLessThan(
+      vi.mocked(fetch).mock.invocationCallOrder[1]!,
+    );
+    expect(
+      actionLog.appendManualMetaAdStatusMutationAttemptStarted,
+    ).not.toHaveBeenCalled();
+  });
+
+  it("refuses a native decision write when the queue marker rejects the claim", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse(exactProviderAdState("ACTIVE")),
+    );
+    const marker = vi.fn(async () => {
+      throw {
+        code: "proposal_claim_lost",
+        message: "The proposal claim could not be marked.",
+      };
+    });
+
+    const response = await adActionRoutes.handleMetaAdStatusAction(
+      request(decisionOriginPauseBody()),
+      params(),
+      "pause",
+      { beforeMutationAttempt: marker },
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(502);
+    expect(payload.error).toMatchObject({ code: "proposal_claim_lost" });
+    expect(marker).toHaveBeenCalledTimes(1);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(fetch).mock.calls[0]?.[1]).toMatchObject({ method: "GET" });
+    expect(
+      actionLog.completeDecisionOriginMetaAdsActionLog,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "log_decision_1",
+        status: "failure",
+      }),
+    );
   });
 
   it("does not report native pause success when durable lineage completion fails", async () => {

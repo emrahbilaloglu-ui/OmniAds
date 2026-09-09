@@ -129,7 +129,7 @@ function controlPlane(
   } as MetaAutomationControlPlane;
 }
 
-function proposalRow() {
+function proposalRow(overrides: Record<string, unknown> = {}) {
   return {
     id: "11111111-1111-4111-8111-111111111111",
     actionLabel: "Pause ad set",
@@ -139,6 +139,7 @@ function proposalRow() {
     evidenceLabel: "frees $680/d",
     primaryCaption: "Approve & apply",
     expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+    ...overrides,
   };
 }
 
@@ -221,6 +222,60 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+});
+
+describe("Automation exact amount confirmation rows", () => {
+  it("renders pending budget and bid amounts without an editable amount control", async () => {
+    wireServer({
+      queue: () =>
+        new Response(
+          JSON.stringify({
+            ok: true,
+            readCompleteness: { proposals: "complete" },
+            holds: { claimed: 0, reconcile: 0 },
+            proposals: [
+              proposalRow({
+                id: "22222222-2222-4222-8222-222222222222",
+                proposedAction: "budget",
+                actionLabel: "Apply budget",
+                evidenceLabel: "Budget: TRY 2500.00 → TRY 3000.00",
+              }),
+              proposalRow({
+                id: "33333333-3333-4333-8333-333333333333",
+                proposedAction: "bid",
+                actionLabel: "Apply bid",
+                evidenceLabel: "Bid: USD 12.00 → USD 13.20 (+10%)",
+              }),
+            ],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+    });
+    const { container } = render(
+      <MetaAutomationPage
+        businessId="biz_1"
+        providerAccountId="act_1"
+        initialPayload={controlPlane()}
+        viewer={LIVE_COLLABORATOR}
+      />,
+    );
+
+    const rows = await waitFor(() => {
+      const desktop = container.querySelector(
+        "[data-testid='automation-exact-desktop']",
+      );
+      expect(desktop).not.toBeNull();
+      const found = desktop!.querySelectorAll("[data-proposal-id]");
+      expect(found).toHaveLength(2);
+      return [...found];
+    });
+    expect(rows[0]!.textContent).toContain("Budget: TRY 2500.00 → TRY 3000.00");
+    expect(rows[1]!.textContent).toContain("Bid: USD 12.00 → USD 13.20 (+10%)");
+    for (const row of rows) {
+      expect(row.querySelector("[data-control='approve']")).not.toBeNull();
+      expect(row.querySelector("input")).toBeNull();
+    }
+  });
 });
 
 describe("Automation refusal copy", () => {
@@ -764,6 +819,10 @@ describe("Automation ledger completeness after a reload", () => {
         "unavailable",
       );
     });
+    expect(container.textContent).toContain(
+      "This approval was dispatched and no provider result came back.",
+    );
+    expect(container.textContent).not.toContain("This action could not be saved.");
 
     const retry = await waitFor(() => {
       const found = container.querySelector<HTMLButtonElement>(
@@ -790,6 +849,50 @@ describe("Automation ledger completeness after a reload", () => {
       "unavailable",
     );
     expect(container.querySelector("[data-holds='unreadable']")).toBeNull();
+  });
+
+  it("does not call a conclusively failed provider attempt applied", async () => {
+    wireServer({
+      post: () =>
+        new Response(
+          JSON.stringify({
+            ok: true,
+            readCompleteness: { proposals: "complete" },
+            holds: { claimed: 0, reconcile: 0 },
+            proposals: [],
+            proposalStatus: "failed",
+            providerOutcomeKnown: true,
+            providerWriteVerified: false,
+            receipt: { dryRun: false },
+            ledgerCompleteness: "complete",
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+    });
+    const { container } = render(
+      <MetaAutomationPage
+        businessId="biz_1"
+        providerAccountId="act_1"
+        initialPayload={controlPlane()}
+        viewer={LIVE_COLLABORATOR}
+      />,
+    );
+
+    const approve = await waitFor(() => {
+      const found = container.querySelector<HTMLButtonElement>(
+        "[data-control='approve']",
+      );
+      expect(found).not.toBeNull();
+      return found!;
+    });
+    fireEvent.click(approve);
+
+    await waitFor(() => {
+      expect(container.textContent).toContain(
+        "The proposal was recorded, but nothing was applied on Meta.",
+      );
+    });
+    expect(container.textContent).not.toContain("Applied on Meta.");
   });
 
   it("clears the withdrawn promise when the account changes", async () => {

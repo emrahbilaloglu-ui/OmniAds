@@ -1,4 +1,5 @@
 import type { MetaRecommendation } from "@/lib/meta/recommendations";
+import { META_CONFIDENCE_ACT_THRESHOLD } from "@/lib/meta/confidence-thresholds";
 import {
   hasMetaHardActionAnchor,
   normalizeMetaCommercialTargets,
@@ -11,6 +12,7 @@ const COMMERCIAL_ACTION_TYPES = new Set<MetaRecommendation["type"]>([
   "adset_scale_budget",
   "adset_cut_spend",
   "scale_for_volume",
+  "scale_for_volume_budget_increase",
   "scale_for_profitability",
   "scenario_a2_learning_weak_structural",
   "scenario_a5_post_learning_underperformer",
@@ -41,6 +43,7 @@ const COMMERCIAL_ACTION_TYPES = new Set<MetaRecommendation["type"]>([
 const ROAS_GROWTH_TYPES = new Set<MetaRecommendation["type"]>([
   "adset_scale_budget",
   "scale_for_volume",
+  "scale_for_volume_budget_increase",
   "scenario_b2_lowest_cost_budget_scale",
   "scenario_c1_controlled_scale",
   "scenario_k2_peak_scale_ceiling",
@@ -162,9 +165,22 @@ export function enforceMetaCommercialActionAuthority(
 
   const { proposedAction: _proposedAction, targetValue: _targetValue, ...reviewOnly } =
     recommendation;
+  const confidenceScore =
+    typeof recommendation.confidenceScore === "number" &&
+      Number.isFinite(recommendation.confidenceScore)
+      ? Math.min(
+        recommendation.confidenceScore,
+        META_CONFIDENCE_ACT_THRESHOLD - 0.01,
+      )
+      : recommendation.confidenceScore;
   return {
     ...reviewOnly,
     decisionState: "watch",
+    confidence:
+      recommendation.confidence === "high"
+        ? "medium"
+        : recommendation.confidence,
+    confidenceScore,
     stateReason:
       "Commercial action authority is blocked until a valid action-specific business target is available.",
     recommendedAction:

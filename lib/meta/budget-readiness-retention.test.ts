@@ -164,15 +164,15 @@ describe("D086 A — a budget value is retained only with its unit", () => {
     evidence that an older capture ran — never as a verdict that may be
     retained or acted on.
   */
-  it("mints v12 and lists every predecessor among the superseded identities", () => {
-    expect(D086_RETENTION_CONTRACT).toBe("d086.budget-readiness-retention.v12");
+  it("mints v13 and lists every predecessor among the superseded identities", () => {
+    expect(D086_RETENTION_CONTRACT).toBe("d086.budget-readiness-retention.v13");
     /*
       Every predecessor, not just the newest one. A superseded list that
       forgot a version would let a row stamped with it be read as current —
       the list is what makes "readable as history only" enforceable — so the
       whole range is asserted rather than the last entry.
     */
-    for (let version = 1; version <= 11; version += 1) {
+    for (let version = 1; version <= 12; version += 1) {
       expect(D086_SUPERSEDED_RETENTION_CONTRACTS).toContain(
         `d086.budget-readiness-retention.v${version}`,
       );

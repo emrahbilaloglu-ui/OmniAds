@@ -93,13 +93,18 @@ function rec(overrides: Partial<MetaRecommendation> = {}): MetaRecommendation {
  */
 function sizedBidRec(): MetaRecommendation {
   const result = projectBidIntents({
-    // `adset_scale_budget` rather than the `scenario_*` type the reachability
-    // test uses: this matrix needs a HARD_ACTION_TYPE, because a type the
-    // guard does not hold could never show the defect.
-    recommendations: [rec({ id: "rec-matrix-bid", type: "adset_scale_budget" })],
+    // B1 is the one recommendation vocabulary that explicitly authorises a
+    // currency bid-amount increase. This synthetic ad-set row exercises the
+    // forward contract; today's real B1 emitter is campaign-grain and therefore
+    // cannot produce a live bid write.
+    recommendations: [rec({
+      id: "rec-matrix-bid",
+      type: "scenario_b1_capped_winner_bid_raise",
+    })],
     businessId: BUSINESS,
     providerAccountId: "act_1",
     spendUnitMinor: 1000,
+    bidActionAuthority: true,
     accountCurrency: "USD",
     policy: {
       budgetMinHoursBetweenChanges: 24,

@@ -75,8 +75,9 @@ import type {
 } from "@/lib/meta/automation-proposals";
 import { handleMetaAdStatusAction } from "@/lib/meta/ads-action-routes";
 import { bidStrategyFamily } from "@/lib/meta/bid-sizing-policy";
+import { metaBidAmountDirectionForRecommendationType } from "@/lib/meta/bid-intent-contract";
 import { buildDispatchDescriptor } from "@/lib/zero-base/meta/dispatch-contract";
-import type { BudgetProposalExecutionResult } from "@/lib/meta/budget-proposal-runtime";
+import type { ClaimedProposalExecutionOutcome } from "@/lib/meta/budget-execution-lifecycle";
 
 const PARAM_NAME: Record<MetaAutomationProposal["scopeType"], string> = {
   campaign: "campaignId",
@@ -150,6 +151,7 @@ function withheldResult(input: {
       endpoint: null,
       withheld: input.reason,
       receiptKey: input.receiptKey,
+      providerMutationAttempted: false,
     },
   };
 }
@@ -179,7 +181,7 @@ export async function executeMetaAutomationProposal(input: {
     proposal: MetaAutomationProposal;
     dryRunOnly: boolean;
     claimToken: string | null;
-  }) => Promise<BudgetProposalExecutionResult>;
+  }) => Promise<ClaimedProposalExecutionOutcome>;
   /**
    * The intent a Launchpad row points at, read by the caller and injected.
    *
@@ -252,6 +254,7 @@ export async function executeMetaAutomationProposal(input: {
           endpoint: null,
           withheld: "budget_runtime_unavailable",
           receiptKey,
+          providerMutationAttempted: false,
         },
       };
     }
@@ -268,6 +271,9 @@ export async function executeMetaAutomationProposal(input: {
         endpoint: result.receipt.endpoint,
         withheld: result.receipt.withheld,
         receiptKey,
+        ...(typeof result.receipt.providerMutationAttempted === "boolean"
+          ? { providerMutationAttempted: result.receipt.providerMutationAttempted }
+          : {}),
       },
     };
   }
@@ -298,8 +304,20 @@ export async function executeMetaAutomationProposal(input: {
           endpoint: null,
           withheld: "bid_envelope_absent",
           receiptKey,
+          providerMutationAttempted: false,
         },
       };
+    }
+    if (
+      metaBidAmountDirectionForRecommendationType(proposal.recType)
+        !== envelope.direction
+    ) {
+      return withheldResult({
+        reason: "bid_semantic_authority_absent",
+        dryRunOnly: input.dryRunOnly,
+        dispatchedAt,
+        receiptKey,
+      });
     }
     /*
       The live baseline, re-proved before the amount is dispatched.
@@ -410,19 +428,55 @@ export async function executeMetaAutomationProposal(input: {
     );
     const bidResponse = await handleMetaAdsetBidAction(bidRequest, {
       params: Promise.resolve({ adsetId: proposal.scopeId }),
+    }, {
+      beforeMutationAttempt: input.markDispatchStarted
+        ? async () => {
+            const marked = await input.markDispatchStarted!();
+            if (!marked) {
+              throw {
+                code: "proposal_claim_lost",
+                message: "The proposal claim could not be marked before the provider write.",
+              };
+            }
+          }
+        : undefined,
     });
     const bidPayload = (await bidResponse.json().catch(() => null)) as unknown;
+    const bidPayloadRecord = bidPayload !== null
+      && typeof bidPayload === "object"
+      && !Array.isArray(bidPayload)
+      ? bidPayload as Record<string, unknown>
+      : null;
+    const bidError = bidPayloadRecord?.error !== null
+      && typeof bidPayloadRecord?.error === "object"
+      && !Array.isArray(bidPayloadRecord.error)
+      ? bidPayloadRecord.error as Record<string, unknown>
+      : null;
+    const ambiguous =
+      bidPayloadRecord?.providerOutcome === "outcome_ambiguous"
+      || bidError?.code === "provider_outcome_ambiguous";
+    const actualDryRun = input.dryRunOnly || bidPayloadRecord?.dryRun === true;
+    const providerMutationAttempted = actualDryRun
+      ? false
+      : ambiguous
+        || bidPayloadRecord?.ok === true
+        || (
+          bidPayloadRecord?.mutationAttempt !== null
+          && bidPayloadRecord?.mutationAttempt !== undefined
+        );
     return {
       ok: bidResponse.status < 400
         && (bidPayload as { ok?: boolean } | null)?.ok === true,
       receipt: {
         httpStatus: bidResponse.status,
         response: bidPayload,
-        dryRun: input.dryRunOnly,
+        dryRun: actualDryRun,
         dispatchedAt,
         endpoint: path,
         withheld: null,
         receiptKey,
+        providerMutationAttempted,
+        ...(ambiguous ? { ambiguous: true } : {}),
       },
     };
   }
@@ -527,9 +581,14 @@ export async function executeMetaAutomationProposal(input: {
           beforeProviderMutation,
         });
     const launchPayload = (await launchResponse.json().catch(() => null)) as unknown;
+    const launchPayloadRecord = launchPayload !== null
+      && typeof launchPayload === "object"
+      && !Array.isArray(launchPayload)
+      ? launchPayload as Record<string, unknown>
+      : null;
     return {
       ok: launchResponse.status < 400
-        && (launchPayload as { ok?: boolean } | null)?.ok === true,
+        && launchPayloadRecord?.ok === true,
       receipt: {
         httpStatus: launchResponse.status,
         response: launchPayload,
@@ -538,6 +597,12 @@ export async function executeMetaAutomationProposal(input: {
         endpoint: path,
         withheld: null,
         receiptKey,
+        ...(typeof launchPayloadRecord?.providerMutationAttempted === "boolean"
+          ? {
+              providerMutationAttempted:
+                launchPayloadRecord.providerMutationAttempted,
+            }
+          : {}),
       },
     };
   }
@@ -579,9 +644,14 @@ export async function executeMetaAutomationProposal(input: {
     const activatePayload = (await activateResponse
       .json()
       .catch(() => null)) as unknown;
+    const activatePayloadRecord = activatePayload !== null
+      && typeof activatePayload === "object"
+      && !Array.isArray(activatePayload)
+      ? activatePayload as Record<string, unknown>
+      : null;
     return {
       ok: activateResponse.status < 400
-        && (activatePayload as { ok?: boolean } | null)?.ok === true,
+        && activatePayloadRecord?.ok === true,
       receipt: {
         httpStatus: activateResponse.status,
         response: activatePayload,
@@ -590,6 +660,12 @@ export async function executeMetaAutomationProposal(input: {
         endpoint: path,
         withheld: null,
         receiptKey,
+        ...(typeof activatePayloadRecord?.providerMutationAttempted === "boolean"
+          ? {
+              providerMutationAttempted:
+                activatePayloadRecord.providerMutationAttempted,
+            }
+          : {}),
       },
     };
   }
@@ -605,6 +681,7 @@ export async function executeMetaAutomationProposal(input: {
         endpoint: null,
         withheld: "unsupported_action",
         receiptKey,
+        providerMutationAttempted: false,
       },
     };
   }
@@ -645,6 +722,7 @@ export async function executeMetaAutomationProposal(input: {
         endpoint: null,
         withheld: built.reason,
         receiptKey,
+        providerMutationAttempted: false,
       },
     };
   }
@@ -668,6 +746,25 @@ export async function executeMetaAutomationProposal(input: {
   };
 
   /*
+    The status handlers own the exact pre-provider boundary. Remember that they
+    reached it even when this executor has no durable marker to write; when a
+    queue marker is supplied, failure to persist it vetoes the provider call.
+  */
+  let providerMutationBoundaryReached = false;
+  const beforeProviderMutation = async () => {
+    if (input.markDispatchStarted) {
+      const marked = await input.markDispatchStarted();
+      if (!marked) {
+        throw Object.assign(
+          new Error("The proposal claim could not be marked before the provider write."),
+          { code: "proposal_claim_lost" },
+        );
+      }
+    }
+    providerMutationBoundaryReached = true;
+  };
+
+  /*
     Ad grain goes to the ad handler, which is a different write with a
     different journal: it resolves the true target, refuses unless the creative
     identity it finds still matches the one presented, and records an immutable
@@ -680,30 +777,58 @@ export async function executeMetaAutomationProposal(input: {
           forwarded,
           { params: Promise.resolve({ adId: proposal.scopeId }) },
           proposal.proposedAction,
+          { beforeMutationAttempt: beforeProviderMutation },
         )
       : proposal.proposedAction === "pause"
         ? await handleMetaEntityPauseAction(forwarded, context, {
             scopeType: proposal.scopeType,
             paramName,
-          })
+          }, { beforeMutationAttempt: beforeProviderMutation })
         : await handleMetaEntityResumeAction(forwarded, context, {
             scopeType: proposal.scopeType,
             paramName,
-          });
+          }, { beforeMutationAttempt: beforeProviderMutation });
 
   const payload = (await response.json().catch(() => null)) as unknown;
-  const ok = response.status < 400 && (payload as { ok?: boolean } | null)?.ok === true;
+  const payloadRecord = payload !== null
+    && typeof payload === "object"
+    && !Array.isArray(payload)
+    ? payload as Record<string, unknown>
+    : null;
+  const ok = response.status < 400 && payloadRecord?.ok === true;
+  const actualDryRun = input.dryRunOnly || payloadRecord?.dryRun === true;
+  const exactAttempt = typeof payloadRecord?.providerWriteAttempted === "boolean"
+    ? payloadRecord.providerWriteAttempted
+    : null;
+  const providerMutationAttempted = actualDryRun
+    ? false
+    : exactAttempt
+      ?? (
+        providerMutationBoundaryReached
+        || payloadRecord?.mutationAttempt != null
+        || payloadRecord?.providerMutationSucceeded === true
+      );
+  const ambiguous = payloadRecord?.providerOutcome === "outcome_ambiguous"
+    || (
+      payloadRecord?.error !== null
+      && typeof payloadRecord?.error === "object"
+      && !Array.isArray(payloadRecord.error)
+      && (payloadRecord.error as Record<string, unknown>).code
+        === "provider_outcome_ambiguous"
+    );
 
   return {
     ok,
     receipt: {
       httpStatus: response.status,
       response: payload,
-      dryRun: input.dryRunOnly,
+      dryRun: actualDryRun,
       dispatchedAt,
       endpoint: built.descriptor.path,
       withheld: null,
       receiptKey,
+      providerMutationAttempted,
+      ...(ambiguous ? { ambiguous: true } : {}),
     },
   };
 }

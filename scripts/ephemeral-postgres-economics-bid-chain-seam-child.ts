@@ -6,11 +6,11 @@
 //
 // The economics chain and the bid chain were each proven only by seams that
 // minted their own `target_value`. `scripts/ephemeral-postgres-bid-queue-seam-child.ts`
-// hand-writes the typed bid payload and then asserts the candidate SQL selects
-// it, which proves the query reads what the FIXTURE wrote and says nothing
-// about what the snapshot writes. That is how the bid arm shipped dark: the
-// projection persisted nine keys and the producer's query required six others,
-// and no test compared the two because no test used both.
+// still hand-writes a semantically valid B1 ad-set payload to prove the future
+// queue mechanics, but no current production recommendation emits that shape:
+// B1 is campaign-grain, and the real ad-set recommendations describe budget,
+// pause, fatigue, or refresh operations. This seam therefore proves the
+// production snapshot does NOT borrow one of those rows as a bid carrier.
 //
 // So this seam takes the long way round on purpose. It seeds inputs only —
 // warehouse and creative facts through the shipped writers, a real capture
@@ -18,8 +18,7 @@
 // Shopify store, commercial targets, guardrails and campaign roles — and then
 // calls the REAL production functions end to end:
 // `runMetaSnapshotForBusiness`, `listTypedBudgetCandidates`,
-// `listTypedBidCandidates`, `projectMetaBidProposals` with `insertBidProposalRow`,
-// `projectMetaBudgetProposals` with the production
+// `listTypedBidCandidates`, `projectMetaBudgetProposals` with the production
 // `loadBudgetCompositionSourcesForCandidate`, `readMetaAutomationProposal`, the
 // approval route's own claim/readers/runtime/lifecycle assembly, and
 // `runMetaBudgetAutomationSweepIfDue`.
@@ -68,21 +67,19 @@
 // which this seam is built to prove rather than to assume.
 //
 // It re-implements NO formula. Every asserted number is either read back out of
-// the database or taken off a production return value. In particular the seam
-// never divides 58.00 by 2.20: the derived $26.36 benchmark is bound by what it
-// produces (a 10% cap raise at a 0.83 CPA ratio, and the retained verdict's own
-// spend unit) and by the two controls at the end of the file.
+// the database or taken off a production return value. The retained verdict's
+// own spend unit binds the derived $26.36 benchmark. Bid sizing remains closed:
+// a useful number cannot invent the missing recommendation semantics.
 //
 // THE TWO CONTROLS, AND WHY THEY POINT THE WAY THEY DO. The POSITIVE one
 // withdraws the STORE's evidence and requires every number to stand still. The
 // store's books say $36.00 and Meta's say $58.00, so a benchmark taken from the
-// store would be $16.36 and would CUT the cap to 1080; the raise to 1320
-// surviving the store's disappearance is what says the store is not the basis.
-// The NEGATIVE one moves the META-attributed purchase sample one purchase under
-// the floor `classifyMetaAovQuality` calls `ready`, leaving the attributed AOV
-// itself untouched at $58.00, and requires every intent to disappear — because
-// only a `hardEligibleByDefault` unit may size money, and the sampled rung earns
-// that only at a ready sample.
+// store would be $16.36 rather than $26.36. The NEGATIVE one moves the
+// META-attributed purchase sample one purchase under the floor
+// `classifyMetaAovQuality` calls `ready`, leaving the attributed AOV itself
+// untouched at $58.00, and requires the budget intent to disappear — because
+// only a `hardEligibleByDefault` unit may size money. Bid intent remains absent
+// in every phase until a real ad-set producer explicitly names that operation.
 import {
   createMetaAuthoritativeSliceVersion,
   publishMetaAuthoritativeSliceVersion,
@@ -90,6 +87,7 @@ import {
   upsertMetaAdSetDailyRows,
   upsertMetaCampaignDailyRows,
   upsertMetaCreativeDailyRows,
+  appendMetaCurrentConfigHistory,
   buildMetaRawSnapshotHash,
   persistMetaRawSnapshot,
   queueMetaSyncPartition,
@@ -113,11 +111,7 @@ import { OBSERVED_SHOPIFY_AOV_MIN_ORDERS } from "@/lib/creative-decision-engine/
 import { WarehouseDataSource } from "@/lib/creative-decision-engine/data-source";
 import { META_BID_INTENT_CONTRACT_VERSION } from "@/lib/meta/bid-intent-contract";
 import { META_BUDGET_INTENT_CONTRACT_VERSION } from "@/lib/meta/budget-intent-contract";
-import {
-  insertBidProposalRow,
-  listTypedBidCandidates,
-  projectMetaBidProposals,
-} from "@/lib/meta/bid-proposal-producer";
+import { listTypedBidCandidates } from "@/lib/meta/bid-proposal-producer";
 import {
   insertBudgetProposalRow,
   listTypedBudgetCandidates,
@@ -176,11 +170,59 @@ const ABO_ADSET = "5000000000202";
   approval path and the scheduled sweep are two different authorisations that
   both have to be shown reaching the provider. It mirrors the CBO campaign in
   every respect except the delivery stall, so it raises a budget row and no bid
-  row, and its presence also keeps the account concentration share of any single
-  increase comfortably inside the guardrail.
+  row, and the complete owner set keeps the account concentration share of any
+  single increase comfortably inside the guardrail.
 */
 const SWEEP_CAMPAIGN = "5000000000103";
 const SWEEP_ADSET = "5000000000203";
+const MANUAL_BUDGET_CAMPAIGN = "5000000000108";
+const MANUAL_BUDGET_ADSET = "5000000000208";
+
+/*
+  Four campaigns whose strong volume economics request a BID-constraint change,
+  not a budget change. They are otherwise complete campaign-budget owners with
+  the same role and commercial authority as the two lowest-cost controls. That
+  keeps the negative proof on recommendation semantics rather than letting a
+  missing role, owner state or performance gate explain the refusal.
+*/
+const CONSTRAINED_VOLUME_CAMPAIGNS = [
+  {
+    campaignId: "5000000000104",
+    name: "Target ROAS volume",
+    bidStrategyType: "target_roas",
+    bidStrategyLabel: "Target ROAS",
+    manualBidAmount: null,
+    bidValue: 2.2,
+    bidValueFormat: "roas",
+  },
+  {
+    campaignId: "5000000000105",
+    name: "Cost cap volume",
+    bidStrategyType: "cost_cap",
+    bidStrategyLabel: "Cost cap",
+    manualBidAmount: null,
+    bidValue: 25,
+    bidValueFormat: "currency",
+  },
+  {
+    campaignId: "5000000000106",
+    name: "Bid cap volume",
+    bidStrategyType: "bid_cap",
+    bidStrategyLabel: "Bid cap",
+    manualBidAmount: null,
+    bidValue: 20,
+    bidValueFormat: "currency",
+  },
+  {
+    campaignId: "5000000000107",
+    name: "Manual bid volume",
+    bidStrategyType: "manual_bid",
+    bidStrategyLabel: "Manual bid",
+    manualBidAmount: 18,
+    bidValue: 18,
+    bidValueFormat: "currency",
+  },
+] as const;
 
 /*
   A SECOND business, whose only subject is account scope.
@@ -490,7 +532,9 @@ async function seedCommercialTargets() {
         aov_assumption, default_risk_posture, operation, effective_at, recorded_at)
      VALUES ($1::uuid, 2.20, 1.80, NULL, NULL, NULL, 'balanced', 'upsert',
              $2::timestamptz, $2::timestamptz)`,
-    [BUSINESS, `${AS_OF}T00:00:00.000Z`],
+    // The target governs both consecutive snapshots; it is an established
+    // operating target rather than a same-day change.
+    [BUSINESS, `${addDays(AS_OF, -90)}T00:00:00.000Z`],
   );
 }
 
@@ -630,8 +674,9 @@ async function seedAutomationControls() {
 }
 
 async function seedCampaignRole() {
+  const roleAsOf = addDays(AS_OF, -1);
   /*
-    Only the CBO campaign gets a published role.
+    Every campaign in the semantic comparison gets a published role.
 
     `contextTrust` is `high` only on an exact `high` confidence class, a
     byte-for-byte `system_inferred` origin AND an approved resolver identity;
@@ -646,7 +691,7 @@ async function seedCampaignRole() {
         kind_basis, resolver_version)
      VALUES ($1, $2, $3, 'Prospecting CBO', $4::date, 'main', 0.95, 'high',
              'system_inferred', 'system_inference', $5)`,
-    [BUSINESS, ACCOUNT, CBO_CAMPAIGN, AS_OF, CAMPAIGN_CONTEXT_RESOLVER_VERSION],
+    [BUSINESS, ACCOUNT, CBO_CAMPAIGN, roleAsOf, CAMPAIGN_CONTEXT_RESOLVER_VERSION],
   );
   /*
     The RETAINED authority record, which is a different fact from the daily row
@@ -670,7 +715,7 @@ async function seedCampaignRole() {
              'main', 'system_inferred', $5, 'high',
              $6, $7, ($4 || 'T00:00:00.000Z')::timestamptz, now(),
              'system_inference')`,
-    [BUSINESS, ACCOUNT, CBO_CAMPAIGN, AS_OF, CAMPAIGN_CONTEXT_RESOLVER_VERSION,
+    [BUSINESS, ACCOUNT, CBO_CAMPAIGN, roleAsOf, CAMPAIGN_CONTEXT_RESOLVER_VERSION,
       "a".repeat(64), "b".repeat(64)],
   );
   await getDb().query(
@@ -680,7 +725,7 @@ async function seedCampaignRole() {
         kind_basis, resolver_version)
      VALUES ($1, $2, $3, 'Prospecting CBO II', $4::date, 'main', 0.95, 'high',
              'system_inferred', 'system_inference', $5)`,
-    [BUSINESS, ACCOUNT, SWEEP_CAMPAIGN, AS_OF, CAMPAIGN_CONTEXT_RESOLVER_VERSION],
+    [BUSINESS, ACCOUNT, SWEEP_CAMPAIGN, roleAsOf, CAMPAIGN_CONTEXT_RESOLVER_VERSION],
   );
   await getDb().query(
     `INSERT INTO engine_v3_campaign_role_authority
@@ -691,9 +736,80 @@ async function seedCampaignRole() {
              'main', 'system_inferred', $5, 'high',
              $6, $7, ($4 || 'T00:00:00.000Z')::timestamptz, now(),
              'system_inference')`,
-    [BUSINESS, ACCOUNT, SWEEP_CAMPAIGN, AS_OF, CAMPAIGN_CONTEXT_RESOLVER_VERSION,
+    [BUSINESS, ACCOUNT, SWEEP_CAMPAIGN, roleAsOf, CAMPAIGN_CONTEXT_RESOLVER_VERSION,
       "c".repeat(64), "d".repeat(64)],
   );
+  await getDb().query(
+    `INSERT INTO engine_v3_campaign_context_daily
+       (business_id, provider_account_id, campaign_id, campaign_name, as_of_date,
+        inferred_kind, confidence_score, confidence_class, kind_source,
+        kind_basis, resolver_version)
+     VALUES ($1, $2, $3, 'Prospecting CBO III', $4::date, 'main', 0.95, 'high',
+             'system_inferred', 'system_inference', $5)`,
+    [
+      BUSINESS,
+      ACCOUNT,
+      MANUAL_BUDGET_CAMPAIGN,
+      roleAsOf,
+      CAMPAIGN_CONTEXT_RESOLVER_VERSION,
+    ],
+  );
+  await getDb().query(
+    `INSERT INTO engine_v3_campaign_role_authority
+       (contract, business_id, provider_account_id, campaign_id, as_of_date,
+        inferred_kind, kind_source, resolver_version, confidence_class,
+        evidence_hash, input_hash, effective_at, recorded_at, provenance)
+     VALUES ('engine-v3-campaign-role-authority.v1', $1, $2, $3, $4::date,
+             'main', 'system_inferred', $5, 'high',
+             $6, $7, ($4 || 'T00:00:00.000Z')::timestamptz, now(),
+             'system_inference')`,
+    [
+      BUSINESS,
+      ACCOUNT,
+      MANUAL_BUDGET_CAMPAIGN,
+      roleAsOf,
+      CAMPAIGN_CONTEXT_RESOLVER_VERSION,
+      "e".repeat(64),
+      "f".repeat(64),
+    ],
+  );
+  for (const [index, campaign] of CONSTRAINED_VOLUME_CAMPAIGNS.entries()) {
+    await getDb().query(
+      `INSERT INTO engine_v3_campaign_context_daily
+         (business_id, provider_account_id, campaign_id, campaign_name, as_of_date,
+          inferred_kind, confidence_score, confidence_class, kind_source,
+          kind_basis, resolver_version)
+       VALUES ($1, $2, $3, $4, $5::date, 'main', 0.95, 'high',
+               'system_inferred', 'system_inference', $6)`,
+      [
+        BUSINESS,
+        ACCOUNT,
+        campaign.campaignId,
+        campaign.name,
+        roleAsOf,
+        CAMPAIGN_CONTEXT_RESOLVER_VERSION,
+      ],
+    );
+    await getDb().query(
+      `INSERT INTO engine_v3_campaign_role_authority
+         (contract, business_id, provider_account_id, campaign_id, as_of_date,
+          inferred_kind, kind_source, resolver_version, confidence_class,
+          evidence_hash, input_hash, effective_at, recorded_at, provenance)
+       VALUES ('engine-v3-campaign-role-authority.v1', $1, $2, $3, $4::date,
+               'main', 'system_inferred', $5, 'high',
+               $6, $7, ($4 || 'T00:00:00.000Z')::timestamptz, now(),
+               'system_inference')`,
+      [
+        BUSINESS,
+        ACCOUNT,
+        campaign.campaignId,
+        roleAsOf,
+        CAMPAIGN_CONTEXT_RESOLVER_VERSION,
+        String(index + 1).repeat(64),
+        String(index + 5).repeat(64),
+      ],
+    );
+  }
 }
 
 /**
@@ -728,6 +844,7 @@ const CONVERTER_CREATIVE_COUNT = Math.max(
   MIN_ACCOUNT_SCALE_CALIBRATION_SAMPLE,
   META_AOV_READY_FLOOR,
 ) + 2;
+const CONVERTER_FACT_DATE = addDays(AS_OF, -1);
 
 /**
  * Write a slice of the converter population through the SHIPPED writer.
@@ -761,7 +878,7 @@ async function writeConverterCreatives(input: {
       accountTimezone: "UTC",
       accountCurrency: "USD",
       sourceSnapshotId: null,
-      date: AS_OF,
+      date: CONVERTER_FACT_DATE,
       campaignId: CBO_CAMPAIGN,
       adsetId: CBO_ADSET,
       adId,
@@ -780,7 +897,7 @@ async function writeConverterCreatives(input: {
     adRows.push({
       businessId: BUSINESS,
       providerAccountId: ACCOUNT,
-      date: AS_OF,
+      date: CONVERTER_FACT_DATE,
       campaignId: CBO_CAMPAIGN,
       adsetId: CBO_ADSET,
       adId,
@@ -792,7 +909,7 @@ async function writeConverterCreatives(input: {
       sourceSnapshotId: null,
       truthState: "finalized",
       validationStatus: "passed",
-      finalizedAt: `${AS_OF}T02:00:00.000Z`,
+      finalizedAt: `${CONVERTER_FACT_DATE}T02:00:00.000Z`,
       ...metrics,
     });
   }
@@ -811,8 +928,8 @@ async function writeConverterCreatives(input: {
       [
         BUSINESS,
         ACCOUNT,
-        AS_OF,
-        `${AS_OF}T02:00:00.000Z`,
+        CONVERTER_FACT_DATE,
+        `${CONVERTER_FACT_DATE}T02:00:00.000Z`,
         adRows.map((row) => row.adId),
       ],
     );
@@ -1017,6 +1134,35 @@ async function seedWarehouseFacts() {
       buyingType: "AUCTION",
       optimizationGoal: "OFFSITE_CONVERSIONS",
       customEventType: "PURCHASE",
+      bidStrategyType: "cost_cap",
+      bidStrategyLabel: "Cost cap",
+      manualBidAmount: null,
+      bidValue: 12,
+      bidValueFormat: "currency",
+      dailyBudget: 250,
+      lifetimeBudget: null,
+      isBudgetMixed: false,
+      isConfigMixed: false,
+      isOptimizationGoalMixed: false,
+      isCustomEventTypeMixed: false,
+      isBidStrategyMixed: false,
+      isBidValueMixed: false,
+      ...metricRow({
+        spend: 100, revenue: 360, conversions: 4,
+        impressions: 4000, clicks: 30, reach: 1000,
+      }),
+    });
+    campaignRows.push({
+      ...base,
+      date,
+      campaignId: MANUAL_BUDGET_CAMPAIGN,
+      campaignNameCurrent: "Prospecting CBO III",
+      campaignNameHistorical: "Prospecting CBO III",
+      campaignStatus: "ACTIVE",
+      objective: "OUTCOME_SALES",
+      buyingType: "AUCTION",
+      optimizationGoal: "OFFSITE_CONVERSIONS",
+      customEventType: "PURCHASE",
       bidStrategyType: "lowest_cost",
       bidStrategyLabel: null,
       manualBidAmount: null,
@@ -1031,10 +1177,41 @@ async function seedWarehouseFacts() {
       isBidStrategyMixed: false,
       isBidValueMixed: false,
       ...metricRow({
-        spend: 100, revenue: 360, conversions: 4,
+        spend: 100, revenue: 1000, conversions: 4,
         impressions: 4000, clicks: 30, reach: 1000,
       }),
     });
+    for (const campaign of CONSTRAINED_VOLUME_CAMPAIGNS) {
+      campaignRows.push({
+        ...base,
+        date,
+        campaignId: campaign.campaignId,
+        campaignNameCurrent: campaign.name,
+        campaignNameHistorical: campaign.name,
+        campaignStatus: "ACTIVE",
+        objective: "OUTCOME_SALES",
+        buyingType: "AUCTION",
+        optimizationGoal: "OFFSITE_CONVERSIONS",
+        customEventType: "PURCHASE",
+        bidStrategyType: campaign.bidStrategyType,
+        bidStrategyLabel: campaign.bidStrategyLabel,
+        manualBidAmount: campaign.manualBidAmount,
+        bidValue: campaign.bidValue,
+        bidValueFormat: campaign.bidValueFormat,
+        dailyBudget: 250,
+        lifetimeBudget: null,
+        isBudgetMixed: false,
+        isConfigMixed: false,
+        isOptimizationGoalMixed: false,
+        isCustomEventTypeMixed: false,
+        isBidStrategyMixed: false,
+        isBidValueMixed: false,
+        ...metricRow({
+          spend: 100, revenue: 1000, conversions: 4,
+          impressions: 4000, clicks: 30, reach: 1000,
+        }),
+      });
+    }
     campaignRows.push({
       ...base,
       date,
@@ -1060,7 +1237,7 @@ async function seedWarehouseFacts() {
       isBidStrategyMixed: false,
       isBidValueMixed: false,
       ...metricRow({
-        spend: 100, revenue: 360, conversions: 4,
+        spend: 100, revenue: 1000, conversions: 4,
         impressions: 4000, clicks: 30, reach: 1000,
       }),
     });
@@ -1144,9 +1321,9 @@ async function seedWarehouseFacts() {
     /*
       The sweep campaign's ad set, with steady delivery on every day.
 
-      No impression collapse, so no `delivery_stall` anomaly and no cap intent:
-      the bid arm still has exactly one candidate, and the second budget row
-      this campaign exists for is the only thing it adds.
+      No impression collapse, so no `delivery_stall` anomaly. The second budget
+      row this campaign exists for is the only action it adds; bid remains
+      closed everywhere in this production snapshot.
     */
     adsetRows.push({
       ...base,
@@ -1155,6 +1332,33 @@ async function seedWarehouseFacts() {
       adsetId: SWEEP_ADSET,
       adsetNameCurrent: "Broad prospecting II",
       adsetNameHistorical: "Broad prospecting II",
+      adsetStatus: "ACTIVE",
+      optimizationGoal: "OFFSITE_CONVERSIONS",
+      customEventType: "PURCHASE",
+      bidStrategyType: "lowest_cost",
+      bidStrategyLabel: null,
+      manualBidAmount: null,
+      bidValue: null,
+      bidValueFormat: null,
+      dailyBudget: null,
+      lifetimeBudget: null,
+      isBudgetMixed: false,
+      isConfigMixed: false,
+      isOptimizationGoalMixed: false,
+      isBidStrategyMixed: false,
+      isBidValueMixed: false,
+      ...metricRow({
+        spend: 80, revenue: 288, conversions: 3,
+        impressions: 4000, clicks: 30, reach: 1000,
+      }),
+    });
+    adsetRows.push({
+      ...base,
+      date,
+      campaignId: MANUAL_BUDGET_CAMPAIGN,
+      adsetId: MANUAL_BUDGET_ADSET,
+      adsetNameCurrent: "Broad prospecting III",
+      adsetNameHistorical: "Broad prospecting III",
       adsetStatus: "ACTIVE",
       optimizationGoal: "OFFSITE_CONVERSIONS",
       customEventType: "PURCHASE",
@@ -1210,6 +1414,24 @@ async function seedWarehouseFacts() {
     */
     await upsertMetaCampaignDailyRows(campaignRows);
     await upsertMetaAdSetDailyRows(adsetRows);
+    if (isLatest) {
+      // Model an established provider config, not a same-day operator edit.
+      // The current-config reader still selects this as the latest receipt,
+      // while recent-edit authority correctly treats it as outside cooldown.
+      const stableConfigObservedAt = `${addDays(AS_OF, -90)}T03:00:00.000Z`;
+      await appendMetaCurrentConfigHistory({
+        campaignRows,
+        adsetRows,
+        campaignReceipt: {
+          complete: true,
+          observedAt: stableConfigObservedAt,
+        },
+        adsetReceipt: {
+          complete: true,
+          observedAt: stableConfigObservedAt,
+        },
+      });
+    }
   }
 }
 
@@ -1266,8 +1488,7 @@ async function publishSlices() {
  * shape, the shipped observation mappers, and `persistMetaEntityObservation`.
  * The CBO ad set carries its parent's amount and owns none of it, which is what
  * makes its budget universe `proven_non_applicable` and keeps a budget intent
- * off it; an ad set that acquired one would suppress its own bid intent as a
- * sibling change in the same window.
+ * off it. A writable cap alone still cannot create bid recommendation meaning.
  */
 interface RawCampaignPayload {
   id: string; name: string; status: string; effective_status: string;
@@ -1305,9 +1526,22 @@ async function seedBudgetState() {
       updated_time: providerUpdatedAt,
     },
     {
+      id: MANUAL_BUDGET_CAMPAIGN, name: "Prospecting CBO III", status: "ACTIVE",
+      effective_status: "ACTIVE", daily_budget: "25000",
+      updated_time: providerUpdatedAt,
+    },
+    {
       id: ABO_CAMPAIGN, name: "Retargeting ABO", status: "ACTIVE",
       effective_status: "ACTIVE", updated_time: providerUpdatedAt,
     },
+    ...CONSTRAINED_VOLUME_CAMPAIGNS.map((campaign) => ({
+      id: campaign.campaignId,
+      name: campaign.name,
+      status: "ACTIVE",
+      effective_status: "ACTIVE",
+      daily_budget: "25000",
+      updated_time: providerUpdatedAt,
+    })),
   ];
   const adsets: RawAdSetPayload[] = [
     {
@@ -1317,6 +1551,12 @@ async function seedBudgetState() {
     },
     {
       id: SWEEP_ADSET, name: "Broad prospecting II", campaign_id: SWEEP_CAMPAIGN,
+      status: "ACTIVE", effective_status: "ACTIVE",
+      updated_time: providerUpdatedAt,
+    },
+    {
+      id: MANUAL_BUDGET_ADSET, name: "Broad prospecting III",
+      campaign_id: MANUAL_BUDGET_CAMPAIGN,
       status: "ACTIVE", effective_status: "ACTIVE",
       updated_time: providerUpdatedAt,
     },
@@ -1960,8 +2200,8 @@ async function assertAccountScopeIsolation() {
  * the real world, so every scoped read asserted here is answered by a row this
  * job computed for that scope alone.
  */
-async function materialiseCalibrationScopes(businessId: string) {
-  const job = await runCalibrationJob({ businessId, asOf: AS_OF });
+async function materialiseCalibrationScopes(businessId: string, asOf = AS_OF) {
+  const job = await runCalibrationJob({ businessId, asOf });
   if (job.status !== "success") {
     fail("calibration_job_failed", `${businessId}: ${job.status} ${job.errorMessage ?? ""}`);
   }
@@ -1974,7 +2214,7 @@ async function materialiseCalibrationScopes(businessId: string) {
     [businessId],
   )) as Array<{ scope_type: string; scope_id: string; rows: number }>;
   console.log(
-    `[${LABEL}] calibration scopes for ${businessId}: `
+    `[${LABEL}] calibration scopes for ${businessId} at ${asOf}: `
     + rows.map((row) => `${row.scope_type}/${row.scope_id}=${row.rows}`).join(" "),
   );
   return rows;
@@ -2107,7 +2347,7 @@ async function approveManually(proposalId: string) {
       });
       return recorded.status !== "unavailable";
     },
-    recordLedger: async () => {},
+    recordLedger: async () => true,
     execute: async (beforeProviderPost) => runtime({
       proposal: claimed.proposal,
       dryRunOnly: false,
@@ -2156,7 +2396,7 @@ async function main() {
     answered by a provider that moved rather than by an echo.
   */
   const providerBudgets = new Map<string, number>([
-    [CBO_CAMPAIGN, 25_000],
+    [MANUAL_BUDGET_CAMPAIGN, 25_000],
     [SWEEP_CAMPAIGN, 25_000],
   ]);
   // Installed BEFORE the first production call, so a request during seeding is
@@ -2185,6 +2425,18 @@ async function main() {
     nothing wrong with it. So the job runs here, exactly as a daily pass would,
     and the numbers below are asserted against what it wrote.
   */
+  /*
+    A hard action needs two consecutive real snapshots. Prime the shipped
+    stability memory on the preceding day, then let today's identical raw
+    recommendation cross the confirmation boundary. Skipping this pass would
+    test a first-day soft placeholder, not an executable recommendation.
+  */
+  const previousAsOf = addDays(AS_OF, -1);
+  await materialiseCalibrationScopes(BUSINESS, previousAsOf);
+  const primingRun = await runMetaSnapshotForBusiness(BUSINESS, previousAsOf);
+  expectEqual(primingRun.failedAccountIds, [], "the priming snapshot generated");
+  expectEqual(provider.calls, [], "the priming snapshot made no provider request");
+
   const chainScopes = await materialiseCalibrationScopes(BUSINESS);
   expectEqual(
     chainScopes
@@ -2200,11 +2452,16 @@ async function main() {
   expectEqual(provider.calls, [], "no provider request left the process");
 
   // ── Chain A: the derived benchmark becomes a sized budget intent ─────────
-  const campaignRows = await readDecisionRows(CBO_CAMPAIGN);
+  const campaignRows = await readDecisionRows(MANUAL_BUDGET_CAMPAIGN);
   const budgetRow = intentFor(
     campaignRows, META_BUDGET_INTENT_CONTRACT_VERSION, "campaign_budget_intent_absent",
   );
   const budgetIntent = budgetRow.target_value as Record<string, unknown>;
+  expectEqual(
+    budgetRow.rec_type,
+    "scale_for_volume_budget_increase",
+    "the lowest-cost emitter uses the budget-specific recommendation type",
+  );
   expectEqual(budgetRow.decision_label, "scale", "the engine labelled the campaign for scale");
   expectEqual(budgetIntent.direction, "increase", "budget direction");
   /*
@@ -2215,24 +2472,49 @@ async function main() {
     calibration cell carries the minimum required sample, far under the sample
     the policy wants before it will pay a full rung. 27500 is inside the 40000
     ceiling, and the post-increase account share stays under the 60%
-    concentration limit only because a second budget owner exists.
+    concentration limit because the account has multiple budget owners.
   */
   expectEqual(budgetIntent.percent, 10, "budget rung after damping");
   expectEqual(budgetIntent.amountMinor, 27500, "proposed budget in minor units");
   expectEqual(budgetIntent.currentMinorUnits, 25000, "observed budget in minor units");
 
-  const budgetCandidates = await listTypedBudgetCandidates(BUSINESS, AS_OF);
+  const budgetCandidates = await listTypedBudgetCandidates(
+    BUSINESS,
+    AS_OF,
+    [ACCOUNT],
+  );
   expectEqual(
     budgetCandidates.map((candidate) => candidate.scopeId).sort(),
-    [CBO_CAMPAIGN, SWEEP_CAMPAIGN].sort(),
+    [MANUAL_BUDGET_CAMPAIGN, SWEEP_CAMPAIGN].sort(),
     "one typed budget candidate per role-authorised budget owner",
   );
   const budgetCandidate = budgetCandidates
-    .find((candidate) => candidate.scopeId === CBO_CAMPAIGN)!;
+    .find((candidate) => candidate.scopeId === MANUAL_BUDGET_CAMPAIGN)!;
   expectEqual(budgetCandidate.scopeType, "campaign", "candidate grain");
   expectEqual(budgetCandidate.providerAccountId, ACCOUNT, "candidate account");
   expectEqual(budgetCandidate.recommendedAction, "increase_budget", "candidate verb");
   expectEqual(budgetCandidate.targetAmountMinor, 27500, "candidate amount");
+
+  for (const campaign of CONSTRAINED_VOLUME_CAMPAIGNS) {
+    const rows = await readDecisionRows(campaign.campaignId);
+    const volumeTypes = rows
+      .map((row) => row.rec_type)
+      .filter((type) => type.startsWith("scale_for_volume"));
+    expectEqual(
+      volumeTypes,
+      ["scale_for_volume"],
+      `${campaign.bidStrategyType} keeps the generic non-budget volume semantic`,
+    );
+    if (rows.some(
+      (row) => (row.target_value as { contractVersion?: unknown } | null)
+        ?.contractVersion === META_BUDGET_INTENT_CONTRACT_VERSION,
+    )) {
+      fail(
+        "constrained_volume_budget_intent_present",
+        `${campaign.bidStrategyType} acquired a budget intent`,
+      );
+    }
+  }
 
   /*
     The contrast case. The ABO campaign owns no budget in the retained state —
@@ -2276,51 +2558,29 @@ async function main() {
   expectEqual(stallRows[0]!.severity, "high", "stall severity from the measured fall");
 
   /*
-    THE ARITHMETIC, STATED ONCE AND NOWHERE COMPUTED.
+    Meta attributed 32 purchases and $1,856 of purchase revenue to this
+    account, so the ROAS-first spend unit is available. The stalled ad set also
+    owns a writable cost cap. Those facts are necessary for a bid change, but
+    they are not recommendation semantics: the real ad-set rows in this run
+    describe other operations. A previous implementation attached a calculated
+    bid to whichever actionable row happened to be available. The correct
+    production result is therefore no bid intent and no queue row.
 
-    THE BENCHMARK. Meta attributed 32 purchases and $1,856 of purchase revenue
-    to this account over the ninety-day window — an AOV of $58.00 on a sample
-    two above `META_AOV_READY_FLOOR`, so `classifyMetaAovQuality` says `ready`
-    and `resolveSpendUnit` marks the unit hard-eligible. 58.00 / 2.20 = $26.36,
-    or 2636 minor units. Not the store: the merchant's own books say $36.00 in
-    the same window, and $36.00 / 2.20 = $16.36 would put this ad set on the
-    other side of the dead band entirely.
-
-    THE RATIO. The ad set's own twenty-eight days are $2,200 over 100
-    purchases — $22.00, or 2200 minor units, and both operands are on the
-    account's own scale because `projectBidIntents` resolves the ISO exponent
-    once and hands it to the policy. q = 2200 / 2636 = 0.83.
-
-    THE RUNG. 0.83 is under `deadBand.min`, which only authorises a raise when
-    delivery is measurably constrained — and the `delivery_stall` row asserted
-    just above is that evidence. `raiseBands` puts 0.83 on the 0.9 rung at 10%,
-    and 1200 * 1.10 = 1320.
-
-    Every figure here is a fixture input or a published band of
-    `BID_SIZING_POLICY_V1`. What follows reads the producer's own answer.
+    The separate bid-queue seam uses a synthetic B1 ad-set row only to prove the
+    forward contract and executor plumbing. This end-to-end seam is the proof
+    that production cannot mistake that synthetic reachability for a current
+    emitter.
   */
   const adsetRows = await readDecisionRows(CBO_ADSET);
-  const bidRow = intentFor(
-    adsetRows, META_BID_INTENT_CONTRACT_VERSION, "adset_bid_intent_absent",
-  );
-  const bidIntent = bidRow.target_value as Record<string, unknown>;
-  expectEqual(bidIntent.currentMinorUnits, 1200, "observed cap in minor units");
-  expectEqual(bidIntent.proposedMinorUnits, 1320, "proposed cap in minor units");
-  expectEqual(bidIntent.bidAmountMinor, 1320, "the field the apply path reads");
-  expectEqual(bidIntent.percent, 10, "cap rung");
-  expectEqual(bidIntent.direction, "increase", "cap direction");
-  expectEqual(bidIntent.bidStrategyType, "cost_cap", "cap strategy");
-  /*
-    The six keys the producer's query has always required and the projection
-    never wrote. Until this seam existed nothing compared the payload a snapshot
-    persists with the payload the candidate SQL selects, so the whole bid arm
-    was dark while every test around it was green.
-  */
-  expectEqual(bidIntent.kind, "bid_intent", "payload names its own contract kind");
-  expectEqual(bidIntent.authorityStatus, "authorised", "authority status is written");
-  expectEqual(bidIntent.blockerCodes, [], "no blockers on an authorised intent");
-  expectEqual(bidIntent.currency, "USD", "cap currency");
-  expectEqual(bidIntent.currencyExponent, 2, "cap currency scale");
+  if (adsetRows.some(
+    (row) => (row.target_value as { contractVersion?: unknown } | null)
+      ?.contractVersion === META_BID_INTENT_CONTRACT_VERSION,
+  )) {
+    fail(
+      "unsupported_adset_bid_intent_present",
+      "a non-bid ad-set recommendation was used as a bid-amount carrier",
+    );
+  }
 
   // A lowest-cost ad set owns no writable cap, so it gets no intent at all.
   const aboAdsetRows = await readDecisionRows(ABO_ADSET);
@@ -2330,12 +2590,14 @@ async function main() {
   );
   if (aboBid) fail("abo_bid_intent_present", "a lowest-cost ad set was given a cap");
 
-  // ── The queue row, from the producer the snapshot itself ran ─────────────
-  expectEqual(run.bidProposals, { candidates: 1, projected: 1 }, "the snapshot's own bid producer");
-  const bidCandidates = await listTypedBidCandidates(BUSINESS, AS_OF);
-  expectEqual(bidCandidates.length, 1, "one typed bid candidate through the real SQL");
-  expectEqual(bidCandidates[0]!.scopeId, CBO_ADSET, "bid candidate entity");
-  expectEqual(bidCandidates[0]!.proposedMinorUnits, 1320, "bid candidate amount");
+  // ── No production queue row without a real ad-set bid producer ──────────
+  expectEqual(
+    run.bidProposals,
+    { candidates: 0, projected: 0 },
+    "the snapshot refuses to invent an ad-set bid producer",
+  );
+  const bidCandidates = await listTypedBidCandidates(BUSINESS, AS_OF, [ACCOUNT]);
+  expectEqual(bidCandidates.length, 0, "no typed bid candidate through the real SQL");
 
   const queuedRows = (await getDb().query(
     `SELECT id::text AS id FROM meta_automation_proposals
@@ -2343,37 +2605,7 @@ async function main() {
         AND proposed_action = 'bid' AND scope_id = $3`,
     [BUSINESS, ACCOUNT, CBO_ADSET],
   )) as Array<{ id: string }>;
-  expectEqual(queuedRows.length, 1, "exactly one bid row on the queue");
-  const proposal = await readMetaAutomationProposal({
-    businessId: BUSINESS,
-    providerAccountId: ACCOUNT,
-    proposalId: queuedRows[0]!.id,
-  });
-  expectEqual(proposal?.proposedAction, "bid", "queue row action");
-  expectEqual(proposal?.bidEnvelope?.currentMinorUnits, 1200, "envelope current amount");
-  expectEqual(proposal?.bidEnvelope?.proposedMinorUnits, 1320, "envelope proposed amount");
-  if (!proposal?.bidEnvelope?.fingerprint) {
-    fail("envelope_fingerprint_absent", "a bid row must carry a fingerprinted envelope");
-  }
-  /*
-    Running the producer again finds the same candidate and refuses to
-    duplicate it. That is the open-slot discipline working, and it is why the
-    numbers above are asserted from the snapshot's own run rather than from a
-    second call.
-  */
-  const rerun = await projectMetaBidProposals({
-    businessId: BUSINESS,
-    snapshotDate: AS_OF,
-    insertProposal: async (insert) => insertBidProposalRow({
-      businessId: BUSINESS,
-      proposalId: insert.proposalId,
-      candidate: insert.candidate,
-      envelopeJson: insert.envelopeJson,
-      actionLabel: insert.actionLabel,
-    }),
-  });
-  expectEqual(rerun.candidates, 1, "the candidate survives a second pass");
-  expectEqual(rerun.refusals, { insert_conflicted: 1 }, "and is not duplicated");
+  expectEqual(queuedRows.length, 0, "no bid row on the production queue");
 
   // ── Chain A's terminal step, with the provider still unreachable ─────────
   /*
@@ -2395,6 +2627,7 @@ async function main() {
   const projectBudgetProposals = () => projectMetaBudgetProposals({
     businessId: BUSINESS,
     snapshotDate: AS_OF,
+    providerAccountIds: [ACCOUNT],
     loadCompositionSources: loadBudgetCompositionSourcesForCandidate,
     insertProposal: async (insert) => insertBudgetProposalRow({
       businessId: BUSINESS,
@@ -2427,8 +2660,9 @@ async function main() {
             input_fingerprint, source_fingerprint, as_of_date::text AS as_of_date
        FROM engine_v3_account_profile_output
       WHERE business_id = $1 AND provider_account_id = $2
+        AND as_of_date = $3::date
       ORDER BY action`,
-    [BUSINESS, ACCOUNT],
+    [BUSINESS, ACCOUNT, AS_OF],
   )) as Array<Record<string, unknown>>;
   expectEqual(
     retained.map((row) => row.action),
@@ -2504,11 +2738,11 @@ async function main() {
   )) as Array<{ id: string; scope_id: string; status: string }>;
   expectEqual(
     queuedBudgetRows.map((row) => `${row.scope_id}:${row.status}`),
-    [`${CBO_CAMPAIGN}:pending`, `${SWEEP_CAMPAIGN}:pending`],
+    [`${MANUAL_BUDGET_CAMPAIGN}:pending`, `${SWEEP_CAMPAIGN}:pending`].sort(),
     "one pending budget row per owner",
   );
   const manualProposalId = queuedBudgetRows
-    .find((row) => row.scope_id === CBO_CAMPAIGN)!.id;
+    .find((row) => row.scope_id === MANUAL_BUDGET_CAMPAIGN)!.id;
   const sweepProposalId = queuedBudgetRows
     .find((row) => row.scope_id === SWEEP_CAMPAIGN)!.id;
   const raised = await readMetaAutomationProposal({
@@ -2646,8 +2880,12 @@ async function main() {
     1,
     "exactly one provider write, from one approval",
   );
-  expectEqual(providerBudgets.get(CBO_CAMPAIGN), 27500, "the account's own amount moved");
-  const manualJournal = await readJournalReceipts(CBO_CAMPAIGN);
+  expectEqual(
+    providerBudgets.get(MANUAL_BUDGET_CAMPAIGN),
+    27500,
+    "the account's own amount moved",
+  );
+  const manualJournal = await readJournalReceipts(MANUAL_BUDGET_CAMPAIGN);
   expectEqual(manualJournal.length, 1, "one durable journal receipt");
   expectEqual(manualJournal[0]!.result_class, "verified", "verified against a read-back");
   expectEqual(Number(manualJournal[0]!.before_amount_minor), 25000, "receipt before amount");
@@ -2748,13 +2986,9 @@ async function main() {
       }
       : null;
   };
-  const capRaise = {
-    proposedMinorUnits: 1320, percent: 10, direction: "increase",
-  };
-
-  /** The budget this run proposes for the CBO campaign, or null if none. */
+  /** The budget this run proposes for the eligible lowest-cost campaign. */
   const proposedBudget = async () => {
-    const row = (await readDecisionRows(CBO_CAMPAIGN)).find(
+    const row = (await readDecisionRows(MANUAL_BUDGET_CAMPAIGN)).find(
       (candidate) => (candidate.target_value as { contractVersion?: unknown } | null)
         ?.contractVersion === META_BUDGET_INTENT_CONTRACT_VERSION,
     );
@@ -2769,8 +3003,9 @@ async function main() {
   };
   const budgetRaise = { amountMinor: 27500, percent: 10, direction: "increase" };
   /*
-    BOTH ARMS ARE STILL LIVE HERE, and the two executions above did not quiet
-    either of them.
+    THE BUDGET ARM IS STILL LIVE HERE, and the two executions above did not
+    quiet it. The bid arm remains closed because no current ad-set producer
+    names a bid-amount operation.
 
     That is worth stating because it looks as though they should have.
     `meta_budget_write_journal` now carries a verified change against each
@@ -2780,8 +3015,8 @@ async function main() {
     (`${snapshotDate}T23:59:59.999Z`), which for this seam is yesterday.
     Receipts this run stamped with `now()` are therefore outside the window the
     guardrail asks about, `hours_since_change` stays absent, and the campaign
-    keeps proposing. So both controls below assert on the budget arm and the bid
-    arm together, and neither assertion is over-determined by a cooldown.
+    keeps proposing. The controls below therefore assert the budget authority
+    without being over-determined by a cooldown.
 
     What DOES stop the queue producer from raising another row is the open-slot
     predicate — both budget proposals are settled — which is why the candidate
@@ -2791,16 +3026,15 @@ async function main() {
   // ── POSITIVE CONTROL: withdrawing the STORE moves no number ─────────────
   /*
     Age the store's sync past `OBSERVED_SHOPIFY_AOV_MAX_SYNC_AGE_HOURS` and
-    re-run. This is the SAME lever that used to erase both intents, back when
+    re-run. This is the SAME lever that used to erase the money intents, back when
     `observed_shopify_aov` was a rung of `resolveSpendUnit`; the point of
     pulling it here is that it must now change nothing at all.
 
     It is a real withdrawal and not a no-op dressed as one. The merchant's books
     say $36.00 against Meta's $58.00, so a benchmark that had quietly kept a
-    store rung would be $16.36, q would be 2200 / 1636 = 1.34, and the same
-    stalled ad set would come back on the `lowerBands` 1.1 rung with its cap CUT
-    to 1080. The raise standing still at 1320 is what says the store chose
-    nothing.
+    store rung would be $16.36. The retained $26.36 spend unit standing still
+    is what says the store chose nothing. No bid is expected because a useful
+    amount cannot supply missing operation semantics.
   */
   await getDb().query(
     `UPDATE shopify_sync_state SET latest_successful_sync_at = now() - interval '96 hours'
@@ -2808,19 +3042,20 @@ async function main() {
     [BUSINESS, SHOP],
   );
   await runMetaSnapshotForBusiness(BUSINESS, AS_OF);
-  expectEqual(
-    await proposedCap(), capRaise,
-    "the cap raise is unchanged with the store's evidence withdrawn",
-  );
+  expectEqual(await proposedCap(), null, "bid stays closed without a producer");
   expectEqual(
     await proposedBudget(), budgetRaise,
     "and so is the budget raise the same benchmark authorised",
   );
-  const capCandidatesWithoutStore = await listTypedBidCandidates(BUSINESS, AS_OF);
+  const capCandidatesWithoutStore = await listTypedBidCandidates(
+    BUSINESS,
+    AS_OF,
+    [ACCOUNT],
+  );
   expectEqual(
     capCandidatesWithoutStore.map((candidate) => candidate.proposedMinorUnits),
-    [1320],
-    "and the queue producer still selects the same amount",
+    [],
+    "and the queue producer finds no invented bid amount",
   );
   /*
     THE STORE IS EVIDENCE, AND EVIDENCE ONLY — INCLUDING IN THE IDENTITY.
@@ -2926,7 +3161,7 @@ async function main() {
   );
   await runMetaSnapshotForBusiness(BUSINESS, AS_OF);
   expectEqual(
-    [await proposedCap(), await proposedBudget()], [capRaise, budgetRaise],
+    [await proposedCap(), await proposedBudget()], [null, budgetRaise],
     "and returning the store's evidence moves nothing either",
   );
 
@@ -2982,7 +3217,10 @@ async function main() {
       "a cap was sized from a unit the resolver does not call hard-eligible",
     );
   }
-  if (carriesIntent(await readDecisionRows(CBO_CAMPAIGN), META_BUDGET_INTENT_CONTRACT_VERSION)) {
+  if (carriesIntent(
+    await readDecisionRows(MANUAL_BUDGET_CAMPAIGN),
+    META_BUDGET_INTENT_CONTRACT_VERSION,
+  )) {
     fail(
       "budget_intent_survived_unready_meta_sample",
       "a budget was sized from a unit the resolver does not call hard-eligible",
@@ -2990,17 +3228,17 @@ async function main() {
   }
   // And nothing downstream can find the cap either.
   expectEqual(
-    (await listTypedBidCandidates(BUSINESS, AS_OF)).length, 0,
+    (await listTypedBidCandidates(BUSINESS, AS_OF, [ACCOUNT])).length, 0,
     "no bid candidate once the Meta sample is under the floor",
   );
 
-  // And back again: the purchases return, the sample clears the floor, and so
-  // does the same amount.
+  // And back again: the purchases return and the supported budget amount does
+  // too. Sample readiness still cannot invent a bid recommendation.
   await seedCreativeFacts();
   await runMetaSnapshotForBusiness(BUSINESS, AS_OF);
   expectEqual(
-    [await proposedCap(), await proposedBudget()], [capRaise, budgetRaise],
-    "both amounts return with the Meta purchase evidence restored",
+    [await proposedCap(), await proposedBudget()], [null, budgetRaise],
+    "only the supported budget amount returns with Meta evidence restored",
   );
 
   /*
@@ -3037,9 +3275,11 @@ async function main() {
   console.log(
     `[${LABEL}] PASS: the real snapshot derives its CPA benchmark from META'S `
     + "OWN attributed purchase AOV and a target ROAS alone, sizes a campaign "
-    + "budget 25000 -> 27500 that the real candidate SQL selects, sizes a cost "
-    + "cap 1200 -> 1320 on the delivery-stalled ad set and raises the queue row "
-    + "carrying it, retains the canonical commercial verdict through the real "
+    + "budget 25000 -> 27500 only from the typed lowest-cost budget-increase "
+    + "semantic that the real candidate SQL selects, keeps target-ROAS, "
+    + "cost-cap, bid-cap and manual-bid volume decisions budgetless, refuses to "
+    + "invent a bid intent or queue row from unrelated ad-set decisions, "
+    + "retains the canonical commercial verdict through the real "
     + "producer and raises both budget rows on it, refuses an absent and a "
     + "superseded verdict by name, executes one row through operator approval "
     + "and the other through the scheduled sweep with durable read-back "

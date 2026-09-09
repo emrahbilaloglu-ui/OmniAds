@@ -35,7 +35,10 @@ import {
 import { produceRetainedAccountProfileOutputs } from "@/lib/meta/account-profile-output-producer";
 import { restampProposedActions } from "@/lib/meta/recommendations";
 import { buildMetaAdsetRecommendations } from "@/lib/meta/adset-decisions";
-import { projectMetaAutomationProposals } from "@/lib/meta/automation-proposals";
+import {
+  projectMetaAutomationProposals,
+  reconcileMetaEngineDecisionProposalsForSnapshot,
+} from "@/lib/meta/automation-proposals";
 import {
   insertBudgetProposalRow,
   projectMetaBudgetProposals,
@@ -95,6 +98,7 @@ import {
 import { readIntentProjectionContexts } from "@/lib/meta/intent-projection-context";
 import { projectBudgetIntents } from "@/lib/meta/budget-intent-projection";
 import { projectBidIntents } from "@/lib/meta/bid-intent-projection";
+import { resolveMetaIntentProjectionAuthority } from "@/lib/meta/intent-projection-authority";
 import { META_BUDGET_INTENT_CONTRACT_VERSION } from "@/lib/meta/budget-intent-contract";
 import type { MetaBidRegime, MetaCampaignRole } from "@/lib/meta/types";
 import {
@@ -174,6 +178,24 @@ export interface RunMetaSnapshotAllBusinessesResult {
     value?: RunMetaSnapshotResult;
     reason?: string;
   }>;
+}
+
+/**
+ * Provider accounts whose generation completed in this exact attempt.
+ *
+ * Proposal producers must use this set rather than assigned/requested accounts:
+ * a rejected account can still have an older row for the same date, and that
+ * row is not evidence produced by the current run. A fulfilled unscoped batch
+ * carries `null` and grants no provider-account authority.
+ */
+export function metaProposalAccountsForFulfilledGeneration<
+  T extends { accountId: string | null },
+>(outcomes: ReadonlyArray<PromiseSettledResult<T>>): string[] {
+  return Array.from(new Set(outcomes.flatMap((outcome) => {
+    if (outcome.status !== "fulfilled") return [];
+    const accountId = outcome.value.accountId?.trim();
+    return accountId ? [accountId] : [];
+  })));
 }
 
 type SnapshotDbRow = {
@@ -1052,6 +1074,17 @@ async function attachSizedIntents(input: {
   const spendUnitMinor = currencyExponent !== null && majorSpendUnit
     ? Math.round(majorSpendUnit * 10 ** currencyExponent)
     : null;
+  const intentProjectionAuthority = resolveMetaIntentProjectionAuthority({
+    targets,
+    metaAttributedAov: metaAttributedAov
+      ? {
+          aovMean: metaAttributedAov.aovMean,
+          purchaseCount: metaAttributedAov.purchaseCount,
+        }
+      : null,
+    spendUnitResolution,
+    spendUnitMinor,
+  });
 
   /*
     The role gate, taken from the SAME map the label guard used.
@@ -1156,17 +1189,12 @@ async function attachSizedIntents(input: {
   }).catch(() => null);
   if (!contexts) return input.recommendations;
 
-  const pausedEntityIds = new Set(
-    input.recommendations
-      .filter((rec) => rec.decisionLabel === "cut")
-      .map((rec) => (rec.level === "adset" ? rec.adsetId : rec.campaignId) ?? "")
-      .filter(Boolean),
-  );
-
   const budget = projectBudgetIntents({
     recommendations: input.recommendations,
     targetRoas: targets.targetRoas,
     breakEvenRoas: targets.breakEvenRoas,
+    budgetActionAuthority:
+      intentProjectionAuthority.budgetActionAuthorized,
     accountCurrency: input.accountCurrency,
     policy: {
       maxBudgetIncreasePct: guardrails.maxBudgetIncreasePct,
@@ -1182,7 +1210,6 @@ async function attachSizedIntents(input: {
       budgetSizingPolicyVersion: guardrails.budgetSizingPolicyVersion,
     },
     contextByEntityId: contexts.budgetByEntityId,
-    pausedEntityIds,
   });
 
   const budgetChangedAdsetIds = new Set(
@@ -1199,6 +1226,7 @@ async function attachSizedIntents(input: {
     businessId: input.businessId,
     providerAccountId: input.providerAccountId,
     spendUnitMinor,
+    bidActionAuthority: intentProjectionAuthority.bidActionAuthorized,
     accountCurrency: input.accountCurrency,
     policy: {
       budgetMinHoursBetweenChanges: guardrails.budgetMinHoursBetweenChanges,
@@ -1217,15 +1245,10 @@ async function attachSizedIntents(input: {
   });
 
   /*
-    Re-stamp, because the intent arrived AFTER the recommendation was stamped.
-
-    `buildMetaRecommendations` maps `stampRecommendation` over its output, and
-    that is where `proposedAction` — the field the decision card's Apply reads —
-    is derived from `targetValue`. The sizing above attaches the target value
-    later, so the stamp had already been taken against a recommendation that
-    carried no intent: an ad set could be persisted with a validated
-    1320-minor-unit cap raise and `proposedAction` absent, and the card offered
-    nothing while the queue offered the same amount.
+    Re-stamp after intent projection so a future semantically authorised ad-set
+    bid row and its card derive the same action. Today no production row meets
+    that contract. Re-stamping also removes unsafe `apply_bid` marks from older
+    recommendations whose type never authorised that lever.
   */
   return restampProposedActions(bid.recommendations);
 }
@@ -1832,6 +1855,23 @@ export async function runMetaSnapshotForBusiness(
         : [null];
 
   /*
+    Close the previous same-day engine queue before recomputation begins.
+
+    A refresh can replace an `act` row with `watch`, or one account can fail
+    while a sibling succeeds. Leaving the old pending proposal open during and
+    after that attempt would let yesterday's verdict survive as today's write
+    authority. Only rows with no claim/dispatch/operator outcome are touched;
+    successful current decisions are re-offered by the producers below using
+    the same row identity.
+  */
+  await reconcileMetaEngineDecisionProposalsForSnapshot({
+    businessId,
+    snapshotDate: normalizedSnapshotDate,
+    attemptedProviderAccountIds: generationAccounts.flatMap((id) => id ? [id] : []),
+    fulfilledProviderAccountIds: [],
+  });
+
+  /*
    * Legacy NULL-lineage rows for this date are cleared ONCE, before the loop.
    *
    * They cannot be cleared inside it: `provider_account_id = $a` never matches
@@ -2055,6 +2095,22 @@ export async function runMetaSnapshotForBusiness(
           : "",
     });
   }
+  /*
+    This attempt's authority scope, derived from completion rather than from
+    assignment. Same-day rows from a failed account may belong to an earlier
+    run; only fulfilled accounts may feed pause, budget, or bid proposals now.
+    The empty string remains the scheduler's explicit unscoped success marker,
+    but it is never a provider-account authority token.
+  */
+  const succeededAccountIds = perAccount
+    .map((outcome, index) => ({
+      outcome,
+      accountId: generationAccounts[index] ?? "",
+    }))
+    .filter((entry) => entry.outcome.status === "fulfilled")
+    .map((entry) => entry.accountId);
+  const fulfilledProviderAccountIds =
+    metaProposalAccountsForFulfilledGeneration(perAccount);
   const recommendations = perAccount.flatMap((outcome) =>
     outcome.status === "fulfilled" ? outcome.value.recommendations : [],
   );
@@ -2086,6 +2142,18 @@ export async function runMetaSnapshotForBusiness(
       anomalyToSnapshotRow(anomaly, businessId, normalizedSnapshotDate, null),
     ),
   });
+  /*
+    Reconcile once more against the rows that actually landed. The pre-refresh
+    withdrawal above is the failure-safe default; this pass also catches a
+    concurrent pending projection and proves the fulfilled-account boundary
+    before any producer is allowed to re-open a row.
+  */
+  await reconcileMetaEngineDecisionProposalsForSnapshot({
+    businessId,
+    snapshotDate: normalizedSnapshotDate,
+    attemptedProviderAccountIds: generationAccounts.flatMap((id) => id ? [id] : []),
+    fulfilledProviderAccountIds,
+  });
   // The confirmation queue is a projection of the rows that just landed, so it
   // is refreshed here and nowhere else. This is what "expired proposals
   // re-evaluate on the next snapshot" means literally: the sweep ages out what
@@ -2095,6 +2163,7 @@ export async function runMetaSnapshotForBusiness(
   const proposals = await projectMetaAutomationProposals({
     businessId,
     snapshotDate: normalizedSnapshotDate,
+    providerAccountIds: fulfilledProviderAccountIds,
   })
     .then((result) =>
       result.ran
@@ -2137,14 +2206,9 @@ export async function runMetaSnapshotForBusiness(
     the loader's own ensure-probe still covers the gap, and every reader treats
     an absent verdict as review-only rather than as permission.
   */
-  for (const accountId of generationAccounts) {
-    /*
-      `null` means this business has no assigned account at all, and the
-      generation ran unscoped. There is no account whose verdict this would be,
-      so nothing is retained rather than a row keyed on an empty identity.
-    */
-    if (!accountId) continue;
-    await produceRetainedAccountProfileOutputs({
+  const retainedProfileProviderAccountIds: string[] = [];
+  for (const accountId of fulfilledProviderAccountIds) {
+    const profileOutput = await produceRetainedAccountProfileOutputs({
       businessId,
       providerAccountId: accountId,
       asOfDate: normalizedSnapshotDate,
@@ -2157,10 +2221,17 @@ export async function runMetaSnapshotForBusiness(
       });
       return null;
     });
+    if (profileOutput?.produced) {
+      retainedProfileProviderAccountIds.push(accountId);
+    }
   }
   const budgetProposals = await projectMetaBudgetProposals({
     businessId,
     snapshotDate: normalizedSnapshotDate,
+    // The budget composition consumes the retained profile written immediately
+    // above. A generation-successful account whose profile production failed
+    // must not borrow an older same-day profile row.
+    providerAccountIds: retainedProfileProviderAccountIds,
     loadCompositionSources: loadBudgetCompositionSourcesForCandidate,
     insertProposal: async (insert) => insertBudgetProposalRow({
       businessId,
@@ -2200,21 +2271,20 @@ export async function runMetaSnapshotForBusiness(
       return null;
     });
   /*
-    The BID producer, on the same chain and the same tick as the budget one.
-
-    `bid` has been an allowed queue action since the table was created and
-    nothing has ever raised one, which is why unattended bid execution was
-    excluded rather than built. The sizing policy and the intent contract were
-    already here; this is the step that turns the typed intent the snapshot
-    just wrote into a row an operator can approve.
+    The future BID producer, on the same tick as the budget one. Its query is
+    deliberately empty for current production output: B1 names a cap increase
+    but emits at campaign grain, while current ad-set rows name other levers.
+    This call keeps the full path fail-closed until an explicit ad-set producer
+    is introduced.
 
     Like the two projections above, a failure degrades to "the queue was not
-    projected" — the decisions are already durable and the card still shows the
-    amount.
+    projected" — the decisions are already durable and unsupported bid actions
+    remain absent.
   */
   const bidProposals = await projectMetaBidProposals({
     businessId,
     snapshotDate: normalizedSnapshotDate,
+    providerAccountIds: fulfilledProviderAccountIds,
     insertProposal: async (insert) => insertBidProposalRow({
       businessId,
       proposalId: insert.proposalId,
@@ -2357,10 +2427,7 @@ export async function runMetaSnapshotForBusiness(
       assignment produces, and it is a real account key here for the same
       reason the coverage query treats it as one.
     */
-    succeededAccountIds: perAccount
-      .map((outcome, index) => ({ outcome, accountId: generationAccounts[index] ?? "" }))
-      .filter((entry) => entry.outcome.status === "fulfilled")
-      .map((entry) => entry.accountId ?? ""),
+    succeededAccountIds,
     sourceMaxDateByAccountId,
     anomaliesWritten: anomalies.length,
     proposals,

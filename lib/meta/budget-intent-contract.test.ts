@@ -7,6 +7,9 @@ import {
   BUDGET_OWNER_GRAINS,
   BUDGET_OWNER_GRAINS_ARE_DECISION_GRAINS,
   META_BUDGET_INTENT_CONTRACT_VERSION,
+  META_BUDGET_INTENT_SEMANTIC_TUPLES,
+  budgetIntentSemanticTupleSqlPredicate,
+  isBudgetIntentSemanticTuple,
   budgetIntentIsExecutable,
   budgetIntentKey,
   CANONICAL_PAYLOAD_REQUIRED_FIELDS,
@@ -25,6 +28,58 @@ const BINDINGS = [
   { businessId: "biz-2", providerAccountId: "act_2000000000002" },
 ];
 const HASH = "a".repeat(64);
+
+describe("budget recommendation semantic authority", () => {
+  it("admits exactly the real type, owner-grain and direction tuples", () => {
+    for (const tuple of META_BUDGET_INTENT_SEMANTIC_TUPLES) {
+      expect(isBudgetIntentSemanticTuple(tuple), JSON.stringify(tuple)).toBe(true);
+    }
+
+    expect(isBudgetIntentSemanticTuple({
+      recommendationType: "scenario_c1_controlled_scale",
+      grain: "adset",
+      direction: "increase",
+    })).toBe(false);
+    expect(isBudgetIntentSemanticTuple({
+      recommendationType: "adset_scale_budget",
+      grain: "campaign",
+      direction: "increase",
+    })).toBe(false);
+    expect(isBudgetIntentSemanticTuple({
+      recommendationType: "adset_scale_budget",
+      grain: "adset",
+      direction: "decrease",
+    })).toBe(false);
+    expect(isBudgetIntentSemanticTuple({
+      recommendationType: "scale_for_volume",
+      grain: "campaign",
+      direction: "increase",
+    })).toBe(false);
+  });
+
+  it("renders the same paired tuples for persistence and claim SQL", () => {
+    const predicate = budgetIntentSemanticTupleSqlPredicate({
+      recommendationTypeExpression: "d.rec_type",
+      grainExpression: "d.scope_type",
+      directionExpression: "d.target_value ->> 'direction'",
+    });
+    expect(predicate).toContain(
+      "d.rec_type = 'scenario_c1_controlled_scale' AND d.scope_type = 'campaign' AND d.target_value ->> 'direction' = 'increase'",
+    );
+    expect(predicate).toContain(
+      "d.rec_type = 'adset_scale_budget' AND d.scope_type = 'adset' AND d.target_value ->> 'direction' = 'increase'",
+    );
+    expect(predicate).toContain(
+      "d.rec_type = 'scale_for_volume_budget_increase' AND d.scope_type = 'campaign' AND d.target_value ->> 'direction' = 'increase'",
+    );
+    expect(predicate).not.toContain(
+      "d.rec_type = 'scale_for_volume' AND d.scope_type = 'campaign'",
+    );
+    expect(predicate).not.toContain(
+      "d.rec_type = 'scenario_c1_controlled_scale' AND d.scope_type = 'adset'",
+    );
+  });
+});
 
 const campaignIntent = (over: Partial<BudgetIntentInput> = {}): BudgetIntentInput => ({
   contractVersion: META_BUDGET_INTENT_CONTRACT_VERSION,

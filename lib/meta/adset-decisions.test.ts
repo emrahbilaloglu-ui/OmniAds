@@ -533,6 +533,41 @@ describe("buildMetaAdsetRecommendations funnel cohort gating", () => {
     },
   );
 
+  it.each([
+    ["missing Meta AOV", null],
+    ["ready Meta AOV", { aovMean: 180, purchaseCount: 60 }],
+  ])(
+    "does NOT reopen the legacy Cut ladder for an untrusted Target ROAS with %s",
+    (_case, sample) => {
+      const recs = buildMetaAdsetRecommendations({
+        adsets: [
+          adset({
+            optimizationGoal: "OFFSITE_CONVERSIONS",
+            customEventType: "",
+            spend: 40_000,
+            purchases: 4,
+            revenue: 1600,
+            roas: 0.04,
+            cpa: 10_000,
+            ctr: 1,
+            cpm: 10,
+          }),
+        ],
+        commercialTargets: {
+          ...commercialTargets,
+          freshness: "unknown",
+          updatedAt: null,
+          metaAttributedAov: sample,
+        },
+        calibrationContext: purchaseContext,
+        entitySignalsByAdsetId: { "adset-1": readySignal() },
+      });
+
+      expect(recs.some((rec) => rec.type === "adset_cut_spend")).toBe(false);
+      expect(recs.some((rec) => rec.decisionState === "act")).toBe(false);
+    },
+  );
+
   it("still cuts on the legacy CPA ladder when NO Target ROAS governs", () => {
     /*
       The compatibility control for the hold above: with no ratio to divide,

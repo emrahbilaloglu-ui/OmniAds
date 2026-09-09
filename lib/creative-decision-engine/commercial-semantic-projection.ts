@@ -35,6 +35,9 @@
  */
 
 import { commercialTargetInstantMs } from "@/lib/meta/commercial-target-instant";
+import type { MetaAttributedAovResult } from "./meta-aov-calculator";
+import { classifyMetaAovQuality } from "./spend-unit-resolver";
+import type { MetaAovQuality } from "./types";
 
 /** The commercial fields any of the three hash families may read. */
 export interface CommercialTargetPackFacts {
@@ -63,6 +66,74 @@ export function targetRoasGoverns(
   pack: CommercialTargetPackFacts | null | undefined,
 ): boolean {
   return positive(pack?.targetRoas);
+}
+
+/** The legacy calibration fields the account-profile resolver may fall back to. */
+export interface MetaAovCalibrationFacts {
+  metaAttributedAovMean90d: number | null;
+  metaAttributedAovPurchaseCount90d: number;
+  metaAttributedRevenue90d: number;
+  metaAovQuality: MetaAovQuality;
+}
+
+/**
+ * Whether resolving this profile will consult the strict physical-account AOV.
+ *
+ * This is shared by the resolver and retained-profile reader so a captured
+ * observation cannot be marked unused while the resolver reaches for it (or be
+ * queried eagerly while legacy compatibility genuinely supplies the value).
+ */
+export function shouldReadStrictMetaAov(
+  pack: CommercialTargetPackFacts | null | undefined,
+  calibration: MetaAovCalibrationFacts,
+): boolean {
+  return targetRoasGoverns(pack)
+    || calibration.metaAttributedAovMean90d === null
+    || calibration.metaAttributedAovPurchaseCount90d === 0;
+}
+
+/**
+ * The exact Meta-AOV values the account-profile resolver uses.
+ *
+ * With a Target ROAS, only the strict finalized/cutoff-safe observation may
+ * supply these fields; an absent or failed observation projects to the same
+ * fail-closed empty semantics the resolver uses. Without a Target ROAS, the
+ * legacy calibration remains first and the strict observation is only its
+ * historical fallback. The derived quality travels with the values because it
+ * changes eligibility even when the mean itself does not.
+ */
+export function projectEffectiveMetaAovSemantics(input: {
+  targetPack: CommercialTargetPackFacts | null | undefined;
+  calibration: MetaAovCalibrationFacts;
+  strictMetaAov: MetaAttributedAovResult | null;
+}): MetaAovCalibrationFacts {
+  const targetRoasRequiresStrictAov = targetRoasGoverns(input.targetPack);
+  const strict = input.strictMetaAov;
+  const metaAttributedAovMean90d = targetRoasRequiresStrictAov
+    ? strict?.aovMean ?? null
+    : input.calibration.metaAttributedAovMean90d ?? strict?.aovMean ?? null;
+  const metaAttributedAovPurchaseCount90d = targetRoasRequiresStrictAov
+    ? strict?.purchaseCount ?? 0
+    : input.calibration.metaAttributedAovPurchaseCount90d
+      || strict?.purchaseCount
+      || 0;
+  const metaAttributedRevenue90d = targetRoasRequiresStrictAov
+    ? strict?.totalRevenue ?? 0
+    : input.calibration.metaAttributedRevenue90d
+      || strict?.totalRevenue
+      || 0;
+  const metaAovQuality = targetRoasRequiresStrictAov
+    ? classifyMetaAovQuality(metaAttributedAovPurchaseCount90d)
+    : input.calibration.metaAovQuality !== "unavailable"
+      ? input.calibration.metaAovQuality
+      : classifyMetaAovQuality(metaAttributedAovPurchaseCount90d);
+
+  return {
+    metaAttributedAovMean90d,
+    metaAttributedAovPurchaseCount90d,
+    metaAttributedRevenue90d,
+    metaAovQuality,
+  };
 }
 
 /**

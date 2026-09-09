@@ -585,6 +585,7 @@ describe("the ROAS floor gates the engine-decision projection", () => {
     const result = await projectMetaAutomationProposals({
       businessId: BUSINESS_ID,
       snapshotDate: "2026-08-16",
+      providerAccountIds: ["act_123"],
       now: new Date("2026-08-17T12:00:00.000Z"),
       // The queue only fills for a family the operator armed. This suite is
       // about the ROAS floor, so the standing mode is stated rather than left
@@ -615,6 +616,7 @@ describe("the ROAS floor gates the engine-decision projection", () => {
     const result = await projectMetaAutomationProposals({
       businessId: BUSINESS_ID,
       snapshotDate: "2026-08-16",
+      providerAccountIds: ["act_123"],
       now: new Date("2026-08-17T12:00:00.000Z"),
       // The queue only fills for a family the operator armed. This suite is
       // about the ROAS floor, so the standing mode is stated rather than left
@@ -640,6 +642,7 @@ describe("the ROAS floor gates the engine-decision projection", () => {
     const result = await projectMetaAutomationProposals({
       businessId: BUSINESS_ID,
       snapshotDate: "2026-08-16",
+      providerAccountIds: ["act_123"],
       now: new Date("2026-08-17T12:00:00.000Z"),
       // The queue only fills for a family the operator armed. This suite is
       // about the ROAS floor, so the standing mode is stated rather than left

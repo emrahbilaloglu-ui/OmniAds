@@ -480,7 +480,7 @@ const decisionAt = "2026-08-31T06:30:00.000Z";
 const decisionHash = canonicalDecisionHash({
   businessId: BIZ, providerAccountId: ACCOUNT,
   scopeType: CBO.grain, scopeId: CBO.entityId,
-  recId: "rec_1", recType: "scenario_budget_scale",
+  recId: "rec_1", recType: "scenario_c1_controlled_scale",
   snapshotDate: "2026-08-31", engineVersion: "meta-v3",
   recommendedAction: "increase_budget", targetAmountMinor: CBO.intended,
   decisionAt,
@@ -491,7 +491,7 @@ const proposal = (over: Partial<MetaAutomationProposal> = {}): MetaAutomationPro
   origin: "engine_decision", ruleId: null, dedupeKey: null,
   decisionKey: `${CBO.grain}:${CBO.entityId}`,
   scopeType: CBO.grain, scopeId: CBO.entityId,
-  recId: "rec_1", recType: "scenario_budget_scale",
+  recId: "rec_1", recType: "scenario_c1_controlled_scale",
   snapshotDate: "2026-08-31", engineVersion: "meta-v3", decisionLabel: "scale",
   proposedAction: BUDGET_PROPOSAL_ACTION, actionLabel: "Change budget",
   primaryCaption: "Approve & apply", entityLabel: "Entity",
@@ -514,7 +514,7 @@ const proposal = (over: Partial<MetaAutomationProposal> = {}): MetaAutomationPro
     currency: "TRY", currencyExponent: 2,
     currencyRegistryVersion: "iso4217.minor-units.2026-09-01",
     intentVerb: "increase_budget",
-    recId: "rec_1", recType: "scenario_budget_scale",
+    recId: "rec_1", recType: "scenario_c1_controlled_scale",
     snapshotDate: "2026-08-31", engineVersion: "meta-v3",
     decisionHash, decisionAt,
   }),
@@ -602,7 +602,9 @@ describe("D088 C3 — a projected budget row through the real manual route", () 
       .mockResolvedValue(controlPayload() as never);
     vi.mocked(store.readMetaAutomationProposal).mockResolvedValue(proposal() as never);
     vi.mocked(store.claimMetaAutomationProposal).mockResolvedValue({
-      status: "claimed", claimToken: CLAIM,
+      status: "claimed",
+      claimToken: CLAIM,
+      proposal: proposal({ status: "claimed", claimToken: CLAIM }),
     } as never);
     vi.mocked(store.markMetaAutomationProposalDispatchStarted)
       .mockResolvedValue(true as never);
@@ -696,7 +698,7 @@ describe("D088 C3 — a projected budget row through the real manual route", () 
     expect(vi.mocked(store.settleMetaAutomationProposal).mock.calls[0]![0])
       .toMatchObject({ status: "failed" });
     expect(payload.providerDispatchStarted).toBe(false);
-    expect(payload.providerOutcomeKnown).toBe(false);
+    expect(payload.providerOutcomeKnown).toBe(true);
   });
 
   it("refuses without the explicit confirmation, before any provider contact", async () => {
@@ -718,8 +720,12 @@ describe("D088 C3 — a projected budget row through the real manual route", () 
       .mockResolvedValueOnce(node(CBO.intended));
 
     const payload = await (await approve()).json() as {
-      ok?: boolean; receipt?: { withheld?: string | null } };
+      ok?: boolean;
+      providerOutcomeKnown?: boolean;
+      receipt?: { withheld?: string | null };
+    };
     expect(payload.receipt?.withheld).toBe("dispatch_marker_unavailable");
+    expect(payload.providerOutcomeKnown).toBe(true);
     expect(calls("POST")).toHaveLength(0);
   });
 
@@ -733,8 +739,11 @@ describe("D088 C3 — a projected budget row through the real manual route", () 
       },
     } as never);
     const payload = await (await approve()).json() as {
-      receipt?: { withheld?: string | null } };
+      providerOutcomeKnown?: boolean;
+      receipt?: { withheld?: string | null };
+    };
     expect(payload.receipt?.withheld).toBe("dry_run_guardrail");
+    expect(payload.providerOutcomeKnown).toBe(true);
     expect(vi.mocked(fetch).mock.calls).toHaveLength(0);
     expect(vi.mocked(store.markMetaAutomationProposalDispatchStarted))
       .not.toHaveBeenCalled();
@@ -766,8 +775,8 @@ describe("D088 C3 — a projected budget row through the real manual route", () 
       ok?: boolean; proposalStatus?: string; providerOutcomeKnown?: boolean;
     };
 
-    expect(response.status).toBe(200);
-    expect(payload.ok).toBe(true);
+    expect(response.status).toBe(502);
+    expect(payload.ok).toBe(false);
     expect(payload.proposalStatus).toBe("reconcile");
     expect(payload.providerOutcomeKnown).toBe(false);
     expect(calls("POST")).toHaveLength(1);

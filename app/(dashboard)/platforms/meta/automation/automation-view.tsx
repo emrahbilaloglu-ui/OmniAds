@@ -3442,6 +3442,9 @@ export default function MetaAutomationPage({
             error?: { message?: string };
             ledgerCompleteness?: "complete" | "unavailable";
             receipt?: { dryRun?: boolean } | null;
+            proposalStatus?: string | null;
+            providerOutcomeKnown?: boolean;
+            providerWriteVerified?: boolean;
           } | null;
           // Recorded from BOTH arms: a decision that reached the provider and
           // failed to reach the ledger still has to stop the footnote from
@@ -3463,29 +3466,43 @@ export default function MetaAutomationPage({
             setSessionLedgerCompleteness(body.ledgerCompleteness);
           }
           if (!response.ok || body?.ok !== true) {
-            setProposalError("This action could not be saved.");
+            const serverMessage = typeof body?.error?.message === "string"
+              ? body.error.message.trim()
+              : "";
+            setProposalError(
+              serverMessage || "This action could not be saved.",
+            );
             setQueue(UNAVAILABLE_QUEUE);
             return;
           }
           if (control === "approve") {
             /**
-             * Three states, and the middle one is the one that matters.
+             * Provider truth, not the HTTP envelope, decides the notice.
              *
-             * `dryRun === true` is a receipt that says the approval never left
-             * the building. `false` means it did reach Meta. Anything else —
-             * an absent receipt, an absent flag — is a successful response we
-             * cannot read the disposition out of, and that is said rather than
-             * defaulted to either answer: guessing "sent" invents a write, and
-             * guessing "not sent" hides one.
+             * The route returns a 200 queue envelope after a conclusively failed
+             * provider attempt too, because the proposal row and refreshed queue
+             * were recorded successfully. `receipt.dryRun === false` therefore
+             * cannot mean "Applied" by itself. Only the route's explicit
+             * `providerWriteVerified` fact may make that claim.
              */
             const dryRun = body?.receipt?.dryRun;
-            setProposalNotice(
-              dryRun === true
-                ? "Saved as a preview. Nothing was sent to Meta."
-                : dryRun === false
-                  ? "Applied on Meta."
-                  : "Saved, but the result could not be confirmed. Check recent activity before trying again.",
-            );
+            if (body?.providerWriteVerified === true) {
+              setProposalNotice("Applied on Meta.");
+            } else if (dryRun === true) {
+              setProposalNotice("Saved as a preview. Nothing was sent to Meta.");
+            } else if (
+              body?.proposalStatus === "failed"
+              || (body?.providerWriteVerified === false
+                && body.providerOutcomeKnown === true)
+            ) {
+              setProposalError(
+                "The proposal was recorded, but nothing was applied on Meta.",
+              );
+            } else {
+              setProposalNotice(
+                "Saved, but the result could not be confirmed. Check recent activity before trying again.",
+              );
+            }
           }
           setQueue(parseProposalQueue(body));
         })

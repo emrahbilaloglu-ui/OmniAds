@@ -247,11 +247,13 @@ function healthyPipelineHealth() {
 }
 
 /**
- * A row shaped the way the shipped producer actually emits one.
+ * A forward-compatible ad-set row carrying the shipped bid-intent contract.
  *
  * `metaRec` runs its input through the real `annotateMetaRecPresentation`, so
  * `actionKind`, `operatorApply` and `primaryActionLabel` are stamped by the
- * shipped functions rather than typed in here. That matters: hand-writing
+ * shipped functions rather than typed in here. B1 is the only vocabulary that
+ * authorises a bid-amount increase, although its current production emitter is
+ * campaign-grain. That matters: hand-writing
  * `actionKind: "execute_pause"` — which existing route cases do — asserts a
  * value no producer can emit, and is exactly how a dead counter stayed green.
  */
@@ -262,7 +264,7 @@ function cappedAdsetBidRow(): MetaRecommendation {
     campaignId: "9000000000101",
     adsetId: "9000000000201",
     adsetName: "Broad prospecting",
-    type: "scenario_e1_frequency_fatigue",
+    type: "scenario_b1_capped_winner_bid_raise",
     decisionState: "test",
     // The shipped bid-intent contract, exactly as the producer writes it:
     // `proposedMinorUnits` and `bidAmountMinor` must agree, or
@@ -270,12 +272,17 @@ function cappedAdsetBidRow(): MetaRecommendation {
     // not a number).
     targetValue: {
       contractVersion: "meta.bid-intent.v1",
+      kind: "bid_intent",
       authorityStatus: "authorised",
       blockerCodes: [],
       currentMinorUnits: 1200,
       proposedMinorUnits: 1320,
       bidAmountMinor: 1320,
       currency: "USD",
+      currencyExponent: 2,
+      direction: "increase",
+      percent: 10,
+      bidStrategyType: "cost_cap",
       sizingPolicyVersion: "meta.bid-sizing.v1",
     } as unknown as MetaRecommendation["targetValue"],
   });
@@ -506,6 +513,7 @@ describe("served action census", () => {
             { kind: "apply_bid" as const, bidAmountMinor: 1320 },
           ]) {
             for (const type of [
+              "scenario_b1_capped_winner_bid_raise",
               "scenario_e1_frequency_fatigue",
               "bid_value_guidance",
               "creative_test_structure",
@@ -522,12 +530,17 @@ describe("served action census", () => {
                 adsetId: "9000000000201",
                 targetValue: {
                   contractVersion: "meta.bid-intent.v1",
+                  kind: "bid_intent",
                   authorityStatus: "authorised",
                   blockerCodes: [],
                   currentMinorUnits: 1200,
                   proposedMinorUnits: 1320,
                   bidAmountMinor: 1320,
                   currency: "USD",
+                  currencyExponent: 2,
+                  direction: "increase",
+                  percent: 10,
+                  bidStrategyType: "cost_cap",
                   sizingPolicyVersion: "meta.bid-sizing.v1",
                 },
               } as (typeof shapes)[number]);

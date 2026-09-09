@@ -145,13 +145,28 @@ import {
  * Every retained verdict fails closed for one producer cycle and is re-minted
  * from the next run, which is the safe direction.
  */
-export const D086_RETENTION_CONTRACT = "d086.budget-readiness-retention.v12" as const;
+/*
+ * ── v13 ────────────────────────────────────────────────────────────────────
+ * THE MEASURED HALF NOW DIGESTS THE STRICT AOV THE RESOLVER ACTUALLY USED.
+ *
+ * v12 digested the legacy creative-day AOV stored on AccountCalibration, then
+ * the resolver independently re-read strict finalized/passed `meta_ad_daily`
+ * facts. A strict-AOV change could therefore alter eligibility and spend unit
+ * while leaving `sourceFingerprint` unchanged, allowing stale retained
+ * authority to pass its agreement check. v13 captures that strict physical-
+ * account read once, pins it into the resolver, and hashes only the effective
+ * AOV fields and their derived quality. Under Target ROAS, legacy calibration
+ * AOV is non-authoritative and absent from identity; without Target ROAS its
+ * legacy-first/live-fallback behaviour remains unchanged.
+ */
+export const D086_RETENTION_CONTRACT = "d086.budget-readiness-retention.v13" as const;
 
 /**
  * Superseded identities, readable as HISTORY only. A row stamped with one of
  * these is never authoritative; it is evidence that an older capture ran.
  */
 export const D086_SUPERSEDED_RETENTION_CONTRACTS: readonly string[] = Object.freeze([
+  "d086.budget-readiness-retention.v12",
   "d086.budget-readiness-retention.v11",
   "d086.budget-readiness-retention.v10",
   "d086.budget-readiness-retention.v9",

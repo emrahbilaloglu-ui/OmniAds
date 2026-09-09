@@ -14,6 +14,7 @@ import type { MetaBreakdownsResponse } from "@/app/api/meta/breakdowns/route";
 import type { MetaCreativeIntelligenceSummary } from "@/lib/meta/creative-intelligence";
 import type { MetaEntityDecisionSignal } from "@/lib/meta/entity-signals";
 import { LEGACY_META_CALIBRATION_THRESHOLDS } from "@/lib/meta/calibration";
+import { budgetIntentSemanticTupleForRecommendationType } from "@/lib/meta/budget-intent-contract";
 
 function campaign(overrides: Partial<MetaCampaignRow>): MetaCampaignRow {
   return {
@@ -523,7 +524,7 @@ describe("buildMetaRecommendations", () => {
     });
 
     const rec = result.recommendations.find(
-      (item) => item.type === "scale_for_volume",
+      (item) => item.type === "scale_for_volume_budget_increase",
     );
     expect(rec?.decisionState).toBe("test");
   });
@@ -555,10 +556,99 @@ describe("buildMetaRecommendations", () => {
     });
 
     const rec = result.recommendations.find(
-      (item) => item.type === "scale_for_volume",
+      (item) => item.type === "scale_for_volume_budget_increase",
     );
     expect(rec?.decisionState).toBe("act");
   });
+
+  it("reaches act from real cumulative warehouse windows with independent segment depth", () => {
+    const cumulative = (purchases: number) =>
+      campaign({
+        roas: 3.6,
+        purchases,
+        spend: purchases * 25,
+        revenue: purchases * 90,
+        cpa: 25,
+      });
+    const selected = cumulative(112);
+
+    const result = buildMetaRecommendations({
+      windows: {
+        selected: [selected],
+        previousSelected: [],
+        // Four purchases per day accumulated by the shipped warehouse reads.
+        // Their disjoint deltas are 12, 16, 28 and 56 purchases.
+        last3: [cumulative(12)],
+        last7: [cumulative(28)],
+        last14: [cumulative(56)],
+        last30: [cumulative(112)],
+        last90: [cumulative(112)],
+        allHistory: [cumulative(112)],
+      },
+      breakdowns,
+      calibrationContext,
+      commercialTargets,
+    });
+
+    const rec = result.recommendations.find(
+      (item) => item.type === "scale_for_volume_budget_increase",
+    );
+    expect(rec?.decisionState).toBe("act");
+    expect(rec?.timeframeContext?.historicalSupport).toContain("4/4");
+  });
+
+  it.each([
+    ["lowest_cost", "scale_for_volume_budget_increase", true],
+    ["target_roas", "scale_for_volume", false],
+    ["cost_cap", "scale_for_volume", false],
+    ["bid_cap", "scale_for_volume", false],
+    ["manual_bid", "scale_for_volume", false],
+  ] as const)(
+    "gives %s volume scaling the matching typed budget semantics only when it asks for a budget increase",
+    (bidStrategyType, expectedType, budgetEligible) => {
+      const row = campaign({
+        id: `cmp-${bidStrategyType}`,
+        name: bidStrategyType,
+        bidStrategyType,
+        roas: 3.6,
+        purchases: 32,
+        spend: 1800,
+        revenue: 6480,
+      });
+      const result = buildMetaRecommendations({
+        windows: {
+          selected: [row],
+          previousSelected: [row],
+          last3: [row],
+          last7: [row],
+          last14: [row],
+          last30: [row],
+          last90: [row],
+          allHistory: [row],
+        },
+        breakdowns,
+        calibrationContext,
+        commercialTargets,
+      });
+      const volume = result.recommendations.find((item) =>
+        item.type === "scale_for_volume"
+        || item.type === "scale_for_volume_budget_increase"
+      );
+
+      expect(volume?.type).toBe(expectedType);
+      expect(
+        budgetIntentSemanticTupleForRecommendationType(volume?.type),
+      ).toEqual(
+        budgetEligible
+          ? {
+              recommendationType: "scale_for_volume_budget_increase",
+              grain: "campaign",
+              direction: "increase",
+            }
+          : null,
+      );
+    },
+  );
 
   it("renders recommendation money evidence in the campaign account currency", () => {
     const strong = campaign({
@@ -595,7 +685,7 @@ describe("buildMetaRecommendations", () => {
     });
 
     const rec = result.recommendations.find(
-      (item) => item.type === "scale_for_volume",
+      (item) => item.type === "scale_for_volume_budget_increase",
     );
     const coreCpa = rec?.evidence.find((item) => item.label === "Core CPA");
     expect(coreCpa?.value).toContain("£");
@@ -643,7 +733,10 @@ describe("buildMetaRecommendations", () => {
     });
 
     expect(
-      result.recommendations.some((item) => item.type === "scale_for_volume"),
+      result.recommendations.some((item) =>
+        item.type === "scale_for_volume"
+        || item.type === "scale_for_volume_budget_increase"
+      ),
     ).toBe(false);
     expect(
       result.recommendations.some(
@@ -2137,7 +2230,9 @@ describe("the canonical unit gates Scale on the real builder", () => {
       breakdowns,
       calibrationContext,
       commercialTargets: targets as never,
-    }).recommendations.find((rec) => rec.type === "scale_for_volume");
+    }).recommendations.find(
+      (rec) => rec.type === "scale_for_volume_budget_increase",
+    );
   }
 
   const base = { ...commercialTargets };

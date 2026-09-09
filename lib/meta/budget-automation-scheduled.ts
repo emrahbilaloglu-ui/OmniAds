@@ -148,6 +148,7 @@ export async function runMetaBudgetAutomationSweepIfDue(
         skipped: 0,
         withheld: 0,
         failed: 0,
+        auditIncomplete: 0,
       });
       continue;
     }
@@ -169,6 +170,7 @@ export async function runMetaBudgetAutomationSweepIfDue(
         ran: false,
         blockers: ["decision_type_modes_unreadable"],
         considered: 0, executed: 0, skipped: 0, withheld: 0, failed: 0,
+        auditIncomplete: 0,
       });
       continue;
     }
@@ -274,6 +276,7 @@ export async function runMetaBudgetAutomationSweepIfDue(
         skipped: 0,
         withheld: 0,
         failed: 0,
+        auditIncomplete: 0,
       });
       continue;
     }
@@ -288,6 +291,7 @@ export async function runMetaBudgetAutomationSweepIfDue(
         skipped: 0,
         withheld: 0,
         failed: 0,
+        auditIncomplete: 0,
       });
       continue;
     }
@@ -303,6 +307,7 @@ export async function runMetaBudgetAutomationSweepIfDue(
         skipped: 0,
         withheld: 0,
         failed: 0,
+        auditIncomplete: 0,
       });
       continue;
     }
@@ -329,6 +334,7 @@ export async function runMetaBudgetAutomationSweepIfDue(
         skipped: 0,
         withheld: 0,
         failed: 0,
+        auditIncomplete: 0,
       });
       continue;
     }
@@ -370,6 +376,7 @@ export async function runMetaBudgetAutomationSweepIfDue(
         skipped: 0,
         withheld: 0,
         failed: 0,
+        auditIncomplete: 0,
       });
       continue;
     }
@@ -384,6 +391,7 @@ export async function runMetaBudgetAutomationSweepIfDue(
         skipped: 0,
         withheld: 0,
         failed: 0,
+        auditIncomplete: 0,
       });
       continue;
     }
@@ -642,7 +650,11 @@ export async function runMetaBudgetAutomationSweepIfDue(
       executeProposal: async ({ proposalId, claimToken }) => {
         const proposal = claimedProposals.get(claimToken) ?? null;
         if (!proposal) {
-          return { ok: false, receipt: { withheld: "proposal_absent" } };
+          return {
+            ok: false,
+            receipt: { withheld: "proposal_absent" },
+            auditComplete: false,
+          };
         }
         const lifecycle = await runClaimedProposalExecution({
           businessId: row.business_id,
@@ -671,7 +683,7 @@ export async function runMetaBudgetAutomationSweepIfDue(
           }),
           forceReconcile: (reconcileInput) =>
             forceMetaAutomationProposalReconcile(reconcileInput),
-          recordReconciliation: async ({ proposal, claimToken, receipt }) => {
+          recordReconciliation: async ({ proposal, claimToken, receipt, reason }) => {
             const recorded = await appendMetaAutomationReconciliationReceipt({
               businessId: proposal.businessId,
               proposalId: proposal.id,
@@ -679,7 +691,7 @@ export async function runMetaBudgetAutomationSweepIfDue(
               decisionKey: proposal.decisionKey,
               proposedAction: proposal.proposedAction,
               claimToken,
-              reason: "settle_failed_after_dispatch",
+              reason,
               facts: providerDispatchFacts({
                 dispatchStarted: true,
                 outcomeKnown: false,
@@ -691,7 +703,8 @@ export async function runMetaBudgetAutomationSweepIfDue(
             return recorded.status !== "unavailable";
           },
           recordLedger: async (entry) => {
-            await writeActivityLedgerRow({
+            try {
+              await writeActivityLedgerRow({
               businessId: row.business_id,
               activityType: entry.activityType,
               severity: entry.severity,
@@ -702,9 +715,13 @@ export async function runMetaBudgetAutomationSweepIfDue(
               actorKind: "system",
               entityType: proposal.scopeType,
               entityId: proposal.scopeId,
-              resultStatus: entry.severity === "success" ? "applied" : "failed",
+              resultStatus: entry.resultStatus,
               resultReceiptId: claimToken,
-            }).catch(() => undefined);
+              });
+              return true;
+            } catch {
+              return false;
+            }
           },
           execute: async (beforeProviderPost) => runtimeFor(proposal)({
             proposal,
@@ -721,6 +738,7 @@ export async function runMetaBudgetAutomationSweepIfDue(
         return {
           ok: lifecycle.ok,
           receipt: { withheld: lifecycle.receipt.withheld },
+          auditComplete: lifecycle.ledgerCompleteness === "complete",
         };
       },
     }));

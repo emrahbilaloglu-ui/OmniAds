@@ -1489,6 +1489,7 @@ export async function handleMetaAdStatusAction(
   request: NextRequest,
   context: RouteParams,
   action: Extract<MetaAdsActionKind, "pause" | "resume">,
+  executionHooks: { beforeMutationAttempt?: () => Promise<void> } = {},
 ) {
   const { adId: rawAdId } = await context.params;
   const inputAdId = rawAdId?.trim() ?? "";
@@ -1737,6 +1738,7 @@ export async function handleMetaAdStatusAction(
     | "persistence_failed"
     | "idempotent_replay"
     | "target_mismatch"
+    | "caller_boundary_refused"
     | null = null;
   const beforeManualMutationAttempt =
     !prepared.decisionOriginRequest && !dryRunFromBody(body)
@@ -1760,6 +1762,11 @@ export async function handleMetaAdStatusAction(
                 { code: "manual_mutation_target_drift" },
               );
             }
+            if (executionHooks.beforeMutationAttempt) {
+              manualMutationAttemptStartBlocker = "caller_boundary_refused";
+              await executionHooks.beforeMutationAttempt();
+              manualMutationAttemptStartBlocker = null;
+            }
             const started =
               await appendManualMetaAdStatusMutationAttemptStarted({
                 sourceActionLogId: log.id,
@@ -1782,6 +1789,13 @@ export async function handleMetaAdStatusAction(
           }
         }
       : undefined;
+  const beforeProviderMutationAttempt =
+    beforeManualMutationAttempt ??
+    (prepared.decisionOriginRequest && executionHooks.beforeMutationAttempt
+      ? async () => {
+          await executionHooks.beforeMutationAttempt!();
+        }
+      : undefined);
 
   const startedAt = Date.now();
   try {
@@ -1792,8 +1806,8 @@ export async function handleMetaAdStatusAction(
           : await pauseAd(
               prepared.ctx,
               resolvedAdId,
-              beforeManualMutationAttempt
-                ? { beforeMutationAttempt: beforeManualMutationAttempt }
+              beforeProviderMutationAttempt
+                ? { beforeMutationAttempt: beforeProviderMutationAttempt }
                 : {},
             )
         : dryRunFromBody(body)
@@ -1801,8 +1815,8 @@ export async function handleMetaAdStatusAction(
           : await resumeAd(
               prepared.ctx,
               resolvedAdId,
-              beforeManualMutationAttempt
-                ? { beforeMutationAttempt: beforeManualMutationAttempt }
+              beforeProviderMutationAttempt
+                ? { beforeMutationAttempt: beforeProviderMutationAttempt }
                 : {},
             );
 

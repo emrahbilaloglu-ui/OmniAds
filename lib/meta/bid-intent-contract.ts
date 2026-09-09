@@ -36,6 +36,53 @@ import type { MetaOsBidIntentPayload } from "@/lib/meta/decisions-os-contract";
 
 export const META_BID_INTENT_CONTRACT_VERSION = "meta.bid-intent.v1" as const;
 
+/**
+ * Recommendation semantics that explicitly name a currency bid-amount move.
+ *
+ * Today B1 is the only real recommendation vocabulary whose meaning is an
+ * exact cap increase. Its current producer is campaign-grain, so it still
+ * cannot reach an ad-set write; keeping the semantic rule here makes that
+ * absence explicit instead of borrowing an unrelated ad-set row as a carrier.
+ * `bid_value_guidance` is deliberately absent: its producer describes a
+ * Target-ROAS ratio, not Meta's `bid_amount` currency field.
+ */
+const META_BID_AMOUNT_DIRECTION_BY_RECOMMENDATION_TYPE = new Map<
+  string,
+  "increase" | "decrease"
+>([["scenario_b1_capped_winner_bid_raise", "increase"]]);
+
+export function metaBidAmountDirectionForRecommendationType(
+  type: unknown,
+): "increase" | "decrease" | null {
+  return typeof type === "string"
+    ? META_BID_AMOUNT_DIRECTION_BY_RECOMMENDATION_TYPE.get(type) ?? null
+    : null;
+}
+
+/**
+ * The executable amount only when the recommendation's structured vocabulary
+ * and the typed intent agree about the operation and direction.
+ *
+ * `executableBidIntentMinorUnits` intentionally validates the payload alone;
+ * queue envelopes use it without a recommendation object. Presentation and
+ * projection need this stricter answer so a valid amount attached to a Cut,
+ * Refresh, structural, or Target-ROAS row cannot change that row's meaning.
+ */
+export function executableMetaRecommendationBidAmount(input: {
+  recommendationType: unknown;
+  targetValue: unknown;
+}): number | null {
+  const expectedDirection = metaBidAmountDirectionForRecommendationType(
+    input.recommendationType,
+  );
+  if (!expectedDirection) return null;
+  if (!input.targetValue || typeof input.targetValue !== "object"
+    || Array.isArray(input.targetValue)) return null;
+  const target = input.targetValue as Record<string, unknown>;
+  if (target.direction !== expectedDirection) return null;
+  return executableBidIntentMinorUnits(input.targetValue);
+}
+
 export const BID_INTENT_REJECTIONS = [
   "contract_version_unsupported",
   "scope_identity_unknown",
@@ -338,21 +385,10 @@ export function validateBidIntent(
 /**
  * The executable amount a PERSISTED bid intent carries, or null.
  *
- * Two readers need exactly this answer and used to ask a different question.
- * `proposedActionForRecommendation` gated the card's Apply on the
- * recommendation's TYPE being `bid_value_guidance` at ad-set grain — a
- * condition no producer can satisfy, because the only emitter of that type
- * builds a CAMPAIGN recommendation and the projection attaches the intent to
- * whichever ad-set recommendation is present (a `scenario_*` row, in
- * practice). So an ad set could carry a validated 1320-minor-unit cap raise
- * and still serve `operatorApply: null`: the card offered nothing while the
- * queue offered the same amount one surface away.
- *
- * The type was never the authority. This is: the intent's own contract, the
- * authority status the validator wrote, an empty blocker list, and an amount
- * the two fields agree on. It is the same predicate `TYPED_BID_CANDIDATE_SQL`
- * applies before raising a queue row, so the card and the queue can no longer
- * disagree about whether one amount is applyable.
+ * This validates the payload itself for callers that do not own a
+ * recommendation object. It does not grant operation authority. Projection,
+ * presentation, candidate selection and dispatch additionally require a
+ * recommendation type whose declared bid direction agrees with this payload.
  *
  * Strict on purpose: a withheld or blocker-carrying intent returns null, and
  * so does a row whose `bidAmountMinor` and `proposedMinorUnits` differ — two

@@ -84,6 +84,10 @@ const ABO: Shape = {
   current: 90000, intended: 108000,
 };
 
+const scaleRecommendationTypeFor = (shape: Shape) => shape.grain === "campaign"
+  ? "scenario_c1_controlled_scale"
+  : "adset_scale_budget";
+
 /** The node the provider answers with, in the shape the read-back asks for. */
 const node = (shape: Shape, amount: number) => json({
   id: shape.entityId, account_id: "123", name: "Entity",
@@ -130,7 +134,7 @@ const proposalFor = (shape: Shape): MetaAutomationProposal => ({
   ruleId: null, dedupeKey: null,
   decisionKey: `${shape.grain}:${shape.entityId}`,
   scopeType: shape.grain, scopeId: shape.entityId,
-  recId: "rec_1", recType: shape.grain, snapshotDate: "2026-08-30",
+  recId: "rec_1", recType: scaleRecommendationTypeFor(shape), snapshotDate: "2026-08-30",
   engineVersion: "v3", decisionLabel: "scale",
   proposedAction: "budget", actionLabel: "Change budget",
   primaryCaption: "Approve & apply", entityLabel: "Entity",
@@ -149,7 +153,7 @@ const proposalFor = (shape: Shape): MetaAutomationProposal => ({
     currencyRegistryVersion: "iso4217.minor-units.2026-09-01",
     intentVerb: "increase_budget",
 
-    recId: "rec_1", recType: "campaign", snapshotDate: "2026-08-30",
+    recId: "rec_1", recType: scaleRecommendationTypeFor(shape), snapshotDate: "2026-08-30",
     engineVersion: "v3", decisionHash: "e".repeat(64),
     decisionAt: "2026-08-30T00:00:00.000Z",
   }),

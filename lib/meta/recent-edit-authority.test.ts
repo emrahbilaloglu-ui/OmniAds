@@ -187,8 +187,8 @@ function boundParamsForConfigHistory() {
   if (index < 0) return null;
   const params = queryParams[index] ?? [];
   return {
-    starts: params[4] as string[] | undefined,
-    ends: params[5] as string[] | undefined,
+    starts: params[3] as string[] | undefined,
+    ends: params[4] as string[] | undefined,
   };
 }
 
@@ -371,8 +371,8 @@ function harness(options: Harness = {}) {
         predecessor arm.
       */
       const rows = options.history ?? [];
-      const startInclusive = (_params[4] as string[] | undefined)?.[0];
-      const endExclusive = (_params[5] as string[] | undefined)?.[0];
+      const startInclusive = (_params[3] as string[] | undefined)?.[0];
+      const endExclusive = (_params[4] as string[] | undefined)?.[0];
       if (!startInclusive || !endExclusive) return rows;
       const start = new Date(startInclusive).getTime();
       const end = new Date(endExclusive).getTime();

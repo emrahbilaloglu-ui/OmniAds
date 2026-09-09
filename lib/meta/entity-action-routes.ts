@@ -46,6 +46,10 @@ import {
 type MetaEntityScopeType = "campaign" | "adset";
 type MetaEntityStatusAction = "pause" | "resume";
 type RouteParams = { params: Promise<Record<string, string | undefined>> };
+type EntityActionExecutionHooks = {
+  /** Additional durable boundary required by a queue-owned write. */
+  beforeMutationAttempt?: () => Promise<void>;
+};
 
 interface EntityActionBody {
   actionOrigin?: string;
@@ -690,28 +694,31 @@ export async function handleMetaEntityPauseAction(
   request: NextRequest,
   context: RouteParams,
   input: { scopeType: MetaEntityScopeType; paramName: string },
+  executionHooks: EntityActionExecutionHooks = {},
 ) {
   return handleMetaEntityStatusAction(request, context, {
     ...input,
     action: "pause",
-  });
+  }, executionHooks);
 }
 
 export async function handleMetaEntityResumeAction(
   request: NextRequest,
   context: RouteParams,
   input: { scopeType: MetaEntityScopeType; paramName: string },
+  executionHooks: EntityActionExecutionHooks = {},
 ) {
   return handleMetaEntityStatusAction(request, context, {
     ...input,
     action: "resume",
-  });
+  }, executionHooks);
 }
 
 async function handleMetaEntityStatusAction(
   request: NextRequest,
   context: RouteParams,
   input: { scopeType: MetaEntityScopeType; paramName: string; action: MetaEntityStatusAction },
+  executionHooks: EntityActionExecutionHooks,
 ) {
   const params = await context.params;
   const entityId = params[input.paramName]?.trim() ?? "";
@@ -786,10 +793,15 @@ async function handleMetaEntityStatusAction(
     const options = dryRun
       ? { dryRun: true }
       : {
-        beforeMutationAttempt: beforeEntityProviderPost({
-          businessId: prepared.businessId,
-          rehearsalAtEntry: prepared.posture.rehearsal,
-        }),
+        beforeMutationAttempt: async () => {
+          // Re-prove the handler's own posture first. Only a request still
+          // allowed to approach the provider consumes its caller's claim.
+          await beforeEntityProviderPost({
+            businessId: prepared.businessId,
+            rehearsalAtEntry: prepared.posture.rehearsal,
+          })();
+          await executionHooks.beforeMutationAttempt?.();
+        },
       };
     const result =
       input.scopeType === "campaign"
@@ -962,6 +974,7 @@ function expectedCurrentBidAmountFromBody(body: EntityActionBody | null) {
 export async function handleMetaAdsetBidAction(
   request: NextRequest,
   context: RouteParams,
+  executionHooks: EntityActionExecutionHooks = {},
 ) {
   const params = await context.params;
   const adsetId = params.adsetId?.trim() ?? "";
@@ -1097,10 +1110,16 @@ export async function handleMetaAdsetBidAction(
       ...(dryRun
         ? { dryRun: true }
         : {
-          beforeMutationAttempt: beforeEntityProviderPost({
-            businessId: prepared.businessId,
-            rehearsalAtEntry: prepared.posture.rehearsal,
-          }),
+          beforeMutationAttempt: async () => {
+            // Re-prove the standing write posture first. Only a request still
+            // allowed to approach the provider consumes the queue claim's
+            // durable dispatch marker.
+            await beforeEntityProviderPost({
+              businessId: prepared.businessId,
+              rehearsalAtEntry: prepared.posture.rehearsal,
+            })();
+            await executionHooks.beforeMutationAttempt?.();
+          },
         }),
     });
     if (!result.ok) {

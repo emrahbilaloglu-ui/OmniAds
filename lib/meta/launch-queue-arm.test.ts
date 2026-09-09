@@ -395,6 +395,34 @@ describe("the dispatch marker fires at the handler's own boundary", () => {
     expect(markedBeforeHandler).toBe(false);
     expect(markedDuringHandler).toBe(true);
   });
+
+  it("preserves the launch handler's exact non-attempt after a marker was written", async () => {
+    vi.mocked(launchHandlers.handleMetaLaunchAction).mockImplementationOnce(
+      async (_request, options) => {
+        expect(await options?.beforeProviderMutation?.()).toBe(true);
+        return NextResponse.json(
+          {
+            ok: false,
+            error: { code: "provider_mutation_withheld" },
+            providerMutationAttempted: false,
+          },
+          { status: 409 },
+        );
+      },
+    );
+
+    const result = await executeMetaAutomationProposal({
+      request: operatorRequest(),
+      businessId: BUSINESS_ID,
+      proposal: proposal(),
+      dryRunOnly: false,
+      receiptKey: "claim-1",
+      launchIntent: async () => intent("new_campaign"),
+      markDispatchStarted: async () => true,
+    });
+
+    expect(result.receipt.providerMutationAttempted).toBe(false);
+  });
 });
 
 describe("an activation resume is not an entity resume", () => {
@@ -456,5 +484,35 @@ describe("an activation resume is not an entity resume", () => {
     expect(
       activationHandlers.handleMetaLaunchIntentActivateAction,
     ).not.toHaveBeenCalled();
+  });
+
+  it("preserves the activation handler's exact non-attempt", async () => {
+    vi.mocked(
+      activationHandlers.handleMetaLaunchIntentActivateAction,
+    ).mockResolvedValueOnce(
+      NextResponse.json(
+        {
+          ok: true,
+          delivering: false,
+          providerMutationAttempted: false,
+        },
+        { status: 200 },
+      ),
+    );
+
+    const result = await executeMetaAutomationProposal({
+      request: operatorRequest(),
+      businessId: BUSINESS_ID,
+      proposal: proposal({
+        proposedAction: "resume",
+        scopeType: "campaign",
+        scopeId: "23999",
+        decisionKey: `activate:${INTENT_ID}`,
+      }),
+      dryRunOnly: false,
+      receiptKey: "claim-1",
+    });
+
+    expect(result.receipt.providerMutationAttempted).toBe(false);
   });
 });

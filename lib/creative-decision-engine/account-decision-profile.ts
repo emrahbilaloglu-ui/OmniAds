@@ -23,6 +23,11 @@ import {
   resolveSpendUnit,
 } from "./spend-unit-resolver";
 import {
+  projectEffectiveMetaAovSemantics,
+  shouldReadStrictMetaAov,
+  targetRoasGoverns,
+} from "./commercial-semantic-projection";
+import {
   resolveCommercialAnchorExplanation,
   type CommercialAnchorExplanation,
 } from "./commercial-anchor";
@@ -799,14 +804,8 @@ export async function resolveAccountDecisionProfile(input: {
     the legacy value. With no positive Target ROAS, the old fallback behaviour
     remains available to the non-ROAS diagnostic/CPA path.
   */
-  const targetRoasRequiresAuthoritativeMetaAov =
-    typeof targetPack?.targetRoas === "number" &&
-    Number.isFinite(targetPack.targetRoas) &&
-    targetPack.targetRoas > 0;
-  const needsLiveMetaAov =
-    targetRoasRequiresAuthoritativeMetaAov ||
-    accountCalibration.metaAttributedAovMean90d === null ||
-    accountCalibration.metaAttributedAovPurchaseCount90d === 0;
+  const targetRoasRequiresAuthoritativeMetaAov = targetRoasGoverns(targetPack);
+  const needsLiveMetaAov = shouldReadStrictMetaAov(targetPack, accountCalibration);
   const liveMetaAov = needsLiveMetaAov
     ? await input.dataSource
         .getMetaAttributedAov({
@@ -817,24 +816,16 @@ export async function resolveAccountDecisionProfile(input: {
         .catch(() => null)
     : null;
 
-  const metaAttributedAovMean90d = targetRoasRequiresAuthoritativeMetaAov
-    ? liveMetaAov?.aovMean ?? null
-    : accountCalibration.metaAttributedAovMean90d ?? liveMetaAov?.aovMean ?? null;
-  const metaAttributedAovPurchaseCount90d = targetRoasRequiresAuthoritativeMetaAov
-    ? liveMetaAov?.purchaseCount ?? 0
-    : accountCalibration.metaAttributedAovPurchaseCount90d ||
-      liveMetaAov?.purchaseCount ||
-      0;
-  const metaAttributedRevenue90d = targetRoasRequiresAuthoritativeMetaAov
-    ? liveMetaAov?.totalRevenue ?? 0
-    : accountCalibration.metaAttributedRevenue90d ||
-      liveMetaAov?.totalRevenue ||
-      0;
-  const metaAovQuality = targetRoasRequiresAuthoritativeMetaAov
-    ? classifyMetaAovQuality(metaAttributedAovPurchaseCount90d)
-    : accountCalibration.metaAovQuality !== "unavailable"
-      ? accountCalibration.metaAovQuality
-      : classifyMetaAovQuality(metaAttributedAovPurchaseCount90d);
+  const {
+    metaAttributedAovMean90d,
+    metaAttributedAovPurchaseCount90d,
+    metaAttributedRevenue90d,
+    metaAovQuality,
+  } = projectEffectiveMetaAovSemantics({
+    targetPack,
+    calibration: accountCalibration,
+    strictMetaAov: liveMetaAov,
+  });
 
   const accountBaselinesWithAov: AccountCalibration = {
     ...accountCalibration,

@@ -1,7 +1,7 @@
 // Child of ephemeral-postgres-migrations-check. It runs only against the
 // throwaway database URL force-set by the parent and never calls Meta.
 //
-// What only Postgres can answer for the bid arm:
+// What only Postgres can answer for the future bid arm:
 //   * the candidate SQL selects the typed intent's real payload fields;
 //   * a `bid` row without an envelope is refused by the database, not by a
 //     hopeful reader;
@@ -11,9 +11,14 @@ import { getDb, resetDbClientCache } from "@/lib/db";
 import {
   insertBidProposalRow,
   listTypedBidCandidates,
+  projectMetaBidProposals,
 } from "@/lib/meta/bid-proposal-producer";
 import { buildBidProposalEnvelope } from "@/lib/meta/bid-proposal-envelope";
-import { readMetaAutomationProposal } from "@/lib/meta/automation-proposals";
+import {
+  claimMetaAutomationProposal,
+  readMetaAutomationProposal,
+  reconcileMetaEngineDecisionProposalsForSnapshot,
+} from "@/lib/meta/automation-proposals";
 import { createMetaAdsActionLog } from "@/lib/meta/ads-action-log";
 
 const BUSINESS = "d0000000-0000-4000-8000-000000000202";
@@ -31,7 +36,14 @@ function expectEqual(actual: unknown, expected: unknown, label: string) {
   }
 }
 
-/** The typed payload a snapshot writes into `target_value`. */
+/**
+ * A synthetic forward-contract payload.
+ *
+ * B1 currently emits at campaign grain, so production cannot create this
+ * ad-set row yet. The seam deliberately supplies the missing future producer
+ * shape to prove PostgreSQL selection, envelope, and journal mechanics without
+ * claiming present-day reachability.
+ */
 function bidIntent(overrides: Record<string, unknown> = {}) {
   return {
     kind: "bid_intent",
@@ -88,11 +100,11 @@ async function seed() {
        level, decision_state, evidence, recommended_action, target_value,
        reasoning, engine_version, kind, decision_label, provider_account_id
      ) VALUES
-       ('adset', $1, $2, $3::date, 'rec-bid-1', 'bid_amount', 'adset', 'act',
+       ('adset', $1, $2, $3::date, 'rec-bid-1', 'scenario_b1_capped_winner_bid_raise', 'adset', 'act',
         '{}'::jsonb, 'Raise the cost cap one rung.', $4::jsonb,
         'CPA is 16% under the benchmark and delivery is constrained.',
         'v-seam', 'recommendation', 'tune', $6),
-       ('adset', $5, $2, $3::date, 'rec-bid-2', 'bid_amount', 'adset', 'act',
+       ('adset', $5, $2, $3::date, 'rec-bid-2', 'scenario_b1_capped_winner_bid_raise', 'adset', 'act',
         '{}'::jsonb, 'Raise the cost cap one rung.', $7::jsonb,
         'Withheld: no delivery constraint.',
         'v-seam', 'recommendation', 'tune', $6)
@@ -120,7 +132,7 @@ async function main() {
   }
   await seed();
 
-  const candidates = await listTypedBidCandidates(BUSINESS, AS_OF);
+  const candidates = await listTypedBidCandidates(BUSINESS, AS_OF, [ACCOUNT]);
   expectEqual(candidates.length, 1, "only the authorised intent is a candidate");
   const candidate = candidates[0]!;
   expectEqual(candidate.scopeId, ADSET, "candidate ad set");
@@ -173,6 +185,94 @@ async function main() {
   expectEqual(row?.bidEnvelope?.fingerprint, envelope.fingerprint, "fingerprint holds");
 
   /*
+    A snapshot closes old same-day authority before recomputation. The source
+    decision still exists, but an account absent from the fulfilled set must
+    lose its pending row. A successful current B1 decision then re-opens that
+    exact row id with a freshly bound envelope; a second row would create a
+    second approval chance for one decision.
+  */
+  const withdrawn = await reconcileMetaEngineDecisionProposalsForSnapshot({
+    businessId: BUSINESS,
+    snapshotDate: AS_OF,
+    attemptedProviderAccountIds: [ACCOUNT],
+    fulfilledProviderAccountIds: [],
+  });
+  expectEqual(withdrawn.withdrawn, 1, "failed generation withdraws the open bid row");
+  const withdrawnRaw = (await getDb().query(
+    `SELECT status, decision_note FROM meta_automation_proposals WHERE id = $1::uuid`,
+    [proposalId],
+  )) as Array<{ status: string; decision_note: string | null }>;
+  expectEqual(
+    withdrawnRaw[0],
+    { status: "expired", decision_note: "engine_decision_source_withdrawn" },
+    "withdrawal is explicit and reversible",
+  );
+
+  const reoffered = await projectMetaBidProposals({
+    businessId: BUSINESS,
+    snapshotDate: AS_OF,
+    providerAccountIds: [ACCOUNT],
+    readBidMode: async () => "semi_auto",
+    insertProposal: async (input) => insertBidProposalRow({
+      businessId: BUSINESS,
+      proposalId: input.proposalId,
+      candidate: input.candidate,
+      envelopeJson: input.envelopeJson,
+      actionLabel: input.actionLabel,
+    }),
+  });
+  expectEqual(reoffered.projected, 1, "current source re-offers the withdrawn row");
+  const reofferedRaw = (await getDb().query(
+    `SELECT id::text AS id, status, decision_note
+       FROM meta_automation_proposals
+      WHERE business_id = $1::uuid AND provider_account_id = $2
+        AND decision_key = 'adset:' || $3 AND proposed_action = 'bid'`,
+    [BUSINESS, ACCOUNT, ADSET],
+  )) as Array<{ id: string; status: string; decision_note: string | null }>;
+  expectEqual(
+    reofferedRaw,
+    [{ id: proposalId, status: "pending", decision_note: null }],
+    "re-offer preserves one row identity",
+  );
+
+  /*
+    Claim re-proves the source in the same UPDATE that takes the row. This is a
+    direct race reproduction: the card could have been read while Act, then the
+    source changes to Watch before approval reaches the server.
+  */
+  await getDb().query(
+    `UPDATE meta_decision_snapshots_daily
+        SET decision_state = 'watch'
+      WHERE business_id = $1 AND provider_account_id = $2
+        AND snapshot_date = $3::date AND scope_id = $4
+        AND rec_type = 'scenario_b1_capped_winner_bid_raise'`,
+    [BUSINESS, ACCOUNT, AS_OF, ADSET],
+  );
+  const staleClaim = await claimMetaAutomationProposal({
+    businessId: BUSINESS,
+    providerAccountId: ACCOUNT,
+    proposalId,
+    claimedBy: OWNER,
+  });
+  expectEqual(staleClaim.status, "conflict", "Watch source cannot be claimed");
+  expectEqual(
+    await readMetaAutomationProposal({
+      businessId: BUSINESS,
+      providerAccountId: ACCOUNT,
+      proposalId,
+    }),
+    null,
+    "stale pending source is hidden from the reader",
+  );
+  const staleWithdrawal = await reconcileMetaEngineDecisionProposalsForSnapshot({
+    businessId: BUSINESS,
+    snapshotDate: AS_OF,
+    attemptedProviderAccountIds: [ACCOUNT],
+    fulfilledProviderAccountIds: [ACCOUNT],
+  });
+  expectEqual(staleWithdrawal.withdrawn, 1, "Watch source is withdrawn durably");
+
+  /*
     THE CONSTRAINT THAT MATTERS.
 
     A `bid` row without an amount is what the old queue would have produced,
@@ -188,7 +288,7 @@ async function main() {
        reason, expires_at, status
      ) VALUES (
        $1::uuid, $2, 'engine_decision', 'adset:no_envelope', 'adset',
-       'no_envelope', 'rec-x', 'bid_amount', $3::date, 'v-seam',
+       'no_envelope', 'rec-x', 'scenario_b1_capped_winner_bid_raise', $3::date, 'v-seam',
        'tune', 'bid', 'Apply bid', 'Review', 'x', NOW() + interval '24 hours',
        'pending'
      )`,

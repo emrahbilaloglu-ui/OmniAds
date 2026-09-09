@@ -8,8 +8,9 @@
  * The root cause was not caution: a queue row carried a verb and a target id,
  * and nothing in it said how far to move a cost cap.
  *
- * These cases drive the real producer and the real runtime against a provider
- * double, and assert on the amount, the strategy and the durable row.
+ * These cases drive the forward-compatible producer and runtime against a
+ * synthetic semantic B1 ad-set row. The production snapshot seam separately
+ * proves that no current emitter creates that row.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -36,6 +37,8 @@ import {
   parseBidProposalEnvelope,
 } from "@/lib/meta/bid-proposal-envelope";
 import {
+  TYPED_BID_CANDIDATE_SQL,
+  insertBidProposalRow,
   projectMetaBidProposals,
   type TypedBidCandidate,
 } from "@/lib/meta/bid-proposal-producer";
@@ -58,7 +61,7 @@ function candidate(overrides: Partial<TypedBidCandidate> = {}): TypedBidCandidat
     parentCampaignId: "cmp_1",
     providerAccountId: ACCOUNT,
     recId: "rec-1",
-    recType: "bid_amount",
+    recType: "scenario_b1_capped_winner_bid_raise",
     snapshotDate: "2026-09-04",
     engineVersion: "v1",
     decisionLabel: "tune",
@@ -111,6 +114,9 @@ function proposal(overrides: Partial<MetaAutomationProposal> = {}): MetaAutomati
     scopeId: ADSET,
     proposedAction: "bid",
     recId: "rec-1",
+    recType: "scenario_b1_capped_winner_bid_raise",
+    snapshotDate: "2026-09-04",
+    engineVersion: "v1",
     bidEnvelope: envelopeFor(),
     ...overrides,
   } as unknown as MetaAutomationProposal;
@@ -176,12 +182,94 @@ beforeEach(() => {
   } as never);
 });
 
-describe("the queue can finally carry an amount", () => {
+describe("the future bid queue requires an explicit amount contract", () => {
+  it("admits persisted typed bid intents only from act decisions", () => {
+    expect(TYPED_BID_CANDIDATE_SQL).toMatch(
+      /AND\s+d\.decision_state\s*=\s*'act'/,
+    );
+    expect(TYPED_BID_CANDIDATE_SQL).toMatch(
+      /provider_account_id\s*=\s*ANY\(\$\d::text\[\]\)/,
+    );
+    expect(TYPED_BID_CANDIDATE_SQL).toContain(
+      "held.proposed_action = 'bid'",
+    );
+    expect(TYPED_BID_CANDIDATE_SQL).toContain(
+      "held.status IN ('pending', 'claimed', 'reconcile')",
+    );
+    expect(TYPED_BID_CANDIDATE_SQL).toMatch(
+      /held\.status\s*=\s*'pending'[\s\S]*held\.origin\s*=\s*'engine_decision'[\s\S]*held\.rec_type\s*=\s*d\.rec_type[\s\S]*held\.snapshot_date\s*=\s*d\.snapshot_date/,
+    );
+  });
+
+  it("cannot project a stale candidate from an account this run did not finish", async () => {
+    const inserted: TypedBidCandidate[] = [];
+    const result = await projectMetaBidProposals({
+      businessId: BUSINESS,
+      snapshotDate: "2026-09-04",
+      providerAccountIds: [ACCOUNT],
+      readBidMode: async () => "auto",
+      listCandidates: async () => [
+        candidate(),
+        candidate({ providerAccountId: "act_failed_this_run", scopeId: "set_stale" }),
+      ],
+      insertProposal: async (input) => {
+        inserted.push(input.candidate);
+        return PROPOSAL_ID;
+      },
+    });
+
+    expect(result.candidates).toBe(1);
+    expect(result.projected).toBe(1);
+    expect(inserted).toHaveLength(1);
+    expect(inserted[0]?.providerAccountId).toBe(ACCOUNT);
+  });
+
+  it("refuses injected candidates from another business or snapshot day", async () => {
+    const inserted: TypedBidCandidate[] = [];
+    const result = await projectMetaBidProposals({
+      businessId: BUSINESS,
+      snapshotDate: "2026-09-04",
+      providerAccountIds: [ACCOUNT],
+      readBidMode: async () => "auto",
+      listCandidates: async () => [
+        candidate(),
+        candidate({ businessId: "other-business" }),
+        candidate({ snapshotDate: "2026-09-03" }),
+      ],
+      insertProposal: async (input) => {
+        inserted.push(input.candidate);
+        return PROPOSAL_ID;
+      },
+    });
+
+    expect(result.candidates).toBe(1);
+    expect(result.projected).toBe(1);
+    expect(result.refusals).toEqual({ candidate_scope_mismatch: 2 });
+    expect(inserted).toEqual([candidate()]);
+  });
+
+  it("does not read candidates when no account finished this run", async () => {
+    const listCandidates = vi.fn(async () => []);
+    const result = await projectMetaBidProposals({
+      businessId: BUSINESS,
+      snapshotDate: "2026-09-04",
+      providerAccountIds: [],
+      readBidMode: async () => "auto",
+      listCandidates,
+      insertProposal: async () => PROPOSAL_ID,
+    });
+
+    expect(result.candidates).toBe(0);
+    expect(result.refusals).toEqual({ account_generation_not_fulfilled: 1 });
+    expect(listCandidates).not.toHaveBeenCalled();
+  });
+
   it("raises one row per authorised typed intent, with the envelope on it", async () => {
     const inserted: Array<{ proposalId: string; envelopeJson: string; actionLabel: string }> = [];
     const result = await projectMetaBidProposals({
       businessId: BUSINESS,
       snapshotDate: "2026-09-04",
+      providerAccountIds: [ACCOUNT],
       readBidMode: async () => "auto",
       listCandidates: async () => [candidate()],
       newProposalId: () => PROPOSAL_ID,
@@ -210,10 +298,50 @@ describe("the queue can finally carry an amount", () => {
     expect(stored!.proposalId).toBe(PROPOSAL_ID);
   });
 
+  it("keeps projecting the family when another writer wins an open slot", async () => {
+    const openSlotConflict = Object.assign(new Error("duplicate key"), {
+      code: "23505",
+      constraint: "uq_meta_automation_proposals_open_slot",
+    });
+    const result = await projectMetaBidProposals({
+      businessId: BUSINESS,
+      snapshotDate: "2026-09-04",
+      providerAccountIds: [ACCOUNT],
+      readBidMode: async () => "auto",
+      listCandidates: async () => [candidate()],
+      insertProposal: async () => { throw openSlotConflict; },
+    });
+
+    expect(result.candidates).toBe(1);
+    expect(result.projected).toBe(0);
+    expect(result.refusals).toEqual({ insert_conflicted: 1 });
+  });
+
+  it("refuses a tampered or row-mismatched bid envelope before database access", async () => {
+    const valid = envelopeFor();
+    const tampered = { ...valid, proposedMinorUnits: valid.proposedMinorUnits + 1 };
+
+    await expect(insertBidProposalRow({
+      businessId: BUSINESS,
+      proposalId: PROPOSAL_ID,
+      candidate: candidate(),
+      envelopeJson: JSON.stringify(tampered),
+      actionLabel: "Apply bid",
+    })).resolves.toBeNull();
+    await expect(insertBidProposalRow({
+      businessId: BUSINESS,
+      proposalId: PROPOSAL_ID,
+      candidate: candidate({ scopeId: "set_other" }),
+      envelopeJson: JSON.stringify(valid),
+      actionLabel: "Apply bid",
+    })).resolves.toBeNull();
+  });
+
   it("refuses a candidate whose own arithmetic disagrees", async () => {
     const result = await projectMetaBidProposals({
       businessId: BUSINESS,
       snapshotDate: "2026-09-04",
+      providerAccountIds: [ACCOUNT],
       readBidMode: async () => "auto",
       // 10% of 1200 is 1320, not 1500. Three numbers that are not one
       // instruction describe a change of ambiguous size.
@@ -224,11 +352,28 @@ describe("the queue can finally carry an amount", () => {
     expect(result.refusals).toEqual({ percent_math_inconsistent: 1 });
   });
 
+  it("refuses an injected candidate that borrows a non-bid recommendation", async () => {
+    const insert = vi.fn(async () => PROPOSAL_ID);
+    const result = await projectMetaBidProposals({
+      businessId: BUSINESS,
+      snapshotDate: "2026-09-04",
+      providerAccountIds: [ACCOUNT],
+      readBidMode: async () => "auto",
+      listCandidates: async () => [candidate({ recType: "adset_cut_spend" })],
+      insertProposal: insert,
+    });
+
+    expect(result.candidates).toBe(0);
+    expect(result.refusals).toEqual({ bid_action_semantic_missing: 1 });
+    expect(insert).not.toHaveBeenCalled();
+  });
+
   it("raises nothing while the bid mode is manual", async () => {
     const insert = vi.fn(async () => PROPOSAL_ID);
     const result = await projectMetaBidProposals({
       businessId: BUSINESS,
       snapshotDate: "2026-09-04",
+      providerAccountIds: [ACCOUNT],
       readBidMode: async () => "manual",
       listCandidates: async () => [candidate()],
       insertProposal: insert,
@@ -249,6 +394,8 @@ describe("an envelope belongs to exactly one row", () => {
       id: "44444444-4444-4444-8444-444444444444",
       businessId: BUSINESS, providerAccountId: ACCOUNT,
       scopeType: "adset", scopeId: ADSET,
+      recId: "rec-1", recType: "scenario_b1_capped_winner_bid_raise",
+      snapshotDate: "2026-09-04", engineVersion: "v1",
     })).toBeNull();
   });
 
@@ -262,6 +409,8 @@ describe("an envelope belongs to exactly one row", () => {
     expect(bidEnvelopeForProposalRow(envelope, {
       id: PROPOSAL_ID, businessId: BUSINESS, providerAccountId: ACCOUNT,
       scopeType: "adset", scopeId: "set_other",
+      recId: "rec-1", recType: "scenario_b1_capped_winner_bid_raise",
+      snapshotDate: "2026-09-04", engineVersion: "v1",
     })).toBeNull();
   });
 });
@@ -378,6 +527,20 @@ describe("the unattended executor", () => {
     expect(vi.mocked(adsWrite.readMetaAdsetBidState)).not.toHaveBeenCalled();
   });
 
+  it("revokes a legacy row whose recommendation never authorised a bid", async () => {
+    const result = await runtime()({
+      proposal: proposal({ recType: "adset_cut_spend" }),
+      dryRunOnly: false,
+      claimToken: "claim-1",
+      authorization: SCHEDULED,
+    });
+
+    expect(result.receipt.withheld).toBe("bid_semantic_authority_absent");
+    expect(vi.mocked(adsWrite.readMetaAdsetBidState)).not.toHaveBeenCalled();
+    expect(vi.mocked(adsWrite.updateAdsetBidAmount)).not.toHaveBeenCalled();
+    expect(vi.mocked(log.createMetaAdsActionLog)).not.toHaveBeenCalled();
+  });
+
   it("never speaks for an operator", async () => {
     const result = await runtime()({
       proposal: proposal(),
@@ -464,7 +627,7 @@ describe("terminal persistence is required for an ordinary settlement", () => {
       const row = proposal();
       const results: BudgetProposalExecutionResult[] = [];
       const settle = vi.fn<ClaimedExecutionDeps["settle"]>(async () => row);
-      const recordLedger = vi.fn<ClaimedExecutionDeps["recordLedger"]>(async () => undefined);
+      const recordLedger = vi.fn<ClaimedExecutionDeps["recordLedger"]>(async () => true);
       const markDispatchStarted = vi.fn(async () => true);
       const settled = await runClaimedProposalExecution({
         businessId: row.businessId, providerAccountId: row.providerAccountId,

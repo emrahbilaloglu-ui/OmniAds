@@ -15,6 +15,8 @@
  */
 import { createHash } from "node:crypto";
 
+import { metaBidAmountDirectionForRecommendationType } from "@/lib/meta/bid-intent-contract";
+
 export const BID_PROPOSAL_ENVELOPE_CONTRACT =
   "meta.bid-proposal-envelope.v1" as const;
 
@@ -129,6 +131,10 @@ export function parseBidProposalEnvelope(value: unknown): BidProposalEnvelope | 
   const typed = fields as BidEnvelopeFields;
   if (typed.proposedMinorUnits <= 0 || typed.currentMinorUnits <= 0) return null;
   if (typed.currencyExponent < 0 || typed.currencyExponent > 4) return null;
+  if (
+    metaBidAmountDirectionForRecommendationType(typed.recType)
+      !== typed.direction
+  ) return null;
   /*
     The arithmetic has to hold on its own.
 
@@ -158,6 +164,10 @@ export function bidEnvelopeForProposalRow(
     providerAccountId: string;
     scopeType: string;
     scopeId: string;
+    recId: string | null;
+    recType: string | null;
+    snapshotDate: string;
+    engineVersion: string | null;
   },
 ): BidProposalEnvelope | null {
   if (!envelope) return null;
@@ -167,6 +177,10 @@ export function bidEnvelopeForProposalRow(
     || envelope.businessId !== row.businessId
     || envelope.providerAccountId !== row.providerAccountId
     || envelope.entityId !== row.scopeId
+    || envelope.recId !== row.recId
+    || envelope.recType !== row.recType
+    || envelope.snapshotDate !== row.snapshotDate
+    || envelope.engineVersion !== row.engineVersion
   ) {
     return null;
   }

@@ -218,6 +218,15 @@ export async function handleMetaLaunchIntentActivateAction(
     }
 
     const { activation, receipt } = result;
+    const contacted = receipt.steps.some(
+      (step) =>
+        step.claimOutcome === "activated"
+        || step.claimOutcome === "ambiguous"
+        || step.claimOutcome === "refused",
+    );
+    const priorAttemptUnresolved = receipt.steps.some(
+      (step) => step.claimOutcome === "unresolved_prior_attempt",
+    );
     return NextResponse.json({
       ok: true,
       contract: activation.contract,
@@ -237,6 +246,11 @@ export async function handleMetaLaunchIntentActivateAction(
       coverage: activation.coverage,
       blockedAt: activation.blockedAt,
       blockedReason: activation.blockedReason,
+      // An unresolved earlier attempt is deliberately left unstated so the
+      // proposal lifecycle falls back to its durable marker and keeps the slot.
+      providerMutationAttempted: contacted || !priorAttemptUnresolved
+        ? contacted
+        : undefined,
       /*
         The steps carry their durable ids.
 

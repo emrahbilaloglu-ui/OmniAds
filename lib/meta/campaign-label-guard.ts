@@ -49,6 +49,7 @@ const HARD_ACTION_TYPES = new Set<MetaRecommendation["type"]>([
   "adset_cut_spend",
   "budget_allocation",
   "scale_for_volume",
+  "scale_for_volume_budget_increase",
   "scale_for_profitability",
   "winner_promotion_flow",
   "bid_strategy_fit",
@@ -90,6 +91,7 @@ const REFRESH_ACTION_TYPES = new Set<MetaRecommendation["type"]>([
 const SCALE_ACTION_TYPES = new Set<MetaRecommendation["type"]>([
   "adset_scale_budget",
   "scale_for_volume",
+  "scale_for_volume_budget_increase",
   "scale_for_profitability",
   "winner_promotion_flow",
   "scenario_b2_lowest_cost_budget_scale",

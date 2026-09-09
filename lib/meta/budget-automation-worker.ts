@@ -52,6 +52,8 @@ export interface BudgetSweepDeps {
   executeProposal(input: { proposalId: string; claimToken: string }): Promise<{
     ok: boolean;
     receipt: { withheld?: string | null };
+    /** Whether the secondary operator-visible ledger copy was persisted. */
+    auditComplete: boolean;
   }>;
 }
 
@@ -65,6 +67,8 @@ export interface BudgetSweepReport {
   withheld: number;
   /** Claimed, dispatched, and did NOT land. Never folded into `executed`. */
   failed: number;
+  /** Settled attempts whose provider truth exists but activity ledger is absent. */
+  auditIncomplete: number;
 }
 
 export async function runBudgetAutomationSweep(
@@ -86,7 +90,7 @@ export async function runBudgetAutomationSweep(
       ran: false,
       blockers: Object.freeze(blockers),
       considered: 0, executed: 0, skipped: 0, withheld: 0,
-      failed: 0,
+      failed: 0, auditIncomplete: 0,
     };
   }
 
@@ -95,6 +99,7 @@ export async function runBudgetAutomationSweep(
   let skipped = 0;
   let withheld = 0;
   let failed = 0;
+  let auditIncomplete = 0;
   for (const proposal of proposals) {
     const claimToken = await deps.claim(proposal.id);
     if (!claimToken) {
@@ -102,6 +107,7 @@ export async function runBudgetAutomationSweep(
       continue;
     }
     const result = await deps.executeProposal({ proposalId: proposal.id, claimToken });
+    if (!result.auditComplete) auditIncomplete += 1;
     /*
       PRE-DEPLOY AUDIT — three outcomes, three counters.
 
@@ -123,5 +129,6 @@ export async function runBudgetAutomationSweep(
     skipped,
     withheld,
     failed,
+    auditIncomplete,
   };
 }

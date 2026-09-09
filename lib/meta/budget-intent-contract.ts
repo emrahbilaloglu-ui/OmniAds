@@ -52,6 +52,91 @@ export const BUDGET_DIRECTIONS = ["increase", "decrease"] as const;
 export type BudgetDirection = (typeof BUDGET_DIRECTIONS)[number];
 
 /**
+ * The complete semantic authority for a recommendation to carry budget money.
+ *
+ * These are tuples rather than three independent allowlists. A controlled
+ * campaign scale is not also an ad-set scale merely because both its type and
+ * grain appear somewhere in an allowlist, and a scale type can never authorize
+ * a decrease. Projection, persistence reads, claims and runtime parsing all
+ * consume this same table.
+ */
+export const META_BUDGET_INTENT_SEMANTIC_TUPLES = [
+  {
+    recommendationType: "adset_scale_budget",
+    grain: "adset",
+    direction: "increase",
+  },
+  {
+    recommendationType: "adset_cut_spend",
+    grain: "adset",
+    direction: "decrease",
+  },
+  {
+    recommendationType: "scenario_c1_controlled_scale",
+    grain: "campaign",
+    direction: "increase",
+  },
+  {
+    recommendationType: "scale_for_volume_budget_increase",
+    grain: "campaign",
+    direction: "increase",
+  },
+] as const satisfies readonly {
+  recommendationType: string;
+  grain: BudgetOwnerGrain;
+  direction: BudgetDirection;
+}[];
+
+export type MetaBudgetIntentRecommendationType =
+  (typeof META_BUDGET_INTENT_SEMANTIC_TUPLES)[number]["recommendationType"];
+
+/** Recommendation vocabularies allowed to carry a budget amount. */
+export const META_BUDGET_INTENT_RECOMMENDATION_TYPES =
+  META_BUDGET_INTENT_SEMANTIC_TUPLES.map(
+    ({ recommendationType }) => recommendationType,
+  ) as readonly MetaBudgetIntentRecommendationType[];
+
+export function budgetIntentSemanticTupleForRecommendationType(
+  recommendationType: unknown,
+): (typeof META_BUDGET_INTENT_SEMANTIC_TUPLES)[number] | null {
+  if (typeof recommendationType !== "string") return null;
+  return META_BUDGET_INTENT_SEMANTIC_TUPLES.find(
+    (tuple) => tuple.recommendationType === recommendationType,
+  ) ?? null;
+}
+
+export function isBudgetIntentSemanticTuple(input: {
+  recommendationType: unknown;
+  grain: unknown;
+  direction: unknown;
+}): boolean {
+  const tuple = budgetIntentSemanticTupleForRecommendationType(
+    input.recommendationType,
+  );
+  return Boolean(
+    tuple
+      && tuple.grain === input.grain
+      && tuple.direction === input.direction,
+  );
+}
+
+/**
+ * Render the central tuples as a SQL predicate over trusted, internal column
+ * expressions. Values come only from the literal table above.
+ */
+export function budgetIntentSemanticTupleSqlPredicate(input: {
+  recommendationTypeExpression: string;
+  grainExpression: string;
+  directionExpression: string;
+}): string {
+  return `(${META_BUDGET_INTENT_SEMANTIC_TUPLES.map(
+    (tuple) => `(${input.recommendationTypeExpression} = '${tuple.recommendationType}'`
+      + ` AND ${input.grainExpression} = '${tuple.grain}'`
+      + ` AND ${input.directionExpression} = '${tuple.direction}')`,
+  ).join(" OR ")})`;
+}
+
+/**
  * Owner modes as the provider expresses them. `unknown` and `not_applicable`
  * are first-class: they are the honest answer for most of the retained history
  * and must never collapse into a guess.

@@ -686,7 +686,7 @@ describe("how an outcome is reported", () => {
       },
       forceReconcile: async () => true,
       recordReconciliation: async () => true,
-      recordLedger: async (entry) => { ledger.push(entry.activityType); },
+      recordLedger: async (entry) => { ledger.push(entry.activityType); return true; },
       execute: async (beforeProviderPost) => run({
         proposal: proposal(),
         dryRunOnly: false,
@@ -748,7 +748,7 @@ describe("how an outcome is reported", () => {
       },
       forceReconcile: async () => true,
       recordReconciliation: async () => true,
-      recordLedger: async () => undefined,
+      recordLedger: async () => true,
       execute: async (beforeProviderPost) => run({
         proposal: proposal(),
         dryRunOnly: false,
@@ -770,5 +770,6 @@ describe("how an outcome is reported", () => {
     expect(lifecycle.settledStatus).toBe("failed");
     expect(settledStatuses).toEqual(["failed"]);
     expect(lifecycle.reconcile).toBe(false);
+    expect(lifecycle.providerOutcomeKnown).toBe(true);
   });
 });

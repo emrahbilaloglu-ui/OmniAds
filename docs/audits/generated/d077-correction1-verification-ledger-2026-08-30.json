@@ -1,9 +1,9 @@
 {
- "ledgerHash": "28209698bbc634733a29e10afdaca5c40f341b868106b52e6c1c8238852e19a0",
+ "ledgerHash": "362a105bed4f79f0f04ea855231b002e709459fcda866088a0757ff4c4a976e6",
  "hashAlgorithm": "sha256",
  "hashBasis": "sha256 over UTF-8 bytes of JSON.stringify(artifact, null, 1) of the artifact WITHOUT its embedded hash fields (the artifact object before {<hashField>, hashAlgorithm, hashBasis} are prepended)",
  "contract": "adsecute.d077.correction2-verification-ledger.v2",
- "generatedAtUtc": "2026-09-09T01:12:21.957Z",
+ "generatedAtUtc": "2026-09-09T07:42:39.514Z",
  "runtimeVersions": {
   "node": "v24.4.1",
   "npm": "11.4.2",
@@ -171,13 +171,13 @@
  },
  "runtimeVersionsScope": {
   "kind": "historical",
-  "sourceLedgerHash": "0ea1d04ff1a8e64c90674a004db8ab3cb771e8bef91570493464239aa6317231",
-  "sourceGeneratedAtUtc": "2026-09-06T20:47:42.733Z",
+  "sourceLedgerHash": "9df61a38090786341c7cdb4a111e334299c3afbd93e6486c2a11b4afcb11336e",
+  "sourceGeneratedAtUtc": "2026-09-09T06:51:01.706Z",
   "note": "Frozen earlier audit runtime observations, preserved with their original timestamps and validated by the unchanged historical provenance contract."
  },
  "packagingRuntimeVersions": {
   "actor": "codex",
-  "observedAtUtc": "2026-09-09T01:12:21.488Z",
+  "observedAtUtc": "2026-09-09T07:42:39.034Z",
   "node": "v24.4.1",
   "npm": "11.4.2",
   "pnpm": "11.19.0",
@@ -203,7 +203,7 @@
      "stderr": "",
      "spawnErrorCode": null,
      "spawnErrorMessage": null,
-     "observedAtUtc": "2026-09-09T01:12:20.938Z"
+     "observedAtUtc": "2026-09-09T07:42:38.488Z"
     },
     "resolution": "resolved",
     "resolvedPath": "/Users/harmelek/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/pnpm",
@@ -219,12 +219,12 @@
      "stderr": "",
      "spawnErrorCode": null,
      "spawnErrorMessage": null,
-     "observedAtUtc": "2026-09-09T01:12:21.247Z"
+     "observedAtUtc": "2026-09-09T07:42:38.796Z"
     },
     "reportedVersion": "11.19.0",
     "resultClass": "version_reported",
     "observationKind": "present_tense",
-    "observedAtUtc": "2026-09-09T01:12:21.247Z",
+    "observedAtUtc": "2026-09-09T07:42:38.796Z",
     "observationTimeCertainty": "exact",
     "cacheSafeReadOnly": true
    },
@@ -246,7 +246,7 @@
      "stderr": "",
      "spawnErrorCode": null,
      "spawnErrorMessage": null,
-     "observedAtUtc": "2026-09-09T01:12:21.253Z"
+     "observedAtUtc": "2026-09-09T07:42:38.802Z"
     },
     "resolution": "resolved",
     "resolvedPath": "/usr/local/bin/corepack",
@@ -262,12 +262,12 @@
      "stderr": "",
      "spawnErrorCode": null,
      "spawnErrorMessage": null,
-     "observedAtUtc": "2026-09-09T01:12:21.292Z"
+     "observedAtUtc": "2026-09-09T07:42:38.840Z"
     },
     "reportedVersion": "0.34.2",
     "resultClass": "version_reported",
     "observationKind": "present_tense",
-    "observedAtUtc": "2026-09-09T01:12:21.292Z",
+    "observedAtUtc": "2026-09-09T07:42:38.840Z",
     "observationTimeCertainty": "exact",
     "cacheSafeReadOnly": true
    },
@@ -281,7 +281,7 @@
      "exists": true,
      "observationErrorCode": null,
      "observationErrorMessage": null,
-     "observedAtUtc": "2026-09-09T01:12:21.292Z"
+     "observedAtUtc": "2026-09-09T07:42:38.840Z"
     },
     "resolution": "resolved",
     "resolvedPath": "/Users/harmelek/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/pnpm",
@@ -297,12 +297,12 @@
      "stderr": "",
      "spawnErrorCode": null,
      "spawnErrorMessage": null,
-     "observedAtUtc": "2026-09-09T01:12:21.484Z"
+     "observedAtUtc": "2026-09-09T07:42:39.032Z"
     },
     "reportedVersion": "11.19.0",
     "resultClass": "version_reported",
     "observationKind": "present_tense",
-    "observedAtUtc": "2026-09-09T01:12:21.484Z",
+    "observedAtUtc": "2026-09-09T07:42:39.032Z",
     "observationTimeCertainty": "exact",
     "cacheSafeReadOnly": true
    },
@@ -4638,7 +4638,7 @@
  "historicalFailFirstEvidence": {
   "note": "Raw fail-first outputs embedded verbatim and content-hashed. Their exact start/end/duration were NOT captured when they ran (correction-1 limitation); timing is UNKNOWN by fact, not omission. The route-authority red and the exact execution_not_ready refusal are inside the embedded content.",
   "routeAuthorityRed": {
-   "sourcePath": "/private/tmp/claude-501/-Users-harmelek-Adsecute/b1c7adea-0b6c-4b08-90b1-d63cd1d97e6e/scratchpad/d077/c1/route-authority-failfirst.log",
+   "sourcePath": "/tmp/adsecute-d077-failfirst/route-authority-failfirst.log",
    "sha256": "c0a250c5f7973e451b5c5f59db8d008b998610e88b3e142e711cea1460edc431",
    "bytes": 1216,
    "content": "\n RUN  v4.1.5 /Users/harmelek/Adsecute\n\n ❯ app/api/route-authority.test.ts (5 tests | 1 failed) 64ms\n     × has no route relying on proxy.ts as its only gate 51ms\n\n⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯\n\n FAIL  app/api/route-authority.test.ts > every API route decides its own authority > has no route relying on proxy.ts as its only gate\nAssertionError: These routes perform no identity check, so a forged `omniads_session` cookie is their only gate. Add a real check, or declare them in INTENTIONALLY_PUBLIC / DELEGATES_AUTHORITY with the reason.: expected [ 'meta/campaign-labels' ] to deeply equal []\n\n- Expected\n+ Received\n\n- []\n+ [\n+   \"meta/campaign-labels\",\n+ ]\n\n ❯ app/api/route-authority.test.ts:230:7\n    228|         \"is their only gate. Add a real check, or declare them in INTE…\n    229|         \"/ DELEGATES_AUTHORITY with the reason.\",\n    230|     ).toEqual([]);\n       |       ^\n    231|   });\n    232|\n\n⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯\n\n\n Test Files  1 failed (1)\n      Tests  1 failed | 4 passed (5)\n   Start at  16:36:25\n   Duration  372ms (transform 24ms, setup 123ms, import 21ms, tests 64ms, environment 0ms)\n\nEXIT:1\n",
@@ -4646,7 +4646,7 @@
    "exitCode": 1
   },
   "launchpadSeamRed": {
-   "sourcePath": "/private/tmp/claude-501/-Users-harmelek-Adsecute/b1c7adea-0b6c-4b08-90b1-d63cd1d97e6e/scratchpad/d077/c1/seam-failfirst.log",
+   "sourcePath": "/tmp/adsecute-d077-failfirst/seam-failfirst.log",
    "sha256": "7d616d64acd80e6057b8f22cd0cacf1480bdede214084af44f1d354284783c7c",
    "bytes": 3702,
    "content": "\n> adsecute@0.1.0 test:launchpad-handoff-seam\n> node --import tsx scripts/ephemeral-postgres-launchpad-handoff-seam.ts\n\n[launchpad-handoff-seam] running the negative control (the file must SKIP without the harness)...\n[launchpad-handoff-seam] negative control OK: 53 tests skip without the harness.\n[launchpad-handoff-seam] pg binaries: /opt/homebrew/opt/postgresql@16/bin\n[launchpad-handoff-seam] port:        61776 (never 5432 / 15432)\n[launchpad-handoff-seam] running migrations from zero...\n[startup] migrations_started { reason: 'deploy', force: true, timeoutMs: 120000 }\n[startup] db_client_initialized {\n  runtime: 'web',\n  applicationName: 'omniads-web',\n  poolMax: 10,\n  queryTimeoutMs: 8000,\n  connectionTimeoutMs: 10000,\n  idleTimeoutMs: 30000,\n  maxLifetimeSeconds: null,\n  statementTimeoutMs: null,\n  idleInTransactionSessionTimeoutMs: null,\n  retryAttempts: 4,\n  retryBackoffMs: 400,\n  retryMaxBackoffMs: 4000\n}\n[startup] db_client_timeout_wrapper_initialized {\n  runtime: 'web',\n  applicationName: 'omniads-web',\n  timeoutMs: 120000,\n  poolMax: 10\n}\n[startup] migrations_preflight {\n  reason: 'deploy',\n  session: { lock_timeout: '15s', statement_timeout: '2min', idle_timeout: '0' },\n  capacity: {\n    database_bytes: '7797783',\n    database_pretty: '7615 kB',\n    wal_bytes: '16777216',\n    temp_file_limit: '-1',\n    meta_raw_snapshots_size: 'absent',\n    shopify_raw_snapshots_size: 'absent'\n  }\n}\n[startup] migration_capacity_checked {\n  step: 'sync_release_gates_provider_scope',\n  engaged: false,\n  detail: 'sync_release_gates is 24576B; below the 268435456B heavy threshold, so no capacity gate applies'\n}\n[startup] db_client_timeout_wrapper_initialized {\n  runtime: 'web',\n  applicationName: 'omniads-web',\n  timeoutMs: 60000,\n  poolMax: 10\n}\n[startup] migrations_schema_verified { reason: 'deploy', verifiedObjects: 71 }\n[startup] migrations_automation_claim_schema_verified { reason: 'deploy', verifiedObjects: 11 }\n[startup] migrations_completed { reason: 'deploy' }\n{\n  \"metaSyncPartitionsLeaseEpochExists\": true,\n  \"metaSyncCheckpointsLeaseEpochExists\": true,\n  \"metaSyncPartitionsLeaseEpochNullCount\": 0,\n  \"metaSyncCheckpointsLeaseEpochNullRowsPresent\": false,\n  \"syncIncidentsExists\": true\n}\n[launchpad-handoff-seam] migrations from zero exited clean.\n[launchpad-handoff-seam] running launchpad handoff persistence (real PostgreSQL)...\n\n RUN  v4.1.5 /Users/harmelek/Adsecute\n\n ❯ lib/meta/launchpad-handoff.db.test.ts (26 tests | 1 failed) 114ms\n     × preselects the campaign and ad set for a duplicate 3ms\n\n⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯\n\n FAIL  lib/meta/launchpad-handoff.db.test.ts > meta launchpad handoff persistence > preselects the campaign and ad set for a duplicate\nError: mint refused: {\"ok\":false,\"refusal\":\"execution_not_ready\"}\n ❯ lib/meta/launchpad-handoff.db.test.ts:264:13\n    262|     // regression) gets diagnosed from.\n    263|     if (!minted.ok) {\n    264|       throw new Error(\n       |             ^\n    265|         `mint refused: ${JSON.stringify(minted)}`,\n    266|       );\n\n⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯\n\n\n Test Files  1 failed (1)\n      Tests  1 failed | 25 passed (26)\n   Start at  16:37:43\n   Duration  312ms (transform 53ms, setup 62ms, import 17ms, tests 114ms, environment 0ms)\n\nError: launchpad handoff persistence (real PostgreSQL) exited with code 1.\n    at runChild (/Users/harmelek/Adsecute/scripts/ephemeral-postgres-launchpad-handoff-seam.ts:175:25)\n    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)\n    at async main (/Users/harmelek/Adsecute/scripts/ephemeral-postgres-launchpad-handoff-seam.ts:298:5)\nEXIT:1\n",

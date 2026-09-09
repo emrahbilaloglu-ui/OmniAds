@@ -460,16 +460,20 @@ describe("the direction mapper has one table", () => {
 describe("the launch-mode mappers cannot disagree", () => {
   const withIntent = {
     kind: "recommendation" as const,
-    type: "bid_value_guidance" as const,
+    // B1 is the only current recommendation vocabulary that explicitly names
+    // a currency bid-cap increase. Its production emitter is campaign-grain,
+    // so this ad-set shape is a forward-contract fixture rather than a claim
+    // that production currently emits a bid proposal.
+    type: "scenario_b1_capped_winner_bid_raise" as const,
     level: "adset" as const,
-    // A genuinely executable envelope, as `executableBidIntentMinorUnits`
-    // defines one: authorised, unblocked, and with the proposed amount and the
-    // bid amount agreeing.
+    // A genuinely executable envelope: authorised, unblocked, directionally
+    // consistent with B1, and with the two proposed amounts agreeing.
     targetValue: {
       kind: "bid_intent",
       contractVersion: META_BID_INTENT_CONTRACT_VERSION,
       authorityStatus: "authorised",
       blockerCodes: [],
+      direction: "increase",
       proposedMinorUnits: 1320,
       bidAmountMinor: 1320,
     } as never,
@@ -484,6 +488,7 @@ describe("the launch-mode mappers cannot disagree", () => {
     const shapes = [
       withIntent,
       { ...withIntent, targetValue: null },
+      // The retired label cannot grant bid authority by itself.
       { ...withIntent, type: "bid_value_guidance" as const, targetValue: null },
       { ...withIntent, level: "campaign" as const },
       { kind: "anomaly" as const, type: "scale_for_volume" as const, level: "adset" as const, targetValue: null },

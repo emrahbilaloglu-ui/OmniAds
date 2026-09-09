@@ -82,6 +82,8 @@ import { spawn, spawnSync } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
 import { NextRequest } from "next/server";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { seedCanonicalMetaAdDailyFacts } from "@/lib/creative-decision-engine/meta-aov-calculator.test-helpers";
+import { seedHealthyDbHostCapacitySnapshot } from "@/lib/sync/db-growth-fence.test-helpers";
 
 /** Never the local volume, never the production tunnel. */
 const FORBIDDEN_PORTS = new Set([5432, 15432]);
@@ -384,7 +386,8 @@ describe.skipIf(!RUNNABLE)(
 
       db = await import("@/lib/db");
       const sql = db.getDb();
-      const { upsertMetaCreativeDailyRows } = await import(
+      await seedHealthyDbHostCapacitySnapshot(sql, "served-profile-test-host");
+      const { upsertMetaAdDailyRows, upsertMetaCreativeDailyRows } = await import(
         "@/lib/meta/warehouse"
       );
       const { runCalibrationJob } = await import(
@@ -457,6 +460,11 @@ describe.skipIf(!RUNNABLE)(
           });
         }
         await upsertMetaCreativeDailyRows(rows);
+        await seedCanonicalMetaAdDailyFacts({
+          sql,
+          rows,
+          write: upsertMetaAdDailyRows,
+        });
       };
 
       const seedBusiness = async (businessId: string, name: string) => {
@@ -821,10 +829,8 @@ describe.skipIf(!RUNNABLE)(
           eligible: row.eligible,
           blockerCode: row.blocker_code,
         });
-        expect(Number(row.spend_unit)).toBeCloseTo(
-          served.anchor.explanation!.spendUnit!,
-          9,
-        );
+        expect(row.spend_unit).toBeNull();
+        expect(served.anchor.explanation!.spendUnit).toBeNull();
       }
 
       /*
@@ -1147,6 +1153,144 @@ describe.skipIf(!RUNNABLE)(
         expect(Number(row.spend_unit)).toBeCloseTo(
           served.anchor.explanation!.spendUnit!,
           9,
+        );
+      }
+    });
+
+    it("rejects an eligible retained row when only its strict canonical AOV facts move", async () => {
+      const {
+        readAccountProfileRetentionIdentity,
+      } = await import("@/lib/meta/account-profile-output-producer");
+      const { classifyRetainedProfile } = await import(
+        "@/lib/meta/budget-readiness-retention"
+      );
+      const sql = db.getDb();
+      const [retainedScale] = (await sql.query(
+        `SELECT contract,
+                profile_contract AS "profileContract",
+                action,
+                engine_epoch AS "engineEpoch",
+                engine_version AS "engineVersion",
+                input_fingerprint AS "inputFingerprint",
+                source_fingerprint AS "sourceFingerprint",
+                eligible,
+                blocker_code AS "blockerCode",
+                to_char(as_of_date, 'YYYY-MM-DD') AS "asOfDate",
+                to_char(effective_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "effectiveAt",
+                to_char(recorded_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "recordedAt"
+           FROM engine_v3_account_profile_output
+          WHERE business_id = $1
+            AND provider_account_id = $2
+            AND as_of_date = $3::date
+            AND action = 'scale'
+          ORDER BY recorded_at DESC
+          LIMIT 1`,
+        [NOSTORE_BUSINESS, NOSTORE_P, AS_OF],
+      )) as Array<Record<string, unknown>>;
+      expect(retainedScale).toMatchObject({ eligible: true, blockerCode: null });
+
+      const beforeIdentity = await readAccountProfileRetentionIdentity({
+        businessId: NOSTORE_BUSINESS,
+        providerAccountId: NOSTORE_P,
+        asOfDate: AS_OF,
+      });
+      expect(beforeIdentity).not.toBeNull();
+      expect(
+        classifyRetainedProfile(retainedScale, {
+          ...beforeIdentity!,
+          nowIso: new Date().toISOString(),
+          maxAgeMs: 12 * 3_600_000,
+        }),
+      ).toEqual({ usable: true, reason: null });
+
+      const [legacyBefore] = await sql.query<{ legacy_aov: string }>(
+        `SELECT CONCAT_WS('|',
+                  meta_attributed_aov_mean_90d::text,
+                  meta_attributed_aov_purchase_count_90d::text,
+                  meta_attributed_revenue_90d::text,
+                  meta_aov_quality
+                ) AS legacy_aov
+           FROM engine_v3_account_calibration_daily
+          WHERE business_id = $1
+            AND scope_type = 'account'
+            AND scope_id = $2
+            AND campaign_kind = 'all'
+            AND creative_format = 'overall'
+            AND as_of_date = $3::date
+          LIMIT 1`,
+        [NOSTORE_BUSINESS, NOSTORE_P, AS_OF],
+      );
+      expect(legacyBefore?.legacy_aov).toBeTruthy();
+
+      const changed = await sql.query<{ ad_id: string }>(
+        `UPDATE meta_ad_daily
+            SET validation_status = 'failed'
+          WHERE business_id = $1
+            AND provider_account_id = $2
+            AND date = $3::date
+            AND ad_id = (
+              SELECT MIN(ad_id)
+                FROM meta_ad_daily
+               WHERE business_id = $1
+                 AND provider_account_id = $2
+                 AND date = $3::date
+            )
+          RETURNING ad_id`,
+        [NOSTORE_BUSINESS, NOSTORE_P, AS_OF],
+      );
+      expect(changed).toHaveLength(1);
+
+      try {
+        const afterIdentity = await readAccountProfileRetentionIdentity({
+          businessId: NOSTORE_BUSINESS,
+          providerAccountId: NOSTORE_P,
+          asOfDate: AS_OF,
+        });
+        expect(afterIdentity).not.toBeNull();
+        expect(afterIdentity!.inputFingerprint).toBe(
+          beforeIdentity!.inputFingerprint,
+        );
+        expect(afterIdentity!.sourceFingerprint).not.toBe(
+          beforeIdentity!.sourceFingerprint,
+        );
+        expect(
+          classifyRetainedProfile(retainedScale, {
+            ...afterIdentity!,
+            nowIso: new Date().toISOString(),
+            maxAgeMs: 12 * 3_600_000,
+          }),
+        ).toEqual({
+          usable: false,
+          reason: "retained_profile_source_mismatch",
+        });
+
+        const [legacyAfter] = await sql.query<{ legacy_aov: string }>(
+          `SELECT CONCAT_WS('|',
+                    meta_attributed_aov_mean_90d::text,
+                    meta_attributed_aov_purchase_count_90d::text,
+                    meta_attributed_revenue_90d::text,
+                    meta_aov_quality
+                  ) AS legacy_aov
+             FROM engine_v3_account_calibration_daily
+            WHERE business_id = $1
+              AND scope_type = 'account'
+              AND scope_id = $2
+              AND campaign_kind = 'all'
+              AND creative_format = 'overall'
+              AND as_of_date = $3::date
+            LIMIT 1`,
+          [NOSTORE_BUSINESS, NOSTORE_P, AS_OF],
+        );
+        expect(legacyAfter?.legacy_aov).toBe(legacyBefore!.legacy_aov);
+      } finally {
+        await sql.query(
+          `UPDATE meta_ad_daily
+              SET validation_status = 'passed'
+            WHERE business_id = $1
+              AND provider_account_id = $2
+              AND date = $3::date
+              AND ad_id = $4`,
+          [NOSTORE_BUSINESS, NOSTORE_P, AS_OF, changed[0]!.ad_id],
         );
       }
     });

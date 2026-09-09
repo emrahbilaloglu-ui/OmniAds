@@ -794,7 +794,7 @@ describe("the production scheduled runtime re-reads it too", () => {
       },
       forceReconcile: async () => true,
       recordReconciliation: async () => true,
-      recordLedger: async (entry) => { ledger.push(entry.activityType); },
+      recordLedger: async (entry) => { ledger.push(entry.activityType); return true; },
       execute: async (beforeProviderPost) => run({
         proposal: proposal(),
         dryRunOnly: false,

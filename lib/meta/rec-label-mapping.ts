@@ -1,5 +1,5 @@
 import type { DecisionLabel } from "@/components/common/briefing/types";
-import { executableBidIntentMinorUnits } from "@/lib/meta/bid-intent-contract";
+import { executableMetaRecommendationBidAmount } from "@/lib/meta/bid-intent-contract";
 import type { MetaLaunchMode } from "@/components/meta/redesign/types";
 import type { MetaRecommendation } from "@/lib/meta/recommendations";
 
@@ -182,6 +182,7 @@ const META_REC_TYPE_DIRECTION = new Map<string, DecisionLabel>([
   ["adset_cut_spend", "cut"],
   ["adset_scale_budget", "scale"],
   ["scale_for_volume", "scale"],
+  ["scale_for_volume_budget_increase", "scale"],
   ["scale_for_profitability", "scale"],
   ["winner_promotion_flow", "scale"],
   ["scenario_b2_lowest_cost_budget_scale", "scale"],
@@ -371,10 +372,12 @@ export function launchModeForMetaRec(input: MetaRecLabelInput): MetaLaunchMode |
     while it was the rule.
   */
   if (input.level === "adset") {
-    if (executableBidIntentMinorUnits(input.targetValue) !== null) {
+    if (executableMetaRecommendationBidAmount({
+      recommendationType: input.type,
+      targetValue: input.targetValue,
+    }) !== null) {
       return "apply_bid";
     }
-    if (input.type === "bid_value_guidance") return "apply_bid";
   }
   return null;
 }
@@ -391,7 +394,10 @@ export function primaryLabelForMetaRec(input: MetaRecLabelInput) {
   if (mode === "duplicate") return "Duplicate to test";
   if (mode === "apply_bid") return "Apply bid cap";
   if (input.type === "adset_cut_spend") return "Pause adset";
-  if (input.type === "adset_scale_budget") return "Scale budget";
+  if (
+    input.type === "adset_scale_budget"
+    || input.type === "scale_for_volume_budget_increase"
+  ) return "Scale budget";
   if (input.type === "scenario_m1_mid_funnel_efficient_scale") return "Scale budget";
   if (input.type === "scenario_m2_mid_funnel_steady_keep") return "Hold";
   if (input.type === "scenario_m3_mid_funnel_inefficient_cut") return "Pause adset";

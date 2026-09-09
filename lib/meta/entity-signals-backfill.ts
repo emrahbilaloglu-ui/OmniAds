@@ -619,7 +619,7 @@ async function readConfigHistory(input: {
       `
         WITH requested_entities AS (
           SELECT * FROM unnest(
-            $2::text[], $4::text[], $5::timestamptz[], $6::timestamptz[]
+            $2::text[], $3::text[], $4::timestamptz[], $5::timestamptz[]
           ) AS t(entity_id, provider_account_id, start_inclusive, end_exclusive)
         )
         SELECT
@@ -693,7 +693,6 @@ async function readConfigHistory(input: {
       [
         input.businessId,
         entityIds,
-        normalizeDate(input.asOfDate),
         scopes.map((scope) => scope.providerAccountId),
         scopes.map((scope) => scope.startInclusive),
         scopes.map((scope) => scope.endExclusive),

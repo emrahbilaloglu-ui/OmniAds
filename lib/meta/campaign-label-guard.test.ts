@@ -69,8 +69,11 @@ function rec(overrides: Partial<MetaRecommendation> = {}): MetaRecommendation {
 }
 
 describe("applyMetaCampaignLabelGuard", () => {
-  it("passes through hard actions with a high-confidence automatic campaign role", () => {
-    const input = rec();
+  it.each([
+    "scale_for_volume",
+    "scale_for_volume_budget_increase",
+  ] as const)("passes through %s with a high-confidence automatic campaign role", (type) => {
+    const input = rec({ type });
     const result = applyMetaCampaignLabelGuard({
       recommendations: [input],
       campaignLabelsById: buildMetaCampaignLabelKindMap([]),

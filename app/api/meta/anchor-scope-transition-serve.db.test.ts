@@ -104,6 +104,8 @@ import { spawn, spawnSync } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
 import { NextRequest } from "next/server";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { seedCanonicalMetaAdDailyFacts } from "@/lib/creative-decision-engine/meta-aov-calculator.test-helpers";
+import { seedHealthyDbHostCapacitySnapshot } from "@/lib/sync/db-growth-fence.test-helpers";
 
 /** Never the local volume, never the production tunnel. */
 const FORBIDDEN_PORTS = new Set([5432, 15432]);
@@ -396,7 +398,8 @@ describe.skipIf(!RUNNABLE)(
 
       db = await import("@/lib/db");
       const sql = db.getDb();
-      const { upsertMetaCreativeDailyRows } = await import(
+      await seedHealthyDbHostCapacitySnapshot(sql, "anchor-scope-test-host");
+      const { upsertMetaAdDailyRows, upsertMetaCreativeDailyRows } = await import(
         "@/lib/meta/warehouse"
       );
       const { runCalibrationJob } = await import(
@@ -481,6 +484,11 @@ describe.skipIf(!RUNNABLE)(
           });
         }
         await upsertMetaCreativeDailyRows(rows);
+        await seedCanonicalMetaAdDailyFacts({
+          sql,
+          rows,
+          write: upsertMetaAdDailyRows,
+        });
       };
 
       const seedBusiness = async (businessId: string, name: string) => {

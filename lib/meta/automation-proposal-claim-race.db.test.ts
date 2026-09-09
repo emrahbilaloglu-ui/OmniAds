@@ -56,7 +56,10 @@ vi.mock("@/lib/meta/automation-proposal-execution", () => ({
       proposal: { id: string };
       receiptKey?: string | null;
       dryRunOnly: boolean;
+      markDispatchStarted?: () => Promise<boolean>;
     }) => {
+      const marked = await input.markDispatchStarted?.();
+      if (marked === false) throw new Error("fake provider dispatch marker failed");
       providerCalls.push({
         proposalId: input.proposal.id,
         receiptKey: input.receiptKey ?? null,
@@ -67,11 +70,15 @@ vi.mock("@/lib/meta/automation-proposal-execution", () => ({
         receipt: {
           httpStatus: 200,
           response: { ok: true, fakeProvider: true },
-          dryRun: input.dryRunOnly,
+          // The seam injects a live provider answer to exercise the execution
+          // claim independently of the host's release gate. No provider client
+          // is imported; this remains a counting fake.
+          dryRun: false,
           dispatchedAt: new Date().toISOString(),
           endpoint: `/api/meta/adsets/${input.proposal.id}/pause`,
           withheld: null,
           receiptKey: input.receiptKey ?? null,
+          providerMutationAttempted: true,
         },
       };
     },
@@ -113,6 +120,32 @@ function decideRequest(proposalId: string, action: "modify" | "dismiss") {
 }
 
 async function seedProposal(scopeId: string) {
+  /*
+    The claim now re-proves the exact current decision inside its atomic UPDATE.
+    Each race row therefore needs the real source it claims to project; a bare
+    queue fixture would correctly be unclaimable and would test no race at all.
+  */
+  await getDb().query(
+    `INSERT INTO meta_adset_dimensions
+       (business_id, provider_account_id, campaign_id, adset_id,
+        adset_name_current, adset_status)
+     VALUES ($1::uuid, $2, 'camp_race', $3, 'Race ad set', 'ACTIVE')
+     ON CONFLICT DO NOTHING`,
+    [seeded.businessId, PROVIDER_ACCOUNT_ID, scopeId],
+  );
+  await getDb().query(
+    `INSERT INTO meta_decision_snapshots_daily (
+       scope_type, scope_id, business_id, snapshot_date, rec_id, rec_type,
+       level, decision_state, evidence, recommended_action, target_value,
+       reasoning, engine_version, kind, decision_label, provider_account_id
+     ) VALUES (
+       'adset', $1, $2, CURRENT_DATE, 'rec_race', 'scenario_race_cut',
+       'adset', 'act', '{}'::jsonb, 'Pause this ad set.', NULL,
+       'ROAS below breakeven for 6 days.', 'meta-v3', 'recommendation', 'cut', $3
+     )
+     ON CONFLICT DO NOTHING`,
+    [scopeId, seeded.businessId, PROVIDER_ACCOUNT_ID],
+  );
   const rows = (await getDb().query<{ id: string }>(
     `
       INSERT INTO meta_automation_proposals (

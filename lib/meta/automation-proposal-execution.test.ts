@@ -211,6 +211,96 @@ describe("approval executes through the existing guarded handler", () => {
     });
   });
 
+  it("does not stamp dispatch when the guarded handler refuses before its provider boundary", async () => {
+    const markDispatchStarted = vi.fn(async () => true);
+    vi.mocked(entityRoutes.handleMetaEntityPauseAction).mockResolvedValue(
+      NextResponse.json(
+        { ok: false, error: { code: "current_entity_state_incompatible" } },
+        { status: 409 },
+      ) as never,
+    );
+
+    const result = await executeMetaAutomationProposal({
+      request: operatorRequest(),
+      businessId: BUSINESS_ID,
+      proposal: proposal(),
+      dryRunOnly: false,
+      markDispatchStarted,
+    });
+
+    expect(markDispatchStarted).not.toHaveBeenCalled();
+    expect(result.receipt.providerMutationAttempted).toBe(false);
+  });
+
+  it("stamps dispatch inside the status handler's exact provider boundary", async () => {
+    const markDispatchStarted = vi.fn(async () => true);
+    vi.mocked(entityRoutes.handleMetaEntityPauseAction).mockImplementationOnce(
+      async (_request, _context, _input, hooks) => {
+        await hooks?.beforeMutationAttempt?.();
+        return NextResponse.json(
+          { ok: true, action: "pause", entityId: "23848", status: "PAUSED" },
+          { status: 200 },
+        ) as never;
+      },
+    );
+
+    const result = await executeMetaAutomationProposal({
+      request: operatorRequest(),
+      businessId: BUSINESS_ID,
+      proposal: proposal(),
+      dryRunOnly: false,
+      markDispatchStarted,
+    });
+
+    expect(markDispatchStarted).toHaveBeenCalledTimes(1);
+    expect(result.receipt.providerMutationAttempted).toBe(true);
+  });
+
+  it("reports a status marker veto as a definite non-attempt", async () => {
+    const markDispatchStarted = vi.fn(async () => false);
+    vi.mocked(entityRoutes.handleMetaEntityPauseAction).mockImplementationOnce(
+      async (_request, _context, _input, hooks) => {
+        try {
+          await hooks?.beforeMutationAttempt?.();
+        } catch {
+          return NextResponse.json(
+            { ok: false, error: { code: "proposal_claim_lost" } },
+            { status: 409 },
+          ) as never;
+        }
+        throw new Error("the vetoed handler must not continue");
+      },
+    );
+
+    const result = await executeMetaAutomationProposal({
+      request: operatorRequest(),
+      businessId: BUSINESS_ID,
+      proposal: proposal(),
+      dryRunOnly: false,
+      markDispatchStarted,
+    });
+
+    expect(markDispatchStarted).toHaveBeenCalledTimes(1);
+    expect(result.ok).toBe(false);
+    expect(result.receipt.providerMutationAttempted).toBe(false);
+  });
+
+  it("refuses a malformed status descriptor without stamping dispatch", async () => {
+    const markDispatchStarted = vi.fn(async () => true);
+    const result = await executeMetaAutomationProposal({
+      request: operatorRequest(),
+      businessId: BUSINESS_ID,
+      proposal: proposal({ scopeType: "ad", scopeId: "ad_1", evidenceRef: {} }),
+      dryRunOnly: false,
+      markDispatchStarted,
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.receipt.endpoint).toBeNull();
+    expect(result.receipt.providerMutationAttempted).toBe(false);
+    expect(markDispatchStarted).not.toHaveBeenCalled();
+  });
+
   it("withholds an action that has no endpoint instead of improvising one", async () => {
     const result = await executeMetaAutomationProposal({
       request: operatorRequest(),

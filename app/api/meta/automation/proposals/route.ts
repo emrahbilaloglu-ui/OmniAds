@@ -56,7 +56,10 @@ import { readMetaReleaseGates } from "@/lib/meta/release-gates";
 import { missingSteps, writeFamily } from "@/lib/meta/write-safety-contract";
 import { BUDGET_PROPOSAL_ACTION } from "@/lib/meta/budget-proposal-runtime";
 import { createBudgetProposalServerRuntime } from "@/lib/meta/budget-proposal-server-runtime";
-import { runClaimedProposalExecution } from "@/lib/meta/budget-execution-lifecycle";
+import {
+  runClaimedProposalExecution,
+  type ClaimedExecutionDeps,
+} from "@/lib/meta/budget-execution-lifecycle";
 import { createBudgetServerReaders } from "@/lib/meta/budget-proposal-server-readers";
 import {
   buildMetaBudgetWriteContextForProposal,
@@ -557,6 +560,16 @@ async function approve(input: {
   }
 
   /*
+    The claim's RETURNING row is the only proposal version this request owns.
+
+    A snapshot may withdraw and re-offer an untouched proposal under the same
+    id between the route's initial read and this compare-and-set. The claim
+    re-proves that newer source and returns its refreshed envelope. Dispatching
+    the pre-claim copy would validate one version while executing another.
+  */
+  const claimedProposal = claim.proposal;
+
+  /*
     Written before the handler is entered, never after: its presence is the
     only durable evidence that a provider write MIGHT exist for this attempt.
 
@@ -566,7 +579,8 @@ async function approve(input: {
     a dispatch on every budget approval that is withheld BEFORE any provider
     contact (a shut gate, a missing confirmation, an inadmissible composition),
     and an operator reading the row could not tell those from a real dispatch.
-    The pause family keeps its own marker: its handler has no such boundary.
+    Pause and ordinary resume take the same callback through their guarded
+    status handlers, whose write adapters expose the exact pre-provider hook.
 
     Nor for a Launchpad row — a `launch`, or the `resume` that names the intent
     it activates. Both cross a long chain of pre-provider refusals inside their
@@ -578,8 +592,8 @@ async function approve(input: {
     first provider call and which VETOES that call when it cannot be written.
   */
   const marksAtItsOwnBoundary =
-    input.proposal.proposedAction === BUDGET_PROPOSAL_ACTION
-    || input.proposal.proposedAction === "launch"
+    claimedProposal.proposedAction === BUDGET_PROPOSAL_ACTION
+    || claimedProposal.proposedAction === "launch"
     /*
       `bid` joins them, because it too can refuse BEFORE any provider call.
 
@@ -590,14 +604,14 @@ async function approve(input: {
       when nothing was sent, which is the same pathology this file's header
       records for launch rows.
     */
-    || input.proposal.proposedAction === "bid"
-    || (input.proposal.proposedAction === "resume"
-      && input.proposal.launchIntentId !== null);
+    || claimedProposal.proposedAction === "bid"
+    || claimedProposal.proposedAction === "pause"
+    || claimedProposal.proposedAction === "resume";
   const dispatchMarked = marksAtItsOwnBoundary
     ? true
     : await markMetaAutomationProposalDispatchStarted({
       businessId: input.businessId,
-      proposalId: input.proposal.id,
+      proposalId: claimedProposal.id,
       claimToken: claim.claimToken,
     }).catch(() => false);
   if (!dispatchMarked) {
@@ -606,7 +620,7 @@ async function approve(input: {
     const current = await readMetaAutomationProposal({
       businessId: input.businessId,
       providerAccountId: input.providerAccountId,
-      proposalId: input.proposal.id,
+      proposalId: claimedProposal.id,
     }).catch(() => null);
     return claimConflictResponse(current);
   }
@@ -614,16 +628,89 @@ async function approve(input: {
   let execution: ExecuteProposalResult;
   let ambiguous = false;
   /*
-    D088 C3: the budget path settles and ledgers ONCE, inside the shared
+    Every executable family below owns its marker at the exact provider
+    boundary, and this request remembers only a marker it actually wrote. The
+    receipt may give a still more precise answer: a second authority check can
+    refuse after the durable marker but before the provider request, and an
+    explicit `false` must win over the marker in that case.
+  */
+  let providerBoundaryMarked = !marksAtItsOwnBoundary && dispatchMarked;
+  /*
+    Budget and bid settle and ledger ONCE inside the shared claimed-row
     lifecycle. Its result is captured here so the response can be built from
     the settlement that already happened instead of performing a second one.
   */
-  let budgetLifecycle: Awaited<ReturnType<typeof runClaimedProposalExecution>> | null = null;
-  try {
-    execution = await executeMetaAutomationProposal({
+  let sharedLifecycle: Awaited<ReturnType<typeof runClaimedProposalExecution>> | null = null;
+
+  const runSharedLifecycle = (
+    proposal: MetaAutomationProposal,
+    execute: ClaimedExecutionDeps["execute"],
+  ) => runClaimedProposalExecution({
+    businessId: input.businessId,
+    providerAccountId: input.providerAccountId,
+    proposal,
+    claimToken: claim.claimToken,
+    actorUserId: input.access.session.user.id,
+    executionKind: "manual",
+    markDispatchStarted: async (marked) =>
+      Boolean(await markMetaAutomationProposalDispatchStarted({
+        businessId: marked.businessId,
+        proposalId: marked.proposalId,
+        claimToken: marked.claimToken,
+      }).catch(() => null)),
+    settle: async (settleInput) => settleMetaAutomationProposal({
+      businessId: settleInput.businessId,
+      proposalId: settleInput.proposalId,
+      status: settleInput.status,
+      decidedBy: settleInput.decidedBy,
+      decisionNote: null,
+      receipt: settleInput.receipt,
+      claimToken: settleInput.claimToken,
+    }),
+    forceReconcile: (reconcileInput) =>
+      forceMetaAutomationProposalReconcile(reconcileInput),
+    recordReconciliation: async ({ proposal: row, claimToken, receipt, reason }) => {
+      const recorded = await appendMetaAutomationReconciliationReceipt({
+        businessId: row.businessId,
+        proposalId: row.id,
+        providerAccountId: row.providerAccountId,
+        decisionKey: row.decisionKey,
+        proposedAction: row.proposedAction,
+        claimToken,
+        reason,
+        facts: providerDispatchFacts({
+          dispatchStarted: true,
+          outcomeKnown: false,
+          ok: false,
+          dryRun: receipt.dryRun === true,
+        }),
+        receipt,
+      });
+      return recorded.status !== "unavailable";
+    },
+    recordLedger: async (entry) => {
+      const ledger = await recordProposalLedgerEntry({
+        businessId: input.businessId,
+        userId: input.access.session.user.id,
+        activityType: entry.activityType,
+        severity: entry.severity,
+        message: entry.message,
+        payload: entry.payload,
+        proposal,
+        resultStatus: entry.resultStatus,
+      });
+      return ledger.ledgerCompleteness === "complete";
+    },
+    execute,
+  });
+
+  const executeProposal = (
+    proposal: MetaAutomationProposal,
+    markDispatchStarted: (() => Promise<boolean>) | undefined,
+  ) => executeMetaAutomationProposal({
       request: input.request,
       businessId: input.businessId,
-      proposal: input.proposal,
+      proposal,
       dryRunOnly,
       receiptKey: claim.claimToken,
       /*
@@ -666,12 +753,7 @@ async function approve(input: {
         cannot be recorded. Same compare-and-set the pause family takes above,
         moved to the only place that can tell a refusal from an attempt.
       */
-      markDispatchStarted: async () =>
-        Boolean(await markMetaAutomationProposalDispatchStarted({
-          businessId: input.businessId,
-          proposalId: input.proposal.id,
-          claimToken: claim.claimToken,
-        }).catch(() => null)),
+      markDispatchStarted,
       /*
         D088 C3: the CONCRETE budget runtime, and the SHARED lifecycle.
 
@@ -693,62 +775,9 @@ async function approve(input: {
             }),
           }),
         );
-        const lifecycle = await runClaimedProposalExecution({
-          businessId: input.businessId,
-          providerAccountId: input.providerAccountId,
-          proposal: runtimeInput.proposal,
-          claimToken: claim.claimToken,
-          actorUserId: input.access.session.user.id,
-          executionKind: "manual",
-          markDispatchStarted: async (marked) =>
-            Boolean(await markMetaAutomationProposalDispatchStarted({
-              businessId: marked.businessId,
-              proposalId: marked.proposalId,
-              claimToken: marked.claimToken,
-            }).catch(() => null)),
-          settle: async (settleInput) => settleMetaAutomationProposal({
-            businessId: settleInput.businessId,
-            proposalId: settleInput.proposalId,
-            status: settleInput.status,
-            decidedBy: settleInput.decidedBy,
-            decisionNote: null,
-            receipt: settleInput.receipt,
-            claimToken: settleInput.claimToken,
-          }),
-          forceReconcile: (reconcileInput) =>
-            forceMetaAutomationProposalReconcile(reconcileInput),
-          recordReconciliation: async ({ proposal, claimToken, receipt }) => {
-            const recorded = await appendMetaAutomationReconciliationReceipt({
-              businessId: proposal.businessId,
-              proposalId: proposal.id,
-              providerAccountId: proposal.providerAccountId,
-              decisionKey: proposal.decisionKey,
-              proposedAction: proposal.proposedAction,
-              claimToken,
-              reason: "settle_failed_after_dispatch",
-              facts: providerDispatchFacts({
-                dispatchStarted: true,
-                outcomeKnown: false,
-                ok: false,
-                dryRun: receipt.dryRun === true,
-              }),
-              receipt,
-            });
-            return recorded.status !== "unavailable";
-          },
-          recordLedger: async (entry) => {
-            await recordProposalLedgerEntry({
-              businessId: input.businessId,
-              userId: input.access.session.user.id,
-              activityType: entry.activityType,
-              severity: entry.severity,
-              message: entry.message,
-              payload: entry.payload,
-              proposal: runtimeInput.proposal,
-              resultStatus: entry.severity === "success" ? "applied" : "failed",
-            }).catch(() => undefined);
-          },
-          execute: async (beforeProviderPost) => runtime({
+        const lifecycle = await runSharedLifecycle(
+          runtimeInput.proposal,
+          async (beforeProviderPost) => runtime({
             proposal: runtimeInput.proposal,
             dryRunOnly: runtimeInput.dryRunOnly,
             claimToken: runtimeInput.claimToken,
@@ -760,8 +789,8 @@ async function approve(input: {
             },
             beforeProviderPost,
           }),
-        });
-        budgetLifecycle = lifecycle;
+        );
+        sharedLifecycle = lifecycle;
         return {
           ok: lifecycle.ok,
           receipt: lifecycle.receipt,
@@ -771,6 +800,42 @@ async function approve(input: {
         };
       },
     });
+
+  try {
+    if (claimedProposal.proposedAction === "bid") {
+      const lifecycle = await runSharedLifecycle(
+        claimedProposal,
+        async (beforeProviderPost) => {
+          const result = await executeProposal(claimedProposal, beforeProviderPost);
+          return {
+            ok: result.ok,
+            receipt: result.receipt,
+            reconcile: result.receipt.ambiguous === true,
+            rollbackRequested: false,
+            journalId: null,
+          };
+        },
+      );
+      sharedLifecycle = lifecycle;
+      execution = { ok: lifecycle.ok, receipt: lifecycle.receipt };
+    } else {
+      execution = await executeProposal(
+        claimedProposal,
+        async () => {
+          const marked = Boolean(await markMetaAutomationProposalDispatchStarted({
+            businessId: input.businessId,
+            proposalId: claimedProposal.id,
+            claimToken: claim.claimToken,
+          }).catch(() => null));
+          providerBoundaryMarked ||= marked;
+          return marked;
+        },
+      );
+    }
+    // Guarded handlers can return a structured ambiguous outcome without
+    // throwing (for example a transport failure after a bid POST began). That
+    // has the same reconciliation meaning as an exception at this boundary.
+    ambiguous = execution.receipt.ambiguous === true;
   } catch (error) {
     // The dispatch was entered and produced no answer. That is not a failure
     // and it is certainly not a success: a pause may be live in Meta. The row
@@ -791,10 +856,18 @@ async function approve(input: {
     };
   }
 
-  // Everything below this line runs AFTER the provider has been reached. The
-  // dispatch is not repeatable and is never repeated: `executeMetaAutomation
-  // Proposal` is called exactly once, above, and no path from here calls it
-  // again.
+  /*
+    An executor result can be a refusal from before the provider boundary. An
+    explicit receipt fact is authoritative; older handlers that do not publish
+    one fall back to the marker this request actually wrote. Exceptions are
+    unknown only after that boundary. Before it, they are definite failures and
+    must not consume a reconciliation slot.
+  */
+  const providerDispatchStarted =
+    execution.receipt.dryRun === true
+      ? false
+      : execution.receipt.providerMutationAttempted ?? providerBoundaryMarked;
+  ambiguous = providerDispatchStarted && ambiguous;
   const settledStatus = ambiguous
     ? "reconcile"
     : execution.ok
@@ -804,7 +877,7 @@ async function approve(input: {
   // The three facts, derived once, so the ledger row, the response envelope and
   // the reconciliation receipt cannot disagree about the same attempt.
   const facts = providerDispatchFacts({
-    dispatchStarted: true,
+    dispatchStarted: providerDispatchStarted,
     outcomeKnown: !ambiguous,
     ok: execution.ok,
     dryRun: execution.receipt.dryRun === true,
@@ -812,7 +885,7 @@ async function approve(input: {
 
   let settled: MetaAutomationProposal | null = null;
   let settleThrew: unknown = null;
-  const lifecycle = budgetLifecycle as
+  const lifecycle = sharedLifecycle as
     | Awaited<ReturnType<typeof runClaimedProposalExecution>>
     | null;
   if (lifecycle) {
@@ -824,7 +897,8 @@ async function approve(input: {
     if (lifecycle.settlementFailed) {
       const postDispatch = lifecycle.providerDispatchStarted;
       const anythingDurable = lifecycle.reconciliationHeld
-        || lifecycle.reconciliationRecorded;
+        || lifecycle.reconciliationRecorded
+        || lifecycle.ledgerCompleteness === "complete";
       return NextResponse.json(
         {
           ok: false,
@@ -857,8 +931,40 @@ async function approve(input: {
           providerDispatchStarted: lifecycle.providerDispatchStarted,
           providerOutcomeKnown: lifecycle.providerOutcomeKnown,
           providerWriteVerified: false,
+          ledgerCompleteness: lifecycle.ledgerCompleteness,
+          ledgerErrorCode: lifecycle.ledgerErrorCode,
         },
         { status: postDispatch ? anythingDurable ? 502 : 500 : 409 },
+      );
+    }
+    if (lifecycle.reconcile) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: {
+            code: "proposal_outcome_unknown",
+            message:
+              "This approval reached Meta but no conclusive provider result came back. The proposal is held for reconciliation and was not recorded as applied.",
+          },
+          receipt: lifecycle.receipt,
+          receiptKey: claim.claimToken,
+          proposalStatus: lifecycle.settledStatus,
+          reconciliation: {
+            required: true,
+            held: true,
+            recorded: lifecycle.reconciliationRecorded,
+            errorCode: lifecycle.reconciliationRecorded
+              ? null
+              : "reconciliation_receipt_write_failed",
+          },
+          providerDispatchIntentMarked: lifecycle.providerDispatchIntentMarked,
+          providerDispatchStarted: lifecycle.providerDispatchStarted,
+          providerOutcomeKnown: lifecycle.providerOutcomeKnown,
+          providerWriteVerified: false,
+          ledgerCompleteness: lifecycle.ledgerCompleteness,
+          ledgerErrorCode: lifecycle.ledgerErrorCode,
+        },
+        { status: 502 },
       );
     }
     return queueResponse({
@@ -875,13 +981,15 @@ async function approve(input: {
         providerWriteVerified:
           lifecycle.providerOutcomeKnown && lifecycle.ok
           && execution.receipt.dryRun !== true,
+        ledgerCompleteness: lifecycle.ledgerCompleteness,
+        ledgerErrorCode: lifecycle.ledgerErrorCode,
       },
     });
   }
   try {
     settled = await settleMetaAutomationProposal({
       businessId: input.businessId,
-      proposalId: input.proposal.id,
+      proposalId: claimedProposal.id,
       status: settledStatus,
       decidedBy: input.access.session.user.id,
       decisionNote: null,
@@ -905,11 +1013,55 @@ async function approve(input: {
   }
 
   if (settleThrew !== null) {
+    if (!providerDispatchStarted) {
+      const ledger = await recordProposalLedgerEntry({
+        businessId: input.businessId,
+        userId: input.access.session.user.id,
+        activityType: "automation_proposal_failed",
+        severity: "danger",
+        message:
+          `Proposal approval could not be recorded — ${claimedProposal.actionLabel} on ${claimedProposal.entityLabel ?? claimedProposal.scopeId}. Nothing reached Meta.`,
+        payload: {
+          proposalId: claimedProposal.id,
+          receiptKey: claim.claimToken,
+          recId: claimedProposal.recId,
+          decisionKey: claimedProposal.decisionKey,
+          providerAccountId: claimedProposal.providerAccountId,
+          receipt: execution.receipt,
+          settleError: sanitizeErrorMessage(settleThrew),
+          ...facts,
+        },
+        proposal: claimedProposal,
+        resultStatus: "failed",
+      });
+      return NextResponse.json(
+        {
+          ok: false,
+          error: {
+            code: "proposal_claim_lost",
+            message:
+              "The proposal claim could not be settled. Nothing reached Meta; read the fresh queue state before retrying.",
+          },
+          receipt: execution.receipt,
+          receiptKey: claim.claimToken,
+          proposalStatus: null,
+          reconciliation: {
+            required: false,
+            held: false,
+            recorded: false,
+            errorCode: null,
+          },
+          ...facts,
+          ...ledger,
+        },
+        { status: 409 },
+      );
+    }
     return await recordPostDispatchSettleFailure({
       access: input.access,
       businessId: input.businessId,
       providerAccountId: input.providerAccountId,
-      proposal: input.proposal,
+      proposal: claimedProposal,
       claimToken: claim.claimToken,
       receipt: execution.receipt,
       // The provider answered, but this request could not record it. Whether
@@ -939,26 +1091,30 @@ async function approve(input: {
       : execution.ok
         ? "automation_proposal_approved"
         : "automation_proposal_failed",
-    severity: execution.ok && !ambiguous ? "success" : "danger",
+    severity: facts.providerWriteVerified
+      ? "success"
+      : execution.ok && !ambiguous
+        ? "info"
+        : "danger",
     message: `${
       ambiguous
-        ? `Proposal outcome unknown — ${input.proposal.actionLabel} on ${input.proposal.entityLabel ?? input.proposal.scopeId} was dispatched and no result came back. Reconcile against Meta before retrying.`
+        ? `Proposal outcome unknown — ${claimedProposal.actionLabel} on ${claimedProposal.entityLabel ?? claimedProposal.scopeId} was dispatched and no result came back. Reconcile against Meta before retrying.`
         : execution.ok
-          ? `Proposal approved — ${input.proposal.actionLabel} on ${input.proposal.entityLabel ?? input.proposal.scopeId}${execution.receipt.dryRun ? " (dry run, per the dryRunOnly guardrail)" : ""}.`
-          : `Proposal approval did not land — ${input.proposal.actionLabel} on ${input.proposal.entityLabel ?? input.proposal.scopeId}.`
+          ? `Proposal approved — ${claimedProposal.actionLabel} on ${claimedProposal.entityLabel ?? claimedProposal.scopeId}${execution.receipt.dryRun ? " (dry run, per the dryRunOnly guardrail)" : ""}.`
+          : `Proposal approval did not land — ${claimedProposal.actionLabel} on ${claimedProposal.entityLabel ?? claimedProposal.scopeId}.`
     }${
       lostTheRow
         ? " The claim on this proposal was released before the outcome could be recorded against it, so this outcome is recorded after the fact."
         : ""
     }`,
     payload: {
-      proposalId: input.proposal.id,
+      proposalId: claimedProposal.id,
       // The auditable link. One key, present on the queue row, on this ledger
       // row and inside the receipt envelope the response returns.
       receiptKey: claim.claimToken,
-      recId: input.proposal.recId,
-      decisionKey: input.proposal.decisionKey,
-      providerAccountId: input.proposal.providerAccountId,
+      recId: claimedProposal.recId,
+      decisionKey: claimedProposal.decisionKey,
+      providerAccountId: claimedProposal.providerAccountId,
       receipt: execution.receipt,
       // Three fields, never one boolean.
       //
@@ -971,7 +1127,7 @@ async function approve(input: {
       // you have not read the record.
       ...facts,
     },
-    proposal: input.proposal,
+    proposal: claimedProposal,
     // A dry run is not an application. `dryRunOnly` defaults to true in both the
     // code and the column, and nothing in the tree ever writes guardrails_json,
     // so in the only configuration production can reach every approval
@@ -985,11 +1141,11 @@ async function approve(input: {
     // thing it must never render as is the green Applied chip.
     resultStatus: ambiguous
       ? "failed"
-      : execution.ok
-        ? execution.receipt.dryRun
+      : facts.providerWriteVerified
+        ? "applied"
+        : execution.ok
           ? "recorded"
-          : "applied"
-        : "failed",
+          : "failed",
   });
 
   if (ambiguous) {
@@ -999,10 +1155,10 @@ async function approve(input: {
     // and is append-only, so the attempt's facts survive whatever happens next.
     const outbox = await appendMetaAutomationReconciliationReceipt({
       businessId: input.businessId,
-      proposalId: input.proposal.id,
-      providerAccountId: input.proposal.providerAccountId,
-      decisionKey: input.proposal.decisionKey,
-      proposedAction: input.proposal.proposedAction,
+      proposalId: claimedProposal.id,
+      providerAccountId: claimedProposal.providerAccountId,
+      decisionKey: claimedProposal.decisionKey,
+      proposedAction: claimedProposal.proposedAction,
       claimToken: claim.claimToken,
       reason: "dispatch_no_answer",
       facts,
@@ -1043,14 +1199,15 @@ async function approve(input: {
         ok: false,
         error: {
           code: "proposal_claim_lost",
-          message: execution.receipt.dryRun
-            ? "This proposal's claim was released before the outcome could be recorded. Nothing reached Meta: the dryRunOnly guardrail held this approval inside the building."
-            : "This proposal's claim was released before the outcome could be recorded — but this approval had already been dispatched to Meta. The receipt below is what this request sent; check the activity ledger before retrying.",
+          message: providerDispatchStarted
+            ? "This proposal's claim was released before the outcome could be recorded — but this approval had already been dispatched to Meta. The receipt below is what this request sent; check the activity ledger before retrying."
+            : "This proposal's claim was released before the outcome could be recorded. Nothing reached Meta; read the fresh queue state before retrying.",
         },
         // Never withheld. A dispatch the operator cannot see is worse than the
         // race that caused it.
         receipt: execution.receipt,
         receiptKey: claim.claimToken,
+        ...facts,
         ...ledger,
       },
       { status: 409 },
@@ -1064,6 +1221,7 @@ async function approve(input: {
       proposal: settled,
       receipt: execution.receipt,
       receiptKey: claim.claimToken,
+      ...facts,
       ...ledger,
     },
   });

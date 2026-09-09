@@ -22,7 +22,7 @@ const BUSINESS = "11111111-1111-4111-8111-111111111111";
 function rec(overrides: Partial<MetaRecommendation> = {}): MetaRecommendation {
   return {
     id: "r1", level: "adset", adsetId: "set_1", campaignId: "camp_1",
-    type: "bid_value_guidance", decisionLabel: "tune",
+    type: "scenario_b1_capped_winner_bid_raise", decisionLabel: "tune",
     lens: "efficiency", priority: "high", confidence: "high",
     decisionState: "act", decision: "", title: "", why: "", summary: "",
     ...overrides,
@@ -39,6 +39,7 @@ function project(input: {
     businessId: BUSINESS,
     providerAccountId: "act_1",
     spendUnitMinor: input.spendUnitMinor,
+    bidActionAuthority: true,
     accountCurrency: input.accountCurrency,
     policy: {
       budgetMinHoursBetweenChanges: 24,
@@ -82,19 +83,18 @@ describe("the account currency's exponent reaches the sizing policy", () => {
     expect(target.bidAmountMinor).toBe(575);
   });
 
-  it("cuts an expensive KWD cap that a hardcoded 100 would have raised", () => {
-    // 3.000 KWD per purchase against a 2.000 KWD benchmark: exponent 3, 1.5x.
+  it("withholds a KWD decrease because B1 authorises only a cap increase", () => {
+    // 3.000 KWD per purchase against a 2.000 KWD benchmark would size a 15%
+    // decrease. The currency arithmetic is valid, but B1's requested operation
+    // is an increase, so projection must not change the recommendation's lever.
     const result = project({
       accountCurrency: "KWD",
       spendUnitMinor: 2000,
       context: { spend28d: 300, purchases28d: 100, currentBidMinor: 4000 },
     });
-    expect(result.sized).toBe(1);
-    const target = result.recommendations[0]!.targetValue as Record<string, unknown>;
-    expect(target.currencyExponent).toBe(3);
-    expect(target.direction).toBe("decrease");
-    // 4.000 KWD − 15%. The old arithmetic raised it to 4.600 instead.
-    expect(target.bidAmountMinor).toBe(3400);
+    expect(result.sized).toBe(0);
+    expect(result.withheldByCode.bid_direction_semantic_mismatch).toBe(1);
+    expect(result.recommendations[0]!.targetValue).toBeUndefined();
   });
 
   it("still sizes a two-decimal account exactly as before", () => {

@@ -167,9 +167,11 @@ import {
 } from "@/lib/creative-decision-engine/data-source";
 import { resolveAccountDecisionProfile } from "@/lib/creative-decision-engine/account-decision-profile";
 import {
+  projectEffectiveMetaAovSemantics,
   projectAccountCpaForIdentity,
   projectCommercialTargetPackForIdentity,
   projectProfileConfigForIdentity,
+  shouldReadStrictMetaAov,
 } from "@/lib/creative-decision-engine/commercial-semantic-projection";
 import {
   observedShopifyAovIsUsable,
@@ -197,7 +199,7 @@ import {
 } from "@/lib/meta/budget-readiness-retention";
 
 export const ACCOUNT_PROFILE_OUTPUT_PRODUCER_CONTRACT =
-  "meta.account-profile-output-producer.v1" as const;
+  "meta.account-profile-output-producer.v2" as const;
 
 /** The two digests a retained verdict carries, and a reader re-derives. */
 export interface AccountProfileRetentionIdentity {
@@ -231,6 +233,18 @@ export interface AccountProfileRetentionInputs {
   flags: EngineV3Flags;
   accountCalibration: AccountCalibration;
   funnelCalibration: AccountFunnelCalibration;
+  /**
+   * The one strict physical-account AOV observation this input read performed.
+   *
+   * `not_read` preserves the no-ROAS legacy case where calibration already has
+   * all AOV fields. `failed` is distinct from an empty successful result so the
+   * pinned resolver source can reproduce the thrown read its own catch converts
+   * to a fail-closed absence. Neither state permits a second warehouse read.
+   */
+  strictMetaAov:
+    | { status: "not_read" }
+    | { status: "resolved"; value: MetaAttributedAovResult }
+    | { status: "failed" };
   observedShopifyAov: ObservedShopifyAovEvidence | null;
   /**
    * Whether the measured facts above came from this account's OWN retained
@@ -736,6 +750,18 @@ export async function readAccountProfileRetentionInputs(
           providerAccountId: measurement.readProviderAccountId,
         }),
       ]);
+    const strictMetaAov: AccountProfileRetentionInputs["strictMetaAov"] =
+      shouldReadStrictMetaAov(targetPack, accountCalibration)
+        ? await dataSource.getMetaAttributedAov({
+          businessId: scope.businessId,
+          providerAccountId: measurement.providerAccountId,
+          asOf: scope.asOfDate,
+          windowDays: 90,
+        }).then(
+          (value) => ({ status: "resolved" as const, value }),
+          () => ({ status: "failed" as const }),
+        )
+        : { status: "not_read" };
     /*
       DIAGNOSTIC EVIDENCE, gathered when it is worth the query and never a rung.
 
@@ -784,6 +810,7 @@ export async function readAccountProfileRetentionInputs(
       flags,
       accountCalibration,
       funnelCalibration,
+      strictMetaAov,
       observedShopifyAov,
       measuredScope,
       populationBreadth,
@@ -816,6 +843,14 @@ export function accountProfileRetentionIdentity(
     asOfDate: inputs.asOfDate,
   };
   const calibration = inputs.accountCalibration;
+  const effectiveMetaAov = projectEffectiveMetaAovSemantics({
+    targetPack: inputs.targetPack,
+    calibration,
+    strictMetaAov:
+      inputs.strictMetaAov.status === "resolved"
+        ? inputs.strictMetaAov.value
+        : null,
+  });
   return {
     inputFingerprint: digest({
       ...scope,
@@ -922,10 +957,7 @@ export function accountProfileRetentionIdentity(
           accountCpaP50: calibration.accountCpaP50,
           accountCpaSampleCount: calibration.accountCpaSampleCount,
         }),
-        metaAttributedAovMean90d: calibration.metaAttributedAovMean90d,
-        metaAttributedAovPurchaseCount90d:
-          calibration.metaAttributedAovPurchaseCount90d,
-        metaAttributedRevenue90d: calibration.metaAttributedRevenue90d,
+        ...effectiveMetaAov,
         matureSpendP50: calibration.matureSpendP50,
         matureSpendP75: calibration.matureSpendP75,
         winnerSpendP25: calibration.winnerSpendP25,
@@ -935,7 +967,6 @@ export function accountProfileRetentionIdentity(
         roasRatioP25: calibration.roasRatioP25,
         roasRatioP50: calibration.roasRatioP50,
         roasRatioP75: calibration.roasRatioP75,
-        metaAovQuality: calibration.metaAovQuality,
       },
       funnelCalibration: inputs.funnelCalibration,
       /*
@@ -990,13 +1021,14 @@ export async function readAccountProfileRetentionIdentity(
 }
 
 /**
- * The data source the resolver runs against, with the four reads this module
- * already performed pinned to the values it digested.
+ * The data source the resolver runs against, with every verdict-bearing read
+ * this module already performed pinned to the values it digested.
  *
- * Without the pin the resolver would read the target pack and the calibration a
- * second time, and a write landing between the two reads would retain a verdict
- * whose stamped identity described a different reading of the account. Every
- * other method is the real warehouse reader, unchanged.
+ * Without the pin the resolver would read the target pack, calibration and
+ * strict Meta AOV a second time, and a write landing between the two reads
+ * would retain a verdict whose stamped identity described a different reading
+ * of the account. Kind-segmented calibration remains a real warehouse read;
+ * the strict AOV method below can only return or fail from the captured state.
  */
 class PinnedInputDataSource extends WarehouseDataSource {
   /**
@@ -1005,11 +1037,10 @@ class PinnedInputDataSource extends WarehouseDataSource {
    * below cannot draw from a different population than the pinned ones.
    */
   private readonly measurementProviderAccountId: string | null;
-
   constructor(private readonly pinned: AccountProfileRetentionInputs) {
     super();
-    this.measurementProviderAccountId =
-      accountProfileInputsMeasurementScope(pinned).readProviderAccountId;
+    const measurement = accountProfileInputsMeasurementScope(pinned);
+    this.measurementProviderAccountId = measurement.readProviderAccountId;
   }
 
   override async getBusinessTargetPack(): Promise<BusinessTargetPack | null> {
@@ -1029,20 +1060,15 @@ class PinnedInputDataSource extends WarehouseDataSource {
   }
 
   /*
-    THE READS THE RESOLVER MAKES THAT THIS MODULE DID NOT PIN.
+    THE EXTRA READS THE RESOLVER MAKES.
 
     `resolveAccountDecisionProfile` does not stop at the two pinned readers: it
-    also asks for the kind-segmented baselines and, when the pinned calibration
-    carries no attributed AOV, for a LIVE one. Left alone those three run at
-    the warehouse default — the whole business — so an account with no
-    purchases of its own was handed a sibling's average order value and the
-    canonical spend unit came out fully anchored on evidence this account does
-    not have. Each is re-scoped exactly as the pinned reads above were scoped —
-    `readProviderAccountId`, which names this account except where the pooled
-    rows have been proven to BE this account's rows. Mixing the two would put
-    one reading's calibration beside another reading's AOV in a single verdict.
-    When the account genuinely has no purchases of its own, the answer is empty
-    rather than borrowed.
+    also asks for kind-segmented baselines and may ask for strict Meta AOV.
+    The baselines remain warehouse reads and are re-scoped with
+    `readProviderAccountId`, which names this account except where pooled rows
+    are proven to BE this account's rows. Strict AOV has already been captured
+    once from `measurement.providerAccountId`; its method below reproduces that
+    resolved/failed/not-read state and never reaches the warehouse again.
   */
   override async getAccountCalibrationAllKinds(input: {
     businessId: string;
@@ -1069,10 +1095,14 @@ class PinnedInputDataSource extends WarehouseDataSource {
     asOf: string;
     windowDays?: number;
   }): Promise<MetaAttributedAovResult> {
-    return super.getMetaAttributedAov({
-      ...input,
-      providerAccountId: this.measurementProviderAccountId,
-    });
+    if (this.pinned.strictMetaAov.status === "resolved") {
+      return this.pinned.strictMetaAov.value;
+    }
+    throw new Error(
+      this.pinned.strictMetaAov.status === "failed"
+        ? "the pinned strict Meta AOV read failed"
+        : "the pinned inputs did not read strict Meta AOV",
+    );
   }
 }
 

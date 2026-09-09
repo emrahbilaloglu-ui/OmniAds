@@ -54,7 +54,7 @@ Current version keys (verify against the constants, never against this list):
 | `CANONICAL_EVALUATION_CONTRACT_VERSION` | `engine-v3-canonical-evaluation.v9` | `lib/creative-decision-engine/canonical-evaluation.ts` |
 | `AD_DECISION_EVALUATION_CONTRACT_VERSION` | `engine-v3-canonical-ad-evaluation.v11` | `lib/creative-decision-engine/evaluation-store.ts` |
 | `NATIVE_AD_CALIBRATION_CONTRACT_VERSION` | `engine-v3-native-ad-calibration.v5` minted; `.v1`–`.v3` readable and recomputed under their OWN formula, then refused as superseded | `lib/creative-decision-engine/jobs/ad-calibration-job.ts` |
-| `D086_RETENTION_CONTRACT` | `d086.budget-readiness-retention.v12` | `lib/meta/budget-readiness-retention.ts` |
+| `D086_RETENTION_CONTRACT` | `d086.budget-readiness-retention.v13` | `lib/meta/budget-readiness-retention.ts` |
 | Native-Ad spend-unit authority | `engine-v3-native-ad-spend-unit-authority.v4` minted; `.v1`, `.v2` and `.v3` readable but NEVER authoritative | `lib/creative-decision-engine/jobs/ad-calibration-job.ts` |
 
 > **These are UNCOMMITTED CANDIDATES, not deployed values.** `git show HEAD`

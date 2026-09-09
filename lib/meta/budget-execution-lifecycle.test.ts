@@ -12,8 +12,11 @@ import {
   runClaimedProposalExecution,
   type ClaimedExecutionDeps,
 } from "@/lib/meta/budget-execution-lifecycle";
-import { buildBudgetProposalEnvelope } from "@/lib/meta/budget-proposal-runtime";
-import { envelopeForProposalRow } from "@/lib/meta/budget-proposal-runtime";
+import {
+  buildBudgetProposalEnvelope,
+  envelopeForProposalRow,
+  parseBudgetProposalEnvelope,
+} from "@/lib/meta/budget-proposal-runtime";
 
 const BIZ = "33333333-3333-4333-8333-333333333333";
 const ACCOUNT = "act_770001";
@@ -39,7 +42,7 @@ const deps = (over: Partial<ClaimedExecutionDeps> = {}): ClaimedExecutionDeps =>
   settle: async () => proposal(),
   forceReconcile: async () => true,
   recordReconciliation: async () => true,
-  recordLedger: async () => undefined,
+  recordLedger: async () => true,
   execute: async (beforeProviderPost) => {
     // The executor is what reaches the provider, so it is what fires the
     // marker — synchronously, immediately before the POST.
@@ -65,7 +68,7 @@ describe("D088 C2 — one lifecycle, shared by both entry points", () => {
     const result = await runClaimedProposalExecution(deps({
       markDispatchStarted: async () => { marks.push("mark"); return true; },
       settle: async (input) => { settles.push(input.status); return proposal(); },
-      recordLedger: async (input) => { ledger.push(input.activityType); },
+      recordLedger: async (input) => { ledger.push(input.activityType); return true; },
     }));
     expect(result.ok).toBe(true);
     expect(marks).toEqual(["mark"]);
@@ -93,8 +96,53 @@ describe("D088 C2 — one lifecycle, shared by both entry points", () => {
     // Nothing was dispatched, so nothing may say it was.
     expect(marks).toEqual([]);
     expect(result.providerDispatchStarted).toBe(false);
+    expect(result.providerOutcomeKnown).toBe(true);
     // ...and the row does not stay claimed.
     expect(settles).toEqual(["failed"]);
+  });
+
+  it("records a successful rehearsal without calling it applied", async () => {
+    const ledger: Array<{
+      resultStatus: string;
+      severity: string;
+      providerWriteVerified: unknown;
+    }> = [];
+    const result = await runClaimedProposalExecution(deps({
+      execute: async () => ({
+        ok: true,
+        receipt: {
+          httpStatus: 200,
+          response: { rehearsed: true },
+          dryRun: true,
+          dispatchedAt: "2026-08-31T12:00:00.000Z",
+          endpoint: null,
+          withheld: null,
+          receiptKey: CLAIM,
+          providerMutationAttempted: false,
+        },
+        reconcile: false,
+        rollbackRequested: false as const,
+        journalId: null,
+      }),
+      recordLedger: async (entry) => {
+        ledger.push({
+          resultStatus: entry.resultStatus,
+          severity: entry.severity,
+          providerWriteVerified: entry.payload.providerWriteVerified,
+        });
+        return true;
+      },
+    }));
+
+    expect(result.ok).toBe(false);
+    expect(result.settledStatus).toBe("approved");
+    expect(result.providerDispatchStarted).toBe(false);
+    expect(result.providerOutcomeKnown).toBe(true);
+    expect(ledger).toEqual([{
+      resultStatus: "recorded",
+      severity: "info",
+      providerWriteVerified: false,
+    }]);
   });
 
   it("an UNKNOWN outcome reconciles ONCE and never retries", async () => {
@@ -103,7 +151,7 @@ describe("D088 C2 — one lifecycle, shared by both entry points", () => {
     const ledger: string[] = [];
     const result = await runClaimedProposalExecution(deps({
       settle: async (input) => { settles.push(input.status); return proposal(); },
-      recordLedger: async (input) => { ledger.push(input.activityType); },
+      recordLedger: async (input) => { ledger.push(input.activityType); return true; },
       execute: async (beforeProviderPost) => {
         executions += 1;
         await beforeProviderPost();
@@ -134,7 +182,7 @@ describe("D088 C2 — one lifecycle, shared by both entry points", () => {
     expect(settles).toEqual(["failed"]);
     expect(result.providerDispatchStarted).toBe(false);
     expect(result.reconcile).toBe(false);
-    expect(result.providerOutcomeKnown).toBe(false);
+    expect(result.providerOutcomeKnown).toBe(true);
   });
 
   it("settles a marked executor exception as reconcile", async () => {
@@ -158,7 +206,7 @@ describe("D088 C2 — one lifecycle, shared by both entry points", () => {
     const ledger: Record<string, unknown>[] = [];
     const result = await runClaimedProposalExecution(deps({
       settle: async (input) => { settles.push(input.status); return proposal(); },
-      recordLedger: async (input) => { ledger.push(input.payload); },
+      recordLedger: async (input) => { ledger.push(input.payload); return true; },
       execute: async (beforeProviderPost) => {
         await beforeProviderPost();
         // The final provider-side CAS rejected after the write-ahead marker.
@@ -178,12 +226,12 @@ describe("D088 C2 — one lifecycle, shared by both entry points", () => {
     expect(settles).toEqual(["failed"]);
     expect(result.providerDispatchIntentMarked).toBe(true);
     expect(result.providerDispatchStarted).toBe(false);
-    expect(result.providerOutcomeKnown).toBe(false);
+    expect(result.providerOutcomeKnown).toBe(true);
     expect(result.reconcile).toBe(false);
     expect(ledger[0]).toMatchObject({
       providerDispatchIntentMarked: true,
       providerDispatchStarted: false,
-      providerWriteSucceeded: false,
+      providerWriteVerified: false,
     });
   });
 
@@ -191,13 +239,30 @@ describe("D088 C2 — one lifecycle, shared by both entry points", () => {
     const ledger: string[] = [];
     const result = await runClaimedProposalExecution(deps({
       settle: async () => null,
-      recordLedger: async (input) => { ledger.push(input.activityType); },
+      recordLedger: async (input) => { ledger.push(input.activityType); return true; },
     }));
     expect(ledger).toHaveLength(1);
     expect(result.lostTheRow).toBe(true);
     expect(result.ok).toBe(false);
     expect(result.settledStatus).toBe("reconcile");
   });
+
+  it.each(["false", "throw"] as const)(
+    "keeps a verified provider result but exposes a %s ledger failure",
+    async (failure) => {
+      const result = await runClaimedProposalExecution(deps({
+        recordLedger: async () => {
+          if (failure === "throw") throw new Error("ledger unavailable");
+          return false;
+        },
+      }));
+
+      expect(result.ok).toBe(true);
+      expect(result.settledStatus).toBe("approved");
+      expect(result.ledgerCompleteness).toBe("unavailable");
+      expect(result.ledgerErrorCode).toBe("activity_ledger_write_failed");
+    },
+  );
 
   it("overrides a verified provider success when terminal settlement throws", async () => {
     const forced: string[] = [];
@@ -213,7 +278,7 @@ describe("D088 C2 — one lifecycle, shared by both entry points", () => {
         reconciled.push(claimToken);
         return true;
       },
-      recordLedger: async (entry) => { ledger.push(entry.activityType); },
+      recordLedger: async (entry) => { ledger.push(entry.activityType); return true; },
     }));
 
     expect(forced).toEqual([CLAIM]);
@@ -239,7 +304,7 @@ describe("D088 C2 — the envelope is bound to its own row", () => {
     currencyRegistryVersion: "iso4217.minor-units.2026-09-01",
     intentVerb: "increase_budget",
 
-    recId: "rec_1", recType: "campaign", snapshotDate: "2026-08-30",
+    recId: "rec_1", recType: "scenario_c1_controlled_scale", snapshotDate: "2026-08-30",
     engineVersion: "v3", decisionHash: "e".repeat(64),
     decisionAt: "2026-08-30T00:00:00.000Z",
   });
@@ -268,6 +333,28 @@ describe("D088 C2 — the envelope is bound to its own row", () => {
   it("REFUSES a placeholder proposal id outright", () => {
     const placeholder = envelopeFor("00000000-0000-4000-8000-000000000000");
     expect(envelopeForProposalRow(placeholder, row() as never)).toBeNull();
+  });
+
+  it.each([
+    ["campaign-only type at ad-set grain", {
+      ownerGrain: "adset",
+      entityId: "as_100",
+      parentCampaignId: "c_100",
+      ownerMode: "adset_budget",
+    }],
+    ["campaign scale with a decrease direction", {
+      intentVerb: "decrease_budget",
+    }],
+  ])("REFUSES a validly fingerprinted envelope with %s", (_label, crossed) => {
+    const crossedEnvelope = buildBudgetProposalEnvelope({
+      ...envelopeFor(PROPOSAL),
+      ...crossed,
+    } as never);
+    expect(parseBudgetProposalEnvelope(crossedEnvelope)).toBeNull();
+    expect(envelopeForProposalRow(crossedEnvelope, row({
+      scopeType: crossedEnvelope.ownerGrain,
+      scopeId: crossedEnvelope.entityId,
+    }) as never)).toBeNull();
   });
 });
 
@@ -299,6 +386,7 @@ describe("D088 C3 — the marker is written BEFORE the POST, or nothing is sent"
     expect(result.markerFailed).toBe(true);
     expect(result.providerDispatchStarted).toBe(false);
     // A vetoed write is a definite non-attempt, never an unknown one.
+    expect(result.providerOutcomeKnown).toBe(true);
     expect(result.reconcile).toBe(false);
     expect(settles).toEqual(["failed"]);
   });

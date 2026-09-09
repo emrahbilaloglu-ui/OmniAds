@@ -6666,6 +6666,14 @@ export class WarehouseDataSource
  * `resolveAccountDecisionProfile` branches on their presence and a wrapper that
  * claimed them would answer for a source that cannot.
  *
+ * `meta_aov_only` is the one bounded exception. A proven
+ * `sole_account_pooled_rows` bootstrap must keep its precomputed calibration
+ * and funnel rows pooled, because those rows are the stable measurement being
+ * served. The strict Meta AOV reader still requires the physical account
+ * binding even when that account is the whole population, so that mode scopes
+ * only the AOV read. It cannot make a multi-account pooled AOV authoritative:
+ * callers may select it only after the sole-account breadth proof succeeds.
+ *
  * An explicit `providerAccountId` on a call still wins; the bound account is
  * the DEFAULT this source supplies when the caller names none.
  */
@@ -6681,31 +6689,33 @@ export class AccountScopedDataSource implements CreativeDecisionDataSource {
     private readonly base: CreativeDecisionDataSource,
     /** The physical account every measured read below is scoped to. */
     private readonly boundProviderAccountId: string,
+    private readonly mode: "all_measured" | "meta_aov_only" = "all_measured",
   ) {
     const byKind = base.getAccountCalibrationByKind?.bind(base);
     if (byKind) {
-      this.getAccountCalibrationByKind = (input) => byKind(this.scoped(input));
+      this.getAccountCalibrationByKind = (input) =>
+        byKind(this.calibrationScope(input));
     }
     const allKinds = base.getAccountCalibrationAllKinds?.bind(base);
     if (allKinds) {
       this.getAccountCalibrationAllKinds = (input) =>
-        allKinds(this.scoped(input));
+        allKinds(this.calibrationScope(input));
     }
     const funnelByKind = base.getAccountFunnelCalibrationByKind?.bind(base);
     if (funnelByKind) {
       this.getAccountFunnelCalibrationByKind = (input) =>
-        funnelByKind(this.scoped(input));
+        funnelByKind(this.calibrationScope(input));
     }
     const funnelAllKinds = base.getAccountFunnelCalibrationAllKinds?.bind(base);
     if (funnelAllKinds) {
       this.getAccountFunnelCalibrationAllKinds = (input) =>
-        funnelAllKinds(this.scoped(input));
+        funnelAllKinds(this.calibrationScope(input));
     }
     const materialisation =
       base.readAccountScopeCalibrationMaterialisation?.bind(base);
     if (materialisation) {
       this.readAccountScopeCalibrationMaterialisation = (input) =>
-        materialisation(this.scoped(input));
+        materialisation(this.calibrationScope(input));
     }
     /*
       Forwarded with the bound account as the DEFAULT, like every other read
@@ -6717,11 +6727,15 @@ export class AccountScopedDataSource implements CreativeDecisionDataSource {
     const breadth = base.readBusinessAccountPopulationBreadth?.bind(base);
     if (breadth) {
       this.readBusinessAccountPopulationBreadth = (input) =>
-        breadth({
-          ...input,
-          providerAccountId:
-            input.providerAccountId || this.boundProviderAccountId,
-        });
+        breadth(
+          this.mode === "all_measured"
+            ? {
+                ...input,
+                providerAccountId:
+                  input.providerAccountId || this.boundProviderAccountId,
+              }
+            : input,
+        );
     }
   }
 
@@ -6732,6 +6746,12 @@ export class AccountScopedDataSource implements CreativeDecisionDataSource {
     };
   }
 
+  private calibrationScope<T extends { providerAccountId?: string | null }>(
+    input: T,
+  ): T {
+    return this.mode === "all_measured" ? this.scoped(input) : input;
+  }
+
   // --- measured, and therefore scoped ---------------------------------------
 
   async getAccountCalibration(input: {
@@ -6739,7 +6759,7 @@ export class AccountScopedDataSource implements CreativeDecisionDataSource {
     asOf: string;
     providerAccountId?: string | null;
   }): Promise<AccountCalibration> {
-    return this.base.getAccountCalibration(this.scoped(input));
+    return this.base.getAccountCalibration(this.calibrationScope(input));
   }
 
   async getAccountFunnelCalibration(input: {
@@ -6747,7 +6767,7 @@ export class AccountScopedDataSource implements CreativeDecisionDataSource {
     asOf: string;
     providerAccountId?: string | null;
   }): Promise<AccountFunnelCalibration> {
-    return this.base.getAccountFunnelCalibration(this.scoped(input));
+    return this.base.getAccountFunnelCalibration(this.calibrationScope(input));
   }
 
   async getMetaAttributedAov(input: {

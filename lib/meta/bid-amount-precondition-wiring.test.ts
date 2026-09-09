@@ -96,6 +96,7 @@ const db = await import("@/lib/db");
 const integrations = await import("@/lib/integrations");
 const actionLog = await import("@/lib/meta/ads-action-log");
 const writes = await import("@/lib/meta/ads-write");
+const writeGuard = await import("@/lib/meta/automation-write-guard");
 const { handleMetaAdsetBidAction } = await import(
   "@/lib/meta/entity-action-routes"
 );
@@ -154,7 +155,7 @@ function bidProposal(): MetaAutomationProposal {
     scopeType: "adset",
     scopeId: ADSET,
     recId: "rec_1",
-    recType: "bid_amount",
+    recType: "scenario_b1_capped_winner_bid_raise",
     snapshotDate: "2026-09-04",
     engineVersion: "meta-v3",
     decisionLabel: "tune",
@@ -186,7 +187,7 @@ function bidProposal(): MetaAutomationProposal {
       currencyExponent: 2,
       intentKey: "meta.bid-intent.v1:abc",
       recId: "rec_1",
-      recType: "bid_amount",
+      recType: "scenario_b1_capped_winner_bid_raise",
       snapshotDate: "2026-09-04",
       engineVersion: "meta-v3",
       decisionAt: "2026-09-04T03:00:00.000Z",
@@ -294,6 +295,83 @@ describe("an approved queue row carries its cap through to the write", () => {
       expectedBidStrategy: "COST_CAP",
       expectedCurrentBidAmountMinor: 1200,
     });
+  });
+
+  it("stamps the claim inside the handler's last pre-provider hook", async () => {
+    const order: string[] = [];
+    vi.mocked(writes.updateAdsetBidAmount).mockImplementationOnce(
+      async (_ctx, writeInput) => {
+        order.push("write-entered");
+        await writeInput.beforeMutationAttempt?.();
+        order.push("provider-post");
+        return {
+          ok: true,
+          verifiedBidAmount: 1320,
+          responsePayload: { success: true },
+          verificationPayload: { bid_amount: 1320, bid_strategy: "COST_CAP" },
+        } as never;
+      },
+    );
+
+    const result = await executeMetaAutomationProposal({
+      request: new NextRequest(
+        `http://localhost/api/meta/automation/proposals?businessId=${BUSINESS_ID}`,
+        { method: "POST", headers: { cookie: "adsecute_session=token-abc" } },
+      ),
+      businessId: "biz_1",
+      proposal: bidProposal(),
+      dryRunOnly: false,
+      readBidBaseline: vi.fn(async () => ({
+        bidAmountMinor: 1200,
+        bidStrategy: "COST_CAP",
+      })),
+      markDispatchStarted: vi.fn(async () => {
+        order.push("claim-marked");
+        return true;
+      }),
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.receipt.providerMutationAttempted).toBe(true);
+    expect(order).toEqual(["write-entered", "claim-marked", "provider-post"]);
+  });
+
+  it("reports a posture-forced rehearsal as a non-attempt and never stamps dispatch", async () => {
+    vi.mocked(writeGuard.readMetaWritePosture).mockResolvedValueOnce({
+      blocked: false,
+      rehearsal: true,
+      reason: "provider_mutation_rehearsal",
+      message: "Provider writes are rehearsed.",
+    } as never);
+    vi.mocked(writes.updateAdsetBidAmount).mockResolvedValueOnce({
+      ok: true,
+      dryRun: true,
+      wouldHaveWritten: { bid_amount: 1320 },
+      verifiedBidAmount: 1200,
+      responsePayload: { dryRun: true },
+      verificationPayload: { bid_amount: 1200, bid_strategy: "COST_CAP" },
+    } as never);
+    const markDispatchStarted = vi.fn(async () => true);
+
+    const result = await executeMetaAutomationProposal({
+      request: new NextRequest(
+        `http://localhost/api/meta/automation/proposals?businessId=${BUSINESS_ID}`,
+        { method: "POST", headers: { cookie: "adsecute_session=token-abc" } },
+      ),
+      businessId: "biz_1",
+      proposal: bidProposal(),
+      dryRunOnly: false,
+      readBidBaseline: vi.fn(async () => ({
+        bidAmountMinor: 1200,
+        bidStrategy: "COST_CAP",
+      })),
+      markDispatchStarted,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.receipt.dryRun).toBe(true);
+    expect(result.receipt.providerMutationAttempted).toBe(false);
+    expect(markDispatchStarted).not.toHaveBeenCalled();
   });
 });
 

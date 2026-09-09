@@ -112,6 +112,41 @@ describe("Meta commercial action authority", () => {
     expect(guarded).not.toBe(rec);
   });
 
+  it.each([
+    ["high", 0.9, "medium", 0.69],
+    ["medium", 0.62, "medium", 0.62],
+    ["low", 0.42, "low", 0.42],
+  ] as const)(
+    "caps a blocked %s-confidence action without raising lower confidence",
+    (confidence, confidenceScore, expectedConfidence, expectedScore) => {
+      const guarded = enforceMetaCommercialActionAuthority(
+        recommendation({ confidence, confidenceScore }),
+        {
+          source: "configured_targets",
+          targetRoas: 2.2,
+          breakEvenRoas: 1.5,
+          targetCpa: null,
+          breakEvenCpa: null,
+          riskPosture: "balanced",
+          freshness: "fresh",
+          updatedAt: "2026-07-12T00:00:00.000Z",
+          metaAttributedAov: null,
+        },
+      );
+
+      expect(guarded).toMatchObject({
+        decisionState: "watch",
+        confidence: expectedConfidence,
+        confidenceScore: expectedScore,
+        signalQuality: {
+          hard_action_blocker: "commercial_anchor_missing",
+        },
+      });
+      expect(guarded).not.toHaveProperty("proposedAction");
+      expect(guarded).not.toHaveProperty("targetValue");
+    },
+  );
+
   it("BLOCKS the same loss action when the Meta sample is thin", () => {
     const rec = recommendation();
     const guarded = enforceMetaCommercialActionAuthority(rec, {

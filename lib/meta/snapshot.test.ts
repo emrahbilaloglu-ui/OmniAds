@@ -88,6 +88,10 @@ vi.mock("@/lib/meta/entity-signals-backfill", () => ({
 // own tests; mocked here so its statements do not appear in the decision-row
 // payloads these tests inspect.
 vi.mock("@/lib/meta/automation-proposals", () => ({
+  reconcileMetaEngineDecisionProposalsForSnapshot: vi.fn(async () => ({
+    ran: true,
+    withdrawn: 0,
+  })),
   projectMetaAutomationProposals: vi.fn(async () => ({
     projected: 0,
     expired: 0,
@@ -695,7 +699,11 @@ describe("meta snapshot job", () => {
     // mechanically: the projection runs inside the pipeline, for the day whose
     // decisions were just written.
     expect(automationProposals.projectMetaAutomationProposals).toHaveBeenCalledWith(
-      { businessId: "biz_1", snapshotDate: "2026-05-06" },
+      {
+        businessId: "biz_1",
+        snapshotDate: "2026-05-06",
+        providerAccountIds: ["act_1"],
+      },
     );
     expect(result.proposals).toEqual({ projected: 0, expired: 0 });
   });

@@ -39,7 +39,7 @@ import {
 // ---------------------------------------------------------------------------
 
 /** The one revision. Path and lineage derive from it; nothing is retyped. */
-export const D086_REVISION = 13 as const;
+export const D086_REVISION = 14 as const;
 export const D086_CONTRACT_ID = `d086.budget-readiness-input-pack.v${D086_REVISION}` as const;
 
 /** Repo root from this module's own location — never `process.cwd()`. */
@@ -76,6 +76,23 @@ export const D086_FROZEN_ARTIFACTS: readonly string[] = Object.freeze(
 
 /** Every rejected predecessor, with the bytes it must still have. */
 export const D086_REJECTED_REVISIONS = Object.freeze([
+  {
+    revision: 13,
+    path: d086ArtifactPathFor(13),
+    fileSha256: "5432828f7213b3540f995136239a25c2acd5e0af6108262822c85aa73d009ce0",
+    why:
+      "Superseded rather than defective. r13 was assembled while "
+      + "`d086.budget-readiness-retention.v12` still digested legacy AccountCalibration Meta AOV "
+      + "fields from `meta_creative_daily`, even though a positive Target ROAS makes the resolver "
+      + "read the verdict-bearing strict finalized/passed physical-account AOV from "
+      + "`meta_ad_daily`. The pinned resolver source then performed that strict read a second time. "
+      + "Canonical AOV could therefore change eligibility and spend unit while "
+      + "`source_fingerprint` stayed unchanged, so stale retained authority could pass agreement. "
+      + "r14 mints retention v13: it captures the strict read once, pins its resolved/failed/not-read "
+      + "state into the resolver, and hashes only the effective AOV values and derived quality the "
+      + "resolver uses; legacy AOV remains identity-bearing only in the no-Target-ROAS compatibility "
+      + "case. r13's exact bytes are frozen here as the record of the earlier identity.",
+  },
   {
     revision: 12,
     path: d086ArtifactPathFor(12),

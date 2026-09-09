@@ -16,6 +16,11 @@ import type {
   MetaStructureInventoryEntity,
 } from "@/components/meta/redesign/types";
 import type { MetaDecisionPipelineHealth } from "@/lib/meta/decision-pipeline-health";
+import type { HardActionEligibility } from "@/lib/creative-decision-engine/types";
+import type {
+  CommercialAnchorBlockerCode,
+  CommercialAnchorInputCode,
+} from "@/lib/creative-decision-engine/commercial-anchor";
 import { isCampaignContextResolverAuthorityValidated } from "@/lib/creative-decision-engine/campaign-context/source";
 import {
   toCanonicalDecisionAction,
@@ -138,14 +143,38 @@ type InactiveStructureInput = {
 type StructureInput = {
   rec: MetaRecommendation;
   lane: MetaOsDecisionLane;
-  targetAuthorityBlocker: MetaTargetHardAction | null;
+  targetAuthorityBlocker: MetaTargetAuthorityBlocker | null;
 };
 
-export type MetaTargetHardAction = "scale" | "cut";
+export type MetaTargetHardAction = "scale" | "cut" | "refresh";
+
+type MetaStructureTargetHardAction = Exclude<MetaTargetHardAction, "refresh">;
 
 export type MetaTargetHardActionEligibility = Readonly<
   Record<MetaTargetHardAction, boolean>
->;
+> & {
+  codes?: Partial<Record<MetaTargetHardAction, CommercialAnchorBlockerCode | null>>;
+  reasons?: Partial<Record<MetaTargetHardAction, string | null>>;
+  missingInputs?: readonly CommercialAnchorInputCode[];
+};
+
+type MetaTargetAuthorityBlocker = {
+  action: MetaTargetHardAction;
+  code: CommercialAnchorBlockerCode | null;
+  /** Canonical profile reason. It is evidence for diagnostics, never UI copy. */
+  reason: string | null;
+  missingInputs: readonly CommercialAnchorInputCode[];
+};
+
+type MetaTargetAuthorityPresentation = {
+  blockerLabel: string;
+  actionCode: string;
+  actionLabel: string;
+  scopeNote: string;
+  expectedImpact: string;
+  watchSegment: NonNullable<MetaRecommendation["watchSegment"]>;
+  missingEvidenceCode?: string;
+};
 
 const PRIORITY_WEIGHT = { high: 3, medium: 2, low: 1 } as const;
 const CONFIDENCE_WEIGHT = { high: 3, medium: 2, low: 1 } as const;
@@ -162,7 +191,7 @@ function finite(value: number | null | undefined) {
 
 export function metaStructureTargetHardAction(
   rec: MetaRecommendation,
-): MetaTargetHardAction | null {
+): MetaStructureTargetHardAction | null {
   if (rec.decisionLabel === "scale") return "scale";
   if (
     rec.decisionLabel === "cut" ||
@@ -176,12 +205,133 @@ export function metaStructureTargetHardAction(
   return null;
 }
 
+function targetAuthorityBlockerForAction(
+  action: MetaTargetHardAction | null,
+  eligibility: MetaTargetHardActionEligibility,
+): MetaTargetAuthorityBlocker | null {
+  if (!action || eligibility[action]) return null;
+  return {
+    action,
+    code: eligibility.codes?.[action] ?? null,
+    reason: eligibility.reasons?.[action] ?? null,
+    missingInputs: eligibility.missingInputs ?? [],
+  };
+}
+
 function targetAuthorityBlocker(
   rec: MetaRecommendation,
   eligibility: MetaTargetHardActionEligibility,
 ) {
-  const action = metaStructureTargetHardAction(rec);
-  return action && !eligibility[action] ? action : null;
+  return targetAuthorityBlockerForAction(
+    metaStructureTargetHardAction(rec),
+    eligibility,
+  );
+}
+
+function targetAuthorityPresentation(
+  blocker: MetaTargetAuthorityBlocker,
+): MetaTargetAuthorityPresentation {
+  const actionName =
+    blocker.action === "scale"
+      ? "Scale"
+      : blocker.action === "cut"
+        ? "Cut"
+        : "Refresh";
+  const waitsForMetaPurchaseEvidence =
+    blocker.code === "commercial_anchor_sample_insufficient" ||
+    (blocker.code === "commercial_anchor_missing" &&
+      blocker.missingInputs.includes("meta_attributed_purchase_sample") &&
+      !blocker.missingInputs.includes("target_roas"));
+
+  if (waitsForMetaPurchaseEvidence) {
+    const thin = blocker.code === "commercial_anchor_sample_insufficient";
+    const blockerLabel = thin
+      ? "Meta purchase sample is still too small"
+      : "Meta purchase value evidence is unavailable";
+    return {
+      blockerLabel,
+      actionCode: "resolve_decision_inputs",
+      actionLabel: "Review Meta Purchase Evidence",
+      scopeNote: thin
+        ? `Meta's attributed purchase sample is too small to support a reliable account AOV, so no ${actionName} action is authorized`
+        : `A trusted Meta-attributed account AOV is unavailable, so no ${actionName} action is authorized`,
+      expectedImpact: `${actionName} remains on hold until Meta-attributed purchase evidence is ready.`,
+      watchSegment: "insufficient_signal",
+    };
+  }
+
+  if (blocker.code === "scale_calibration_below_floor") {
+    return {
+      blockerLabel: "Scale calibration evidence is still too thin",
+      actionCode: "resolve_decision_inputs",
+      actionLabel: "Review Scale Evidence",
+      scopeNote:
+        "The account calibration sample is below the Scale quality floor, so no Scale action is authorized",
+      expectedImpact: "Scale remains on hold until calibration evidence is ready.",
+      watchSegment: "insufficient_signal",
+    };
+  }
+
+  if (blocker.code === "target_roas_missing") {
+    return {
+      blockerLabel: "Current Target ROAS authority",
+      actionCode: "review_commercial_truth",
+      actionLabel: "Review Commercial Truth",
+      scopeNote:
+        `A current Target ROAS is required before a ${actionName} action can be authorized`,
+      expectedImpact:
+        "No provider change until current commercial truth is authoritative.",
+      watchSegment: "missing_target",
+      missingEvidenceCode: "current_target_roas_authority",
+    };
+  }
+
+  if (blocker.code === "break_even_roas_missing") {
+    return {
+      blockerLabel: "Current Target ROAS or break-even ROAS authority",
+      actionCode: "review_commercial_truth",
+      actionLabel: "Review Commercial Truth",
+      scopeNote:
+        "A current Target ROAS or break-even ROAS is required before a Cut action can be authorized",
+      expectedImpact:
+        "No provider change until current commercial truth is authoritative.",
+      watchSegment: "missing_target",
+      missingEvidenceCode: "current_break_even_roas_authority",
+    };
+  }
+
+  if (blocker.code === "commercial_anchor_provenance_unverified") {
+    return {
+      blockerLabel: "Commercial target provenance is not verified",
+      actionCode: "review_commercial_truth",
+      actionLabel: "Review Commercial Truth",
+      scopeNote:
+        "The current commercial target needs verified provenance before a hard action can be authorized",
+      expectedImpact:
+        "No provider change until current commercial truth is authoritative.",
+      watchSegment: "missing_target",
+    };
+  }
+
+  return {
+    blockerLabel:
+      blocker.action === "scale"
+        ? "Current target ROAS authority"
+        : blocker.action === "cut"
+          ? "Current commercial Cut authority"
+          : "Current commercial Refresh authority",
+    actionCode: "review_commercial_truth",
+    actionLabel: "Review Commercial Truth",
+    scopeNote:
+      blocker.action === "scale"
+        ? "Current target ROAS authority is unavailable; no Scale action is authorized"
+        : blocker.action === "cut"
+          ? "Current commercial Cut authority is unavailable; no Cut action is authorized"
+          : "Current commercial Refresh authority is unavailable; no Refresh action is authorized",
+    expectedImpact:
+      "No provider change until current commercial truth is authoritative.",
+    watchSegment: "missing_target",
+  };
 }
 
 function guardStructureRecommendationForCurrentTargets(
@@ -190,10 +340,7 @@ function guardStructureRecommendationForCurrentTargets(
 ) {
   const blocker = targetAuthorityBlocker(rec, eligibility);
   if (!blocker) return { rec, blocked: false as const };
-  const blockerLabel =
-    blocker === "scale"
-      ? "Current target ROAS authority"
-      : "Current break-even ROAS authority";
+  const presentation = targetAuthorityPresentation(blocker);
   const automationReadiness = rec.automationReadiness
     ? {
         ...rec.automationReadiness,
@@ -209,12 +356,12 @@ function guardStructureRecommendationForCurrentTargets(
         missingEvidence: Array.from(
           new Set([
             ...rec.automationReadiness.missingEvidence,
-            blocker === "scale"
-              ? "current_target_roas_authority"
-              : "current_break_even_roas_authority",
+            ...(presentation.missingEvidenceCode
+              ? [presentation.missingEvidenceCode]
+              : []),
           ]),
         ),
-        reason: `${blockerLabel} is unavailable, so the persisted hard action is review-only.`,
+        reason: `${presentation.blockerLabel}. The persisted hard action remains review-only.`,
       }
     : undefined;
 
@@ -225,17 +372,16 @@ function guardStructureRecommendationForCurrentTargets(
       decisionState: "watch" as const,
       stateReason: "current_commercial_target_authority_unavailable",
       actionKind: "review_drill" as const,
-      primaryActionLabel: "Review Commercial Truth",
-      recommendedAction: "Review Commercial Truth",
-      expectedImpact:
-        "No provider change until current commercial truth is authoritative.",
+      recommendedAction: presentation.actionLabel,
+      primaryActionLabel: presentation.actionLabel,
+      expectedImpact: presentation.expectedImpact,
       proposedAction: undefined,
       targetValue: undefined,
-      watchSegment: "missing_target" as const,
+      watchSegment: presentation.watchSegment,
       rowPresentation: {
         ...rec.rowPresentation,
         signal: "blocker" as const,
-        blockerLabel,
+        blockerLabel: presentation.blockerLabel,
         autoBadge: false,
       },
       ...(automationReadiness ? { automationReadiness } : {}),
@@ -279,6 +425,69 @@ export function revalidateMetaStructureLanesForCurrentTargets(
     },
     watchingSegments: buildMetaWatchingSegments(watching),
   };
+}
+
+/**
+ * Project the canonical account profile onto all three commercial hard actions.
+ * This copies no commercial rule: Target ROAS, Meta AOV and break-even
+ * semantics remain owned by AccountDecisionProfile.
+ */
+export function targetHardActionEligibilityFromAccountProfile(
+  eligibility:
+    | (Pick<HardActionEligibility, "scale" | "cut" | "refresh"> &
+        Partial<
+          Pick<HardActionEligibility, "reason" | "reasons" | "codes" | "anchor">
+        >)
+    | null,
+): MetaTargetHardActionEligibility {
+  const hasCanonicalReasons =
+    eligibility?.reason !== undefined || eligibility?.reasons !== undefined;
+  const reasons = hasCanonicalReasons
+    ? {
+        scale:
+          eligibility.reasons?.scale ??
+          (eligibility.scale ? null : eligibility.reason ?? null),
+        cut:
+          eligibility.reasons?.cut ??
+          (eligibility.cut ? null : eligibility.reason ?? null),
+        refresh:
+          eligibility.reasons?.refresh ??
+          (eligibility.refresh ? null : eligibility.reason ?? null),
+      }
+    : null;
+  return {
+    scale: eligibility?.scale === true,
+    cut: eligibility?.cut === true,
+    refresh: eligibility?.refresh === true,
+    ...(eligibility?.codes
+      ? {
+          codes: {
+            scale: eligibility.codes.scale ?? null,
+            cut: eligibility.codes.cut ?? null,
+            refresh: eligibility.codes.refresh ?? null,
+          },
+        }
+      : {}),
+    ...(reasons ? { reasons } : {}),
+    ...(eligibility?.anchor
+      ? { missingInputs: eligibility.anchor.missingInputs }
+      : {}),
+  };
+}
+
+export function revalidateMetaStructureLanesForAccountProfile(
+  lanes: MetaLanePayload,
+  eligibility:
+    | (Pick<HardActionEligibility, "scale" | "cut" | "refresh"> &
+        Partial<
+          Pick<HardActionEligibility, "reason" | "reasons" | "codes" | "anchor">
+        >)
+    | null,
+): MetaLanePayload {
+  return revalidateMetaStructureLanesForCurrentTargets(
+    lanes,
+    targetHardActionEligibilityFromAccountProfile(eligibility),
+  );
 }
 
 export function providerCurrencyValue(
@@ -486,7 +695,7 @@ type StructureActionShape =
 
 function structureActionShape(
   rec: MetaRecommendation,
-  targetAuthorityBlocker: MetaTargetHardAction | null,
+  targetAuthorityBlocker: MetaTargetAuthorityBlocker | null,
 ): StructureActionShape {
   if (targetAuthorityBlocker) return "commercial_truth_withheld";
   if (rec.decisionLabel === "diagnose") return "resolve_decision_inputs";
@@ -519,7 +728,7 @@ function structureActionShape(
 function structureAction(
   rec: MetaRecommendation,
   ownership: ReturnType<typeof structureBudgetOwnership>,
-  targetAuthorityBlocker: MetaTargetHardAction | null,
+  targetAuthorityBlocker: MetaTargetAuthorityBlocker | null,
 ): MetaOsDecisionAction {
   const configuredTarget =
     rec.actionKind === "execute_bid"
@@ -538,16 +747,14 @@ function structureAction(
     null;
 
   if (shape === "commercial_truth_withheld") {
+    const presentation = targetAuthorityPresentation(targetAuthorityBlocker!);
     return {
-      code: "review_commercial_truth",
-      label: "Review Commercial Truth",
+      code: presentation.actionCode,
+      label: presentation.actionLabel,
       intent: "review",
       targetLevel,
       providerMutation: null,
-      scopeNote:
-        targetAuthorityBlocker === "scale"
-          ? "Current target ROAS authority is unavailable; no Scale action is authorized"
-          : "Current break-even ROAS authority is unavailable; no Cut action is authorized",
+      scopeNote: presentation.scopeNote,
     };
   }
 
@@ -730,10 +937,10 @@ function structureNode(
       ? "Decision Blocked"
       : assessmentForRecommendation(rec),
     whyNow: input.targetAuthorityBlocker
-      ? "Current commercial target authority is unavailable; the persisted verdict remains visible but cannot authorize an action."
+      ? `${targetAuthorityPresentation(input.targetAuthorityBlocker).blockerLabel}. The persisted verdict remains visible but cannot authorize an action.`
       : rec.why || rec.summary || "Evidence unavailable.",
     expectedImpact: input.targetAuthorityBlocker
-      ? "Cannot calculate until commercial truth is current"
+      ? targetAuthorityPresentation(input.targetAuthorityBlocker).expectedImpact
       : rec.expectedImpact || "Cannot calculate",
     evidence: rec.evidence ?? [],
     metrics: recommendationMetrics(rec, currency),
@@ -909,10 +1116,7 @@ function adAssessment(decision: MetaCanonicalDecision) {
 
 function adAction(
   decision: MetaCanonicalDecision,
-  targetHardActionEligibility: Readonly<{
-    scale: boolean;
-    cut: boolean;
-  }>,
+  targetHardActionEligibility: MetaTargetHardActionEligibility,
 ): {
   action: MetaOsDecisionAction;
   lane: MetaOsDecisionLane;
@@ -981,18 +1185,24 @@ function adAction(
   }
 
   if (
-    (buyerAction === "scale" || buyerAction === "cut") &&
+    (buyerAction === "scale" ||
+      buyerAction === "cut" ||
+      buyerAction === "refresh") &&
     !targetHardActionEligibility[buyerAction]
   ) {
+    const blocker = targetAuthorityBlockerForAction(
+      buyerAction,
+      targetHardActionEligibility,
+    )!;
+    const presentation = targetAuthorityPresentation(blocker);
     return {
       lane: "blocked",
       action: base({
-        code: "review_commercial_truth",
-        label: "Review Commercial Truth",
+        code: presentation.actionCode,
+        label: presentation.actionLabel,
         intent: "review",
         providerMutation: null,
-        scopeNote:
-          "Current commercial target authority is unavailable; no hard Scale/Cut action is authorized",
+        scopeNote: presentation.scopeNote,
       }),
     };
   }
@@ -1288,10 +1498,7 @@ function presentedCampaignRole(input: {
 function adDecision(
   decision: MetaCanonicalDecision,
   contexts: ReadonlyMap<string, MetaDecisionCampaignContextSourceRow>,
-  targetHardActionEligibility: Readonly<{
-    scale: boolean;
-    cut: boolean;
-  }>,
+  targetHardActionEligibility: MetaTargetHardActionEligibility,
 ): MetaOsAdDecision | null {
   const ad = decision.parentChain.ad;
   if (!ad?.id?.trim() || !/^\d+$/.test(ad.id.trim())) return null;
@@ -1704,6 +1911,7 @@ export function buildMetaOsDecisionsPresentation(input: {
   const targetHardActionEligibility = input.targetHardActionEligibility ?? {
     scale: true,
     cut: true,
+    refresh: true,
   };
   const structureInputs: StructureInput[] = [
     ...input.actionNow.map((rec) => ({

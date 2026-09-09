@@ -45,7 +45,8 @@ import {
 } from "@/lib/meta/automation-control-plane";
 import {
   buildMetaOsDecisionsPresentation,
-  revalidateMetaStructureLanesForCurrentTargets,
+  revalidateMetaStructureLanesForAccountProfile,
+  targetHardActionEligibilityFromAccountProfile,
 } from "@/lib/meta/decisions-os-presentation";
 import type { MetaOsWorkspaceBanner } from "@/lib/meta/decisions-os-contract";
 import {
@@ -88,7 +89,6 @@ import {
 } from "@/lib/creative-decision-engine/shopify-aov-source";
 import { resolveMinorUnitExponent } from "@/lib/currency/iso-4217-minor-units";
 import {
-  hasMetaHardActionAnchor,
   readMetaCommercialTargets,
   type MetaCommercialTargets,
 } from "@/lib/meta/commercial-targets";
@@ -2365,19 +2365,17 @@ export async function GET(request: NextRequest) {
       ),
     });
 
-    const targetHardActionEligibility = {
-      scale:
-        !commercialTargetRead.readFailed &&
-        hasMetaHardActionAnchor(commercialTargetRead.targets) &&
-        commercialTargetRead.targets?.targetRoas != null,
-      cut:
-        !commercialTargetRead.readFailed &&
-        hasMetaHardActionAnchor(commercialTargetRead.targets) &&
-        commercialTargetRead.targets?.breakEvenRoas != null,
-    };
-    const servedLanes = revalidateMetaStructureLanesForCurrentTargets(
+    const targetHardActionEligibility =
+      targetHardActionEligibilityFromAccountProfile(
+        commercialAnchorProfile.readFailed
+          ? null
+          : commercialAnchorProfile.eligibility,
+      );
+    const servedLanes = revalidateMetaStructureLanesForAccountProfile(
       lanes,
-      targetHardActionEligibility,
+      commercialAnchorProfile.readFailed
+        ? null
+        : commercialAnchorProfile.eligibility,
     );
     // D078 R4: server-owned account-coverage evidence. Fail-closed: an
     // unreadable states read serves null (rendered unavailable), never an

@@ -379,7 +379,7 @@ describe("buildMetaOsDecisionsPresentation", () => {
           archive: 0,
         },
       }),
-      { scale: true, cut: false },
+      { scale: true, cut: false, refresh: true },
     );
 
     expect(lanes.counts).toMatchObject({ actionNow: 1, watching: 1 });
@@ -396,13 +396,14 @@ describe("buildMetaOsDecisionsPresentation", () => {
       watchSegment: "missing_target",
       rowPresentation: {
         signal: "blocker",
-        blockerLabel: "Current break-even ROAS authority",
+        blockerLabel: "Current commercial Cut authority",
       },
       automationReadiness: {
         tier: "manual_review",
         autoExecuteEligible: false,
         operatorReviewRequired: true,
         blockers: ["missing_commercial_anchor"],
+        missingEvidence: [],
       },
     });
     expect(lanes.watching[0]!.proposedAction).toBeUndefined();
@@ -423,7 +424,7 @@ describe("buildMetaOsDecisionsPresentation", () => {
       nonSales: [],
       decisionReadModel: readModel([]),
       currency: "EUR",
-      targetHardActionEligibility: { scale: true, cut: false },
+      targetHardActionEligibility: { scale: true, cut: false, refresh: true },
     });
     const scaleNode = result.structure.groups.find(
       (group) => group.campaign.campaignId === "cmp_scale",
@@ -445,6 +446,197 @@ describe("buildMetaOsDecisionsPresentation", () => {
         providerMutation: null,
       },
     });
+    expect(JSON.stringify({ lanes, cutNode })).not.toMatch(/break-even ROAS/i);
+  });
+
+  it.each([
+    {
+      name: "missing Meta AOV",
+      code: "commercial_anchor_missing" as const,
+      blockerLabel: "Meta purchase value evidence is unavailable",
+      scopeNote: "A trusted Meta-attributed account AOV is unavailable",
+    },
+    {
+      name: "thin Meta AOV",
+      code: "commercial_anchor_sample_insufficient" as const,
+      blockerLabel: "Meta purchase sample is still too small",
+      scopeNote: "Meta's attributed purchase sample is too small",
+    },
+  ])(
+    "projects the canonical $name hold without inventing a missing break-even target",
+    ({ code, blockerLabel, scopeNote }) => {
+      const cut = recommendation({
+        id: `structure-${code}`,
+        level: "adset",
+        campaignId: "cmp_meta_aov_hold",
+        campaignName: "Meta AOV hold",
+        adsetId: `set-${code}`,
+        decisionLabel: "cut",
+        actionKind: "execute_pause",
+        proposedAction: { kind: "pause" },
+      });
+      const eligibility = {
+        scale: false,
+        cut: false,
+        refresh: false,
+        codes: { scale: code, cut: code, refresh: code },
+        reasons: {
+          scale: "DEBUG profile row 42 failed resolver predicate",
+          cut: "DEBUG profile row 42 failed resolver predicate",
+          refresh: "DEBUG profile row 42 failed resolver predicate",
+        },
+        missingInputs: ["meta_attributed_purchase_sample" as const],
+      };
+
+      const lanes = revalidateMetaStructureLanesForCurrentTargets(
+        metaLanePayload({
+          actionNow: [cut],
+          watching: [],
+          counts: {
+            actionNow: 1,
+            watching: 0,
+            healthy: 0,
+            nonSales: 0,
+            archive: 0,
+          },
+        }),
+        eligibility,
+      );
+      expect(lanes.watching[0]).toMatchObject({
+        primaryActionLabel: "Review Meta Purchase Evidence",
+        recommendedAction: "Review Meta Purchase Evidence",
+        watchSegment: "insufficient_signal",
+        rowPresentation: { blockerLabel },
+      });
+      expect(lanes.watchingSegments).toEqual([
+        expect.objectContaining({ key: "insufficient_signal", count: 1 }),
+      ]);
+
+      const result = buildMetaOsDecisionsPresentation({
+        actionNow: [cut],
+        watching: [],
+        nonSales: [],
+        decisionReadModel: readModel([
+          canonicalDecision({
+            id: `ad-${code}`,
+            adId: code === "commercial_anchor_missing"
+              ? "120000000000000041"
+              : "120000000000000042",
+            buyerAction: "cut",
+          }),
+          canonicalDecision({
+            id: `refresh-${code}`,
+            adId:
+              code === "commercial_anchor_missing"
+                ? "120000000000000043"
+                : "120000000000000044",
+            buyerAction: "refresh",
+          }),
+        ]),
+        currency: "EUR",
+        targetHardActionEligibility: eligibility,
+      });
+      const structure = result.structure.groups[0]!.adsets[0]!;
+      expect(structure.action).toMatchObject({
+        code: "resolve_decision_inputs",
+        label: "Review Meta Purchase Evidence",
+        intent: "review",
+        providerMutation: null,
+      });
+      expect(structure.action.scopeNote).toContain(scopeNote);
+      const cutAd = result.ads.items.find(
+        (item) => item.decisionId === `ad-${code}`,
+      );
+      const refreshAd = result.ads.items.find(
+        (item) => item.decisionId === `refresh-${code}`,
+      );
+      expect(cutAd?.action).toMatchObject({
+        code: "resolve_decision_inputs",
+        label: "Review Meta Purchase Evidence",
+        intent: "review",
+        providerMutation: null,
+      });
+      expect(refreshAd).toMatchObject({
+        lane: "blocked",
+        action: {
+          code: "resolve_decision_inputs",
+          label: "Review Meta Purchase Evidence",
+          intent: "review",
+          providerMutation: null,
+        },
+      });
+      expect(refreshAd?.action.scopeNote).toContain(
+        `no Refresh action is authorized`,
+      );
+      expect(refreshAd?.action).not.toMatchObject({
+        code: "refresh_creative",
+        intent: "brief",
+      });
+
+      const operatorPayload = JSON.stringify({ lanes, result });
+      expect(operatorPayload).not.toMatch(/break-even ROAS/i);
+      expect(operatorPayload).not.toContain("DEBUG profile row 42");
+    },
+  );
+
+  it("names a Scale Meta AOV hold as Scale throughout the operator projection", () => {
+    const scale = recommendation({
+      id: "structure-scale-meta-aov-hold",
+      level: "adset",
+      campaignId: "cmp_scale_meta_aov_hold",
+      campaignName: "Scale Meta AOV hold",
+      adsetId: "set-scale-meta-aov-hold",
+      decisionLabel: "scale",
+      actionKind: "execute_bid",
+      targetValue: { bidAmountMinor: 2_500 },
+      proposedAction: { kind: "apply_bid", bidAmountMinor: 2_500 },
+    });
+    const eligibility = {
+      scale: false,
+      cut: false,
+      refresh: false,
+      codes: {
+        scale: "commercial_anchor_missing" as const,
+        cut: "commercial_anchor_missing" as const,
+        refresh: "commercial_anchor_missing" as const,
+      },
+      missingInputs: ["meta_attributed_purchase_sample" as const],
+    };
+
+    const lanes = revalidateMetaStructureLanesForCurrentTargets(
+      metaLanePayload({
+        actionNow: [scale],
+        watching: [],
+        counts: {
+          actionNow: 1,
+          watching: 0,
+          healthy: 0,
+          nonSales: 0,
+          archive: 0,
+        },
+      }),
+      eligibility,
+    );
+    expect(lanes.watching[0]).toMatchObject({
+      primaryActionLabel: "Review Meta Purchase Evidence",
+      expectedImpact:
+        "Scale remains on hold until Meta-attributed purchase evidence is ready.",
+      watchSegment: "insufficient_signal",
+    });
+
+    const result = buildMetaOsDecisionsPresentation({
+      actionNow: [scale],
+      watching: [],
+      nonSales: [],
+      decisionReadModel: readModel([]),
+      currency: "EUR",
+      targetHardActionEligibility: eligibility,
+    });
+    const node = result.structure.groups[0]!.adsets[0]!;
+    expect(node.action.scopeNote).toContain("no Scale action is authorized");
+    expect(JSON.stringify({ lanes, node })).not.toMatch(
+      /no Cut action|Cut remains on hold/,
+    );
   });
 
   it("merges the complete Structure inventory while keeping live recommendation authority", () => {
@@ -1135,7 +1327,7 @@ describe("buildMetaOsDecisionsPresentation", () => {
         }),
       ]),
       currency: "EUR",
-      targetHardActionEligibility: { scale: false, cut: false },
+      targetHardActionEligibility: { scale: false, cut: false, refresh: true },
     });
 
     const scale = result.ads.items.find(
@@ -1183,7 +1375,7 @@ describe("buildMetaOsDecisionsPresentation", () => {
         }),
       ]),
       currency: "EUR",
-      targetHardActionEligibility: { scale: false, cut: true },
+      targetHardActionEligibility: { scale: false, cut: true, refresh: true },
     });
 
     expect(
@@ -2354,7 +2546,7 @@ const STRUCTURE_COPY_PERMUTATIONS = [
 function structureActionUnderCopy(input: {
   copy: string;
   rec: Partial<MetaRecommendation>;
-  eligibility?: { scale: boolean; cut: boolean };
+  eligibility?: { scale: boolean; cut: boolean; refresh: boolean };
 }) {
   const result = buildMetaOsDecisionsPresentation({
     actionNow: [
@@ -2373,7 +2565,11 @@ function structureActionUnderCopy(input: {
     nonSales: [],
     decisionReadModel: readModel([]),
     currency: "EUR",
-    targetHardActionEligibility: input.eligibility ?? { scale: true, cut: true },
+    targetHardActionEligibility: input.eligibility ?? {
+      scale: true,
+      cut: true,
+      refresh: true,
+    },
   });
   return result.structure.groups[0]!.campaign.action;
 }
@@ -2383,7 +2579,7 @@ describe("structure actions are decided by typed fields, not by their copy", () 
     {
       shape: "commercial truth withheld",
       rec: { decisionLabel: "scale" as const },
-      eligibility: { scale: false, cut: true },
+      eligibility: { scale: false, cut: true, refresh: true },
       expected: {
         code: "review_commercial_truth",
         label: "Review Commercial Truth",

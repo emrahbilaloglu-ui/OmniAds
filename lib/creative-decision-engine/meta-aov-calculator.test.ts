@@ -50,6 +50,9 @@ describe("computeMetaAttributedAov", () => {
     expect(sql).toContain("d.metric_schema_version > $6::integer");
     expect(sql).toContain("COUNT(DISTINCT source_currency)::integer");
     expect(sql).toContain("source_currency_count = 1");
+    expect(sql).toContain("NULLIF(UPPER(BTRIM(account.currency)), '') AS bound_account_currency");
+    expect(sql).toContain("bound_currency_count = 1");
+    expect(sql).toContain("source_currency = bound_account_currency");
     expect(params).toEqual([
       "d0000000-0000-4000-8000-000000000501",
       "2026-09-05",

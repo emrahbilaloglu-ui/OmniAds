@@ -421,6 +421,8 @@ export type LinkClickRepairAction =
   | "fill_measured_count"
   /** Column NULL, actions array present with no `link_click` entry: write 0. */
   | "fill_measured_zero"
+  /** Payload proves measured zero, but the operator asked not to write it. */
+  | "skipped_measured_zero"
   /** Column 0, payload proves a positive count: the stored 0 is a fabrication. */
   | "correct_fabricated_zero"
   /** Stored value already equals the payload's. */
@@ -498,9 +500,21 @@ export function classifyAdDayLinkClick(input: {
     derived = parsed.value;
   } else {
     if (input.skipMeasuredZero) {
-      return stored === null
-        ? { action: "unmeasurable_no_actions_payload", writeValue: null, derived: null }
-        : { action: "already_consistent", writeValue: null, derived: null };
+      if (stored === null) {
+        return {
+          action: "skipped_measured_zero",
+          writeValue: null,
+          derived: 0,
+        };
+      }
+      if (stored === 0) {
+        return { action: "already_consistent", writeValue: null, derived: 0 };
+      }
+      return {
+        action: "conflict_stored_measurement",
+        writeValue: null,
+        derived: 0,
+      };
     }
     derived = 0;
   }
@@ -525,6 +539,7 @@ export function classifyAdDayLinkClick(input: {
 export const LINK_CLICK_REPAIR_ACTIONS: LinkClickRepairAction[] = [
   "fill_measured_count",
   "fill_measured_zero",
+  "skipped_measured_zero",
   "correct_fabricated_zero",
   "already_consistent",
   "unmeasurable_no_actions_payload",
@@ -546,6 +561,15 @@ export function isWritingAction(action: LinkClickRepairAction): boolean {
     action === "fill_measured_count" ||
     action === "fill_measured_zero" ||
     action === "correct_fabricated_zero"
+  );
+}
+
+/** Rows whose stored payload cannot establish a trustworthy measurement. */
+export function requiresProviderResync(action: LinkClickRepairAction): boolean {
+  return (
+    action === "unmeasurable_no_actions_payload" ||
+    action === "stored_zero_unprovable" ||
+    action === "malformed_actions_value"
   );
 }
 
@@ -981,7 +1005,7 @@ export async function runLinkClickRepair(input: {
       });
       report.actions[classification.action] += 1;
       totals[classification.action] += 1;
-      if (classification.action === "unmeasurable_no_actions_payload") {
+      if (requiresProviderResync(classification.action)) {
         residualNeedingProviderResync += 1;
       }
       if (isWritingAction(classification.action) && classification.writeValue !== null) {
@@ -1258,7 +1282,7 @@ async function main() {
   console.log(report);
   if (!options.execute) {
     console.log(
-      `\nDRY RUN — nothing was written. ${result.rowsPlanned} row(s) would be repaired; ${result.residualNeedingProviderResync} row(s) carry no actions payload and need a provider re-sync instead.`,
+      `\nDRY RUN — nothing was written. ${result.rowsPlanned} row(s) would be repaired; ${result.residualNeedingProviderResync} row(s) cannot be repaired from trustworthy stored payload evidence and need a provider re-sync instead.`,
     );
   }
 }

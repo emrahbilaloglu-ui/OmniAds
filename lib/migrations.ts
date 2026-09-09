@@ -1851,13 +1851,15 @@ type PinnedMigrationClient = Parameters<
 async function runNativeAdSchemaMigrations(input: {
   pinnedClient: PinnedMigrationClient;
   timeoutMs: number;
+  deadlineAtMs: number;
   lockTimeoutMs: number;
   verifyCapabilities: boolean;
 }) {
   const { timeoutMs, verifyCapabilities } = input;
   await runPinnedDbTransaction<void>({
     client: input.pinnedClient,
-    timeoutMs,
+    timeoutMs: remainingMigrationMs(input.deadlineAtMs, timeoutMs),
+    deadlineAtMs: input.deadlineAtMs,
     lockTimeoutMs: input.lockTimeoutMs,
     fn: async (db) => {
       const inspectorDb = createMigrationDb(db);
@@ -2857,18 +2859,27 @@ function getMigrationTimeoutMs() {
     : DEFAULT_MIGRATION_TIMEOUT_MS;
 }
 
+function migrationTimeoutError(timeoutMs: number) {
+  return new Error(`Database migrations timed out after ${timeoutMs}ms.`);
+}
+
+function remainingMigrationMs(deadlineAtMs: number, timeoutMs: number): number {
+  const remaining = Math.floor(deadlineAtMs - Date.now());
+  if (remaining <= 0) throw migrationTimeoutError(timeoutMs);
+  return remaining;
+}
+
 function withMigrationTimeout<T>(
   promise: Promise<T>,
+  deadlineAtMs: number,
   timeoutMs: number,
 ): Promise<T> {
   return Promise.race([
     promise,
     new Promise<T>((_, reject) => {
       const timer = setTimeout(() => {
-        reject(
-          new Error(`Database migrations timed out after ${timeoutMs}ms.`),
-        );
-      }, timeoutMs);
+        reject(migrationTimeoutError(timeoutMs));
+      }, remainingMigrationMs(deadlineAtMs, timeoutMs));
       promise
         .finally(() => clearTimeout(timer))
         .catch(() => clearTimeout(timer));
@@ -3193,6 +3204,7 @@ export async function runMigrations(options?: {
   }
 
   const timeoutMs = options?.timeoutMs ?? getMigrationTimeoutMs();
+  const deadlineAtMs = Date.now() + timeoutMs;
   logStartupEvent("migrations_started", { reason, force, timeoutMs });
 
   /*
@@ -15966,6 +15978,7 @@ export async function runMigrations(options?: {
           // migration DDL escapes to a second, unverified backend.
           pinnedClient,
           timeoutMs,
+          deadlineAtMs,
           lockTimeoutMs,
           verifyCapabilities: options?.verifyNativeSchemaCapabilities ?? true,
         });
@@ -16510,7 +16523,7 @@ export async function runMigrations(options?: {
           reason,
           verifiedObjects: budgetSchema.verified.length,
         });
-      }, { timeoutMs });
+      }, { timeoutMs, deadlineAtMs });
 
       /*
         THE LEASE IS NOW RELEASED. Everything below needs its OWN connections.
@@ -16523,7 +16536,10 @@ export async function runMigrations(options?: {
         throws before `migrationsCompleted` is set, a verification failure still
         leaves the process un-migrated rather than falsely complete.
       */
-      const verification = await verifyMigrationSchemaContract({ timeoutMs });
+      const verification = await verifyMigrationSchemaContract({
+        timeoutMs: remainingMigrationMs(deadlineAtMs, timeoutMs),
+        deadlineAtMs,
+      });
       logStartupEvent("migrations_schema_verified", {
         reason,
         verifiedObjects: verification.verified,
@@ -16533,16 +16549,24 @@ export async function runMigrations(options?: {
       logStartupEvent("migrations_completed", { reason });
     },
   );
-  migrationsPromise = withMigrationTimeout(migrationOperation, timeoutMs);
+  const guardedMigration = withMigrationTimeout(
+    migrationOperation,
+    deadlineAtMs,
+    timeoutMs,
+  );
+  migrationsPromise = guardedMigration;
 
   try {
     await migrationsPromise;
   } catch (error) {
-    // If the outer wall-clock guard wins the race, keep the latch occupied
-    // until PostgreSQL has cancelled the bounded in-flight query and the
-    // pinned lease has been released. A retry can then never overlap it.
-    await migrationOperation.catch(() => undefined);
-    migrationsPromise = null;
+    // Settle the caller at the absolute deadline, but keep the latch occupied
+    // until the bounded operation and cleanup have actually stopped. A retry
+    // can therefore never overlap a prior migration session.
+    void migrationOperation
+      .catch(() => undefined)
+      .finally(() => {
+        if (migrationsPromise === guardedMigration) migrationsPromise = null;
+      });
 
     const isSystemCatalogRace =
       error instanceof Error &&

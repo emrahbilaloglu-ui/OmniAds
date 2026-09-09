@@ -47,7 +47,7 @@ interface MetaPageProps {
  * make the topbar, this body and every request name the same workspace. The
  * query parameter never moves it on its own.
  */
-function MetaBusinessScopeRefusal({
+export function MetaBusinessScopeRefusal({
   requestedBusinessId,
   requestedBusinessName,
   activeBusinessName,

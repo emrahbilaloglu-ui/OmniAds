@@ -255,7 +255,7 @@ describe.runIf(SEAM)("link-click repair against real PostgreSQL", () => {
     // ad-C recent has no actions array; ad-F recent stores an uncorroborated 0.
     expect(result.actions.unmeasurable_no_actions_payload).toBe(1);
     expect(result.actions.stored_zero_unprovable).toBe(1);
-    expect(result.residualNeedingProviderResync).toBe(1);
+    expect(result.residualNeedingProviderResync).toBe(2);
     // ad-G is a stored positive: the candidate query never fetches it, so it is
     // not even classified.
     expect(result.candidatesExamined).toBe(12);
@@ -278,6 +278,10 @@ describe.runIf(SEAM)("link-click repair against real PostgreSQL", () => {
       options: options({ skipMeasuredZero: true }),
     });
     expect(result.actions.fill_measured_zero).toBe(0);
+    expect(result.actions.skipped_measured_zero).toBe(1);
+    expect(result.actions.unmeasurable_no_actions_payload).toBe(1);
+    expect(result.actions.stored_zero_unprovable).toBe(1);
+    expect(result.residualNeedingProviderResync).toBe(2);
     expect(result.rowsPlanned).toBe(9);
   });
 

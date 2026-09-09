@@ -25,6 +25,7 @@ WITH cutoff_safe_facts AS (
     d.conversions,
     d.revenue,
     NULLIF(UPPER(BTRIM(d.account_currency)), '') AS source_currency,
+    NULLIF(UPPER(BTRIM(account.currency)), '') AS bound_account_currency,
     (
       d.metric_schema_version > $6::integer
       OR (
@@ -65,6 +66,9 @@ WITH cutoff_safe_facts AS (
   SELECT
     COUNT(*) FILTER (WHERE contradictory)::integer AS contradictory_count,
     COUNT(DISTINCT source_currency)::integer AS source_currency_count,
+    COUNT(DISTINCT bound_account_currency)::integer AS bound_currency_count,
+    MIN(source_currency) AS source_currency,
+    MIN(bound_account_currency) AS bound_account_currency,
     COALESCE(SUM(conversions) FILTER (
       WHERE metric_schema_version = $6::integer
         AND NOT contradictory
@@ -81,15 +85,27 @@ WITH cutoff_safe_facts AS (
 )
 SELECT
   CASE
-    WHEN contradictory_count = 0 AND source_currency_count = 1 AND purchase_count > 0
+    WHEN contradictory_count = 0
+      AND source_currency_count = 1
+      AND bound_currency_count = 1
+      AND source_currency = bound_account_currency
+      AND purchase_count > 0
       THEN total_revenue / purchase_count
   END AS aov_mean,
   CASE
-    WHEN contradictory_count = 0 AND source_currency_count = 1 THEN purchase_count
+    WHEN contradictory_count = 0
+      AND source_currency_count = 1
+      AND bound_currency_count = 1
+      AND source_currency = bound_account_currency
+      THEN purchase_count
     ELSE 0
   END::integer AS purchase_count,
   CASE
-    WHEN contradictory_count = 0 AND source_currency_count = 1 THEN total_revenue
+    WHEN contradictory_count = 0
+      AND source_currency_count = 1
+      AND bound_currency_count = 1
+      AND source_currency = bound_account_currency
+      THEN total_revenue
     ELSE 0
   END AS total_revenue,
   ($2::date - (($3::integer - 1) * INTERVAL '1 day'))::date AS window_start,

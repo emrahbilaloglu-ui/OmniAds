@@ -13,6 +13,7 @@ import { describe, expect, it } from "vitest";
 
 const PATH = ".github/workflows/automation-capability-toggle.yml";
 const SOURCE = readFileSync(PATH, "utf8");
+const REMOTE_SOURCE = readFileSync(".github/scripts/automation-capability-remote.sh", "utf8");
 const DOC = yaml.load(SOURCE) as Record<string, unknown>;
 
 describe("automation-capability-toggle.yml — parses and is dispatch-only", () => {
@@ -64,6 +65,34 @@ describe("automation-capability-toggle.yml — the exact-40-char SHA gate", () =
   it("validates length and hex-lowercase, mirroring deploy-hetzner.yml's own gate", () => {
     expect(SOURCE).toContain('[ "${#sha}" -ne 40 ]');
     expect(SOURCE).toContain("*[!0-9a-f]*");
+  });
+});
+
+describe("automation-capability-toggle.yml — stale close is never a green no-op", () => {
+  it("ships current-main safety code for close while preserving the caller SHA as evidence", () => {
+    expect(SOURCE).toContain('if [ "${CAPABILITY}" = "closed" ]; then');
+    expect(SOURCE).toContain('echo "should_run=true" >> "$GITHUB_OUTPUT"');
+    expect(SOURCE).toContain('echo "stale_close=true" >> "$GITHUB_OUTPUT"');
+    expect(SOURCE).toContain('echo "checkout_sha=${current_main_sha}" >> "$GITHUB_OUTPUT"');
+    expect(SOURCE).toContain("ref: ${{ steps.freshness.outputs.checkout_sha }}");
+    expect(SOURCE).toContain("EXPECTED_SHA=${REQUESTED_SHA} REQUESTED_SHA=${REQUESTED_SHA}");
+  });
+
+  it("resolves close's effective SHA only from matching running web+worker identities plus web build-info", () => {
+    expect(REMOTE_SOURCE).toContain("capability_resolve_running_release");
+    expect(REMOTE_SOURCE).toContain('web_revision="$(capability_container_label web org.opencontainers.image.revision)"');
+    expect(REMOTE_SOURCE).toContain('worker_revision="$(capability_container_label worker org.opencontainers.image.revision)"');
+    expect(REMOTE_SOURCE).toContain('if [ "${web_revision}" != "${worker_revision}" ]; then');
+    expect(REMOTE_SOURCE).toContain('if [ "${build_id}" != "${web_revision}" ]; then');
+    expect(REMOTE_SOURCE).toContain('EFFECTIVE_SHA="${CAP_RUNNING_SHA}"');
+    expect(REMOTE_SOURCE).toContain('capability_recreate_and_verify "false" "${EFFECTIVE_SHA}"');
+  });
+
+  it("fails visibly with file-only closed evidence and no fallback SHA when running identity is unprovable", () => {
+    expect(REMOTE_SOURCE).toContain("running_release_identity_unverified,file_closed_only_live_unverified");
+    expect(REMOTE_SOURCE).toContain('"effectiveSha": os.environ.get("EFFECTIVE_SHA") or None');
+    expect(SOURCE).toContain('"requestedSha": requested_sha');
+    expect(SOURCE).toContain('"effectiveSha": effective_sha');
   });
 });
 

@@ -3353,6 +3353,26 @@ async function main() {
     );
 
     /*
+      Strict Meta AOV currency binding.
+
+      The commercial anchor must accept only Meta purchase evidence whose
+      recorded currency matches the bound Meta account. These cases need the
+      migrated provider binding and daily-fact tables, so register the real
+      PostgreSQL seam rather than letting its gated tests report as skipped.
+    */
+    await runChildVitest(
+      repoRoot,
+      databaseUrl,
+      path.join(
+        "lib",
+        "creative-decision-engine",
+        "meta-aov-calculator.db.test.ts",
+      ),
+      "Strict Meta AOV currency binding DB seam check",
+      3,
+    );
+
+    /*
       The slot outcome recorded from what was ATTEMPTED, not from what is
       required.
 
@@ -3862,7 +3882,7 @@ async function main() {
       databaseUrl,
       path.join("lib", "meta", "migration-pinned-session.db.test.ts"),
       "Migration pinned-session backend check",
-      5,
+      6,
     );
 
     /*

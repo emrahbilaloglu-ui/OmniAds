@@ -32,6 +32,11 @@ import { makeAccountCalibration } from "@/lib/creative-decision-engine/__tests__
 import { resolveSpendUnit } from "@/lib/creative-decision-engine/spend-unit-resolver";
 import type { AccountCalibration, SpendUnitSource } from "@/lib/creative-decision-engine/types";
 import type { ObservedShopifyAovEvidence } from "@/lib/creative-decision-engine/shopify-aov-source";
+import {
+  revalidateMetaStructureLanesForAccountProfile,
+  targetHardActionEligibilityFromAccountProfile,
+} from "@/lib/meta/decisions-os-presentation";
+import { metaLanePayload, metaRec } from "@/components/meta/redesign/test-fixtures";
 
 /** Grandmix's shape: a Target ROAS and nothing the product declares optional. */
 const TARGET_PACK = makeAnchorTargetPack({
@@ -109,7 +114,7 @@ const META_ABSENT = makeAccountCalibration({
 
 describe("served Meta anchor is sized from the Meta platform AOV", () => {
   it("divides Meta's attributed AOV by Target ROAS while the store is present", async () => {
-    const { anchor } = await serveAnchor({
+    const { profile, anchor } = await serveAnchor({
       calibration: META_READY,
       observedShopifyAov: provenStoreAov(),
     });
@@ -123,6 +128,68 @@ describe("served Meta anchor is sized from the Meta platform AOV", () => {
     expect(anchor.missingInputs).toEqual([]);
     expect(anchor.lineage.metaAttributedAovMean90d).toBe(50);
     expect(anchor.lineage.metaAttributedAovPurchaseCount90d).toBe(42);
+    expect(profile.spendUnitEvidence.breakEvenRoas).toBeNull();
+    expect(targetHardActionEligibilityFromAccountProfile(
+      profile.hardActionEligibility,
+    )).toMatchObject({ scale: true, cut: true, refresh: true });
+
+    const cut = metaRec({
+      id: "target-roas-cut",
+      decisionLabel: "cut",
+      actionKind: "execute_pause",
+      proposedAction: { kind: "pause" },
+    });
+    const servedLanes = revalidateMetaStructureLanesForAccountProfile(
+      metaLanePayload({
+        actionNow: [cut],
+        watching: [],
+        counts: {
+          actionNow: 1,
+          watching: 0,
+          healthy: 1,
+          nonSales: 0,
+          archive: 0,
+        },
+      }),
+      profile.hardActionEligibility,
+    );
+    expect(servedLanes.actionNow).toEqual([cut]);
+    expect(servedLanes.watching).toEqual([]);
+  });
+
+  it("keeps a no-ratio Cut blocked when the canonical profile blocks it", () => {
+    expect(targetHardActionEligibilityFromAccountProfile({
+      scale: false,
+      cut: false,
+      refresh: true,
+    })).toEqual({ scale: false, cut: false, refresh: true });
+
+    const cut = metaRec({
+      id: "no-ratio-cut",
+      decisionLabel: "cut",
+      actionKind: "execute_pause",
+      proposedAction: { kind: "pause" },
+    });
+    const servedLanes = revalidateMetaStructureLanesForAccountProfile(
+      metaLanePayload({
+        actionNow: [cut],
+        watching: [],
+        counts: {
+          actionNow: 1,
+          watching: 0,
+          healthy: 1,
+          nonSales: 0,
+          archive: 0,
+        },
+      }),
+      { scale: false, cut: false, refresh: true },
+    );
+    expect(servedLanes.actionNow).toEqual([]);
+    expect(servedLanes.watching[0]).toMatchObject({
+      id: "no-ratio-cut",
+      decisionState: "watch",
+      actionKind: "review_drill",
+    });
   });
 
   it("carries the store's own number as evidence beside the Meta unit", async () => {
@@ -159,6 +226,115 @@ describe("served Meta anchor is sized from the Meta platform AOV", () => {
     // The hold is legible beside what the store said, rather than replacing it.
     expect(profile.spendUnitEvidence.observedShopifyAov).toBe(58);
     expect(profile.spendUnitEvidence.warnings).toContain("meta_aov_unavailable");
+
+    const projectedEligibility =
+      targetHardActionEligibilityFromAccountProfile(
+        profile.hardActionEligibility,
+      );
+    expect(projectedEligibility).toMatchObject({
+      scale: false,
+      cut: false,
+      refresh: false,
+      codes: {
+        scale: "commercial_anchor_missing",
+        cut: "commercial_anchor_missing",
+        refresh: "commercial_anchor_missing",
+      },
+    });
+    expect(projectedEligibility.reasons?.refresh).toBe(
+      profile.hardActionEligibility.reasons?.refresh,
+    );
+    expect(projectedEligibility.missingInputs).toContain(
+      "meta_attributed_purchase_sample",
+    );
+
+    const cut = metaRec({
+      id: "missing-meta-aov-cut",
+      decisionLabel: "cut",
+      actionKind: "execute_pause",
+      proposedAction: { kind: "pause" },
+    });
+    const servedLanes = revalidateMetaStructureLanesForAccountProfile(
+      metaLanePayload({
+        actionNow: [cut],
+        watching: [],
+        counts: {
+          actionNow: 1,
+          watching: 0,
+          healthy: 1,
+          nonSales: 0,
+          archive: 0,
+        },
+      }),
+      profile.hardActionEligibility,
+    );
+    expect(servedLanes.watching[0]).toMatchObject({
+      primaryActionLabel: "Review Meta Purchase Evidence",
+      watchSegment: "insufficient_signal",
+      rowPresentation: {
+        blockerLabel: "Meta purchase value evidence is unavailable",
+      },
+    });
+    expect(JSON.stringify(servedLanes.watching[0])).not.toMatch(
+      /break-even ROAS/i,
+    );
+  });
+
+  it("serves a thin Meta AOV as an evidence hold rather than a missing target", async () => {
+    const { profile } = await serveAnchor({
+      calibration: makeAccountCalibration({
+        metaAttributedAovMean90d: 50,
+        metaAttributedAovPurchaseCount90d: 3,
+        metaAttributedRevenue90d: 150,
+        metaAovQuality: "low_sample",
+        accountCpaP50: null,
+        accountCpaSampleCount: 0,
+      }),
+      observedShopifyAov: provenStoreAov(),
+    });
+    expect(profile.hardActionEligibility.codes?.cut).toBe(
+      "commercial_anchor_sample_insufficient",
+    );
+    expect(
+      targetHardActionEligibilityFromAccountProfile(
+        profile.hardActionEligibility,
+      ),
+    ).toMatchObject({
+      refresh: false,
+      codes: { refresh: "commercial_anchor_sample_insufficient" },
+      missingInputs: ["meta_attributed_purchase_sample"],
+    });
+
+    const cut = metaRec({
+      id: "thin-meta-aov-cut",
+      decisionLabel: "cut",
+      actionKind: "execute_pause",
+      proposedAction: { kind: "pause" },
+    });
+    const servedLanes = revalidateMetaStructureLanesForAccountProfile(
+      metaLanePayload({
+        actionNow: [cut],
+        watching: [],
+        counts: {
+          actionNow: 1,
+          watching: 0,
+          healthy: 1,
+          nonSales: 0,
+          archive: 0,
+        },
+      }),
+      profile.hardActionEligibility,
+    );
+    expect(servedLanes.watching[0]).toMatchObject({
+      primaryActionLabel: "Review Meta Purchase Evidence",
+      watchSegment: "insufficient_signal",
+      rowPresentation: {
+        blockerLabel: "Meta purchase sample is still too small",
+      },
+    });
+    expect(JSON.stringify(servedLanes.watching[0])).not.toMatch(
+      /break-even ROAS/i,
+    );
   });
 
   it("resolves identically with and without the store evidence", async () => {

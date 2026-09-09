@@ -137,11 +137,18 @@ describe("runMigrations", () => {
       statement timeout and the proven lock bound.
     */
     expect(db.runPinnedDbTransaction).toHaveBeenCalledWith(
-      expect.objectContaining({ timeoutMs: 120_000, lockTimeoutMs: 15_000 }),
+      expect.objectContaining({
+        timeoutMs: expect.any(Number),
+        deadlineAtMs: expect.any(Number),
+        lockTimeoutMs: 15_000,
+      }),
     );
+    expect(
+      vi.mocked(db.runPinnedDbTransaction).mock.calls[0]?.[0].timeoutMs,
+    ).toBeLessThanOrEqual(120_000);
     expect(db.withPinnedDbClient).toHaveBeenCalledWith(
       expect.any(Function),
-      { timeoutMs: 120_000 },
+      expect.objectContaining({ timeoutMs: 120_000 }),
     );
     expect(db.getDb).not.toHaveBeenCalled();
     expect(startupDiagnostics.logStartupEvent).toHaveBeenCalledWith(
@@ -231,6 +238,54 @@ describe("runMigrations", () => {
     expectDropColumnQuery(queries.join("\n"), "meta_campaign_daily", "manual_bid_amount");
     expectDropColumnQuery(queries.join("\n"), "meta_adset_daily", "bid_strategy_label");
     expectDropColumnQuery(queries.join("\n"), "meta_adset_daily", "manual_bid_amount");
+  });
+
+  it("settles at one absolute deadline and does not overlap a delayed prior run", async () => {
+    const sql = Object.assign(
+      vi.fn(async () => []),
+      { query: vi.fn(async () => []) },
+    );
+    const module = migrationDbMockModule(sql as never);
+    let releaseStart!: () => void;
+    const delayedStart = new Promise<void>((resolve) => {
+      releaseStart = resolve;
+    });
+    let leaseStarts = 0;
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+    vi.mocked(db.getDbWithTimeout).mockReturnValue(sql as never);
+    vi.mocked(db.withPinnedDbClient).mockImplementation(async (fn, options) => {
+      leaseStarts += 1;
+      await delayedStart;
+      return module.withPinnedDbClient(fn as never, options as never);
+    });
+    vi.mocked(db.runPinnedDbTransaction).mockImplementation(
+      module.runPinnedDbTransaction as never,
+    );
+
+    const migrations = await import("@/lib/migrations");
+    const startedAt = Date.now();
+    const first = migrations.runMigrations({
+      force: true,
+      reason: "absolute-deadline-delayed-start",
+      timeoutMs: 40,
+      verifyNativeSchemaCapabilities: false,
+    });
+
+    await expect(first).rejects.toThrow("timed out after 40ms");
+    expect(Date.now() - startedAt).toBeLessThan(300);
+
+    const retryStartedAt = Date.now();
+    await expect(migrations.runMigrations({
+      force: true,
+      reason: "must-not-overlap",
+      timeoutMs: 40,
+      verifyNativeSchemaCapabilities: false,
+    })).rejects.toThrow("timed out after 40ms");
+    expect(Date.now() - retryStartedAt).toBeLessThan(100);
+    expect(leaseStarts).toBe(1);
+
+    releaseStart();
+    await new Promise((resolve) => setTimeout(resolve, 20));
   });
 
   it("drops only retired legacy core tables when the cleanup switch is enabled", async () => {

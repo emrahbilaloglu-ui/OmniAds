@@ -26,23 +26,24 @@
 #                             then exit non-zero regardless of the restore's
 #                             own outcome (and the restore's OWN failure is
 #                             its own named blocker, never swallowed).
-#   capability_close       — write false -> recreate+verify(web AND worker).
-#                             NEVER gated on the DB-backed preflight, and
-#                             never gated on the baseline check either — a
-#                             close must be reachable even when the database
-#                             or the running containers are in an unknown
-#                             state, which is exactly the situation an
-#                             operator would be closing capability in
-#                             response to.
+#   capability_close       — prove the exact common release revision already
+#                             running on web+worker -> write false -> recreate
+#                             that same release -> verify both processes.
+#                             NEVER gated on the DB-backed preflight or on an
+#                             already-closed env baseline. If the running
+#                             release identity cannot be proved, it persists
+#                             file-level false but refuses any recreate/pass
+#                             rather than choosing the requested SHA or current
+#                             main as a deploy target.
 #
 # NEITHER phase EVER deploys a different release. `docker compose pull` /
 # `up -d --force-recreate` here always run with `APP_IMAGE_TAG`/
-# `APP_BUILD_ID` pinned to `EXPECTED_SHA` — the SAME exact commit the
-# workflow's own freshness gate already validated is current main HEAD, and
-# (for `capability_open`) the SAME exact commit `capability_verify_running_
-# baseline` below proves is ALREADY what web and worker are running BEFORE
-# this script writes anything. Recreating containers is the mechanism that
-# makes an env-file change observable to a running process (env vars are
+# `APP_BUILD_ID` pinned to the EFFECTIVE release: for open, the exact
+# requested SHA after current-main + running-baseline proof; for close, the
+# matching 40-hex image revision read from the ACTUAL running web+worker
+# containers before any mutation. The caller's requested SHA is evidence for
+# a close, never its image selector. Recreating containers is the mechanism
+# that makes an env-file change observable to a running process (env vars are
 # read once at process start); it is not a deploy of new code.
 #
 # Every phase prints ONE redacted JSON summary line prefixed
@@ -56,7 +57,8 @@ PHASE="${PHASE:-}"
 REMOTE_APP_DIR="${REMOTE_APP_DIR:-/var/www/adsecute}"
 ENV_FILE="${REMOTE_APP_DIR}/.env.production"
 ENV_KEY="META_AUTOMATION_LIVE_WRITES"
-EXPECTED_SHA="${EXPECTED_SHA:?EXPECTED_SHA is required}"
+REQUESTED_SHA="${REQUESTED_SHA:-${EXPECTED_SHA:?REQUESTED_SHA or EXPECTED_SHA is required}}"
+EFFECTIVE_SHA=""
 
 if ! command -v atomic_set_env_var >/dev/null 2>&1; then
   echo "atomic_set_env_var is not defined — this script must be concatenated" >&2
@@ -118,12 +120,12 @@ capability_container_label() {
   printf '%s' "${value}"
 }
 
-# capability_verify_container SERVICE ROLE — running, at the exact expected
+# capability_verify_container SERVICE ROLE EXPECTED_REVISION — running, at the exact expected
 # SHA (by the image's OWN `org.opencontainers.image.revision` label, not
 # just an env var the process could theoretically disagree with), and
 # labeled with the role the Dockerfile actually gives that service.
 capability_verify_container() {
-  local service="$1" role="$2" revision actual_role
+  local service="$1" role="$2" expected_revision="$3" revision actual_role
 
   if ! capability_container_running "${service}"; then
     echo "capability_verify_container: ${service} is not running" >&2
@@ -134,8 +136,8 @@ capability_verify_container() {
     echo "capability_verify_container: could not read ${service}'s revision label" >&2
     return 1
   }
-  if [ "${revision}" != "${EXPECTED_SHA}" ]; then
-    echo "capability_verify_container: ${service} image revision is '${revision}', expected '${EXPECTED_SHA}'" >&2
+  if [ "${revision}" != "${expected_revision}" ]; then
+    echo "capability_verify_container: ${service} image revision is '${revision}', expected '${expected_revision}'" >&2
     return 1
   fi
 
@@ -147,6 +149,77 @@ capability_verify_container() {
     echo "capability_verify_container: ${service} role label is '${actual_role}', expected '${role}'" >&2
     return 1
   fi
+}
+
+capability_is_full_sha() {
+  local value="$1"
+  case "${value}" in
+    *[!0-9a-f]*|'') return 1 ;;
+  esac
+  [ "${#value}" -eq 40 ]
+}
+
+# capability_resolve_running_release — read-only proof of the release that a
+# close is allowed to recreate. Both ACTUAL running containers must expose the
+# same full lowercase SHA through their immutable image revision label, and
+# each must carry its expected role label. No caller SHA, main SHA, compose
+# default, or host env value is accepted as a fallback. Sets CAP_RUNNING_SHA
+# only after every check succeeds.
+capability_resolve_running_release() {
+  CAP_RUNNING_SHA=""
+
+  local service web_revision worker_revision build_json build_id
+  for service in web worker; do
+    if ! capability_container_running "${service}"; then
+      echo "capability_resolve_running_release: ${service} is not running — refusing to select a release" >&2
+      return 1
+    fi
+  done
+
+  web_revision="$(capability_container_label web org.opencontainers.image.revision)" || {
+    echo "capability_resolve_running_release: could not read web's revision label" >&2
+    return 1
+  }
+  worker_revision="$(capability_container_label worker org.opencontainers.image.revision)" || {
+    echo "capability_resolve_running_release: could not read worker's revision label" >&2
+    return 1
+  }
+
+  if ! capability_is_full_sha "${web_revision}"; then
+    echo "capability_resolve_running_release: web revision is not a full lowercase SHA — refusing" >&2
+    return 1
+  fi
+  if ! capability_is_full_sha "${worker_revision}"; then
+    echo "capability_resolve_running_release: worker revision is not a full lowercase SHA — refusing" >&2
+    return 1
+  fi
+  if [ "${web_revision}" != "${worker_revision}" ]; then
+    echo "capability_resolve_running_release: web/worker revisions disagree — refusing to choose either" >&2
+    return 1
+  fi
+
+  for service in web worker; do
+    capability_verify_container "${service}" "${service}-runner" "${web_revision}" || return 1
+  done
+
+  # The web image label is necessary but not sufficient: prove the process
+  # currently serving traffic reports the same build before using the label
+  # as close's recreate target. Keep this short so an unhealthy endpoint
+  # cannot postpone the file-level false write for a full healthcheck window.
+  build_json="$(capability_wait_for_build_info 3 1)" || {
+    echo "capability_resolve_running_release: current web build-info is unreadable — refusing to select a release" >&2
+    return 1
+  }
+  build_id="$(printf '%s' "${build_json}" | python3 -c 'import json,sys; print((json.load(sys.stdin).get("buildId") or ""), end="")')" || {
+    echo "capability_resolve_running_release: current web build-info is invalid — refusing to select a release" >&2
+    return 1
+  }
+  if [ "${build_id}" != "${web_revision}" ]; then
+    echo "capability_resolve_running_release: current web build id disagrees with its image revision — refusing to choose either" >&2
+    return 1
+  fi
+
+  CAP_RUNNING_SHA="${web_revision}"
 }
 
 # capability_normalize_gate_value RAW — mirrors lib/meta/release-gates.ts's
@@ -200,7 +273,7 @@ capability_verify_running_env() {
 # running, that web AND worker are at the exact deployed SHA and that
 # ${ENV_KEY} is NOT currently open — BEFORE this script writes or
 # recreates anything. The workflow's own "current main HEAD" freshness gate
-# (upstream of this script) only proves EXPECTED_SHA is the latest commit;
+# (upstream of this script) only proves REQUESTED_SHA is the latest commit;
 # it says nothing about what is actually deployed and running. This does.
 #
 # "Not currently open" is checked THREE ways, ALL required: the env FILE
@@ -214,9 +287,9 @@ capability_verify_running_env() {
 # FIRST and refuses outright on any failure; capability_close never calls
 # it (a close must be reachable from an unknown or broken baseline).
 capability_verify_running_baseline() {
-  local service
+  local expected_revision="$1" service
   for service in web worker; do
-    capability_verify_container "${service}" "${service}-runner" || return 1
+    capability_verify_container "${service}" "${service}-runner" "${expected_revision}" || return 1
   done
 
   if [ ! -r "${ENV_FILE}" ]; then
@@ -281,7 +354,7 @@ print(json.dumps({
 '
 }
 
-# capability_recreate_and_verify INTENDED — pulls the exact SHA images,
+# capability_recreate_and_verify INTENDED RELEASE_SHA — pulls the exact SHA images,
 # force-recreates web AND worker, then verifies BOTH: running, at the exact
 # image revision, correctly role-labeled, web's own build-info endpoint,
 # and BOTH containers' own live view of ${ENV_KEY}. Every step's exit
@@ -292,10 +365,10 @@ print(json.dumps({
 # otherwise silently fall through to the verification steps instead of
 # stopping immediately.
 capability_recreate_and_verify() {
-  local intended="$1" # "true" or "false"
+  local intended="$1" release_sha="$2" # intended is "true" or "false"
 
-  export APP_IMAGE_TAG="${EXPECTED_SHA}"
-  export APP_BUILD_ID="${EXPECTED_SHA}"
+  export APP_IMAGE_TAG="${release_sha}"
+  export APP_BUILD_ID="${release_sha}"
 
   log "Pulling exact SHA images (web + worker)"
   if ! docker compose pull web worker; then
@@ -311,7 +384,7 @@ capability_recreate_and_verify() {
 
   local service
   for service in web worker; do
-    capability_verify_container "${service}" "${service}-runner" || return 1
+    capability_verify_container "${service}" "${service}-runner" "${release_sha}" || return 1
   done
 
   log "Checking runtime build info (web)"
@@ -321,8 +394,8 @@ capability_recreate_and_verify() {
     return 1
   }
   build_id="$(printf '%s' "${build_json}" | python3 -c 'import json,sys; print((json.load(sys.stdin).get("buildId") or ""), end="")')"
-  if [ "${build_id}" != "${EXPECTED_SHA}" ]; then
-    echo "capability_recreate_and_verify: build id is '${build_id}', expected '${EXPECTED_SHA}'" >&2
+  if [ "${build_id}" != "${release_sha}" ]; then
+    echo "capability_recreate_and_verify: build id is '${build_id}', expected '${release_sha}'" >&2
     return 1
   fi
 
@@ -337,7 +410,7 @@ capability_recreate_and_verify() {
   # above has already passed, so it reflects the verified end state.
   CAP_AFTER_JSON="$(capability_state_snapshot)"
 
-  echo "runtime verified: build_id=${build_id} ${ENV_KEY}=${intended} web+worker running at revision ${EXPECTED_SHA}"
+  echo "runtime verified: build_id=${build_id} ${ENV_KEY}=${intended} web+worker running at revision ${release_sha}"
 }
 
 # emit_capability_json ACTION RESULT ROLLED_BACK ROLLBACK_VERIFIED
@@ -353,11 +426,15 @@ capability_recreate_and_verify() {
 # (the exact six-business status list, not a bare count) is folded into the
 # corresponding state blob. Every value this reads is either a fixed
 # literal this script sets, already-serialized JSON this script itself
-# produced, or EXPECTED_SHA, which the workflow has already validated as 40
-# lowercase hex characters — this artifact is REAL measured evidence, not a
-# bare declaration.
+# produced, REQUESTED_SHA (validated by the workflow), or EFFECTIVE_SHA
+# (either the requested open target or the running close release proved on
+# host) — this artifact is REAL measured evidence, not a bare declaration.
 emit_capability_json() {
-  ACTION="$1" RESULT="$2" ROLLED_BACK="$3" ROLLBACK_VERIFIED="$4" BLOCKERS_CSV="$5"   BEFORE_STATE_JSON="${6:-null}" AFTER_STATE_JSON="${7:-null}"   BEFORE_PREFLIGHT_JSON="${8:-null}" AFTER_PREFLIGHT_JSON="${9:-null}"   EXPECTED_SHA="${EXPECTED_SHA}" ENV_KEY="${ENV_KEY}"   python3 -c '
+  ACTION="$1" RESULT="$2" ROLLED_BACK="$3" ROLLBACK_VERIFIED="$4" BLOCKERS_CSV="$5" \
+    BEFORE_STATE_JSON="${6:-null}" AFTER_STATE_JSON="${7:-null}" \
+    BEFORE_PREFLIGHT_JSON="${8:-null}" AFTER_PREFLIGHT_JSON="${9:-null}" \
+    REQUESTED_SHA="${REQUESTED_SHA}" EFFECTIVE_SHA="${EFFECTIVE_SHA}" ENV_KEY="${ENV_KEY}" \
+    python3 -c '
 import json, os
 
 def load(name):
@@ -385,7 +462,9 @@ print("CAPABILITY_JSON: " + json.dumps({
     "blockers": blockers,
     "rolledBack": os.environ["ROLLED_BACK"] == "true",
     "rollbackVerified": os.environ["ROLLBACK_VERIFIED"] == "true",
-    "expectedSha": os.environ["EXPECTED_SHA"],
+    "expectedSha": os.environ["REQUESTED_SHA"],
+    "requestedSha": os.environ["REQUESTED_SHA"],
+    "effectiveSha": os.environ.get("EFFECTIVE_SHA") or None,
     "envKey": os.environ["ENV_KEY"],
     "before": before,
     "after": after,
@@ -410,12 +489,12 @@ print("CAPABILITY_JSON: " + json.dumps({
 # The caller's own overall `result` must ALWAYS stay "fail" here
 # regardless of CAP_ROLLBACK_OK — a rollback situation is never a pass.
 capability_rollback_to_closed() {
-  local backup="$1"
+  local backup="$1" release_sha="$2"
   CAP_ROLLBACK_OK="false"
   CAP_ROLLBACK_BLOCKER=""
 
   if atomic_restore_env_backup "${ENV_FILE}" "${backup}"; then
-    if capability_recreate_and_verify "false" >/dev/null 2>&1; then
+    if capability_recreate_and_verify "false" "${release_sha}" >/dev/null 2>&1; then
       CAP_ROLLBACK_OK="true"
     else
       CAP_ROLLBACK_BLOCKER="restore_recreate_verify_failed"
@@ -430,7 +509,7 @@ capability_rollback_to_closed() {
   # the host open when a plain write would still succeed.
   log "Backup restore FAILED — attempting an independent forced-false write as a second recovery path"
   if atomic_set_env_var "${ENV_FILE}" "${ENV_KEY}" "false" >/dev/null 2>&1 \
-    && capability_recreate_and_verify "false" >/dev/null 2>&1; then
+    && capability_recreate_and_verify "false" "${release_sha}" >/dev/null 2>&1; then
     CAP_ROLLBACK_OK="true"
     CAP_ROLLBACK_BLOCKER="restore_failed"
   else
@@ -443,9 +522,10 @@ capability_open() {
   local before_preflight_json="null" after_preflight_json="null"
   CAP_BEFORE_JSON="null"
   CAP_AFTER_JSON="null"
+  EFFECTIVE_SHA="${REQUESTED_SHA}"
 
   log "Baseline — proving web+worker are ALREADY at the exact expected SHA and capability is currently closed, before touching anything"
-  if ! capability_verify_running_baseline; then
+  if ! capability_verify_running_baseline "${EFFECTIVE_SHA}"; then
     emit_capability_json "open" "refused" "false" "false" "baseline_refused" "${CAP_BEFORE_JSON}" "null"
     return 1
   fi
@@ -498,14 +578,14 @@ capability_open() {
     # Route through the SAME recovery path any later failure uses, never a
     # bare "nothing happened" story.
     log "FAILURE during the write itself (discovered after the backup was already created) — rolling back"
-    capability_rollback_to_closed "${recovered_backup}"
+    capability_rollback_to_closed "${recovered_backup}" "${EFFECTIVE_SHA}"
     emit_capability_json "open" "fail" "true" "${CAP_ROLLBACK_OK}" "initial_write_failed,${CAP_ROLLBACK_BLOCKER}" \
       "${CAP_BEFORE_JSON}" "${CAP_AFTER_JSON}" "${before_preflight_json}" "null"
     return 1
   fi
 
   local open_recreate_ok="false" open_final_preflight_status=1
-  if capability_recreate_and_verify "true"; then
+  if capability_recreate_and_verify "true" "${EFFECTIVE_SHA}"; then
     if after_preflight_json="$(capability_run_preflight)"; then
       open_final_preflight_status=0
       open_recreate_ok="true"
@@ -517,7 +597,7 @@ capability_open() {
   else
     log "FAILURE after the write — restoring the backup and forcing closed"
     rolled_back="true"
-    capability_rollback_to_closed "${backup}"
+    capability_rollback_to_closed "${backup}" "${EFFECTIVE_SHA}"
     restore_ok="${CAP_ROLLBACK_OK}"
     blockers="post_write_failure,${CAP_ROLLBACK_BLOCKER}"
     result="fail"
@@ -535,19 +615,35 @@ capability_close() {
   CAP_BEFORE_JSON="null"
   CAP_AFTER_JSON="null"
 
-  # Read-only, best-effort — NEVER gates the write below. If web/worker are
-  # in an unknown state (which is exactly when an operator would be closing
-  # capability), this simply reports a null "before" rather than refusing.
+  # Preserve whatever evidence is readable even when the identity proof below
+  # refuses. This snapshot is never used to select the release.
   CAP_BEFORE_JSON="$(capability_state_snapshot 2>/dev/null)" || CAP_BEFORE_JSON="null"
 
-  log "Writing ${ENV_KEY}=false (atomic, backed up) — NOT gated on any DB read or running-baseline check"
+  log "Resolving the exact common release already running on web+worker"
+  if ! capability_resolve_running_release; then
+    # Even though no release is safe to recreate, atomically persist false so
+    # any later independently managed restart inherits the safe capability.
+    # This is deliberately still a failed job: current live processes were
+    # not recreated/read back, and no requested/main SHA is used as fallback.
+    if atomic_set_env_var "${ENV_FILE}" "${ENV_KEY}" "false" >/dev/null 2>&1; then
+      emit_capability_json "close" "fail" "false" "false" \
+        "running_release_identity_unverified,file_closed_only_live_unverified" "${CAP_BEFORE_JSON}" "null"
+    else
+      emit_capability_json "close" "fail" "false" "false" \
+        "running_release_identity_unverified,file_close_failed" "${CAP_BEFORE_JSON}" "null"
+    fi
+    return 1
+  fi
+  EFFECTIVE_SHA="${CAP_RUNNING_SHA}"
+
+  log "Writing ${ENV_KEY}=false (atomic, backed up) for running release ${EFFECTIVE_SHA} — NOT gated on any DB preflight"
   if ! backup="$(atomic_set_env_var "${ENV_FILE}" "${ENV_KEY}" "false")"; then
     emit_capability_json "close" "fail" "false" "false" "initial_write_failed" "${CAP_BEFORE_JSON}" "null"
     return 1
   fi
   : "${backup}" # recorded in the log above; the artifact only needs the outcome
 
-  if capability_recreate_and_verify "false"; then
+  if capability_recreate_and_verify "false" "${EFFECTIVE_SHA}"; then
     result="pass"
   else
     blockers="close_verify_failed"

@@ -347,6 +347,28 @@ describe("ABSENT and MEASURED ZERO are decided by the payload, never by a defaul
     });
   });
 
+  it("keeps a skip-measured-zero classification out of provider re-sync residuals", async () => {
+    const { db } = recordingDb((_text, _values, callIndex) =>
+      callIndex === 0
+        ? [pageRow({ date: "2026-08-24", adId: "ad-measured-zero", values: [] })]
+        : [],
+    );
+
+    const result = await runLinkClickRepair({
+      db,
+      options: optionsFor({
+        pageSize: 10,
+        maxRows: 100,
+        skipMeasuredZero: true,
+      }),
+      sleep: noSleep,
+    });
+
+    expect(result.actions.skipped_measured_zero).toBe(1);
+    expect(result.actions.unmeasurable_no_actions_payload).toBe(0);
+    expect(result.residualNeedingProviderResync).toBe(0);
+  });
+
   it("writes the payload's count over a NULL", () => {
     expect(
       classifyAdDayLinkClick({
@@ -376,9 +398,9 @@ describe("ABSENT and MEASURED ZERO are decided by the payload, never by a defaul
         skipMeasuredZero: true,
       }),
     ).toEqual({
-      action: "unmeasurable_no_actions_payload",
+      action: "skipped_measured_zero",
       writeValue: null,
-      derived: null,
+      derived: 0,
     });
   });
 
@@ -664,6 +686,33 @@ describe("a dry run writes nothing, and an execute writes only the planned rows"
     expect(result.actions.fill_measured_zero).toBe(1);
     expect(result.actions.correct_fabricated_zero).toBe(1);
     expect(result.actions.unmeasurable_no_actions_payload).toBe(1);
+  });
+
+  it("counts every unrepairable payload classification as requiring provider resync", async () => {
+    const residuals = [
+      pageRow({ date: "2026-08-24", adId: "ad-absent", actionsPresent: false }),
+      pageRow({
+        date: "2026-08-25",
+        adId: "ad-zero-unprovable",
+        stored: "0",
+        actionsPresent: false,
+      }),
+      pageRow({ date: "2026-08-26", adId: "ad-malformed", values: ["1.5"] }),
+    ];
+    const { db } = recordingDb((_text, _values, callIndex) =>
+      callIndex === 0 ? residuals : [],
+    );
+
+    const result = await runLinkClickRepair({
+      db,
+      options: optionsFor({ pageSize: 10, maxRows: 100 }),
+      sleep: noSleep,
+    });
+
+    expect(result.residualNeedingProviderResync).toBe(3);
+    expect(result.actions.unmeasurable_no_actions_payload).toBe(1);
+    expect(result.actions.stored_zero_unprovable).toBe(1);
+    expect(result.actions.malformed_actions_value).toBe(1);
   });
 
   it("counts both bands separately, so a one-band repair is visible", async () => {

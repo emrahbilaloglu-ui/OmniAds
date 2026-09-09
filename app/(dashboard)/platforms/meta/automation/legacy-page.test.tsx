@@ -61,8 +61,10 @@ vi.mock("./automation-view", () => ({
 }));
 
 import LegacyMetaAutomationPage from "./legacy-page";
+import { MetaBusinessScopeRefusal } from "../legacy-page";
 
 const BUSINESS_ID = "172d0ab8-495b-4679-a4c6-ffa404c389d3";
+const OTHER_BUSINESS_ID = "272d0ab8-495b-4679-a4c6-ffa404c389d3";
 const READINESS_FIXTURE = {
   contract: "d077.state-history-compaction-readiness.v3",
   businessId: BUSINESS_ID,
@@ -81,7 +83,9 @@ function pageProps(businessId?: string, providerAccountId?: string) {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  authMocks.getSessionFromCookies.mockResolvedValue(null);
+  authMocks.getSessionFromCookies.mockResolvedValue({
+    activeBusinessId: BUSINESS_ID,
+  });
   accessMocks.requireBusinessPageContext.mockResolvedValue({
     kind: "ok",
     context: { role: "admin", reviewerReadOnly: false },
@@ -122,6 +126,7 @@ describe("legacy Meta automation page (canonical route body)", () => {
   });
 
   it("fails closed to null without a businessId — the read never runs", async () => {
+    authMocks.getSessionFromCookies.mockResolvedValueOnce(null);
     const element = await LegacyMetaAutomationPage(pageProps());
     expect(
       readinessMocks.readStateHistoryCompactionReadiness,
@@ -144,6 +149,47 @@ describe("legacy Meta automation page (canonical route body)", () => {
     expect(element.props.stateHistoryReadiness).toEqual(READINESS_FIXTURE);
     expect(readinessMocks.readBudgetWriteSurfaceReadiness).toHaveBeenCalledWith({
       businessId: BUSINESS_ID,
+      providerAccountId: "act_resolved",
+    });
+  });
+
+  it("refuses active A/query B before any B-scoped data or control mount", async () => {
+    authMocks.getSessionFromCookies.mockResolvedValueOnce({
+      activeBusinessId: BUSINESS_ID,
+    });
+    accessMocks.requireBusinessPageContext.mockResolvedValueOnce({
+      kind: "ok",
+      context: { role: "admin", reviewerReadOnly: false },
+    });
+
+    const element = await LegacyMetaAutomationPage(pageProps(OTHER_BUSINESS_ID));
+
+    expect(element.type).toBe(MetaBusinessScopeRefusal);
+    expect(element.props).toMatchObject({
+      requestedBusinessId: OTHER_BUSINESS_ID,
+      canSwitchSession: true,
+    });
+    expect(accessMocks.resolveProviderAccountId).not.toHaveBeenCalled();
+    expect(accessMocks.readLaunchpadWriteAuthority).not.toHaveBeenCalled();
+    expect(readinessMocks.readStateHistoryCompactionReadiness).not.toHaveBeenCalled();
+    expect(readinessMocks.readBudgetWriteSurfaceReadiness).not.toHaveBeenCalled();
+  });
+
+  it("mounts B-scoped reads only after the session itself reports B active", async () => {
+    authMocks.getSessionFromCookies.mockResolvedValueOnce({
+      activeBusinessId: OTHER_BUSINESS_ID,
+    });
+
+    const element = await LegacyMetaAutomationPage(pageProps(OTHER_BUSINESS_ID));
+
+    expect(element.props.businessId).toBe(OTHER_BUSINESS_ID);
+    expect(accessMocks.resolveProviderAccountId).toHaveBeenCalledWith({
+      businessId: OTHER_BUSINESS_ID,
+      provider: "meta",
+      requestedAccountId: null,
+    });
+    expect(readinessMocks.readBudgetWriteSurfaceReadiness).toHaveBeenCalledWith({
+      businessId: OTHER_BUSINESS_ID,
       providerAccountId: "act_resolved",
     });
   });
@@ -222,6 +268,7 @@ describe("legacy Meta automation page — the viewer envelope is established for
     established one.
   */
   it("passes NO viewer (undefined, not a fabricated one) without a businessId", async () => {
+    authMocks.getSessionFromCookies.mockResolvedValueOnce(null);
     const element = await LegacyMetaAutomationPage(pageProps());
     expect(element.props.viewer).toBeUndefined();
     expect(accessMocks.readLaunchpadWriteAuthority).not.toHaveBeenCalled();

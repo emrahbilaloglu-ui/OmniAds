@@ -222,9 +222,12 @@ async function seed() {
   const client = new Client({ connectionString: process.env.DATABASE_URL });
   await client.connect();
   try {
-    // One transaction: composite FKs in the calibration lattice include the
-    // transaction-stable `as_of_cutoff` (now()), so every lattice statement
-    // must share one now().
+    // One transaction: composite FKs in the calibration lattice include one
+    // exact `as_of_cutoff`, so every lattice statement must share it. Use the
+    // start of the current ACCOUNT day as that instant. A raw `now()` crosses
+    // into the next UTC date for several hours while Chicago is still on the
+    // prior account day, which makes the fixture violate the production
+    // cutoff-date constraint even though its decision date is correct.
     await client.query("BEGIN");
     const userId = (
       await client.query(
@@ -296,12 +299,16 @@ async function seed() {
       [BUSINESS_ID],
     );
 
-    asOfDate = (
-      await client.query(
-        `SELECT (now() AT TIME ZONE $1)::date::text AS d`,
+    const accountClock = (
+      await client.query<{ d: string; cutoff: Date }>(
+        `SELECT
+           (now() AT TIME ZONE $1)::date::text AS d,
+           date_trunc('day', now() AT TIME ZONE $1) AT TIME ZONE $1 AS cutoff`,
         [ACCOUNT_TZ],
       )
-    ).rows[0].d as string;
+    ).rows[0]!;
+    asOfDate = accountClock.d;
+    const asOfCutoff = accountClock.cutoff.toISOString();
 
     for (let offset = 0; offset < 3; offset += 1) {
       await client.query(
@@ -478,23 +485,25 @@ async function seed() {
             generation_content_hash, input_manifest_hash, source_manifest_hash,
             cell_set_hash, completeness_status, job_run_id, computed_at,
             completed_at, contract_version)
-         VALUES ($1::uuid, $1::text, 'meta', $2::uuid, $3::text, $4::date, now(),
-                 'repeatable read', $5, 'sixty-ad-seam',
+         VALUES ($1::uuid, $1::text, 'meta', $2::uuid, $3::text, $4::date,
+                 $5::timestamptz, 'repeatable read', $6, 'sixty-ad-seam',
                  'current_transaction_snapshot',
                  jsonb_build_object(
                    'mode', 'current_transaction_snapshot',
                    'providerAccountRefId', $2::text,
                    'providerAccountId', $3::text,
-                   'transactionCutoff', now(),
+                   'transactionCutoff', $5::timestamptz,
                    'transactionIsolation', 'repeatable read'
                  ), 1,
-                 $6, $7, $8, $9, 'writing', $10::uuid, now(), NULL, $11)
+                 $7, $8, $9, $10, 'writing', $11::uuid,
+                 $5::timestamptz, NULL, $12)
          RETURNING id`,
         [
           BUSINESS_ID,
           accountRefId,
           ACCOUNT_ID,
           asOfDate,
+          asOfCutoff,
           ENGINE_VERSION,
           sha("sixty-gen"),
           sha("sixty-input"),
@@ -525,11 +534,11 @@ async function seed() {
             source_manifest_hash, job_run_id, computed_at, contract_version)
          VALUES ($1::uuid, $2::uuid, $2::text, 'meta', $3::uuid, $4, $5, 'USD',
                  'account_objective_cohort', 'OUTCOME_SALES', 'purchase',
-                 'purchase', $6::date, now(), $7, 'sixty-ad-seam',
-                 $6::date - 27, $6::date, 28, $8, $9, $8, $8, 0, $8, 400,
+                 'purchase', $6::date, $7::timestamptz, $8, 'sixty-ad-seam',
+                 $6::date - 27, $6::date, 28, $9, $10, $9, $9, 0, $9, 400,
                  520000, 'ready', '{}'::jsonb, '{}'::jsonb, '{}'::jsonb,
-                 '{}'::jsonb, 'ready', 'fresh', $10, $11, $12, $13,
-                 $14::uuid, now(), $15)
+                 '{}'::jsonb, 'ready', 'fresh', $11, $12, $13, $14,
+                 $15::uuid, $7::timestamptz, $16)
          RETURNING id`,
         [
           batchId,
@@ -538,6 +547,7 @@ async function seed() {
           ACCOUNT_ID,
           ACCOUNT_TZ,
           asOfDate,
+          asOfCutoff,
           ENGINE_VERSION,
           AD_COUNT,
           AD_COUNT * 28,

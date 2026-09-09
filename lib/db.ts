@@ -312,6 +312,56 @@ function sanitizeStatementTimeoutMs(timeoutMs: number) {
   return Math.max(1, Math.floor(Number.isFinite(timeoutMs) ? timeoutMs : 1));
 }
 
+const DB_DEADLINE_CLEANUP_ALLOWANCE_MS = 250;
+
+function remainingDeadlineMs(deadlineAtMs: number, operation: string): number {
+  const remaining = Math.floor(deadlineAtMs - Date.now());
+  if (remaining <= 0) {
+    throw new Error(`${operation} deadline exceeded.`);
+  }
+  return remaining;
+}
+
+async function connectPoolByDeadline(pool: Pool, deadlineAtMs: number) {
+  const pending = pool.connect();
+  let acquired = false;
+  try {
+    const client = await withTimeout(
+      pending,
+      remainingDeadlineMs(deadlineAtMs, "Database pool acquisition"),
+      "Database pool acquisition",
+    );
+    acquired = true;
+    return client;
+  } finally {
+    if (!acquired) {
+      void pending.then((client) => {
+        client.release(new Error("Database pool acquisition completed after its deadline."));
+      }).catch(() => undefined);
+    }
+  }
+}
+
+function deadlineBoundClientQuery(
+  client: Pick<PoolClient, "query">,
+  deadlineAtMs: number,
+): PoolClient["query"] {
+  return (async (text: string, params?: unknown[]) => {
+    const timeoutMs = remainingDeadlineMs(deadlineAtMs, "Database migration");
+    await withTimeout(
+      client.query(buildStatementTimeoutSql(timeoutMs)),
+      timeoutMs,
+      "Database migration timeout setup",
+    );
+    const queryTimeoutMs = remainingDeadlineMs(deadlineAtMs, "Database migration");
+    return withTimeout(
+      client.query(text, params),
+      queryTimeoutMs,
+      "Database migration query",
+    );
+  }) as PoolClient["query"];
+}
+
 export function buildStatementTimeoutSql(timeoutMs: number) {
   const safeTimeoutMs = sanitizeStatementTimeoutMs(timeoutMs);
   return `SET statement_timeout = ${safeTimeoutMs}`;
@@ -327,18 +377,46 @@ async function executePoolQueryWithStatementTimeout<TRow extends DbRow = DbRow>(
   queryText: string,
   params: unknown[],
   timeoutMs: number,
+  deadlineAtMs?: number,
 ) {
-  const client = await pool.connect();
+  const client = deadlineAtMs != null
+    ? await connectPoolByDeadline(pool, deadlineAtMs)
+    : await pool.connect();
   let statementTimeoutApplied = false;
   let releaseError: Error | undefined;
   try {
-    await client.query(buildStatementTimeoutSql(timeoutMs));
+    const setupTimeoutMs = deadlineAtMs != null
+      ? remainingDeadlineMs(deadlineAtMs, "Database query timeout setup")
+      : timeoutMs;
+    await withTimeout(
+      client.query(buildStatementTimeoutSql(setupTimeoutMs)),
+      setupTimeoutMs,
+      "Database query timeout setup",
+    );
     statementTimeoutApplied = true;
-    return await client.query<TRow>(queryText, params.map(normalizeQueryValue));
+    const queryTimeoutMs = deadlineAtMs != null
+      ? remainingDeadlineMs(deadlineAtMs, "Database query")
+      : timeoutMs;
+    return await withTimeout(
+      client.query<TRow>(queryText, params.map(normalizeQueryValue)),
+      queryTimeoutMs,
+      "Database query",
+    );
+  } catch (error) {
+    if (!statementTimeoutApplied) {
+      // The SET may still be queued or may have failed after changing unknown
+      // session state. Never return that lease to the pool as reusable.
+      releaseError = error instanceof Error ? error : new Error(String(error));
+    }
+    throw error;
   } finally {
     if (statementTimeoutApplied) {
       try {
-        await client.query("RESET statement_timeout");
+        await withTimeout(
+          client.query("RESET statement_timeout"),
+          deadlineAtMs != null ? DB_DEADLINE_CLEANUP_ALLOWANCE_MS : timeoutMs,
+          "Database query session cleanup",
+        );
       } catch (error) {
         releaseError =
           error instanceof Error ? error : new Error(String(error));
@@ -633,6 +711,7 @@ function createWrappedDbExecutor(
   options?: {
     pool?: Pool;
     allowRetries?: boolean;
+    deadlineAtMs?: number;
   },
 ): DbClient {
   const pool = options?.pool;
@@ -649,20 +728,24 @@ function createWrappedDbExecutor(
     for (let attempt = 0; attempt <= maxAttempts; attempt += 1) {
       observePoolSnapshot(pool, metrics, settings.poolMax);
       try {
+        const queryTimeoutMs = options?.deadlineAtMs != null
+          ? remainingDeadlineMs(options.deadlineAtMs, "Database operation")
+          : defaultTimeoutMs;
         const result =
           pool != null && Object.is(queryable, pool)
             ? await executePoolQueryWithStatementTimeout<TRow>(
                 pool,
                 queryText,
                 params,
-                defaultTimeoutMs,
+                queryTimeoutMs,
+                options?.deadlineAtMs,
               )
             : await withTimeout(
                 queryable.query<TRow>(
                   queryText,
                   params.map(normalizeQueryValue),
                 ),
-                defaultTimeoutMs,
+                queryTimeoutMs,
                 "Database query",
               );
         metrics.successCount += 1;
@@ -821,9 +904,33 @@ export function getDbWithTimeout(timeoutMs: number) {
   return wrapped;
 }
 
+/** A non-cached executor whose acquisition, retries and statements share one deadline. */
+export function getDbWithDeadline(deadlineAtMs: number): DbClient {
+  const transactionClient = dbTransactionStorage.getStore();
+  if (transactionClient) return transactionClient;
+  const globalStore = getGlobalStore();
+  if (!globalStore.__omniadsDbPool) {
+    const settings = resolveDbRuntimeSettings(process.env);
+    globalStore.__omniadsDbSettings = settings;
+    globalStore.__omniadsDbPool = createPool(settings);
+    logStartupEvent("db_client_initialized", buildDbStartupDetails(settings));
+  }
+  const settings = getCachedOrResolvedDbSettings();
+  return createWrappedDbExecutor(
+    globalStore.__omniadsDbPool,
+    settings,
+    remainingDeadlineMs(deadlineAtMs, "Database operation"),
+    {
+      pool: globalStore.__omniadsDbPool,
+      allowRetries: false,
+      deadlineAtMs,
+    },
+  );
+}
+
 export async function runDbTransaction<T>(
   fn: () => Promise<T>,
-  options?: { timeoutMs?: number },
+  options?: { timeoutMs?: number; deadlineAtMs?: number },
 ): Promise<T> {
   const existingTransactionClient = dbTransactionStorage.getStore();
   if (existingTransactionClient) {
@@ -840,24 +947,91 @@ export async function runDbTransaction<T>(
 
   const pool = globalStore.__omniadsDbPool;
   const settings = getCachedOrResolvedDbSettings();
-  const client = await pool.connect();
+  const client = options?.deadlineAtMs != null
+    ? await connectPoolByDeadline(pool, options.deadlineAtMs)
+    : await pool.connect();
   const timeoutMs = options?.timeoutMs ?? getDbTimeoutMs();
-  const wrapped = createWrappedDbExecutor(client, settings, timeoutMs, {
+  const queryable = options?.deadlineAtMs != null
+    ? { query: deadlineBoundClientQuery(client, options.deadlineAtMs) }
+    : client;
+  const wrapped = createWrappedDbExecutor(queryable, settings, timeoutMs, {
     pool,
     allowRetries: false,
   });
 
-  await wrapped.query("BEGIN");
-  await wrapped.query(buildLocalStatementTimeoutSql(timeoutMs));
+  type TransactionState =
+    | "not_started"
+    | "begin_pending"
+    | "active"
+    | "commit_pending"
+    | "committed"
+    | "rolled_back";
+  let transactionState: TransactionState = "not_started";
+  let setupComplete = false;
+  let releaseError: Error | undefined;
   try {
+    transactionState = "begin_pending";
+    await wrapped.query("BEGIN");
+    transactionState = "active";
+    await wrapped.query(buildLocalStatementTimeoutSql(timeoutMs));
+    setupComplete = true;
     const result = await dbTransactionStorage.run(wrapped, fn);
+    transactionState = "commit_pending";
     await wrapped.query("COMMIT");
+    transactionState = "committed";
     return result;
   } catch (error) {
-    await wrapped.query("ROLLBACK").catch(() => undefined);
+    const primaryError =
+      error instanceof Error ? error : new Error(String(error));
+    const setupFailed = !setupComplete;
+    const transactionUncertain =
+      transactionState === "begin_pending" ||
+      transactionState === "commit_pending";
+    const rollbackNeeded =
+      transactionState === "begin_pending" ||
+      transactionState === "active" ||
+      transactionState === "commit_pending";
+
+    let rollbackSucceeded = !rollbackNeeded;
+    if (rollbackNeeded) {
+      rollbackSucceeded = await withTimeout(
+        client.query("ROLLBACK"),
+        DB_DEADLINE_CLEANUP_ALLOWANCE_MS,
+        "Database transaction rollback",
+      ).then(
+        () => true,
+        (rollbackError) => {
+          releaseError =
+            rollbackError instanceof Error
+              ? rollbackError
+              : new Error(String(rollbackError));
+          return false;
+        },
+      );
+      if (rollbackSucceeded) transactionState = "rolled_back";
+    }
+
+    // A failed BEGIN/SET LOCAL or an uncertain BEGIN/COMMIT may leave queued
+    // protocol work or session state behind even when a queued ROLLBACK later
+    // reports success. Passing an error to release destroys that client.
+    if (setupFailed || transactionUncertain || !rollbackSucceeded) {
+      releaseError ??= primaryError;
+    }
     throw error;
   } finally {
-    client.release();
+    if (options?.deadlineAtMs != null && !releaseError) {
+      try {
+        await withTimeout(
+          client.query("RESET statement_timeout"),
+          DB_DEADLINE_CLEANUP_ALLOWANCE_MS,
+          "Database transaction session cleanup",
+        );
+      } catch (error) {
+        releaseError =
+          error instanceof Error ? error : new Error(String(error));
+      }
+    }
+    client.release(releaseError);
   }
 }
 
@@ -881,7 +1055,7 @@ export async function withPinnedDbClient<T>(
     query: PoolClient["query"];
     backendPid: number | null;
   }) => Promise<T>,
-  options?: { timeoutMs?: number },
+  options?: { timeoutMs?: number; deadlineAtMs?: number },
 ): Promise<T> {
   const globalStore = getGlobalStore();
   if (!globalStore.__omniadsDbPool) {
@@ -891,32 +1065,49 @@ export async function withPinnedDbClient<T>(
     logStartupEvent("db_client_initialized", buildDbStartupDetails(settings));
   }
   const pool = globalStore.__omniadsDbPool;
-  const client = await pool.connect();
+  const client = options?.deadlineAtMs != null
+    ? await connectPoolByDeadline(pool, options.deadlineAtMs)
+    : await pool.connect();
   const timeoutMs = options?.timeoutMs;
   let statementTimeoutApplied = false;
   let releaseError: Error | undefined;
   try {
-    if (timeoutMs != null) {
+    if (timeoutMs != null && options?.deadlineAtMs == null) {
       // A caller-level Promise.race cannot cancel PostgreSQL work. Put the
       // bound on this session so long-running pinned DDL is cancelled by the
       // server before the lease can be reused.
       await client.query(buildStatementTimeoutSql(timeoutMs));
       statementTimeoutApplied = true;
     }
-    const pidRows = await client.query<{ pid: number }>(
+    const query = options?.deadlineAtMs != null
+      ? deadlineBoundClientQuery(client, options.deadlineAtMs)
+      : client.query.bind(client) as PoolClient["query"];
+    if (options?.deadlineAtMs != null) statementTimeoutApplied = true;
+    const pidRows = await query<{ pid: number }>(
       "SELECT pg_backend_pid() AS pid",
     );
     const backendPid = Number(pidRows.rows[0]?.pid ?? Number.NaN);
     return await fn({
-      query: client.query.bind(client) as PoolClient["query"],
+      query,
       backendPid: Number.isFinite(backendPid) ? backendPid : null,
     });
+  } catch (error) {
+    // A deadline or failed transactional cleanup may leave protocol work or an
+    // open transaction on this session. Destroy it instead of returning an
+    // uncertain backend to the pool.
+    releaseError = error instanceof Error ? error : new Error(String(error));
+    throw error;
   } finally {
     if (statementTimeoutApplied) {
       try {
-        await client.query("RESET statement_timeout");
+        await withTimeout(
+          client.query("RESET statement_timeout"),
+          DB_DEADLINE_CLEANUP_ALLOWANCE_MS,
+          "Database migration session cleanup",
+        );
       } catch (error) {
-        releaseError = error instanceof Error ? error : new Error(String(error));
+        releaseError ??=
+          error instanceof Error ? error : new Error(String(error));
       }
     }
     client.release(releaseError);
@@ -951,6 +1142,7 @@ export async function runPinnedDbTransaction<T>(input: {
   client: Pick<PoolClient, "query">;
   timeoutMs: number;
   lockTimeoutMs: number;
+  deadlineAtMs?: number;
   fn: (db: DbClient) => Promise<T>;
 }): Promise<T> {
   if (
@@ -979,7 +1171,11 @@ export async function runPinnedDbTransaction<T>(input: {
     await wrapped.query("COMMIT");
     return result;
   } catch (error) {
-    await wrapped.query("ROLLBACK").catch(() => undefined);
+    await withTimeout(
+      input.client.query("ROLLBACK"),
+      DB_DEADLINE_CLEANUP_ALLOWANCE_MS,
+      "Database migration rollback",
+    ).catch(() => undefined);
     throw error;
   }
 }

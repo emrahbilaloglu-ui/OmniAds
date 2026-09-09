@@ -61,6 +61,7 @@ function stepRun(name: string): string {
 }
 
 const PHASE_RUNNER_SCRIPT = stepRun("Run a capability phase on the host");
+const FRESHNESS_SCRIPT = stepRun("Skip a superseded request");
 const BUILD_ARTIFACT_SCRIPT = stepRun("Build the redacted result artifact");
 const FAIL_GATE_SCRIPT = stepRun("Fail the job on anything but summary.result == pass");
 
@@ -83,7 +84,7 @@ set -u
 if [ "\${FAKE_CURL_EXIT:-0}" != "0" ]; then
   exit "\${FAKE_CURL_EXIT}"
 fi
-printf '{"buildId":"%s"}' "\${FAKE_BUILD_ID:-\${EXPECTED_SHA:-}}"
+printf '{"buildId":"%s"}' "\${FAKE_BUILD_ID:-\${APP_BUILD_ID:-\${REQUESTED_SHA:-}}}"
 `;
 
 // A STATEFUL fake: \`docker compose up\` marks a per-test marker file
@@ -98,6 +99,10 @@ printf '{"buildId":"%s"}' "\${FAKE_BUILD_ID:-\${EXPECTED_SHA:-}}"
 const FAKE_DOCKER_SCRIPT = `#!/usr/bin/env bash
 set -u
 UP_MARKER="\${REMOTE_APP_DIR}/.fake-docker-up-called"
+
+if [ -n "\${FAKE_DOCKER_CALL_LOG:-}" ]; then
+  printf '%s|APP_IMAGE_TAG=%s|APP_BUILD_ID=%s\n' "$*" "\${APP_IMAGE_TAG:-}" "\${APP_BUILD_ID:-}" >> "\${FAKE_DOCKER_CALL_LOG}"
+fi
 
 if [ "\$1" = "compose" ]; then
   shift
@@ -188,15 +193,19 @@ if [ "\$1" = "inspect" ]; then
         web)
           if [ "\$after_up" = "1" ] && [ -n "\${FAKE_WEB_REVISION_AFTER_UP:-}" ]; then
             echo "\$FAKE_WEB_REVISION_AFTER_UP"
+          elif [ "\$after_up" = "1" ]; then
+            echo "\${APP_IMAGE_TAG:-\${FAKE_WEB_REVISION:-\${REQUESTED_SHA:-}}}"
           else
-            echo "\${FAKE_WEB_REVISION:-\${EXPECTED_SHA:-}}"
+            echo "\${FAKE_WEB_REVISION:-\${REQUESTED_SHA:-}}"
           fi
           ;;
         worker)
           if [ "\$after_up" = "1" ] && [ -n "\${FAKE_WORKER_REVISION_AFTER_UP:-}" ]; then
             echo "\$FAKE_WORKER_REVISION_AFTER_UP"
+          elif [ "\$after_up" = "1" ]; then
+            echo "\${APP_IMAGE_TAG:-\${FAKE_WORKER_REVISION:-\${REQUESTED_SHA:-}}}"
           else
-            echo "\${FAKE_WORKER_REVISION:-\${EXPECTED_SHA:-}}"
+            echo "\${FAKE_WORKER_REVISION:-\${REQUESTED_SHA:-}}"
           fi
           ;;
         *) echo "" ;;
@@ -262,6 +271,76 @@ function parseGithubOutput(content: string): Record<string, string> {
   return out;
 }
 
+function runFreshnessStep(input: {
+  capability: "open" | "closed";
+  requestedSha: string;
+  currentMainSha: string;
+  requireCurrentMainHead?: "true" | "false";
+}) {
+  const outputFile = join(dir, `freshness-output-${Math.random().toString(36).slice(2)}`);
+  writeFileSync(outputFile, "");
+  writeExecutable(
+    join(fakeBinDir, "git"),
+    `#!/usr/bin/env bash\nprintf '%s\\trefs/heads/main\\n' "${input.currentMainSha}"\n`,
+  );
+  execFileSync("bash", ["-c", FRESHNESS_SCRIPT], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+    env: {
+      PATH: `${fakeBinDir}:${process.env.PATH ?? ""}`,
+      REQUESTED_SHA: input.requestedSha,
+      CAPABILITY: input.capability,
+      REQUIRE_CURRENT_MAIN_HEAD: input.requireCurrentMainHead ?? "true",
+      REPOSITORY: "example/adsecute",
+      GH_TOKEN: "redacted-test-token",
+      GITHUB_OUTPUT: outputFile,
+    },
+  });
+  return parseGithubOutput(readFileSync(outputFile, "utf8"));
+}
+
+describe("stale request freshness behavior", () => {
+  it("runs a stale close with the current-main safety script", () => {
+    const freshness = runFreshnessStep({
+      capability: "closed",
+      requestedSha: "b".repeat(40),
+      currentMainSha: VALID_SHA,
+    });
+    expect(freshness).toMatchObject({
+      should_run: "true",
+      stale_close: "true",
+      checkout_sha: VALID_SHA,
+    });
+  });
+
+  it("still skips a stale open", () => {
+    expect(runFreshnessStep({
+      capability: "open",
+      requestedSha: "b".repeat(40),
+      currentMainSha: VALID_SHA,
+    })).toMatchObject({ should_run: "false" });
+  });
+
+  it("still uses the current-main safety script for close when the main-head requirement is opted out", () => {
+    expect(runFreshnessStep({
+      capability: "closed",
+      requestedSha: "b".repeat(40),
+      currentMainSha: VALID_SHA,
+      requireCurrentMainHead: "false",
+    })).toMatchObject({ should_run: "true", checkout_sha: VALID_SHA });
+  });
+
+  it("preserves the exact requested-ref behavior for an opted-out open", () => {
+    const requestedSha = "b".repeat(40);
+    expect(runFreshnessStep({
+      capability: "open",
+      requestedSha,
+      currentMainSha: "",
+      requireCurrentMainHead: "false",
+    })).toMatchObject({ should_run: "true", checkout_sha: requestedSha });
+  });
+});
+
 /**
  * Runs the REAL "Run a capability phase on the host" step script exactly
  * as the workflow does — concatenated env.sh + remote.sh piped through
@@ -270,7 +349,7 @@ function parseGithubOutput(content: string): Record<string, string> {
  */
 function runPhaseStep(input: {
   capability: "open" | "closed";
-  expectedSha?: string;
+  requestedSha?: string;
   fakeEnv?: Record<string, string>;
   sshScript?: string;
 }): { phaseStatus: number; outFileContent: string; githubOutput: Record<string, string> } {
@@ -286,7 +365,7 @@ function runPhaseStep(input: {
     env: {
       PATH: `${fakeBinDir}:${process.env.PATH ?? ""}`,
       HOME: process.env.HOME ?? dir,
-      EXPECTED_SHA: input.expectedSha ?? VALID_SHA,
+      REQUESTED_SHA: input.requestedSha ?? VALID_SHA,
       HETZNER_PORT: "22",
       HETZNER_USER: "deployer",
       CAPABILITY: input.capability,
@@ -311,7 +390,8 @@ function runBuildArtifactStep(input: {
   phaseStatus: number;
   outFileContent: string;
   capability: "open" | "closed";
-  expectedSha?: string;
+  requestedSha?: string;
+  workflowScriptSha?: string;
 }): { artifact: Record<string, unknown>; artifactsDir: string } {
   const artifactsDir = mkdtempSync(join(tmpdir(), "adsecute-capability-artifact-"));
   const outFile = join(artifactsDir, "out.txt");
@@ -324,7 +404,8 @@ function runBuildArtifactStep(input: {
       PATH: process.env.PATH ?? "",
       PHASE_STATUS: String(input.phaseStatus),
       OUT_FILE: outFile,
-      EXPECTED_SHA: input.expectedSha ?? VALID_SHA,
+      REQUESTED_SHA: input.requestedSha ?? VALID_SHA,
+      WORKFLOW_SCRIPT_SHA: input.workflowScriptSha ?? VALID_SHA,
       CAPABILITY: input.capability,
     },
   });
@@ -345,7 +426,7 @@ function runFailGateStep(artifactsDir: string): { stdout: string } {
 /** Runs env.sh + remote.sh in ONE shot (no ssh layer) for scenarios that don't need the workflow's own steps — the direct remote-script test. */
 function runRemoteDirect(input: {
   phase: "capability_open" | "capability_close" | "capability_preflight";
-  expectedSha?: string;
+  requestedSha?: string;
   fakeEnv?: Record<string, string>;
 }): { status: number; stdout: string; capabilityJson: Record<string, unknown> | null } {
   let stdout = "";
@@ -355,7 +436,7 @@ function runRemoteDirect(input: {
       encoding: "utf8",
       env: {
         PATH: `${fakeBinDir}:${process.env.PATH ?? ""}`,
-        EXPECTED_SHA: input.expectedSha ?? VALID_SHA,
+        REQUESTED_SHA: input.requestedSha ?? VALID_SHA,
         PHASE: input.phase,
         REMOTE_APP_DIR: remoteAppDir,
         ...input.fakeEnv,
@@ -377,6 +458,69 @@ function readEnvFile(): string {
 }
 
 describe("the full workflow pipeline — success", () => {
+  it("a stale close uses current-main safety code but recreates only the distinct release proven to be running", () => {
+    const requestedSha = "b".repeat(40);
+    const runningSha = "c".repeat(40);
+    const dockerCallLog = join(dir, "docker-calls.log");
+    const freshness = runFreshnessStep({
+      capability: "closed",
+      requestedSha,
+      currentMainSha: VALID_SHA,
+    });
+    expect(freshness).toMatchObject({
+      should_run: "true",
+      checkout_sha: VALID_SHA,
+    });
+
+    writeFileSync(envFile, "META_AUTOMATION_LIVE_WRITES=true\n");
+    const phase = runPhaseStep({
+      capability: "closed",
+      requestedSha,
+      fakeEnv: {
+        FAKE_WEB_REVISION: runningSha,
+        FAKE_WORKER_REVISION: runningSha,
+        FAKE_BUILD_ID: runningSha,
+        FAKE_DOCKER_CALL_LOG: dockerCallLog,
+      },
+    });
+    const { artifact, artifactsDir } = runBuildArtifactStep({
+      phaseStatus: phase.phaseStatus,
+      outFileContent: phase.outFileContent,
+      capability: "closed",
+      requestedSha,
+      workflowScriptSha: VALID_SHA,
+    });
+    const summary = artifact.summary as Record<string, unknown>;
+    const after = summary.after as Record<string, unknown>;
+    expect(artifact).toMatchObject({
+      requestedSha,
+      effectiveSha: runningSha,
+      workflowScriptSha: VALID_SHA,
+    });
+    expect(summary).toMatchObject({ requestedSha, effectiveSha: runningSha });
+    expect(summary.result).toBe("pass");
+    expect(after.web).toMatchObject({
+      revision: runningSha,
+      envValue: "false",
+    });
+    expect(after.worker).toMatchObject({
+      revision: runningSha,
+      envValue: "false",
+    });
+    const recreateCalls = readFileSync(dockerCallLog, "utf8")
+      .split("\n")
+      .filter((line) => line.startsWith("compose pull ") || line.startsWith("compose up "));
+    expect(recreateCalls).toHaveLength(2);
+    for (const call of recreateCalls) {
+      expect(call).toContain(`APP_IMAGE_TAG=${runningSha}`);
+      expect(call).toContain(`APP_BUILD_ID=${runningSha}`);
+      expect(call).not.toContain(requestedSha);
+      expect(call).not.toContain(VALID_SHA);
+    }
+    expect(() => runFailGateStep(artifactsDir)).not.toThrow();
+    expect(readEnvFile()).toContain("META_AUTOMATION_LIVE_WRITES=false");
+  });
+
   it("capability=open: env file flips, both steps' artifact is pass with blockers=[], the fail gate does not throw", () => {
     const phase = runPhaseStep({ capability: "open" });
     expect(phase.phaseStatus).toBe(0);
@@ -439,7 +583,7 @@ describe("baseline refusal — a wrong pre-existing SHA is refused, not silently
     const wrongSha = "b".repeat(40);
     const { status, capabilityJson } = runRemoteDirect({
       phase: "capability_open",
-      expectedSha: VALID_SHA,
+      requestedSha: VALID_SHA,
       fakeEnv: { FAKE_WEB_REVISION: wrongSha }, // worker still reports VALID_SHA
     });
     expect(status).not.toBe(0);
@@ -456,8 +600,8 @@ describe("baseline refusal — a wrong pre-existing SHA is refused, not silently
     expect((capabilityJson?.blockers as string[]).join(",")).toContain("baseline_refused");
   });
 
-  it("`current main HEAD` alone (a correct EXPECTED_SHA) is NOT sufficient — the baseline check is what actually verifies what is running", () => {
-    // EXPECTED_SHA is valid and matches the workflow's own freshness gate,
+  it("`current main HEAD` alone (a correct REQUESTED_SHA) is NOT sufficient — the baseline check is what actually verifies what is running", () => {
+    // REQUESTED_SHA is valid and matches the workflow's own freshness gate,
     // but the running WORKER happens to be on the wrong revision. The
     // baseline check must catch this even though "the SHA is current main"
     // was already true.
@@ -673,7 +817,7 @@ describe("rollback failure — the restore's OWN failure is never swallowed into
         encoding: "utf8",
         env: {
           PATH: `${fakeBinDir}:${process.env.PATH ?? ""}`,
-          EXPECTED_SHA: VALID_SHA,
+          REQUESTED_SHA: VALID_SHA,
           PHASE: "capability_open",
           REMOTE_APP_DIR: remoteAppDir,
           FAKE_WORKER_ENV: "false", // forces the first recreate-verify to fail
@@ -734,6 +878,105 @@ describe("capability_close — fail-safe under DB/preflight failure, never gated
     // RUNTIME path for close never even reaches the one place a DB call
     // happens (the preflight), which the FAKE_PREFLIGHT_EXIT case above
     // demonstrates is never invoked.
+  });
+
+  it("refuses a split web/worker release before recreate, persists file-level false, and never selects either revision", () => {
+    const dockerCallLog = join(dir, "split-release-docker-calls.log");
+    writeFileSync(envFile, "META_AUTOMATION_LIVE_WRITES=true\n");
+    const { status, capabilityJson } = runRemoteDirect({
+      phase: "capability_close",
+      requestedSha: "b".repeat(40),
+      fakeEnv: {
+        FAKE_WEB_REVISION: VALID_SHA,
+        FAKE_WORKER_REVISION: "c".repeat(40),
+        FAKE_DOCKER_CALL_LOG: dockerCallLog,
+      },
+    });
+    expect(status).not.toBe(0);
+    expect(capabilityJson).toMatchObject({
+      result: "fail",
+      requestedSha: "b".repeat(40),
+      effectiveSha: null,
+    });
+    expect(capabilityJson?.blockers).toEqual(expect.arrayContaining([
+      "running_release_identity_unverified",
+      "file_closed_only_live_unverified",
+    ]));
+    expect(readEnvFile()).toContain("META_AUTOMATION_LIVE_WRITES=false");
+    expect(existsSync(join(remoteAppDir, ".fake-docker-up-called"))).toBe(false);
+    expect(readFileSync(dockerCallLog, "utf8")).not.toMatch(/^compose (pull|up) /m);
+  });
+
+  it("refuses an unreadable running container identity and does no pull/up", () => {
+    const dockerCallLog = join(dir, "unreadable-release-docker-calls.log");
+    writeFileSync(envFile, "META_AUTOMATION_LIVE_WRITES=true\n");
+    const { status, capabilityJson } = runRemoteDirect({
+      phase: "capability_close",
+      requestedSha: "b".repeat(40),
+      fakeEnv: {
+        FAKE_WEB_MISSING: "1",
+        FAKE_DOCKER_CALL_LOG: dockerCallLog,
+      },
+    });
+    expect(status).not.toBe(0);
+    expect(capabilityJson?.result).toBe("fail");
+    expect(capabilityJson?.effectiveSha).toBeNull();
+    expect(capabilityJson?.blockers).toEqual(expect.arrayContaining([
+      "running_release_identity_unverified",
+      "file_closed_only_live_unverified",
+    ]));
+    expect(readEnvFile()).toContain("META_AUTOMATION_LIVE_WRITES=false");
+    expect(existsSync(join(remoteAppDir, ".fake-docker-up-called"))).toBe(false);
+    expect(readFileSync(dockerCallLog, "utf8")).not.toMatch(/^compose (pull|up) /m);
+  });
+
+  it("refuses matching revision labels that are not full lowercase SHAs", () => {
+    const dockerCallLog = join(dir, "malformed-release-docker-calls.log");
+    const malformedRevision = "A".repeat(40);
+    writeFileSync(envFile, "META_AUTOMATION_LIVE_WRITES=true\n");
+    const { status, capabilityJson } = runRemoteDirect({
+      phase: "capability_close",
+      requestedSha: "b".repeat(40),
+      fakeEnv: {
+        FAKE_WEB_REVISION: malformedRevision,
+        FAKE_WORKER_REVISION: malformedRevision,
+        FAKE_BUILD_ID: malformedRevision,
+        FAKE_DOCKER_CALL_LOG: dockerCallLog,
+      },
+    });
+    expect(status).not.toBe(0);
+    expect(capabilityJson?.effectiveSha).toBeNull();
+    expect(capabilityJson?.blockers).toEqual(expect.arrayContaining([
+      "running_release_identity_unverified",
+      "file_closed_only_live_unverified",
+    ]));
+    expect(readEnvFile()).toContain("META_AUTOMATION_LIVE_WRITES=false");
+    expect(existsSync(join(remoteAppDir, ".fake-docker-up-called"))).toBe(false);
+    expect(readFileSync(dockerCallLog, "utf8")).not.toMatch(/^compose (pull|up) /m);
+  });
+
+  it("requires current web build-info to agree with the shared image revision before mutation/recreate", () => {
+    const dockerCallLog = join(dir, "build-info-mismatch-docker-calls.log");
+    writeFileSync(envFile, "META_AUTOMATION_LIVE_WRITES=true\n");
+    const { status, capabilityJson } = runRemoteDirect({
+      phase: "capability_close",
+      requestedSha: "b".repeat(40),
+      fakeEnv: {
+        FAKE_WEB_REVISION: VALID_SHA,
+        FAKE_WORKER_REVISION: VALID_SHA,
+        FAKE_BUILD_ID: "c".repeat(40),
+        FAKE_DOCKER_CALL_LOG: dockerCallLog,
+      },
+    });
+    expect(status).not.toBe(0);
+    expect(capabilityJson?.effectiveSha).toBeNull();
+    expect(capabilityJson?.blockers).toEqual(expect.arrayContaining([
+      "running_release_identity_unverified",
+      "file_closed_only_live_unverified",
+    ]));
+    expect(readEnvFile()).toContain("META_AUTOMATION_LIVE_WRITES=false");
+    expect(existsSync(join(remoteAppDir, ".fake-docker-up-called"))).toBe(false);
+    expect(readFileSync(dockerCallLog, "utf8")).not.toMatch(/^compose (pull|up) /m);
   });
 });
 
@@ -860,7 +1103,7 @@ describe("FINDING 1 — a failure discovered only AFTER the rename must still ro
         encoding: "utf8",
         env: {
           PATH: `${fakeBinDir}:${process.env.PATH ?? ""}`,
-          EXPECTED_SHA: VALID_SHA,
+          REQUESTED_SHA: VALID_SHA,
           PHASE: "capability_open",
           REMOTE_APP_DIR: remoteAppDir,
           [STAT_COUNTER_ENV]: counterFile,
@@ -893,7 +1136,7 @@ describe("FINDING 1 — a failure discovered only AFTER the rename must still ro
         encoding: "utf8",
         env: {
           PATH: `${fakeBinDir}:${process.env.PATH ?? ""}`,
-          EXPECTED_SHA: VALID_SHA,
+          REQUESTED_SHA: VALID_SHA,
           PHASE: "capability_open",
           REMOTE_APP_DIR: remoteAppDir,
           FAKE_WORKER_ENV_AFTER_UP: "false", // forces the FIRST recreate-verify to fail, triggering rollback
@@ -1009,7 +1252,7 @@ exec bash -c "$last"
       env: {
         PATH: `${fakeBinDir}:${process.env.PATH ?? ""}`,
         HOME: process.env.HOME ?? dir,
-        EXPECTED_SHA: VALID_SHA,
+        REQUESTED_SHA: VALID_SHA,
         HETZNER_PORT: "22",
         HETZNER_USER: "deployer",
         CAPABILITY: "open",
@@ -1041,7 +1284,7 @@ exec bash -c "$last"
       env: {
         PATH: `${fakeBinDir}:${process.env.PATH ?? ""}`,
         HOME: process.env.HOME ?? dir,
-        EXPECTED_SHA: VALID_SHA,
+        REQUESTED_SHA: VALID_SHA,
         HETZNER_PORT: "22",
         HETZNER_USER: "deployer",
         CAPABILITY: "open",
@@ -1105,7 +1348,8 @@ describe("FINDING 3b — the CAPABILITY_JSON extraction must distinguish a genui
             PATH: process.env.PATH ?? "",
             PHASE_STATUS: "0",
             OUT_FILE: outFile,
-            EXPECTED_SHA: VALID_SHA,
+            REQUESTED_SHA: VALID_SHA,
+            WORKFLOW_SCRIPT_SHA: VALID_SHA,
             CAPABILITY: "open",
           },
         });
@@ -1137,7 +1381,8 @@ describe("FINDING 3b — the CAPABILITY_JSON extraction must distinguish a genui
         PATH: process.env.PATH ?? "",
         PHASE_STATUS: "1",
         OUT_FILE: outFile,
-        EXPECTED_SHA: VALID_SHA,
+        REQUESTED_SHA: VALID_SHA,
+        WORKFLOW_SCRIPT_SHA: VALID_SHA,
         CAPABILITY: "open",
       },
     });
@@ -1152,7 +1397,14 @@ describe("FINDING 3b — the CAPABILITY_JSON extraction must distinguish a genui
   it("a healthy extraction (grep=0, tail=0, sed=0) produces the real parsed summary, not any failure blocker", () => {
     const artifactsDir = mkdtempSync(join(tmpdir(), "adsecute-capability-extraction-healthy-"));
     const outFile = join(artifactsDir, "out.txt");
-    writeFileSync(outFile, 'some log line\nCAPABILITY_JSON: {"result":"pass","blockers":[]}\n');
+    writeFileSync(
+      outFile,
+      `some log line\nCAPABILITY_JSON: ${JSON.stringify({
+        result: "pass",
+        blockers: [],
+        expectedSha: VALID_SHA,
+      })}\n`,
+    );
     execFileSync("bash", ["-c", BUILD_ARTIFACT_SCRIPT], {
       cwd: artifactsDir,
       encoding: "utf8",
@@ -1160,7 +1412,8 @@ describe("FINDING 3b — the CAPABILITY_JSON extraction must distinguish a genui
         PATH: process.env.PATH ?? "",
         PHASE_STATUS: "0",
         OUT_FILE: outFile,
-        EXPECTED_SHA: VALID_SHA,
+        REQUESTED_SHA: VALID_SHA,
+        WORKFLOW_SCRIPT_SHA: VALID_SHA,
         CAPABILITY: "open",
       },
     });
@@ -1170,6 +1423,7 @@ describe("FINDING 3b — the CAPABILITY_JSON extraction must distinguish a genui
     const summary = artifact.summary as Record<string, unknown>;
     expect(summary.result).toBe("pass");
     expect(summary.blockers).toEqual([]);
+    expect(summary).toMatchObject({ requestedSha: VALID_SHA, effectiveSha: VALID_SHA });
   });
 
   it("a real fake tail that writes the full valid line and THEN exits 1 is caught as capability_json_extraction_failed — writing valid-looking output does not excuse a nonzero exit", () => {
@@ -1192,7 +1446,8 @@ exit "\${FAKE_TAIL_EXIT:-0}"
         PATH: `${fakeBin}:${process.env.PATH ?? ""}`,
         PHASE_STATUS: "0",
         OUT_FILE: outFile,
-        EXPECTED_SHA: VALID_SHA,
+        REQUESTED_SHA: VALID_SHA,
+        WORKFLOW_SCRIPT_SHA: VALID_SHA,
         CAPABILITY: "open",
         FAKE_TAIL_EXIT: "1",
       },
@@ -1226,7 +1481,8 @@ exit "\${FAKE_SED_EXIT:-0}"
         PATH: `${fakeBin}:${process.env.PATH ?? ""}`,
         PHASE_STATUS: "0",
         OUT_FILE: outFile,
-        EXPECTED_SHA: VALID_SHA,
+        REQUESTED_SHA: VALID_SHA,
+        WORKFLOW_SCRIPT_SHA: VALID_SHA,
         CAPABILITY: "open",
         FAKE_SED_EXIT: "1",
       },
@@ -1251,7 +1507,8 @@ exit "\${FAKE_SED_EXIT:-0}"
         PATH: process.env.PATH ?? "",
         PHASE_STATUS: "0",
         OUT_FILE: outFile,
-        EXPECTED_SHA: VALID_SHA,
+        REQUESTED_SHA: VALID_SHA,
+        WORKFLOW_SCRIPT_SHA: VALID_SHA,
         CAPABILITY: "open",
       },
     });

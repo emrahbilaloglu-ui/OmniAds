@@ -1,13 +1,15 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   buildLocalStatementTimeoutSql,
   buildParameterizedQuery,
   buildStatementTimeoutSql,
   getDbRuntimeDiagnostics,
+  getDbWithTimeout,
   resetDbClientCache,
   resolveDbPoolMax,
   resolveDbRuntimeSettings,
   resolveDbTimeoutMs,
+  runDbTransaction,
 } from "@/lib/db";
 
 const DB_ENV_KEYS = [
@@ -38,11 +40,40 @@ const DB_ENV_KEYS = [
 ] as const;
 
 afterEach(() => {
+  vi.useRealTimers();
   resetDbClientCache();
   for (const key of DB_ENV_KEYS) {
     delete process.env[key];
   }
 });
+
+function fakeClient(
+  query: (text: string, params?: unknown[]) => Promise<{ rows: unknown[] }>,
+) {
+  return {
+    query: vi.fn(query),
+    release: vi.fn(),
+  };
+}
+
+function installFakePool(clients: ReturnType<typeof fakeClient>[]) {
+  const queue = [...clients];
+  const pool = {
+    connect: vi.fn(async () => {
+      const client = queue.shift();
+      if (!client) throw new Error("fake pool exhausted");
+      return client;
+    }),
+    end: vi.fn(async () => undefined),
+    totalCount: clients.length,
+    idleCount: clients.length,
+    waitingCount: 0,
+  };
+  (
+    globalThis as typeof globalThis & { __omniadsDbPool?: unknown }
+  ).__omniadsDbPool = pool;
+  return pool;
+}
 
 describe("resolveDbTimeoutMs", () => {
   it("uses the interactive default when worker mode is disabled", () => {
@@ -254,5 +285,118 @@ describe("buildLocalStatementTimeoutSql", () => {
     expect(buildLocalStatementTimeoutSql(Number.NaN)).toBe(
       "SET LOCAL statement_timeout = 1",
     );
+  });
+});
+
+describe("pool client cleanup around statement-timeout setup", () => {
+  it("destroys a client whose timeout SET misses the caller deadline", async () => {
+    vi.useFakeTimers();
+    let finishSetup!: (value: { rows: unknown[] }) => void;
+    const delayedSetup = new Promise<{ rows: unknown[] }>((resolve) => {
+      finishSetup = resolve;
+    });
+    const client = fakeClient(async (text) => {
+      if (text.startsWith("SET statement_timeout")) return delayedSetup;
+      return { rows: [] };
+    });
+    installFakePool([client]);
+
+    const query = getDbWithTimeout(20).query("SELECT 1");
+    const rejected = expect(query).rejects.toThrow(
+      "Database query timeout setup timed out after 20ms",
+    );
+    await vi.advanceTimersByTimeAsync(21);
+    await rejected;
+
+    expect(client.release).toHaveBeenCalledWith(expect.any(Error));
+    finishSetup({ rows: [] });
+    await vi.runAllTimersAsync();
+  });
+
+  it("destroys a setup-failed client and allows the next acquisition to succeed", async () => {
+    const setupError = new Error("timeout setup failed");
+    const failed = fakeClient(async () => {
+      throw setupError;
+    });
+    const healthy = fakeClient(async () => ({ rows: [{ ok: true }] }));
+    const pool = installFakePool([failed, healthy]);
+    const sql = getDbWithTimeout(50);
+
+    await expect(sql.query("SELECT 1")).rejects.toBe(setupError);
+    expect(failed.release).toHaveBeenCalledWith(setupError);
+    await expect(sql.query("SELECT true AS ok")).resolves.toEqual([
+      { ok: true },
+    ]);
+    expect(healthy.release).toHaveBeenCalledWith(undefined);
+    expect(pool.connect).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("runDbTransaction setup cleanup", () => {
+  it("resets a deadline-bound session before returning its client to the pool", async () => {
+    const client = fakeClient(async () => ({ rows: [] }));
+    installFakePool([client]);
+
+    await expect(
+      runDbTransaction(async () => "done", {
+        deadlineAtMs: Date.now() + 1_000,
+      }),
+    ).resolves.toBe("done");
+
+    expect(client.query).toHaveBeenLastCalledWith("RESET statement_timeout");
+    expect(client.release).toHaveBeenCalledWith(undefined);
+  });
+
+  it("bounds a delayed BEGIN, destroys the uncertain client, and can acquire again", async () => {
+    vi.useFakeTimers();
+    let finishBegin!: (value: { rows: unknown[] }) => void;
+    const delayedBegin = new Promise<{ rows: unknown[] }>((resolve) => {
+      finishBegin = resolve;
+    });
+    const uncertain = fakeClient(async (text) => {
+      if (text === "BEGIN") return delayedBegin;
+      return { rows: [] };
+    });
+    const healthy = fakeClient(async () => ({ rows: [] }));
+    const pool = installFakePool([uncertain, healthy]);
+    const callback = vi.fn(async () => "unreachable");
+
+    const transaction = runDbTransaction(callback, { timeoutMs: 20 });
+    const rejected = expect(transaction).rejects.toThrow(
+      "Database query timed out after 20ms",
+    );
+    await vi.advanceTimersByTimeAsync(21);
+    await rejected;
+
+    expect(callback).not.toHaveBeenCalled();
+    expect(uncertain.query).toHaveBeenCalledWith("ROLLBACK");
+    expect(uncertain.release).toHaveBeenCalledWith(expect.any(Error));
+
+    await expect(
+      runDbTransaction(async () => "next", { timeoutMs: 20 }),
+    ).resolves.toBe("next");
+    expect(healthy.release).toHaveBeenCalledWith(undefined);
+    expect(pool.connect).toHaveBeenCalledTimes(2);
+
+    finishBegin({ rows: [] });
+    await vi.runAllTimersAsync();
+  });
+
+  it("rolls back but still destroys a client when SET LOCAL fails", async () => {
+    const setupError = new Error("SET LOCAL refused");
+    const client = fakeClient(async (text) => {
+      if (text.startsWith("SET LOCAL statement_timeout")) throw setupError;
+      return { rows: [] };
+    });
+    installFakePool([client]);
+    const callback = vi.fn(async () => undefined);
+
+    await expect(
+      runDbTransaction(callback, { timeoutMs: 50 }),
+    ).rejects.toBe(setupError);
+
+    expect(callback).not.toHaveBeenCalled();
+    expect(client.query).toHaveBeenCalledWith("ROLLBACK");
+    expect(client.release).toHaveBeenCalledWith(setupError);
   });
 });

@@ -96,6 +96,24 @@ describe.skipIf(!SEAM)("the migration session is pinned to one backend", () => {
     expect(Date.now() - startedAt).toBeLessThan(750);
   });
 
+  it("applies the remaining absolute deadline to each later statement", async () => {
+    const deadlineWindowMs = 1_500;
+
+    const laterStatementTimeoutMs = await withPinnedDbClient(
+      async (client) => {
+        await client.query("SELECT pg_sleep(0.4)");
+        const rows = await client.query<{ statement_timeout: string }>(
+          "SELECT current_setting('statement_timeout') AS statement_timeout",
+        );
+        return Number.parseInt(rows.rows[0]!.statement_timeout, 10);
+      },
+      { deadlineAtMs: Date.now() + deadlineWindowMs },
+    );
+
+    expect(laterStatementTimeoutMs).toBeGreaterThan(0);
+    expect(laterStatementTimeoutMs).toBeLessThan(1_300);
+  });
+
   it("a POOLED client cannot make the same guarantee", async () => {
     /*
       The discriminating half. Without it the three cases above could pass on a

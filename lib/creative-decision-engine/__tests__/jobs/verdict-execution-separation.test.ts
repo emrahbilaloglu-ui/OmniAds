@@ -6,7 +6,10 @@ import {
 } from "@/lib/meta/release-gates";
 import { projectMetaDecisionSemantics } from "@/lib/meta/decision-semantics";
 import type { CampaignContextLabelMap } from "../../campaign-context/source";
-import { MIN_ACCOUNT_SCALE_CALIBRATION_SAMPLE } from "../../config-values";
+import {
+  HARD_ACTION_HOLD_CONFIDENCE_CAP,
+  MIN_ACCOUNT_SCALE_CALIBRATION_SAMPLE,
+} from "../../config-values";
 import { computeNativeAdDecisions } from "../../jobs/ad-decisions-job";
 import type {
   AccountDecisionProfile,
@@ -363,8 +366,12 @@ describe("native Ad verdict versus execution eligibility", () => {
       cut: true,
       refresh: true,
     });
-    expect(runNativeDecision(profile).authorityBlocker).toBe(
+    const missingBenchmarkDecision = runNativeDecision(profile);
+    expect(missingBenchmarkDecision.authorityBlocker).toBe(
       "native_metrics_unavailable",
+    );
+    expect(missingBenchmarkDecision.confidence).toBe(
+      HARD_ACTION_HOLD_CONFIDENCE_CAP,
     );
 
     // The thin-sample row still reports the profile denial, because there the

@@ -99,7 +99,7 @@ export function formatAccountCurrencySpend(
 function confidenceCapForDecision(
   badges: readonly DecisionBadge[],
   holds: {
-    lifecycleRefresh: boolean;
+    requestedHardAction: boolean;
     profileHardAction: boolean;
   },
 ): number | null {
@@ -108,9 +108,7 @@ function confidenceCapForDecision(
     hasDecisionBadge(badges, "unknown_freshness")
       ? STALE_CONFIDENCE_CAP
       : null,
-    holds.profileHardAction ||
-    (holds.lifecycleRefresh &&
-      hasDecisionBadge(badges, "lifecycle_unavailable"))
+    holds.profileHardAction || holds.requestedHardAction
       ? HARD_ACTION_HOLD_CONFIDENCE_CAP
       : null,
   ].filter((cap): cap is number => cap !== null);
@@ -611,9 +609,9 @@ export function finalizeDecision(
     confidence: capConfidence(
       clampConfidence(ctx.confidenceBase, confidenceDeltas),
       confidenceCapForDecision(finalBadges, {
-        lifecycleRefresh:
-          label === "refresh" &&
-          authorityHold?.blockedActionType === "refresh",
+        requestedHardAction:
+          requestedAuthorityHold !== null &&
+          isHardActionLabel(requestedAuthorityHold.blockedActionType),
         profileHardAction: profileBlocksHardAuthority,
       }),
     ),

@@ -1,20 +1,20 @@
 {
- "manifestHash": "1a11462f9920c6647c8d5ffa9d7e8bf4a5bfd14c29b1a9d3f4ac0c70ea80c968",
+ "manifestHash": "25dd8c5aa7a27cb1fd669fe1ff33fa44e50bb2337bd648ad08177f12172d994b",
  "hashAlgorithm": "sha256",
  "hashBasis": "sha256 over UTF-8 bytes of JSON.stringify(artifact, null, 1) of the artifact WITHOUT its embedded hash fields (the artifact object before {<hashField>, hashAlgorithm, hashBasis} are prepended)",
  "contract": "adsecute.d077.release-candidate-manifest.v3",
- "generatedAtUtc": "2026-09-09T07:42:40.701Z",
+ "generatedAtUtc": "2026-09-09T08:29:06.563Z",
  "branch": "codex/meta-release-finalization",
  "supersededBranchLabel": "codex/meta-disabled-readiness-20260829",
- "head": "80621896c0e8ad2a2160181d7ffbb5cb72c7aad3",
+ "head": "e8a2edc47f6d96f343c6c29fa80a75e60af9d625",
  "baseMain": "babf158e150fd33057117b39b175da044ac62d2e",
  "originMain": "a2eb1b1b1dae9e69ffe470c39ada19731a570224",
  "remoteDivergence": {
-  "aheadOfOriginMain": 16,
+  "aheadOfOriginMain": 17,
   "behindOriginMain": 0
  },
  "selfExclusion": "this manifest's own path (docs/audits/generated/d077-release-candidate-manifest-2026-08-30.json) is EXCLUDED from its entry list: a manifest cannot recursively pin its own final bytes; its external SHA-256 is reported in the final response and by Codex's own hashing",
- "gitPorcelainEntryCount": 111,
+ "gitPorcelainEntryCount": 7,
  "releaseDiffEntryCountIncludingSelf": 1071,
  "expandedOnDiskCandidateFileCountIncludingSelf": 1071,
  "pinnedNonSelfFileCount": 1070,
@@ -2021,13 +2021,13 @@
    "path": "docs/audits/generated/d077-correction1-verification-ledger-2026-08-30.json",
    "git": "A",
    "class": "generated_evidence",
-   "sha256": "6fc1504265adb4743c80bc77abfe5d30125bb9e4ca099d00e047cfc7663f22fb"
+   "sha256": "e5f81b2519631011096065a8bf777f4048bd942234df75ba675bf80bf7c359c1"
   },
   {
    "path": "docs/audits/generated/d077-database-recovery-approval-packet-2026-08-30.json",
    "git": "A",
    "class": "generated_evidence",
-   "sha256": "0285c48f08ec459ef7483e2061dd6e8de01e7c649500f951f01ee10634d38602"
+   "sha256": "c4c20cec270a90f36bfe4961cb86bc0bbfd152418945601e8d85d1902dc41474"
   },
   {
    "path": "docs/audits/generated/d077-production-recovery-readonly-evidence-2026-08-30.json",
@@ -2039,7 +2039,7 @@
    "path": "docs/audits/generated/d077-release-deploy-approval-packet-2026-08-30.json",
    "git": "A",
    "class": "generated_evidence",
-   "sha256": "d8dcd03ad79a4935a6bdd89b0fde17a1c10013d77ef6b5e1e81fc0386ef38165"
+   "sha256": "e6c5c4d120449d35821c23e6d2d7ace866cda94db8b33d1f61f872c66935c490"
   },
   {
    "path": "docs/audits/generated/d078-hard-action-recompute-2026-08-30.json",
@@ -2253,7 +2253,7 @@
   },
   {
    "path": "docs/audits/generated/d086-budget-readiness-input-pack-2026-09-02.r14.json",
-   "git": "??",
+   "git": "A",
    "class": "generated_evidence",
    "sha256": "491aeb31e0bf55960fc9ed0f0dfd0897e8fd82c71b1ada55c0d04d14d9d9f9dc"
   },
@@ -2771,13 +2771,13 @@
    "path": "lib/creative-decision-engine/__tests__/gates/finalize-decision.test.ts",
    "git": "M",
    "class": "tests_only",
-   "sha256": "ff44a55a49839e1e4b7b7066ba1607605445029d3f99086baf07443aa2dd833b"
+   "sha256": "2dd2e77ab0fcbbbaa4b07b586fb08fb0b2004556533f3f3a99a683dd03ec49cb"
   },
   {
    "path": "lib/creative-decision-engine/__tests__/gates/ratio-zones.test.ts",
    "git": "M",
    "class": "tests_only",
-   "sha256": "6b8f890ef0bf0f40e18097ee0c2dd98c605548fc3fe1ce2a99138f16f26425b0"
+   "sha256": "99f5b2cf53aa3abe233db6c4375e61b1b8bbb88560737cacec3d5ee785c14b70"
   },
   {
    "path": "lib/creative-decision-engine/__tests__/jobs/ad-calibration-job.test.ts",
@@ -2861,7 +2861,7 @@
    "path": "lib/creative-decision-engine/__tests__/jobs/verdict-execution-separation.test.ts",
    "git": "A",
    "class": "tests_only",
-   "sha256": "59b68f8aec9cb5706a81ecd6b1a3de23964e2e0c309a4c00643ead070725dcc2"
+   "sha256": "0b441d942dc996aebcf2040cf15a1dbf622fd2e0387582b536ab7acda887c725"
   },
   {
    "path": "lib/creative-decision-engine/__tests__/native-ad-v3-authority-compatibility.test.ts",
@@ -3029,7 +3029,7 @@
    "path": "lib/creative-decision-engine/gates/types.ts",
    "git": "M",
    "class": "runtime",
-   "sha256": "29cf1673970a8c8adf5a7f0983c7019f677fea6a817d4d3737ca0c056450de36"
+   "sha256": "3d0771b6584a63b2503041b139c959ef0f0d861e20b3e9bb807d75da8924ef34"
   },
   {
    "path": "lib/creative-decision-engine/jobs/ad-calibration-job.ts",
@@ -3105,7 +3105,7 @@
   },
   {
    "path": "lib/creative-decision-engine/meta-aov-calculator.test-helpers.ts",
-   "git": "??",
+   "git": "A",
    "class": "runtime",
    "sha256": "5fc205e406e86e7411470d223daf281807acf017bc86dc1de0a68d49808a34af"
   },
@@ -4713,13 +4713,13 @@
   },
   {
    "path": "lib/meta/intent-projection-authority.test.ts",
-   "git": "??",
+   "git": "A",
    "class": "tests_only",
    "sha256": "9c850234e1abf3175316acb56c3408b862cd63b06ee614e7b7e72526ee7605b9"
   },
   {
    "path": "lib/meta/intent-projection-authority.ts",
-   "git": "??",
+   "git": "A",
    "class": "runtime",
    "sha256": "a1ae98edb5ac808692d8a2f4027175537f4ccddbb5ae2735608d19b34339200d"
   },
@@ -4929,7 +4929,7 @@
   },
   {
    "path": "lib/meta/proposal-producer-open-slot.db.test.ts",
-   "git": "??",
+   "git": "A",
    "class": "tests_only",
    "sha256": "c128c29f1901ca00e24a0195f31ff4eaac09e554bc03c9bc749da9386438972b"
   },
@@ -5553,7 +5553,7 @@
   },
   {
    "path": "lib/sync/db-growth-fence.test-helpers.ts",
-   "git": "??",
+   "git": "A",
    "class": "runtime",
    "sha256": "0a62d2d22c0caafd6a03447e7338beba35db61ec7311510260bb33fbaf72aee3"
   },

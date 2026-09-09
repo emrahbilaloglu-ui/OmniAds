@@ -1,10 +1,10 @@
 {
- "packetHash": "566da9c03faf2056f75347bac000cb664076700cda1a4905e8ebce80ff7d02c1",
+ "packetHash": "ed2fcd4bb7e4ef99369ee51f4e8adeeb0155e44acb7b6e2e2108d94b655294ae",
  "hashAlgorithm": "sha256",
  "hashBasis": "sha256 over UTF-8 bytes of JSON.stringify(artifact, null, 1) of the artifact WITHOUT its embedded hash fields (the artifact object before {<hashField>, hashAlgorithm, hashBasis} are prepended)",
  "contract": "adsecute.d077.release-deploy-approval-packet.v2",
  "status": "PREPARED_AWAITING_OPERATOR_APPROVAL — no commit, push, dispatch, or deploy performed; submitted for Codex independent acceptance — not self-accepted",
- "generatedAtUtc": "2026-09-09T07:42:39.824Z",
+ "generatedAtUtc": "2026-09-09T08:29:00.934Z",
  "decision": "NO_GO",
  "blockerLedger": {
   "cleared": [

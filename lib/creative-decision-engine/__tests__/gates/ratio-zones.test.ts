@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { defaultBusinessConfig } from "../../config";
+import { HARD_ACTION_HOLD_CONFIDENCE_CAP } from "../../config-values";
 import { ratioZonesGate, resolveCutBoundary } from "../../gates/ratio-zones";
 import type { GateContext } from "../../gates/types";
 import type {
@@ -271,6 +272,9 @@ describe("ratioZonesGate - scale zone", () => {
     );
 
     expect(output.label).toBe("keep");
+    expect(output.confidence).toBeLessThanOrEqual(
+      HARD_ACTION_HOLD_CONFIDENCE_CAP,
+    );
     expect(output.reason).toContain("winner purchase benchmark unavailable");
     expect(output.badges.map((badge) => badge.type)).toEqual(
       expect.arrayContaining([

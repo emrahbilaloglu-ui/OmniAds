@@ -418,6 +418,52 @@ describe("a label transform cannot silently drop a requested authority hold", ()
       expect(output.label).toBe("keep");
       expect(output.blockedActionType).toBe("scale");
       expect(output.preAuthorityLabel).toBe("scale");
+      expect(output.confidence).toBe(HARD_ACTION_HOLD_CONFIDENCE_CAP);
+    }
+  });
+
+  it("caps every accepted hard-action hold without relying on a matching badge", () => {
+    const cases = [
+      {
+        requested: "scale",
+        held: "keep",
+        blocker: "native_metrics_unavailable",
+      },
+      {
+        requested: "cut",
+        held: "test_more",
+        blocker: "recent_recovery_unverifiable",
+      },
+      {
+        requested: "refresh",
+        held: "keep",
+        blocker: "native_metrics_unavailable",
+      },
+    ] as const;
+
+    for (const testCase of cases) {
+      const output = finalizeDecision(
+        contextFor({
+          campaignKind: "main",
+          gate: { confidenceBase: 95, badges: [] },
+        }),
+        testCase.requested,
+        `${testCase.requested} verdict with incomplete authority evidence.`,
+        {
+          authorityBlocker: testCase.blocker,
+          blockedActionType: testCase.requested,
+          label: testCase.held,
+          reasonPrefix: `[${testCase.requested} verdict held]`,
+        },
+      );
+
+      expect(output).toMatchObject({
+        label: testCase.held,
+        preAuthorityLabel: testCase.requested,
+        authorityBlocker: testCase.blocker,
+        blockedActionType: testCase.requested,
+        confidence: HARD_ACTION_HOLD_CONFIDENCE_CAP,
+      });
     }
   });
 
@@ -425,7 +471,10 @@ describe("a label transform cannot silently drop a requested authority hold", ()
     // A hold whose `blockedActionType` does not match the verdict at all is
     // still refused — the fix moved WHICH label is compared, not whether one is.
     const output = finalizeDecision(
-      contextFor({ campaignKind: "main" }),
+      contextFor({
+        campaignKind: "main",
+        gate: { confidenceBase: 95 },
+      }),
       "cut",
       "Economic loss.",
       hold,
@@ -433,5 +482,6 @@ describe("a label transform cannot silently drop a requested authority hold", ()
 
     expect(output.blockedActionType).toBeNull();
     expect(output.authorityBlocker).toBeNull();
+    expect(output.confidence).toBe(95);
   });
 });

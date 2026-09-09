@@ -39,7 +39,7 @@ import {
 // ---------------------------------------------------------------------------
 
 /** The one revision. Path and lineage derive from it; nothing is retyped. */
-export const D086_REVISION = 14 as const;
+export const D086_REVISION = 15 as const;
 export const D086_CONTRACT_ID = `d086.budget-readiness-input-pack.v${D086_REVISION}` as const;
 
 /** Repo root from this module's own location — never `process.cwd()`. */
@@ -76,6 +76,15 @@ export const D086_FROZEN_ARTIFACTS: readonly string[] = Object.freeze(
 
 /** Every rejected predecessor, with the bytes it must still have. */
 export const D086_REJECTED_REVISIONS = Object.freeze([
+  {
+    revision: 14,
+    path: d086ArtifactPathFor(14),
+    fileSha256: "491aeb31e0bf55960fc9ed0f0dfd0897e8fd82c71b1ada55c0d04d14d9d9f9dc",
+    why: "Superseded by additive receipt storage with unmodified deployed-image rollback compatibility. "
+      + "r14 claimed all prepared statements were registered although four unused config-history statements were not. "
+      + "r15 removes those obsolete declarations and pins fresh PostgreSQL evidence for both legacy and v2 arbiters; "
+      + "the original four-column table and ranked indexes remain intact.",
+  },
   {
     revision: 13,
     path: d086ArtifactPathFor(13),
@@ -432,6 +441,11 @@ export const D086_PINNED_SOURCES = Object.freeze([
     sha256: "cceb24fadf6d3814481b78b597e14b2852b1e7dafb93d92ca9c97cb5107b29dc",
   },
   {
+    key: "d086_r15_postgres_evidence",
+    path: `${ARTIFACT_DIR}/d086-local-postgres-evidence-2026-09-02.r5.json`,
+    sha256: "d5b1fa580937df653390e5ef193b094a504e9f8324ddf75b480f6a8648143d2e",
+  },
+  {
     key: "d085_r16_accepted",
     path: `${ARTIFACT_DIR}/d085-budget-proposal-dry-run-2026-09-01.r16.json`,
     sha256: "df645050d20ca2e3d2304790279b76ee006886f4c18e8b8eff0d1ee437717211",
@@ -686,7 +700,7 @@ export function buildD086Artifact(read: (path: string) => Buffer = d086TrustedRe
   };
   const census = JSON.parse(read(pinnedSource("d086_live_census").path).toString("utf8")) as Record<string, any>;
   const localEvidence = JSON.parse(
-    read(pinnedSource("d086_r13_postgres_evidence").path).toString("utf8"),
+    read(pinnedSource("d086_r15_postgres_evidence").path).toString("utf8"),
   ) as Record<string, any>;
   const d085 = JSON.parse(read(pinnedSource("d085_r16_accepted").path).toString("utf8")) as Record<string, any>;
 
@@ -840,19 +854,13 @@ export function buildD086Artifact(read: (path: string) => Buffer = d086TrustedRe
     closures,
     simulation,
     localPostgresVerification: {
-      evidencePath: `${ARTIFACT_DIR}/d086-local-postgres-evidence-2026-09-02.r4.json`,
-      evidenceSha256: "cceb24fadf6d3814481b78b597e14b2852b1e7dafb93d92ca9c97cb5107b29dc",
+      evidencePath: pinnedSource("d086_r15_postgres_evidence").path,
+      evidenceSha256: pinnedSource("d086_r15_postgres_evidence").sha256,
       supersedes: {
-        path: `${ARTIFACT_DIR}/d086-local-postgres-evidence-2026-09-02.r3.json`,
-        sha256: "5da7c564154d0e5b92a0df387e44df2ccb5b4d0005d92bf0aca683382f9f2a32",
-        why:
-          "r3's provenance is sound and its bytes are frozen and D077-pinned; it is superseded "
-          + "only on the INDEX CATALOGUE. r3 records six indexes and no pg_index validity flags, "
-          + "and three of those six have since been replaced — the four-column occurrence key by "
-          + "the attempt-scoped one, and the freshness/cohort pair by their _v2 successors. "
-          + "Existence was never usability either: an index left INVALID by a failed CONCURRENT "
-          + "build still appears in pg_indexes and the planner will not use it. r4 records the "
-          + "current seven-index set with indisvalid, indisready and indislive for every entry.",
+        path: pinnedSource("d086_r13_postgres_evidence").path,
+        sha256: pinnedSource("d086_r13_postgres_evidence").sha256,
+        why: "r4's bytes remain frozen. r5 proves the additive legacy/v2 receipt schema, "
+          + "its deduplicated read model and all eight required indexes with PostgreSQL validity flags.",
       },
       /*
         Structured, so a reader does not have to trust a sentence. This records
@@ -860,7 +868,7 @@ export function buildD086Artifact(read: (path: string) => Buffer = d086TrustedRe
         side-effect ledger, which scopes itself to assembly and production.
       */
       scope: "ephemeral local cluster only; never production, never a provider",
-      serverVersion: "PostgreSQL 16.13 (Homebrew) on aarch64-apple-darwin25.2.0",
+      serverVersion: localEvidence.postgresVersion,
       clusterLifecycle: "created by the seam under mkdtemp and destroyed in its finally block",
       /*
         C7: the schema comes from the REAL migration registry, not from a
@@ -926,8 +934,8 @@ export function buildD086Artifact(read: (path: string) => Buffer = d086TrustedRe
       },
       // The cohort a receipt names is now a row the database enforces.
       cohortLinkageEnforcedBy: [
-        "meta_entity_observation_receipts_partition_fk",
-        "meta_entity_observation_receipts_snapshot_fk",
+        "meta_entity_observation_receipts_v2_partition_fk",
+        "meta_entity_observation_receipts_v2_snapshot_fk",
       ],
       readModelDrivenOverRealRows: true,
       indexRankPathsVerifiedFromCatalog: true,
@@ -948,9 +956,9 @@ export function buildD086Artifact(read: (path: string) => Buffer = d086TrustedRe
       registeredInMigrationRegistry: true,
       sqlDigest: d086Digest(D086_ADDITIVE_MIGRATION_SQL),
       note:
-        "REGISTERED in lib/migrations.ts, as correction 7 requires, and additive throughout "
-        + "(24 of the 25 statements are IF NOT EXISTS; the 25th is a deliberate "
-        + "DROP INDEX IF EXISTS meta_entity_observation_receipts_occurrence). "
+        "The current prepared schema is registered in lib/migrations.ts and its shared receipt-schema module. "
+        + "The deployed four-column receipt table remains intact; attempt-scoped receipts use a separate v2 table. "
+        + "Obsolete, unregistered config-history ALTERs/indexes are excluded from this list. "
         + "Registration means a future deploy applies them; "
         + "NOTHING here applies them to production, and no production catalog has ever held them. "
         + "They ARE applied in the ephemeral local cluster recorded under "
@@ -985,7 +993,7 @@ export function buildD086Artifact(read: (path: string) => Buffer = d086TrustedRe
       "Budget facts are read from meta_entity_state_history — the rows the real capture path writes — and every budget judgment on them is D083's buildCanonicalBudgetFact, reached through the shared projector. The transition-only config-history read was removed in correction 8 along with its query, its capability probe and the tests that certified it.",
       "The legacy role branch is BUSINESS-level migration evidence, not account authority, and publishes its real population and truncation state.",
       "SQL EXECUTION, scoped precisely. Artifact assembly and production executed ZERO statements of any kind: this generator opens no database handle. Independent LOCAL verification is different and did run — an ephemeral PostgreSQL 16.13 cluster, created and destroyed by the seam, applied all prepared DDL, executed every readiness query, read pg_index validity flags, and exercised reversed-insertion conflicts through the real read model. Neither the census nor this artifact depends on that cluster.",
-      "The prepared migrations ARE registered in lib/migrations.ts, as correction 7 required. They are additive with ONE deliberate exception, stated rather than glossed: 24 of the 25 statements are IF NOT EXISTS and both foreign keys are added NOT VALID so a table already holding malformed rows is never blocked, and the 25th is DROP INDEX IF EXISTS meta_entity_observation_receipts_occurrence — the retired four-column occurrence key, which rejects the second of two capture attempts at the same millisecond and is replaced by meta_entity_observation_receipts_attempt_occurrence. Calling the set additive throughout would be false. Registration means a future deploy applies them. NOTHING in this work applies them to production, no production catalog has ever held them, and they are exercised only in the ephemeral local cluster recorded under localPostgresVerification.",
+      "The current prepared schema is registered in lib/migrations.ts and its shared receipt-schema module. Receipt storage expands additively: the deployed four-column arbiter remains on the legacy table, the attempt arbiter lives on v2, and the authority read deduplicates the transactional legacy mirror. Unused config-history statements are excluded. This artifact applies no production migrations; its database proof comes from the real migration registry on the recorded ephemeral cluster.",
       "No causal claim is made about ROAS, revenue or profit. Nothing here has a counterfactual.",
       "Campaign names and manual Test/Main/Mixed labels are excluded by construction, not by policy: they are not members of any admitted schema in this slice.",
     ]),
@@ -1109,7 +1117,7 @@ export function verifyD086Artifact(
   //      WITH its exact verdict and the MECHANICS that produced it.
   try {
     const evidence = JSON.parse(
-      read(`${ARTIFACT_DIR}/d086-local-postgres-evidence-2026-09-02.r4.json`).toString("utf8"),
+      read(`${ARTIFACT_DIR}/d086-local-postgres-evidence-2026-09-02.r5.json`).toString("utf8"),
     ) as {
       ok?: boolean;
       postgresVersion?: string;
@@ -1248,7 +1256,6 @@ export function verifyD086Artifact(
       }
     }
     for (const name of [
-      "meta_entity_observation_receipts_occurrence",
       "idx_meta_entity_observation_receipts_freshness",
       "idx_meta_entity_observation_receipts_cohort",
     ]) {
@@ -1288,8 +1295,8 @@ export function verifyD086Artifact(
     }
     const receiptTable = (evidence.steps ?? []).find((s) => s.step === "receipt_table");
     for (const constraint of [
-      "meta_entity_observation_receipts_partition_fk",
-      "meta_entity_observation_receipts_snapshot_fk",
+      "meta_entity_observation_receipts_v2_partition_fk",
+      "meta_entity_observation_receipts_v2_snapshot_fk",
     ]) {
       if (!String(receiptTable?.detail ?? "").includes(constraint)) {
         fail(`localEvidence: the ${constraint} foreign key is not recorded as created`);

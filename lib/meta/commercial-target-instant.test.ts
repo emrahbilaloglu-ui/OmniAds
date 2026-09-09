@@ -16,8 +16,13 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  canonicalCommercialTargetInstant,
+  compareCommercialTargetInstants,
+  commercialTargetDatabaseCutoff,
   commercialTargetInstantMs,
+  deterministicCommercialCutoff,
   isCommercialTargetInstant,
+  isCommercialTargetInstantOlderThan,
   isCommercialTargetInstantWithinCutoff,
 } from "@/lib/meta/commercial-target-instant";
 
@@ -156,5 +161,115 @@ describe("the cutoff comparison", () => {
     expect(
       isCommercialTargetInstantWithinCutoff("2026-09-05T03:00:00.000Z", NaN),
     ).toBe(false);
+  });
+
+  it("orders database microseconds that collapse to the same JS millisecond", () => {
+    const earlier = "2026-09-05T03:00:00.000100Z";
+    const later = "2026-09-05T03:00:00.000900Z";
+
+    // This pins the original defect: the compatibility view cannot order the
+    // two instants, while the authority comparison must still distinguish them.
+    expect(commercialTargetInstantMs(earlier)).toBe(
+      commercialTargetInstantMs(later),
+    );
+    expect(compareCommercialTargetInstants(earlier, later)).toBe(-1);
+    expect(compareCommercialTargetInstants(later, earlier)).toBe(1);
+    expect(isCommercialTargetInstantWithinCutoff(later, earlier)).toBe(false);
+    expect(isCommercialTargetInstantWithinCutoff(earlier, later)).toBe(true);
+  });
+
+  it("treats a millisecond-number cutoff as that exact millisecond boundary", () => {
+    const boundaryMs = Date.UTC(2026, 8, 5, 3, 0, 0, 0);
+    expect(
+      isCommercialTargetInstantWithinCutoff(
+        "2026-09-05T03:00:00.000000Z",
+        boundaryMs,
+      ),
+    ).toBe(true);
+    expect(
+      isCommercialTargetInstantWithinCutoff(
+        "2026-09-05T03:00:00.000100Z",
+        boundaryMs,
+      ),
+    ).toBe(false);
+  });
+
+  it("compares equal instants across offsets and fractional spellings", () => {
+    expect(
+      compareCommercialTargetInstants(
+        "2026-09-05T03:00:00.000900Z",
+        "2026-09-05T05:00:00.0009+02:00",
+      ),
+    ).toBe(0);
+    expect(
+      isCommercialTargetInstantWithinCutoff(
+        "2026-09-05T05:00:00.0009+02:00",
+        "2026-09-05T03:00:00.000900Z",
+      ),
+    ).toBe(true);
+  });
+
+  it("refuses an invalid exact boundary or either invalid comparison operand", () => {
+    expect(
+      isCommercialTargetInstantWithinCutoff(
+        "2026-09-05T03:00:00.000100Z",
+        "2026-02-30T00:00:00.000Z",
+      ),
+    ).toBe(false);
+    expect(compareCommercialTargetInstants("invalid", CUTOFF)).toBeNull();
+    expect(compareCommercialTargetInstants(CUTOFF, "invalid")).toBeNull();
+  });
+
+  it("computes freshness age without discarding fractional precision", () => {
+    const cutoff = "2026-10-05T03:00:00.000100Z";
+    expect(
+      isCommercialTargetInstantOlderThan(
+        "2026-09-05T03:00:00.000100Z",
+        cutoff,
+        30 * 24 * 3_600_000,
+      ),
+    ).toBe(false);
+    expect(
+      isCommercialTargetInstantOlderThan(
+        "2026-09-05T03:00:00.000099Z",
+        cutoff,
+        30 * 24 * 3_600_000,
+      ),
+    ).toBe(true);
+    expect(isCommercialTargetInstantOlderThan("invalid", cutoff, 1)).toBeNull();
+  });
+
+  it("retains a supplied exact cutoff instead of converting it through Date", () => {
+    expect(
+      deterministicCommercialCutoff("2026-09-05T03:00:00.000900Z"),
+    ).toBe("2026-09-05T03:00:00.000900Z");
+    expect(deterministicCommercialCutoff("2026-09-05")).toBe(
+      "2026-09-05T03:00:00.000Z",
+    );
+    expect(deterministicCommercialCutoff("invalid")).toBeNull();
+  });
+
+  it("floors only sub-microseconds before PostgreSQL casts an inclusive cutoff", () => {
+    for (const [source, expected] of [
+      ["2026-09-05T03:00:00.000100Z", "2026-09-05T03:00:00.000100Z"],
+      ["2026-09-05T03:00:00.000100999Z", "2026-09-05T03:00:00.000100Z"],
+      ["2026-09-05T03:00:00.999999999z", "2026-09-05T03:00:00.999999z"],
+      ["2026-09-05T05:00:00.0001009+02:00", "2026-09-05T05:00:00.000100+02:00"],
+      ["1969-12-31T23:59:59.999999999Z", "1969-12-31T23:59:59.999999Z"],
+    ]) {
+      expect(commercialTargetDatabaseCutoff(source)).toBe(expected);
+      expect(isCommercialTargetInstantWithinCutoff(expected, source)).toBe(true);
+    }
+    expect(commercialTargetDatabaseCutoff("invalid")).toBeNull();
+  });
+
+  it("canonicalizes UTC without changing millisecond history or losing finer precision", () => {
+    expect(canonicalCommercialTargetInstant("2026-09-05T05:00:00.123000+02:00"))
+      .toBe("2026-09-05T03:00:00.123Z");
+    expect(canonicalCommercialTargetInstant("2026-09-05T05:00:00.000900+02:00"))
+      .toBe("2026-09-05T03:00:00.000900Z");
+    expect(canonicalCommercialTargetInstant("1969-12-31T23:59:59.999999999Z"))
+      .toBe("1969-12-31T23:59:59.999999999Z");
+    expect(canonicalCommercialTargetInstant("invalid")).toBeNull();
   });
 });

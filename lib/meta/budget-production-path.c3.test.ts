@@ -212,7 +212,7 @@ const query = vi.fn(async (sql: string, params: unknown[] = []) => {
   if (text.includes("FROM engine_v3_campaign_role_authority")) {
     return roleRowsPresent ? [roleRow(String(params[1]))] : [];
   }
-  if (text.includes("FROM meta_entity_observation_receipts")) {
+  if (text.includes("FROM meta_entity_observation_receipts_v2")) {
     return completeRunRows;
   }
   if (text.includes("FROM owners")) {

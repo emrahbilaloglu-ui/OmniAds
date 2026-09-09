@@ -249,3 +249,28 @@ export const INTERNAL_VOCABULARY: readonly string[] = Object.freeze([
   "authorized",
   "withheld",
 ]);
+
+/**
+ * Execution instructions to keep out of blocked/held row copy in DOM checks.
+ * Separate from jargon: healthy actions may use these, and a held verdict may
+ * still name "Scale" or "Cut" as evidence without instructing execution.
+ */
+export const SPEND_EXECUTION_INSTRUCTIONS: readonly string[] = Object.freeze([
+  "increase budget",
+  "increase spend",
+  "cut spend",
+  "pause this ad",
+  "pause this campaign",
+  "scale now",
+  "apply budget",
+  "bütçeyi artır",
+  "bütçeyi artir",
+  "bütçeyi kademeli artır",
+  "bütçeyi kademeli artir",
+  "butceyi kademeli artir",
+  "bütçeyi kaydır",
+  "bütçeyi kaydir",
+  "kampanyayı duraklat",
+  "reklamı duraklat",
+  "hemen ölçekle",
+]);

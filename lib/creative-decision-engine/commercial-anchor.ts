@@ -122,7 +122,7 @@ export interface CommercialAnchorLineage {
   /** The sampled Meta-attributed AOV rung and the sample behind it. */
   metaAttributedAovMean90d: number | null;
   metaAttributedAovPurchaseCount90d: number;
-  /** Scales the Meta-derived spend unit; null when not supplied. */
+  /** Diagnostic only; never changes the Meta-derived spend unit. */
   attributionAovAdjustmentMultiplier: number | null;
   /** The account-history rung, which is never hard-action eligible on its own. */
   accountCpaP50?: number | null;
@@ -174,7 +174,11 @@ const BLOCKER_COPY: Record<CommercialAnchorBlockerCode, string> = {
 
 export function describeCommercialAnchorBlocker(
   code: CommercialAnchorBlockerCode,
+  lineage?: Pick<CommercialAnchorLineage, "targetRoas">,
 ): string {
+  if (code === "commercial_anchor_missing" && positiveFinite(lineage?.targetRoas ?? null)) {
+    return "A usable Meta-attributed purchase sample is missing for this account. Check source freshness, account currency and purchase coverage, then re-evaluate. The configured Target ROAS remains in force; no CPA or AOV needs to be typed.";
+  }
   return BLOCKER_COPY[code];
 }
 
@@ -257,9 +261,9 @@ export function resolveCommercialAnchorExplanation(input: {
     lineage: input.lineage,
     missingInputs,
     actions: {
-      scale: explainAction(scaleEligible, scaleBlocker),
-      cut: explainAction(cutEligible, cutBlocker),
-      refresh: explainAction(refreshEligible, refreshBlocker),
+      scale: explainAction(scaleEligible, scaleBlocker, input.lineage),
+      cut: explainAction(cutEligible, cutBlocker, input.lineage),
+      refresh: explainAction(refreshEligible, refreshBlocker, input.lineage),
     },
   };
 }
@@ -267,11 +271,12 @@ export function resolveCommercialAnchorExplanation(input: {
 function explainAction(
   eligible: boolean,
   blockerCode: CommercialAnchorBlockerCode | null,
+  lineage: CommercialAnchorLineage,
 ): CommercialAnchorActionExplanation {
   return {
     eligible,
     blockerCode,
-    operatorCopy: blockerCode ? describeCommercialAnchorBlocker(blockerCode) : null,
+    operatorCopy: blockerCode ? describeCommercialAnchorBlocker(blockerCode, lineage) : null,
   };
 }
 

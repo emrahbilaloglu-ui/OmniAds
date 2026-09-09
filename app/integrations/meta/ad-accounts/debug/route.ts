@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getIntegration } from "@/lib/integrations";
 import { fetchMetaAdAccounts } from "@/lib/meta-ad-accounts";
+import { requireBusinessAccess } from "@/lib/access";
 
 export async function GET(request: NextRequest) {
   if (process.env.NODE_ENV !== "development") {
@@ -18,7 +19,10 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const integration = await getIntegration(businessId, "meta");
+  const access = await requireBusinessAccess({ request, businessId, minRole: "guest" });
+  if ("error" in access) return access.error;
+  const authorizedBusinessId = access.membership.businessId;
+  const integration = await getIntegration(authorizedBusinessId, "meta");
   if (!integration) {
     return NextResponse.json(
       {
@@ -51,7 +55,7 @@ export async function GET(request: NextRequest) {
     a locally-written sentence plus the four named Graph identifiers.
   */
   return NextResponse.json({
-    businessId,
+    businessId: authorizedBusinessId,
     integration: {
       id: integration.id,
       status: integration.status,

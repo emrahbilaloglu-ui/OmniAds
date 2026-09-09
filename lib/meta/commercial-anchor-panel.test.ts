@@ -516,7 +516,7 @@ describe("C2.3 — effective code and operator copy must agree after an overlay"
     // The stale sentence was available on the copied explanation and was not
     // used: that is the whole point of the row taking the effective decision.
     expect(panel.explanation?.actions.cut.operatorCopy).toContain(
-      "No commercial anchor is available",
+      "A usable Meta-attributed purchase sample is missing",
     );
   });
 
@@ -537,7 +537,8 @@ describe("C2.3 — effective code and operator copy must agree after an overlay"
     const cut = panel.actions.find((row) => row.action === "cut");
     expect(cut?.eligible).toBe(false);
     expect(cut?.blockerCode).toBe("commercial_anchor_missing");
-    expect(cut?.operatorCopy).toContain("No commercial anchor is available");
+    expect(cut?.operatorCopy).toContain("A usable Meta-attributed purchase sample is missing");
+    expect(cut?.operatorCopy).not.toContain("Set a Target ROAS");
   });
 
   it("an eligible action carries no blocker copy at all", async () => {

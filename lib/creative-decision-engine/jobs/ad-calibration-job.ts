@@ -6,7 +6,12 @@ import {
   projectAccountCpaForIdentity,
   projectNativeTargetAuthorityForIdentity,
 } from "@/lib/creative-decision-engine/commercial-semantic-projection";
-import { commercialTargetInstantMs } from "@/lib/meta/commercial-target-instant";
+import {
+  canonicalCommercialTargetInstant,
+  compareCommercialTargetInstants,
+  isCommercialTargetInstant,
+  isCommercialTargetInstantOlderThan,
+} from "@/lib/meta/commercial-target-instant";
 import {
   resolveMetaFunnelCohort,
   type MetaFunnelCohort,
@@ -899,8 +904,8 @@ SELECT
   history.break_even_roas,
   history.aov_assumption AS operator_aov_assumption,
   history.default_risk_posture,
-  history.effective_at,
-  history.recorded_at
+  to_char(history.effective_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS effective_at,
+  to_char(history.recorded_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS recorded_at
 FROM business_target_pack_history history
 JOIN business_provider_accounts binding
   ON binding.business_id = history.business_id::text
@@ -2010,23 +2015,35 @@ export function resolveNativeAdTargetAuthority(
     instant cannot enter the hashed payload either — the decision and the bytes
     are taken from the same reading.
   */
-  const cutoffMs = commercialTargetInstantMs(asOfCutoff);
-  if (cutoffMs === null) {
+  if (!isCommercialTargetInstant(asOfCutoff)) {
     throw new TypeError(
       "asOfCutoff must be a strict RFC 3339 UTC instant with an explicit offset.",
     );
   }
-  const effectiveMs = commercialTargetInstantMs(input?.effectiveAt ?? null);
-  const recordedMs = commercialTargetInstantMs(input?.recordedAt ?? null);
+  const effectiveAt = input?.effectiveAt ?? null;
+  const recordedAt = input?.recordedAt ?? null;
+  const effectiveVsRecorded = compareCommercialTargetInstants(
+    effectiveAt,
+    recordedAt,
+  );
+  const effectiveVsCutoff = compareCommercialTargetInstants(
+    effectiveAt,
+    asOfCutoff,
+  );
+  const recordedVsCutoff = compareCommercialTargetInstants(
+    recordedAt,
+    asOfCutoff,
+  );
   const normalized = normalizeTargetAuthorityInput(input);
   const cutoffSafe =
     normalized !== null &&
     normalized.operation === "upsert" &&
-    effectiveMs !== null &&
-    recordedMs !== null &&
-    effectiveMs <= recordedMs &&
-    effectiveMs <= cutoffMs &&
-    recordedMs <= cutoffMs;
+    effectiveVsRecorded !== null &&
+    effectiveVsRecorded <= 0 &&
+    effectiveVsCutoff !== null &&
+    effectiveVsCutoff <= 0 &&
+    recordedVsCutoff !== null &&
+    recordedVsCutoff <= 0;
 
   let status: NativeAdTargetAuthorityStatus;
   if (normalized === null || normalized.operation === "delete") {
@@ -2034,8 +2051,15 @@ export function resolveNativeAdTargetAuthority(
   } else if (!cutoffSafe) {
     status = "cutoff_unsafe";
   } else {
-    const ageHours = (cutoffMs - effectiveMs) / 3_600_000;
-    status = ageHours > 24 * 30 ? "stale" : "fresh";
+    const olderThanFreshnessWindow = isCommercialTargetInstantOlderThan(
+      effectiveAt,
+      asOfCutoff,
+      24 * 30 * 3_600_000,
+    );
+    if (olderThanFreshnessWindow === null) {
+      throw new Error("Cutoff-safe target clocks could not be age-compared.");
+    }
+    status = olderThanFreshnessWindow ? "stale" : "fresh";
   }
 
   const cutoffSafeStatus = isNativeAdTargetAuthorityCutoffSafe(status);
@@ -5849,9 +5873,7 @@ function normalizeTargetAuthorityInput(
 
 /** One commercial-target clock, or null when it is not a real UTC instant. */
 function strictCommercialClock(value: string | null | undefined): string | null {
-  return commercialTargetInstantMs(value) === null
-    ? null
-    : normalizeText(value);
+  return isCommercialTargetInstant(value) ? normalizeText(value) : null;
 }
 
 function resolveCellQualityStatus(input: {
@@ -6527,9 +6549,18 @@ export function mapNativeAdTargetAuthorityRow(
     breakEvenRoas: dbOptionalNumber(row.break_even_roas),
     operatorAovAssumption: dbOptionalNumber(row.operator_aov_assumption),
     defaultRiskPosture: risk,
-    effectiveAt: dbOptionalTimestamp(row.effective_at),
-    recordedAt: dbOptionalTimestamp(row.recorded_at),
+    effectiveAt: dbOptionalCommercialTimestamp(row.effective_at),
+    recordedAt: dbOptionalCommercialTimestamp(row.recorded_at),
   };
+}
+
+function dbOptionalCommercialTimestamp(value: unknown): string | null {
+  // SQL returns exact UTC text. Date remains a compatibility input for older
+  // callers, but a timestamp string must never pass through Date and lose the
+  // ordering evidence that the target resolver is about to validate.
+  return value instanceof Date
+    ? dbOptionalTimestamp(value)
+    : canonicalCommercialTargetInstant(value);
 }
 
 function dbOptionalText(value: unknown): string | null {

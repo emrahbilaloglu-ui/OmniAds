@@ -254,6 +254,25 @@ describe("buildCreativeEvidenceWindowExactViewModel identity and contract", () =
     expect(model.verdictSub).not.toContain("Native ad authority unavailable");
   });
 
+  it.each([0, -2, null, Number.NaN, Number.POSITIVE_INFINITY])(
+    "does not print an unavailable commercial target %s from either envelope", (value) => {
+      const decision = decisionFixture();
+      const canonical = canonicalFixture();
+      decision.metrics.effectiveTargetRoas = value;
+      canonical.metrics.effectiveTargetRoas = value;
+      const model = buildCreativeEvidenceWindowExactViewModel({ decision, canonical });
+      expect(model.moneySub).toBe("—");
+      expect(model.moneySub).not.toContain("target");
+    },
+  );
+
+  it.each([0, -2, null])("keeps a positive canonical target when the served decision target is %s", (value) => {
+    const decision = decisionFixture();
+    decision.metrics.effectiveTargetRoas = value;
+    const model = buildCreativeEvidenceWindowExactViewModel({ decision, canonical: canonicalFixture() });
+    expect(model.moneySub).toBe("vs 3.80 target");
+  });
+
   it("em-dashes the whole contract when nothing is served", () => {
     const model = buildCreativeEvidenceWindowExactViewModel({});
     expect(model.name).toBe("—");

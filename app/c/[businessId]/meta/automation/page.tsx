@@ -310,6 +310,7 @@ export default async function MetaAutomationRoute({
     <MetaAutomationPage
       businessId={businessId}
       providerAccountId={providerAccountId}
+      accountSelection={readMetaGateRefusal("accountPicker") ? "local" : "shared"}
       initialPayload={scopedControl}
       viewer={viewer}
       stateHistoryReadiness={stateHistoryReadiness}

@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import type { ReactElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 type LegacyMetaPageProps = {
   businessId: string;
@@ -122,7 +122,10 @@ async function renderPage(input?: {
   return renderToStaticMarkup(element as ReactElement);
 }
 
+afterEach(() => vi.unstubAllEnvs());
+
 beforeEach(() => {
+  vi.stubEnv("META_ACCOUNT_PICKER", "false");
   vi.clearAllMocks();
   vi.mocked(auth.getSessionFromCookies).mockResolvedValue(session() as never);
   vi.mocked(businessPageAccess.requireBusinessPageContext).mockResolvedValue(
@@ -142,6 +145,15 @@ beforeEach(() => {
 });
 
 describe("Meta Decisions canonical route authority", () => {
+  it.each([false, true])("keeps account selection reachable when shared picker enabled=%s", async (enabled) => {
+    vi.stubEnv("META_ACCOUNT_PICKER", String(enabled));
+    vi.mocked(providerScope.resolveProviderAccountId).mockResolvedValue(null);
+    await renderPage({ searchParams: {} });
+    expect(legacyMetaPage.mock.calls.at(-1)?.[0]).toEqual(expect.objectContaining({
+      accountSelection: enabled ? "shared" : "local",
+    }));
+  });
+
   // Law: every Decision Center route family renders the same body.
   //
   // Pinned here and again in
@@ -163,7 +175,7 @@ describe("Meta Decisions canonical route authority", () => {
       businessName: "Route Business",
       currency: "TRY",
       serverProviderAccountId: "act_assigned",
-      accountSelection: "shared",
+      accountSelection: "local",
       // Stated rather than left absent, and false because nothing set
       // META_DECISION_WORKFLOW_UI here. The workflow overlay's shipped state is
       // off (§18: the design draws no ownership controls, so they wait for the
@@ -221,7 +233,7 @@ describe("Meta Decisions canonical route authority", () => {
       businessName: "Route Business",
       currency: "TRY",
       serverProviderAccountId: null,
-      accountSelection: "shared",
+      accountSelection: "local",
       decisionWorkflowUiEnabled: false,
       // The second, independent gate. Both default off, and opening one does
       // not open the other.

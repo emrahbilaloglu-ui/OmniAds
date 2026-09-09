@@ -264,7 +264,7 @@ describe("historical snapshot commercial authority", () => {
     ],
   ] as const)(
     "rechecks a persisted %s budget allocation against the snapshot-day %s Meta sample",
-    async (lens, _sampleState, sample, expectedState, blocker) => {
+    async (lens, sampleState, sample, expectedState, blocker) => {
       const supportingCampaignRow = snapshotRows[0]!;
       snapshotRows = [persistedBudgetAllocation(lens), supportingCampaignRow];
       metaAovSample = sample;
@@ -294,20 +294,22 @@ describe("historical snapshot commercial authority", () => {
         expect(budgetShift?.proposedAction).toEqual({ kind: "pause" });
         expect(budgetShift?.targetValue).toEqual({ budgetShiftPct: 15 });
       } else {
+        const expectedHoldReason = sampleState === "missing"
+          ? "Meta-attributed purchase value is missing for this account and evidence cutoff."
+          : "The Meta-attributed purchase sample is too small to support a spend change.";
         expect(budgetShift).toMatchObject({
           confidence: "medium",
           confidenceScore: 0.69,
           decision: "Review only: commercial action authority is blocked",
           title: "Budget allocation remains review-only",
-          why: "The required commercial action authority is incomplete for this account and evidence cutoff.",
+          why: expectedHoldReason,
           summary:
             "Performance evidence remains available for diagnosis, but it does not authorize a budget change.",
           recommendedAction:
             "Review the evidence and restore the missing commercial authority before re-evaluating. Keep current spend unchanged.",
           expectedImpact:
             "Prevents an unsupported spend change while preserving the evidence for review.",
-          stateReason:
-            "Budget allocation is review-only because the required commercial action authority is blocked.",
+          stateReason: expectedHoldReason,
           signalQuality: {
             hard_action_authority: "blocked",
             hard_action_blocker: blocker,

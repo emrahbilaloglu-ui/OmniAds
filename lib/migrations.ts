@@ -1,3 +1,5 @@
+import { META_OBSERVATION_RECEIPTS_V2_SCHEMA_SQL } from "@/lib/meta/observation-receipt-schema";
+import { DEFAULT_TABLE_BUDGET_BYTES, evaluateDbGrowthFence } from "@/lib/sync/db-growth-fence";
 import { DECISION_AUTHORITY_BLOCKERS } from "@/lib/creative-decision-engine/types";
 import {
   getDb,
@@ -2091,6 +2093,84 @@ function orderedMigrationSteps(
       await step();
     }
   })();
+}
+
+/** Physical free disk and the application relation budget are separate gates. */
+export const META_HISTORY_SCHEMA_MAINTENANCE_CONTRACT = "index_only_while_source_fenced";
+
+export function assertMetaHistoryIndexBudgetMeasurement(
+  relationBytes: unknown,
+  phase: "before_build" | "after_build",
+  maintenance?: {
+    requestedContract: string | undefined;
+    sourceFenceClosed: boolean;
+    freshPhysicalCapacity: boolean;
+    admittedBeforeBuild: boolean;
+  },
+  buildRequired = true,
+): boolean {
+  const bytes = typeof relationBytes === "number"
+    ? relationBytes
+    : typeof relationBytes === "string" && /^\d+$/.test(relationBytes)
+      ? Number(relationBytes)
+      : Number.NaN;
+  const budget = DEFAULT_TABLE_BUDGET_BYTES.meta_entity_state_history;
+  if (relationBytes != null && Number.isSafeInteger(bytes) && bytes >= 0) {
+    if (bytes < budget || !buildRequired) return false;
+    if (maintenance?.requestedContract === META_HISTORY_SCHEMA_MAINTENANCE_CONTRACT
+      && maintenance.sourceFenceClosed && maintenance.freshPhysicalCapacity
+      && (phase === "before_build" || maintenance.admittedBeforeBuild)) return true;
+  }
+  throw new Error(
+    `migration_relation_budget_refused:${phase}: meta_entity_state_history=${String(relationBytes)}B; ` +
+    `must remain below ${budget}B INCLUDING idx_meta_entity_state_history_manifest_delta. ` +
+    `An already-fenced source may admit only explicit index-only schema maintenance with fresh physical capacity. ` +
+    `Migration does not raise the SOURCE budget, enable sync or delete history.`,
+  );
+}
+
+async function assertMetaHistoryIndexBudget(
+  sql: DbClientLike,
+  phase: "before_build" | "after_build",
+  admittedBeforeBuild = false,
+  buildRequiredBefore = true,
+): Promise<{ maintenanceOnly: boolean; buildRequired: boolean }> {
+  const rows = await sql.query(
+    `SELECT pg_total_relation_size('meta_entity_state_history'::regclass)::bigint AS relation_bytes,
+            COALESCE(pg_relation_size(to_regclass('idx_meta_entity_state_history_manifest_delta')), 0)::bigint AS index_bytes,
+            EXISTS (SELECT 1 FROM pg_index i
+              WHERE i.indexrelid=to_regclass('idx_meta_entity_state_history_manifest_delta')
+                AND i.indrelid='meta_entity_state_history'::regclass
+                AND i.indisvalid AND i.indisready AND i.indislive
+                AND strpos(pg_get_indexdef(i.indexrelid), $1) > 0) AS index_valid`,
+    [DELTA_INDEX_KEY],
+  ) as Array<{ relation_bytes: string; index_bytes: string; index_valid: boolean }>;
+  const buildRequired = phase === "before_build" ? rows[0]?.index_valid !== true : buildRequiredBefore;
+  const requestedContract = process.env.ADSECUTE_META_HISTORY_SCHEMA_MAINTENANCE;
+  let sourceFenceClosed = false;
+  let freshPhysicalCapacity = false;
+  if (buildRequired && requestedContract === META_HISTORY_SCHEMA_MAINTENANCE_CONTRACT
+    && Number(rows[0]?.relation_bytes) >= DEFAULT_TABLE_BUDGET_BYTES.meta_entity_state_history) {
+    // Re-read the real SOURCE gate (including its budget/override semantics).
+    // A caller-supplied flag is not evidence that ordinary writes are stopped.
+    const fence = await evaluateDbGrowthFence();
+    sourceFenceClosed = !fence.allowed && !fence.overridden
+      && fence.offender?.table === "meta_entity_state_history"
+      && fence.offender.budget <= DEFAULT_TABLE_BUDGET_BYTES.meta_entity_state_history;
+    const capacity = await assertMigrationCapacityForHeavyStep(sql, {
+      label: `meta_history_schema_maintenance_${phase}`,
+      relation: "meta_entity_state_history",
+    });
+    freshPhysicalCapacity = capacity.engaged;
+  }
+  const maintenanceOnly = assertMetaHistoryIndexBudgetMeasurement(rows[0]?.relation_bytes, phase, {
+    requestedContract, sourceFenceClosed, freshPhysicalCapacity, admittedBeforeBuild,
+  }, buildRequired);
+  logStartupEvent("migration_relation_budget_measured", {
+    phase, ...rows[0], buildRequired, maintenanceOnly, sourceFenceClosed,
+    sourceBudgetBytes: DEFAULT_TABLE_BUDGET_BYTES.meta_entity_state_history,
+  });
+  return { maintenanceOnly, buildRequired };
 }
 
 /**
@@ -8262,24 +8342,8 @@ export async function runMigrations(options?: {
           CONSTRAINT meta_entity_observation_receipts_time_check
             CHECK (observed_at <= captured_at)
         )`,
-          /*
-          ── ROUND 19, ITEM C5: THE LEGACY OCCURRENCE KEY IS NOT RECREATED ───
-
-          This block used to `CREATE UNIQUE INDEX IF NOT EXISTS
-          meta_entity_observation_receipts_occurrence` on
-          `(partition_id, entity_type, endpoint, captured_at)`. Migrations are
-          re-run on every deploy, and this statement sits BEFORE the
-          attempt-scoped replacement — so on a database that already holds two
-          receipts differing only by `sync_run_id` (which the new key exists to
-          allow) the recreate raises 23505 and the whole migration fails, every
-          run, permanently.
-
-          FROM ZERO the table simply gets the new key, created later in this
-          same migration. ON AN UPGRADE the old index is already present, keeps
-          protecting the table, and is dropped only after the replacement has
-          been proven valid. Neither path needs this statement, and only one of
-          them survives it.
-        */
+          // Retained for unchanged deployed-image reads and four-column upserts.
+          // Attempt-scoped writes use the separate additive v2 table below.
           // The cohort read: every receipt of one sync.
           sql`CREATE INDEX IF NOT EXISTS idx_meta_entity_observation_receipts_cohort
           ON meta_entity_observation_receipts
@@ -8386,11 +8450,14 @@ export async function runMigrations(options?: {
           so without the repair the build stays broken forever while every
           migration run reports success.
 
-          ORDERING IS LOAD-BEARING for the occurrence key: the new UNIQUE index
-          is created and PROVEN VALID before the old one is dropped, so the
-          table is never briefly without uniqueness on the receipt occurrence.
+          The legacy occurrence arbiter and ranked indexes stay on the legacy
+          table for image rollback. Attempt uniqueness lives on a separate v2
+          table; keeping both arbiters on one table would reject valid attempts.
         */
-          orderedMigrationSteps([
+          (() => {
+            let schemaMaintenanceAdmitted = false;
+            let deltaIndexBuildRequired = true;
+            return orderedMigrationSteps([
             async () => {
               const decision = await assertMigrationCapacityForHeavyStep(sql, {
                 label: "meta_entity_observation_receipt_identity",
@@ -8401,7 +8468,13 @@ export async function runMigrations(options?: {
                 ...decision,
               });
             },
+            () => sql.query(META_OBSERVATION_RECEIPTS_V2_SCHEMA_SQL),
             // ── The delta membership access path, on the fenced relation. ────
+            async () => {
+              const admission = await assertMetaHistoryIndexBudget(sql, "before_build");
+              schemaMaintenanceAdmitted = admission.maintenanceOnly;
+              deltaIndexBuildRequired = admission.buildRequired;
+            },
             () => sql.query(
               buildInvalidIndexRepairQuery({
                 indexName: "idx_meta_entity_state_history_manifest_delta",
@@ -8421,96 +8494,89 @@ export async function runMigrations(options?: {
                 definitionMustContain: [DELTA_INDEX_KEY],
               }),
             ),
+            () => assertMetaHistoryIndexBudget(sql, "after_build", schemaMaintenanceAdmitted, deltaIndexBuildRequired),
             // ── The attempt-scoped occurrence key. ──────────────────────────
             () => sql.query(
               buildInvalidIndexRepairQuery({
                 indexName: "meta_entity_observation_receipts_attempt_occurrence",
-                definitionMustContain: [RECEIPT_OCCURRENCE_KEY],
+                definitionMustContain: ["ON public.meta_entity_observation_receipts_v2", RECEIPT_OCCURRENCE_KEY],
               }),
             ),
             () =>
               sql
                 .query(
                   `CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS meta_entity_observation_receipts_attempt_occurrence
-                 ON meta_entity_observation_receipts
+                 ON meta_entity_observation_receipts_v2
                  (partition_id, entity_type, endpoint, captured_at,
                   COALESCE(sync_run_id, '00000000-0000-0000-0000-000000000000'::uuid))`,
                 )
                 .catch(() => {}),
-            // PROVEN VALID BEFORE THE OLD KEY IS DROPPED. If this raises, the
-            // drop below never runs and the table keeps its previous uniqueness.
+            // An unusable attempt arbiter must abort the migration.
             () => sql.query(
               buildIndexContractQuery({
                 indexName: "meta_entity_observation_receipts_attempt_occurrence",
-                definitionMustContain: [RECEIPT_OCCURRENCE_KEY],
+                definitionMustContain: ["ON public.meta_entity_observation_receipts_v2", RECEIPT_OCCURRENCE_KEY],
               }),
             ),
-            /*
-            ── ROUND 18, ITEM C9: THE DROP IS NOT SWALLOWED ─────────────────
-            `.catch(() => {})` hid a lock timeout or a permission failure, so a
-            database could finish this migration still carrying the OLD
-            four-column unique key. That key rejects the second of two attempts
-            at the same millisecond — the exact collision the attempt-scoped key
-            exists to allow — while every migration run reported success.
-          */
-            () =>
-              sql.query(
-                `DROP INDEX CONCURRENTLY IF EXISTS meta_entity_observation_receipts_occurrence`,
-              ),
-            () =>
-              sql.query(
-                `DO $drop_check_occurrence$
-                BEGIN
-                  IF EXISTS (
-                    SELECT 1 FROM pg_class
-                     WHERE relname = 'meta_entity_observation_receipts_occurrence'
-                  ) THEN
-                    RAISE EXCEPTION
-                      'meta_entity_observation_receipts_occurrence still exists after the drop';
-                  END IF;
-                END
-              $drop_check_occurrence$`,
-              ),
+            // Unmodified old images still issue this exact ON CONFLICT key.
+            // The new writer mirrors the first capture here transactionally.
+            () => sql.query(
+              buildInvalidIndexRepairQuery({
+                indexName: "meta_entity_observation_receipts_occurrence",
+                definitionMustContain: ["ON public.meta_entity_observation_receipts USING", "(partition_id, entity_type, endpoint, captured_at)"],
+              }),
+            ),
+            () => sql.query(
+              `CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS meta_entity_observation_receipts_occurrence
+               ON meta_entity_observation_receipts (partition_id, entity_type, endpoint, captured_at)`,
+            ),
+            () => sql.query(
+              buildIndexContractQuery({
+                indexName: "meta_entity_observation_receipts_occurrence",
+                definitionMustContain: ["ON public.meta_entity_observation_receipts USING", "(partition_id, entity_type, endpoint, captured_at)"],
+              }),
+            ),
             // ── The two ranked reads. ───────────────────────────────────────
             () => sql.query(
               buildInvalidIndexRepairQuery({
                 indexName: "idx_meta_entity_observation_receipts_freshness_v2",
-                definitionMustContain: [RECEIPT_FRESHNESS_KEY],
+                definitionMustContain: ["ON public.meta_entity_observation_receipts_v2", RECEIPT_FRESHNESS_KEY],
               }),
             ),
             () =>
               sql
                 .query(
                   `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_meta_entity_observation_receipts_freshness_v2
-                 ON meta_entity_observation_receipts (${RECEIPT_FRESHNESS_KEY})`,
+                 ON meta_entity_observation_receipts_v2 (${RECEIPT_FRESHNESS_KEY})`,
                 )
                 .catch(() => {}),
             () => sql.query(
               buildIndexContractQuery({
                 indexName: "idx_meta_entity_observation_receipts_freshness_v2",
-                definitionMustContain: [RECEIPT_FRESHNESS_KEY],
+                definitionMustContain: ["ON public.meta_entity_observation_receipts_v2", RECEIPT_FRESHNESS_KEY],
               }),
             ),
             () => sql.query(
               buildInvalidIndexRepairQuery({
                 indexName: "idx_meta_entity_observation_receipts_cohort_v2",
-                definitionMustContain: [RECEIPT_COHORT_KEY],
+                definitionMustContain: ["ON public.meta_entity_observation_receipts_v2", RECEIPT_COHORT_KEY],
               }),
             ),
             () =>
               sql
                 .query(
                   `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_meta_entity_observation_receipts_cohort_v2
-                 ON meta_entity_observation_receipts (${RECEIPT_COHORT_KEY})`,
+                 ON meta_entity_observation_receipts_v2 (${RECEIPT_COHORT_KEY})`,
                 )
                 .catch(() => {}),
             () => sql.query(
               buildIndexContractQuery({
                 indexName: "idx_meta_entity_observation_receipts_cohort_v2",
-                definitionMustContain: [RECEIPT_COHORT_KEY],
+                definitionMustContain: ["ON public.meta_entity_observation_receipts_v2", RECEIPT_COHORT_KEY],
               }),
             ),
-          ]),
+            ]);
+          })(),
           /*
           ── ROUND 17, ITEM 2: THE BOOTSTRAP ATTEMPT LEDGER ──────────────────
 

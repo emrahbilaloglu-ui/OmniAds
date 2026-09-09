@@ -154,7 +154,7 @@
  * row checked against itself.
  */
 import { createHash } from "node:crypto";
-import { deterministicCommercialCutoffMs } from "@/lib/meta/commercial-target-instant";
+import { deterministicCommercialCutoff } from "@/lib/meta/commercial-target-instant";
 
 import { getDb } from "@/lib/db";
 import {
@@ -883,7 +883,7 @@ export function accountProfileRetentionIdentity(
       */
       targetPack: projectCommercialTargetPackForIdentity(
         inputs.targetPack,
-        deterministicCommercialCutoffMs(inputs.asOfDate),
+        deterministicCommercialCutoff(inputs.asOfDate),
       ),
       /*
         AND THE PROFILE CONFIG THROUGH THE SAME DOOR.

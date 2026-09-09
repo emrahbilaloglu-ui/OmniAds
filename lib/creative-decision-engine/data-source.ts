@@ -2,6 +2,11 @@ import { createHash } from "node:crypto";
 import { getDb } from "@/lib/db";
 import { resolveBusinessTargetPackFreshness } from "@/lib/business-commercial";
 import {
+  canonicalCommercialTargetInstant,
+  commercialTargetDatabaseCutoff,
+  deterministicCommercialCutoff,
+} from "@/lib/meta/commercial-target-instant";
+import {
   resolveMetaFunnelCohort,
   type MetaFunnelCohort,
 } from "@/lib/meta/funnel-cohort";
@@ -728,7 +733,7 @@ export class MockDataSource implements CreativeDecisionDataSource {
       breakEvenRoas: 1.71,
       operatorAovAssumption: null,
       defaultRiskPosture: "balanced",
-      updatedAt: referenceTime.toISOString(),
+      updatedAt: referenceTime,
       freshness: "fresh",
     };
   }
@@ -1967,7 +1972,7 @@ SELECT
   ) END AS data_freshness_hours,
   $7::double precision AS target_roas,
   $8::double precision AS break_even_roas,
-  $9::timestamptz AS target_pack_updated_at,
+  $9::text AS target_pack_updated_at,
   cumulative.cpm,
   cumulative.outbound_clicks,
   cumulative.landing_page_views,
@@ -2778,7 +2783,7 @@ target_pack AS (
   SELECT
     $5::double precision AS target_roas,
     $6::double precision AS break_even_roas,
-    $7::timestamptz AS target_pack_updated_at
+    $7::text AS target_pack_updated_at
 ),
 historical_source AS (
   SELECT
@@ -3485,7 +3490,7 @@ target_pack AS (
   SELECT
     $6::double precision AS target_roas,
     $7::double precision AS break_even_roas,
-    $8::timestamptz AS target_pack_updated_at
+    $8::text AS target_pack_updated_at
 )
 SELECT
   l.creative_id,
@@ -3621,7 +3626,7 @@ SELECT
   break_even_roas,
   aov_assumption,
   default_risk_posture,
-  effective_at AS updated_at
+  to_char(effective_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS updated_at
 FROM (
   SELECT *
   FROM business_target_pack_history
@@ -3853,14 +3858,14 @@ function toIsoTimestampOrNull(value: unknown): string | null {
   return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
 }
 
-function resolveTargetReferenceTime(asOf?: string): Date | null {
-  if (asOf === undefined) return new Date();
-  const normalized = asOf.trim();
-  if (!normalized) return null;
-  const referenceTime = /^\d{4}-\d{2}-\d{2}$/.test(normalized)
-    ? new Date(`${normalized}T03:00:00.000Z`)
-    : new Date(normalized);
-  return Number.isFinite(referenceTime.getTime()) ? referenceTime : null;
+function resolveTargetReferenceTime(asOf?: string): string | null {
+  return asOf === undefined ? new Date().toISOString() : deterministicCommercialCutoff(asOf);
+}
+
+function toCommercialTargetTimestampOrNull(value: unknown): string | null {
+  return value instanceof Date
+    ? toIsoTimestampOrNull(value)
+    : canonicalCommercialTargetInstant(value);
 }
 
 function toCampaignObjective(value: unknown): CampaignObjective | null {
@@ -4615,8 +4620,8 @@ function mapAdDecisionHydrationRow(input: {
       targetRoas: toNumberOrNull(input.row.target_roas),
       breakevenRoas: toNumberOrNull(input.row.break_even_roas),
       commercialTargetFreshness: resolveBusinessTargetPackFreshness(
-        toIsoTimestampOrNull(input.row.target_pack_updated_at),
-        new Date(input.decisionCutoff),
+        toCommercialTargetTimestampOrNull(input.row.target_pack_updated_at),
+        input.decisionCutoff,
       ),
       lifecyclePosition,
       daysSincePeak,
@@ -4931,8 +4936,8 @@ function mapCreativeHydrationRow(input: {
     targetRoas,
     breakevenRoas,
     commercialTargetFreshness: resolveBusinessTargetPackFreshness(
-      toIsoTimestampOrNull(input.row.target_pack_updated_at),
-      resolveTargetReferenceTime(input.asOf) ?? new Date(Number.NaN),
+      toCommercialTargetTimestampOrNull(input.row.target_pack_updated_at),
+      resolveTargetReferenceTime(input.asOf) ?? "",
     ),
     lifecyclePosition: null,
     daysSincePeak: null,
@@ -5017,8 +5022,8 @@ function mapLifecycleHydrationRow(input: {
     targetRoas: toNumberOrNull(input.row.target_roas),
     breakevenRoas: toNumberOrNull(input.row.break_even_roas),
     commercialTargetFreshness: resolveBusinessTargetPackFreshness(
-      toIsoTimestampOrNull(input.row.target_pack_updated_at),
-      resolveTargetReferenceTime(input.asOf) ?? new Date(Number.NaN),
+      toCommercialTargetTimestampOrNull(input.row.target_pack_updated_at),
+      resolveTargetReferenceTime(input.asOf) ?? "",
     ),
     lifecyclePosition: toLifecyclePosition(input.row.lifecycle_position),
     daysSincePeak: toIntegerOrNull(input.row.days_since_peak),
@@ -6556,7 +6561,7 @@ export class WarehouseDataSource
     try {
       [row] = await getDb().query<BusinessTargetPackRow>(
         READ_BUSINESS_TARGET_PACK_QUERY,
-        [input.businessId, referenceTime.toISOString()],
+        [input.businessId, commercialTargetDatabaseCutoff(referenceTime)],
       );
     } catch {
       return null;
@@ -6570,9 +6575,9 @@ export class WarehouseDataSource
       breakEvenRoas: toNumberOrNull(row.break_even_roas),
       operatorAovAssumption: toNumberOrNull(row.aov_assumption),
       defaultRiskPosture: toEngineRiskPreset(row.default_risk_posture),
-      updatedAt: toIsoTimestampOrNull(row.updated_at),
+      updatedAt: toCommercialTargetTimestampOrNull(row.updated_at),
       freshness: resolveBusinessTargetPackFreshness(
-        toIsoTimestampOrNull(row.updated_at),
+        toCommercialTargetTimestampOrNull(row.updated_at),
         referenceTime,
       ),
     };

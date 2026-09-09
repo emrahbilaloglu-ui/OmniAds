@@ -96,6 +96,22 @@ describe("computeMetaAttributedAov", () => {
     expect(query).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ["2026-09-05T03:00:00.000900Z", "2026-09-05T03:00:00.000900Z", "2026-09-05"],
+    ["2026-09-05T03:00:00.000100999Z", "2026-09-05T03:00:00.000100Z", "2026-09-05"],
+    ["2026-09-05T01:00:00.000900+02:00", "2026-09-05T01:00:00.000900+02:00", "2026-09-04"],
+  ])("preserves the inclusive SQL cutoff and UTC day for %s", async (asOf, cutoff, utcDay) => {
+    const { db, query } = dbReturning([]);
+    await computeMetaAttributedAov({
+      businessId: "d0000000-0000-4000-8000-000000000501",
+      providerAccountId: "act_5000000000001",
+      asOf,
+      db,
+    });
+    expect(query.mock.calls[0]?.[1]?.[4]).toBe(cutoff);
+    expect(query.mock.calls[0]?.[1]?.[1]).toBe(utcDay);
+  });
+
   it("refuses an invalid historical cutoff before reading facts", async () => {
     const { db, query } = dbReturning([]);
 

@@ -789,6 +789,68 @@ describe("WarehouseNativeAdAccountProfileDataSource", () => {
     );
   });
 
+  it("preserves same-ms target ordering through the native profile database adapter", async () => {
+    const db = fakeDb(() => [{
+      ...targetAuthorityRow(TARGET),
+      effective_at: "2026-07-12T03:05:00.000900Z",
+      recorded_at: "2026-07-12T03:05:00.000100Z",
+    }]);
+    const target = await new WarehouseNativeAdAccountProfileDataSource(db)
+      .getNativeTargetAuthorityAsOf({
+        businessId: BUSINESS_ID,
+        providerAccountRefId: PROVIDER_ACCOUNT_REF_ID,
+        providerAccountId: "act-native",
+        asOfCutoff: "2026-07-12T03:05:00.001000999Z",
+      });
+    expect(db.query).toHaveBeenCalledWith(READ_NATIVE_AD_TARGET_AUTHORITY_FOR_ACCOUNT_SQL, [
+      BUSINESS_ID, PROVIDER_ACCOUNT_REF_ID, "act-native", "2026-07-12T03:05:00.001000Z",
+    ]);
+    expect(resolveNativeAdTargetAuthority(target, "2026-07-12T03:05:00.001000999Z"))
+      .toMatchObject({ status: "cutoff_unsafe", targetRoasAuthority: false });
+  });
+
+  it.each(["invalid", "delete_all"])("rejects unsupported target operations (%s) after sharing the mapper", async (operation) => {
+    const db = fakeDb(() => [{ ...targetAuthorityRow(TARGET), operation }]);
+    await expect(new WarehouseNativeAdAccountProfileDataSource(db).getNativeTargetAuthorityAsOf({
+      businessId: BUSINESS_ID, providerAccountRefId: PROVIDER_ACCOUNT_REF_ID,
+      providerAccountId: "act-native", asOfCutoff: CUTOFF,
+    })).rejects.toThrow("Unsupported native target operation");
+  });
+
+  it("preserves the target risk-posture validation after sharing the mapper", async () => {
+    const db = fakeDb(() => [{ ...targetAuthorityRow(TARGET), default_risk_posture: "invalid" }]);
+    await expect(new WarehouseNativeAdAccountProfileDataSource(db).getNativeTargetAuthorityAsOf({
+      businessId: BUSINESS_ID, providerAccountRefId: PROVIDER_ACCOUNT_REF_ID,
+      providerAccountId: "act-native", asOfCutoff: CUTOFF,
+    })).rejects.toThrow("Unsupported target risk posture");
+  });
+
+  it.each(["engine-v3-native-ad-calibration.v1", "engine-v3-native-ad-calibration.v2", "engine-v3-native-ad-calibration.v3"])(
+    "keeps %s clocks under their original millisecond hash semantics", async (contractVersion) => {
+      const raw = nativeCellRow();
+      const baseline = await readNativeCell({ ...raw, contract_version: contractVersion,
+        batch_contract_version: contractVersion });
+      const hydrated = await readNativeCell({
+        ...raw, contract_version: contractVersion, batch_contract_version: contractVersion,
+        target_effective_at: TARGET.effectiveAt!.replace(".000Z", ".000900Z"),
+        target_recorded_at: TARGET.recordedAt!.replace(".000Z", ".000100Z"),
+      });
+      expect(hydrated?.targetAuthority.effectiveAt).toBe(TARGET.effectiveAt);
+      expect(hydrated?.targetAuthority.recordedAt).toBe(TARGET.recordedAt);
+      expect(recomputeNativeAdCalibrationCellInputManifestHash(hydrated!))
+        .toBe(recomputeNativeAdCalibrationCellInputManifestHash(baseline!));
+    },
+  );
+
+  it("retains nonzero target microseconds on current persisted cells", async () => {
+    const hydrated = await readNativeCell({
+      ...nativeCellRow(), target_effective_at: "2026-07-01T00:00:00.000900Z",
+      target_recorded_at: "2026-07-01T00:00:01.000100Z",
+    });
+    expect(hydrated?.targetAuthority.effectiveAt).toBe("2026-07-01T00:00:00.000900Z");
+    expect(hydrated?.targetAuthority.recordedAt).toBe("2026-07-01T00:00:01.000100Z");
+  });
+
   it("rejects string-coerced or negative persisted sample counts before profile authority", async () => {
     const row = nativeCellRow();
     const metricCounts = row["metric_sample_counts_json"] as Record<
@@ -1274,6 +1336,27 @@ describe("native ad profile schema gate", () => {
   exercise the gate where production reaches it.
 */
 describe("spend-authority version transitions", () => {
+  it("reads a persisted historical store basis without granting current authority", async () => {
+    const row = forgeSpendUnitAuthority(nativeCellRow(AOV_ONLY_TARGET), (authority) => {
+      (authority as { contractVersion: string }).contractVersion = "engine-v3-native-ad-spend-unit-authority.v2";
+      authority.basis = "observed_shopify_aov";
+      authority.baseSpendUnit = 45;
+      authority.observedShopifyAovEvidence = {
+        contract: "meta.observed-shopify-aov.v1", status: "observed",
+        source: "shopify_revenue_ledger", providerAccountId: "store.myshopify.com",
+        revenueBasis: "net_ledger", window: { from: "2026-06-14", to: "2026-07-11" },
+        zoneName: "UTC", orderCount: 60, currency: "USD", currencyExponent: 2,
+        revenueMinor: 540000, aovMinor: 9000,
+        observedAt: "2026-07-12T00:00:00.000Z", knowledgeAsOf: CUTOFF,
+      };
+    });
+    const hydrated = await readNativeCell(row);
+    expect(hydrated?.actionReadiness.spendUnitAuthority).toMatchObject({
+      basis: "observed_shopify_aov", baseSpendUnit: 45,
+      observedShopifyAovEvidence: { aovMinor: 9000, orderCount: 60 },
+    });
+    expect(await resolveNativeCell(row)).not.toMatchObject({ status: "ready" });
+  });
   const HISTORICAL_VERSIONS = [
     "engine-v3-native-ad-spend-unit-authority.v1",
     "engine-v3-native-ad-spend-unit-authority.v2",

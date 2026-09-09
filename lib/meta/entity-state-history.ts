@@ -1,5 +1,8 @@
 import { createHash } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 import { getDb, runDbTransaction } from "@/lib/db";
+import { commercialTargetInstantMs } from "@/lib/meta/commercial-target-instant";
+import { META_OBSERVATION_RECEIPT_AUTHORITY_SQL } from "@/lib/meta/observation-receipt-schema";
 
 export const META_ENTITY_TYPES = [
   "campaign",
@@ -723,13 +726,20 @@ export function normalizeMetaScheduleTimestamp(
   if (trimmed.length === 0) {
     return { outcome: "invalid", value: null, reason: "blank" };
   }
-  const parsed = new Date(trimmed);
-  if (!Number.isFinite(parsed.getTime())) {
+  if (/^[+-]?\d{5,}-/.test(trimmed)) {
+    return { outcome: "invalid", value: null, reason: "unrepresentable" };
+  }
+  // Meta uses compact offsets (+0000) as well as RFC 3339 offsets (+00:00).
+  // Validate the literal calendar and explicit offset before constructing a
+  // Date: Date parsing alone accepts February 30 and host-local timestamps.
+  const explicitOffset = trimmed.replace(/([+-]\d{2})(\d{2})$/, "$1:$2");
+  const milliseconds = commercialTargetInstantMs(explicitOffset);
+  if (milliseconds === null) {
     return { outcome: "invalid", value: null, reason: "unparsable" };
   }
   let iso: string;
   try {
-    iso = parsed.toISOString();
+    iso = new Date(milliseconds).toISOString();
   } catch {
     // `toISOString` throws RangeError past ±8.64e15 ms.
     return { outcome: "invalid", value: null, reason: "unrepresentable" };
@@ -1612,7 +1622,7 @@ const UUID_PATTERN =
  * writer coalesced onto an existing run: that row is the evidence that one run
  * carried several captures, which is why the cohort cannot live on the run.
  */
-async function appendObservationCaptureReceipt(
+export async function appendObservationCaptureReceipt(
   sql: ReturnType<typeof getDb>,
   input: {
     runId: string;
@@ -1649,13 +1659,14 @@ async function appendObservationCaptureReceipt(
   }
   const errorJson = input.error ? JSON.stringify(input.error) : null;
   const inserted = await sql<{ id: string }>`
-    INSERT INTO meta_entity_observation_receipts (
+    WITH receipt AS (
+    INSERT INTO meta_entity_observation_receipts_v2 (
       receipt_contract, run_id, business_id, provider_account_id, entity_type,
       endpoint, partition_id, source_snapshot_id, source_snapshot_ref_id,
       sync_run_id,
       capture_status, provider_row_count, page_count, run_reused, observed_at,
       captured_at, error_json
-    ) VALUES (
+    ) SELECT
       ${META_OBSERVATION_RECEIPT_CONTRACT}, ${input.runId}::uuid,
       ${input.businessId}, ${input.providerAccountId}, ${input.entityType},
       ${input.endpoint}, ${input.partitionId}::uuid, ${input.sourceSnapshotId},
@@ -1665,6 +1676,15 @@ async function appendObservationCaptureReceipt(
       ${input.runReused}, ${input.observedAt}::timestamptz,
       ${input.capturedAt}::timestamptz,
       ${errorJson}::jsonb
+    WHERE NOT EXISTS (
+      -- A retry after an old-image write must compare the retained occurrence,
+      -- including its NULL attempt, instead of copying it into v2 a second time.
+      SELECT 1 FROM meta_entity_observation_receipts legacy
+       WHERE legacy.partition_id = ${input.partitionId}::uuid
+         AND legacy.entity_type = ${input.entityType}
+         AND legacy.endpoint = ${input.endpoint}
+         AND legacy.captured_at = ${input.capturedAt}::timestamptz
+         AND legacy.sync_run_id IS NOT DISTINCT FROM ${input.syncRunId}::uuid
     )
     /*
       ── ROUND 15, DEFECT 4 ─────────────────────────────────────────────────
@@ -1677,7 +1697,26 @@ async function appendObservationCaptureReceipt(
     ON CONFLICT (partition_id, entity_type, endpoint, captured_at,
                  COALESCE(sync_run_id, '00000000-0000-0000-0000-000000000000'::uuid))
     DO NOTHING
-    RETURNING id::text AS id
+    RETURNING *
+    ), legacy_mirror AS (
+      -- Preserve the deployed image's four-column write/read contract. The
+      -- first capture is mirrored with the SAME UUID and clocks; later sync
+      -- attempts remain distinct in v2. Both writes commit or roll back with
+      -- the observation transaction. The authority union deduplicates by id.
+      INSERT INTO meta_entity_observation_receipts (
+        id, receipt_contract, run_id, business_id, provider_account_id,
+        entity_type, endpoint, partition_id, source_snapshot_id,
+        source_snapshot_ref_id, sync_run_id, capture_status, provider_row_count,
+        page_count, run_reused, observed_at, captured_at, error_json, created_at
+      )
+      SELECT id, receipt_contract, run_id, business_id, provider_account_id,
+             entity_type, endpoint, partition_id, source_snapshot_id,
+             source_snapshot_ref_id, sync_run_id, capture_status, provider_row_count,
+             page_count, run_reused, observed_at, captured_at, error_json, created_at
+        FROM receipt
+      ON CONFLICT (partition_id, entity_type, endpoint, captured_at) DO NOTHING
+    )
+    SELECT id::text AS id FROM receipt
   `;
   if (inserted[0]) return;
 
@@ -1690,7 +1729,7 @@ async function appendObservationCaptureReceipt(
     anything else is two contradictory statements about one capture occurrence
     and there is no rule that picks a winner, so it refuses.
   */
-  const existing = await sql<{
+  const existing = await sql.query<{
     run_id: string;
     source_snapshot_id: string | null;
     source_snapshot_ref_id: string | null;
@@ -1700,23 +1739,23 @@ async function appendObservationCaptureReceipt(
     run_reused: boolean;
     observed_at: string;
     error_json: unknown;
-  }>`
+  }>(`
     SELECT run_id::text AS run_id, source_snapshot_id,
            source_snapshot_ref_id::text AS source_snapshot_ref_id,
            capture_status, provider_row_count, page_count, run_reused,
            observed_at::text AS observed_at, error_json
-      FROM meta_entity_observation_receipts
-     WHERE partition_id = ${input.partitionId}::uuid
-       AND entity_type = ${input.entityType}
-       AND endpoint = ${input.endpoint}
-       AND captured_at = ${input.capturedAt}::timestamptz
+      FROM (${META_OBSERVATION_RECEIPT_AUTHORITY_SQL}) receipt
+     WHERE partition_id = $1::uuid
+       AND entity_type = $2
+       AND endpoint = $3
+       AND captured_at = $4::timestamptz
        -- ROUND 15: the same key the conflict fired on. Omitting the attempt
        -- here compared this attempt against a DIFFERENT attempt's row and
        -- reported its ordinary differences as a contradiction.
        AND COALESCE(sync_run_id, '00000000-0000-0000-0000-000000000000'::uuid)
-         = COALESCE(${input.syncRunId}::uuid,
+         = COALESCE($5::uuid,
                     '00000000-0000-0000-0000-000000000000'::uuid)
-  `;
+  `, [input.partitionId, input.entityType, input.endpoint, input.capturedAt, input.syncRunId]);
   const row = existing[0];
   if (!row) {
     throw new Error("Observation receipt conflicted with a row that then vanished.");
@@ -1772,9 +1811,10 @@ async function appendObservationCaptureReceipt(
   */
   compare(
     "error_json",
-    row.error_json === null || row.error_json === undefined
-      ? null : JSON.stringify(row.error_json),
-    errorJson,
+    // JSONB reorders object keys. Compare JSON values so an exact retry stays
+    // idempotent, while changed nested values and array order still refuse.
+    isDeepStrictEqual(row.error_json ?? null, errorJson === null ? null : JSON.parse(errorJson)),
+    true,
   );
   if (differences.length > 0) {
     throw new Error(
@@ -2886,7 +2926,7 @@ function stateSelect(
         */
         LEFT JOIN LATERAL (
           SELECT
-            (SELECT prior.campaign_start_time::text
+            (SELECT to_char(prior.campaign_start_time AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
                FROM meta_entity_state_history prior
               WHERE prior.business_id = state.business_id
                 AND prior.provider_account_id = state.provider_account_id
@@ -2899,7 +2939,7 @@ function stateSelect(
               ORDER BY prior.observed_at DESC, prior.captured_at DESC,
                        prior.created_at DESC, prior.id DESC
               LIMIT 1) AS campaign_start_time,
-            (SELECT prior.campaign_end_time::text
+            (SELECT to_char(prior.campaign_end_time AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
                FROM meta_entity_state_history prior
               WHERE prior.business_id = state.business_id
                 AND prior.provider_account_id = state.provider_account_id
@@ -2912,7 +2952,7 @@ function stateSelect(
               ORDER BY prior.observed_at DESC, prior.captured_at DESC,
                        prior.created_at DESC, prior.id DESC
               LIMIT 1) AS campaign_end_time,
-            (SELECT prior.adset_start_time::text
+            (SELECT to_char(prior.adset_start_time AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
                FROM meta_entity_state_history prior
               WHERE prior.business_id = state.business_id
                 AND prior.provider_account_id = state.provider_account_id
@@ -2925,7 +2965,7 @@ function stateSelect(
               ORDER BY prior.observed_at DESC, prior.captured_at DESC,
                        prior.created_at DESC, prior.id DESC
               LIMIT 1) AS adset_start_time,
-            (SELECT prior.adset_end_time::text
+            (SELECT to_char(prior.adset_end_time AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
                FROM meta_entity_state_history prior
               WHERE prior.business_id = state.business_id
                 AND prior.provider_account_id = state.provider_account_id
@@ -3000,7 +3040,7 @@ function stateSelect(
         */
         LEFT JOIN LATERAL (
           SELECT
-            (SELECT prior.campaign_start_time::text
+            (SELECT to_char(prior.campaign_start_time AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
                FROM meta_entity_state_history prior
               WHERE prior.business_id = state.business_id
                 AND prior.provider_account_id = state.provider_account_id
@@ -3013,7 +3053,7 @@ function stateSelect(
               ORDER BY prior.observed_at DESC, prior.captured_at DESC,
                        prior.created_at DESC, prior.id DESC
               LIMIT 1) AS campaign_start_time,
-            (SELECT prior.campaign_end_time::text
+            (SELECT to_char(prior.campaign_end_time AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
                FROM meta_entity_state_history prior
               WHERE prior.business_id = state.business_id
                 AND prior.provider_account_id = state.provider_account_id
@@ -3026,7 +3066,7 @@ function stateSelect(
               ORDER BY prior.observed_at DESC, prior.captured_at DESC,
                        prior.created_at DESC, prior.id DESC
               LIMIT 1) AS campaign_end_time,
-            (SELECT prior.adset_start_time::text
+            (SELECT to_char(prior.adset_start_time AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
                FROM meta_entity_state_history prior
               WHERE prior.business_id = state.business_id
                 AND prior.provider_account_id = state.provider_account_id
@@ -3039,7 +3079,7 @@ function stateSelect(
               ORDER BY prior.observed_at DESC, prior.captured_at DESC,
                        prior.created_at DESC, prior.id DESC
               LIMIT 1) AS adset_start_time,
-            (SELECT prior.adset_end_time::text
+            (SELECT to_char(prior.adset_end_time AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
                FROM meta_entity_state_history prior
               WHERE prior.business_id = state.business_id
                 AND prior.provider_account_id = state.provider_account_id
@@ -3277,7 +3317,7 @@ export async function readMetaObservationWriterPressure(input: {
   if (businessIds != null && businessIds.length === 0) {
     throw new Error("businessIds must be null or a non-empty list.");
   }
-  const rows = await sql<MetaObservationWriterPressureDbRow>`
+  const rows = await sql.query<MetaObservationWriterPressureDbRow>(`
     WITH scoped_runs AS (
       SELECT
         run.id, run.business_id, run.provider_account_id, run.entity_type,
@@ -3285,11 +3325,11 @@ export async function readMetaObservationWriterPressure(input: {
         run.captured_at, run.delta_stats_json, run.error_json,
         COALESCE(run.last_captured_at, run.captured_at) AS heartbeat_at
       FROM meta_entity_observation_runs run
-      WHERE run.captured_at >= ${since}::timestamptz
-        AND (${until}::timestamptz IS NULL
-             OR run.captured_at < ${until}::timestamptz)
-        AND (${businessIds}::text[] IS NULL
-             OR run.business_id = ANY(${businessIds}::text[]))
+      WHERE run.captured_at >= $1::timestamptz
+        AND ($2::timestamptz IS NULL
+             OR run.captured_at < $2::timestamptz)
+        AND ($3::text[] IS NULL
+             OR run.business_id = ANY($3::text[]))
     ), measured AS (
       SELECT scoped.*, owned.state_rows, owned.last_state_captured_at
       FROM scoped_runs scoped
@@ -3356,12 +3396,12 @@ export async function readMetaObservationWriterPressure(input: {
         count(*)::text AS window_occurrences,
         min(captured_at)::text AS first_window_occurrence_at,
         max(captured_at)::text AS last_window_occurrence_at
-      FROM meta_entity_observation_receipts
-      WHERE captured_at >= ${since}::timestamptz
-        AND (${until}::timestamptz IS NULL
-             OR captured_at < ${until}::timestamptz)
-        AND (${businessIds}::text[] IS NULL
-             OR business_id = ANY(${businessIds}::text[]))
+      FROM (${META_OBSERVATION_RECEIPT_AUTHORITY_SQL}) receipt
+      WHERE captured_at >= $1::timestamptz
+        AND ($2::timestamptz IS NULL
+             OR captured_at < $2::timestamptz)
+        AND ($3::text[] IS NULL
+             OR business_id = ANY($3::text[]))
       GROUP BY business_id, provider_account_id, entity_type, endpoint,
         capture_status
     )
@@ -3374,7 +3414,7 @@ export async function readMetaObservationWriterPressure(input: {
       USING (business_id, provider_account_id, entity_type, endpoint,
              completeness)
     ORDER BY business_id, provider_account_id, entity_type, endpoint, completeness
-  `;
+  `, [since, until, businessIds]);
   return rows.map((row) => ({
     businessId: row.business_id,
     providerAccountId: row.provider_account_id,
@@ -3740,9 +3780,9 @@ export interface MetaObservationReceiptPointer {
  * and decides; it never gets to skip one.
  *
  * Ordering matches `idx_meta_entity_observation_receipts_freshness_v2`
- * exactly — `(business_id, provider_account_id, entity_type, endpoint,
- * captured_at DESC, created_at DESC, id DESC)` — so this is an index scan of
- * one row. ROUND 16: the `created_at` rung is what makes "newest" mean the
+ * on the v2 arm — `(business_id, provider_account_id, entity_type, endpoint,
+ * captured_at DESC, created_at DESC, id DESC)`. The authority union also keeps
+ * legacy-only captures and excludes mirrored UUIDs. ROUND 16: the `created_at` rung is what makes "newest" mean the
  * later ATTEMPT when two captured in the same millisecond; `id` alone is a
  * random v4 UUID and ordered them arbitrarily.
  */
@@ -3762,7 +3802,7 @@ export async function readMetaLatestObservationReceiptAsOf(input: {
   const entityType = normalizeEntityType(input.entityType);
   const endpoint = requireNonEmpty(input.endpoint, "endpoint");
   const cutoff = normalizeCutoff(input.cutoff);
-  const rows = await sql<{
+  const rows = await sql.query<{
     capture_status: string;
     observed_at: string;
     captured_at: string;
@@ -3780,7 +3820,7 @@ export async function readMetaLatestObservationReceiptAsOf(input: {
     sync_run_business_id: string | null;
     sync_run_provider_account_id: string | null;
     partition_status: string | null;
-  }>`
+  }>(`
     SELECT receipt.capture_status,
            receipt.observed_at::text  AS observed_at,
            receipt.captured_at::text  AS captured_at,
@@ -3801,28 +3841,28 @@ export async function readMetaLatestObservationReceiptAsOf(input: {
            run.business_id            AS sync_run_business_id,
            run.provider_account_id    AS sync_run_provider_account_id,
            part.status                AS partition_status
-    FROM meta_entity_observation_receipts receipt
+    FROM (${META_OBSERVATION_RECEIPT_AUTHORITY_SQL}) receipt
     -- LEFT joins on purpose. The receipt is SELECTED status-blind; whether its
     -- attempt succeeded is judged afterwards by the caller. Inner-joining a
     -- succeeded run here would let the query walk back past a newer failure to
     -- an older success, which is the exact fallback this contract forbids.
     LEFT JOIN meta_sync_runs run ON run.id = receipt.sync_run_id
     LEFT JOIN meta_sync_partitions part ON part.id = receipt.partition_id
-    WHERE receipt.business_id = ${businessId}
-      AND receipt.provider_account_id = ${providerAccountId}
-      AND receipt.entity_type = ${entityType}
-      AND receipt.endpoint = ${endpoint}
+    WHERE receipt.business_id = $1
+      AND receipt.provider_account_id = $2
+      AND receipt.entity_type = $3
+      AND receipt.endpoint = $4
       -- BOTH clocks, STRICTLY before the knowledge bound: evidence exactly at
       -- the next provider-local midnight belongs to the next day.
-      AND receipt.observed_at < ${cutoff}::timestamptz
-      AND receipt.captured_at < ${cutoff}::timestamptz
+      AND receipt.observed_at < $5::timestamptz
+      AND receipt.captured_at < $5::timestamptz
     -- ROUND 15: real insertion order before the deterministic id tiebreak. The
     -- id is a random v4 UUID, so two attempts that captured in the same
     -- millisecond were previously ordered arbitrarily and the newest receipt
     -- could be the older attempt.
     ORDER BY receipt.captured_at DESC, receipt.created_at DESC, receipt.id DESC
     LIMIT 1
-  `;
+  `, [businessId, providerAccountId, entityType, endpoint, cutoff]);
   const row = rows[0];
   if (!row) return null;
   return {

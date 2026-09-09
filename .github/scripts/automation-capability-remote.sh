@@ -26,22 +26,22 @@
 #                             then exit non-zero regardless of the restore's
 #                             own outcome (and the restore's OWN failure is
 #                             its own named blocker, never swallowed).
-#   capability_close       — prove the exact common release revision already
-#                             running on web+worker -> write false -> recreate
+#   capability_close       — write false -> prove the exact common release
+#                             revision already running on web+worker -> recreate
 #                             that same release -> verify both processes.
 #                             NEVER gated on the DB-backed preflight or on an
 #                             already-closed env baseline. If the running
 #                             release identity cannot be proved, it persists
-#                             file-level false but refuses any recreate/pass
-#                             rather than choosing the requested SHA or current
-#                             main as a deploy target.
+#                             file-level false and stops both services without
+#                             selecting an image. That degraded stop is always
+#                             a failed result, with independent stop readback.
 #
 # NEITHER phase EVER deploys a different release. `docker compose pull` /
 # `up -d --force-recreate` here always run with `APP_IMAGE_TAG`/
 # `APP_BUILD_ID` pinned to the EFFECTIVE release: for open, the exact
 # requested SHA after current-main + running-baseline proof; for close, the
 # matching 40-hex image revision read from the ACTUAL running web+worker
-# containers before any mutation. The caller's requested SHA is evidence for
+# containers before any recreate. The caller's requested SHA is evidence for
 # a close, never its image selector. Recreating containers is the mechanism
 # that makes an env-file change observable to a running process (env vars are
 # read once at process start); it is not a deploy of new code.
@@ -59,6 +59,109 @@ ENV_FILE="${REMOTE_APP_DIR}/.env.production"
 ENV_KEY="META_AUTOMATION_LIVE_WRITES"
 REQUESTED_SHA="${REQUESTED_SHA:-${EXPECTED_SHA:?REQUESTED_SHA or EXPECTED_SHA is required}}"
 EFFECTIVE_SHA=""
+export -n CAP_REGISTRY_TOKEN
+
+# Every build-info read has a TOTAL transfer deadline, not just a connection
+# deadline. A peer can accept the loopback TCP connection and then send nothing;
+# without --max-time that strands capability_close during runtime discovery.
+# Close persists false before any runtime read. Ten seconds matches the existing
+# host-verification curl bound. Tests may shorten it, but no environment can raise it above ten or
+# turn curl's timeout off with zero.
+CAPABILITY_BUILD_INFO_MAX_TIME_SECONDS="${CAPABILITY_BUILD_INFO_MAX_TIME_SECONDS:-10}"
+case "${CAPABILITY_BUILD_INFO_MAX_TIME_SECONDS}" in
+  1|2|3|4|5|6|7|8|9|10) ;;
+  *) CAPABILITY_BUILD_INFO_MAX_TIME_SECONDS="10" ;;
+esac
+CAPABILITY_BUILD_INFO_URL="${CAPABILITY_BUILD_INFO_URL:-http://127.0.0.1:3000/api/build-info}"
+if [[ ! "${CAPABILITY_BUILD_INFO_URL}" =~ ^http://127\.0\.0\.1:[0-9]+/api/build-info$ ]]; then
+  CAPABILITY_BUILD_INFO_URL="http://127.0.0.1:3000/api/build-info"
+fi
+
+# Bound daemon reads independently of HTTP. A healthy SSH connection does not
+# impose a deadline on a stuck Docker daemon or a frozen container's node exec.
+# Python is already required by this script and works on both Linux and macOS.
+CAPABILITY_DOCKER_READ_MAX_TIME_SECONDS="${CAPABILITY_DOCKER_READ_MAX_TIME_SECONDS:-10}"
+case "${CAPABILITY_DOCKER_READ_MAX_TIME_SECONDS}" in
+  1|2|3|4|5|6|7|8|9|10) ;;
+  *) CAPABILITY_DOCKER_READ_MAX_TIME_SECONDS="10" ;;
+esac
+capability_bounded_command() {
+  local deadline="$1"
+  shift
+  python3 -c '
+import os, signal, subprocess, sys
+try:
+    child = subprocess.Popen(sys.argv[2:], stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
+except OSError:
+    sys.exit(127)
+try:
+    output, errors = child.communicate(timeout=int(sys.argv[1]))
+except subprocess.TimeoutExpired:
+    # Kill the whole group, including children that ignore TERM or retain the
+    # command-substitution stdout pipe. Killing only the CLI can leave a hang.
+    try:
+        os.killpg(child.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+    # communicate watches pipe EOF as well as parent exit. The parent can exit
+    # successfully while a descendant continues holding either pipe open.
+    try:
+        output, errors = child.communicate(timeout=1)
+    except subprocess.TimeoutExpired:
+        child.stdout.close()
+        child.stderr.close()
+    print("capability command exceeded its deadline", file=sys.stderr)
+    sys.exit(124)
+sys.stdout.buffer.write(output)
+sys.stderr.buffer.write(errors)
+sys.exit(child.returncode if child.returncode >= 0 else 128 - child.returncode)
+' "${deadline}" "$@"
+}
+capability_docker_read() {
+  capability_bounded_command "${CAPABILITY_DOCKER_READ_MAX_TIME_SECONDS}" docker "$@"
+}
+
+capability_deadline() {
+  local value="$1" maximum="$2"
+  if [[ "${value}" =~ ^[1-9][0-9]{0,2}$ ]] && [ "${value}" -le "${maximum}" ]; then
+    printf '%s' "${value}"
+  else
+    printf '%s' "${maximum}"
+  fi
+}
+CAPABILITY_PREFLIGHT_MAX_TIME_SECONDS="$(capability_deadline "${CAPABILITY_PREFLIGHT_MAX_TIME_SECONDS:-60}" 60)"
+# The worker has a 90-second shutdown grace; allow orchestration/startup time
+# above that grace while retaining a finite failure and rollback path.
+CAPABILITY_DOCKER_MUTATION_MAX_TIME_SECONDS="$(capability_deadline "${CAPABILITY_DOCKER_MUTATION_MAX_TIME_SECONDS:-300}" 300)"
+
+capability_cleanup_registry_auth() {
+  if [ -n "${CAP_REGISTRY_CONFIG:-}" ]; then
+    rm -rf -- "${CAP_REGISTRY_CONFIG}"
+  fi
+}
+trap capability_cleanup_registry_auth EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+trap 'exit 129' HUP
+
+capability_registry_auth() {
+  if [ "${CAP_REGISTRY_AUTH_READY:-false}" = "true" ]; then return 0; fi
+  if [ -z "${CAP_REGISTRY_TOKEN:-}" ] || [ -z "${GHCR_USER:-}" ]; then
+    echo "capability registry credential unavailable" >&2
+    return 1
+  fi
+  CAP_REGISTRY_CONFIG="$(mktemp -d)" || return 1
+  # The token is a nonexported shell variable read from the SSH stdin prefix.
+  # No token in command arguments, logs, or the host's persistent Docker config.
+  if ! printf '%s' "${CAP_REGISTRY_TOKEN}" | capability_bounded_command 60 docker --config "${CAP_REGISTRY_CONFIG}" login ghcr.io -u "${GHCR_USER}" --password-stdin >/dev/null 2>&1; then
+    unset CAP_REGISTRY_TOKEN
+    echo "capability registry login failed" >&2
+    return 1
+  fi
+  unset CAP_REGISTRY_TOKEN
+  export DOCKER_CONFIG="${CAP_REGISTRY_CONFIG}"
+  CAP_REGISTRY_AUTH_READY="true"
+}
 
 if ! command -v atomic_set_env_var >/dev/null 2>&1; then
   echo "atomic_set_env_var is not defined — this script must be concatenated" >&2
@@ -73,7 +176,7 @@ capability_run_preflight() {
   # Runs INSIDE the worker container, where DATABASE_URL is the real
   # production connection — the same pattern `promote-release-gate-mode.yml`
   # already uses for `sync-control-plane-verify.ts`.
-  docker compose exec -T worker \
+  capability_bounded_command "${CAPABILITY_PREFLIGHT_MAX_TIME_SECONDS}" docker compose exec -T worker \
     node --import tsx scripts/automation-capability-preflight-cli.ts
 }
 
@@ -81,12 +184,14 @@ capability_run_preflight() {
 capability_wait_for_build_info() {
   local attempts="${1:-30}" sleep_seconds="${2:-3}" attempt=1
   while [ "${attempt}" -le "${attempts}" ]; do
-    if body="$(curl -fsS http://127.0.0.1:3000/api/build-info 2>/dev/null)"; then
+    if body="$(curl -fsS --max-time "${CAPABILITY_BUILD_INFO_MAX_TIME_SECONDS}" "${CAPABILITY_BUILD_INFO_URL}" 2>/dev/null)"; then
       printf '%s\n' "${body}"
       return 0
     fi
-    sleep "${sleep_seconds}"
     attempt=$((attempt + 1))
+    if [ "${attempt}" -le "${attempts}" ]; then
+      sleep "${sleep_seconds}"
+    fi
   done
   return 1
 }
@@ -95,13 +200,13 @@ capability_wait_for_build_info() {
 # container for SERVICE and docker itself reports it State.Running=true.
 capability_container_running() {
   local service="$1" cid
-  cid="$(docker compose ps -q "${service}" 2>/dev/null)" || return 1
+  cid="$(capability_docker_read compose ps -q "${service}" 2>/dev/null)" || return 1
   if [ -z "${cid}" ]; then
     echo "capability_container_running: no container for service '${service}'" >&2
     return 1
   fi
   local running
-  running="$(docker inspect --format '{{.State.Running}}' "${cid}" 2>/dev/null)" || return 1
+  running="$(capability_docker_read inspect --format '{{.State.Running}}' "${cid}" 2>/dev/null)" || return 1
   [ "${running}" = "true" ]
 }
 
@@ -111,12 +216,12 @@ capability_container_running() {
 # under the same tag cannot pass unnoticed.
 capability_container_label() {
   local service="$1" label="$2" cid value
-  cid="$(docker compose ps -q "${service}" 2>/dev/null)" || return 1
+  cid="$(capability_docker_read compose ps -q "${service}" 2>/dev/null)" || return 1
   if [ -z "${cid}" ]; then
     echo "capability_container_label: no container for service '${service}'" >&2
     return 1
   fi
-  value="$(docker inspect --format "{{index .Config.Labels \"${label}\"}}" "${cid}" 2>/dev/null)" || return 1
+  value="$(capability_docker_read inspect --format "{{index .Config.Labels \"${label}\"}}" "${cid}" 2>/dev/null)" || return 1
   printf '%s' "${value}"
 }
 
@@ -205,7 +310,9 @@ capability_resolve_running_release() {
   # The web image label is necessary but not sufficient: prove the process
   # currently serving traffic reports the same build before using the label
   # as close's recreate target. Keep this short so an unhealthy endpoint
-  # cannot postpone the file-level false write for a full healthcheck window.
+  # cannot consume a full healthcheck window. Close already persisted false;
+  # three ten-second transfer bounds plus two one-second retry delays bound
+  # this HTTP proof at 32 seconds even if a connected peer never responds.
   build_json="$(capability_wait_for_build_info 3 1)" || {
     echo "capability_resolve_running_release: current web build-info is unreadable — refusing to select a release" >&2
     return 1
@@ -248,7 +355,7 @@ capability_normalize_gate_value() {
 # the read itself could not be performed.
 capability_read_live_gate_value() {
   local service="$1"
-  docker compose exec -T "${service}" node -e \
+  capability_docker_read compose exec -T "${service}" node -e \
     "process.stdout.write((process.env.${ENV_KEY} || '').trim().toLowerCase() === 'true' ? 'true' : 'false')" 2>/dev/null
 }
 
@@ -364,20 +471,45 @@ print(json.dumps({
 # this one), so an unchecked `docker compose pull`/`up` failure here would
 # otherwise silently fall through to the verification steps instead of
 # stopping immediately.
+capability_verify_cached_release() {
+  local release_sha="$1" service image cached_identity cid running_image
+  for service in web worker; do
+    # config --images worker also lists its web dependency. Select the named
+    # service from JSON instead; skip env-file resolution and emit only its image.
+    image="$(capability_docker_read compose config --no-env-resolution --format json "${service}" | python3 -c '
+import json, sys
+try:
+    print(json.load(sys.stdin)["services"][sys.argv[1]]["image"], end="")
+except (ValueError, KeyError, TypeError):
+    sys.exit(1)
+' "${service}")" || return 1
+    if [[ "${image}" == *[[:space:]]* ]] || [[ "${image}" != *:"${release_sha}" ]]; then return 1; fi
+    cached_identity="$(capability_docker_read image inspect --format '{{.Id}} {{index .Config.Labels "org.opencontainers.image.revision"}} {{index .Config.Labels "com.adsecute.release.role"}}' "${image}")" || return 1
+    cid="$(capability_docker_read compose ps -q "${service}")" || return 1
+    if [ -z "${cid}" ]; then return 1; fi
+    running_image="$(capability_docker_read inspect --format '{{.Image}}' "${cid}")" || return 1
+    if [[ ! "${running_image}" =~ ^sha256:[0-9a-f]{64}$ ]] || [ "${cached_identity}" != "${running_image} ${release_sha} ${service}-runner" ]; then return 1; fi
+  done
+}
+
 capability_recreate_and_verify() {
   local intended="$1" release_sha="$2" # intended is "true" or "false"
 
   export APP_IMAGE_TAG="${release_sha}"
   export APP_BUILD_ID="${release_sha}"
 
-  log "Pulling exact SHA images (web + worker)"
-  if ! docker compose pull web worker; then
-    echo "capability_recreate_and_verify: docker compose pull failed" >&2
-    return 1
+  # Existing exact images need no registry dependency. A cache hit must match
+  # BOTH the actual running immutable image IDs and expected revision/role.
+  if ! capability_verify_cached_release "${release_sha}"; then
+    log "Authenticating and pulling exact SHA images (web + worker)"
+    if ! capability_registry_auth || ! capability_bounded_command "${CAPABILITY_DOCKER_MUTATION_MAX_TIME_SECONDS}" docker compose pull web worker; then
+      echo "capability_recreate_and_verify: exact image pull failed" >&2
+      return 1
+    fi
   fi
 
   log "Recreating web and worker"
-  if ! docker compose up -d --force-recreate web worker; then
+  if ! capability_bounded_command "${CAPABILITY_DOCKER_MUTATION_MAX_TIME_SECONDS}" docker compose up -d --pull never --force-recreate web worker; then
     echo "capability_recreate_and_verify: docker compose up failed" >&2
     return 1
   fi
@@ -434,6 +566,7 @@ emit_capability_json() {
     BEFORE_STATE_JSON="${6:-null}" AFTER_STATE_JSON="${7:-null}" \
     BEFORE_PREFLIGHT_JSON="${8:-null}" AFTER_PREFLIGHT_JSON="${9:-null}" \
     REQUESTED_SHA="${REQUESTED_SHA}" EFFECTIVE_SHA="${EFFECTIVE_SHA}" ENV_KEY="${ENV_KEY}" \
+    FILE_STATE_JSON="${CAP_FILE_JSON:-null}" EMERGENCY_STOP_JSON="${CAP_EMERGENCY_STOP_JSON:-null}" \
     python3 -c '
 import json, os
 
@@ -466,10 +599,71 @@ print("CAPABILITY_JSON: " + json.dumps({
     "requestedSha": os.environ["REQUESTED_SHA"],
     "effectiveSha": os.environ.get("EFFECTIVE_SHA") or None,
     "envKey": os.environ["ENV_KEY"],
+    "fileState": load("FILE_STATE_JSON"),
+    "emergencyStop": load("EMERGENCY_STOP_JSON"),
     "before": before,
     "after": after,
 }))
 '
+}
+
+# File evidence is independent of atomic_set_env_var's exit status: a failed
+# post-rename metadata check can leave canonical false on disk. Ambiguous or
+# duplicate content is unknown, never a claim of an unchanged/open file.
+capability_observe_file_state() {
+  CAP_FILE_JSON="$(capability_bounded_command 10 python3 -c '
+import json, pathlib, sys
+try:
+    lines = [line.split("=", 1)[1] for line in pathlib.Path(sys.argv[1]).read_text().splitlines() if line.startswith(sys.argv[2] + "=")]
+    value = lines[0].strip() if len(lines) == 1 else None
+    print(json.dumps({"envValue": value if value in ("true", "false") else None, "lineCount": len(lines)}))
+except (OSError, UnicodeError):
+    print(json.dumps({"envValue": None, "lineCount": None}))
+' "${ENV_FILE}" "${ENV_KEY}")" || CAP_FILE_JSON='{"envValue":null,"lineCount":null}'
+}
+
+# Emergency closure selects NO image. Both web (HTTP/cron/operator entrypoints)
+# and worker must stop; stopping worker alone leaves other provider writers.
+# A successful stop command is not proof: inspect all stopped/absent services.
+# The caller remains failed/degraded even when stopping is independently proved.
+capability_emergency_stop() {
+  local command_ok="false" service cids cid running verified="true"
+  local web_stopped="false" worker_stopped="false"
+  # Any prior after snapshot predates this stop; it cannot describe the final
+  # process state. The separate stop evidence below is the final observation.
+  CAP_AFTER_JSON="null"
+  # Mere release-read failure must not take already-closed services down.
+  # Read BOTH process gates afresh; an unknown value never qualifies to skip.
+  if capability_verify_running_env web false && capability_verify_running_env worker false; then
+    CAP_EMERGENCY_STOP_JSON='{"attempted":false,"verified":true,"reason":"both_runtime_gates_closed"}'
+    CAP_EMERGENCY_STOP_BLOCKER="runtime_gates_closed_release_unverified"
+    return
+  fi
+  # Preserve the worker's configured 90s lease/partition cleanup grace.
+  # Compose stops dependencies in order; budget two full 90-second graces.
+  if capability_bounded_command 210 docker compose stop --timeout 90 web worker; then
+    command_ok="true"
+  fi
+  for service in web worker; do
+    local stopped="true"
+    if cids="$(capability_docker_read compose ps --all -q "${service}")"; then
+      for cid in ${cids}; do
+        if ! running="$(capability_docker_read inspect --format '{{.State.Running}}' "${cid}")" || [ "${running}" != "false" ]; then
+          stopped="false"
+        fi
+      done
+    else
+      stopped="false"
+    fi
+    if [ "${stopped}" != "true" ]; then verified="false"; fi
+    if [ "${service}" = "web" ]; then web_stopped="${stopped}"; else worker_stopped="${stopped}"; fi
+  done
+  CAP_EMERGENCY_STOP_JSON="{\"attempted\":true,\"commandSucceeded\":${command_ok},\"verified\":${verified},\"webStoppedOrAbsent\":${web_stopped},\"workerStoppedOrAbsent\":${worker_stopped}}"
+  if [ "${verified}" = "true" ]; then
+    CAP_EMERGENCY_STOP_BLOCKER="runtime_emergency_stopped_degraded"
+  else
+    CAP_EMERGENCY_STOP_BLOCKER="runtime_emergency_stop_unverified"
+  fi
 }
 
 # capability_rollback_to_closed BACKUP — the ONE recovery path every
@@ -498,6 +692,8 @@ capability_rollback_to_closed() {
       CAP_ROLLBACK_OK="true"
     else
       CAP_ROLLBACK_BLOCKER="restore_recreate_verify_failed"
+      capability_emergency_stop
+      CAP_ROLLBACK_BLOCKER="${CAP_ROLLBACK_BLOCKER},${CAP_EMERGENCY_STOP_BLOCKER}"
     fi
     return
   fi
@@ -513,7 +709,8 @@ capability_rollback_to_closed() {
     CAP_ROLLBACK_OK="true"
     CAP_ROLLBACK_BLOCKER="restore_failed"
   else
-    CAP_ROLLBACK_BLOCKER="restore_failed"
+    capability_emergency_stop
+    CAP_ROLLBACK_BLOCKER="restore_failed,${CAP_EMERGENCY_STOP_BLOCKER}"
   fi
 }
 
@@ -615,38 +812,39 @@ capability_close() {
   CAP_BEFORE_JSON="null"
   CAP_AFTER_JSON="null"
 
-  # Preserve whatever evidence is readable even when the identity proof below
-  # refuses. This snapshot is never used to select the release.
+  # Persist the safe file state FIRST. No Docker/HTTP read, identity proof or
+  # optional diagnostic may postpone this write. This does not select a release
+  # or claim that a running process has observed the new value.
+  if ! backup="$(atomic_set_env_var "${ENV_FILE}" "${ENV_KEY}" "false")"; then
+    capability_observe_file_state
+    capability_emergency_stop
+    emit_capability_json "close" "fail" "false" "false" "initial_write_failed,${CAP_EMERGENCY_STOP_BLOCKER}" "null" "null"
+    return 1
+  fi
+  : "${backup}"
+  capability_observe_file_state
+
+  # This is the RUNNING process state before recreate, not the env file state.
+  # Writing the file does not change existing containers' process environments.
+  # Preserve whatever evidence is readable; never use it to select the release.
   CAP_BEFORE_JSON="$(capability_state_snapshot 2>/dev/null)" || CAP_BEFORE_JSON="null"
 
   log "Resolving the exact common release already running on web+worker"
   if ! capability_resolve_running_release; then
-    # Even though no release is safe to recreate, atomically persist false so
-    # any later independently managed restart inherits the safe capability.
-    # This is deliberately still a failed job: current live processes were
-    # not recreated/read back, and no requested/main SHA is used as fallback.
-    if atomic_set_env_var "${ENV_FILE}" "${ENV_KEY}" "false" >/dev/null 2>&1; then
-      emit_capability_json "close" "fail" "false" "false" \
-        "running_release_identity_unverified,file_closed_only_live_unverified" "${CAP_BEFORE_JSON}" "null"
-    else
-      emit_capability_json "close" "fail" "false" "false" \
-        "running_release_identity_unverified,file_close_failed" "${CAP_BEFORE_JSON}" "null"
-    fi
+    # No release is safe to recreate. Stop BOTH possible provider writers
+    # without selecting an image; retain a failed/degraded outcome regardless.
+    capability_emergency_stop
+    emit_capability_json "close" "fail" "false" "false" \
+      "running_release_identity_unverified,${CAP_EMERGENCY_STOP_BLOCKER}" "${CAP_BEFORE_JSON}" "null"
     return 1
   fi
   EFFECTIVE_SHA="${CAP_RUNNING_SHA}"
 
-  log "Writing ${ENV_KEY}=false (atomic, backed up) for running release ${EFFECTIVE_SHA} — NOT gated on any DB preflight"
-  if ! backup="$(atomic_set_env_var "${ENV_FILE}" "${ENV_KEY}" "false")"; then
-    emit_capability_json "close" "fail" "false" "false" "initial_write_failed" "${CAP_BEFORE_JSON}" "null"
-    return 1
-  fi
-  : "${backup}" # recorded in the log above; the artifact only needs the outcome
-
   if capability_recreate_and_verify "false" "${EFFECTIVE_SHA}"; then
     result="pass"
   else
-    blockers="close_verify_failed"
+    capability_emergency_stop
+    blockers="close_verify_failed,${CAP_EMERGENCY_STOP_BLOCKER}"
   fi
 
   emit_capability_json "close" "${result}" "false" "false" "${blockers}" "${CAP_BEFORE_JSON}" "${CAP_AFTER_JSON}"

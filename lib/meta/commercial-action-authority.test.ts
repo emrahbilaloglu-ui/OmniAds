@@ -246,11 +246,16 @@ describe("Meta commercial action authority", () => {
         { ...ROAS_TARGETS, metaAttributedAov: sample },
       );
 
+      const reason = sample
+        ? "The Meta-attributed purchase sample is too small to support a spend change."
+        : "Meta-attributed purchase value is missing for this account and evidence cutoff.";
       expect(guarded).toMatchObject({
         decisionState: "watch",
         confidence: "medium",
         confidenceScore: 0.69,
         ...HELD_BUDGET_PRESENTATION,
+        why: reason,
+        stateReason: reason,
         signalQuality: {
           hard_action_authority: "blocked",
           hard_action_blocker: blocker,

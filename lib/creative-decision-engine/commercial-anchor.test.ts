@@ -19,8 +19,8 @@ const EMPTY_LINEAGE: CommercialAnchorLineage = {
   attributionAovAdjustmentMultiplier: null,
 };
 
-/** Mirrors the profile's own predicates so the ladder is exercised exactly as
- * production composes it: resolver -> threshold eligibility -> explanation. */
+/** Formatter scenarios. The actual profile's eligibility composition is
+ * exercised independently in account-decision-profile.test.ts. */
 function explainFromLadder(input: {
   targetCpa?: number | null;
   operatorAovAssumption?: number | null;
@@ -59,8 +59,8 @@ function explainFromLadder(input: {
     hardEligibleByDefault &&
     (confidence === "high" ||
       (confidence === "medium" && metaAovQuality === "ready"));
-  const scaleAnchorEligible = (input.targetRoas ?? 0) > 0;
-  const cutAnchorEligible = (input.breakEvenRoas ?? 0) > 0;
+  const scaleAnchorEligible = !provenanceUnverified && (input.targetRoas ?? 0) > 0;
+  const cutAnchorEligible = !provenanceUnverified && ((input.breakEvenRoas ?? 0) > 0 || scaleAnchorEligible);
   return {
     resolution,
     explanation: resolveCommercialAnchorExplanation({
@@ -442,7 +442,7 @@ describe("independent per-action gates keep their own codes", () => {
     expect(explanation.actions.refresh.eligible).toBe(true);
   });
 
-  it("a good anchor with no break-even ROAS blocks only Cut", () => {
+  it("a ready Meta anchor with Target ROAS permits Cut without a break-even target", () => {
     // RE-PINNED: the anchor is now the platform AOV rather than the Target CPA,
     // because a Target ROAS is configured. The CPA is left in place to show it
     // neither supplies nor withholds the anchor here.
@@ -453,9 +453,15 @@ describe("independent per-action gates keep their own codes", () => {
       metaAttributedAovMean90d: 60,
       metaAttributedAovPurchaseCount90d: 20,
     });
+    expect(explanation.actions.cut.eligible).toBe(true);
+    expect(explanation.actions.cut.blockerCode).toBeNull();
+    expect(explanation.actions.scale.eligible).toBe(true);
+  });
+
+  it("keeps Cut held when neither ratio is configured", () => {
+    const { explanation } = explainFromLadder({ targetCpa: 25 });
     expect(explanation.actions.cut.eligible).toBe(false);
     expect(explanation.actions.cut.blockerCode).toBe("break_even_roas_missing");
-    expect(explanation.actions.scale.eligible).toBe(true);
   });
 
   it("calibration below the floor blocks only Scale and is not an anchor problem", () => {

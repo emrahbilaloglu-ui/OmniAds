@@ -40,7 +40,7 @@ const MIGRATIONS = readFileSync("lib/migrations.ts", "utf8");
 
 /** The guard: from its lookup down to the throw. */
 const GUARD = SOURCE.slice(
-  SOURCE.indexOf("FROM meta_entity_observation_receipts"),
+  SOURCE.indexOf("const existing = await sql.query", SOURCE.indexOf("async function appendObservationCaptureReceipt")),
   SOURCE.indexOf("Observation receipt collision with a DIFFERENT occurrence"),
 );
 /*
@@ -67,29 +67,11 @@ describe("observation receipt — the occurrence key is the database's", () => {
     expect(index).not.toContain("observed_at");
   });
 
-  it("the OLD four-column identity is dropped, not kept alongside", () => {
-    /*
-      Accepting either key would pass on a database where the attempt-scoped
-      uniqueness was never created — exactly the state in which two attempts
-      silently collapse into one receipt.
-    */
-    // ROUND 17: dropped CONCURRENTLY, like every other index touched on these
-    // relations.
-    const drop = MIGRATIONS.indexOf(
-      "DROP INDEX CONCURRENTLY IF EXISTS meta_entity_observation_receipts_occurrence",
-    );
-    expect(drop).toBeGreaterThan(-1);
-    /*
-      And the drop comes after the replacement has been PROVEN VALID, not merely
-      after it was requested: `buildIndexContractQuery` raises on an invalid or
-      missing index and is unswallowed, so a failed build aborts the ordered
-      step before this line is reached.
-    */
-    const proven = MIGRATIONS.indexOf(
-      'buildIndexContractQuery({\n                indexName: "meta_entity_observation_receipts_attempt_occurrence"',
-    );
-    expect(proven).toBeGreaterThan(-1);
-    expect(proven).toBeLessThan(drop);
+  it("retains four-column uniqueness only on the legacy mirror table", () => {
+    expect(MIGRATIONS).not.toContain("DROP INDEX CONCURRENTLY IF EXISTS meta_entity_observation_receipts_occurrence");
+    expect(SOURCE).toContain("INSERT INTO meta_entity_observation_receipts_v2");
+    expect(SOURCE).toContain("ON CONFLICT (partition_id, entity_type, endpoint, captured_at) DO NOTHING");
+    expect(SOURCE).toContain("legacy.sync_run_id IS NOT DISTINCT FROM");
   });
 
   it("the guard looks the row up by exactly that key", () => {

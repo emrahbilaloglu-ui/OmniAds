@@ -2616,7 +2616,9 @@ async function syncMetaPartitionDay(input: {
 
   if (
     productCoreEligible &&
-    (forceAuthoritativeRefetch || !coverageState.productCoreComplete)
+    // A provisional day changes intraday. Raw coverage proves that it has
+    // been captured, never that its spend and conversions are still current.
+    (sourceTodayWindow || forceAuthoritativeRefetch || !coverageState.productCoreComplete)
   ) {
     const bulkResult = await captureMetaPartitionStage({
       businessId: input.businessId,

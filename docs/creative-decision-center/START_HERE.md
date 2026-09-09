@@ -2,6 +2,10 @@
 
 This is the first file future GPT/Codex/Claude chats should read before working on the Adsecute / OmniAds Creative page migration.
 
+The H5 release also includes [D096](DECISION_LOG.md#d096--additive-receipt-attempts-preserve-deployed-image-rollback-2026-09-09)
+and the [receipt rollback and index-maintenance contract](../architecture/meta-receipt-additive-rollback.md).
+Read them before changing receipt storage or executing this release's migrations.
+
 ## The current decision contract (D091, 2026-09-07) — read before anything else
 
 Everything below this section is older than this section. Where any passage in
@@ -57,13 +61,13 @@ Current version keys (verify against the constants, never against this list):
 | `D086_RETENTION_CONTRACT` | `d086.budget-readiness-retention.v13` | `lib/meta/budget-readiness-retention.ts` |
 | Native-Ad spend-unit authority | `engine-v3-native-ad-spend-unit-authority.v4` minted; `.v1`, `.v2` and `.v3` readable but NEVER authoritative | `lib/creative-decision-engine/jobs/ad-calibration-job.ts` |
 
-> **These are UNCOMMITTED CANDIDATES, not deployed values.** `git show HEAD`
-> reads `engine-v3-native-ad-calibration.v3`,
-> `engine-v3-canonical-evaluation.v5`, `engine-v3-canonical-ad-evaluation.v7`
-> and `d086.budget-readiness-retention.v9`. Everything above was minted in the
-> working tree across Rounds 6–9 and has never been committed or persisted, so
-> Round 9 amended the existing candidates in place rather than bumping past
-> them. Verify against the constants before quoting any of it.
+> **Committed code contracts; deployment requires separate evidence.** H4
+> (`5b861ad6a567743f4d880e61302f538b398a5ee3`) already contains the versions
+> listed above, including calibration `.v5`, canonical evaluation `.v9`,
+> ad evaluation `.v11` and D086 retention `.v13`. The earlier statement that
+> these were uncommitted candidates was stale. Verify constants at the exact
+> release SHA; establish deployed and persisted versions from runtime and
+> retained-row readbacks rather than inferring them from this table.
 
 > **Current authority vs historical record.** Which table a decision taken today
 > may read, and which is retained only so a past decision can be explained, are

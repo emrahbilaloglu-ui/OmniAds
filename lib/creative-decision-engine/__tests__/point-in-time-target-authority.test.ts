@@ -23,7 +23,10 @@
  */
 import { describe, expect, it } from "vitest";
 
-import { resolveNativeAdTargetAuthority } from "../jobs/ad-calibration-job";
+import {
+  mapNativeAdTargetAuthorityRow,
+  resolveNativeAdTargetAuthority,
+} from "../jobs/ad-calibration-job";
 import { deterministicCommercialCutoffMs } from "@/lib/meta/commercial-target-instant";
 import type { NativeAdTargetAuthorityInput } from "../jobs/ad-calibration-job";
 
@@ -139,6 +142,70 @@ describe("the native target authority reads the RAW clocks", () => {
       CUTOFF,
     );
     expect(resolved.status).toBe("cutoff_unsafe");
+  });
+
+  it("refuses reversed database microseconds inside one JS millisecond", () => {
+    const resolved = resolveNativeAdTargetAuthority(
+      targetRow({
+        effectiveAt: "2026-09-05T03:00:00.000900Z",
+        recordedAt: "2026-09-05T03:00:00.000100Z",
+      }),
+      "2026-09-05T03:00:00.001000Z",
+    );
+    expect(resolved.status).toBe("cutoff_unsafe");
+    expect(resolved.targetRoasAuthority).toBe(false);
+  });
+
+  it("retains reversed microseconds through the production database mapper", () => {
+    const mapped = mapNativeAdTargetAuthorityRow({
+      operation: "upsert",
+      target_roas: 2.2,
+      effective_at: "2026-09-05T03:00:00.000900Z",
+      recorded_at: "2026-09-05T03:00:00.000100Z",
+    });
+    expect(mapped.effectiveAt).toBe("2026-09-05T03:00:00.000900Z");
+    expect(mapped.recordedAt).toBe("2026-09-05T03:00:00.000100Z");
+    const resolved = resolveNativeAdTargetAuthority(mapped, "2026-09-05T03:00:00.001Z");
+    expect(resolved.status).toBe("cutoff_unsafe");
+    expect(resolved.targetRoasAuthority).toBe(false);
+    expect(() => JSON.stringify(resolved)).not.toThrow();
+  });
+
+  it("does not launder impossible database text while preserving Date compatibility", () => {
+    const mapped = mapNativeAdTargetAuthorityRow({
+      operation: "upsert",
+      effective_at: "2026-02-30T00:00:00.000Z",
+      recorded_at: new Date("2026-09-05T03:00:00.000Z"),
+    });
+    expect(mapped.effectiveAt).toBeNull();
+    expect(mapped.recordedAt).toBe("2026-09-05T03:00:00.000Z");
+  });
+
+  it("refuses a recorded microsecond after an earlier same-ms cutoff", () => {
+    const resolved = resolveNativeAdTargetAuthority(
+      targetRow({
+        effectiveAt: "2026-09-05T03:00:00.000000Z",
+        recordedAt: "2026-09-05T03:00:00.000900Z",
+      }),
+      "2026-09-05T03:00:00.000100Z",
+    );
+    expect(resolved.status).toBe("cutoff_unsafe");
+    expect(resolved.targetRoasAuthority).toBe(false);
+  });
+
+  it("accepts exact equality across timezone and fractional spellings", () => {
+    const resolved = resolveNativeAdTargetAuthority(
+      targetRow({
+        effectiveAt: "2026-09-05T05:00:00.0009+02:00",
+        recordedAt: "2026-09-05T03:00:00.000900Z",
+      }),
+      "2026-09-05T03:00:00.000900Z",
+    );
+    expect(resolved.status).toBe("fresh");
+    expect(resolved.targetRoasAuthority).toBe(true);
+    // Normalization validates and trims, but retains the source precision.
+    expect(resolved.effectiveAt).toBe("2026-09-05T05:00:00.0009+02:00");
+    expect(resolved.recordedAt).toBe("2026-09-05T03:00:00.000900Z");
   });
 
   it("throws on a cutoff that is not itself a real instant", () => {

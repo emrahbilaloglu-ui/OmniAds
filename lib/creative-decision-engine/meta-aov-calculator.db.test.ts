@@ -110,6 +110,30 @@ describe.skipIf(!SEAM)("strict Meta AOV currency binding", () => {
     });
   });
 
+  it("includes finalized facts at an exact microsecond cutoff and excludes the next microsecond", async () => {
+    const sql = getDb();
+    await sql.query(`UPDATE provider_accounts SET currency = 'USD' WHERE id = $1::uuid`, [providerAccountRefId]);
+    await sql.query(
+      `UPDATE meta_ad_daily SET finalized_at = '2026-09-05T03:00:00.000900Z'
+       WHERE business_id = $1::text AND ad_id = 'ad-aov-19'`, [BUSINESS_ID],
+    );
+    try {
+      for (const [asOf, purchaseCount] of [
+        ["2026-09-05T03:00:00.000899999Z", 19],
+        ["2026-09-05T03:00:00.000900Z", 20],
+      ] as const) {
+        await expect(computeMetaAttributedAov({
+          businessId: BUSINESS_ID, providerAccountId: ACCOUNT_ID, asOf, db: sql,
+        })).resolves.toMatchObject({ purchaseCount, totalRevenue: purchaseCount * 50 });
+      }
+    } finally {
+      await sql.query(
+        `UPDATE meta_ad_daily SET finalized_at = '2026-09-05T02:00:00Z'
+         WHERE business_id = $1::text AND ad_id = 'ad-aov-19'`, [BUSINESS_ID],
+      );
+    }
+  });
+
   it.each([
     ["missing", null],
     ["mismatch", "EUR"],

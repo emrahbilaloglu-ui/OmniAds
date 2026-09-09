@@ -2037,10 +2037,13 @@ export function buildCreativeEvidenceWindowExactViewModel(
     currencyCode(decision?.metrics.currency) ??
     currencyCode(canonical?.metrics.currency) ??
     currencyCode(input.fallbackCurrency);
-  const target = finite(
-    decision?.metrics.effectiveTargetRoas ??
-      canonical?.metrics.effectiveTargetRoas,
-  );
+  const decisionTarget = finite(decision?.metrics.effectiveTargetRoas);
+  const canonicalTarget = finite(canonical?.metrics.effectiveTargetRoas);
+  const target = decisionTarget !== null && decisionTarget > 0
+    ? decisionTarget
+    : canonicalTarget !== null && canonicalTarget > 0
+      ? canonicalTarget
+      : null;
   const tone = decisionTone(
     canonical?.classification.buyerLabel ?? decision?.publishedLabel,
   );

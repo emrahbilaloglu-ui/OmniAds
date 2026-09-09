@@ -204,7 +204,7 @@ export function projectMetaCommercialAnchorPanel(input: {
       operatorCopy: eligible
         ? null
         : blockerCode
-          ? describeCommercialAnchorBlocker(blockerCode)
+          ? describeCommercialAnchorBlocker(blockerCode, explanation.lineage)
           : (explanation.actions[action].operatorCopy ?? null),
     };
   });

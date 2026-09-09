@@ -88,6 +88,7 @@ const access = await import("@/lib/access");
 const db = await import("@/lib/db");
 const integrations = await import("@/lib/integrations");
 const writes = await import("@/lib/meta/ads-write");
+const actionLog = await import("@/lib/meta/ads-action-log");
 const { handleMetaAdsetBidAction } = await import(
   "@/lib/meta/entity-action-routes"
 );
@@ -103,6 +104,7 @@ type MetaAutomationProposal =
 const BUSINESS_ID = "172d0ab8-495b-4679-a4c6-ffa404c389d3";
 const PROPOSAL_ID = "44444444-4444-4444-8444-444444444444";
 const ADSET = "adset_1";
+const providerHasCurrentCap = async () => ({ bidAmountMinor: 1200, bidStrategy: "COST_CAP" });
 
 /** The operator's own apply-bid body: an amount, and nothing proved about it. */
 function bidRequest(body: Record<string, unknown>) {
@@ -195,6 +197,7 @@ function bidProposal(
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(actionLog.completeMetaAdsActionLog).mockResolvedValue({ id: "log_1" } as never);
   vi.mocked(access.requireBusinessAccess).mockResolvedValue({
     session: { user: { id: "user_1" } },
     membership: { businessId: "biz_1" },
@@ -254,6 +257,44 @@ describe("the apply-bid handler binds a strategy only when one was proved", () =
 });
 
 describe("an approved queue row carries its check through to the write", () => {
+  it.each(["verified", "failed"])("preserves the dispatch when a %s write cannot terminalize its log", async (outcome) => {
+    vi.mocked(writes.updateAdsetBidAmount).mockImplementationOnce(async (_ctx, input) => {
+      await input.beforeMutationAttempt?.();
+      return (outcome === "verified"
+        ? { ok: true, verifiedBidAmount: 1320, responsePayload: { success: true }, verificationPayload: { bid_amount: 1320 } }
+        : { ok: false, error: { code: "provider_error", message: "Provider refused" }, httpStatus: 400 }) as never;
+    });
+    vi.mocked(actionLog.completeMetaAdsActionLog).mockRejectedValue(new Error("terminal log unavailable"));
+    const markDispatchStarted = vi.fn(async () => true);
+    const result = await executeMetaAutomationProposal({
+      request: new NextRequest(`http://localhost/api/meta/automation/proposals?businessId=${BUSINESS_ID}`, { method: "POST" }),
+      businessId: "biz_1", proposal: bidProposal(), dryRunOnly: false,
+      readBidBaseline: providerHasCurrentCap,
+      markDispatchStarted,
+    });
+    expect(markDispatchStarted).toHaveBeenCalledOnce();
+    expect(result.ok).toBe(false);
+    expect(result.receipt).toMatchObject({ providerMutationAttempted: true, ambiguous: true, dryRun: false });
+    expect(result.receipt.response).toMatchObject({ providerOutcome: "outcome_ambiguous", retryAllowed: false });
+  });
+
+  it("does not invent a provider attempt when the durable dispatch marker is refused", async () => {
+    let posts = 0;
+    vi.mocked(writes.updateAdsetBidAmount).mockImplementationOnce(async (_ctx, input) => {
+      await input.beforeMutationAttempt?.();
+      posts++;
+      return { ok: true, verifiedBidAmount: 1320 } as never;
+    });
+    const result = await executeMetaAutomationProposal({
+      request: new NextRequest(`http://localhost/api/meta/automation/proposals?businessId=${BUSINESS_ID}`, { method: "POST" }),
+      businessId: "biz_1", proposal: bidProposal(), dryRunOnly: false,
+      readBidBaseline: providerHasCurrentCap, markDispatchStarted: async () => false,
+    });
+    expect(posts).toBe(0);
+    expect(result.receipt.providerMutationAttempted).toBe(false);
+    expect(result.receipt.ambiguous).not.toBe(true);
+  });
+
   it("binds the strategy the executor proved, in the provider's own spelling", async () => {
     /*
       The finding's own case, driven end to end: the real executor, the real

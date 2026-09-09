@@ -20,6 +20,7 @@
  */
 import { CAMPAIGN_CONTEXT_RESOLVER_VERSION } from "@/lib/creative-decision-engine/campaign-context/resolver";
 import { ENGINE_VERSION } from "@/lib/creative-decision-engine/types";
+import { META_OBSERVATION_RECEIPT_AUTHORITY_SQL } from "@/lib/meta/observation-receipt-schema";
 import {
   D086_BUDGET_ENDPOINTS,
   D086_CAPABILITY_PROBE_SQL,
@@ -486,7 +487,7 @@ export const D086_COMPLETE_RUN_SQL = `
            COALESCE(obs.partition_ok, FALSE)                        AS snapshot_partition_ok,
            COALESCE(obs.endpoint_ok, FALSE)                         AS snapshot_endpoint_ok,
            COALESCE(obs.exact_ok, FALSE)                            AS snapshot_occurrence_ok
-      FROM meta_entity_observation_receipts rc
+      FROM (${META_OBSERVATION_RECEIPT_AUTHORITY_SQL}) rc
       LEFT JOIN meta_sync_partitions part
         ON part.id = rc.partition_id
       /*

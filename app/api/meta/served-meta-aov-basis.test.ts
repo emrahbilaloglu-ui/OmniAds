@@ -21,7 +21,7 @@
  * - `observed_shopify_aov` stays a readable `SpendUnitSource` for profiles
  *   persisted while it was a rung, and is never minted again.
  */
-import { describe, expect, it } from "vitest";
+import { describe, expect, expectTypeOf, it } from "vitest";
 import { resolveAccountDecisionProfile } from "@/lib/creative-decision-engine/account-decision-profile";
 import {
   AnchorProfileDataSource,
@@ -362,12 +362,10 @@ describe("served Meta anchor is sized from the Meta platform AOV", () => {
 });
 
 describe("the retired store basis stays readable and is never re-minted", () => {
-  it("keeps observed_shopify_aov a legal persisted SpendUnitSource", () => {
-    // Profiles written while the rung existed name this basis. Dropping it from
-    // the union would make those rows unreadable, which is the migration this
-    // product does not do.
-    const persisted: SpendUnitSource = "observed_shopify_aov";
-    expect(persisted).toBe("observed_shopify_aov");
+  it("typechecks the historical store basis compatibility contract", () => {
+    // Enforced by the required tsc job. Runtime persisted-reader compatibility
+    // is tested in ad-account-decision-profile-store.test.ts.
+    expectTypeOf<Extract<SpendUnitSource, "observed_shopify_aov">>().toEqualTypeOf<"observed_shopify_aov">();
   });
 
   it("never chooses it, for any combination of the inputs that used to", () => {

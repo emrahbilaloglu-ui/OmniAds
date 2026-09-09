@@ -527,12 +527,13 @@ function readProviderCodes(error: unknown): {
     source;
   const numeric = (value: unknown): number | null =>
     typeof value === "number" && Number.isFinite(value) ? value : null;
-  const fbtrace = envelope?.fbtrace_id;
+  const fbtrace = envelope?.fbtrace_id ?? source.fbtraceId;
+  const transient = envelope?.is_transient ?? source.isTransient;
   return {
-    code: numeric(envelope?.code),
-    subcode: numeric(envelope?.error_subcode),
+    code: numeric(envelope?.code ?? source.errorCode),
+    subcode: numeric(envelope?.error_subcode ?? source.errorSubcode),
     transient:
-      typeof envelope?.is_transient === "boolean" ? envelope.is_transient : null,
+      typeof transient === "boolean" ? transient : null,
     // An identifier, not prose: bounded and character-checked so a provider
     // cannot smuggle a sentence through it.
     fbtraceId:

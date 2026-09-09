@@ -11,16 +11,17 @@
  * The rules pinned here, against the migration source rather than against a
  * preference:
  *
- *   - each of the four is built CONCURRENTLY;
+ *   - each required index is built CONCURRENTLY;
  *   - each build is preceded by the invalid/mismatched-index repair, because
  *     an interrupted CONCURRENTLY build leaves an index that EXISTS, is named
  *     correctly and is INVALID — and `IF NOT EXISTS` matches on name only;
  *   - each build is followed by an UNSWALLOWED validity assertion, so a
  *     migration cannot report success with an unusable index;
- *   - the old occurrence index is dropped only AFTER the new UNIQUE one has
- *     been proven valid, so uniqueness is never briefly absent.
+ *   - the old image retains its arbiter on a separate table, while v2 proves
+ *     attempt-scoped uniqueness without constraining distinct attempts.
  */
 import { readFileSync } from "node:fs";
+import ts from "typescript";
 import { describe, expect, it } from "vitest";
 
 const MIGRATIONS = readFileSync("lib/migrations.ts", "utf8");
@@ -28,9 +29,27 @@ const MIGRATIONS = readFileSync("lib/migrations.ts", "utf8");
 const CONCURRENT_INDEXES = [
   "idx_meta_entity_state_history_manifest_delta",
   "meta_entity_observation_receipts_attempt_occurrence",
+  "meta_entity_observation_receipts_occurrence",
   "idx_meta_entity_observation_receipts_freshness_v2",
   "idx_meta_entity_observation_receipts_cohort_v2",
 ] as const;
+
+function assertionStep(source: string, indexName: string): ts.ArrowFunction {
+  const tree = ts.createSourceFile("migrations.ts", source, ts.ScriptTarget.Latest, true);
+  let found: ts.ArrowFunction | undefined;
+  const visit = (node: ts.Node) => {
+    if (ts.isCallExpression(node) && node.expression.getText(tree) === "buildIndexContractQuery"
+      && node.arguments[0]?.getText(tree).includes(`indexName: "${indexName}"`)) {
+      let parent: ts.Node = node;
+      while (!ts.isArrowFunction(parent) && parent.parent) parent = parent.parent;
+      if (ts.isArrowFunction(parent)) found = parent;
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(tree);
+  if (!found) throw new Error(`No ordered assertion step for ${indexName}`);
+  return found;
+}
 
 describe("the Round 15/17 indexes are built without an exclusive lock", () => {
   it.each(CONCURRENT_INDEXES)("builds %s CONCURRENTLY", (indexName) => {
@@ -62,21 +81,10 @@ describe("the Round 15/17 indexes are built without an exclusive lock", () => {
     expect(build).toBeLessThan(contract);
   });
 
-  it("drops the old occurrence index only AFTER the new one is proven valid", () => {
-    /*
-      The ordering that keeps uniqueness continuous. `buildIndexContractQuery`
-      RAISES on an invalid or missing index and is deliberately unswallowed, so
-      a failed build aborts the ordered step and the drop below never runs.
-    */
-    const contract = MIGRATIONS.indexOf(
-      `buildIndexContractQuery({\n                indexName: "meta_entity_observation_receipts_attempt_occurrence"`,
-    );
-    const drop = MIGRATIONS.indexOf(
-      "DROP INDEX CONCURRENTLY IF EXISTS meta_entity_observation_receipts_occurrence",
-    );
-    expect(contract).toBeGreaterThan(-1);
-    expect(drop).toBeGreaterThan(-1);
-    expect(contract).toBeLessThan(drop);
+  it("retains the old-image arbiter on its own table", () => {
+    expect(MIGRATIONS).not.toContain("DROP INDEX CONCURRENTLY IF EXISTS meta_entity_observation_receipts_occurrence");
+    expect(MIGRATIONS).toContain("ON meta_entity_observation_receipts_v2");
+    expect(MIGRATIONS).toContain("ON meta_entity_observation_receipts (partition_id, entity_type, endpoint, captured_at)");
   });
 
   it("does not swallow the validity assertions", () => {
@@ -87,13 +95,15 @@ describe("the Round 15/17 indexes are built without an exclusive lock", () => {
       success with an index PostgreSQL will never use.
     */
     for (const indexName of CONCURRENT_INDEXES) {
-      const at = MIGRATIONS.indexOf(
-        `buildIndexContractQuery({\n                indexName: "${indexName}"`,
-      );
-      // Scoped to the assertion's OWN call, not to whatever follows it: the
-      // next statement is legitimately a swallowed concurrent DROP.
-      const call = MIGRATIONS.slice(at, MIGRATIONS.indexOf("}),", at) + 3);
-      expect(call, indexName).not.toContain(".catch(");
+      expect(assertionStep(MIGRATIONS, indexName).body.getText(), indexName).not.toContain(".catch(");
+    }
+  });
+
+  it("detects a swallowed OUTER query, including a mutation after the config object", () => {
+    for (const indexName of CONCURRENT_INDEXES) {
+      const step = assertionStep(MIGRATIONS, indexName);
+      const mutated = MIGRATIONS.slice(0, step.body.end) + ".catch(() => {})" + MIGRATIONS.slice(step.body.end);
+      expect(assertionStep(mutated, indexName).body.getText(), indexName).toContain(".catch(");
     }
   });
 

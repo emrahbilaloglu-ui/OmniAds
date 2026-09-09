@@ -8773,6 +8773,11 @@ catalogs state that result and render no inert choice. Account changes preserve
 the evidence window but remove stale row, handoff, draft, filter, and entity
 state before any new account-scoped read.
 
+**H5 recovery amendment (2026-09-09).** Canonical Decisions and Automation
+use the shared selector when its feature gate is enabled and expose the local
+account selector when it is disabled. A gated topbar must not leave the operator
+without a working account-selection path.
+
 **Provider-read consequence.** Optional schedule fields may be removed only
 after Meta returns a non-transient Graph code `100` error in the exact
 nonexisting-field shape and names a field the caller declared optional. A 429,
@@ -8813,3 +8818,30 @@ The evaluation envelope and lifecycle receipt shape are unchanged.
 **Rollback.** Reverting this change can re-authorize Refresh from an
 uncorroborated legacy denominator. It writes no database row and changes no
 provider authority directly.
+
+## D096 — Additive receipt attempts preserve deployed-image rollback (2026-09-09)
+
+**Decision.** Keep the deployed image's four-column receipt arbiter and ranked
+indexes on the legacy table. Store attempt-scoped occurrences in a separate v2
+table and mirror the first capture into legacy in the same observation
+transaction. The authority union deduplicates the shared UUID; old-image
+occurrences, including NULL-attempt retries, retain their original evidence and
+contradiction checks. Never enforce the four- and five-column uniqueness rules
+on one table: the former rejects valid distinct attempts admitted by the latter.
+
+**Rollback.** The unchanged deployed writer and migration remain usable without
+a bridge image or destructive rollback SQL. Old → new → old → new behavior is
+proven using the deployed source against real PostgreSQL, while the schema
+upgrade seam preserves a legacy receipt's bytes and relfilenode. No receipt is
+backfilled, deleted or assigned invented sync provenance. Historical ranked
+indexes remain intentionally; current catalog authority checks the physical
+legacy arbiter and the separate v2 indexes.
+
+**Capacity.** The 6 GiB state-history ceiling and the 160 GiB database aggregate
+ceiling stay fixed. Index growth is measured before and after the build. An
+explicit migration-only maintenance contract may build the required index while
+the real SOURCE fence is already closed and fresh physical capacity passes;
+it cannot enable SOURCE or excuse a newly exceeded budget. Deploy the bounded
+writer with the fence closed, then perform measured concurrent reindex recovery
+and readback. Details and local proof limits are in
+[the rollback contract](../architecture/meta-receipt-additive-rollback.md).

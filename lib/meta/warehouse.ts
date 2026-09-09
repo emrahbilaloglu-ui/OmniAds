@@ -5503,7 +5503,11 @@ export async function upsertMetaSyncCheckpoint(input: MetaSyncCheckpointRecord) 
       lease_epoch = EXCLUDED.lease_epoch,
       lease_owner = EXCLUDED.lease_owner,
       lease_expires_at = EXCLUDED.lease_expires_at,
-      started_at = COALESCE(meta_sync_checkpoints.started_at, EXCLUDED.started_at, now()),
+      started_at = CASE
+        WHEN meta_sync_checkpoints.run_id IS DISTINCT FROM EXCLUDED.run_id
+          THEN COALESCE(EXCLUDED.started_at, now())
+        ELSE COALESCE(meta_sync_checkpoints.started_at, EXCLUDED.started_at, now())
+      END,
       finished_at = EXCLUDED.finished_at,
       updated_at = now()
     WHERE EXISTS (SELECT 1 FROM owner_guard)
@@ -5589,7 +5593,11 @@ export async function upsertMetaSyncPhaseTiming(input: MetaSyncPhaseTimingRecord
       lease_epoch = EXCLUDED.lease_epoch,
       lease_owner = EXCLUDED.lease_owner,
       lease_expires_at = EXCLUDED.lease_expires_at,
-      started_at = COALESCE(meta_sync_phase_timings.started_at, EXCLUDED.started_at, now()),
+      started_at = CASE
+        WHEN meta_sync_phase_timings.run_id IS DISTINCT FROM EXCLUDED.run_id
+          THEN COALESCE(EXCLUDED.started_at, now())
+        ELSE COALESCE(meta_sync_phase_timings.started_at, EXCLUDED.started_at, now())
+      END,
       finished_at = EXCLUDED.finished_at,
       updated_at = now()
     WHERE EXISTS (SELECT 1 FROM owner_guard)
@@ -5868,7 +5876,8 @@ export async function listMetaSyncPhaseTimingSummariesByBusiness(input: {
 export async function getMetaSyncCheckpoint(input: {
   partitionId: string;
   checkpointScope: string;
-  runId: string;
+  /** Omit only to resolve the durable current capture from its checkpoint slot. */
+  runId?: string;
 }) {
   await assertMetaMutationTablesReady("meta_warehouse");
   const sql = getDb();
@@ -5877,7 +5886,7 @@ export async function getMetaSyncCheckpoint(input: {
     FROM meta_sync_checkpoints
     WHERE partition_id = ${input.partitionId}
       AND checkpoint_scope = ${input.checkpointScope}
-      AND run_id = ${input.runId}
+      AND (${input.runId ?? null}::text IS NULL OR run_id = ${input.runId ?? null})
     LIMIT 1
   ` as Array<Record<string, unknown>>;
   const row = rows[0];

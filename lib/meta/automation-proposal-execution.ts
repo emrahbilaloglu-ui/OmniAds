@@ -426,20 +426,22 @@ export async function executeMetaAutomationProposal(input: {
         }),
       },
     );
+    let bidMutationBoundaryReached = false;
     const bidResponse = await handleMetaAdsetBidAction(bidRequest, {
       params: Promise.resolve({ adsetId: proposal.scopeId }),
     }, {
-      beforeMutationAttempt: input.markDispatchStarted
-        ? async () => {
-            const marked = await input.markDispatchStarted!();
-            if (!marked) {
-              throw {
-                code: "proposal_claim_lost",
-                message: "The proposal claim could not be marked before the provider write.",
-              };
-            }
+      beforeMutationAttempt: async () => {
+        if (input.markDispatchStarted) {
+          const marked = await input.markDispatchStarted();
+          if (!marked) {
+            throw {
+              code: "proposal_claim_lost",
+              message: "The proposal claim could not be marked before the provider write.",
+            };
           }
-        : undefined,
+        }
+        bidMutationBoundaryReached = true;
+      },
     });
     const bidPayload = (await bidResponse.json().catch(() => null)) as unknown;
     const bidPayloadRecord = bidPayload !== null
@@ -454,11 +456,13 @@ export async function executeMetaAutomationProposal(input: {
       : null;
     const ambiguous =
       bidPayloadRecord?.providerOutcome === "outcome_ambiguous"
-      || bidError?.code === "provider_outcome_ambiguous";
+      || bidError?.code === "provider_outcome_ambiguous"
+      || (bidMutationBoundaryReached && bidResponse.status >= 500
+        && bidPayloadRecord?.providerOutcome == null);
     const actualDryRun = input.dryRunOnly || bidPayloadRecord?.dryRun === true;
     const providerMutationAttempted = actualDryRun
       ? false
-      : ambiguous
+      : bidMutationBoundaryReached || ambiguous
         || bidPayloadRecord?.ok === true
         || (
           bidPayloadRecord?.mutationAttempt !== null

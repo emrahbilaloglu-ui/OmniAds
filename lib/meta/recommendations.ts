@@ -48,7 +48,6 @@ import {
   type MetaFunnelCohort,
 } from "@/lib/meta/funnel-cohort";
 import {
-  metaCanonicalSpendUnit,
   metaRelativeCutRoasCeiling,
   metaLossBudgetMaturity,
   metaScaleRoasFloor,
@@ -620,6 +619,27 @@ function localizeMetaRecommendation(recommendation: MetaRecommendation, language
             : "Mevcut performans hem kisa hem uzun vadeli bazin altında. Bu yalnızca normal sezonsallik değil, daha geniş bir zayıflamaya isaret ediyor."
         : recommendation.timeframeContext.note,
   };
+
+  if (commercialAuthorityBlocked && recommendation.type !== "budget_allocation") {
+    const blocker = recommendation.signalQuality?.hard_action_blocker;
+    const reason = blocker === "commercial_anchor_missing"
+      ? "Bu hesap ve dönem için Meta’ya atfedilen satın alma değeri eksik."
+      : blocker === "commercial_anchor_sample_insufficient"
+        ? "Meta’ya atfedilen satın alma örneklemi harcama değişikliği için yetersiz."
+        : "Bu hesap ve dönem için gerekli ticari hedef veya kanıt henüz doğrulanmamış.";
+    return {
+      ...recommendation,
+      decision: "Bekle: eksik kanıt tamamlanmalı",
+      title: "Harcama değişikliği beklemede",
+      why: reason,
+      summary: "Performans inceleme için görünür kalır. Eksik kanıt tamamlanana kadar mevcut harcamayı koruyun.",
+      recommendedAction: "Eksik kanıtı tamamladıktan sonra yeniden değerlendirin. Mevcut harcamayı değiştirmeyin.",
+      expectedImpact: "Yetersiz kanıta dayanan harcama değişikliğini önler ve adayı inceleme için korur.",
+      stateReason: reason,
+      evidence: localizedEvidence,
+      timeframeContext: localizedTimeframe,
+    };
+  }
 
   switch (recommendation.type) {
     case "geo_cluster_for_signal_density":
@@ -3085,8 +3105,9 @@ function maybeVolumeScaleRecommendation(
     What remains is the relative ROAS gate (`scaleRoasThreshold`, unchanged)
     and the AUTHORITY itself. The canonical unit's job here is to exist: a
     Target ROAS with a ready Meta-attributed AOV is what makes a purchase-value
-    budget increase decidable at all, and its absence is a hold, so no Scale is
-    produced.
+    budget increase decidable at all. Missing authority is applied by the
+    shared commercial boundary below, preserving this qualified candidate as
+    an explicit Hold instead of silently deleting it.
 
     It is deliberately NOT re-used as an entity-level CPA ceiling. The unit is
     an ACCOUNT allowance — the account's own attributed AOV over its Target
@@ -3097,8 +3118,6 @@ function maybeVolumeScaleRecommendation(
     gate above is the AOV-independent test, and it is the one that answers
     "is this campaign meeting the commercial target".
   */
-  const canonicalUnit = metaCanonicalSpendUnit(commercialTargets);
-  if (canonicalUnit === null) return null;
   if (row.status !== "ACTIVE") return null;
   if (core.purchases < 10) return null;
   if (core.roas < scaleRoasThreshold) return null;
@@ -3226,10 +3245,12 @@ function maybeProfitabilityRecommendation(
   /*
     HOLD ON A MISSING OR THIN SAMPLE. `metaLossBudgetMaturity` answers null
     under a governing Target ROAS for exactly one reason — no READY Meta AOV —
-    and this early return is what turns that into no recommendation rather than
-    a spend action sized from something else.
+    and the shared commercial boundary preserves a ratio-qualified candidate
+    as Hold. No alternative money unit may establish maturity in that case.
   */
-  if (!maturity || core.spend < maturity.spendThreshold) return null;
+  if (!maturity && !targetRoasGoverns) return null;
+  if (maturity && core.spend < maturity.spendThreshold) return null;
+  if (core.spend <= 0) return null;
   const weakRoasThreshold = calibrationContext
     ? roasThresholds.p25
     : Math.max(1.6, peerRoas * 0.8);
@@ -3243,7 +3264,8 @@ function maybeProfitabilityRecommendation(
   const seasonality = seasonalitySignal(window);
   const decision = conservativeDecision(support.supportCount, support.total, seasonality.flag);
   const severeLoser =
-    core.roas < Math.min(roasThresholds.p10, cutCeiling) && core.spend >= maturity.spendThreshold;
+    maturity !== null && core.roas < Math.min(roasThresholds.p10, cutCeiling)
+    && core.spend >= maturity.spendThreshold;
   return applyConfidence({
     id: `profit-${row.id}`,
     level: "campaign",
@@ -3267,7 +3289,7 @@ function maybeProfitabilityRecommendation(
       { label: "Spend share", value: `${r2(spendShare * 100)}%`, tone: "warning" },
       { label: "Core ROAS", value: fmtRoas(core.roas), tone: "warning" },
       { label: "Peer-group ROAS", value: fmtRoas(peerRoas), tone: "neutral" },
-      { label: "Loss maturity spend", value: fmtCurrency(maturity.spendThreshold, row.currency), tone: "neutral" },
+      ...(maturity ? [{ label: "Loss maturity spend", value: fmtCurrency(maturity.spendThreshold, row.currency), tone: "neutral" as const }] : []),
       ...commercialTargetEvidence(commercialTargets, row.currency),
     ],
     timeframeContext: buildTimeframeContext(

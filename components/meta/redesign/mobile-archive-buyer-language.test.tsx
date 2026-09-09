@@ -23,19 +23,22 @@
  * subtree, and the shared `INTERNAL_VOCABULARY` list is absent from it.
  */
 import React from "react";
-import { cleanup, render, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { INTERNAL_VOCABULARY } from "@/lib/meta/buyer-copy";
+import { INTERNAL_VOCABULARY, SPEND_EXECUTION_INSTRUCTIONS } from "@/lib/meta/buyer-copy";
 
 const state: {
   search: string;
   pathname: string;
   workspace: Record<string, unknown> | null;
-} = { search: "window=28d&lane=archive", pathname: "/platforms/meta", workspace: null };
+  accounts: { id: string; name: string; currency: string; timezone: string }[];
+} = { search: "window=28d&lane=archive", pathname: "/platforms/meta", workspace: null, accounts: [] };
+
+const router = { push: vi.fn(), replace: vi.fn() };
 
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
+  useRouter: () => router,
   usePathname: () => state.pathname,
   useSearchParams: () => new URLSearchParams(state.search),
 }));
@@ -54,7 +57,7 @@ vi.mock("@tanstack/react-query", () => ({
       key === "meta-decisions-workspace"
         ? state.workspace
         : key === "meta-provider-accounts"
-          ? [{ id: "act_1", name: "Main Meta", currency: "USD", timezone: "UTC" }]
+          ? state.accounts
           : key === "meta-anomalies"
             ? { anomalies: [], snapshotDate: "2026-08-16", count: 0 }
             : null;
@@ -106,6 +109,69 @@ function inactiveAd() {
     metrics: { spend: 699.34, purchases: 2, roas: 1.1 },
   };
 }
+
+function blockedAd(held: boolean) {
+  return {
+    id: "os_ad_1",
+    decisionId: "decision_1",
+    sourceSnapshotId: "snapshot_1",
+    episodeId: "episode_1",
+    providerAccountId: "act_1",
+    adId: "ad_1",
+    adName: "Server Creative",
+    campaignId: "cmp_1",
+    campaignName: "Server Campaign",
+    adsetId: "set_1",
+    adsetName: "Server Ad set",
+    creativeId: "creative_1",
+    creativeName: "Server Creative",
+    thumbnailUrl: null,
+    lifecycleRole: "main",
+    campaignRoleSource: "automatic",
+    campaignRoleConfidence: "high",
+    campaignRoleTrustedForAction: true,
+    action: {
+      code: "refresh_decision_data",
+      label: "Refresh decision data",
+      intent: "review",
+      targetLevel: "ad",
+      providerMutation: null,
+      scopeNote: "Review only.",
+    },
+    lane: "blocked",
+    priority: { band: "high", rank: 100, version: "meta-os-decisions.presentation.v5" },
+    assessment: "Server creative assessment",
+    confidence: "low",
+    confidenceScore: 0.2,
+    riskTier: "high",
+    confirmationCeremony: "highest",
+    whyNow: "Server creative why now",
+    blockers: [],
+    resolution: null,
+    heldAction: held ? "refresh" : null,
+    heldResolution: held ? { code: "commercial_target_missing" } : null,
+    metrics: {
+      spend: 725,
+      purchases: 18,
+      roas: 3.8,
+      cpa: null,
+      ctr: null,
+      frequency: null,
+      effectiveTargetRoas: 3.1,
+      ratioToTarget: 1.23,
+      currency: "USD",
+      attribution: "meta_attributed",
+      grain: "ad",
+    },
+    rawLabel: "refresh",
+    publishedLabel: "keep",
+    engineVersion: "server-engine-v1",
+    snapshotAsOf: "2026-08-16",
+    sourceGrain: "ad",
+    decisionAvailability: "available",
+  };
+}
+
 
 function workspacePayload() {
   return {
@@ -225,8 +291,10 @@ function workspacePayload() {
 
 afterEach(cleanup);
 beforeEach(() => {
+  vi.clearAllMocks();
   state.search = "window=28d&lane=archive";
   state.workspace = workspacePayload();
+  state.accounts = [{ id: "act_1", name: "Main Meta", currency: "USD", timezone: "UTC" }];
 });
 
 /** The mobile subtree, and only it. The desktop tree is a sibling in the DOM. */
@@ -281,5 +349,52 @@ describe("the mobile Archive row states why the ad is not in Action now", () => 
         raw.toLowerCase().includes(term.toLowerCase()),
       ),
     ).not.toHaveLength(0);
+  });
+});
+
+
+describe("mobile blocked creative copy and account recovery", () => {
+  it.each([false, true])("states the blocked next step once when held=%s and offers no spend instruction", async (held) => {
+    const payload = workspacePayload();
+    const decision = blockedAd(held);
+    // Upstream prose is deliberately unsafe; the served blocker/action codes
+    // choose the buyer sentence, and no instruction may leak through it.
+    decision.whyNow = "Increase budget. Bütçeyi kademeli artırın.";
+    payload.os.ads.items = [decision] as never;
+    state.workspace = payload;
+    state.search = "window=28d&scope=creatives&lane=needsres";
+    const { MetaPlatformPage } = await import("./MetaPlatformPage");
+    render(<MetaPlatformPage businessId="biz_1" businessName="TheSwaf" />);
+    const row = document.querySelector('[data-testid="meta-mobile-decisions"] [data-mobile-row-id="os_ad_1"]');
+    expect(row).toBeTruthy();
+    const nextStep = row!.querySelector(held ? '[data-mobile-held-next-step]' : '[data-mobile-blocked-note]');
+    expect(nextStep?.textContent?.trim()).toBeTruthy();
+    const desktopRow = document.querySelector('[data-meta-exact-creative-row="os_ad_1"]');
+    expect(desktopRow?.textContent).toContain(nextStep!.textContent);
+    if (held) expect(row!.querySelector('[data-mobile-blocked-note]')).toBeNull();
+    const text = row!.textContent!.toLowerCase();
+    for (const instruction of SPEND_EXECUTION_INSTRUCTIONS) expect(text).not.toContain(instruction);
+    for (const button of within(row as HTMLElement).queryAllByRole("button")) {
+      expect(button.textContent).not.toMatch(/^(apply|pause|scale|cut|increase|reduce|duraklat|kapat)\b/i);
+    }
+  });
+
+  it("keeps a working local account picker in desktop and mobile recovery", async () => {
+    state.accounts.push({ id: "act_2", name: "Second Meta", currency: "EUR", timezone: "UTC" });
+    state.search = "window=28d";
+    const { MetaPlatformPage } = await import("./MetaPlatformPage");
+    const mounted = render(<MetaPlatformPage businessId="biz_1" businessName="TheSwaf" accountSelection="local" />);
+    const desktop = document.querySelector('[data-testid="meta-os-decisions"]') as HTMLElement;
+    const mobile = document.querySelector('[data-testid="meta-mobile-decisions"]') as HTMLElement;
+    for (const stage of [desktop, mobile]) {
+      const picker = within(stage).getByRole("combobox", { name: /^Meta ad account/ });
+      expect(within(picker).getAllByRole("option")).toHaveLength(3);
+    }
+    fireEvent.change(within(mobile).getByRole("combobox", { name: /^Meta ad account/ }), { target: { value: "act_2" } });
+    const destination = router.replace.mock.calls.at(-1)?.[0] as string;
+    expect(destination).toContain("providerAccountId=act_2");
+    state.search = destination.split("?")[1]!;
+    mounted.rerender(<MetaPlatformPage businessId="biz_1" businessName="TheSwaf" accountSelection="local" />);
+    expect(document.querySelector('[data-testid="meta-account-required"]')).toBeNull();
   });
 });

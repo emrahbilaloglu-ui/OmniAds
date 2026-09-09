@@ -135,3 +135,21 @@ describe("the creative evidence drawer states the held verdict", () => {
     ).toBeNull();
   });
 });
+
+
+describe("the evidence drawer has no invented commercial target", () => {
+  it.each([0, -2, null])("does not resurrect canonical target %s", (target) => {
+    const decision = heldRefreshDecision({ metrics: { spend: 100, purchases: 2, roas: 1.2, effectiveTargetRoas: null } });
+    const model = metaBuyerCreativeEvidenceViewModel(buildCreativeEvidenceWindowExactViewModel({
+      decision,
+      canonical: {
+        metrics: { effectiveTargetRoas: target },
+        classification: { buyerLabel: "Keep", blockers: [] },
+        parentChain: {}, sourceDecision: {}, media: { thumbnail: { state: "unavailable" } },
+      } as never,
+    }), null);
+    const { container } = render(<CreativeEvidenceWindowExact viewModel={model} onClose={() => {}} />);
+    expect(container.textContent).not.toMatch(/vs\s+[0-9.-]+\s+target/i);
+    expect(container.textContent).toContain("Held Ad");
+  });
+});

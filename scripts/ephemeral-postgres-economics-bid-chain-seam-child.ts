@@ -1476,7 +1476,7 @@ async function publishSlices() {
  *
  * `readMeasuredBudgetHistory` does not read `meta_entity_state_history` on its
  * own: it first attests a COMPLETE capture run from
- * `meta_entity_observation_receipts`, whose cohort has to name a real
+ * `meta_entity_observation_receipts_v2`, whose cohort has to name a real
  * `meta_sync_partitions` row and a real raw snapshot, and then requires the
  * present entity identities to be exactly the run's members. A fixture that
  * INSERTed state rows by hand satisfied none of that, so the history read

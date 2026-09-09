@@ -104,6 +104,18 @@ describe("with a governing Target ROAS", () => {
     });
   });
 
+  it("marks a same-ms future microsecond unknown at the exact identity cutoff", () => {
+    const projected = projectCommercialTargetPackForIdentity(
+      {
+        ...governed,
+        updatedAt: "2026-09-05T03:00:00.000900Z",
+        freshness: "fresh",
+      },
+      "2026-09-05T03:00:00.000100Z",
+    );
+    expect(projected).toMatchObject({ targetProvenanceTrusted: "unknown" });
+  });
+
   it.each([
     ["stale", { updatedAt: "2026-09-01T00:00:00.000Z", freshness: "stale" }, "stale"],
     ["unknown freshness", { updatedAt: "2026-09-01T00:00:00.000Z", freshness: "unknown" }, "unknown"],

@@ -13,6 +13,7 @@
  * - Historical snapshot analysis for AI/recommendations lives outside this module.
  */
 
+import { randomUUID } from "node:crypto";
 import { parseMetaLinkClicksFromActions } from "@/lib/meta/link-click-parse";
 import { sanitizeMetaGraphTraceId } from "@/lib/meta/graph-trace-id";
 import { formatMetaFailureForStorage } from "@/lib/sync/meta-error-classification";
@@ -3818,8 +3819,9 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
   sourceRunId?: string | null;
   /**
    * ROUND 14: the real `meta_sync_runs.id` for this attempt, distinct from
-   * `sourceRunId` (which defaults to the partition id and correlates
-   * OBSERVATION runs). Threaded from `processMetaPartition`.
+   * the raw capture identity (a durable UUID for current-day core captures;
+   * otherwise `sourceRunId` defaults to the partition id). Threaded from
+   * `processMetaPartition` and never substituted by the capture UUID.
    */
   syncRunId?: string | null;
   /**
@@ -3873,7 +3875,10 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
     truthState === "finalized" ? new Date().toISOString() : null;
   const validationStatus: MetaWarehouseValidationStatus =
     truthState === "finalized" ? "passed" : "pending";
-  const sourceRunId = input.sourceRunId ?? input.partitionId;
+  // Derived checkpoint consumers still use the partition/source identity.
+  // Only the core capture lifecycle rotates after a completed current-day read.
+  const derivedSourceRunId = input.sourceRunId ?? input.partitionId;
+  let sourceRunId = derivedSourceRunId;
   const authoritativeFinalizationV2Enabled =
     truthState === "finalized" &&
     isMetaAuthoritativeFinalizationV2EnabledForBusiness(
@@ -3887,13 +3892,46 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
   if (input.freshStart) {
     await resetMetaPartitionFreshState(input.partitionId);
   }
-  const checkpoint = input.freshStart
+  const refreshCurrentDay =
+    truthState === "provisional" && normalizedDay === accountToday;
+  const delayedTodayFinalization =
+    truthState === "finalized" && normalizedDay < accountToday &&
+    (input.source === "today" || input.source === "today_observe");
+  const captureScopedCheckpoint = refreshCurrentDay || delayedTodayFinalization;
+  const captureTruthStateKey = "__adsecute_capture_truth_state";
+  let checkpoint = input.freshStart
     ? null
     : await getMetaSyncCheckpoint({
         partitionId: input.partitionId,
         checkpointScope,
-        runId: sourceRunId,
+        // The checkpoint slot owns the current capture identity. An unfinished
+        // capture may span multiple sync attempts, each with a different ID.
+        runId: captureScopedCheckpoint ? undefined : sourceRunId,
       });
+  if (captureScopedCheckpoint) {
+    if (
+      !checkpoint ||
+      (refreshCurrentDay && checkpoint.phase === "finalize" && checkpoint.status === "succeeded") ||
+      // An old today job may run after midnight without the planner having
+      // changed its source. Intraday evidence cannot finalize yesterday. The
+      // marker is persisted before Graph so a retry of this finalized capture
+      // resumes it, while legacy/unmarked or provisional captures stay intact.
+      (delayedTodayFinalization && checkpoint.lastResponseHeaders?.[captureTruthStateKey] !== "finalized")
+    ) {
+      // Persisted below before Graph is reached. A crash before the first page
+      // therefore resumes this empty capture, never pages from the prior one.
+      // Raw content and every earlier receipt remain available for lineage.
+      sourceRunId = randomUUID();
+      checkpoint = null;
+    } else {
+      if (!checkpoint.runId) throw new Error("meta_core_capture_run_id_missing");
+      sourceRunId = checkpoint.runId;
+    }
+  }
+  const checkpointHeaders = {
+    ...checkpoint?.lastResponseHeaders,
+    ...(captureScopedCheckpoint ? { [captureTruthStateKey]: truthState } : {}),
+  };
   let restoredPages: Awaited<ReturnType<typeof listMetaRawSnapshotsForRun>> =
     [];
   const aggregates = {
@@ -4002,7 +4040,7 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
   // landed, so following it would skip that page's rows without any error.
   // The last durable page's cursor is the one that re-fetches the gap.
   let nextPageUrl: string | null = restoreState.rewoundToDurableFrontier
-    ? restoreState.resumeCursor
+    ? (restoredPages.length === 0 ? initialPageUrl : restoreState.resumeCursor)
     : resolveMetaRawSnapshotFetchUrl({
         checkpoint,
         initialPageUrl,
@@ -4046,18 +4084,13 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
     status: "running",
     pageIndex,
     nextPageUrl,
-    providerCursor: checkpoint?.providerCursor ?? null,
-    rowsFetched:
-      checkpoint?.rowsFetched ??
-      restoredPages.reduce((sum, page) => {
-        const payload = Array.isArray(page.payload_json)
-          ? page.payload_json.length
-          : 0;
-        return sum + payload;
-      }, 0),
+    providerCursor: restoreState.rewoundToDurableFrontier
+      ? (restoredPages.at(-1)?.provider_cursor ?? null)
+      : (checkpoint?.providerCursor ?? null),
+    rowsFetched: rowsFetchedTotal,
     rowsWritten: 0,
     lastSuccessfulEntityKey: checkpoint?.lastSuccessfulEntityKey ?? null,
-    lastResponseHeaders: checkpoint?.lastResponseHeaders ?? {},
+    lastResponseHeaders: checkpointHeaders,
     attemptCount: input.attemptCount,
     leaseEpoch: input.leaseEpoch,
     leaseOwner: input.workerId,
@@ -4160,6 +4193,7 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
             rows.at(-1)?.campaign_id ??
             null,
           lastResponseHeaders: {
+            ...checkpointHeaders,
             "x-business-use-case-usage": usageSummary.raw,
           },
           checkpointHash: buildMetaSyncCheckpointHash({
@@ -4173,7 +4207,7 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
           attemptCount: input.attemptCount,
           leaseEpoch: input.leaseEpoch,
           leaseOwner: input.workerId,
-          startedAt: checkpoint?.startedAt ?? new Date().toISOString(),
+          startedAt: coreCheckpointStartedAt,
         });
         await upsertOwnedMetaPhaseTimingOrThrow({
           partitionId: input.partitionId,
@@ -5209,7 +5243,7 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
       adsetRows.at(-1)?.adsetId ??
       campaignRows.at(-1)?.campaignId ??
       null,
-    lastResponseHeaders: checkpoint?.lastResponseHeaders ?? {},
+    lastResponseHeaders: checkpointHeaders,
     attemptCount: input.attemptCount,
     leaseEpoch: input.leaseEpoch,
     leaseOwner: input.workerId,
@@ -5834,17 +5868,17 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
           getMetaSyncCheckpoint({
             partitionId: input.partitionId,
             checkpointScope: "account_daily",
-            runId: sourceRunId,
+            runId: derivedSourceRunId,
           }),
           getMetaSyncCheckpoint({
             partitionId: input.partitionId,
             checkpointScope: "adset_daily",
-            runId: sourceRunId,
+            runId: derivedSourceRunId,
           }),
           getMetaSyncCheckpoint({
             partitionId: input.partitionId,
             checkpointScope: "ad_daily",
-            runId: sourceRunId,
+            runId: derivedSourceRunId,
           }),
         ]);
 
@@ -5861,7 +5895,7 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
           businessId: input.credentials.businessId,
           providerAccountId: input.accountId,
           checkpointScope: "account_daily",
-          runId: sourceRunId,
+          runId: derivedSourceRunId,
           phase: "finalize",
           status: "succeeded",
           pageIndex,
@@ -5870,7 +5904,7 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
           rowsFetched: rowsFetchedTotal,
           rowsWritten: truthState === "finalized" ? accountRows.length : 0,
           lastSuccessfulEntityKey: null,
-          lastResponseHeaders: checkpoint?.lastResponseHeaders ?? {},
+          lastResponseHeaders: checkpointHeaders,
           attemptCount: input.attemptCount,
           leaseEpoch: input.leaseEpoch,
           leaseOwner: input.workerId,
@@ -5883,7 +5917,7 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
           businessId: input.credentials.businessId,
           providerAccountId: input.accountId,
           checkpointScope: "ad_daily",
-          runId: sourceRunId,
+          runId: derivedSourceRunId,
           phase: "finalize",
           status: "succeeded",
           pageIndex,
@@ -5892,7 +5926,7 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
           rowsFetched: rowsFetchedTotal,
           rowsWritten: truthState === "finalized" ? adRows.length : 0,
           lastSuccessfulEntityKey: adRows.at(-1)?.adId ?? null,
-          lastResponseHeaders: checkpoint?.lastResponseHeaders ?? {},
+          lastResponseHeaders: checkpointHeaders,
           attemptCount: input.attemptCount,
           leaseEpoch: input.leaseEpoch,
           leaseOwner: input.workerId,
@@ -5904,7 +5938,7 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
           businessId: input.credentials.businessId,
           providerAccountId: input.accountId,
           checkpointScope: "adset_daily",
-          runId: sourceRunId,
+          runId: derivedSourceRunId,
           phase: "finalize",
           status: "succeeded",
           pageIndex,
@@ -5913,7 +5947,7 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
           rowsFetched: rowsFetchedTotal,
           rowsWritten: truthState === "finalized" ? adsetRows.length : 0,
           lastSuccessfulEntityKey: adsetRows.at(-1)?.adsetId ?? null,
-          lastResponseHeaders: checkpoint?.lastResponseHeaders ?? {},
+          lastResponseHeaders: checkpointHeaders,
           attemptCount: input.attemptCount,
           leaseEpoch: input.leaseEpoch,
           leaseOwner: input.workerId,
@@ -5950,7 +5984,7 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
           adRows.length,
         lastSuccessfulEntityKey:
           positiveSpendAdIds.at(-1) ?? adRows.at(-1)?.adId ?? null,
-        lastResponseHeaders: checkpoint?.lastResponseHeaders ?? {},
+        lastResponseHeaders: checkpointHeaders,
         attemptCount: input.attemptCount,
         leaseEpoch: input.leaseEpoch,
         leaseOwner: input.workerId,
@@ -6273,7 +6307,7 @@ export async function syncMetaAccountBreakdownWarehouseDay(input: {
   // resume from the checkpoint while rebuilding the transform input from all
   // raw pages already recorded for this run.
   let nextPageUrl: string | null = restoreState.rewoundToDurableFrontier
-    ? restoreState.resumeCursor
+    ? (restoredPages.length === 0 ? initialPageUrl : restoreState.resumeCursor)
     : resolveMetaRawSnapshotFetchUrl({ checkpoint, initialPageUrl });
   const visitedPageUrls = new Set<string>([
     initialPageUrl,

@@ -15,7 +15,8 @@ import {
 } from "./shopify-aov-source";
 import { NATIVE_AD_ACCOUNT_AOV_PURCHASE_SAMPLE_FLOOR } from "./config-values";
 import {
-  deterministicCommercialCutoffMs,
+  type CommercialTargetInstantBoundary,
+  deterministicCommercialCutoff,
   isCommercialTargetInstantWithinCutoff,
 } from "@/lib/meta/commercial-target-instant";
 import {
@@ -267,7 +268,8 @@ function resolveSpendUnitProfile(input: {
   accountBaselines: AccountCalibration;
   attributionAovAdjustmentMultiplier: number;
   /**
-   * The deterministic cutoff this profile is being built AS OF, in epoch ms.
+   * The deterministic cutoff this profile is being built AS OF. Production
+   * passes the strict timestamp so database microseconds remain orderable.
    *
    * ROUND 9 ITEM 2. Required, not optional: the previous check asked only
    * whether `updatedAt` PARSED, so a pack saved after the day being
@@ -275,7 +277,7 @@ function resolveSpendUnitProfile(input: {
    * Null means the caller could not derive a cutoff at all, which fails closed
    * exactly like an unparseable timestamp — never like a wall clock.
    */
-  asOfCutoffMs: number | null;
+  asOfCutoff: CommercialTargetInstantBoundary | null;
   /**
    * The store's own AOV, already proven usable (account currency, closed
    * window, order floor) by `resolveObservedShopifyAov`. Optional: an account
@@ -317,8 +319,8 @@ function resolveSpendUnitProfile(input: {
   */
   const commercialTruthTimestampTrusted =
     freshness !== "unknown" &&
-    input.asOfCutoffMs !== null &&
-    isCommercialTargetInstantWithinCutoff(targetUpdatedAt, input.asOfCutoffMs);
+    input.asOfCutoff !== null &&
+    isCommercialTargetInstantWithinCutoff(targetUpdatedAt, input.asOfCutoff);
   /*
     `observed_shopify_aov` belongs in this list, and was missing from it.
 
@@ -382,8 +384,8 @@ function resolveHardActionEligibility(input: {
   calibrationReady: boolean;
   shadowOnly: boolean;
   /** The same deterministic cutoff `resolveSpendUnitProfile` was given. */
-  asOfCutoffMs: number | null;
-  /** Reported in the anchor lineage; it scales the Meta-derived spend unit. */
+  asOfCutoff: CommercialTargetInstantBoundary | null;
+  /** Reported in the anchor lineage as a diagnostic; never scales the unit. */
   attributionAovAdjustmentMultiplier?: number | null;
 }): HardActionEligibility {
   if (input.shadowOnly) {
@@ -426,8 +428,8 @@ function resolveHardActionEligibility(input: {
   */
   const targetPackAuthoritative =
     input.targetPack?.freshness !== "unknown" &&
-    input.asOfCutoffMs !== null &&
-    isCommercialTargetInstantWithinCutoff(targetUpdatedAt, input.asOfCutoffMs);
+    input.asOfCutoff !== null &&
+    isCommercialTargetInstantWithinCutoff(targetUpdatedAt, input.asOfCutoff);
   const targetRoasAnchored = positiveFinite(
     input.targetPack?.targetRoas ?? null,
   );
@@ -663,7 +665,7 @@ export function applyCommercialStopLossAovAuthority(input: {
     overlays; deriving it here means a caller cannot hand this function a
     different cutoff than the one that built `input.profile`.
   */
-  const asOfCutoffMs = deterministicCommercialCutoffMs(input.profile.asOfDate);
+  const asOfCutoff = deterministicCommercialCutoff(input.profile.asOfDate);
   const stopLossAov = input.authority;
   const validStopLossAov =
     stopLossAov !== null &&
@@ -675,7 +677,7 @@ export function applyCommercialStopLossAovAuthority(input: {
     isAccountAovRevenueArithmeticConsistent(stopLossAov);
   const commercialStopLossSpendUnit = validStopLossAov
     ? resolveSpendUnitProfile({
-        asOfCutoffMs,
+        asOfCutoff,
         targetPack: input.targetPack,
         accountBaselines: {
           ...input.profile.accountBaselines,
@@ -697,7 +699,7 @@ export function applyCommercialStopLossAovAuthority(input: {
     : null;
   const commercialStopLossEligibility = commercialStopLossSpendUnit
     ? resolveHardActionEligibility({
-        asOfCutoffMs,
+        asOfCutoff,
         spendUnitProfile: commercialStopLossSpendUnit,
         targetPack: input.targetPack,
         metaAovQuality: "ready",
@@ -877,13 +879,13 @@ export async function resolveAccountDecisionProfile(input: {
     and the stop-loss overlay) receives THIS value, so the canonical profile and
     a per-kind profile cannot disagree about which target pack was in force.
 
-    `asOfCutoffMs` is required on both callees rather than optional, which is
+    `asOfCutoff` is required on both callees rather than optional, which is
     why adding it surfaced all six call sites at compile time instead of
     leaving one silently on the old behaviour.
   */
-  const asOfCutoffMs = deterministicCommercialCutoffMs(input.asOf);
+  const asOfCutoff = deterministicCommercialCutoff(input.asOf);
   const canonicalSpendUnitProfile = resolveSpendUnitProfile({
-    asOfCutoffMs,
+    asOfCutoff,
     targetPack,
     accountBaselines,
     observedShopifyAov: input.observedShopifyAov ?? null,
@@ -903,7 +905,7 @@ export async function resolveAccountDecisionProfile(input: {
     accountBaselines,
   });
   const canonicalHardActionEligibility = resolveHardActionEligibility({
-    asOfCutoffMs,
+    asOfCutoff,
     spendUnitProfile: canonicalSpendUnitProfile,
     targetPack,
     metaAovQuality,
@@ -939,7 +941,7 @@ export async function resolveAccountDecisionProfile(input: {
           : resolvedAccountBaselinesByKind[campaignKind];
       if (calibration === null) continue;
       const spendUnitProfile = resolveSpendUnitProfile({
-        asOfCutoffMs,
+        asOfCutoff,
         targetPack,
         accountBaselines: calibration,
         attributionAovAdjustmentMultiplier,
@@ -951,7 +953,7 @@ export async function resolveAccountDecisionProfile(input: {
         accountBaselines: calibration,
       });
       hardActionEligibilityByKind[campaignKind] = resolveHardActionEligibility({
-        asOfCutoffMs,
+        asOfCutoff,
         spendUnitProfile,
         targetPack,
         metaAovQuality: calibration.metaAovQuality,

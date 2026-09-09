@@ -1,4 +1,4 @@
-import { NextRequest } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
@@ -178,7 +178,7 @@ beforeEach(() => {
   }
   vi.mocked(access.requireBusinessAccess).mockResolvedValue({
     session: {} as never,
-    membership: {} as never,
+    membership: { businessId: "biz_1" } as never,
   });
   vi.mocked(integrations.getIntegration).mockResolvedValue({
     id: "integration_1",
@@ -290,6 +290,30 @@ describe("app/integrations/meta/ad-accounts/debug/route.ts", () => {
     );
   }
 
+  it.each([401, 403])("refuses an unauthorized diagnostic read (%s) before integration or Graph access", async (status) => {
+    vi.stubEnv("NODE_ENV", "development");
+    const fetch = vi.fn();
+    vi.stubGlobal("fetch", fetch);
+    vi.mocked(integrations.getIntegration).mockClear();
+    vi.mocked(access.requireBusinessAccess).mockResolvedValueOnce({
+      error: NextResponse.json({ error: "access_denied" }, { status }),
+    } as never);
+    const response = await debugRoute.GET(debugRequest());
+    expect(response.status).toBe(status);
+    expect(integrations.getIntegration).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("stays unavailable in production before any tenant or provider read", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.mocked(integrations.getIntegration).mockClear();
+    vi.mocked(access.requireBusinessAccess).mockClear();
+    const response = await debugRoute.GET(debugRequest());
+    expect(response.status).toBe(404);
+    expect(access.requireBusinessAccess).not.toHaveBeenCalled();
+    expect(integrations.getIntegration).not.toHaveBeenCalled();
+  });
+
   it("returns the named identity instead of the Graph body", async () => {
     vi.stubEnv("NODE_ENV", "development");
     vi.stubGlobal(
@@ -303,6 +327,8 @@ describe("app/integrations/meta/ad-accounts/debug/route.ts", () => {
     expectNoProviderLeak(JSON.stringify(payload));
     expectNoProviderLeak(loggedText());
     expect(payload.meta.raw).toBeUndefined();
+    expect(access.requireBusinessAccess).toHaveBeenCalledWith(expect.objectContaining({ businessId: "biz_1", minRole: "guest" }));
+    expect(integrations.getIntegration).toHaveBeenLastCalledWith("biz_1", "meta");
     expect(payload.meta.error.authored_by).toBe("adsecute");
     expect(payload.meta.error.code).toBe(190);
     expect(payload.meta.graph_error).toEqual({

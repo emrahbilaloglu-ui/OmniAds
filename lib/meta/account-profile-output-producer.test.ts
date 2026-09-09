@@ -276,6 +276,33 @@ describe("the retained account profile identity", () => {
     expect(oneMsPast.inputFingerprint).not.toBe(base.inputFingerprint);
   });
 
+  it("moves the configured fingerprint across a same-ms microsecond cutoff", () => {
+    const beforeCutoff = accountProfileRetentionIdentity(
+      inputs({
+        asOfDate: "2026-09-04T03:00:00.000100Z",
+        targetPack: {
+          ...inputs().targetPack!,
+          updatedAt: "2026-09-04T03:00:00.000100Z",
+        },
+      }),
+    );
+    const afterCutoff = accountProfileRetentionIdentity(
+      inputs({
+        asOfDate: "2026-09-04T03:00:00.000100Z",
+        targetPack: {
+          ...inputs().targetPack!,
+          updatedAt: "2026-09-04T03:00:00.000900Z",
+        },
+      }),
+    );
+    expect(afterCutoff.inputFingerprint).not.toBe(
+      beforeCutoff.inputFingerprint,
+    );
+    expect(afterCutoff.sourceFingerprint).toBe(
+      beforeCutoff.sourceFingerprint,
+    );
+  });
+
   it("does not move either fingerprint on the INERT attribution multiplier", () => {
     /*
       `attributionAovAdjustmentMultiplier` is accepted and pinned to 1 on every

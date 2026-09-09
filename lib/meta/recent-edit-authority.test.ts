@@ -307,7 +307,7 @@ function harness(options: Harness = {}) {
   const manifestEntityIds = options.manifestEntityIds ?? ["adset_1"];
 
   const answer = (text: string) => {
-    if (text.includes("meta_entity_observation_receipts")) {
+    if (text.includes("meta_entity_observation_receipts_v2")) {
       return receipt == null
         ? []
         : [
@@ -397,8 +397,8 @@ function harness(options: Harness = {}) {
   });
 
   /*
-    `entity-state-history.ts` reads through the TAGGED TEMPLATE form, not
-    `sql.query`, so the base callable has to answer too.
+    Entity truth and manifest reads still use tagged templates. Receipt
+    authority uses sql.query to include the shared legacy/v2 union.
   */
   const tagged = async (strings: TemplateStringsArray | string, ...values: unknown[]) => {
     const text =
@@ -1013,8 +1013,8 @@ describe("READY requires a real current-config observation receipt", () => {
     */
     harness({ timezone: "America/Los_Angeles", history: [] });
     await adsetSignalFromBackfill();
-    const receiptRead = taggedCalls.find((call) =>
-      call.text.includes("meta_entity_observation_receipts"),
+    const receiptRead = queryTexts.map((text, index) => ({ text, values: queryParams[index] ?? [] })).find((call) =>
+      call.text.includes("meta_entity_observation_receipts_v2"),
     );
     expect(receiptRead, "the receipt read must happen").toBeTruthy();
     expect(receiptRead!.text).toContain("ORDER BY receipt.captured_at DESC");
@@ -1038,8 +1038,8 @@ describe("READY requires a real current-config observation receipt", () => {
     // applied afterwards.
     harness({ timezone: "America/Los_Angeles", history: [] });
     await adsetSignalFromBackfill();
-    const receiptRead = taggedCalls.find((call) =>
-      call.text.includes("meta_entity_observation_receipts"),
+    const receiptRead = queryTexts.map((text, index) => ({ text, values: queryParams[index] ?? [] })).find((call) =>
+      call.text.includes("meta_entity_observation_receipts_v2"),
     )!;
     expect(receiptRead.text).toContain("provider_account_id = ");
     expect(receiptRead.text).toContain("entity_type = ");

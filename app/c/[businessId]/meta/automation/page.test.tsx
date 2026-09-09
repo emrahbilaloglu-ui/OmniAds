@@ -3,7 +3,7 @@ import type { ReactElement } from "react";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { renderToStaticMarkup } from "react-dom/server";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { MetaAutomationControlPlane } from "@/lib/meta/automation-control-plane";
 
@@ -234,7 +234,10 @@ async function renderPage(input?: {
   return renderToStaticMarkup(element as ReactElement);
 }
 
+afterEach(() => vi.unstubAllEnvs());
+
 beforeEach(() => {
+  vi.stubEnv("META_ACCOUNT_PICKER", "false");
   vi.clearAllMocks();
   /*
     D086: a route-level default so every pre-existing case still renders. The
@@ -261,6 +264,15 @@ beforeEach(() => {
 });
 
 describe("Automation canonical route authority", () => {
+  it.each([false, true])("keeps account selection reachable when shared picker enabled=%s", async (enabled) => {
+    vi.stubEnv("META_ACCOUNT_PICKER", String(enabled));
+    vi.mocked(providerScope.resolveProviderAccountId).mockResolvedValue(null);
+    await renderPage({ searchParams: {} });
+    expect(exactPage.mock.calls.at(-1)?.[0]).toEqual(expect.objectContaining({
+      accountSelection: enabled ? "shared" : "local",
+    }));
+  });
+
   it("a readiness read failure reaches the body as null (rendered unavailable), never as ready", async () => {
     vi.mocked(
       compactionReadiness.readStateHistoryCompactionReadiness,
@@ -320,6 +332,7 @@ describe("Automation canonical route authority", () => {
     expect(exactPage).toHaveBeenCalledWith({
       businessId: "biz_route",
       providerAccountId: "act_assigned",
+      accountSelection: "local",
       initialPayload: control,
       viewer: {
         role: "admin",

@@ -58,6 +58,15 @@
 const COMMERCIAL_TARGET_INSTANT_PATTERN =
   /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,9}))?(Z|z|[+-]\d{2}:\d{2})$/;
 
+type ParsedCommercialTargetInstant = {
+  /** Compatibility value for Date/query APIs. Never use it to order instants. */
+  epochMilliseconds: number;
+  /** Exact ordering key, including every supplied fractional digit. */
+  epochNanoseconds: bigint;
+};
+
+export type CommercialTargetInstantBoundary = string | number;
+
 function daysInUtcMonth(year: number, month: number): number {
   if (month === 2) {
     const leap = (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
@@ -73,7 +82,9 @@ function daysInUtcMonth(year: number, month: number): number {
  * evidence, and every caller already has an "absent" branch that closes
  * authority. Throwing here would turn a bad row into an outage.
  */
-export function commercialTargetInstantMs(value: unknown): number | null {
+function parseCommercialTargetInstant(
+  value: unknown,
+): ParsedCommercialTargetInstant | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   if (trimmed.length === 0) return null;
@@ -86,9 +97,6 @@ export function commercialTargetInstantMs(value: unknown): number | null {
   const hour = Number(match[4]);
   const minute = Number(match[5]);
   const second = Number(match[6]);
-  // Fractional seconds are truncated to milliseconds, never rounded: rounding
-  // could move an instant ACROSS a cutoff, which is the one thing a cutoff
-  // comparison must not depend on.
   const fraction = match[7] ?? "";
   const millisecond = fraction
     ? Number(fraction.slice(0, 3).padEnd(3, "0"))
@@ -114,12 +122,68 @@ export function commercialTargetInstantMs(value: unknown): number | null {
     offsetMinutes = sign * (offsetHours * 60 + offsetMins);
   }
 
-  const utcMs = Date.UTC(year, month - 1, day, hour, minute, second, millisecond);
-  if (!Number.isFinite(utcMs)) return null;
+  const wholeSecondMs =
+    Date.UTC(year, month - 1, day, hour, minute, second, 0)
+    - offsetMinutes * 60_000;
+  if (!Number.isFinite(wholeSecondMs)) return null;
   // `Date.UTC` maps years 0–99 onto 1900–1999. The pattern already requires
   // four digits, so this only guards a two-digit year written as `0099`.
   if (year < 100) return null;
-  return utcMs - offsetMinutes * 60_000;
+  const fractionNanoseconds = Number(fraction.padEnd(9, "0"));
+  return {
+    epochMilliseconds: wholeSecondMs + millisecond,
+    epochNanoseconds:
+      BigInt(wholeSecondMs) * BigInt(1_000_000) + BigInt(fractionNanoseconds),
+  };
+}
+
+/**
+ * Millisecond compatibility view for Date/query APIs.
+ *
+ * PostgreSQL commonly serializes six fractional digits. Those bytes remain
+ * accepted, but callers deciding before/equal/after MUST use the exact helpers
+ * below: two different database instants can legitimately share this number.
+ */
+export function commercialTargetInstantMs(value: unknown): number | null {
+  return parseCommercialTargetInstant(value)?.epochMilliseconds ?? null;
+}
+
+/** UTC storage spelling with millisecond compatibility and exact extra digits. */
+export function canonicalCommercialTargetInstant(value: unknown): string | null {
+  const instant = parseCommercialTargetInstant(value);
+  if (!instant) return null;
+  const nanosPerSecond = BigInt(1_000_000_000);
+  const fraction = (
+    (instant.epochNanoseconds % nanosPerSecond + nanosPerSecond) % nanosPerSecond
+  ).toString().padStart(9, "0");
+  const precision = fraction.endsWith("000000") ? 3 : fraction.endsWith("000") ? 6 : 9;
+  return new Date(instant.epochMilliseconds).toISOString().replace(
+    /\.\d{3}Z$/,
+    `.${fraction.slice(0, precision)}Z`,
+  );
+}
+
+/** Exact chronological comparison, retaining up to nanosecond precision. */
+export function compareCommercialTargetInstants(
+  left: unknown,
+  right: unknown,
+): -1 | 0 | 1 | null {
+  const leftInstant = parseCommercialTargetInstant(left);
+  const rightInstant = parseCommercialTargetInstant(right);
+  if (!leftInstant || !rightInstant) return null;
+  if (leftInstant.epochNanoseconds < rightInstant.epochNanoseconds) return -1;
+  if (leftInstant.epochNanoseconds > rightInstant.epochNanoseconds) return 1;
+  return 0;
+}
+
+function boundaryNanoseconds(
+  boundary: CommercialTargetInstantBoundary,
+): bigint | null {
+  if (typeof boundary === "string") {
+    return parseCommercialTargetInstant(boundary)?.epochNanoseconds ?? null;
+  }
+  if (!Number.isSafeInteger(boundary)) return null;
+  return BigInt(boundary) * BigInt(1_000_000);
 }
 
 /** Whether this value is a usable commercial-target instant at all. */
@@ -137,12 +201,29 @@ export function isCommercialTargetInstant(value: unknown): boolean {
  */
 export function isCommercialTargetInstantWithinCutoff(
   value: unknown,
-  cutoffMs: number,
+  cutoff: CommercialTargetInstantBoundary,
 ): boolean {
-  const parsed = commercialTargetInstantMs(value);
-  if (parsed === null) return false;
-  if (!Number.isFinite(cutoffMs)) return false;
-  return parsed <= cutoffMs;
+  const parsed = parseCommercialTargetInstant(value);
+  const cutoffNanoseconds = boundaryNanoseconds(cutoff);
+  if (!parsed || cutoffNanoseconds === null) return false;
+  return parsed.epochNanoseconds <= cutoffNanoseconds;
+}
+
+/** Exact age threshold used by authority freshness checks. */
+export function isCommercialTargetInstantOlderThan(
+  value: unknown,
+  cutoff: unknown,
+  maxAgeMilliseconds: number,
+): boolean | null {
+  const parsed = parseCommercialTargetInstant(value);
+  const parsedCutoff = parseCommercialTargetInstant(cutoff);
+  if (!parsed || !parsedCutoff || !Number.isSafeInteger(maxAgeMilliseconds)) {
+    return null;
+  }
+  return (
+    parsedCutoff.epochNanoseconds - parsed.epochNanoseconds
+    > BigInt(maxAgeMilliseconds) * BigInt(1_000_000)
+  );
 }
 
 /**
@@ -167,11 +248,38 @@ export function isCommercialTargetInstantWithinCutoff(
 export function deterministicCommercialCutoffMs(
   asOf: string | null | undefined,
 ): number | null {
+  const cutoff = deterministicCommercialCutoff(asOf);
+  return cutoff === null ? null : commercialTargetInstantMs(cutoff);
+}
+
+/**
+ * Strict cutoff text for precision-safe authority comparisons.
+ * Date-only query inputs retain their documented 03:00Z widening.
+ */
+export function deterministicCommercialCutoff(
+  asOf: string | null | undefined,
+): string | null {
   if (typeof asOf !== "string") return null;
   const trimmed = asOf.trim();
   if (trimmed.length === 0) return null;
   if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
-    return commercialTargetInstantMs(`${trimmed}T03:00:00.000Z`);
+    const widened = `${trimmed}T03:00:00.000Z`;
+    return isCommercialTargetInstant(widened) ? widened : null;
   }
-  return commercialTargetInstantMs(trimmed);
+  return isCommercialTargetInstant(trimmed) ? trimmed : null;
+}
+
+/**
+ * PostgreSQL stores microseconds and rounds a longer fractional literal on
+ * cast. For an inclusive `<=` read, floor the boundary to its last stored
+ * microsecond instead: rounding up would admit a row after the requested
+ * nanosecond. Keep the original instant for in-memory authority comparisons.
+ */
+export function commercialTargetDatabaseCutoff(
+  asOf: string | null | undefined,
+): string | null {
+  const cutoff = deterministicCommercialCutoff(asOf);
+  return cutoff === null
+    ? null
+    : cutoff.replace(/\.(\d{6})\d+(?=Z$|[+-]\d{2}:\d{2}$)/i, ".$1");
 }

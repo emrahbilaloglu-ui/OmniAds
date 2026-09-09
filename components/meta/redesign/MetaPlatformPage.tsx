@@ -1588,7 +1588,9 @@ function mobileQueueRowsForLane(
       decisionTone: row.decisionTone,
       stateLabel: row.stateLabel,
       stateTone: row.stateTone,
-      blockedNote: row.blockedNote,
+      // The adapter's one buyer sentence lives in note. Held rows already
+      // render that sentence through heldVerdictNextStep below.
+      blockedNote: row.blockedNote ?? (row.heldVerdictNextStep ? undefined : row.note),
       /*
         ROUND 9 ITEM 8. Carried, not re-derived. The desktop creative row draws
         exactly these two fields off the same view model; dropping them here

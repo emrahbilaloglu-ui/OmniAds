@@ -556,6 +556,48 @@ describe("Meta schedule timestamp normalization", () => {
     ).toEqual({ outcome: "normalized", value: "2026-09-07T07:00:00.000Z" });
   });
 
+  it.each([
+    "2026-02-30T00:00:00Z",
+    "2026-02-29T00:00:00+0000",
+    "2026-04-31T10:00:00+0300",
+    "2026-09-07T10:00:00",
+    "2026-09-07",
+    "September 7, 2026",
+    "2026-09-07T24:00:00Z",
+    "2026-09-07T10:00:00+2400",
+    "2026-09-07T10:00:00+03:60",
+  ])("holds the schedule as unknown for invalid literal %s", (raw) => {
+    expect(normalizeMetaScheduleTimestamp(raw)).toEqual({
+      outcome: "invalid",
+      value: null,
+      reason: "unparsable",
+    });
+    const normalized = normalizeMetaEntityStateSchedule(scheduleState(raw));
+    expect(normalized.campaignStartTime).toBeNull();
+    expect(normalized.fieldCoverage.campaignStartTime).toBe(
+      META_FIELD_COVERAGE_SCHEDULE_INVALID,
+    );
+    expect(buildMetaEntityStateHash(normalized)).not.toBe(
+      buildMetaEntityStateHash(scheduleState(null)),
+    );
+  });
+
+  it.each([
+    ["2024-02-29T10:00:00+0000", "2024-02-29T10:00:00.000Z"],
+    ["2026-09-07T10:00:00-0430", "2026-09-07T14:30:00.000Z"],
+    ["2026-09-07T10:00:00+03:00", "2026-09-07T07:00:00.000Z"],
+  ])("preserves a valid explicit provider offset %s", (raw, canonical) => {
+    expect(normalizeMetaScheduleTimestamp(raw)).toEqual({
+      outcome: "normalized",
+      value: canonical,
+    });
+    const normalized = normalizeMetaEntityStateSchedule(scheduleState(raw));
+    expect(normalized.fieldCoverage.campaignStartTime).toBe(true);
+    expect(buildMetaEntityStateHash(normalized)).toBe(
+      buildMetaEntityStateHash(scheduleState(canonical)),
+    );
+  });
+
   it("classifies every unusable provider value as an explicit unknown", () => {
     // An invalid string. PostgreSQL answers 'invalid input syntax for type
     // timestamp with time zone' and aborts the whole observation transaction.

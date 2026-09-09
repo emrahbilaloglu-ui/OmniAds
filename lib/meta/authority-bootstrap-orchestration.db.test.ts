@@ -24,6 +24,7 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { getDb } from "@/lib/db";
+import { getMetaSyncCheckpoint, persistMetaRawSnapshot, upsertMetaSyncCheckpoint } from "@/lib/meta/warehouse";
 import { __syncMetaPartitionDayForSeams } from "@/lib/sync/meta-sync";
 
 const SEAM = process.env.ADSECUTE_EPHEMERAL_DB_SEAM === "1";
@@ -98,17 +99,69 @@ let accountRefId = "";
 let partitionId = "";
 
 /** Every Graph URL the core day may reach, answered with an empty-but-valid page. */
-function stubGraph() {
+function stubGraph(insights: (url: URL) => unknown = () => ({ data: [] })) {
   const calls: string[] = [];
   const fetchMock = vi.fn(async (url: string) => {
     calls.push(String(url));
-    return new Response(JSON.stringify({ data: [] }), {
+    const parsed = new URL(String(url));
+    const payload = parsed.pathname.endsWith("/insights")
+      ? await insights(parsed)
+      : { data: [] };
+    return new Response(JSON.stringify(payload), {
       status: 200,
       headers: { "content-type": "application/json" },
     });
   });
   vi.stubGlobal("fetch", fetchMock);
   return calls;
+}
+
+function insight(spend: number, adId = "ad_orch") {
+  return {
+    campaign_id: "cmp_orch", adset_id: "ads_orch", ad_id: adId,
+    spend: String(spend), impressions: "100", clicks: "2", reach: "90",
+    actions: [], action_values: [], purchase_roas: [],
+  };
+}
+
+const coreCheckpoint = () => getMetaSyncCheckpoint({
+  partitionId,
+  checkpointScope: "core_ad_insights",
+});
+
+async function rawCaptureEvidence() {
+  const sql = getDb();
+  return sql<{ id: string; snapshot_id: string; run_id: string; receipt: string; content: string }>`
+    SELECT receipt.id::text, receipt.snapshot_id::text, receipt.run_id,
+      row_to_json(receipt)::text AS receipt,
+      json_build_object('payload', snapshot.payload_json,
+        'fetchedAt', snapshot.fetched_at,
+        'firstObservedAt', snapshot.first_observed_at)::text AS content
+    FROM meta_raw_snapshot_observations receipt
+    JOIN meta_raw_snapshots snapshot ON snapshot.id = receipt.snapshot_id
+    WHERE receipt.partition_id = ${partitionId}::uuid
+      AND receipt.endpoint_name = 'ad_insights_bulk'
+    ORDER BY receipt.observed_at, receipt.id
+  `;
+}
+
+async function capturedSpend() {
+  const sql = getDb();
+  const [row] = await sql<{ spend: number | string; run_id: string }>`
+    SELECT checkpoint.run_id,
+      COALESCE(sum((insight->>'spend')::numeric), 0) AS spend
+    FROM meta_sync_checkpoints checkpoint
+    JOIN meta_raw_snapshot_observations receipt
+      ON receipt.partition_id = checkpoint.partition_id
+      AND receipt.run_id = checkpoint.run_id
+      AND receipt.endpoint_name = 'ad_insights_bulk'
+    JOIN meta_raw_snapshots snapshot ON snapshot.id = receipt.snapshot_id
+    LEFT JOIN LATERAL jsonb_array_elements(snapshot.payload_json) insight ON true
+    WHERE checkpoint.partition_id = ${partitionId}::uuid
+      AND checkpoint.checkpoint_scope = 'core_ad_insights'
+    GROUP BY checkpoint.run_id
+  `;
+  return { spend: Number(row?.spend), sourceRunId: row?.run_id };
 }
 
 /**
@@ -204,7 +257,7 @@ async function seedLegacyReceipts() {
       ) RETURNING id
     `;
     await sql`
-      INSERT INTO meta_entity_observation_receipts (
+      INSERT INTO meta_entity_observation_receipts_v2 (
         run_id, business_id, provider_account_id, entity_type, endpoint,
         partition_id, sync_run_id, capture_status, provider_row_count,
         page_count, run_reused, observed_at, captured_at
@@ -229,7 +282,7 @@ const credentials = () =>
     },
   }) as never;
 
-const runPartitionDay = (syncRunId: string) =>
+const runPartitionDay = (syncRunId: string, overrides: { evaluationNow?: Date; source?: string } = {}) =>
   __syncMetaPartitionDayForSeams({
     // The narrow seam clock. Only `resolveMetaPartitionDateAuthority` and the
     // bootstrap decision read it; nothing else in the pipeline is faked, and
@@ -248,6 +301,7 @@ const runPartitionDay = (syncRunId: string) =>
     workerId: "seam-worker",
     leaseEpoch: 1,
     attemptCount: 0,
+    ...overrides,
   } as never);
 
 /**
@@ -277,11 +331,11 @@ async function newSyncRun() {
 }
 
 /** Settle the attempt the way the orchestrator does once the work is done. */
-async function finishSyncRun(runId: string) {
+async function finishSyncRun(runId: string, status: "succeeded" | "failed" = "succeeded") {
   const sql = getDb();
   await sql`
     UPDATE meta_sync_runs
-       SET status = 'succeeded', finished_at = now(), updated_at = now()
+       SET status = ${status}, finished_at = now(), updated_at = now()
      WHERE id = ${runId}::uuid
   `;
 }
@@ -299,7 +353,7 @@ const linkedReceipts = async () => {
   const sql = getDb();
   return sql<{ endpoint: string; sync_run_id: string }>`
     SELECT endpoint, sync_run_id::text AS sync_run_id
-    FROM meta_entity_observation_receipts
+    FROM meta_entity_observation_receipts_v2
     WHERE business_id = ${businessId}
       AND provider_account_id = ${ACCOUNT}
       AND sync_run_id IS NOT NULL
@@ -451,7 +505,7 @@ describe.skipIf(!SEAM)("the bootstrap lifecycle through syncMetaPartitionDay", (
     await seedLegacyReceipts();
   });
 
-  it("first run forces ONE core refetch and links both config receipts", async () => {
+  it("first run records one bootstrap attempt and links both config receipts", async () => {
     const calls = stubGraph();
     const runId = await newSyncRun();
     let orchestrationError: unknown = null;
@@ -466,8 +520,8 @@ describe.skipIf(!SEAM)("the bootstrap lifecycle through syncMetaPartitionDay", (
     /*
       THE PRECONDITION, READ FROM THE ORCHESTRATION ITSELF.
 
-      The bootstrap only engages when coverage would otherwise SKIP the core
-      sync. Asserting it here — from the value `syncMetaPartitionDay` actually
+      The bootstrap only engages after raw daily coverage is COMPLETE.
+      Intraday refresh independently keeps the unfinished day current. Asserting it here — from the value `syncMetaPartitionDay` actually
       computed, not from a separate query the test ran — is what stops this case
       passing for the wrong reason: a core refetch that happened because
       coverage was incomplete proves nothing about the bootstrap.
@@ -560,22 +614,14 @@ describe.skipIf(!SEAM)("the bootstrap lifecycle through syncMetaPartitionDay", (
     }
   });
 
-  it("second same-day run short-circuits: no provider call, no new ledger row", async () => {
+  it("second same-day run refreshes metrics without spending another bootstrap attempt", async () => {
     /*
       ── ROUND 21, ITEM 1: WHY COVERAGE IS RE-SEEDED HERE ──────────────────────
 
-      The first case forces a core refetch, and the Graph stub answers every
-      endpoint with an EMPTY page. The refetch is therefore truthful about what
-      it was told: it overwrites the account's daily row with zero spend and
-      zero impressions, and coverage legitimately goes INCOMPLETE. A real
-      provider returns the day's rows and coverage stays complete.
-
-      So the empty account row is an artefact of the stub, not a fact about the
-      orchestration, and leaving it in place would make this case assert a
-      short-circuit in a state where a short-circuit must not happen. The rows
-      are restored to what a real provider would have returned; the assertion
-      that coverage IS complete is then read back from the orchestration itself
-      rather than assumed.
+      Restore the coverage fixture explicitly, then prove coverage is complete
+      from the orchestration's read. Current-day captures retain raw metrics and
+      current configuration; daily metric writers remain finalized-only. Their
+      seeded rows cannot be used as proof that today's provider was re-fetched.
     */
     await seedCompleteCoverage();
     /*
@@ -591,7 +637,11 @@ describe.skipIf(!SEAM)("the bootstrap lifecycle through syncMetaPartitionDay", (
       ).accountProfiles[ACCOUNT]!.timezone,
     ).toBe("Europe/Istanbul");
     expect(ISTANBUL_TODAY).not.toBe(LA_TODAY);
-    const calls = stubGraph();
+    const priorCheckpoint = await coreCheckpoint();
+    const priorEvidence = await rawCaptureEvidence();
+    expect(priorCheckpoint).toMatchObject({ phase: "finalize", status: "succeeded" });
+    expect(priorEvidence.length).toBeGreaterThan(0);
+    const calls = stubGraph(() => ({ data: [insight(25)] }));
     const before = await ledgerRows();
     const runId = await newSyncRun();
     /*
@@ -605,15 +655,13 @@ describe.skipIf(!SEAM)("the bootstrap lifecycle through syncMetaPartitionDay", (
     const result = await runPartitionDay(runId);
 
     /*
-      The same precondition the first case reads, for the same reason: the
-      short-circuit is only meaningful while coverage is COMPLETE. If coverage
-      had gone incomplete between the two runs, "no provider call" would be a
-      contradiction rather than a pass.
+      Coverage is still COMPLETE, so the second insights read proves current-day
+      freshness rather than ordinary repair of a missing daily row.
     */
     expect(
       (result as { beforeCoverage?: { productCoreComplete?: boolean } } | null)
         ?.beforeCoverage?.productCoreComplete,
-      "coverage must still be COMPLETE for a short-circuit to be the finding",
+      "coverage must still be COMPLETE to prove intraday refresh",
     ).toBe(true);
     // Still the DB-bound calendar, at an instant where the two zones disagree.
     expect(ISTANBUL_TODAY).not.toBe(LA_TODAY);
@@ -631,11 +679,209 @@ describe.skipIf(!SEAM)("the bootstrap lifecycle through syncMetaPartitionDay", (
     // The bootstrap budget was NOT spent again: the probe now finds both
     // config receipts linked to the attempt the first run paid for.
     expect(await ledgerRows()).toBe(before);
-    /*
-      ZERO Graph calls, not "no URL containing buying_type". The old filter
-      passed while the run made any number of other provider requests, which is
-      the opposite of what a short-circuit claims.
-    */
-    expect(calls, `unexpected Graph calls: ${calls.join(", ")}`).toHaveLength(0);
+    // Daily coverage cannot freeze an unfinished provider-local day. The
+    // linked config receipts stop bootstrap attempts, while insights refresh.
+    expect(calls.some((url) => new URL(url).pathname.endsWith("/insights"))).toBe(true);
+    const refreshedCheckpoint = await coreCheckpoint();
+    expect(await capturedSpend()).toEqual({ spend: 25, sourceRunId: refreshedCheckpoint?.runId });
+    const [daily] = await bindingSql<{ spend: string | number; source_run_id: string | null }>`
+      SELECT spend, source_run_id FROM meta_account_daily
+      WHERE business_id = ${businessId} AND provider_account_id = ${ACCOUNT}
+        AND date = ${LA_TODAY}::date
+    `;
+    expect(Number(daily?.spend)).toBe(100);
+    expect(daily?.source_run_id).toBeNull();
+    expect(refreshedCheckpoint?.runId).not.toBe(priorCheckpoint?.runId);
+    expect(refreshedCheckpoint?.runId).not.toBe(runId);
+    expect(refreshedCheckpoint?.startedAt).not.toBe(priorCheckpoint?.startedAt);
+    for (const checkpointScope of ["account_daily", "adset_daily", "ad_daily"]) {
+      expect(await getMetaSyncCheckpoint({ partitionId, checkpointScope, runId: partitionId }))
+        .toMatchObject({ phase: "finalize", status: "succeeded" });
+    }
+    await finishSyncRun(runId);
+
+    // Identical payloads share immutable content, but each completed current-day
+    // capture appends its own receipt. Earlier evidence remains byte-for-byte.
+    const secondEvidence = await rawCaptureEvidence();
+    expect(secondEvidence).toEqual(expect.arrayContaining(priorEvidence));
+    const repeatedRunId = await newSyncRun();
+    await runPartitionDay(repeatedRunId);
+    await finishSyncRun(repeatedRunId);
+    const repeatedCheckpoint = await coreCheckpoint();
+    const repeatedEvidence = await rawCaptureEvidence();
+    expect(repeatedCheckpoint?.runId).not.toBe(refreshedCheckpoint?.runId);
+    expect(repeatedEvidence).toHaveLength(secondEvidence.length + 1);
+    expect(repeatedEvidence).toEqual(expect.arrayContaining(secondEvidence));
+    expect(new Set(repeatedEvidence.map((row) => row.snapshot_id))).toEqual(
+      new Set(secondEvidence.map((row) => row.snapshot_id)),
+    );
+    expect(await ledgerRows()).toBe(before);
+    expect(await capturedSpend()).toEqual({ spend: 25, sourceRunId: repeatedCheckpoint?.runId });
+  });
+
+  it("resumes the new empty capture after interruption before its first page", async () => {
+    const previous = await coreCheckpoint();
+    const oldEvidence = await rawCaptureEvidence();
+    stubGraph(() => { throw new Error("seam_interrupted_before_first_page"); });
+    const failedId = await newSyncRun();
+    await expect(runPartitionDay(failedId)).rejects.toThrow("seam_interrupted_before_first_page");
+    await finishSyncRun(failedId, "failed");
+    const interrupted = await coreCheckpoint();
+    expect(interrupted).toMatchObject({ phase: "fetch_raw", status: "running", pageIndex: 0, rowsFetched: 0 });
+    expect(interrupted?.runId).not.toBe(previous?.runId);
+    expect(await rawCaptureEvidence()).toEqual(oldEvidence);
+
+    const calls = stubGraph(() => ({ data: [insight(40)] }));
+    const retryId = await newSyncRun();
+    await runPartitionDay(retryId);
+    await finishSyncRun(retryId);
+    const resumed = await coreCheckpoint();
+    expect(resumed).toMatchObject({ runId: interrupted?.runId, startedAt: interrupted?.startedAt, status: "succeeded" });
+    expect(calls.filter((url) => new URL(url).pathname.endsWith("/insights"))).toHaveLength(1);
+    expect(await capturedSpend()).toEqual({ spend: 40, sourceRunId: interrupted?.runId });
+    const evidence = await rawCaptureEvidence();
+    expect(evidence).toHaveLength(oldEvidence.length + 1);
+    expect(evidence).toEqual(expect.arrayContaining(oldEvidence));
+  });
+
+  it("resumes an unfinished capture at its durable next page without mixing an older capture", async () => {
+    const oldEvidence = await rawCaptureEvidence();
+    const next = `https://graph.facebook.com/v25.0/${ACCOUNT}/insights?level=ad&after=second`;
+    stubGraph((url) => {
+      if (url.searchParams.has("after")) throw new Error("seam_interrupted_second_page");
+      return { data: [insight(40)], paging: { next } };
+    });
+    const failedId = await newSyncRun();
+    await expect(runPartitionDay(failedId)).rejects.toThrow("seam_interrupted_second_page");
+    await finishSyncRun(failedId, "failed");
+    const interrupted = await coreCheckpoint();
+    expect(interrupted).toMatchObject({ phase: "fetch_raw", status: "running", pageIndex: 0, rowsFetched: 1, nextPageUrl: next });
+    const partialEvidence = await rawCaptureEvidence();
+    expect(partialEvidence).toHaveLength(oldEvidence.length + 1);
+    expect(partialEvidence).toEqual(expect.arrayContaining(oldEvidence));
+
+    const calls = stubGraph((url) => {
+      expect(url.searchParams.get("after"), "page one must remain durable").toBe("second");
+      return { data: [insight(25, "ad_orch_second")] };
+    });
+    const retryId = await newSyncRun();
+    await runPartitionDay(retryId);
+    await finishSyncRun(retryId);
+    expect(await coreCheckpoint()).toMatchObject({ runId: interrupted?.runId, startedAt: interrupted?.startedAt, status: "succeeded" });
+    expect(calls.filter((url) => new URL(url).pathname.endsWith("/insights"))).toEqual([next]);
+    expect(await capturedSpend()).toEqual({ spend: 65, sourceRunId: interrupted?.runId });
+    const evidence = await rawCaptureEvidence();
+    expect(evidence).toHaveLength(partialEvidence.length + 1);
+    expect(evidence).toEqual(expect.arrayContaining(partialEvidence));
+  });
+
+  it.each([
+    { rows: [insight(17)], hasNext: true },
+    { rows: [], hasNext: true },
+    { rows: [], hasNext: false },
+  ])("replays page zero after its checkpoint lands but raw persistence fails: $rows/$hasNext", async ({ rows, hasNext }) => {
+    const sql = getDb();
+    const before = await rawCaptureEvidence();
+    const next = `https://graph.facebook.com/v25.0/${ACCOUNT}/insights?after=must-not-skip-to-this-page`;
+    // Fault the real transactional raw writer after the separately committed
+    // checkpoint, rather than mocking either production function.
+    await sql.query(`CREATE FUNCTION meta_seam_fail_core_first_raw() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN
+        IF NEW.endpoint_name = 'ad_insights_bulk' AND NEW.page_index = 0 THEN
+          RAISE EXCEPTION 'seam_first_raw_write_interrupted';
+        END IF;
+        RETURN NEW;
+      END $$`);
+    await sql.query(`CREATE TRIGGER meta_seam_fail_core_first_raw
+      BEFORE INSERT ON meta_raw_snapshot_observations
+      FOR EACH ROW EXECUTE FUNCTION meta_seam_fail_core_first_raw()`);
+    stubGraph(() => ({ data: rows, ...(hasNext ? { paging: { next } } : {}) }));
+    const failedId = await newSyncRun();
+    try {
+      await expect(runPartitionDay(failedId)).rejects.toThrow("seam_first_raw_write_interrupted");
+    } finally {
+      await sql.query("DROP TRIGGER meta_seam_fail_core_first_raw ON meta_raw_snapshot_observations");
+      await sql.query("DROP FUNCTION meta_seam_fail_core_first_raw()");
+      await finishSyncRun(failedId, "failed");
+    }
+    const interrupted = await coreCheckpoint();
+    expect(interrupted).toMatchObject({ phase: "fetch_raw", pageIndex: 0, rowsFetched: rows.length, nextPageUrl: hasNext ? next : null });
+    expect(await rawCaptureEvidence()).toEqual(before);
+
+    const calls = stubGraph(async (url) => {
+      expect(url.searchParams.has("after"), "the unpersisted first page must be fetched again").toBe(false);
+      expect(await coreCheckpoint(), "checkpoint must yield to durable evidence before Graph")
+        .toMatchObject({ runId: interrupted?.runId, phase: "fetch_raw", pageIndex: 0, rowsFetched: 0, providerCursor: null });
+      return { data: [insight(23)] };
+    });
+    const retryId = await newSyncRun();
+    await runPartitionDay(retryId);
+    await finishSyncRun(retryId);
+    expect(calls.filter((url) => new URL(url).pathname.endsWith("/insights"))).toHaveLength(1);
+    expect(await capturedSpend()).toEqual({ spend: 23, sourceRunId: interrupted?.runId });
+    const after = await rawCaptureEvidence();
+    expect(after).toHaveLength(before.length + 1);
+    expect(after).toEqual(expect.arrayContaining(before));
+  });
+
+  it("refetches a delayed H4 today capture after midnight and resumes only the new finalized generation", async () => {
+    const legacyCheckpointId = await upsertMetaSyncCheckpoint({
+      partitionId, businessId, providerAccountId: ACCOUNT, checkpointScope: "core_ad_insights",
+      runId: partitionId, phase: "finalize", status: "succeeded", pageIndex: 1,
+      rowsFetched: 1, attemptCount: 1, leaseEpoch: 1, leaseOwner: "seam-worker",
+      lastResponseHeaders: {}, startedAt: new Date().toISOString(), finishedAt: new Date().toISOString(),
+    });
+    await persistMetaRawSnapshot({
+      businessId, providerAccountId: ACCOUNT, endpointName: "ad_insights_bulk", entityScope: "ad",
+      partitionId, checkpointId: legacyCheckpointId, runId: partitionId, pageIndex: 0,
+      startDate: LA_TODAY, endDate: LA_TODAY, accountTimezone: "America/Los_Angeles", accountCurrency: "USD",
+      payloadJson: [insight(99)], payloadHash: "e".repeat(64), requestContext: {},
+      providerHttpStatus: 200, status: "fetched",
+    });
+    stubGraph(() => ({ data: [insight(24)] }));
+    const currentId = await newSyncRun();
+    await runPartitionDay(currentId);
+    await finishSyncRun(currentId);
+    const current = await coreCheckpoint();
+    expect(current?.runId).not.toBe(partitionId);
+    const oldEvidence = await rawCaptureEvidence();
+    expect(oldEvidence.some((row) => row.run_id === partitionId)).toBe(true);
+    expect(oldEvidence.some((row) => row.run_id === current?.runId)).toBe(true);
+
+    const afterMidnight = new Date(SEAM_INSTANT.getTime() + 24 * 60 * 60 * 1000);
+    stubGraph(() => { throw new Error("seam_delayed_finalization_interrupted"); });
+    const failedId = await newSyncRun();
+    await expect(runPartitionDay(failedId, { evaluationNow: afterMidnight, source: "today" }))
+      .rejects.toThrow("seam_delayed_finalization_interrupted");
+    await finishSyncRun(failedId, "failed");
+    const finalizedCapture = await coreCheckpoint();
+    expect(finalizedCapture?.runId).not.toBe(current?.runId);
+    expect(finalizedCapture?.runId).not.toBe(partitionId);
+    expect(finalizedCapture?.lastResponseHeaders).toMatchObject({ __adsecute_capture_truth_state: "finalized" });
+    expect(await rawCaptureEvidence()).toEqual(oldEvidence);
+
+    // The finalized provider response is empty/zero, deliberately different
+    // from both retained intraday captures. Neither may become final truth.
+    const calls = stubGraph();
+    const retryId = await newSyncRun();
+    const result = await runPartitionDay(retryId, { evaluationNow: afterMidnight, source: "today_observe" });
+    await finishSyncRun(retryId);
+    expect(result).toMatchObject({ truthState: "finalized" });
+    expect(await coreCheckpoint()).toMatchObject({ runId: finalizedCapture?.runId, phase: "finalize", status: "succeeded" });
+    const coreCalls = calls.filter((url) => {
+      const parsed = new URL(url);
+      return parsed.pathname.endsWith("/insights") && parsed.searchParams.get("level") === "ad" && !parsed.searchParams.has("breakdowns");
+    });
+    expect(coreCalls).toHaveLength(1);
+    expect(calls.some((url) => /\/(campaigns|adsets|ads)$/.test(new URL(url).pathname))).toBe(false);
+    expect(await rawCaptureEvidence()).toEqual(expect.arrayContaining(oldEvidence));
+    const sql = getDb();
+    const [daily] = await sql<{ spend: string | number; truth_state: string; source_run_id: string }>`
+      SELECT spend, truth_state, source_run_id FROM meta_account_daily
+      WHERE business_id = ${businessId} AND provider_account_id = ${ACCOUNT} AND date = ${LA_TODAY}::date
+    `;
+    expect(Number(daily?.spend)).toBe(0);
+    expect(daily?.truth_state).toBe("finalized");
+    expect(daily?.source_run_id).toBe(finalizedCapture?.runId);
   });
 });

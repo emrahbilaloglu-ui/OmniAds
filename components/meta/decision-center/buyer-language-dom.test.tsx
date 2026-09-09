@@ -21,7 +21,7 @@
  * A screen that rendered nothing at all would satisfy the first on its own,
  * which is why it never appears without the second.
  */
-import { cleanup, render } from "@testing-library/react";
+import { cleanup, render, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
@@ -29,7 +29,7 @@ import {
   type MetaDecisionCenterExactViewModel,
 } from "./MetaDecisionCenterExact";
 import { buildMetaDecisionCenterExactViewModel } from "./meta-decision-center-exact-adapter";
-import { INTERNAL_VOCABULARY } from "@/lib/meta/buyer-copy";
+import { INTERNAL_VOCABULARY, SPEND_EXECUTION_INSTRUCTIONS } from "@/lib/meta/buyer-copy";
 import { ZeroBaseCopyProvider } from "@/components/zero-base/i18n/copy-provider";
 import type { MetaDecisionsWorkspacePayload } from "@/components/meta/redesign/types";
 
@@ -781,5 +781,67 @@ describe("Round 11 item 2 — the four populated mounted surfaces", () => {
       ),
     ).not.toHaveLength(0);
     expect(renderedText()).not.toContain(RESOLVER_CONFIDENCE_REASON);
+  });
+});
+
+
+describe("blocked DOM does not advertise spend execution", () => {
+  it.each([false, true])("keeps blocked creative instructions review-only when held=%s", (held) => {
+    const payload = populatedWorkspace();
+    const decision = blockedAd();
+    decision.whyNow = "Increase budget. Bütçeyi kademeli artırın.";
+    if (!held) {
+      decision.heldAction = null as never;
+      decision.heldResolution = null as never;
+    }
+    payload.os!.ads.items = [decision] as never;
+    renderLane(buildMetaDecisionCenterExactViewModel({ workspace: payload }), "creatives", "needsres");
+    const row = document.querySelector('[data-meta-exact-creative-row="os_ad_1"]') as HTMLElement;
+    expect(row).toBeTruthy();
+    expect(row.textContent).toContain(held ? "ROAS" : "Refresh");
+    for (const instruction of SPEND_EXECUTION_INSTRUCTIONS) {
+      expect(row.textContent!.toLowerCase()).not.toContain(instruction);
+    }
+    for (const button of within(row).queryAllByRole("button")) {
+      expect(button.textContent).not.toMatch(/^(apply|pause|scale|cut|increase|reduce|duraklat|kapat)\b/i);
+    }
+    expect(row.querySelector('[data-meta-exact-creative-served-action]')).toBeNull();
+  });
+
+  it("keeps a server-blocked structure row on evidence review despite spend prose", () => {
+    const payload = populatedWorkspace();
+    const recommendation = payload.lanes.actionNow[0]!;
+    recommendation.decisionLabel = "scale";
+    recommendation.recommendedAction = "Increase budget. Bütçeyi kademeli artırın.";
+    payload.os!.structure.groups = [{
+      id: "blocked_campaign", adsets: [],
+      campaign: {
+        ...blockedAd(), id: "node_cmp_1", sourceRecommendationId: recommendation.id,
+        level: "campaign", providerEntityId: "cmp_1", name: "ASC Prospecting",
+        suppressedAlternativeCount: 0,
+      },
+    }] as never;
+    const model = buildMetaDecisionCenterExactViewModel({ workspace: payload });
+    renderLane(model, "structure", "needsres");
+    const row = document.querySelector('[data-meta-exact-needsres-row="rec_low"]') as HTMLElement;
+    expect(row).toBeTruthy();
+    expect(row.querySelector('[data-el="resolution-step"]')?.textContent).toMatch(/review/i);
+    for (const instruction of SPEND_EXECUTION_INSTRUCTIONS) {
+      expect(row.textContent!.toLowerCase()).not.toContain(instruction);
+    }
+    expect(within(row).queryByRole("button", { name: /apply|pause|scale|increase budget/i })).toBeNull();
+  });
+
+  it("detects spend instructions in both locales without banning healthy action information", () => {
+    for (const phrase of ["Increase budget.", "Bütçeyi kademeli artırın."]) {
+      expect(SPEND_EXECUTION_INSTRUCTIONS.some((instruction) => phrase.toLowerCase().includes(instruction))).toBe(true);
+    }
+    const model = buildMetaDecisionCenterExactViewModel({ workspace: populatedWorkspace() });
+    model.creativeGroups = [{ id: "act", label: "Action", rows: [{
+      id: "healthy", name: "Healthy ad", stateLabel: "Act",
+      decisionLabel: "Scale", actionLabel: "Increase budget", note: "The target and measured evidence are available.",
+    }] }];
+    renderLane(model, "creatives", "action");
+    expect(document.querySelector('[data-meta-exact-creative-served-action]')?.textContent).toBe("Increase budget");
   });
 });

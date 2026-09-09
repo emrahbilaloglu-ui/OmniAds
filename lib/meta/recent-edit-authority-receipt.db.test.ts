@@ -28,6 +28,7 @@ import { getDb } from "@/lib/db";
 import {
   readMetaCompleteManifestMembershipForReceipt,
   readMetaLatestObservationReceiptAsOf,
+  readMetaObservationWriterPressure,
 } from "@/lib/meta/entity-state-history";
 
 const SEAM = process.env.ADSECUTE_EPHEMERAL_DB_SEAM === "1";
@@ -163,21 +164,22 @@ async function receipt(input: {
   capturedAt: string;
   providerRowCount: number;
   endpoint?: string;
+  legacy?: boolean;
 }) {
   const sql = getDb();
-  await sql`
-    INSERT INTO meta_entity_observation_receipts (
+  await sql.query(`
+    INSERT INTO ${input.legacy ? "meta_entity_observation_receipts" : "meta_entity_observation_receipts_v2"} (
       run_id, business_id, provider_account_id, entity_type, endpoint,
       partition_id, sync_run_id, capture_status, provider_row_count,
       page_count, run_reused, observed_at, captured_at
     ) VALUES (
-      ${input.runId}::uuid, ${businessId}, ${ACCOUNT_ID}, 'adset',
-      ${input.endpoint ?? ENDPOINT}, ${partitionId}::uuid,
-      ${input.syncRunId}::uuid, ${input.captureStatus},
-      ${input.providerRowCount}, 1, false,
-      ${input.capturedAt}::timestamptz, ${input.capturedAt}::timestamptz
+      $1::uuid, $2, $3, 'adset',
+      $4, $5::uuid,
+      $6::uuid, $7,
+      $8, 1, false,
+      $9::timestamptz, $9::timestamptz
     )
-  `;
+  `, [input.runId, businessId, ACCOUNT_ID, input.endpoint ?? ENDPOINT, partitionId, input.syncRunId, input.captureStatus, input.providerRowCount, input.capturedAt]);
 }
 
 /*
@@ -322,6 +324,7 @@ describe.skipIf(!SEAM)("the receipt / sync-run / manifest contracts", () => {
       capturedAt: "2026-09-05T09:00:00Z",
       providerRowCount: 1,
       endpoint: "adset_configs_legacy",
+      legacy: true,
     });
     const pointer = await readMetaLatestObservationReceiptAsOf({
       businessId,
@@ -795,7 +798,7 @@ describe.skipIf(!SEAM)("ROUND 15 — manifest integrity and attempt identity", (
     const sql = getDb();
     const rows = await sql<{ sync_run_id: string }>`
       SELECT sync_run_id::text AS sync_run_id
-      FROM meta_entity_observation_receipts
+      FROM meta_entity_observation_receipts_v2
       WHERE partition_id = ${partitionId}::uuid AND endpoint = ${ep}
       ORDER BY created_at ASC
     `;
@@ -810,6 +813,50 @@ describe.skipIf(!SEAM)("ROUND 15 — manifest integrity and attempt identity", (
     });
     expect(pointer?.syncRunId).toBe(second);
     expect(pointer?.syncRun?.status).toBe("succeeded");
+
+    // The first attempt is mirrored once. Both consumers must nevertheless
+    // count two captures and read the second attempt, not the legacy mirror.
+    const countWindow = async (until: string) => {
+      const pressure = await readMetaObservationWriterPressure({
+        since: capturedAt, until, businessIds: [businessId],
+      });
+      return pressure.find((lane) => lane.providerAccountId === ACCOUNT_ID && lane.endpoint === ep)?.windowOccurrences;
+    };
+    const [mirrorCount] = await sql<{ count: string }>`
+      SELECT count(*)::text AS count FROM meta_entity_observation_receipts
+      WHERE partition_id = ${partitionId}::uuid AND endpoint = ${ep}
+    `;
+    expect(Number(mirrorCount!.count)).toBe(1);
+    expect(await countWindow(KNOWLEDGE)).toBe(2);
+
+    // A rollback image can append a newer legacy-only capture. It must win
+    // after forward deployment even without sync provenance, and the exclusive
+    // cutoff must still exclude it at its exact clock.
+    const rollbackAt = "2026-09-05T14:30:00.000Z";
+    const rollbackRun = await observationRun({
+      endpoint: ep, completeness: "failed", rowCount: 0,
+      capturedAt: rollbackAt, hash: hash("rollback-latest"),
+    });
+    await receipt({
+      runId: rollbackRun, syncRunId: null, captureStatus: "failed",
+      capturedAt: rollbackAt, providerRowCount: 0, endpoint: ep, legacy: true,
+    });
+    const atBoundary = await readMetaLatestObservationReceiptAsOf({
+      businessId, providerAccountId: ACCOUNT_ID, entityType: "adset", endpoint: ep, cutoff: rollbackAt,
+    });
+    expect(atBoundary?.syncRunId).toBe(second);
+    expect(await countWindow(rollbackAt)).toBe(2);
+    const afterRollback = await readMetaLatestObservationReceiptAsOf({
+      businessId, providerAccountId: ACCOUNT_ID, entityType: "adset", endpoint: ep, cutoff: KNOWLEDGE,
+    });
+    expect(afterRollback?.runId).toBe(rollbackRun);
+    expect(afterRollback?.syncRunId).toBeNull();
+    expect(afterRollback?.captureStatus).toBe("failed");
+    const afterPressure = await readMetaObservationWriterPressure({
+      since: capturedAt, until: KNOWLEDGE, businessIds: [businessId],
+    });
+    const lanes = afterPressure.filter((lane) => lane.providerAccountId === ACCOUNT_ID && lane.endpoint === ep);
+    expect(lanes.reduce((total, lane) => total + (lane.windowOccurrences ?? 0), 0)).toBe(3);
   });
 
   it("an exact retry of the SAME attempt stays a no-op", async () => {
@@ -831,7 +878,7 @@ describe.skipIf(!SEAM)("ROUND 15 — manifest integrity and attempt identity", (
     await write();
     const sql = getDb();
     const [row] = await sql<{ count: string }>`
-      SELECT count(*)::text AS count FROM meta_entity_observation_receipts
+      SELECT count(*)::text AS count FROM meta_entity_observation_receipts_v2
       WHERE partition_id = ${partitionId}::uuid AND endpoint = ${ep}
     `;
     expect(Number(row!.count)).toBe(1);

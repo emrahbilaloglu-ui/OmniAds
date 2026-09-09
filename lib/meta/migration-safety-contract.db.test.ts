@@ -16,6 +16,10 @@
  *      value left the session waiting forever while the log said otherwise.
  */
 import { beforeEach, describe, expect, it } from "vitest";
+import { execFileSync } from "node:child_process";
+import ts from "typescript";
+import { appendObservationCaptureReceipt, META_OBSERVATION_RECEIPT_CONTRACT } from "@/lib/meta/entity-state-history";
+import { META_OBSERVATION_RECEIPT_AUTHORITY_SQL } from "@/lib/meta/observation-receipt-schema";
 
 import { getDb, withPinnedDbClient } from "@/lib/db";
 import {
@@ -26,13 +30,13 @@ import {
 const SEAM = process.env.ADSECUTE_EPHEMERAL_DB_SEAM === "1";
 const NONCE = `${process.pid}${Date.now().toString(36)}`;
 
-describe.skipIf(!SEAM)("C5 — the legacy occurrence key is never recreated", () => {
-  it("is absent after migrations, and the source creates it nowhere", async () => {
+describe.skipIf(!SEAM)("C5 — deployed writer and attempt-scoped writer remain compatible", () => {
+  it("retains the deployed four-column arbiter on the legacy table", async () => {
     const sql = getDb();
     const rows = await sql<{ present: string | null }>`
       SELECT to_regclass('meta_entity_observation_receipts_occurrence')::text AS present
     `;
-    expect(rows[0]?.present ?? null).toBeNull();
+    expect(rows[0]?.present).toBe("meta_entity_observation_receipts_occurrence");
   });
 
   it("survives a SECOND full migration run over two receipts sharing the OLD key", async () => {
@@ -89,64 +93,159 @@ describe.skipIf(!SEAM)("C5 — the legacy occurrence key is never recreated", ()
         ${NONCE.padStart(64, "0").slice(-64).replace(/[^0-9a-f]/g, "a")}
       ) RETURNING id
     `;
-    // Identical (partition, type, endpoint, captured_at); different attempts.
-    for (const runId of runIds) {
-      await sql`
-        INSERT INTO meta_entity_observation_receipts (
-          run_id, business_id, provider_account_id, entity_type, endpoint,
-          partition_id, sync_run_id, capture_status, provider_row_count,
-          page_count, run_reused, observed_at, captured_at
-        ) VALUES (
-          ${obs!.id}::uuid, ${business!.id}, ${account}, 'adset', 'adset_configs',
-          ${partition!.id}::uuid, ${runId}::uuid, 'complete', 1, 1, false,
-          '2026-09-05T12:00:00Z'::timestamptz, '2026-09-05T12:00:00Z'::timestamptz
-        )
-      `;
+    // Execute the deployed source itself, not a retyped approximation of its
+    // ON CONFLICT clause. Its migration and writer must survive image rollback.
+    const deployedRef = "a2eb1b1b1dae9e69ffe470c39ada19731a570224";
+    const deployedSource = execFileSync("git", ["show", `${deployedRef}:lib/meta/entity-state-history.ts`], { encoding: "utf8" });
+    const tree = ts.createSourceFile("deployed.ts", deployedSource, ts.ScriptTarget.Latest, true);
+    const declaration = tree.statements.find((node): node is ts.FunctionDeclaration =>
+      ts.isFunctionDeclaration(node) && node.name?.text === "appendObservationCaptureReceipt");
+    expect(declaration).toBeDefined();
+    const compiled = ts.transpileModule(`export ${declaration!.getText(tree)}`, {
+      compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+    }).outputText;
+    const exports: Record<string, unknown> = {};
+    new Function("exports", "UUID_PATTERN", "META_OBSERVATION_RECEIPT_CONTRACT", compiled)(
+      exports, /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+      META_OBSERVATION_RECEIPT_CONTRACT,
+    );
+    const oldWriter = exports.appendObservationCaptureReceipt as typeof appendObservationCaptureReceipt;
+    const oldMigrations = execFileSync("git", ["show", `${deployedRef}:lib/migrations.ts`], { encoding: "utf8" });
+    const oldDdl = oldMigrations.match(/sql`(CREATE UNIQUE INDEX IF NOT EXISTS meta_entity_observation_receipts_occurrence[^`]+)`/)?.[1];
+    expect(oldDdl).toBeDefined();
+    await sql.query(oldDdl!);
+    const input = {
+      runId: obs!.id, businessId: business!.id, providerAccountId: account,
+      entityType: "adset" as const, endpoint: "adset_configs", partitionId: partition!.id,
+      sourceSnapshotId: null, sourceSnapshotRefId: null, syncRunId: null,
+      captureStatus: "complete" as const, providerRowCount: 1, pageCount: 1,
+      runReused: false, observedAt: "2026-09-05T12:00:00Z", capturedAt: "2026-09-05T12:00:00Z", error: null,
+    };
+    const counts = async () => (await sql.query<{ legacy: number; attempts: number; authority: number }>(`
+      SELECT (SELECT count(*)::int FROM meta_entity_observation_receipts WHERE provider_account_id=$1) AS legacy,
+             (SELECT count(*)::int FROM meta_entity_observation_receipts_v2 WHERE provider_account_id=$1) AS attempts,
+             (SELECT count(*)::int FROM (${META_OBSERVATION_RECEIPT_AUTHORITY_SQL}) rc WHERE provider_account_id=$1) AS authority
+    `, [account]))[0];
+    await oldWriter(sql, input);
+    await oldWriter(sql, input);
+    await appendObservationCaptureReceipt(sql, input);
+    expect(await counts()).toEqual({ legacy: 1, attempts: 0, authority: 1 });
+    for (const syncRunId of runIds) {
+      await appendObservationCaptureReceipt(sql, { ...input, syncRunId });
+      await appendObservationCaptureReceipt(sql, { ...input, syncRunId });
     }
-    const [count] = await sql<{ total: string }>`
-      SELECT count(*)::text AS total FROM meta_entity_observation_receipts
-      WHERE provider_account_id = ${account}
+    expect(await counts()).toEqual({ legacy: 1, attempts: 2, authority: 3 });
+    await expect(sql.query(`CREATE UNIQUE INDEX c5_impossible_old_key_${NONCE.toLowerCase()} ON meta_entity_observation_receipts_v2 (partition_id, entity_type, endpoint, captured_at)`)).rejects.toMatchObject({ code: "23505" });
+    // The unmodified old migration still converges AFTER v2 has colliding keys.
+    await sql.query(oldDdl!);
+    const later = { ...input, observedAt: "2026-09-05T12:01:00Z", capturedAt: "2026-09-05T12:01:00Z" };
+    await oldWriter(sql, later);
+    await appendObservationCaptureReceipt(sql, later);
+    await expect(appendObservationCaptureReceipt(sql, { ...later, providerRowCount: 2 })).rejects.toThrow("DIFFERENT occurrence");
+    expect(await counts()).toEqual({ legacy: 2, attempts: 2, authority: 4 });
+    // New first occurrence mirrors one UUID; new exact retries stay one row.
+    const newest = { ...input, syncRunId: runIds[0]!, observedAt: "2026-09-05T12:02:00Z", capturedAt: "2026-09-05T12:02:00Z" };
+    await appendObservationCaptureReceipt(sql, newest);
+    await appendObservationCaptureReceipt(sql, newest);
+    expect(await counts()).toEqual({ legacy: 3, attempts: 3, authority: 5 });
+    const retained = await sql.query(`SELECT id::text, run_id::text, sync_run_id::text, captured_at::text FROM (${META_OBSERVATION_RECEIPT_AUTHORITY_SQL}) rc WHERE provider_account_id=$1 ORDER BY captured_at, id`, [account]);
+    await expect(runMigrations({ force: true, reason: "additive-receipts-old-image-forward-replay" })).resolves.toBeUndefined();
+    await sql.query(oldDdl!);
+    expect(await sql.query(`SELECT id::text, run_id::text, sync_run_id::text, captured_at::text FROM (${META_OBSERVATION_RECEIPT_AUTHORITY_SQL}) rc WHERE provider_account_id=$1 ORDER BY captured_at, id`, [account])).toEqual(retained);
+    expect(await counts()).toEqual({ legacy: 3, attempts: 3, authority: 5 });
+
+  });
+  it("retries JSONB errors losslessly in both receipt tables and refuses changed facts", async () => {
+    const sql = getDb();
+    const account = `act_jsonb_${NONCE}`.slice(0, 60);
+    const [owner] = await sql<{ id: string }>`
+      INSERT INTO users (name, email, password_hash)
+      VALUES ('JSONB receipt seam', ${`jsonb-${NONCE}@example.invalid`}, 'unused') RETURNING id
     `;
-    // BOTH survive. The old key would have rejected the second.
-    expect(Number(count!.total)).toBe(2);
-
-    /*
-      ── ROUND 21, ITEM 3: THE SECOND RUN IS THE WHOLE DEFECT ─────────────────
-
-      Everything above only shows that the CURRENT schema accepts the two rows.
-      That was never in doubt, and it is not what C5 is about.
-
-      The defect was that migrations re-run on every deploy, and the run itself
-      recreated the legacy four-column unique index near the top. On a database
-      that had since accumulated two receipts differing only by `sync_run_id` --
-      which is precisely the state the new key exists to permit, and precisely
-      the state seeded above -- that recreate raises 23505 and the migration
-      fails PERMANENTLY. Not on the deploy that introduced the rows: on every
-      deploy after it.
-
-      Asserting the index is absent after ONE run cannot see that. The rows have
-      to exist FIRST and the migration has to run again OVER them. So it does,
-      for real, against this database.
-    */
-    await expect(
-      runMigrations({
-        force: true,
-        reason: "r21-c5-second-run-over-conflicting-receipts",
-      }),
-    ).resolves.toBeUndefined();
-
-    // Still absent: the run did not recreate it on the way past.
-    const [afterIndex] = await sql<{ present: string | null }>`
-      SELECT to_regclass('meta_entity_observation_receipts_occurrence')::text AS present
+    const [business] = await sql<{ id: string }>`
+      INSERT INTO businesses (name, owner_id)
+      VALUES ('JSONB receipt seam', ${owner!.id}) RETURNING id
     `;
-    expect(afterIndex!.present ?? null).toBeNull();
-
-    // And the rows that would have collided are untouched.
-    const [afterCount] = await sql<{ total: string }>`
-      SELECT count(*)::text AS total FROM meta_entity_observation_receipts
-      WHERE provider_account_id = ${account}
+    const [providerAccount] = await sql<{ id: string }>`
+      INSERT INTO provider_accounts (provider, external_account_id, account_name)
+      VALUES ('meta', ${account}, 'JSONB receipt seam') RETURNING id
     `;
-    expect(Number(afterCount!.total)).toBe(2);
+    await sql`
+      INSERT INTO business_provider_accounts (business_id, provider, provider_account_ref_id, provider_account_id)
+      VALUES (${business!.id}, 'meta', ${providerAccount!.id}, ${account})
+    `;
+    const [partition] = await sql<{ id: string }>`
+      INSERT INTO meta_sync_partitions (business_id, provider_account_id, lane, scope, partition_date, status)
+      VALUES (${business!.id}, ${account}, 'core', 'core_warehouse', '2026-09-05'::date, 'failed') RETURNING id
+    `;
+    const error = {
+      pagination: {
+        complete: false,
+        pageCount: 0,
+        termination: "failed",
+        failure: { kind: "graph", httpStatus: 400, errorCode: 100, isTransient: false },
+        attemptedPages: [1, 2],
+      },
+      invalidRowCount: 0,
+    };
+    const [observation] = await sql<{ id: string }>`
+      INSERT INTO meta_entity_observation_runs (
+        business_ref_id, business_id, provider_account_ref_id, provider_account_id,
+        entity_type, endpoint, observed_at, captured_at, completeness, page_count, row_count, run_hash, error_json
+      ) VALUES (
+        ${business!.id}::uuid, ${business!.id}, ${providerAccount!.id}::uuid, ${account},
+        'campaign', 'campaign_configs', '2026-09-05T12:00:00Z'::timestamptz,
+        '2026-09-05T12:00:00Z'::timestamptz, 'failed', 0, 0,
+        ${`b${NONCE}`.padStart(64, '0').slice(-64).replace(/[^0-9a-f]/g, 'a')}, ${JSON.stringify(error)}::jsonb
+      ) RETURNING id
+    `;
+    const input = {
+      runId: observation!.id, businessId: business!.id, providerAccountId: account,
+      entityType: "campaign" as const, endpoint: "campaign_configs", partitionId: partition!.id,
+      sourceSnapshotId: null, sourceSnapshotRefId: null, syncRunId: null,
+      captureStatus: "failed" as const, providerRowCount: 0, pageCount: 0, runReused: false,
+      observedAt: "2026-09-05T12:00:00Z", capturedAt: "2026-09-05T12:00:00Z", error,
+    };
+    await appendObservationCaptureReceipt(sql, input);
+    const stored = await sql.query<{ error_json: unknown }>(
+      `SELECT error_json FROM meta_entity_observation_receipts_v2 WHERE provider_account_id = $1`, [account],
+    );
+    // This really crosses PostgreSQL's JSONB boundary; the former serialized
+    // comparison rejects these identical facts solely because keys moved.
+    expect(stored[0]!.error_json).toEqual(error);
+    expect(JSON.stringify(stored[0]!.error_json)).not.toBe(JSON.stringify(error));
+    await sql.query(`
+      INSERT INTO meta_entity_observation_receipts (
+        receipt_contract, run_id, business_id, provider_account_id, entity_type, endpoint,
+        partition_id, capture_status, provider_row_count, page_count, run_reused,
+        observed_at, captured_at, error_json
+      ) SELECT receipt_contract, run_id, business_id, provider_account_id, entity_type, endpoint,
+               partition_id, capture_status, provider_row_count, page_count, run_reused,
+               observed_at, '2026-09-05T12:01:00Z'::timestamptz, error_json
+          FROM meta_entity_observation_receipts_v2 WHERE provider_account_id = $1
+    `, [account]);
+    for (const capturedAt of [input.capturedAt, "2026-09-05T12:01:00Z"]) {
+      await expect(appendObservationCaptureReceipt(sql, { ...input, capturedAt })).resolves.toBeUndefined();
+      await expect(appendObservationCaptureReceipt(sql, {
+        ...input, capturedAt,
+        error: {
+          invalidRowCount: 0,
+          pagination: { attemptedPages: [1, 2], failure: { isTransient: false, errorCode: 100, httpStatus: 400, kind: "graph" }, termination: "failed", pageCount: 0, complete: false },
+        },
+      })).resolves.toBeUndefined();
+      for (const changedError of [
+        { ...error, pagination: { ...error.pagination, failure: { ...error.pagination.failure, errorCode: 190 } } },
+        { ...error, pagination: { ...error.pagination, attemptedPages: [2, 1] } },
+      ]) {
+        await expect(appendObservationCaptureReceipt(sql, { ...input, capturedAt, error: changedError }))
+          .rejects.toThrow("error_json");
+      }
+    }
+    expect(await sql.query(`
+      SELECT (SELECT count(*)::int FROM meta_entity_observation_receipts_v2 WHERE provider_account_id = $1) AS attempts,
+             (SELECT count(*)::int FROM meta_entity_observation_receipts WHERE provider_account_id = $1) AS legacy,
+             (SELECT count(*)::int FROM (${META_OBSERVATION_RECEIPT_AUTHORITY_SQL}) receipt WHERE provider_account_id = $1) AS authority
+    `, [account])).toEqual([{ attempts: 1, legacy: 2, authority: 2 }]);
   });
 });
 

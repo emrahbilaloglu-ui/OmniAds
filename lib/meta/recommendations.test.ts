@@ -833,11 +833,9 @@ describe("buildMetaRecommendations", () => {
         || item.type === "scale_for_volume_budget_increase"
       ),
     ).toBe(false);
-    expect(
-      result.recommendations.some(
-        (item) => item.type === "scale_for_profitability",
-      ),
-    ).toBe(false);
+    expect(result.recommendations.find(
+      (item) => item.type === "scale_for_profitability",
+    )).toBeUndefined();
   });
 
   it("produces profitability recommendation for weak high-spend campaign", () => {
@@ -985,11 +983,9 @@ describe("buildMetaRecommendations", () => {
       breakdowns,
       commercialTargets: { ...commercialTargets, metaAttributedAov: sample },
     });
-    expect(
-      result.recommendations.some(
-        (item) => item.type === "scale_for_profitability",
-      ),
-    ).toBe(false);
+    expect(result.recommendations.find(
+      (item) => item.type === "scale_for_profitability",
+    )).toMatchObject({ decisionState: "watch", signalQuality: { hard_action_authority: "blocked" } });
   });
 
   it("does not answer a missing Meta sample with the CPAs typed beside it", () => {
@@ -1937,9 +1933,14 @@ describe("buildMetaRecommendations", () => {
         expect(budgetShift?.recommendedAction).toContain("Shift 10-15% budget");
         expect(budgetShift?.signalQuality?.hard_action_blocker).toBeUndefined();
       } else {
+        const reason = sample
+          ? "The Meta-attributed purchase sample is too small to support a spend change."
+          : "Meta-attributed purchase value is missing for this account and evidence cutoff.";
         expect(budgetShift).toMatchObject({
           confidence: "medium",
           ...HELD_BUDGET_PRESENTATION_EN,
+          why: reason,
+          stateReason: reason,
           signalQuality: {
             hard_action_authority: "blocked",
             hard_action_blocker: blocker,
@@ -2365,9 +2366,11 @@ describe("the canonical unit gates Scale on the real builder", () => {
       status: "ACTIVE",
     });
 
-  function scaleFor(targets: Record<string, unknown> | null) {
+  function scaleFor(targets: Record<string, unknown> | null, language: "en" | "tr" = "en", weak = false) {
     const row = strong();
+    if (weak) Object.assign(row, { roas: 0.4, revenue: 720 });
     return buildMetaRecommendations({
+      language,
       windows: {
         selected: [row],
         previousSelected: [row],
@@ -2382,7 +2385,7 @@ describe("the canonical unit gates Scale on the real builder", () => {
       calibrationContext,
       commercialTargets: targets as never,
     }).recommendations.find(
-      (rec) => rec.type === "scale_for_volume_budget_increase",
+      (rec) => rec.type === (weak ? "scale_for_profitability" : "scale_for_volume_budget_increase"),
     );
   }
 
@@ -2392,16 +2395,20 @@ describe("the canonical unit gates Scale on the real builder", () => {
     expect(scaleFor(base)).toBeDefined();
   });
 
-  it("MISSING: withholds Scale instead of falling to the CPA", () => {
-    // The CPAs are still on the pack. Under the old ceiling they authorized a
-    // Scale at 160; the rule says a missing canonical unit HOLDS.
-    expect(scaleFor({ ...base, metaAttributedAov: null })).toBeUndefined();
-  });
-
-  it("THIN: withholds Scale on a sample below the ready bar", () => {
-    expect(
-      scaleFor({ ...base, metaAttributedAov: { aovMean: 180, purchaseCount: 4 } }),
-    ).toBeUndefined();
+  it.each(["en", "tr"] as const)("keeps missing/thin Scale and Cut candidates visibly held in %s", (language) => {
+    for (const weak of [false, true]) {
+      for (const sample of [null, { aovMean: 180, purchaseCount: 4 }]) {
+        const held = scaleFor({ ...base, metaAttributedAov: sample }, language, weak);
+        expect(held).toBeDefined();
+        expect(held).toMatchObject({ decisionState: "watch", signalQuality: { hard_action_authority: "blocked", hard_action_blocker: sample ? "commercial_anchor_sample_insufficient" : "commercial_anchor_missing" } });
+        expect(held).not.toHaveProperty("proposedAction");
+        expect(held).not.toHaveProperty("targetValue");
+        const text = [held?.decision, held?.title, held?.why, held?.summary, held?.recommendedAction, held?.expectedImpact].join(" ");
+        expect(text).not.toMatch(/increase budget|reduce (?:budget|spend)|loosen the bid|bütçeyi.*art[ıi]r|k[ıi]s[ıi]tlar[ıi].*gevşet|bütçe aç[ıi]n/i);
+        expect(held?.why).toContain("Meta");
+        expect(held?.recommendedAction).toContain(language === "tr" ? "değiştirmeyin" : "Do not change spend");
+      }
+    }
   });
 
   it("NO TARGET ROAS: Scale is unreachable regardless of any CPA", () => {

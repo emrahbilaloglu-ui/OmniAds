@@ -12,6 +12,21 @@ no new deletion contract, no new metric, and no budget change. It sequences the
 steps D077 already named as blockers, in the order that is actually safe, with
 the preconditions and rollback each one needs.
 
+**D096 release addition (September 9).** The release adds
+`idx_meta_entity_state_history_manifest_delta`, which was absent from the
+September 7 index census below. Its production size and reclaimable space are
+unknown until measured. The migration logs total relation bytes and this index's
+bytes before and after its concurrent build. The narrowly scoped migration
+contract documented in [the receipt rollback contract](meta-receipt-additive-rollback.md)
+permits index work while the actual SOURCE growth fence is already closed and
+fresh physical capacity passes. It does not change the 6 GiB ceiling or admit
+sync. Deploy the bounded writer with SOURCE fenced, then perform Step A below.
+Include the new index, if present, in a fresh size census and the measured
+smallest-first reindex order; do not reuse the old seven-index list as today's
+complete catalog. A valid existing index can be checked again without granting
+new build capacity. Acceptance requires actual post-recovery headroom including
+the new index; deployment itself reclaims no space.
+
 **What this document can and cannot return, stated before anything else.** The
 writer fixes in this working tree stop three inflows (§1, §6.1); they reclaim
 nothing already stored. The 638,976 B that is already over the ceiling comes back

@@ -665,12 +665,18 @@ run_migrations_service() {
 
   if command -v timeout >/dev/null 2>&1; then
     set +e
-    timeout "${migration_timeout_seconds}" docker compose up --no-deps --abort-on-container-exit --exit-code-from migrate migrate
+    # Migration-only index maintenance may proceed under an already CLOSED
+    # SOURCE fence after the migration's own fresh physical-capacity proof.
+    # Inline assignment reaches only migrate, never a host/runtime env file or
+    # subsequent web/worker recreate. The SOURCE budget remains unchanged.
+    ADSECUTE_META_HISTORY_SCHEMA_MAINTENANCE=index_only_while_source_fenced \
+      timeout "${migration_timeout_seconds}" docker compose up --no-deps --abort-on-container-exit --exit-code-from migrate migrate
     status="$?"
     set -e
   else
     set +e
-    docker compose up --no-deps --abort-on-container-exit --exit-code-from migrate migrate
+    ADSECUTE_META_HISTORY_SCHEMA_MAINTENANCE=index_only_while_source_fenced \
+      docker compose up --no-deps --abort-on-container-exit --exit-code-from migrate migrate
     status="$?"
     set -e
   fi

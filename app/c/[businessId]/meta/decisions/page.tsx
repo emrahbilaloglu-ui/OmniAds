@@ -129,7 +129,7 @@ export default async function MetaDecisionsPage({
         businessName={business?.name ?? null}
         currency={business?.currency ?? null}
         serverProviderAccountId={providerAccountId}
-        accountSelection="shared"
+        accountSelection={readMetaReleaseGates().accountPicker ? "shared" : "local"}
         /*
          * Read on the server and forwarded. The workflow STATE is rendered
          * regardless — the design already draws its output as a "Deferred" watch

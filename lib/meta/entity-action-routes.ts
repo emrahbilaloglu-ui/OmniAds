@@ -1093,6 +1093,7 @@ export async function handleMetaAdsetBidAction(
   });
 
   const startedAt = Date.now();
+  let providerMutationBoundaryReached = false;
   try {
     const result = await updateAdsetBidAmount(prepared.ctx, {
       adsetId: prepared.target.entityId,
@@ -1119,6 +1120,7 @@ export async function handleMetaAdsetBidAction(
               rehearsalAtEntry: prepared.posture.rehearsal,
             })();
             await executionHooks.beforeMutationAttempt?.();
+            providerMutationBoundaryReached = true;
           },
         }),
     });
@@ -1186,11 +1188,24 @@ export async function handleMetaAdsetBidAction(
     const message = sanitizeErrorMessage(error);
     await completeMetaAdsActionLog({
       id: log.id,
-      status: "failure",
-      errorCode: "internal_error",
+      status: providerMutationBoundaryReached ? "silent_failure" : "failure",
+      errorCode: providerMutationBoundaryReached ? "provider_outcome_ambiguous" : "internal_error",
       errorMessage: message,
       durationMs: Date.now() - startedAt,
     }).catch(() => null);
-    return jsonError(500, "internal_error", message);
+    return NextResponse.json({
+      ok: false,
+      error: {
+        code: providerMutationBoundaryReached ? "provider_outcome_ambiguous" : "internal_error",
+        message,
+      },
+      providerWriteAttempted: providerMutationBoundaryReached,
+      dryRun,
+      ...(providerMutationBoundaryReached ? {
+        providerOutcome: "outcome_ambiguous",
+        retryAllowed: false,
+        ...metaWriteFailureAnswer({ providerOutcome: "outcome_ambiguous", logId: log.id }),
+      } : {}),
+    }, { status: 500 });
   }
 }

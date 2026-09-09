@@ -57,6 +57,7 @@ const REWOUND_IDENTIFIERS = [
   "meta_raw_snapshot_observations",
   "shopify_raw_snapshot_observations",
   "progress_json",
+  "meta_entity_observation_receipts_v2",
   // D083: the budget-fact observation columns. Rewinding them is what makes
   // the D083 ALTERs a real upgrade in this seam rather than no-ops.
   "campaign_start_time",
@@ -159,6 +160,7 @@ async function runRealMigrations(databaseUrl: string, label: string) {
  * exists in production today. Everything else stays real.
  */
 async function rewindToPreChangeSchema(client: Client) {
+  await client.query(`DROP TABLE IF EXISTS meta_entity_observation_receipts_v2`);
   await client.query(`DROP TABLE IF EXISTS meta_raw_snapshot_observations`);
   await client.query(`DROP TABLE IF EXISTS shopify_raw_snapshot_observations`);
   for (const table of ["meta_raw_snapshots", "shopify_raw_snapshots"]) {
@@ -349,6 +351,29 @@ async function seedLegacyData(client: Client) {
   );
   const partitionId = partition.rows[0]!.id;
 
+  // A real old-table receipt exists BEFORE v2 is introduced. It must keep its
+  // UUID, payload and physical table across the additive upgrade, and must not
+  // be copied into v2 with fabricated attempt provenance.
+  const observation = await client.query<{ id: string }>(
+    `INSERT INTO meta_entity_observation_runs
+       (business_ref_id, business_id, provider_account_ref_id, provider_account_id,
+        entity_type, endpoint, observed_at, captured_at, completeness, page_count, row_count, run_hash)
+     VALUES ($1::uuid, $1,
+       (SELECT id FROM provider_accounts WHERE provider='meta' AND external_account_id=$2), $2,
+       'adset', 'adset_configs', '2025-11-01T00:00:00Z', '2025-11-01T00:00:00Z', 'complete', 1, 0, repeat('e',64))
+     RETURNING id::text AS id`,
+    [BUSINESS_ID, META_ACCOUNT_ID],
+  );
+  await client.query(
+    `INSERT INTO meta_entity_observation_receipts
+       (run_id, business_id, provider_account_id, entity_type, endpoint, partition_id,
+        capture_status, provider_row_count, page_count, run_reused, observed_at, captured_at)
+     VALUES ($1::uuid, $2, $3, 'adset', 'adset_configs', $4::uuid, 'complete', 0, 1, false,
+       '2025-11-01T00:00:00Z', '2025-11-01T00:00:00Z')
+     ON CONFLICT (partition_id, entity_type, endpoint, captured_at) DO NOTHING`,
+    [observation.rows[0]!.id, BUSINESS_ID, META_ACCOUNT_ID, partitionId],
+  );
+
   // Meta legacy raw rows, including the A→B→A shape so point-in-time can be
   // compared across the upgrade, plus a partition-attributed row and an
   // orphan with no partition at all.
@@ -503,6 +528,10 @@ async function main() {
 
     const metaBefore = await captureTable(client, "meta_raw_snapshots");
     const shopifyBefore = await captureTable(client, "shopify_raw_snapshots");
+    const receiptSnapshotSql = `SELECT row_to_json(rc)::text AS payload,
+      pg_relation_filenode('meta_entity_observation_receipts'::regclass)::text AS filenode
+      FROM meta_entity_observation_receipts rc ORDER BY id`;
+    const receiptsBefore = await client.query(receiptSnapshotSql);
     const bindingsBefore = await client.query<{ count: string }>(
       `SELECT COUNT(*)::text AS count FROM business_provider_accounts`,
     );
@@ -513,6 +542,17 @@ async function main() {
     // ── U1. Every legacy row survives byte-for-byte ───────────────────────
     const metaAfter = await captureTable(client, "meta_raw_snapshots");
     const shopifyAfter = await captureTable(client, "shopify_raw_snapshots");
+    const receiptsAfter = await client.query(receiptSnapshotSql);
+    assert(receiptsBefore.rows.length === 1
+      && JSON.stringify(receiptsBefore.rows) === JSON.stringify(receiptsAfter.rows),
+    "U1: legacy receipt payload, id or relfilenode changed across the additive upgrade.");
+    const receiptCatalog = await client.query<{ attempts: string; legacy_valid: boolean }>(
+      `SELECT (SELECT count(*)::text FROM meta_entity_observation_receipts_v2) AS attempts,
+        (SELECT indisvalid AND indisready AND indislive FROM pg_index
+         WHERE indexrelid='meta_entity_observation_receipts_occurrence'::regclass) AS legacy_valid`,
+    );
+    assert(receiptCatalog.rows[0]?.attempts === "0" && receiptCatalog.rows[0]?.legacy_valid === true,
+      "U1: receipt upgrade copied legacy history or removed the deployed image's arbiter.");
     assert(
       JSON.stringify(metaBefore.rows) === JSON.stringify(metaAfter.rows),
       `U1: Meta legacy rows changed across the upgrade.\n  before ${JSON.stringify(metaBefore.rows)}\n  after  ${JSON.stringify(metaAfter.rows)}`,

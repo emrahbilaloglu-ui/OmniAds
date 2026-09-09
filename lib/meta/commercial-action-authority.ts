@@ -71,6 +71,11 @@ const ROAS_LOSS_TYPES = new Set<MetaRecommendation["type"]>([
 ]);
 
 const GENERIC_COMMERCIAL_AUTHORITY_HOLD = {
+  decision: "Hold: complete the missing evidence",
+  title: "Spend change is on hold",
+  why: "The required commercial evidence is incomplete for this account and evidence cutoff.",
+  summary: "Performance remains available for review. Keep current spend unchanged until the missing evidence is ready.",
+  expectedImpact: "Prevents an unsupported spend change while preserving the candidate for review.",
   stateReason:
     "Commercial action authority is blocked until a valid action-specific business target is available.",
   recommendedAction:
@@ -226,6 +231,11 @@ export function enforceMetaCommercialActionAuthority(
     recommendation.type === "budget_allocation"
       ? BUDGET_ALLOCATION_AUTHORITY_HOLD
       : GENERIC_COMMERCIAL_AUTHORITY_HOLD;
+  const sampleHoldReason = blocker === "commercial_anchor_missing"
+    ? "Meta-attributed purchase value is missing for this account and evidence cutoff."
+    : blocker === "commercial_anchor_sample_insufficient"
+      ? "The Meta-attributed purchase sample is too small to support a spend change."
+      : null;
   return {
     ...reviewOnly,
     decisionState: "watch",
@@ -235,6 +245,7 @@ export function enforceMetaCommercialActionAuthority(
         : recommendation.confidence,
     confidenceScore,
     ...holdPresentation,
+    ...(sampleHoldReason ? { why: sampleHoldReason, stateReason: sampleHoldReason } : {}),
     signalQuality: {
       ...(recommendation.signalQuality ?? {}),
       hard_action_authority: "blocked",

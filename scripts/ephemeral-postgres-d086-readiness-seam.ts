@@ -59,6 +59,9 @@ const INDEX_FULL_RANK_FRAGMENTS: Record<string, readonly string[]> = {
   ],
   // ROUND 16: the receipt occurrence identity now includes the sync attempt,
   // and the ranked reads order on created_at before the random-v4 id.
+  meta_entity_observation_receipts_occurrence: [
+    "partition_id", "entity_type", "endpoint", "captured_at",
+  ],
   meta_entity_observation_receipts_attempt_occurrence: [
     "partition_id", "entity_type", "endpoint", "captured_at",
     "COALESCE(sync_run_id",

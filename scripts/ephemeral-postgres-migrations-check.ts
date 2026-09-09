@@ -3353,12 +3353,14 @@ async function main() {
     );
 
     /*
-      Strict Meta AOV currency binding.
+      Strict Meta AOV currency binding and exact timestamp cutoff.
 
       The commercial anchor must accept only Meta purchase evidence whose
-      recorded currency matches the bound Meta account. These cases need the
-      migrated provider binding and daily-fact tables, so register the real
-      PostgreSQL seam rather than letting its gated tests report as skipped.
+      recorded currency matches the bound Meta account. The fourth case admits
+      a fact at the exact microsecond cutoff while rejecting it one nanosecond
+      earlier. These cases need the migrated provider binding and daily-fact
+      tables, so register the real PostgreSQL seam rather than letting its
+      gated tests report as skipped.
     */
     await runChildVitest(
       repoRoot,
@@ -3368,8 +3370,8 @@ async function main() {
         "creative-decision-engine",
         "meta-aov-calculator.db.test.ts",
       ),
-      "Strict Meta AOV currency binding DB seam check",
-      3,
+      "Strict Meta AOV currency binding and timestamp precision DB seam check",
+      4,
     );
 
     /*
@@ -3720,7 +3722,7 @@ async function main() {
       databaseUrl,
       path.join("lib", "meta", "schedule-timestamp-normalization.db.test.ts"),
       "Meta schedule timestamp normalization DB seam check",
-      8,
+      10,
     );
 
     /*
@@ -3803,7 +3805,7 @@ async function main() {
       source it had read. It now pins an instant where the two provably differ
       and asserts the difference before relying on it.
 
-      Exactly 2 passed and 0 skipped: `runChildVitest` already refuses a
+      Exactly 8 passed and 0 skipped: `runChildVitest` already refuses a
       skipped child and requires the exact passing count.
     */
     await runChildVitest(
@@ -3811,7 +3813,7 @@ async function main() {
       databaseUrl,
       path.join("lib", "meta", "authority-bootstrap-orchestration.db.test.ts"),
       "Meta authority bootstrap orchestration DB seam check",
-      2,
+      8,
     );
 
     /*
@@ -3885,9 +3887,20 @@ async function main() {
       6,
     );
 
+    // These four suites used to self-provision only on developer machines and
+    // skip in CI. Reuse this migrated cluster and require every case to pass.
+    for (const [file, label, count] of [
+      ["app/api/meta/served-profile-account-scope.db.test.ts", "Served Meta account profile scope", 9],
+      ["app/api/meta/bootstrap-account-population.db.test.ts", "Meta bootstrap account population", 8],
+      ["app/api/meta/anchor-scope-transition-serve.db.test.ts", "Meta anchor scope transition", 6],
+      ["lib/creative-decision-engine/profile-scope-callers-account-scope.db.test.ts", "Meta profile scope callers", 4],
+    ] as const) {
+      await runChildVitest(repoRoot, databaseUrl, file, `${label} DB seam check`, count);
+    }
+
     /*
-      ROUND 19, ITEMS C5/C6/C7. The legacy occurrence key must never be
-      recreated (it 23505s against multi-attempt receipts), every physical
+      The additive receipt tables preserve the deployed writer and migration
+      across rollback while v2 retains distinct attempts; every physical
       capacity refusal must be non-overridable, and the lock bound must be
       verified on the pinned backend against the RAW millisecond value.
     */
@@ -3896,7 +3909,7 @@ async function main() {
       databaseUrl,
       path.join("lib", "meta", "migration-safety-contract.db.test.ts"),
       "Migration safety contract DB seam check",
-      10,
+      11,
     );
 
     /*

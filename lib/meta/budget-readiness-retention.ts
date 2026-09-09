@@ -20,6 +20,7 @@
  * `unknown`, takes exactly one owned snapshot through the hardened observer in
  * `lib/meta/runtime-schema`, and returns a refusal rather than throwing.
  */
+import { META_OBSERVATION_RECEIPTS_V2_SCHEMA_SQL } from "@/lib/meta/observation-receipt-schema";
 import {
   ISO_4217_REGISTRY_SOURCE,
   ISO_4217_REGISTRY_VERSION,
@@ -1573,36 +1574,8 @@ export function qualifyRoleAuthorityRow(
  * silently wrong.
  */
 export const D086_ADDITIVE_MIGRATION_SQL: readonly string[] = Object.freeze([
-  `ALTER TABLE meta_campaign_config_history
-     ADD COLUMN IF NOT EXISTS budget_fact_contract            TEXT,
-     ADD COLUMN IF NOT EXISTS budget_field                    TEXT,
-     ADD COLUMN IF NOT EXISTS budget_source_currency          TEXT,
-     ADD COLUMN IF NOT EXISTS budget_currency_exponent        SMALLINT,
-     ADD COLUMN IF NOT EXISTS budget_currency_registry        TEXT,
-     ADD COLUMN IF NOT EXISTS budget_currency_registry_version TEXT,
-     ADD COLUMN IF NOT EXISTS budget_raw_minor_units          BIGINT,
-     ADD COLUMN IF NOT EXISTS budget_owner_mode               TEXT,
-     ADD COLUMN IF NOT EXISTS budget_schedule_state           TEXT,
-     ADD COLUMN IF NOT EXISTS provider_api_version            TEXT,
-     ADD COLUMN IF NOT EXISTS source_run_id                   TEXT,
-     ADD COLUMN IF NOT EXISTS effective_at                    TIMESTAMPTZ,
-     ADD COLUMN IF NOT EXISTS recorded_at                     TIMESTAMPTZ`,
-
-  `ALTER TABLE meta_adset_config_history
-     ADD COLUMN IF NOT EXISTS budget_fact_contract            TEXT,
-     ADD COLUMN IF NOT EXISTS budget_field                    TEXT,
-     ADD COLUMN IF NOT EXISTS budget_source_currency          TEXT,
-     ADD COLUMN IF NOT EXISTS budget_currency_exponent        SMALLINT,
-     ADD COLUMN IF NOT EXISTS budget_currency_registry        TEXT,
-     ADD COLUMN IF NOT EXISTS budget_currency_registry_version TEXT,
-     ADD COLUMN IF NOT EXISTS budget_raw_minor_units          BIGINT,
-     ADD COLUMN IF NOT EXISTS budget_owner_mode               TEXT,
-     ADD COLUMN IF NOT EXISTS budget_schedule_state           TEXT,
-     ADD COLUMN IF NOT EXISTS provider_api_version            TEXT,
-     ADD COLUMN IF NOT EXISTS source_run_id                   TEXT,
-     ADD COLUMN IF NOT EXISTS effective_at                    TIMESTAMPTZ,
-     ADD COLUMN IF NOT EXISTS recorded_at                     TIMESTAMPTZ`,
-
+  // Only the current state-history and receipt read paths belong here. The
+  // retired config-history ALTERs/indexes were never registered or consumed.
   `CREATE TABLE IF NOT EXISTS engine_v3_account_profile_output (
      id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
      contract              TEXT        NOT NULL,
@@ -1641,14 +1614,6 @@ export const D086_ADDITIVE_MIGRATION_SQL: readonly string[] = Object.freeze([
   `CREATE INDEX IF NOT EXISTS idx_engine_v3_account_profile_output_latest
      ON engine_v3_account_profile_output
         (business_id, provider_account_id, action, recorded_at DESC, effective_at DESC)`,
-
-  `CREATE INDEX IF NOT EXISTS idx_meta_campaign_config_history_latest_budget
-     ON meta_campaign_config_history
-        (business_id, provider_account_id, campaign_id, captured_at DESC, recorded_at DESC)`,
-
-  `CREATE INDEX IF NOT EXISTS idx_meta_adset_config_history_latest_budget
-     ON meta_adset_config_history
-        (business_id, provider_account_id, adset_id, captured_at DESC, recorded_at DESC)`,
 
   `CREATE TABLE IF NOT EXISTS engine_v3_campaign_role_authority (
      id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -1718,9 +1683,9 @@ export const D086_ADDITIVE_MIGRATION_SQL: readonly string[] = Object.freeze([
        CHECK (observed_at <= captured_at)
    )`,
 
-  // ROUND 19, ITEM C5: the legacy four-column occurrence key is NOT created.
-  // Recreating it before its attempt-scoped replacement raises 23505 on any
-  // database already holding two receipts that differ only by sync_run_id.
+  // The unchanged deployed image keeps its four-column arbiter on this table.
+  `CREATE UNIQUE INDEX IF NOT EXISTS meta_entity_observation_receipts_occurrence
+     ON meta_entity_observation_receipts (partition_id, entity_type, endpoint, captured_at)`,
 
   `CREATE INDEX IF NOT EXISTS idx_meta_entity_observation_receipts_cohort
      ON meta_entity_observation_receipts
@@ -1830,17 +1795,17 @@ export const D086_ADDITIVE_MIGRATION_SQL: readonly string[] = Object.freeze([
      ON meta_entity_state_history
      (business_id, provider_account_id, entity_type, run_completeness,
       entity_id, captured_at DESC, created_at DESC, id DESC)`,
+  META_OBSERVATION_RECEIPTS_V2_SCHEMA_SQL,
   `CREATE UNIQUE INDEX IF NOT EXISTS meta_entity_observation_receipts_attempt_occurrence
-     ON meta_entity_observation_receipts
+     ON meta_entity_observation_receipts_v2
      (partition_id, entity_type, endpoint, captured_at,
       COALESCE(sync_run_id, '00000000-0000-0000-0000-000000000000'::uuid))`,
-  `DROP INDEX IF EXISTS meta_entity_observation_receipts_occurrence`,
   `CREATE INDEX IF NOT EXISTS idx_meta_entity_observation_receipts_freshness_v2
-     ON meta_entity_observation_receipts
+     ON meta_entity_observation_receipts_v2
      (business_id, provider_account_id, entity_type, endpoint,
       captured_at DESC, created_at DESC, id DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_meta_entity_observation_receipts_cohort_v2
-     ON meta_entity_observation_receipts
+     ON meta_entity_observation_receipts_v2
      (business_id, provider_account_id, partition_id, entity_type, endpoint,
       captured_at DESC, created_at DESC, id DESC)`,
 
@@ -2006,22 +1971,20 @@ export const D086_REQUIRED_INDEXES: readonly {
       "captured_at DESC", "created_at DESC", "id DESC",
     ]),
   },
-  /*
-    ── ROUND 16 ─────────────────────────────────────────────────────────────
-    The receipt occurrence identity CHANGED in Round 15 and this catalog was
-    not moved with it. It still required
-    `meta_entity_observation_receipts_occurrence` — an index the same migration
-    now DROPS — so the readiness gate demanded an object that cannot exist and
-    validated nothing about the one that replaced it.
-
-    Replaced outright rather than accepting either: a catalog that tolerates the
-    old name would pass on a database where the new uniqueness was never
-    created, which is precisely the corruption the attempt-scoped key exists to
-    prevent.
-  */
+  // Both write contracts are required: v2 attempt identity and the old-image
+  // mirror arbiter on a distinct physical table. Historical ranked indexes
+  // remain for rollback reads; they do not replace the v2 ranked contracts.
+  {
+    indexName: "meta_entity_observation_receipts_occurrence",
+    mustContain: Object.freeze([
+      "UNIQUE", "ON public.meta_entity_observation_receipts USING",
+      "(partition_id, entity_type, endpoint, captured_at)",
+    ]),
+  },
   {
     indexName: "meta_entity_observation_receipts_attempt_occurrence",
     mustContain: Object.freeze([
+      "ON public.meta_entity_observation_receipts_v2",
       "UNIQUE", "partition_id", "entity_type", "endpoint", "captured_at",
       // The attempt, with NULL collapsed so legacy retries stay idempotent
       // rather than appending under NULL-distinct semantics.
@@ -2031,6 +1994,7 @@ export const D086_REQUIRED_INDEXES: readonly {
   {
     indexName: "idx_meta_entity_observation_receipts_cohort_v2",
     mustContain: Object.freeze([
+      "ON public.meta_entity_observation_receipts_v2",
       "partition_id", "entity_type", "endpoint", "captured_at DESC",
       // Real insertion order before the random-v4 id tiebreak.
       "created_at DESC", "id DESC",
@@ -2039,6 +2003,7 @@ export const D086_REQUIRED_INDEXES: readonly {
   {
     indexName: "idx_meta_entity_observation_receipts_freshness_v2",
     mustContain: Object.freeze([
+      "ON public.meta_entity_observation_receipts_v2",
       "business_id", "provider_account_id", "entity_type", "endpoint",
       "captured_at DESC", "created_at DESC", "id DESC",
     ]),
@@ -2104,9 +2069,10 @@ export const D086_CAPABILITY_PROBE_SQL = `
     (SELECT count(*) FROM information_schema.columns
       WHERE table_schema='public' AND table_name='meta_entity_observation_runs'
         AND column_name = ANY($4::text[]))                    AS run_columns,
-    (SELECT count(*) FROM information_schema.columns
-      WHERE table_schema='public' AND table_name='meta_entity_observation_receipts'
-        AND column_name = ANY($5::text[]))                    AS receipt_columns,
+    (SELECT count(*) FROM (SELECT column_name FROM information_schema.columns
+      WHERE table_schema='public' AND table_name IN ('meta_entity_observation_receipts', 'meta_entity_observation_receipts_v2')
+        AND column_name = ANY($5::text[])
+      GROUP BY column_name HAVING count(*) = 2) receipt_union_columns)                    AS receipt_columns,
     (SELECT count(*) FROM information_schema.columns
       WHERE table_schema='public' AND table_name='meta_entity_state_history'
         AND column_name = ANY($6::text[]))                    AS state_columns,

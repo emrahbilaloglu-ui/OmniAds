@@ -188,7 +188,7 @@ async function writeEndpointEvidence(input: {
     `;
   }
   await sql`
-    INSERT INTO meta_entity_observation_receipts (
+    INSERT INTO meta_entity_observation_receipts_v2 (
       run_id, business_id, provider_account_id, entity_type, endpoint,
       partition_id, sync_run_id, capture_status, provider_row_count,
       page_count, run_reused, observed_at, captured_at, error_json

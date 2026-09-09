@@ -25,7 +25,6 @@ import {
 } from "@/lib/meta/budget-readiness-read-model";
 import {
   D086_ADDITIVE_MIGRATION_SQL,
-  D086_REQUIRED_BUDGET_COLUMNS,
   D086_REQUIRED_PROFILE_COLUMNS,
   D086_REQUIRED_INDEXES,
   D086_REQUIRED_PARTITION_COLUMNS,
@@ -251,39 +250,21 @@ describe("D086 — honesty rules", () => {
     expect(ledger.filesWritten).toEqual([D086_JSON_OUT]);
   });
 
-  it("the prepared migrations are published as UNAPPLIED and are not wired in", () => {
+  it("every current prepared statement is registered, while this artifact applies nothing", () => {
     expect(published().preparedMigrations.applied).toBe(false);
     expect(published().preparedMigrations.statements).toBe(D086_ADDITIVE_MIGRATION_SQL.length);
     expect(published().preparedMigrations.sqlDigest).toBe(d086Digest(D086_ADDITIVE_MIGRATION_SQL));
-    // The PACK is not registered anywhere a deploy would run it.
-    const migrations = readFileSync(d086TrustedPath("lib/migrations.ts"), "utf8");
-    expect(migrations).not.toContain("D086_ADDITIVE_MIGRATION_SQL");
-    /*
-      Two tables are exceptions, and both are corrections rather than leaks.
-
-      This pack described `engine_v3_campaign_role_authority` and
-      `engine_v3_account_profile_output`; nothing ever applied it, so in
-      production neither existed. The budget proposal source loader reads both.
-      Each read failed, each failure became `unknown` or
-      `composition_sources_unavailable`, and no budget proposal could be
-      produced at all — for a reason no surface could show. Both are now
-      created by real migrations owned by the automation delivery, and both
-      have a real producer writing them.
-
-      The definitions must not drift apart, so the audit checks each is the
-      same statement rather than checking the table is absent. The pack itself
-      is still unapplied: nothing here runs `D086_ADDITIVE_MIGRATION_SQL`.
-    */
-    const normalise = (sql: string) => sql.replace(/\s+/g, " ").trim();
-    for (const table of [
-      "engine_v3_campaign_role_authority",
-      "engine_v3_account_profile_output",
-    ]) {
-      const packDdl = D086_ADDITIVE_MIGRATION_SQL.find((statement) =>
-        statement.includes(`CREATE TABLE IF NOT EXISTS ${table}`));
-      expect(packDdl, `the pack still describes ${table}`).toBeTruthy();
-      expect(normalise(migrations)).toContain(normalise(packDdl!));
+    let registry = readFileSync(d086TrustedPath("lib/migrations.ts"), "utf8")
+      + readFileSync(d086TrustedPath("lib/meta/observation-receipt-schema.ts"), "utf8");
+    for (const match of registry.matchAll(/const (DELTA_INDEX_KEY|RECEIPT_FRESHNESS_KEY|RECEIPT_COHORT_KEY) =\s*"([^"]+)"/g)) {
+      registry = registry.replaceAll("${" + match[1] + "}", match[2]!);
     }
+    const normalise = (sql: string) => sql.replace(/\/\*[\s\S]*?\*\//g, " ")
+      .replace(/--[^\n]*/g, " ").replace(/\bCONCURRENTLY\b/g, " ").replace(/\s+/g, " ").trim();
+    for (const statement of D086_ADDITIVE_MIGRATION_SQL) {
+      expect(normalise(registry), statement).toContain(normalise(statement));
+    }
+    expect(D086_ADDITIVE_MIGRATION_SQL.join("\n")).not.toContain("budget_fact_contract");
   });
 
   it("every prepared statement is additive and idempotent", () => {
@@ -1307,15 +1288,17 @@ describe("D086 C3 #5/#6 — the DDL and every query against a REAL PostgreSQL 16
     },
   );
 
-  it("#D every column the queries select is created by the prepared DDL", () => {
+  it("#D current query columns are provided by the registered and prepared schema", () => {
     /*
       The mechanical parity check. A selected column that no ALTER or CREATE
       provides is exactly how r3 shipped a query that could never run.
     */
-    const ddl = D086_ADDITIVE_MIGRATION_SQL.join("\n");
+    const ddl = D086_ADDITIVE_MIGRATION_SQL.join("\n") + readFileSync(d086TrustedPath("lib/migrations.ts"), "utf8");
     const missing: string[] = [];
     for (const column of [
-      ...D086_REQUIRED_BUDGET_COLUMNS,
+      ...D086_REQUIRED_STATE_COLUMNS,
+      ...D086_REQUIRED_RECEIPT_COLUMNS,
+      ...D086_REQUIRED_RUN_COLUMNS,
       ...D086_REQUIRED_PROFILE_COLUMNS,
       ...D086_REQUIRED_ROLE_COLUMNS,
     ]) {
@@ -1764,7 +1747,7 @@ describe("D086 C6 — the PostgreSQL matrix is asserted by NAME, not by count", 
       membership access path. Pinned by exact name so a future rename fails
       here rather than silently in a readiness gate.
     */
-    expect(report.indexes).toHaveLength(7);
+    expect(report.indexes).toHaveLength(D086_REQUIRED_INDEXES.length);
     expect([...report.indexes].map((i) => i.name).sort()).toEqual(
       [
         "idx_meta_entity_observation_receipts_cohort_v2",
@@ -1774,6 +1757,7 @@ describe("D086 C6 — the PostgreSQL matrix is asserted by NAME, not by count", 
         "idx_meta_entity_state_history_manifest_delta",
         "idx_meta_entity_tombstones_d086_latest",
         "meta_entity_observation_receipts_attempt_occurrence",
+        "meta_entity_observation_receipts_occurrence",
       ].sort(),
     );
     for (const index of report.indexes) {
@@ -1783,9 +1767,9 @@ describe("D086 C6 — the PostgreSQL matrix is asserted by NAME, not by count", 
   });
 
   it("the pinned evidence document matches what the seam produced", () => {
-    const pinnedEvidence = pinned("d086_r13_postgres_evidence");
+    const pinnedEvidence = pinned("d086_r15_postgres_evidence");
     expect(pinnedEvidence.path).toBe(
-      "docs/audits/generated/d086-local-postgres-evidence-2026-09-02.r4.json",
+      "docs/audits/generated/d086-local-postgres-evidence-2026-09-02.r5.json",
     );
     const bytes = d086TrustedReader(pinnedEvidence.path);
     expect(createHash("sha256").update(bytes).digest("hex")).toBe(pinnedEvidence.sha256);
@@ -1800,7 +1784,7 @@ describe("D086 C6 — the PostgreSQL matrix is asserted by NAME, not by count", 
     };
     expect(evidence.ok).toBe(true);
     expect(evidence.indexCatalog).toHaveLength(D086_REQUIRED_INDEXES.length);
-    expect(evidence.indexCatalog).toHaveLength(7);
+    expect(evidence.indexCatalog).toHaveLength(D086_REQUIRED_INDEXES.length);
     expect(evidence.indexCatalog.map((row) => row.indexname).sort()).toEqual(
       D086_REQUIRED_INDEXES.map((index) => index.indexName).sort(),
     );
@@ -1826,12 +1810,12 @@ describe("D086 C6 — the PostgreSQL matrix is asserted by NAME, not by count", 
       named by the D077 manifest -- and the artifact records it as superseded
       rather than dropping it.
     */
-    expect(v.evidenceSha256).toBe(pinned("d086_r13_postgres_evidence").sha256);
-    expect(v.evidencePath).toContain("d086-local-postgres-evidence-2026-09-02.r4.json");
-    expect(v.supersedes.sha256).toBe(pinned("d086_r9_postgres_evidence").sha256);
+    expect(v.evidenceSha256).toBe(pinned("d086_r15_postgres_evidence").sha256);
+    expect(v.evidencePath).toContain("d086-local-postgres-evidence-2026-09-02.r5.json");
+    expect(v.supersedes.sha256).toBe(pinned("d086_r13_postgres_evidence").sha256);
     expect(v.casesExercised).toBe(REQUIRED_SEAM_CASES.length);
     expect(v.requiredIndexes).toBe(D086_REQUIRED_INDEXES.length);
-    expect(v.requiredIndexes).toBe(7);
+    expect(v.requiredIndexes).toBe(8);
     expect(v.seamOk).toBe(true);
     expect(v.productionStatementsExecuted).toBe(0);
     // ...and the r6 limitation that denied owning a census is gone.
@@ -1841,7 +1825,7 @@ describe("D086 C6 — the PostgreSQL matrix is asserted by NAME, not by count", 
   });
 
   it("the verifier FAILS when the pinned evidence drifts", () => {
-    const pinnedEvidence = pinned("d086_r13_postgres_evidence");
+    const pinnedEvidence = pinned("d086_r15_postgres_evidence");
     const evidence = JSON.parse(d086TrustedReader(pinnedEvidence.path).toString("utf8")) as {
       indexCatalog: Array<Record<string, unknown>>;
       [key: string]: unknown;

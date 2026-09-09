@@ -34,7 +34,11 @@
  * projection that produced it, never with this one.
  */
 
-import { commercialTargetInstantMs } from "@/lib/meta/commercial-target-instant";
+import {
+  type CommercialTargetInstantBoundary,
+  isCommercialTargetInstant,
+  isCommercialTargetInstantWithinCutoff,
+} from "@/lib/meta/commercial-target-instant";
 import type { MetaAttributedAovResult } from "./meta-aov-calculator";
 import { classifyMetaAovQuality } from "./spend-unit-resolver";
 import type { MetaAovQuality } from "./types";
@@ -150,7 +154,7 @@ export function projectEffectiveMetaAovSemantics(input: {
 export function projectCommercialTargetPackForIdentity(
   pack: CommercialTargetPackFacts | null | undefined,
   /** The deterministic cutoff, threaded to `commercialTargetProvenanceState`. */
-  cutoffMs?: number | null,
+  cutoff?: CommercialTargetInstantBoundary | null,
 ): Record<string, unknown> | null {
   if (!pack) return null;
   if (!targetRoasGoverns(pack)) {
@@ -197,7 +201,7 @@ export function projectCommercialTargetPackForIdentity(
       trusted -> stale/unknown does not.
     */
     freshness: null,
-    targetProvenanceTrusted: commercialTargetProvenanceState(pack, cutoffMs),
+    targetProvenanceTrusted: commercialTargetProvenanceState(pack, cutoff),
   };
 }
 
@@ -219,7 +223,9 @@ export type CommercialTargetProvenanceState = "trusted" | "stale" | "unknown";
 export function commercialTargetProvenanceState(
   pack: CommercialTargetPackFacts | null | undefined,
   /**
-   * The deterministic cutoff this identity is being built AS OF, in epoch ms.
+   * The deterministic cutoff this identity is being built AS OF. Production
+   * callers supply the original strict timestamp so sub-millisecond ordering
+   * remains visible; integer epoch milliseconds remain a compatibility input.
    *
    * ── ROUND 9 ITEM 2 ───────────────────────────────────────────────────────
    * Optional only so callers that genuinely have no point-in-time context
@@ -228,7 +234,7 @@ export function commercialTargetProvenanceState(
    * being reconstructed digested as `trusted` — and a retained verdict then
    * kept an authority grant justified by evidence that did not exist yet.
    */
-  cutoffMs?: number | null,
+  cutoff?: CommercialTargetInstantBoundary | null,
 ): CommercialTargetProvenanceState {
   const updatedAt = pack?.updatedAt ?? null;
   /*
@@ -241,12 +247,11 @@ export function commercialTargetProvenanceState(
     literal calendar fields, so a rolled-over date is `unknown` here, which is
     the state that closes the hard-action gate.
   */
-  const updatedAtMs = commercialTargetInstantMs(updatedAt);
   const timestampUsable =
-    updatedAtMs !== null &&
-    (cutoffMs === null || cutoffMs === undefined
+    isCommercialTargetInstant(updatedAt) &&
+    (cutoff === null || cutoff === undefined
       ? true
-      : Number.isFinite(cutoffMs) && updatedAtMs <= cutoffMs);
+      : isCommercialTargetInstantWithinCutoff(updatedAt, cutoff));
   const freshness = pack?.freshness ?? null;
   if (!timestampUsable || freshness === "unknown" || freshness === null) {
     return "unknown";

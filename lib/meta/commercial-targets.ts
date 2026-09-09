@@ -11,7 +11,11 @@ import { classifyMetaAovQuality } from "@/lib/creative-decision-engine/spend-uni
 // The strict reading of a target-pack clock, shared with the semantic
 // projection, the account profile and the native target authority so the four
 // cannot disagree about whether a stored timestamp is usable evidence.
-import { commercialTargetInstantMs } from "@/lib/meta/commercial-target-instant";
+import {
+  commercialTargetInstantMs,
+  deterministicCommercialCutoff,
+  isCommercialTargetInstantWithinCutoff,
+} from "@/lib/meta/commercial-target-instant";
 
 export type MetaCommercialTargetSource = "configured_targets" | "none";
 export type MetaCommercialRiskPosture =
@@ -107,7 +111,7 @@ function normalizeRiskPosture(value: unknown): MetaCommercialRiskPosture {
 
 export function normalizeMetaCommercialTargets(
   input?: Partial<MetaCommercialTargets> | null,
-  referenceTime: Date = new Date(),
+  referenceTime: Date | string = new Date(),
 ): MetaCommercialTargets {
   const targetRoas = positiveNumber(input?.targetRoas);
   const breakEvenRoas = positiveNumber(input?.breakEvenRoas);
@@ -135,12 +139,20 @@ export function normalizeMetaCommercialTargets(
       : null;
   const updatedAtMsCandidate = commercialTargetInstantMs(updatedAtCandidate);
   const updatedAt = updatedAtMsCandidate === null ? null : updatedAtCandidate;
-  const referenceTimeMs = referenceTime.getTime();
+  const referenceCutoff =
+    typeof referenceTime === "string"
+      ? deterministicCommercialCutoff(referenceTime)
+      : Number.isFinite(referenceTime.getTime())
+        ? referenceTime.getTime()
+        : null;
   const updatedAtMs = updatedAtMsCandidate;
   const timestampCutoffSafe =
     updatedAtMs !== null &&
-    Number.isFinite(referenceTimeMs) &&
-    updatedAtMs <= referenceTimeMs;
+    referenceCutoff !== null &&
+    isCommercialTargetInstantWithinCutoff(
+      updatedAtCandidate,
+      referenceCutoff,
+    );
   const freshness =
     hasAnchor && timestampCutoffSafe && input?.freshness === "fresh"
       ? "fresh"
@@ -183,15 +195,13 @@ export async function readMetaCommercialTargets(
   input?: { asOf?: string | Date },
 ): Promise<MetaCommercialTargets> {
   if (input?.asOf !== undefined) {
-    const referenceTime =
+    const referenceCutoff =
       input.asOf instanceof Date
-        ? new Date(input.asOf.getTime())
-        : new Date(
-            /^\d{4}-\d{2}-\d{2}$/.test(input.asOf.trim())
-              ? `${input.asOf.trim()}T03:00:00.000Z`
-              : input.asOf,
-          );
-    if (!Number.isFinite(referenceTime.getTime())) {
+        ? Number.isFinite(input.asOf.getTime())
+          ? input.asOf.toISOString()
+          : null
+        : deterministicCommercialCutoff(input.asOf);
+    if (referenceCutoff === null) {
       throw new Error("asOf must be a valid date or timestamp");
     }
     const targetPack = await getBusinessTargetPackHistoryAsOf({
@@ -208,11 +218,11 @@ export async function readMetaCommercialTargets(
         riskPosture: targetPack?.defaultRiskPosture ?? "balanced",
         freshness: resolveBusinessTargetPackFreshness(
           targetPack?.updatedAt,
-          referenceTime,
+          referenceCutoff,
         ),
         updatedAt: targetPack?.updatedAt ?? null,
       },
-      referenceTime,
+      referenceCutoff,
     );
   }
 

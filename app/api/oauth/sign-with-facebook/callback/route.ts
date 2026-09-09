@@ -3,6 +3,7 @@ import { attachSessionCookie, createSession } from "@/lib/auth";
 import { findOrCreateFacebookUser } from "@/lib/account-store";
 import { listUserBusinesses } from "@/lib/access";
 import { logServerAuthEvent } from "@/lib/auth-diagnostics";
+import { sanitizeNextPath } from "@/lib/auth-routing";
 
 interface FacebookTokenResponse {
   access_token?: string;
@@ -170,8 +171,9 @@ export async function GET(request: NextRequest) {
 
     // ── Redirect to app ───────────────────────────────────────
     let destination = "/overview";
-    if (nextPath && nextPath.startsWith("/") && !nextPath.startsWith("//")) {
-      destination = nextPath;
+    const safeNextPath = sanitizeNextPath(nextPath);
+    if (safeNextPath) {
+      destination = safeNextPath;
     } else if (businesses.length === 0) {
       destination = "/businesses/new";
     } else if (!firstActiveBusiness) {

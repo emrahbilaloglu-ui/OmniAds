@@ -205,6 +205,7 @@ function buildP25ReadyCellsWithUnrelatedAovContradiction(
 function buildAccountAovAuthorityCells(input: {
   exactCount: number;
   accountOnlyCount: number;
+  targetAuthority?: NativeAdTargetAuthorityInput;
 }) {
   const exact = Array.from({ length: input.exactCount }, (_, index) =>
     makeSourceRow(index + 1, {
@@ -243,7 +244,7 @@ function buildAccountAovAuthorityCells(input: {
     asOf: AS_OF,
     computationCutoff: "2026-07-12T03:05:00.000Z",
     sourceRows: [...exact, ...accountOnly],
-    targetAuthority: AOV_ONLY_TARGET,
+    targetAuthority: input.targetAuthority ?? AOV_ONLY_TARGET,
   }).cells.map((cell) => ({
     ...cell,
     batchId: BATCH_ID,
@@ -424,6 +425,34 @@ describe("resolveNativeAdAccountDecisionProfile", () => {
         asOfCutoff: "2026-07-12T03:05:00.000Z",
       },
     ]);
+  });
+
+  it.each(["2026-07-12T03:01:00.000Z", "2026-07-12T03:05:00.000Z"])(
+    "keeps a healthy target at %s authoritative at the selected 03:05 cutoff", async (updatedAt) => {
+      const target = { ...FRESH_TARGET, effectiveAt: updatedAt, recordedAt: updatedAt };
+      const cells = buildCells(40, {}, target);
+      const dataSource = new NativeOnlyProfileDataSource(cells, target);
+      const result = await resolveWith(dataSource);
+
+      expect(result.status).toBe("ready");
+      expect(result.selectedCell?.asOfCutoff).toBe("2026-07-12T03:05:00.000Z");
+      expect(result.selectedCell?.targetAuthority.targetRoasAuthority).toBe(true);
+      expect(result.hardActionEligibility).toMatchObject({ scale: true, cut: true, refresh: true });
+      const baseline = await resolveWith(new NativeOnlyProfileDataSource(buildCells(40)));
+      expect(result.profile?.spendUnitConfidence).toBe(baseline.profile?.spendUnitConfidence);
+      expect(result.profile?.spendUnit).toBe(baseline.profile?.spendUnit);
+      expect(result.profile?.asOfDate).toBe(AS_OF);
+      expect(result.requestedCell.asOfDate).toBe(AS_OF);
+    },
+  );
+
+  it("rejects a target saved at 03:06 after the selected 03:05 cutoff", async () => {
+    const valid = { ...FRESH_TARGET, effectiveAt: "2026-07-12T03:01:00.000Z", recordedAt: "2026-07-12T03:01:00.000Z" };
+    const future = { ...valid, effectiveAt: "2026-07-12T03:06:00.000Z", recordedAt: "2026-07-12T03:06:00.000Z" };
+    const result = await resolveWith(new NativeOnlyProfileDataSource(buildCells(40, {}, valid), future));
+
+    expect(result).toMatchObject({ status: "fail_closed", reason: "native_target_authority_mismatch" });
+    expect(result.hardActionEligibility).toMatchObject({ scale: false, cut: false, refresh: false });
   });
 
   it("HOLDS Cut end to end when a Target ROAS governs and account AOV is blocked", async () => {
@@ -703,6 +732,22 @@ describe("resolveNativeAdAccountDecisionProfile", () => {
       scale: "native_ad_calibration:scale_calibration_sample_low",
       refresh: "native_ad_calibration:refresh_calibration_sample_low",
     });
+  });
+
+  it("uses the selected 03:05 cutoff for the Cut-only AOV overlay after a 03:01 target save", async () => {
+    const target = { ...AOV_ONLY_TARGET, effectiveAt: "2026-07-12T03:01:00.000Z", recordedAt: "2026-07-12T03:01:00.000Z" };
+    const cells = buildAccountAovAuthorityCells({ exactCount: 5, accountOnlyCount: 15, targetAuthority: target });
+    const result = await resolveWith(new NativeOnlyProfileDataSource(cells, target), {
+      fallbackPolicy: NATIVE_AD_THIN_EXACT_FALLBACK_CELL,
+    });
+
+    expect(result).toMatchObject({ status: "ready", hardActionEligibility: {
+      scale: false, cut: true, refresh: false,
+    } });
+    expect(result.profile?.commercialStopLossSpendUnit).toMatchObject({
+      spendUnitSource: "meta_derived_aov", hardEligibleByDefault: true,
+    });
+    expect(result.profile?.asOfDate).toBe(AS_OF);
   });
 
   it("keeps the thin exact profile fail-closed when account/currency AOV has only 19 purchases", async () => {

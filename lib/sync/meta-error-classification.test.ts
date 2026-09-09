@@ -296,6 +296,18 @@ describe("failures are summarized without provider text", () => {
     expect(stored).toContain("fbtrace=AbCd1234");
   });
 
+  it("keeps camelCase Graph error carrier identifiers without its message", () => {
+    const error = Object.assign(new Error(`provider echo ${TOKEN}`), {
+      errorCode: 190, errorSubcode: 463, isTransient: false, fbtraceId: "AbCd1234",
+    });
+    const stored = formatMetaFailureForStorage({ error });
+    expect(stored).toContain("code=190");
+    expect(stored).toContain("subcode=463");
+    expect(stored).toContain("transient=false");
+    expect(stored).toContain("fbtrace=AbCd1234");
+    expect(stored).not.toContain(TOKEN);
+  });
+
   it("refuses an fbtrace_id that is prose rather than an identifier", () => {
     // The one provider-supplied string that survives is bounded and
     // character-checked, so a sentence cannot be smuggled through it.

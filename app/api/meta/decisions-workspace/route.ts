@@ -1770,10 +1770,8 @@ export async function GET(request: NextRequest) {
           benchmark this panel serves come from Meta's own 90-day attributed
           purchase AOV over the configured Target ROAS — the canonical
           money-per-purchase quantity for a Meta decision, the same one the
-          native authority's `physical_account_purchase_aov_90d` basis divides
-          (the served rung additionally scales it by the operator's
-          `attributionAovAdjustmentMultiplier`, which the native basis does
-          not).
+          native authority's `physical_account_purchase_aov_90d` basis divides.
+          The attribution adjustment is diagnostic and changes neither unit.
 
           Sizing it from the store instead is what this call did through the
           `observed_shopify_aov` rung until that rung was removed: for the

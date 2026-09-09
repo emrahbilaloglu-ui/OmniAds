@@ -1,4 +1,8 @@
 import { getDb, type DbClient } from "@/lib/db";
+import {
+  canonicalCommercialTargetInstant,
+  commercialTargetDatabaseCutoff,
+} from "@/lib/meta/commercial-target-instant";
 import type { ObservedShopifyAovEvidence } from "./shopify-aov-source";
 import {
   READ_NATIVE_AD_ACCOUNT_CALIBRATION_CELL_SQL,
@@ -8,11 +12,13 @@ import {
 import type { AccountFunnelCalibration, MetaAovQuality } from "./types";
 import {
   NATIVE_AD_CALIBRATION_TABLE,
+  NATIVE_AD_CALIBRATION_CONTRACT_VERSION,
   NATIVE_AD_CALIBRATION_BATCH_TABLE,
   NATIVE_AD_SPEND_UNIT_AUTHORITY_CONTRACT_VERSION,
   NATIVE_AD_CALIBRATION_LEGACY_UNKNOWN_CONTRACT,
   inspectNativeAdCalibrationSchemaCapability,
   isNativeAdTargetAuthorityCutoffSafe,
+  mapNativeAdTargetAuthorityRow,
   READ_NATIVE_AD_TARGET_AUTHORITY_FOR_ACCOUNT_SQL,
   type NativeAdCalibrationCell,
   type NativeAdCalibrationMetricSampleCounts,
@@ -196,13 +202,15 @@ export class WarehouseNativeAdAccountProfileDataSource implements NativeAdAccoun
     providerAccountId: string;
     asOfCutoff: string;
   }) {
+    const cutoff = commercialTargetDatabaseCutoff(input.asOfCutoff);
+    if (cutoff === null) throw new TypeError("asOfCutoff must be a valid timestamp");
     const [row] = await this.db.query<Row>(
       READ_NATIVE_AD_TARGET_AUTHORITY_FOR_ACCOUNT_SQL,
       [
         input.businessId,
         input.providerAccountRefId,
         input.providerAccountId,
-        input.asOfCutoff,
+        cutoff,
       ],
     );
     return row ? mapNativeAdTargetAuthorityInput(row) : null;
@@ -256,6 +264,7 @@ function nativeCalibrationQueryParams(input: NativeAdCalibrationCellQuery) {
 }
 
 function mapNativeAdCalibrationCell(row: Row): NativeAdCalibrationCell {
+  const contractVersion = nativeCalibrationContractVersion(row);
   const businessId = requiredText(row.business_id, "business_id");
   if (requiredText(row.provider, "provider") !== "meta") {
     throw new TypeError("Native calibration profile requires provider=meta.");
@@ -281,7 +290,7 @@ function mapNativeAdCalibrationCell(row: Row): NativeAdCalibrationCell {
       a future reader that loosens the JOIN cannot quietly reintroduce the
       disagreement.
     */
-    contractVersion: nativeCalibrationContractVersion(row),
+    contractVersion,
     batchId: requiredUuid(row.batch_id, "batch_id"),
     batchCompleteness,
     batchCellCount: requiredInteger(row.batch_cell_count, "batch_cell_count"),
@@ -349,8 +358,8 @@ function mapNativeAdCalibrationCell(row: Row): NativeAdCalibrationCell {
       breakEvenRoas,
       operatorAovAssumption: null,
       defaultRiskPosture: null,
-      effectiveAt: optionalTimestamp(row.target_effective_at),
-      recordedAt: optionalTimestamp(row.target_recorded_at),
+      effectiveAt: optionalCommercialTimestamp(row.target_effective_at, contractVersion),
+      recordedAt: optionalCommercialTimestamp(row.target_recorded_at, contractVersion),
       targetRoasAuthority: cutoffSafeTargetAuthority && positive(targetRoas),
       breakEvenRoasAuthority:
         cutoffSafeTargetAuthority && positive(breakEvenRoas),
@@ -420,31 +429,7 @@ function mapNativeAdCalibrationCell(row: Row): NativeAdCalibrationCell {
 function mapNativeAdTargetAuthorityInput(
   row: Row,
 ): NativeAdTargetAuthorityInput {
-  const operation = requiredText(row.operation, "target operation");
-  if (operation !== "upsert" && operation !== "delete") {
-    throw new TypeError(`Unsupported native target operation: ${operation}`);
-  }
-  const risk = optionalText(row.default_risk_posture);
-  if (
-    risk !== null &&
-    risk !== "aggressive" &&
-    risk !== "balanced" &&
-    risk !== "conservative"
-  ) {
-    throw new TypeError(`Unsupported target risk posture: ${risk}`);
-  }
-  return {
-    sourceRowId: optionalText(row.source_row_id),
-    operation,
-    targetCpa: optionalNumber(row.target_cpa),
-    targetRoas: optionalNumber(row.target_roas),
-    breakEvenCpa: optionalNumber(row.break_even_cpa),
-    breakEvenRoas: optionalNumber(row.break_even_roas),
-    operatorAovAssumption: optionalNumber(row.operator_aov_assumption),
-    defaultRiskPosture: risk,
-    effectiveAt: optionalTimestamp(row.effective_at),
-    recordedAt: optionalTimestamp(row.recorded_at),
-  };
+  return mapNativeAdTargetAuthorityRow(row);
 }
 
 function nativeCellScope(value: unknown) {
@@ -941,6 +926,14 @@ function optionalTimestamp(value: unknown): string | null {
   if (value === null || value === undefined || value === "") return null;
   const date = value instanceof Date ? value : new Date(String(value));
   return Number.isFinite(date.getTime()) ? date.toISOString() : null;
+}
+
+function optionalCommercialTimestamp(value: unknown, contractVersion: string): string | null {
+  // Earlier producer contracts hashed the Date-normalized millisecond spelling.
+  // Their clocks must reproduce that spelling when historical hashes are read.
+  return contractVersion !== NATIVE_AD_CALIBRATION_CONTRACT_VERSION || value instanceof Date
+    ? optionalTimestamp(value)
+    : canonicalCommercialTargetInstant(value);
 }
 
 function requiredTimestamp(value: unknown, field: string): string {

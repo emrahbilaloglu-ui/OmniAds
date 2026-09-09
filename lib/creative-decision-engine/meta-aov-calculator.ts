@@ -1,6 +1,9 @@
 import type { DbClient } from "@/lib/db";
 import { META_CANONICAL_METRIC_SCHEMA_VERSION } from "@/lib/meta/canonical-metrics";
-import { deterministicCommercialCutoffMs } from "@/lib/meta/commercial-target-instant";
+import {
+  commercialTargetDatabaseCutoff,
+  commercialTargetInstantMs,
+} from "@/lib/meta/commercial-target-instant";
 
 export interface MetaAttributedAovResult {
   aovMean: number | null;
@@ -165,12 +168,13 @@ export async function computeMetaAttributedAov(input: {
   if (!Number.isInteger(windowDays) || windowDays <= 0) {
     throw new Error("windowDays must be a positive integer");
   }
-  const cutoffMs = deterministicCommercialCutoffMs(input.asOf);
-  if (cutoffMs === null) {
+  const asOfCutoff = commercialTargetDatabaseCutoff(input.asOf);
+  const cutoffMs = commercialTargetInstantMs(asOfCutoff);
+  if (asOfCutoff === null || cutoffMs === null) {
     throw new Error("asOf must be a strict YYYY-MM-DD date or RFC 3339 instant");
   }
-  const asOfCutoff = new Date(cutoffMs).toISOString();
-  const windowEnd = asOfCutoff.slice(0, 10);
+  // A Date is sufficient for the UTC calendar day, never for the SQL cutoff.
+  const windowEnd = new Date(cutoffMs).toISOString().slice(0, 10);
   const windowStart = new Date(
     Date.UTC(
       Number(windowEnd.slice(0, 4)),

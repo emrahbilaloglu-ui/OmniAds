@@ -109,7 +109,7 @@ describe("the D086 index catalogue requires usability, not existence", () => {
 });
 
 describe("source and tests agree on the exact required index set", () => {
-  it("requires exactly these seven, by name", () => {
+  it("requires the eight current read and dual-write indexes, by name", () => {
     /*
       ITEM C11. The set moved twice (Round 15 renamed three, Round 17 added the
       delta path). Pinning it by name here is what makes a future rename fail
@@ -124,13 +124,14 @@ describe("source and tests agree on the exact required index set", () => {
         "idx_meta_entity_state_history_manifest_delta",
         "idx_meta_entity_tombstones_d086_latest",
         "meta_entity_observation_receipts_attempt_occurrence",
+        "meta_entity_observation_receipts_occurrence",
       ].sort(),
     );
   });
 
-  it("no longer requires any index the migration drops", () => {
+  it("keeps the rollback arbiter while historical ranked indexes are optional", () => {
     const names = D086_REQUIRED_INDEXES.map((r) => r.indexName);
-    expect(names).not.toContain("meta_entity_observation_receipts_occurrence");
+    expect(names).toContain("meta_entity_observation_receipts_occurrence");
     expect(names).not.toContain("idx_meta_entity_observation_receipts_cohort");
     expect(names).not.toContain("idx_meta_entity_observation_receipts_freshness");
   });

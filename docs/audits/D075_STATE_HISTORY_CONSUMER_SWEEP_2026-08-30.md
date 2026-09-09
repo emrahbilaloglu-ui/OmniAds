@@ -688,3 +688,19 @@ unaccounted for — not a semantic one: a count that matches does not by itself
 show a reference is D075-safe. The safety of the classified content readers rests
 on the byte-pinned presence/manifest predicates in the same guard file, and those
 were neither moved nor relaxed in this re-measurement.
+
+## Addendum — 2026-09-09 D096 migration index-budget guard
+
+The final H5 source adds two ledger entries or changes their counts. These
+counts use the closure guard's existing literal-count predicate; its scan and
+content-reader safety assertions remain unchanged.
+
+| File | Previous count | Current count | Classification and evidence |
+|---|---|---|---|
+| `lib/migrations.ts` | 38 | **50** | Existing DDL plus **size-only/catalog** reads in `assertMetaHistoryIndexBudget`. The twelve added literals identify the relation and its manifest-delta index for `pg_total_relation_size`, `pg_relation_size`, `pg_index` validity/ownership checks, the unchanged source-budget lookup, measured growth-fence admission and diagnostic fields. None selects entity rows, derives manifest membership or grants buyer action authority. |
+| `lib/meta/__tests__/migration-relation-budget.test.ts` | 0 | **3** | **TEST** references: two accesses to the fixed relation budget and one expected diagnostic naming the manifest-delta index. This suite evaluates the migration admission helper and does not query a database. |
+
+The additional query runs on the migration's pinned client before and after
+index work. Its relation/index measurements are migration admission evidence,
+not a new entity-content consumer. The retained complete-lane, presence,
+as-of winner and manifest-kind predicates therefore require no relaxation.

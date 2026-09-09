@@ -164,6 +164,23 @@ export function resolveMetaRawSnapshotResumeState<
   }
 
   if (pages.length === 0) {
+    // The first response checkpoint can land before its raw page. Its row
+    // count and cursor are claims, including an empty response with a next
+    // cursor. With no durable page, replay must start at the initial URL.
+    if (checkpoint.phase === "fetch_raw" && checkpoint.pageIndex === 0) {
+      return {
+        pages,
+        nextPageIndex: 0,
+        resumeCursor: null,
+        rewoundToDurableFrontier: true,
+      };
+    }
+    if (checkpoint.phase === "fetch_raw") {
+      throw new MetaRawSnapshotRestoreError(
+        "checkpoint_raw_mismatch",
+        `checkpoint page ${checkpoint.pageIndex} has no durable raw frontier`,
+      );
+    }
     if ((checkpoint.rowsFetched ?? 0) > 0) {
       throw new MetaRawSnapshotRestoreError(
         "checkpoint_raw_mismatch",

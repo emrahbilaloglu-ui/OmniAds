@@ -435,6 +435,62 @@ describe.skipIf(!SEAM)(
       );
     });
 
+    it.each(["campaign", "adset"] as const)(
+      "preserves %s schedule and carried coverage through real read then persist", async (entityType) => {
+        const state = entityType === "campaign" ? campaignState : adsetState;
+        const startField = entityType === "campaign" ? "campaignStartTime" : "adsetStartTime";
+        const endField = entityType === "campaign" ? "campaignEndTime" : "adsetEndTime";
+        const start = "2026-09-27T07:00:00.123Z";
+        const end = "2026-09-28T07:00:00.456Z";
+        // Both stateSelect arms must produce writer-safe values: an exact-id
+        // read is what sync carries, and a whole-account read serves callers.
+        for (const scoped of [true, false]) {
+          const entityId = `${entityType}_carry_roundtrip_${scoped}`;
+          const endpoint = `${entityType}_carry_roundtrip_${scoped}`;
+          await persistMetaEntityObservation(completeObservation({
+            entityType, endpoint, observedAt: "2026-09-21T00:00:00.000Z",
+            states: [state({ entityId, observedAt: "2026-09-21T00:00:00.000Z",
+              startTime: start, endTime: end,
+              coverage: { [startField]: true, [endField]: true },
+            })],
+          }));
+          await persistMetaEntityObservation(completeObservation({
+            entityType, endpoint, observedAt: "2026-09-22T00:00:00.000Z",
+            states: [state({ entityId, observedAt: "2026-09-22T00:00:00.000Z",
+              coverage: { [startField]: "degraded_not_observed", [endField]: "degraded_not_observed" },
+            })],
+          }));
+          const read = (await readMetaEntityStatesAsOf({
+            businessId, providerAccountId: ACCOUNT_ID, entityType,
+            ...(scoped ? { entityIds: [entityId] } : {}),
+            cutoff: "2026-09-22T12:00:00.000Z",
+          })).find((row) => row.entityId === entityId)!;
+          // Pass the exact DB reader output to the writer, as the sync does;
+          // no Date conversion here may conceal a PostgreSQL-format string.
+          const carried = state({
+            entityId, observedAt: "2026-09-23T00:00:00.000Z",
+            startTime: read[startField], endTime: read[endField],
+            coverage: { [startField]: "carried_forward", [endField]: "carried_forward" },
+          });
+          const persisted = await persistMetaEntityObservation(completeObservation({
+            entityType, endpoint, observedAt: carried.observedAt, states: [carried],
+          }));
+          const stored = await storedRow(persisted.runId, entityId);
+          expect(stored.field_coverage_json[startField]).toBe("carried_forward");
+          expect(stored.field_coverage_json[endField]).toBe("carried_forward");
+          expect(read[startField]).toBe(start);
+          expect(read[endField]).toBe(end);
+          const reread = (await readMetaEntityStatesAsOf({
+            businessId, providerAccountId: ACCOUNT_ID, entityType,
+            entityIds: [entityId], cutoff: "2026-09-23T12:00:00.000Z",
+          }))[0]!;
+          expect(reread[startField]).toBe(start);
+          expect(reread[endField]).toBe(end);
+          expect(stored.state_hash).toBe(buildMetaEntityStateHash(carried));
+        }
+      },
+    );
+
     it("keeps the three nulls apart in one timeline", async () => {
       /*
         The discriminator, run as one campaign observed three times.

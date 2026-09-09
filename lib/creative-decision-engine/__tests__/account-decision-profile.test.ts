@@ -284,10 +284,13 @@ describe("resolveAccountDecisionProfile", () => {
     };
   };
 
-  const profileWithPackAt = async (updatedAt: string) =>
+  const profileWithPackAt = async (
+    updatedAt: string,
+    asOf = CUTOFF_PACK_ASOF,
+  ) =>
     resolveAccountDecisionProfile({
       businessId: "00000000-0000-4000-8000-000000000501",
-      asOf: CUTOFF_PACK_ASOF,
+      asOf,
       dataSource: new ProfileDataSource(
         packAt(updatedAt),
         makeAccountCalibration({
@@ -411,6 +414,35 @@ describe("resolveAccountDecisionProfile", () => {
       cut: false,
       refresh: false,
     });
+  });
+
+  it("makes every hard action ineligible one microsecond after an exact cutoff", async () => {
+    const profile = await profileWithPackAt(
+      "2026-05-04T03:00:00.000900Z",
+      "2026-05-04T03:00:00.000100Z",
+    );
+    expect(profile.hardActionEligibility).toMatchObject({
+      scale: false,
+      cut: false,
+      refresh: false,
+    });
+    expect(profile.hardActionEligibilityByKind?.main).toMatchObject({
+      scale: false,
+      cut: false,
+      refresh: false,
+    });
+  });
+
+  it("keeps every hard action eligible at an offset-equivalent exact cutoff", async () => {
+    const profile = await profileWithPackAt(
+      "2026-05-04T05:00:00.0009+02:00",
+      "2026-05-04T03:00:00.000900Z",
+    );
+    expect(profile.hardActionEligibility).toMatchObject({
+      scale: true,
+      cut: true,
+    });
+    expect(profile.hardActionEligibilityByKind?.main?.scale).toBe(true);
   });
 
   it("applies the same cutoff to the PER-KIND profiles", async () => {

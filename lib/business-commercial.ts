@@ -11,6 +11,11 @@ import {
 } from "@/lib/business-cost-model";
 import { resolveBusinessReferenceIds } from "@/lib/provider-account-reference-store";
 import {
+  commercialTargetDatabaseCutoff,
+  isCommercialTargetInstantOlderThan,
+  isCommercialTargetInstantWithinCutoff,
+} from "@/lib/meta/commercial-target-instant";
+import {
   BUSINESS_COMMERCIAL_REQUIRED_INPUT_SECTIONS,
   BUSINESS_DECISION_BID_REGIMES,
   BUSINESS_DECISION_CALIBRATION_CHANNELS,
@@ -322,17 +327,13 @@ function normalizeAsOfCutoff(value: string | Date) {
     return value.toISOString();
   }
 
-  const normalized = value.trim();
-  const dateOnly = normalizeDate(normalized);
-  const candidate = dateOnly ? `${dateOnly}T03:00:00.000Z` : normalized;
-  const parsed = new Date(candidate);
-  if (!Number.isFinite(parsed.getTime())) {
+  const cutoff = commercialTargetDatabaseCutoff(value);
+  if (cutoff === null) {
     throw new Error("asOf must be a valid YYYY-MM-DD date or timestamp");
   }
-  if (dateOnly && parsed.toISOString().slice(0, 10) !== dateOnly) {
-    throw new Error("asOf must be a valid calendar date");
-  }
-  return parsed.toISOString();
+  // Preserve database microseconds and floor any sub-microsecond remainder;
+  // PostgreSQL's default rounding must never widen an inclusive history read.
+  return cutoff;
 }
 
 function normalizeNumber(value: unknown) {
@@ -481,18 +482,19 @@ export const BUSINESS_TARGET_PACK_STALE_AFTER_HOURS = 24 * 30;
 
 export function resolveBusinessTargetPackFreshness(
   updatedAt: string | Date | null | undefined,
-  referenceTime: Date = new Date(),
+  referenceTime: Date | string = new Date(),
 ): "fresh" | "stale" | "unknown" {
   const normalized = normalizeTimestampValue(updatedAt);
-  if (!normalized) return "unknown";
-  const updatedAtMs = Date.parse(normalized);
-  const referenceTimeMs = referenceTime.getTime();
-  if (!Number.isFinite(updatedAtMs) || !Number.isFinite(referenceTimeMs)) {
+  const cutoff = normalizeTimestampValue(referenceTime);
+  if (!normalized || !cutoff || !isCommercialTargetInstantWithinCutoff(normalized, cutoff)) {
     return "unknown";
   }
-  if (updatedAtMs > referenceTimeMs) return "unknown";
-  const ageHours = (referenceTimeMs - updatedAtMs) / 3_600_000;
-  return ageHours > BUSINESS_TARGET_PACK_STALE_AFTER_HOURS ? "stale" : "fresh";
+  const stale = isCommercialTargetInstantOlderThan(
+    normalized,
+    cutoff,
+    BUSINESS_TARGET_PACK_STALE_AFTER_HOURS * 3_600_000,
+  );
+  return stale === null ? "unknown" : stale ? "stale" : "fresh";
 }
 
 const SECTION_META_RULES = {
@@ -1720,11 +1722,11 @@ export async function getBusinessTargetPackHistoryAsOf(input: {
       cost_fulfillment_percent,
       cost_payment_processing_percent,
       source_label,
-      effective_at AS updated_at,
+      to_char(effective_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS updated_at,
       updated_by_user_id,
       operation,
-      effective_at,
-      recorded_at
+      to_char(effective_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS effective_at,
+      to_char(recorded_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS recorded_at
     FROM business_target_pack_history
     WHERE business_id = ${input.businessId}
       AND effective_at <= ${asOfCutoff}::timestamptz
@@ -1764,11 +1766,11 @@ export async function listBusinessTargetPackHistory(input: {
       cost_fulfillment_percent,
       cost_payment_processing_percent,
       source_label,
-      effective_at AS updated_at,
+      to_char(effective_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS updated_at,
       updated_by_user_id,
       operation,
-      effective_at,
-      recorded_at
+      to_char(effective_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS effective_at,
+      to_char(recorded_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS recorded_at
     FROM business_target_pack_history
     WHERE business_id = ${input.businessId}
     ORDER BY effective_at DESC, recorded_at DESC, id DESC

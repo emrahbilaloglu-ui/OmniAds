@@ -1061,6 +1061,57 @@ describe("upsertBusinessCommercialTruthSnapshot", () => {
     ).resolves.toMatchObject({ targetRoas: 2.4 });
   });
 
+  it("passes an exact microsecond cutoff to the target-history SQL", async () => {
+    const exactCutoff = "2026-06-05T03:00:00.000100Z";
+    await businessCommercial.getBusinessTargetPackHistoryAsOf({
+      businessId: "11111111-1111-4111-8111-111111111111",
+      asOf: exactCutoff,
+    });
+
+    const historyRead = queryCalls.find((call) =>
+      call.text.includes("FROM business_target_pack_history"),
+    );
+    expect(historyRead?.values[1]).toBe(exactCutoff);
+  });
+
+  it("floors a nanosecond history cutoff instead of letting PostgreSQL round it up", async () => {
+    await businessCommercial.getBusinessTargetPackHistoryAsOf({
+      businessId: "11111111-1111-4111-8111-111111111111",
+      asOf: "2026-06-05T03:00:00.000100999Z",
+    });
+    const historyRead = queryCalls.find((call) =>
+      call.text.includes("FROM business_target_pack_history"),
+    );
+    expect(historyRead?.values[1]).toBe("2026-06-05T03:00:00.000100Z");
+  });
+
+  it("keeps historical freshness exact at future and 30-day microsecond boundaries", () => {
+    expect(businessCommercial.resolveBusinessTargetPackFreshness(
+      "2026-09-05T03:00:00.000900Z", "2026-09-05T03:00:00.000100Z",
+    )).toBe("unknown");
+    expect(businessCommercial.resolveBusinessTargetPackFreshness(
+      "2026-09-05T03:00:00.000099Z", "2026-10-05T03:00:00.000100Z",
+    )).toBe("stale");
+    expect(businessCommercial.resolveBusinessTargetPackFreshness(
+      "2026-09-05T03:00:00.000100Z", "2026-10-05T03:00:00.000100Z",
+    )).toBe("fresh");
+  });
+
+  it("refuses invalid target-history cutoff literals", async () => {
+    for (const asOf of [
+      "2026-02-30T00:00:00.000Z",
+      "2026-06-05T03:00:00",
+      "not-a-date",
+    ]) {
+      await expect(
+        businessCommercial.getBusinessTargetPackHistoryAsOf({
+          businessId: "11111111-1111-4111-8111-111111111111",
+          asOf,
+        }),
+      ).rejects.toThrow(/valid/);
+    }
+  });
+
   it("writes a delete tombstone before removing current state and makes delete retries inert", async () => {
     vi.useFakeTimers();
     try {

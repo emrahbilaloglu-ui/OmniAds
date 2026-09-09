@@ -4,9 +4,18 @@ import {
   BusinessCommercialSnapshotConflictError,
   businessCommercialSnapshotRevision,
   getBusinessCommercialTruthSnapshot,
+  getBusinessTargetPackHistoryAsOf,
+  listBusinessTargetPackHistory,
   reconfirmBusinessTargetPack,
   upsertBusinessCommercialTruthSnapshot,
 } from "@/lib/business-commercial";
+import { readMetaCommercialTargets } from "@/lib/meta/commercial-targets";
+import {
+  mapNativeAdTargetAuthorityRow,
+  resolveNativeAdTargetAuthority,
+} from "@/lib/creative-decision-engine/jobs/ad-calibration-job";
+import { WarehouseNativeAdAccountProfileDataSource } from "@/lib/creative-decision-engine/ad-account-decision-profile-store";
+import { WarehouseDataSource } from "@/lib/creative-decision-engine/data-source";
 import { resetDbClientCache } from "@/lib/db";
 import {
   createEmptyBusinessCommercialTruthSnapshot,
@@ -69,6 +78,77 @@ function candidateSnapshot(
     },
     calibrationProfiles: [],
   };
+}
+
+async function verifyCommercialClockPrecision(admin: Client, businessId: string) {
+  const accountId = "act_commercial_clock_precision";
+  const account = await admin.query<{ id: string }>(
+    `INSERT INTO provider_accounts (provider, external_account_id, account_name, currency, timezone)
+     VALUES ('meta', $1, $1, 'USD', 'UTC') RETURNING id::text AS id`, [accountId],
+  );
+  const accountRefId = account.rows[0]!.id;
+  await admin.query(
+    `INSERT INTO business_provider_accounts
+       (business_id, provider, provider_account_ref_id, provider_account_id, position, is_selected)
+     VALUES ($1::text, 'meta', $2::uuid, $3, 0, TRUE)`,
+    [businessId, accountRefId, accountId],
+  );
+  // Both rows are valid bitemporal records; the second is recorded 1ns AFTER
+  // the requested boundary. A PostgreSQL cast alone rounds it into the past.
+  await admin.query(
+    `INSERT INTO business_target_pack_history
+       (business_id, business_ref_id, target_roas, default_risk_posture, operation, effective_at, recorded_at)
+     VALUES
+       ($1::uuid, $1::uuid, 2, 'balanced', 'upsert', '2099-09-05T03:00:00.000010Z', '2099-09-05T03:00:00.000050Z'),
+       ($1::uuid, $1::uuid, 9, 'balanced', 'upsert', '2099-09-05T03:00:00.000050Z', '2099-09-05T03:00:00.000101Z')`,
+    [businessId],
+  );
+  const cutoff = "2099-09-05T03:00:00.000100999Z";
+  const rounded = await admin.query<{ future_admitted: boolean }>(
+    `SELECT '2099-09-05T03:00:00.000101Z'::timestamptz <= $1::timestamptz AS future_admitted`,
+    [cutoff],
+  );
+  if (rounded.rows[0]?.future_admitted !== true) {
+    throw new Error("The precision fixture did not expose PostgreSQL fractional rounding.");
+  }
+  const history = await getBusinessTargetPackHistoryAsOf({ businessId, asOf: cutoff });
+  const commercial = await readMetaCommercialTargets(businessId, { asOf: cutoff });
+  const warehouse = await new WarehouseDataSource().getBusinessTargetPack({ businessId, asOf: cutoff });
+  const store = new WarehouseNativeAdAccountProfileDataSource();
+  const native = await store.getNativeTargetAuthorityAsOf({
+    businessId, providerAccountRefId: accountRefId, providerAccountId: accountId, asOfCutoff: cutoff,
+  });
+  if (history?.targetRoas !== 2 || history.updatedAt !== "2099-09-05T03:00:00.000010Z"
+      || commercial.targetRoas !== 2 || commercial.freshness !== "fresh"
+      || warehouse?.targetRoas !== 2 || warehouse.updatedAt !== "2099-09-05T03:00:00.000010Z"
+      || warehouse.freshness !== "fresh"
+      || native?.targetRoas !== 2 || native.recordedAt !== "2099-09-05T03:00:00.000050Z"
+      || !resolveNativeAdTargetAuthority(native, cutoff).targetRoasAuthority) {
+    throw new Error("Target history/profile replay lost database precision or admitted a future record.");
+  }
+  const atBoundary = await store.getNativeTargetAuthorityAsOf({
+    businessId, providerAccountRefId: accountRefId, providerAccountId: accountId,
+    asOfCutoff: "2099-09-05T03:00:00.000101Z",
+  });
+  if (atBoundary?.targetRoas !== 9
+      || !resolveNativeAdTargetAuthority(atBoundary, "2099-09-05T03:00:00.000101Z").targetRoasAuthority) {
+    throw new Error("An exactly-at-cutoff target failed to retain authority.");
+  }
+  const list = await listBusinessTargetPackHistory({ businessId });
+  if (list[0]?.effectiveAt !== "2099-09-05T03:00:00.000050Z"
+      || list[0]?.recordedAt !== "2099-09-05T03:00:00.000101Z") {
+    throw new Error("Listed target history truncated database microseconds.");
+  }
+  // The schema prevents reversed records. Exercise the real driver's output
+  // and mapper directly with a SELECT to prove that defense outside the table.
+  const reversed = await admin.query(`SELECT 'upsert' AS operation, 2 AS target_roas,
+    to_char('2099-09-05T03:00:00.000900Z'::timestamptz AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS effective_at,
+    to_char('2099-09-05T03:00:00.000100Z'::timestamptz AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS recorded_at`);
+  if (resolveNativeAdTargetAuthority(mapNativeAdTargetAuthorityRow(reversed.rows[0]!),
+    "2099-09-05T03:00:00.001Z").status !== "cutoff_unsafe") {
+    throw new Error("The native target database mapper laundered reversed microseconds.");
+  }
+  console.log("[business-commercial-seam] PASS: exact SQL cutoff, pg driver readback, native/profile equality and reversed microseconds.");
 }
 
 async function main() {
@@ -243,6 +323,8 @@ async function main() {
         "Mid-write failure left partial commercial state or history.",
       );
     }
+
+    await verifyCommercialClockPrecision(admin, businessId);
 
     console.log(
       "[business-commercial-seam] PASS: one advisory lock serializes replacement/reconfirmation CAS and mid-write failures roll back atomically.",

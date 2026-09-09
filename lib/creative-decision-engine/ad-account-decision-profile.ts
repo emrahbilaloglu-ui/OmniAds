@@ -170,6 +170,8 @@ SELECT
   calibration.sample_window_end::text AS sample_window_end,
   calibration.source_min_date::text AS source_min_date,
   calibration.source_max_date::text AS source_max_date,
+  to_char(calibration.target_effective_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS target_effective_at,
+  to_char(calibration.target_recorded_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS target_recorded_at,
   batch.completeness_status AS batch_completeness,
   batch.expected_cell_count AS batch_cell_count,
   batch.cell_set_hash AS batch_cell_set_hash,
@@ -409,7 +411,12 @@ export async function resolveNativeAdAccountDecisionProfile(
   });
   const retainedProfile = await resolveAccountDecisionProfile({
     businessId,
-    asOf: cutoff.asOfDate,
+    // The selected cell and target were admitted at this exact cutoff. Passing
+    // only the day would rewind commercial authority to the scheduled 03:00Z
+    // boundary and hold targets saved later that morning. The compatibility
+    // datasource is already bound to this cell; all canonical and stop-loss
+    // checks must finish at its cutoff before exposing the calendar day below.
+    asOf: selectedCell.asOfCutoff,
     dataSource: compatibilityDataSource,
     flags: input.flags,
     commercialStopLossAovAuthority:
@@ -429,6 +436,7 @@ export async function resolveNativeAdAccountDecisionProfile(
       : null;
   const profile: AccountDecisionProfile = {
     ...retainedProfile,
+    asOfDate: cutoff.asOfDate,
     scope: { type: "account", id: selectedCell.key.providerAccountId },
     hardActionEligibility,
     commercialStopLossCanonicalHardActionEligibility,

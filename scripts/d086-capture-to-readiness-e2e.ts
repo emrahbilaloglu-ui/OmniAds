@@ -109,7 +109,7 @@ export interface D086E2eReport {
  * rewrites them.
  */
 export const D086_E2E_EVIDENCE_PATH =
-  "docs/audits/generated/d086-local-postgres-evidence-2026-09-02.r4.json";
+  "docs/audits/generated/d086-local-postgres-evidence-2026-09-02.r5.json";
 
 /**
  * The exact verdict every case must produce, bound by name.
@@ -256,7 +256,7 @@ if (process.argv[1] && process.argv[1].endsWith("d086-capture-to-readiness-e2e.t
         path.join(process.cwd(), D086_E2E_EVIDENCE_PATH),
         `${JSON.stringify({
           contract: "d086.capture-to-readiness-evidence.v3",
-          generatedFor: "D086 correction 9",
+          generatedFor: "D096 additive receipt compatibility",
           postgresVersion: report.postgresVersion,
           ok: report.ok,
           steps: report.steps,

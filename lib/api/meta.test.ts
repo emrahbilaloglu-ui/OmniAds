@@ -746,9 +746,17 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
     ).toBeNull();
   });
 
-  it("does not refetch ad insights after restoring a completed terminal generation", async () => {
+  it.each([
+    { current: false, phase: "bulk_upsert", status: "running" },
+    { current: true, phase: "bulk_upsert", status: "running" },
+    { current: true, phase: "bulk_upsert", status: "succeeded" },
+    { current: true, phase: "finalize", status: "running" },
+    { current: true, phase: "finalize", status: "failed" },
+  ])("resumes terminal raw pages without refetch while core is unfinished: $current/$phase/$status", async ({ current, phase, status }) => {
     vi.mocked(warehouse.getMetaSyncCheckpoint).mockResolvedValue({
-      phase: "bulk_upsert",
+      runId: "capture-terminal-resume",
+      phase,
+      status,
       pageIndex: 39,
       nextPageUrl: null,
       providerCursor: null,
@@ -774,7 +782,7 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
           headers: { "content-type": "application/json" },
         });
       }
-      if (url.includes("/campaigns") || url.includes("/adsets")) {
+      if (url.includes("/campaigns") || url.includes("/adsets") || url.includes("/ads?")) {
         return new Response(JSON.stringify({ data: [] }), {
           status: 200,
           headers: { "content-type": "application/json" },
@@ -801,7 +809,21 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
       leaseEpoch: 12,
       attemptCount: 2,
       leaseMinutes: 15,
+      providerLocalToday: current ? "2026-04-03" : "2026-04-04",
     });
+
+    expect(warehouse.getMetaSyncCheckpoint).toHaveBeenNthCalledWith(1, {
+      partitionId: "partition-terminal-resume",
+      checkpointScope: "core_ad_insights",
+      runId: current ? undefined : "partition-terminal-resume",
+    });
+    expect(warehouse.listMetaRawSnapshotsForRun).toHaveBeenCalledWith({
+      partitionId: "partition-terminal-resume",
+      endpointName: "ad_insights_bulk",
+      runId: current ? "capture-terminal-resume" : "partition-terminal-resume",
+    });
+    expect(warehouse.deleteMetaSyncCheckpointsForPartition).not.toHaveBeenCalled();
+    expect(warehouse.supersedeMetaRawSnapshotsForPartition).not.toHaveBeenCalled();
 
     expect(
       vi
@@ -809,7 +831,7 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
         .mock.calls.filter(
           ([payload]) =>
             payload.partitionId === "partition-terminal-resume" &&
-            payload.entityScope === "ad",
+            payload.endpointName === "ad_insights_bulk",
         ),
     ).toHaveLength(0);
     expect(
@@ -819,6 +841,36 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
           !String(url).includes("level=account"),
       ),
     ).toBe(false);
+  });
+
+  it("refuses a new current-day capture before Graph when checkpoint ownership is lost", async () => {
+    vi.mocked(warehouse.getMetaSyncCheckpoint).mockResolvedValue({
+      runId: "previous-capture", phase: "finalize", status: "succeeded",
+      pageIndex: 1, nextPageUrl: null, providerCursor: null, rowsFetched: 1,
+    } as never);
+    vi.mocked(warehouse.upsertMetaSyncCheckpoint).mockResolvedValue(null as never);
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(syncMetaAccountCoreWarehouseDay({
+      credentials: {
+        businessId: "biz-1", accessToken: "token-1", accountIds: ["act_1"],
+        currency: "USD", accountProfiles: { act_1: { currency: "USD", timezone: "UTC", name: "Account 1" } },
+      },
+      accountId: "act_1", day: "2026-04-03", providerLocalToday: "2026-04-03",
+      partitionId: "partition-capture-owner", workerId: "worker-1", leaseEpoch: 12,
+      attemptCount: 2,
+    })).rejects.toThrow("lease_conflict:checkpoint_write_rejected");
+    const candidate = vi.mocked(warehouse.upsertMetaSyncCheckpoint).mock.calls[0]![0];
+    expect(candidate).toMatchObject({ phase: "fetch_raw", status: "running", pageIndex: 0, rowsFetched: 0, leaseEpoch: 12 });
+    expect(candidate.runId).not.toBe("previous-capture");
+    expect(warehouse.listMetaRawSnapshotsForRun).toHaveBeenCalledWith({
+      partitionId: "partition-capture-owner", endpointName: "ad_insights_bulk", runId: candidate.runId,
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(warehouse.persistMetaRawSnapshot).not.toHaveBeenCalled();
+    expect(warehouse.deleteMetaSyncCheckpointsForPartition).not.toHaveBeenCalled();
+    expect(warehouse.supersedeMetaRawSnapshotsForPartition).not.toHaveBeenCalled();
   });
 
   it("writes no current config or entity evidence for a historical core warehouse day", async () => {

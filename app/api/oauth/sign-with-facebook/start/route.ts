@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
+import { sanitizeNextPath } from "@/lib/auth-routing";
 
 /**
  * GET /api/oauth/sign-with-facebook/start
@@ -20,7 +21,7 @@ export async function GET(request: NextRequest) {
   }
 
   // Preserve ?next= param for post-login redirect
-  const nextPath = request.nextUrl.searchParams.get("next") ?? "";
+  const nextPath = sanitizeNextPath(request.nextUrl.searchParams.get("next")) ?? "";
 
   const statePayload = JSON.stringify({
     nonce: crypto.randomBytes(16).toString("hex"),

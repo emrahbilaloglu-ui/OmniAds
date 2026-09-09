@@ -341,8 +341,9 @@ export async function evaluateBusinessAutomationRules(input: {
     `anchorsFromTargetPack` projects `target_cpa` / `break_even_cpa` to null
     while a Target ROAS governs, so a CPA rule is unevaluable and mints
     nothing. That closes the CPA door and leaves the ROAS one open — and a rule
-    that fires on `target_roas` produces a purchase-BUDGET proposal, which the
-    canonical contract only permits when this account's own READY
+    that fires on `target_roas` can propose pausing delivery. This commercial
+    Cut follows the same authority contract as other spend reductions and
+    requires this account's own READY
     Meta-attributed AOV divides that ratio.
 
     The authority is resolved for the SAME provider account this evaluation is

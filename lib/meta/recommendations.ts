@@ -529,6 +529,8 @@ function localizeMetaRecommendation(recommendation: MetaRecommendation, language
   const peakWindow = evidenceValue(recommendation, "Peak window");
   const constrainedShare = evidenceValue(recommendation, "Constrained share");
   const seasonalityFlag = recommendation.seasonalState ?? "normalized";
+  const commercialAuthorityBlocked =
+    recommendation.signalQuality?.hard_action_authority === "blocked";
 
   const localizedEvidence = recommendation.evidence.map((item) => {
     const labelMap: Record<string, string> = {
@@ -843,6 +845,24 @@ function localizeMetaRecommendation(recommendation: MetaRecommendation, language
         timeframeContext: localizedTimeframe,
       };
     case "budget_allocation":
+      if (commercialAuthorityBlocked) {
+        return {
+          ...recommendation,
+          decision: "Yalnızca inceleme: ticari aksiyon yetkisi bloke",
+          title: "Bütçe dağılımı yalnızca inceleme durumunda",
+          why: "Bu hesap ve kanıt kesiti için gereken ticari aksiyon yetkisi tamamlanmamış.",
+          summary:
+            "Performans kanıtları teşhis için görünür kalır; bütçe değişikliği yetkilendirilmemiştir.",
+          recommendedAction:
+            "Kanıtları inceleyin ve eksik ticari yetkiyi tamamladıktan sonra yeniden değerlendirin. Mevcut harcamayı değiştirmeyin.",
+          expectedImpact:
+            "Yetkisiz harcama değişikliğini önlerken kanıtları inceleme için korur.",
+          stateReason:
+            "Gerekli ticari aksiyon yetkisi bloke olduğu için bütçe dağılımı yalnızca incelemeye açıktır.",
+          evidence: localizedEvidence,
+          timeframeContext: localizedTimeframe,
+        };
+      }
       return {
         ...recommendation,
         decision: recommendation.decision.includes("efficiency") ? "Butceyi daha verimli ceplere kaydır" : "Butceyi en güçlü scale adaylarina yonelt",

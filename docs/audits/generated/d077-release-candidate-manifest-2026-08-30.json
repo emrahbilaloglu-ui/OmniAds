@@ -1,20 +1,20 @@
 {
- "manifestHash": "25dd8c5aa7a27cb1fd669fe1ff33fa44e50bb2337bd648ad08177f12172d994b",
+ "manifestHash": "7e29d69b029633b4ca29e696e0a5019ca3357d0f7f260854020b53552cdd155d",
  "hashAlgorithm": "sha256",
  "hashBasis": "sha256 over UTF-8 bytes of JSON.stringify(artifact, null, 1) of the artifact WITHOUT its embedded hash fields (the artifact object before {<hashField>, hashAlgorithm, hashBasis} are prepended)",
  "contract": "adsecute.d077.release-candidate-manifest.v3",
- "generatedAtUtc": "2026-09-09T08:29:06.563Z",
+ "generatedAtUtc": "2026-09-09T09:21:53.044Z",
  "branch": "codex/meta-release-finalization",
  "supersededBranchLabel": "codex/meta-disabled-readiness-20260829",
- "head": "e8a2edc47f6d96f343c6c29fa80a75e60af9d625",
+ "head": "49699f4de183823f8eb2e8750382d86bd759eae3",
  "baseMain": "babf158e150fd33057117b39b175da044ac62d2e",
  "originMain": "a2eb1b1b1dae9e69ffe470c39ada19731a570224",
  "remoteDivergence": {
-  "aheadOfOriginMain": 17,
+  "aheadOfOriginMain": 18,
   "behindOriginMain": 0
  },
  "selfExclusion": "this manifest's own path (docs/audits/generated/d077-release-candidate-manifest-2026-08-30.json) is EXCLUDED from its entry list: a manifest cannot recursively pin its own final bytes; its external SHA-256 is reported in the final response and by Codex's own hashing",
- "gitPorcelainEntryCount": 7,
+ "gitPorcelainEntryCount": 9,
  "releaseDiffEntryCountIncludingSelf": 1071,
  "expandedOnDiskCandidateFileCountIncludingSelf": 1071,
  "pinnedNonSelfFileCount": 1070,
@@ -2021,13 +2021,13 @@
    "path": "docs/audits/generated/d077-correction1-verification-ledger-2026-08-30.json",
    "git": "A",
    "class": "generated_evidence",
-   "sha256": "e5f81b2519631011096065a8bf777f4048bd942234df75ba675bf80bf7c359c1"
+   "sha256": "95a83dc2ab4fa8969464dabf0a9db6f16e0164f159e01f81e6e88d09f5ebe602"
   },
   {
    "path": "docs/audits/generated/d077-database-recovery-approval-packet-2026-08-30.json",
    "git": "A",
    "class": "generated_evidence",
-   "sha256": "c4c20cec270a90f36bfe4961cb86bc0bbfd152418945601e8d85d1902dc41474"
+   "sha256": "cb2ad113a3226a09d8c0355b0bef9c8917b220aa05961997b01820dbb8b05189"
   },
   {
    "path": "docs/audits/generated/d077-production-recovery-readonly-evidence-2026-08-30.json",
@@ -2039,7 +2039,7 @@
    "path": "docs/audits/generated/d077-release-deploy-approval-packet-2026-08-30.json",
    "git": "A",
    "class": "generated_evidence",
-   "sha256": "e6c5c4d120449d35821c23e6d2d7ace866cda94db8b33d1f61f872c66935c490"
+   "sha256": "b7534d83399002e092c3068580e3a2d8907b97f66cc93d9eaa515541e55b815d"
   },
   {
    "path": "docs/audits/generated/d078-hard-action-recompute-2026-08-30.json",
@@ -4295,13 +4295,13 @@
    "path": "lib/meta/commercial-action-authority.test.ts",
    "git": "M",
    "class": "tests_only",
-   "sha256": "51fbf64b25a801c78bd6912484d850911eac90bbc27761d8b0238e2e8fba543f"
+   "sha256": "30ee3505fc53baea2f6ee2fd4a4eb289f3b35bbd455c2f31f7838fbc0ad23858"
   },
   {
    "path": "lib/meta/commercial-action-authority.ts",
    "git": "M",
    "class": "runtime",
-   "sha256": "b01333cf94cca28d3b0071d5155a262a7006723957e1024130ea7f4037c8c8b0"
+   "sha256": "85af5efe2975b9ca424eeea9ee80083f334989164c03062f87ce754a1807407f"
   },
   {
    "path": "lib/meta/commercial-anchor-panel.test.ts",
@@ -5033,13 +5033,13 @@
    "path": "lib/meta/recommendations.test.ts",
    "git": "M",
    "class": "tests_only",
-   "sha256": "3e1c3aeb56c20ae67b00880710227823eebb35c1a59be918d30349f18f8b2aaf"
+   "sha256": "6ba507fd560a742ab4d8312c51651756c059d2ee3c7730dc6bd846c71110cf9c"
   },
   {
    "path": "lib/meta/recommendations.ts",
    "git": "M",
    "class": "runtime",
-   "sha256": "916c777234ca4024c15af968bccde2b5ddfc584c1676be145681ebbc6538ccd7"
+   "sha256": "6735242467f257d707f79955d33ffa45ed23fbbe12407e64a44ab54a030961d7"
   },
   {
    "path": "lib/meta/release-gate-wiring.test.ts",
@@ -5213,7 +5213,7 @@
    "path": "lib/meta/snapshot-historical-target-authority.test.ts",
    "git": "A",
    "class": "tests_only",
-   "sha256": "98e6b44ac79ca1c89738b7dc74b7533e65d94eb20f8f0fd71ea3ab81be346989"
+   "sha256": "f2a3c954d846177e40c71eabb4f00ab7c07eeef00b19487e9368267ee1135006"
   },
   {
    "path": "lib/meta/snapshot-rerun-stability.test.ts",

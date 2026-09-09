@@ -11,6 +11,7 @@ import {
 const COMMERCIAL_ACTION_TYPES = new Set<MetaRecommendation["type"]>([
   "adset_scale_budget",
   "adset_cut_spend",
+  "budget_allocation",
   "scale_for_volume",
   "scale_for_volume_budget_increase",
   "scale_for_profitability",
@@ -69,6 +70,27 @@ const ROAS_LOSS_TYPES = new Set<MetaRecommendation["type"]>([
   "scenario_a5_post_learning_underperformer",
 ]);
 
+const GENERIC_COMMERCIAL_AUTHORITY_HOLD = {
+  stateReason:
+    "Commercial action authority is blocked until a valid action-specific business target is available.",
+  recommendedAction:
+    "Review the evidence, complete the missing target provenance or action-specific anchor, and then re-evaluate. Do not change spend from this recommendation yet.",
+};
+
+const BUDGET_ALLOCATION_AUTHORITY_HOLD = {
+  decision: "Review only: commercial action authority is blocked",
+  title: "Budget allocation remains review-only",
+  why: "The required commercial action authority is incomplete for this account and evidence cutoff.",
+  summary:
+    "Performance evidence remains available for diagnosis, but it does not authorize a budget change.",
+  recommendedAction:
+    "Review the evidence and restore the missing commercial authority before re-evaluating. Keep current spend unchanged.",
+  expectedImpact:
+    "Prevents an unsupported spend change while preserving the evidence for review.",
+  stateReason:
+    "Budget allocation is review-only because the required commercial action authority is blocked.",
+};
+
 function blockerFor(targets: MetaCommercialTargets | null | undefined) {
   const normalized = normalizeMetaCommercialTargets(targets);
   if (normalized.source === "none") return "commercial_target_missing" as const;
@@ -96,6 +118,33 @@ function actionAnchorBlocker(
   const roasGoverned = Number.isFinite(targetRoas) && targetRoas > 0;
   if (recommendation.type === "scenario_a1_math_floor_unmet" && !roasGoverned) {
     return null;
+  }
+  /*
+    An account budget shift is a hard spend action even though it does not name
+    one campaign in its type. Its lens carries the missing direction:
+
+      - volume moves money into a Scale candidate and therefore needs the
+        growth unit;
+      - profitability moves money away from a weak campaign and follows the
+        same loss-anchor compatibility rule as the campaign-level loss types.
+
+    Under a positive Target ROAS both directions still need the READY,
+    same-account, same-cutoff Meta AOV. A persisted account recommendation must
+    not remain actionable after that sample disappears merely because its type
+    sat outside the campaign action allowlists.
+  */
+  if (recommendation.type === "budget_allocation") {
+    if (roasGoverned) {
+      return resolveMetaPurchaseValueAuthority(normalized, sample).blocker;
+    }
+    if (recommendation.lens === "profitability") {
+      return normalized.breakEvenRoas
+        ? null
+        : ("commercial_loss_anchor_missing" as const);
+    }
+    return recommendation.lens === "volume"
+      ? ("commercial_growth_anchor_missing" as const)
+      : ("commercial_objective_anchor_missing" as const);
   }
   if (ROAS_GROWTH_TYPES.has(recommendation.type)) {
     /*
@@ -173,6 +222,10 @@ export function enforceMetaCommercialActionAuthority(
         META_CONFIDENCE_ACT_THRESHOLD - 0.01,
       )
       : recommendation.confidenceScore;
+  const holdPresentation =
+    recommendation.type === "budget_allocation"
+      ? BUDGET_ALLOCATION_AUTHORITY_HOLD
+      : GENERIC_COMMERCIAL_AUTHORITY_HOLD;
   return {
     ...reviewOnly,
     decisionState: "watch",
@@ -181,10 +234,7 @@ export function enforceMetaCommercialActionAuthority(
         ? "medium"
         : recommendation.confidence,
     confidenceScore,
-    stateReason:
-      "Commercial action authority is blocked until a valid action-specific business target is available.",
-    recommendedAction:
-      "Review the evidence, complete the missing target provenance or action-specific anchor, and then re-evaluate. Do not change spend from this recommendation yet.",
+    ...holdPresentation,
     signalQuality: {
       ...(recommendation.signalQuality ?? {}),
       hard_action_authority: "blocked",

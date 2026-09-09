@@ -8,6 +8,7 @@ import {
   deriveMetaCampaignDisjointSegments,
   metaHistoryRecencyWeight,
   type MetaCalibrationContext,
+  type MetaRecommendation,
 } from "@/lib/meta/recommendations";
 import type { MetaCampaignRow } from "@/app/api/meta/campaigns/route";
 import type { MetaBreakdownsResponse } from "@/app/api/meta/breakdowns/route";
@@ -156,6 +157,100 @@ const commercialTargets = {
   updatedAt: "2026-05-08T00:00:00.000Z",
   metaAttributedAov: { aovMean: 180, purchaseCount: 60 },
 };
+
+function budgetShiftRows() {
+  return [
+    campaign({
+      id: "scale-a",
+      name: "Purchase Scale A",
+      purchases: 30,
+      roas: 3.9,
+      spend: 2400,
+      revenue: 9360,
+    }),
+    campaign({
+      id: "scale-b",
+      name: "Purchase Scale B",
+      purchases: 21,
+      roas: 3.05,
+      spend: 1900,
+      revenue: 5795,
+    }),
+    campaign({
+      id: "validation-a",
+      name: "Purchase Validation",
+      purchases: 11,
+      roas: 2.3,
+      spend: 2100,
+      revenue: 4830,
+      cpa: 190.91,
+    }),
+    campaign({
+      id: "test-a",
+      name: "Purchase Test",
+      purchases: 2,
+      roas: 0.8,
+      spend: 500,
+      revenue: 400,
+    }),
+  ];
+}
+
+function recommendationWindows(rows: MetaCampaignRow[]) {
+  return {
+    selected: rows,
+    previousSelected: [],
+    last3: rows,
+    last7: rows,
+    last14: rows,
+    last30: rows,
+    last90: rows,
+    allHistory: rows,
+  };
+}
+
+const HELD_BUDGET_PRESENTATION_EN = {
+  decision: "Review only: commercial action authority is blocked",
+  title: "Budget allocation remains review-only",
+  why: "The required commercial action authority is incomplete for this account and evidence cutoff.",
+  summary:
+    "Performance evidence remains available for diagnosis, but it does not authorize a budget change.",
+  recommendedAction:
+    "Review the evidence and restore the missing commercial authority before re-evaluating. Keep current spend unchanged.",
+  expectedImpact:
+    "Prevents an unsupported spend change while preserving the evidence for review.",
+  stateReason:
+    "Budget allocation is review-only because the required commercial action authority is blocked.",
+};
+
+const HELD_BUDGET_PRESENTATION_TR = {
+  decision: "Yalnızca inceleme: ticari aksiyon yetkisi bloke",
+  title: "Bütçe dağılımı yalnızca inceleme durumunda",
+  why: "Bu hesap ve kanıt kesiti için gereken ticari aksiyon yetkisi tamamlanmamış.",
+  summary:
+    "Performans kanıtları teşhis için görünür kalır; bütçe değişikliği yetkilendirilmemiştir.",
+  recommendedAction:
+    "Kanıtları inceleyin ve eksik ticari yetkiyi tamamladıktan sonra yeniden değerlendirin. Mevcut harcamayı değiştirmeyin.",
+  expectedImpact:
+    "Yetkisiz harcama değişikliğini önlerken kanıtları inceleme için korur.",
+  stateReason:
+    "Gerekli ticari aksiyon yetkisi bloke olduğu için bütçe dağılımı yalnızca incelemeye açıktır.",
+};
+
+function budgetPresentationText(recommendation: MetaRecommendation) {
+  return [
+    recommendation.decision,
+    recommendation.title,
+    recommendation.why,
+    recommendation.summary,
+    recommendation.recommendedAction,
+    recommendation.expectedImpact,
+    recommendation.stateReason,
+  ].join(" ");
+}
+
+const BUDGET_INSTRUCTION_LEAK =
+  /Purchase Scale A|Purchase Validation|10[-–]15%|\b(?:shift|reallocate|transfer)\b|move budget|kaydır|çekip|yönelt|yeniden dağıt|aktar/i;
 
 const calibrationContext: MetaCalibrationContext = {
   thresholds: {
@@ -1789,55 +1884,13 @@ describe("buildMetaRecommendations", () => {
   });
 
   it("moves budget from validation lanes into scaling lanes", () => {
-    const selectedRows = [
-      campaign({
-        id: "scale-a",
-        name: "Purchase Scale A",
-        purchases: 30,
-        roas: 3.9,
-        spend: 2400,
-        revenue: 9360,
-      }),
-      campaign({
-        id: "scale-b",
-        name: "Purchase Scale B",
-        purchases: 21,
-        roas: 3.05,
-        spend: 1900,
-        revenue: 5795,
-      }),
-      campaign({
-        id: "validation-a",
-        name: "Purchase Validation",
-        purchases: 11,
-        roas: 2.3,
-        spend: 2100,
-        revenue: 4830,
-        cpa: 190.91,
-      }),
-      campaign({
-        id: "test-a",
-        name: "Purchase Test",
-        purchases: 2,
-        roas: 0.8,
-        spend: 500,
-        revenue: 400,
-      }),
-    ];
+    const selectedRows = budgetShiftRows();
 
     const result = buildHistoricalMetaRecommendationsWithLegacyCreativeIntelligence({
-      windows: {
-        selected: selectedRows,
-        previousSelected: [],
-        last3: selectedRows,
-        last7: selectedRows,
-        last14: selectedRows,
-        last30: selectedRows,
-        last90: selectedRows,
-        allHistory: selectedRows,
-      },
+      windows: recommendationWindows(selectedRows),
       breakdowns,
       creativeIntelligence,
+      commercialTargets,
     });
 
     const budgetShift = result.recommendations.find(
@@ -1850,6 +1903,104 @@ describe("buildMetaRecommendations", () => {
       budgetShift?.evidence.some((item) => item.label === "Lane mix"),
     ).toBe(true);
   });
+
+  it.each([
+    ["READY", { aovMean: 180, purchaseCount: 60 }, "act", null],
+    ["missing", null, "watch", "commercial_anchor_missing"],
+    [
+      "thin",
+      { aovMean: 180, purchaseCount: 9 },
+      "watch",
+      "commercial_anchor_sample_insufficient",
+    ],
+  ] as const)(
+    "keeps the real-builder budget allocation visible but correctly gated with a %s Meta sample",
+    (_sampleState, sample, expectedState, blocker) => {
+      const result = buildMetaRecommendations({
+        windows: recommendationWindows(budgetShiftRows()),
+        breakdowns,
+        commercialTargets: { ...commercialTargets, metaAttributedAov: sample },
+      });
+      const budgetShift = result.recommendations.find(
+        (item) => item.type === "budget_allocation",
+      );
+
+      expect(budgetShift).toBeDefined();
+      expect(budgetShift?.decisionState).toBe(expectedState);
+      expect(budgetShift?.evidence).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ label: "Best campaign" }),
+          expect.objectContaining({ label: "Weak campaign" }),
+        ]),
+      );
+      if (blocker === null) {
+        expect(budgetShift?.recommendedAction).toContain("Shift 10-15% budget");
+        expect(budgetShift?.signalQuality?.hard_action_blocker).toBeUndefined();
+      } else {
+        expect(budgetShift).toMatchObject({
+          confidence: "medium",
+          ...HELD_BUDGET_PRESENTATION_EN,
+          signalQuality: {
+            hard_action_authority: "blocked",
+            hard_action_blocker: blocker,
+          },
+        });
+        expect(budgetShift?.confidenceScore).toBeLessThan(0.7);
+        expect(budgetShift).not.toHaveProperty("proposedAction");
+        expect(budgetShift).not.toHaveProperty("targetValue");
+        expect(budgetPresentationText(budgetShift!)).not.toMatch(
+          BUDGET_INSTRUCTION_LEAK,
+        );
+      }
+    },
+  );
+
+  it.each([
+    ["READY", { aovMean: 180, purchaseCount: 60 }, "act", null],
+    ["missing", null, "watch", "commercial_anchor_missing"],
+    [
+      "thin",
+      { aovMean: 180, purchaseCount: 9 },
+      "watch",
+      "commercial_anchor_sample_insufficient",
+    ],
+  ] as const)(
+    "localizes a %s Meta-sample budget allocation without reopening blocked transfer instructions",
+    (_sampleState, sample, expectedState, blocker) => {
+      const result = buildMetaRecommendations({
+        windows: recommendationWindows(budgetShiftRows()),
+        breakdowns,
+        commercialTargets: { ...commercialTargets, metaAttributedAov: sample },
+        language: "tr",
+      });
+      const budgetShift = result.recommendations.find(
+        (item) => item.type === "budget_allocation",
+      );
+
+      expect(budgetShift).toBeDefined();
+      expect(budgetShift?.decisionState).toBe(expectedState);
+      if (blocker === null) {
+        expect(budgetPresentationText(budgetShift!)).toMatch(
+          /Purchase Scale A|Purchase Validation/,
+        );
+        expect(budgetPresentationText(budgetShift!)).toMatch(/kaydır|çekip/);
+        expect(budgetShift?.signalQuality?.hard_action_blocker).toBeUndefined();
+      } else {
+        expect(budgetShift).toMatchObject({
+          ...HELD_BUDGET_PRESENTATION_TR,
+          signalQuality: {
+            hard_action_authority: "blocked",
+            hard_action_blocker: blocker,
+          },
+        });
+        expect(budgetPresentationText(budgetShift!)).not.toMatch(
+          BUDGET_INSTRUCTION_LEAK,
+        );
+        expect(budgetShift).not.toHaveProperty("proposedAction");
+        expect(budgetShift).not.toHaveProperty("targetValue");
+      }
+    },
+  );
 
   it("still produces creative deployment recommendations when there is only one clear scaling lane", () => {
     const selectedRows = [

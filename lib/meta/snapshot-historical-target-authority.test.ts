@@ -47,6 +47,7 @@ import * as db from "@/lib/db";
 import { getBusinessCommercialTruthSnapshot } from "@/lib/business-commercial";
 import { readLatestMetaDecisionSnapshot } from "@/lib/meta/snapshot";
 import { buildMetaDailyBrief } from "@/lib/meta/daily-brief";
+import type { MetaRecommendation } from "@/lib/meta/recommendations";
 
 const BUSINESS = "d8a30000-0000-4000-8000-0000000000b1";
 const SNAPSHOT_DAY = "2026-09-03";
@@ -78,6 +79,76 @@ function read(
     snapshotDateCeiling,
   });
 }
+
+function persistedBudgetAllocation(
+  lens: MetaRecommendation["lens"],
+): Record<string, unknown> {
+  const recommendation: MetaRecommendation = {
+    id: `historical-budget-${lens}`,
+    level: "account",
+    type: "budget_allocation",
+    lens,
+    priority: "high",
+    confidence: "high",
+    confidenceScore: 0.9,
+    decisionState: "act",
+    decision: "Reallocate budget toward Purchase Scale A",
+    title: "Move budget from Purchase Validation into Purchase Scale A",
+    why: "Purchase Validation trails Purchase Scale A in the comparable cohort.",
+    summary: "Purchase Scale A can absorb spend assigned to Purchase Validation.",
+    recommendedAction:
+      "Shift 10-15% budget from Purchase Validation into Purchase Scale A.",
+    expectedImpact: "Transfer more spend into Purchase Scale A for cleaner blended ROAS.",
+    evidence: [
+      { label: "Best campaign", value: "Purchase Scale A", tone: "positive" },
+      { label: "Weak campaign", value: "Purchase Validation", tone: "warning" },
+    ],
+    timeframeContext: {
+      coreVerdict: "leader and laggard resolved",
+      selectedRangeOverlay: "same cohort",
+      historicalSupport: "supported",
+      seasonalityFlag: "none",
+      note: null,
+    },
+    proposedAction: { kind: "pause" },
+    targetValue: { budgetShiftPct: 15 },
+  };
+  return {
+    scope_type: "account",
+    scope_id: BUSINESS,
+    business_id: BUSINESS,
+    provider_account_id: "act_1",
+    snapshot_date: SNAPSHOT_DAY,
+    rec_id: recommendation.id,
+    rec_type: recommendation.type,
+    level: recommendation.level,
+    decision_state: recommendation.decisionState,
+    confidence_score: recommendation.confidenceScore,
+    recommended_action: recommendation.recommendedAction,
+    reasoning: recommendation.why,
+    expected_impact: recommendation.expectedImpact,
+    engine_version: "v1.3.0",
+    created_at: "2026-09-03T03:00:00.000Z",
+    decision_label: "scale",
+    evidence: { recommendation, items: recommendation.evidence },
+    target_value: recommendation.targetValue,
+  };
+}
+
+function budgetPresentationText(recommendation: MetaRecommendation) {
+  return [
+    recommendation.decision,
+    recommendation.title,
+    recommendation.why,
+    recommendation.summary,
+    recommendation.recommendedAction,
+    recommendation.expectedImpact,
+    recommendation.stateReason,
+  ].join(" ");
+}
+
+const BUDGET_INSTRUCTION_LEAK =
+  /Purchase Scale A|Purchase Validation|10[-–]15%|\b(?:shift|reallocate|move|transfer|redirect)\b/i;
 
 // The snapshot reader, commercial normalization, action guard, target history
 // reader and daily brief are real. Only storage and unrelated enrichments are
@@ -165,6 +236,91 @@ describe("historical snapshot commercial authority", () => {
       }),
     });
   });
+
+  it.each([
+    ["volume", "READY", { aovMean: 88, purchaseCount: 60, totalRevenue: 5280 }, "act", null],
+    ["volume", "missing", null, "watch", "commercial_anchor_missing"],
+    [
+      "volume",
+      "thin",
+      { aovMean: 88, purchaseCount: 9, totalRevenue: 792 },
+      "watch",
+      "commercial_anchor_sample_insufficient",
+    ],
+    [
+      "profitability",
+      "READY",
+      { aovMean: 88, purchaseCount: 60, totalRevenue: 5280 },
+      "act",
+      null,
+    ],
+    ["profitability", "missing", null, "watch", "commercial_anchor_missing"],
+    [
+      "profitability",
+      "thin",
+      { aovMean: 88, purchaseCount: 9, totalRevenue: 792 },
+      "watch",
+      "commercial_anchor_sample_insufficient",
+    ],
+  ] as const)(
+    "rechecks a persisted %s budget allocation against the snapshot-day %s Meta sample",
+    async (lens, _sampleState, sample, expectedState, blocker) => {
+      const supportingCampaignRow = snapshotRows[0]!;
+      snapshotRows = [persistedBudgetAllocation(lens), supportingCampaignRow];
+      metaAovSample = sample;
+
+      const result = await read();
+      const budgetShift = result?.recommendations.find(
+        (recommendation) => recommendation.type === "budget_allocation",
+      );
+      expect(budgetShift).toBeDefined();
+      expect(budgetShift?.decisionState).toBe(expectedState);
+
+      const aov = await import(
+        "@/lib/creative-decision-engine/meta-aov-calculator"
+      );
+      expect(vi.mocked(aov.computeMetaAttributedAov)).toHaveBeenCalledWith(
+        expect.objectContaining({
+          businessId: BUSINESS,
+          providerAccountId: "act_1",
+          asOf: SNAPSHOT_DAY,
+        }),
+      );
+
+      if (blocker === null) {
+        expect(budgetPresentationText(budgetShift!)).toMatch(
+          /Purchase Scale A|Purchase Validation|10[-–]15%/,
+        );
+        expect(budgetShift?.proposedAction).toEqual({ kind: "pause" });
+        expect(budgetShift?.targetValue).toEqual({ budgetShiftPct: 15 });
+      } else {
+        expect(budgetShift).toMatchObject({
+          confidence: "medium",
+          confidenceScore: 0.69,
+          decision: "Review only: commercial action authority is blocked",
+          title: "Budget allocation remains review-only",
+          why: "The required commercial action authority is incomplete for this account and evidence cutoff.",
+          summary:
+            "Performance evidence remains available for diagnosis, but it does not authorize a budget change.",
+          recommendedAction:
+            "Review the evidence and restore the missing commercial authority before re-evaluating. Keep current spend unchanged.",
+          expectedImpact:
+            "Prevents an unsupported spend change while preserving the evidence for review.",
+          stateReason:
+            "Budget allocation is review-only because the required commercial action authority is blocked.",
+          signalQuality: {
+            hard_action_authority: "blocked",
+            hard_action_blocker: blocker,
+          },
+        });
+        expect(budgetShift).not.toHaveProperty("proposedAction");
+        expect(budgetShift).not.toHaveProperty("targetValue");
+        expect(budgetPresentationText(budgetShift!)).not.toMatch(
+          BUDGET_INSTRUCTION_LEAK,
+        );
+      }
+    },
+  );
 
   it("keeps the historical daily brief's actionable count after current target removal", async () => {
     const result = await buildMetaDailyBrief({
